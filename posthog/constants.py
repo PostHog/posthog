@@ -258,6 +258,7 @@ SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY = "ai-subscriptions"
 # share the v2 activity name and would otherwise send the legacy layout during a rolling deployment.
 SUBSCRIPTION_SLACK_GALLERY_FEATURE_FLAG_KEY = "subscription-slack-gallery"
 EXPERIMENTS_RATIO_METRIC_EVENTS_PREAGGREGATION_FEATURE_FLAG_KEY = "experiments-ratio-metric-events-preaggregation"
+EXPERIMENTS_PRECOMPUTE_PERSON_RESOLUTION_FEATURE_FLAG_KEY = "experiments-precompute-person-resolution"
 GENERATED_DASHBOARD_PREFIX = "Generated Dashboard"
 
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"

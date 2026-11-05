@@ -75,6 +75,7 @@ class ContractCheck(StrEnum):
 class SourceKind(StrEnum):
     SIGNAL_REPORT = "signal_report"
     HOG_FLOW = "hog_flow"
+    LOOP = "loop"
 
 
 @frozen

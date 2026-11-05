@@ -15,9 +15,6 @@ import { Ticket } from '../../components/SidePanel/Ticket'
 import { TicketsList } from '../../components/SidePanel/TicketsList'
 import { myTicketsSceneLogic } from './myTicketsSceneLogic'
 
-// myTicketsSceneLogic rather than sidepanelTicketsLogic directly: the tickets logic never unmounts
-// (the side panel tab icon keeps it alive), so only a scene-scoped logic gets a fresh mount, and
-// with it a ticket refetch, on each navigation here
 export const scene: SceneExport = {
     component: MyTicketsScene,
     logic: myTicketsSceneLogic,

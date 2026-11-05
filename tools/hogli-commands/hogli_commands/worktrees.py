@@ -18,7 +18,8 @@ the directory never touches git refs, so committed work survives in the shared
 repo — only uncommitted edits in an already-stale tree could be lost. `--mode
 deps` only removes recreatable artifacts, so it has no such gate — it can strip
 deps from a worktree that is idle by the activity signal but still has a live
-dev server/build running.
+dev server running. Both modes skip a worktree where cargo or rustc runs, and
+`--mode deps` keeps a Cargo target that a build used after the cutoff.
 """
 
 from __future__ import annotations
@@ -41,6 +42,7 @@ import click
 from hogli import telemetry
 from hogli.manifest import REPO_ROOT
 
+from .cargo_targets import last_cargo_build_epoch, unused_legacy_cargo_target, worktrees_running_cargo
 from .devbox import hogland, mutagen
 from .devbox.coder import (
     delete_workspace,
@@ -334,6 +336,9 @@ def worktrees_clean(
     if box_action:
         pending = _boxes_of_removed_worktrees(load_worktree_boxes(), repo_root, repo_common, selected_sources)
         _clean_boxes_of_removed_worktrees(pending, box_action, cutoff, dry_run, yes)
+    # ~/.cargo/target belongs to no single worktree or repository, so a run narrowed by --source or --repo leaves it alone.
+    if mode == "deps" and selected_sources is None and repo is None:
+        _clean_legacy_cargo_target(cutoff, dry_run, yes)
     protected = _protected_paths(repo_root)
 
     registry = _registered_worktrees(repo_root)
@@ -392,6 +397,11 @@ def worktrees_clean(
     if not stale:
         return
 
+    stale = _without_cargo_builds(stale)
+    if not stale:
+        click.echo("Nothing left to remove.")
+        return
+
     # Full mode is destructive of working-tree state, so refuse worktrees with
     # unsaved work — or whose git state we can't verify — unless the user opts in.
     # (deps mode only removes recreatable artifacts, so it doesn't need this gate.)
@@ -419,7 +429,7 @@ def worktrees_clean(
             return
 
     click.echo(f"Measuring {len(stale)} worktree(s)…")
-    _populate_sizes(stale, mode)
+    _populate_sizes(stale, mode, cutoff)
 
     for wt in sorted(stale, key=lambda w: w.last_activity):
         markers = _listing_markers(wt, mode)
@@ -450,6 +460,14 @@ def worktrees_clean(
         f"\nProceed to {action} these {len(stale)} worktree(s){box_prompt}?", default=False
     ):
         click.echo("Aborted.")
+        return
+
+    # A build can start, or finish, while the prompt waits.
+    stale = _without_cargo_builds(stale)
+    for wt in stale:
+        wt.deps_items = [item for item in wt.deps_items if not _cargo_built_since(item, cutoff)]
+    if not stale:
+        click.echo("Nothing left to remove.")
         return
 
     reap = _execute(
@@ -523,6 +541,83 @@ def _boxes_of_removed_worktrees(
     return boxes
 
 
+def prune_boxes_of_removed_worktrees(
+    repo_root: Path, box_action: str, worktree_path: Path | None, dry_run: bool
+) -> list[WorktreeBox]:
+    """Act on the boxes of this repo's worktrees that another tool already removed, or only the one at *worktree_path*.
+
+    `worktrees:clean` covers worktrees it removes itself. t3code and herdr remove
+    their own, so their boxes are found here by the same rule.
+    """
+    boxes = _boxes_of_removed_worktrees(load_worktree_boxes(), repo_root, _git_common_dir(repo_root), None)
+    if worktree_path is not None:
+        boxes = [box for box in boxes if _resolve(box.worktree_path) == _resolve(worktree_path)]
+    if not boxes:
+        return []
+    click.echo(f"{len(boxes)} devbox(es) belong to worktrees that were already removed:")
+    for box in boxes:
+        click.echo(f"  {box.workspace}  {_display_path(box.worktree_path)}")
+    if dry_run:
+        click.echo(f"[DRY-RUN] Would {box_action} them.")
+    else:
+        _clean_worktree_boxes(boxes, box_action)
+    return boxes
+
+
+def teardown_worktree_box(
+    worktree_path: Path,
+    git_dir: Path,
+    box_action: str,
+    dry_run: bool,
+    keep_record: bool = False,
+    act_on_box: Callable[[WorktreeBox, str], None] | None = None,
+) -> WorktreeBox | None:
+    """Stop the mirror and act on the box of the worktree at *worktree_path*, which a tool is about to remove.
+
+    The mirror stops first, while the files still exist, for the reason in
+    `_stop_worktree_mirrors`. The record is found by the ID in *git_dir*, so a
+    moved worktree still finds its box, and a record saved for an earlier
+    worktree at the same path does not match. *keep_record* keeps the record
+    of a stopped box, for a tool that keeps the worktree and can restore it.
+    *act_on_box* replaces the box action, so a caller can move it out of a
+    tool's hook time limit.
+    """
+    worktree_id = read_worktree_id(git_dir)
+    match = next(
+        (
+            (Path(path), record)
+            for path, record in load_worktree_boxes().items()
+            if worktree_id is not None and record.worktree_id == worktree_id
+        ),
+        None,
+    )
+    if match is None:
+        return None
+    box = WorktreeBox(worktree_path=match[0], record=match[1], current_path=worktree_path)
+    if dry_run:
+        click.echo(f"[DRY-RUN] Would stop the sync mirror and {box_action} {box.workspace}.")
+        return box
+    _stop_worktree_mirrors([box])
+    if act_on_box is None:
+        _clean_worktree_boxes([box], box_action, keep_stopped_records=keep_record)
+    else:
+        act_on_box(box, box_action)
+    return box
+
+
+def clean_registered_box(worktree_path: Path, worktree_id: str, box_action: str, keep_record: bool) -> None:
+    """Act on the box registered for *worktree_path*, if the worktree with *worktree_id* still holds it.
+
+    A worktree recreated at the same path can take the box over before this
+    runs, and its record then carries its own ID.
+    """
+    record = load_worktree_boxes().get(str(worktree_path))
+    if record is not None and record.worktree_id == worktree_id:
+        _clean_worktree_boxes(
+            [WorktreeBox(worktree_path=worktree_path, record=record)], box_action, keep_stopped_records=keep_record
+        )
+
+
 def _clean_boxes_of_removed_worktrees(
     boxes: list[WorktreeBox], box_action: str, cutoff: float, dry_run: bool, yes: bool
 ) -> None:
@@ -589,16 +684,28 @@ def _box_last_used(workspace: Mapping[str, object]) -> float | None:
         return None
 
 
-def _clean_worktree_boxes(boxes: list[WorktreeBox], box_action: str, idle_before: float = float("inf")) -> None:
+def _clean_worktree_boxes(
+    boxes: list[WorktreeBox],
+    box_action: str,
+    idle_before: float = float("inf"),
+    keep_stopped_records: bool = False,
+) -> None:
+    """Stop or delete *boxes* and forget their records.
+
+    With *keep_stopped_records*, a box that ends up stopped keeps its record, so
+    the worktree can start it again when a tool restores it.
+    """
     hogland_boxes = [box for box in boxes if box.record.provider == "hogland"]
     coder_boxes = [box for box in boxes if box.record.provider != "hogland"]
     if hogland_boxes:
-        _clean_hogland_boxes(hogland_boxes, box_action, idle_before)
+        _clean_hogland_boxes(hogland_boxes, box_action, idle_before, keep_stopped_records)
     if coder_boxes:
-        _clean_coder_boxes(coder_boxes, box_action, idle_before)
+        _clean_coder_boxes(coder_boxes, box_action, idle_before, keep_stopped_records)
 
 
-def _clean_hogland_boxes(boxes: list[WorktreeBox], box_action: str, idle_before: float) -> None:
+def _clean_hogland_boxes(
+    boxes: list[WorktreeBox], box_action: str, idle_before: float, keep_stopped_records: bool
+) -> None:
     try:
         hogland.ensure_cli()
         devboxes = hogland.fetch_devboxes()
@@ -642,11 +749,14 @@ def _clean_hogland_boxes(boxes: list[WorktreeBox], box_action: str, idle_before:
             command = "delete" if box_action == "delete" else "hibernate"
             click.echo(f"  ⚠️  could not {box_action} {box.workspace}. Run `hogland devbox {command} {box.workspace}`.")
             continue
-        handled.append(box.worktree_path)
+        if box_action == "delete" or not keep_stopped_records:
+            handled.append(box.worktree_path)
     forget_worktree_boxes(handled)
 
 
-def _clean_coder_boxes(boxes: list[WorktreeBox], box_action: str, idle_before: float) -> None:
+def _clean_coder_boxes(
+    boxes: list[WorktreeBox], box_action: str, idle_before: float, keep_stopped_records: bool
+) -> None:
     try:
         ensure_runtime_ready()
     except SystemExit:
@@ -694,7 +804,8 @@ def _clean_coder_boxes(boxes: list[WorktreeBox], box_action: str, idle_before: f
             label = extract_workspace_label(box.workspace) or ""
             click.echo(f"  ⚠️  could not {box_action} {box.workspace}. Run `hogli {command} {label}`.")
             continue
-        handled.append(box.worktree_path)
+        if box_action == "delete" or not keep_stopped_records:
+            handled.append(box.worktree_path)
     forget_worktree_boxes(handled)
 
 
@@ -1198,14 +1309,14 @@ def _listing_markers(wt: Worktree, mode: str) -> str:
     return " · ".join(parts)
 
 
-def _populate_sizes(worktrees: list[Worktree], mode: str) -> None:
+def _populate_sizes(worktrees: list[Worktree], mode: str, cutoff: float) -> None:
     """Fill in .size (and deps items/sizes for deps mode) using a thread pool."""
 
     def work(wt: Worktree) -> None:
         if mode == "full":
             wt.deps_sizes = _du_sizes([wt.path])
         else:
-            wt.deps_items = _collect_deps_items(wt.path)
+            wt.deps_items = [item for item in _collect_deps_items(wt.path) if not _cargo_built_since(item, cutoff)]
             wt.deps_sizes = _du_sizes(wt.deps_items)
         wt.size = sum(wt.deps_sizes.values())
 
@@ -1260,6 +1371,48 @@ def _collect_deps_items(worktree: Path) -> list[Path]:
 
 def _looks_like_cargo_target(path: Path) -> bool:
     return (path / "CACHEDIR.TAG").exists() or (path / "debug").exists() or (path / "release").exists()
+
+
+def _without_cargo_builds(worktrees: list[Worktree]) -> list[Worktree]:
+    building = worktrees_running_cargo([wt.path for wt in worktrees])
+    if building is None:
+        click.echo("Could not find the directory of every running cargo or rustc process, so no worktree is changed.\n")
+        return []
+    if building:
+        click.echo(f"Skipping {len(building)} worktree(s) where cargo is running:")
+        for wt in worktrees:
+            if wt.path in building:
+                click.echo(f"  {wt.source}  {_display_path(wt.path)}")
+        click.echo()
+    return [wt for wt in worktrees if wt.path not in building]
+
+
+def _cargo_built_since(path: Path, cutoff: float) -> bool:
+    return path.name == "target" and _looks_like_cargo_target(path) and last_cargo_build_epoch(path) >= cutoff
+
+
+def _clean_legacy_cargo_target(cutoff: float, dry_run: bool, yes: bool) -> None:
+    target = unused_legacy_cargo_target(cutoff)
+    if target is None:
+        return
+
+    size = sum(_du_sizes([target]).values())
+    click.echo(
+        f"Old shared Cargo target {_display_path(target)}: {_format_size(size)}, "
+        f"last build {_ago(last_cargo_build_epoch(target))} ago. Cargo built here while the Flox env set CARGO_TARGET_DIR."
+    )
+    if dry_run:
+        click.echo("[DRY-RUN] Not deleted.\n")
+        return
+    if not yes and not click.confirm("Delete it?", default=False):
+        click.echo()
+        return
+    if unused_legacy_cargo_target(cutoff) is None:
+        click.echo("A build used it while the prompt waited, so it is kept.\n")
+        return
+    if _delete_paths([target]) == 0:
+        click.echo(f"✓ Deleted {_display_path(target)}.")
+    click.echo()
 
 
 def _du_sizes(paths: Sequence[Path]) -> dict[str, float]:

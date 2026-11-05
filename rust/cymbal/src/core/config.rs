@@ -122,6 +122,18 @@ pub struct ResolverConfig {
     #[envconfig(default = "8")]
     pub symbol_set_parse_memory_multiplier: NonZeroUsize,
 
+    // A small compressed symbol set can decompress to many gigabytes, and the size its container
+    // declares is written by the uploader. A parse fails instead of decompressing a container
+    // payload past this many bytes.
+    #[envconfig(default = "536870912")] // 512 MiB
+    pub symbol_set_max_decompressed_bytes: NonZeroUsize,
+
+    // Native and Apple symbol sets are a ZIP of deflated entries inside the container, so they
+    // expand a second time. A parse reads at most this many bytes out of the ZIP, summed over
+    // every entry it reads.
+    #[envconfig(default = "1610612736")] // 1.5 GiB
+    pub symbol_set_max_extracted_bytes: NonZeroUsize,
+
     // Shared secret authenticating the cymbal <-> cymbal-resolution gRPC seam.
     #[envconfig(default = "")]
     pub internal_api_secret: String,
