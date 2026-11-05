@@ -403,7 +403,9 @@ class TestRunTraining(TeamScopedTestMixin, BaseTest):
             {"team_configs": {str(self.team.id): {"max_iterations_per_run": team_ceiling}}} if team_ceiling else None
         )
         limits = (
-            TeamLimits(max_training_runs_per_day=3, max_iterations_per_run=caller_ceiling) if caller_ceiling else None
+            TeamLimits(max_training_runs_per_day=3, max_iterations_per_run=caller_ceiling, max_live_pipelines=3)
+            if caller_ceiling
+            else None
         )
 
         with patch(

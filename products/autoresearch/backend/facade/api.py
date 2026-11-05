@@ -58,7 +58,15 @@ from ..evaluation.segment_thresholds import (
     training_base_rate,
 )
 from ..inference.failures import INFERENCE_WORKFLOW_TIMEOUT
-from ..limits import check_training_run_cap, limits_for_team
+from ..limits import (
+    LIVE_PIPELINE_STATUSES,
+    TeamLimits,
+    check_live_pipeline_cap,
+    check_training_run_cap,
+    limits_for_team,
+    live_pipeline_count,
+    training_run_usage,
+)
 from ..models import (
     RESEARCH_INTERVAL_DAYS_CHOICES as _RESEARCH_INTERVAL_DAYS_CHOICES,
     AutoresearchIteration,
@@ -102,6 +110,7 @@ from .contracts import (
     InvalidTarget,
     Iteration,
     IterationTrailEntry,
+    LivePipelineCapReached,
     LiveTrainingRun,
     MaterializedFeatures,
     Model,
@@ -113,6 +122,7 @@ from .contracts import (
     PipelineWrite,
     PredictionCoverage,
     PredictionSegmentThresholds,
+    ProjectLimits,
     RealizedAucPoint,
     ResolvedTemplate,
     Run,
@@ -795,10 +805,14 @@ def set_pipeline_status(team_id: int, pipeline_id: str | UUID, *, status: str, u
     The row lock serializes this with a concurrent lifecycle change and with ``start_training``,
     so a stale read cannot revive an archived pipeline, and archival cannot race a new run.
     Archiving a pipeline that writes its output property starts a cleanup.
+
+    Raises ``LivePipelineCapReached`` when resuming would take the project over its live pipeline limit.
     """
     pipeline_uuid = _as_uuid(pipeline_id)
     if pipeline_uuid is None:
         raise PipelineNotFound("Pipeline not found.")
+    # The flag read can call out, so it runs before the row lock is taken.
+    limits = limits_for_team(team_id) if status in LIVE_PIPELINE_STATUSES else None
     with transaction.atomic():
         try:
             row = (
@@ -815,11 +829,33 @@ def set_pipeline_status(team_id: int, pipeline_id: str | UUID, *, status: str, u
         if status == AutoresearchPipeline.Status.ARCHIVED and _has_live_training_run(team_id, row):
             # Archival would leave the sandbox writing to, and promoting on, a pipeline nobody sees.
             raise AutoresearchConflict("A training run is in progress. Wait for it to finish before archiving.")
+        if limits is not None and row.status not in LIVE_PIPELINE_STATUSES:
+            _require_live_pipeline_slot(team_id, limits)
         row.status = status
         row.save(update_fields=["status", "updated_at"])
         if status == AutoresearchPipeline.Status.ARCHIVED and row.write_person_property:
             _queue_property_cleanup(row, output_property=row.output_person_property, user_id=user_id)
     return _pipeline_with_champion(row)
+
+
+def _require_live_pipeline_slot(team_id: int, limits: TeamLimits) -> None:
+    """Refuse a pipeline going live when the project is at its limit. Call inside ``transaction.atomic()``."""
+    if cap := check_live_pipeline_cap(team_id, limits):
+        raise LivePipelineCapReached(used=cap.used, limit=cap.limit)
+
+
+def get_project_limits(team_id: int) -> ProjectLimits:
+    """The project's limits and current usage, for display. Takes no lock, so it can be stale by one run."""
+    limits = limits_for_team(team_id)
+    training = training_run_usage(team_id, limits)
+    return ProjectLimits(
+        max_training_runs_per_day=limits.max_training_runs_per_day,
+        training_runs_used=training.used,
+        next_slot_at=training.next_slot_at,
+        max_iterations_per_run=limits.max_iterations_per_run,
+        max_live_pipelines=limits.max_live_pipelines,
+        live_pipelines=live_pipeline_count(team_id),
+    )
 
 
 def _queue_property_cleanup(
@@ -1479,7 +1515,8 @@ def start_training(
     reads the locked row, so a concurrent edit of the target cannot slip past it.
 
     Raises ``TrainingRunCapReached`` when the project has used its sandbox training runs for the
-    last 24 hours, across all its pipelines.
+    last 24 hours, across all its pipelines, and ``LivePipelineCapReached`` when a draft's first
+    run would take the project over its live pipeline limit.
     """
     # The runner and the sandbox import pandas and pyarrow, so the router path loads them only here.
     from ..inference.sandbox import SandboxInferenceError  # noqa: PLC0415
@@ -1495,6 +1532,9 @@ def start_training(
         pipeline = _claim_pipeline_for_training(team_id, pipeline_id)
         if not allow_action_target and pipeline.target_definition.get("type") == "action":
             raise InvalidTarget("An action target needs the action:read scope.")
+        # The run moves a draft to bootstrapping, which is live.
+        if pipeline.status == AutoresearchPipeline.Status.DRAFT:
+            _require_live_pipeline_slot(team_id, limits)
         if cap := check_training_run_cap(team_id, limits):
             raise TrainingRunCapReached(used=cap.used, limit=cap.limit, next_slot_at=cap.next_slot_at)
         budget = iteration_budget or pipeline.iterations_per_run
@@ -1521,14 +1561,21 @@ def open_training_run(
 
     ``allow_action_target`` works as in ``start_training``: materializing features on the run
     labels on the action's steps, so the scope check reads the locked row.
+
+    A draft goes live when this run promotes its first champion, so opening one on a draft checks
+    the project's live pipeline limit, and ``LivePipelineCapReached`` refuses it at the limit.
     """
     pipeline = _pipeline_row(team_id, pipeline_id)
     if pipeline.status == AutoresearchPipeline.Status.ARCHIVED:
         raise AutoresearchConflict("Cannot open a training run on an archived pipeline.")
+    # The flag read can call out, so it runs before the row lock is taken.
+    limits = limits_for_team(team_id) if pipeline.status == AutoresearchPipeline.Status.DRAFT else None
     with transaction.atomic():
         pipeline = _claim_pipeline_for_training(team_id, pipeline.pk)
         if not allow_action_target and pipeline.target_definition.get("type") == "action":
             raise InvalidTarget("An action target needs the action:read scope.")
+        if limits is not None and pipeline.status == AutoresearchPipeline.Status.DRAFT:
+            _require_live_pipeline_slot(team_id, limits)
         row = AutoresearchTrainingRun.objects.create(
             pipeline=pipeline,
             status=AutoresearchTrainingRun.Status.RUNNING,
