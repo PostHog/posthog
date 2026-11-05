@@ -14,6 +14,8 @@ A report learns its issues two ways: from GitHub issue signals, and from `source
 A scout or person writes a `source_issue` with the `source_issues` field of `scout-emit-report` or `scout-edit-report`.
 These reports skip research, so the notification workflow never runs for them.
 Instead, the write queues the `post_source_issue_links` Celery task after commit when the report is `ready`.
+A source issue gets a comment only when the project's GitHub source has ingested an issue from the same repository.
+Anyone who files a report can name any issue URL, so this check keeps the comment inside the repositories the project already syncs.
 An edit queues it only when it adds an issue the report did not name yet.
 The task has no retry. A pending claim on a scout report recovers on the next edit that adds an issue, or when a GitHub issue signal joins the report and research settles it.
 

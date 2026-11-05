@@ -10,13 +10,19 @@ from posthog.egress.limiter.policies import Priority
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import SourceIssue
-from products.signals.backend.github_writeback import CLAIM_LEASE, MAX_COMMENT_PAGES, post_report_link_to_github_issues
+from products.signals.backend.github_writeback import (
+    CLAIM_LEASE,
+    MAX_COMMENT_PAGES,
+    _repositories_with_issue_signals,
+    post_report_link_to_github_issues,
+)
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
     SignalReportGithubComment,
     SignalTeamConfig,
 )
+from products.signals.backend.test.test_signal_queries import _SignalEmbeddingsTestBase
 
 WRITEBACK_MODULE_PATH = "products.signals.backend.github_writeback"
 
@@ -142,11 +148,16 @@ class TestPostReportLinkToGithubIssues(BaseTest):
 
     @parameterized.expand(
         [
-            ("only the source issue", False),
-            ("the source issue and a signal for the same issue", True),
+            ("a source issue in a synced repository", False, {"acme/widgets"}, 1),
+            ("a source issue in a repository the source never synced", False, set(), 0),
+            ("the same issue from a signal and a source issue", True, set(), 1),
         ]
     )
-    def test_comments_on_a_source_issue_the_report_names(self, _name, with_signal):
+    def test_comments_on_a_source_issue_only_in_a_repository_the_source_syncs(
+        self, _name, with_signal, synced, expected
+    ):
+        # Anyone who files a report can name any issue URL, so the app must not comment outside the
+        # repositories the team's GitHub source already reaches.
         SignalReportArtefact.add_log(
             team_id=self.team.pk,
             report_id=str(self.report.id),
@@ -154,11 +165,11 @@ class TestPostReportLinkToGithubIssues(BaseTest):
             attribution=ArtefactAttribution.system(),
         )
 
-        posted, comment = self._post([self.signal] if with_signal else [])
+        with patch(f"{WRITEBACK_MODULE_PATH}._repositories_with_issue_signals", return_value=synced):
+            posted, comment = self._post([self.signal] if with_signal else [])
 
-        assert posted == 1
-        comment.assert_called_once()
-        assert comment.call_args.args[:2] == ("acme/widgets", 42)
+        assert posted == expected
+        assert [call.args[:2] for call in comment.call_args_list] == [("acme/widgets", 42)] * expected
 
     def test_comments_once_when_two_signals_name_the_same_issue(self):
         posted, comment = self._post([self.signal, _signal()])
@@ -238,3 +249,25 @@ class TestPostReportLinkToGithubIssues(BaseTest):
 
         assert posted == 0
         assert SignalReportGithubComment.objects.for_team(self.team.pk).get().commented_at is None
+
+
+class TestRepositoriesWithIssueSignals(_SignalEmbeddingsTestBase):
+    def test_finds_only_repositories_with_a_live_github_issue_signal(self) -> None:
+        for document_id, source_product, html_url, deleted in [
+            ("synced", "github", "https://github.com/Acme/Widgets/issues/7", False),
+            ("deleted", "github", "https://github.com/acme/gone/issues/1", True),
+            ("other-source", "linear", "https://github.com/acme/linear/issues/1", False),
+        ]:
+            self._emit_version(
+                document_id=document_id,
+                report_id="r-1",
+                source_product=source_product,
+                source_type="issue",
+                inserted_at=self.base,
+                deleted=deleted,
+                extra={"html_url": html_url},
+            )
+
+        found = _repositories_with_issue_signals(self.team, {"acme/widgets", "acme/gone", "acme/linear", "acme/never"})
+
+        assert found == {"acme/widgets"}

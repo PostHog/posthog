@@ -7,18 +7,26 @@ on the issue, which closes that loop. Opt-in per team, because the comment is pu
 thread.
 
 A scout that files a report about an issue records it as a `source_issue` artefact instead of a
-signal, so the writeback reads both (see `source_issues.py`).
+signal, so the writeback reads both (see `source_issues.py`). Anyone who files a report can name any
+URL, so a source issue gets a comment only in a repository the team's GitHub source already ingests
+issues from. That keeps the comment's reach where it was before source issues existed.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import timedelta
 
 from django.utils import timezone
 
 import structlog
 
+from posthog.hogql import ast
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.clickhouse.workload import Workload
 from posthog.egress.limiter.policies import Priority
 from posthog.models import Team
 from posthog.models.github_integration_base import GitHubIntegrationBase, PullRequestRef
@@ -28,6 +36,7 @@ from products.signals.backend.artefact_schemas import SourceIssue
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import SignalReport, SignalReportGithubComment, SignalTeamConfig
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
+from products.signals.backend.signal_metadata import EMBEDDING_MODEL, _deduped_signals_subquery, _signals_query_context
 from products.signals.backend.source_issues import source_issues_by_report
 
 logger = structlog.get_logger(__name__)
@@ -48,6 +57,42 @@ def _comment_body(report_url: str, marker: str) -> str:
         "PostHog self-driving picked up this issue and researched it. Somebody may already be "
         f"working on it, so ask before you start a fix.\n\nReport (team access only): {report_url}\n\n{marker}"
     )
+
+
+# The `owner/repo` of a GitHub issue signal, read from its URL. Lowercased, like every stored ref.
+_SIGNAL_REPOSITORY = "arrayStringConcat(arraySlice(splitByChar('/', lower(JSONExtractString(metadata, 'extra', 'html_url'))), 4, 2), '/')"
+
+
+def _repositories_with_issue_signals(team: Team, repositories: Collection[str]) -> set[str]:
+    """The repositories, of those given, that the team's GitHub source has ingested an issue from."""
+    if not repositories:
+        return set()
+    issue_filter = (
+        "JSONExtractString(metadata, 'source_product') = 'github' "
+        "AND JSONExtractString(metadata, 'source_type') = 'issue' "
+        "AND startsWith(lower(JSONExtractString(metadata, 'extra', 'html_url')), 'https://github.com/') "
+        f"AND {_SIGNAL_REPOSITORY} IN {{repositories}}"
+    )
+    query = f"""
+        SELECT DISTINCT {_SIGNAL_REPOSITORY}
+        FROM ({_deduped_signals_subquery(include_content=False, candidate_document_filter=issue_filter)})
+        WHERE NOT JSONExtractBool(metadata, 'deleted')
+          AND {issue_filter}
+    """
+    tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
+    result = execute_hogql_query(
+        ch_user=ClickHouseUser.SIGNALS,
+        workload=Workload.OFFLINE,
+        query_type="SignalsGithubWritebackRepositories",
+        query=query,
+        team=team,
+        placeholders={
+            "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
+            "repositories": ast.Tuple(exprs=[ast.Constant(value=repository) for repository in repositories]),
+        },
+        context=_signals_query_context(team),
+    )
+    return {str(row[0]) for row in result.results or []}
 
 
 def _issue_refs(signals: list[dict], source_issues: Sequence[SourceIssue] = ()) -> list[PullRequestRef]:
@@ -207,6 +252,9 @@ def post_report_link_to_github_issues(team: Team, report_id: str, signals: list[
         return 0
 
     source_issues = source_issues_by_report(team_id=team.pk, report_ids=[report_id]).get(report_id, [])
+    if source_issues:
+        synced = _repositories_with_issue_signals(team, {issue.repository for issue in source_issues})
+        source_issues = [issue for issue in source_issues if issue.repository in synced]
     refs = _issue_refs(signals, source_issues)
     if not refs:
         return 0

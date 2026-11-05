@@ -2802,7 +2802,7 @@ export interface EmitReportRequestApi {
      */
     links?: ReportLinkWriteApi[]
     /**
-     * The GitHub issues this report is about, when the finding came from an issue tracker. Pass the issue whenever the report is about one, so the report links back to it: a GitHub issue signal for the same issue then joins this report instead of opening a second one, and when the project turned on GitHub issue comments, the issue gets one comment that links the report. At most 5 per call.
+     * The GitHub issues this report is about, when the finding came from an issue tracker. Pass the issue whenever the report is about one, so the report links back to it: a GitHub issue signal for the same issue then joins this report instead of opening a second one. When the project turned on GitHub issue comments and its GitHub source syncs the issue's repository, the issue gets one comment that links the report. At most 5 per call.
      * @maxItems 5
      */
     source_issues?: SourceIssueWriteApi[]
@@ -10105,7 +10105,7 @@ export interface EditReportRequestApi {
      */
     links?: ReportLinkWriteApi[]
     /**
-     * The GitHub issues this report is about, when the finding came from an issue tracker. Pass the issue whenever the report is about one, so the report links back to it: a GitHub issue signal for the same issue then joins this report instead of opening a second one, and when the project turned on GitHub issue comments, the issue gets one comment that links the report. At most 5 per call. Additive: issues join the ones the report already names, and an issue it already names is skipped. Only a newly added issue gets a comment.
+     * The GitHub issues this report is about, when the finding came from an issue tracker. Pass the issue whenever the report is about one, so the report links back to it: a GitHub issue signal for the same issue then joins this report instead of opening a second one. When the project turned on GitHub issue comments and its GitHub source syncs the issue's repository, the issue gets one comment that links the report. At most 5 per call. Additive: issues join the ones the report already names, and an issue it already names is skipped. Only a newly added issue gets a comment.
      * @maxItems 5
      */
     source_issues?: SourceIssueWriteApi[]

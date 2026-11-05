@@ -1608,8 +1608,9 @@ class SourceIssueWriteSerializer(serializers.Serializer):
 _SOURCE_ISSUES_HELP = (
     "The GitHub issues this report is about, when the finding came from an issue tracker. Pass the "
     "issue whenever the report is about one, so the report links back to it: a GitHub issue signal "
-    "for the same issue then joins this report instead of opening a second one, and when the project "
-    "turned on GitHub issue comments, the issue gets one comment that links the report. At most "
+    "for the same issue then joins this report instead of opening a second one. When the project "
+    "turned on GitHub issue comments and its GitHub source syncs the issue's repository, the issue gets "
+    "one comment that links the report. At most "
     f"{MAX_SOURCE_ISSUES_PER_WRITE} per call."
 )
 
