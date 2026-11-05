@@ -97,9 +97,6 @@ class HogFunctionPathReason(StrEnum):
     # A function takes the source's alert events without being bound to one alert. Native
     # delivery reads destinations per alert, so it would never send to it.
     UNBOUND = "unbound"
-    # A stock webhook whose team receives the platform body natively. Its receiver parses the
-    # body the HogFunction sends.
-    NEW_WEBHOOK_BODY = "new_webhook_body"
     WEBHOOK_BODY_UNKNOWN = "webhook_body_unknown"
     # Native delivery sends PagerDuty incident actions only, never the firing event.
     PAGERDUTY_NOT_NATIVE = "pagerduty_not_native"

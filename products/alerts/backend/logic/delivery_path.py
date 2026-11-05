@@ -80,11 +80,11 @@ class _TeamDestinations:
             for destination in destinations
         ):
             return DeliveryPathChoice(reason=HogFunctionPathReason.PAGERDUTY_NOT_NATIVE)
-        if any(destination.template_id == WebhookDestination.template_id for destination in destinations):
-            if self._native_webhook_body is None:
-                return DeliveryPathChoice(reason=HogFunctionPathReason.WEBHOOK_BODY_UNKNOWN)
-            if not self._native_webhook_body:
-                return DeliveryPathChoice(reason=HogFunctionPathReason.NEW_WEBHOOK_BODY)
+        if (
+            any(destination.template_id == WebhookDestination.template_id for destination in destinations)
+            and self._native_webhook_body is None
+        ):
+            return DeliveryPathChoice(reason=HogFunctionPathReason.WEBHOOK_BODY_UNKNOWN)
         return DeliveryPathChoice()
 
     @cached_property

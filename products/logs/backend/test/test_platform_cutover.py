@@ -306,14 +306,6 @@ class TestPlatformCutover(APIBaseTest):
                 HogFunctionPathReason.CUSTOMIZED,
             ),
             (
-                "stock_webhook_without_legacy_body",
-                "template-webhook",
-                WEBHOOK_INPUTS,
-                {},
-                False,
-                HogFunctionPathReason.NEW_WEBHOOK_BODY,
-            ),
-            (
                 "stock_webhook_with_unreadable_flag",
                 "template-webhook",
                 WEBHOOK_INPUTS,
@@ -397,17 +389,18 @@ class TestPlatformCutover(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("stock_slack", "template-slack", SLACK_INPUTS),
-            ("stock_webhook_with_legacy_body", "template-webhook", WEBHOOK_INPUTS),
+            ("stock_slack", "template-slack", SLACK_INPUTS, True),
+            ("stock_webhook_with_legacy_body", "template-webhook", WEBHOOK_INPUTS, True),
+            ("stock_webhook_with_platform_body", "template-webhook", WEBHOOK_INPUTS, False),
         ]
     )
     def test_a_team_moves_when_every_destination_is_ready(
-        self, _name: str, template_id: str, inputs: dict[str, Any]
+        self, _name: str, template_id: str, inputs: dict[str, Any], keeps_legacy_body: bool
     ) -> None:
         alert = self._alert()
         self._destination(alert.id, template_id, inputs)
 
-        with patch(LEGACY_BODY_FLAG, return_value=True):
+        with patch(LEGACY_BODY_FLAG, return_value=keeps_legacy_body):
             paths = team_delivery_paths(self.team.id)
             (result,) = cut_over_team(self.team.id, now=NOW)
 
