@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
+import { z } from 'zod'
 
-import { runHog, TEST_CREDENTIALS } from '@/testing'
+import { readJson, runHog, TEST_CREDENTIALS } from '@/testing'
 
 import { pushPlanLines } from './push'
 
@@ -41,7 +42,11 @@ const HOGQL = endpoint('by-type', {
     query: 'SELECT count()\r\nFROM events\r\nWHERE event = {variables.event_type}',
     variables: { 'var-1': { variableId: 'var-1', code_name: 'event_type', value: '$pageview' } },
 })
-const VARIABLES = [{ id: 'var-1', name: 'event_type', code_name: 'event_type', type: 'String' }]
+// PostHog allows a variable without a code name, which no endpoint can use.
+const VARIABLES = [
+    { id: 'var-1', name: 'event_type', code_name: 'event_type', type: 'String' },
+    { id: 'var-0', name: 'Old variable', code_name: null, type: 'String' },
+]
 
 function server(endpoints: unknown[], extra: (url: string, body: unknown) => unknown = () => undefined) {
     return (url: string, body: unknown) => {
@@ -75,20 +80,40 @@ variables:
 `
 
 describe('hog endpoints', () => {
-    test('list follows pages until PostHog has no more', async () => {
+    test.each([
+        ['', BASE],
+        ['under a path', 'https://ph.example.com/posthog/api/environments/7/'],
+    ])('list follows pages until PostHog has no more, for a host %s', async (_name, base) => {
         const result = await runHog(['endpoints', 'list'], {
-            env: AGENT,
-            respond: (url) =>
-                url === `${BASE}endpoints/`
-                    ? { status: 200, body: { results: [TRENDS], next: `${BASE}endpoints/?offset=1` } }
-                    : { status: 200, body: { results: [HOGQL], next: null } },
+            env: { ...AGENT, HOG_HOST: new URL('../../../', base).toString() },
+            respond: (url) => {
+                if (url === `${base}endpoints/`) {
+                    return { status: 200, body: { results: [TRENDS], next: `${base}endpoints/?offset=1` } }
+                }
+                return url === `${base}endpoints/?offset=1`
+                    ? { status: 200, body: { results: [HOGQL], next: null } }
+                    : { status: 404, body: {} }
+            },
         })
         expect(
             result.stdout
                 .trim()
                 .split('\n')
-                .map((line) => JSON.parse(line).name)
+                .map((line) => readJson(line, z.object({ name: z.string() })).name)
         ).toEqual(['weekly', 'by-type'])
+    })
+
+    test('list refuses a pagination link to another host, so the token stays on the host', async () => {
+        const result = await runHog(['endpoints', 'list'], {
+            env: AGENT,
+            respond: () => ({
+                status: 200,
+                body: { results: [TRENDS], next: 'https://ph.example.com//attacker.example/endpoints/' },
+            }),
+        })
+
+        expect(result.error()).toMatchObject({ code: 'unexpected_response' })
+        expect(result.requests.map((request) => new URL(request.url).host)).toEqual(['ph.example.com'])
     })
 
     test('pull writes short files with the project variable types, and updates a file in place', async () => {
@@ -137,7 +162,7 @@ describe('hog endpoints', () => {
         })
         expect(result.exitCode).toBe(1)
         expect(result.files).toMatchObject(expected)
-        expect(result.json().problems).toEqual([expect.objectContaining({ path: 'weekly.yaml' })])
+        expect(result.json()).toMatchObject({ problems: [expect.objectContaining({ path: 'weekly.yaml' })] })
     })
 
     test.each([
@@ -179,7 +204,17 @@ describe('hog endpoints', () => {
             respond: server([TRENDS, HOGQL]),
         })
         expect(result.exitCode).toBe(exitCode)
-        const plan = result.json().plan as { name: string; action: string; changes: { field: string }[] }[]
+        const { plan } = result.json(
+            z.object({
+                plan: z.array(
+                    z.object({
+                        name: z.string(),
+                        action: z.string(),
+                        changes: z.array(z.object({ field: z.string() })),
+                    })
+                ),
+            })
+        )
         expect(
             plan
                 .filter((item) => item.action !== 'skip')

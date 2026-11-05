@@ -12,6 +12,7 @@ import {
     IconGithub,
     IconGraph,
     IconList,
+    IconPerson,
     IconReceipt,
     IconRefresh,
     IconStack,
@@ -197,6 +198,7 @@ export const INBOX_SOURCE_OPTIONS: { value: string; label: string; icon: JSX.Ele
         icon: <IconGear />,
     },
     { value: 'signals_scout', label: 'Scout', icon: <IconCompass /> },
+    { value: 'user_authored', label: 'Team member', icon: <IconPerson /> },
 ]
 
 /** Priority codes in rank order (P0 highest → P4 lowest), driving the Priority filter popover. */

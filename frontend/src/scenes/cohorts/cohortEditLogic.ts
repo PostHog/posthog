@@ -50,11 +50,12 @@ import {
     cohortCsvMaxBytes,
     cohortCsvTooLargeMessage,
 } from 'scenes/cohorts/cohortUtils'
+import { processCohort } from 'scenes/cohorts/processCohort'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { cohortsModel, processCohort } from '~/models/cohortsModel'
+import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { isDataTableNode } from '~/queries/schema/node-guards'

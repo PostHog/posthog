@@ -23,7 +23,6 @@ import { InsightEventSource, sanitizeQuery } from 'lib/utils/eventUsageLogic'
 import { isEmptyObject, isObject } from 'lib/utils/guards'
 import { objectsEqual } from 'lib/utils/objects'
 import { analyticsBackLink } from 'scenes/analytics/analyticsBackLink'
-import { isDashboardFilterOverrideEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import {
     SEARCH_PARAM_FILTERS_KEY,
     dashboardSearchParamsFromOverrides,
@@ -71,6 +70,7 @@ import {
 } from '~/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
+import { isDashboardFilterOverrideEmpty } from 'products/dashboards/frontend/dashboardFilterEmpty'
 import { PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/product_analytics/frontend/constants'
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'

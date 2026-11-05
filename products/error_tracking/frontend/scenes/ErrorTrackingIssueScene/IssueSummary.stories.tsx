@@ -31,6 +31,10 @@ function render(props: Partial<IssueSummarySectionProps>, width: 'narrow' | 'wid
                 view="ready"
                 summary={SUMMARY}
                 feedback={null}
+                open
+                canManageAiSettings
+                loading={false}
+                onToggle={noop}
                 onRetry={noop}
                 onFeedback={noop}
                 {...props}
@@ -48,3 +52,33 @@ export const ReadyWithoutLikelyCause: Story = {
 }
 
 export const Failed: Story = { render: () => render({ view: 'failed', summary: null }) }
+
+export const Closed: Story = { render: () => render({ open: false }) }
+
+// Each reason a summary is missing is one line. Snapshots of these add nothing the Failed row does not cover.
+const NO_SNAPSHOT = { testOptions: { snapshotBrowsers: [] } }
+
+export const Writing: Story = {
+    render: () => render({ view: 'writing', summary: null }),
+    parameters: NO_SNAPSHOT,
+}
+
+export const NotGenerated: Story = {
+    render: () => render({ view: 'not_generated', summary: null }),
+    parameters: NO_SNAPSHOT,
+}
+
+export const AiNotApproved: Story = {
+    render: () => render({ view: 'ai_not_approved', summary: null }),
+    parameters: NO_SNAPSHOT,
+}
+
+export const AiNotApprovedForMember: Story = {
+    render: () => render({ view: 'ai_not_approved', summary: null, canManageAiSettings: false }),
+    parameters: NO_SNAPSHOT,
+}
+
+export const Restricted: Story = {
+    render: () => render({ view: 'restricted', summary: null }),
+    parameters: NO_SNAPSHOT,
+}

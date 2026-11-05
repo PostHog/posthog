@@ -106,7 +106,11 @@ def _fake_gateway_post(url: str, **kwargs: Any) -> MagicMock:
     response = MagicMock(text="")
     if url.endswith("/v1/tokens"):
         response.status_code = 201
-        response.json.return_value = {"token": "phe_test_run", "expires_at": "2026-01-01T00:00:00Z", "cap_usd": "5"}
+        minted: dict[str, Any] = {"token": "phe_test_run", "expires_at": "2026-01-01T00:00:00Z", "cap_usd": "5"}
+        # A gateway that supports the model pin echoes it back.
+        if allowed_models := (kwargs.get("json") or {}).get("allowed_models"):
+            minted["allowed_models"] = allowed_models
+        response.json.return_value = minted
     elif url.endswith("/v1/tokens/revoke"):
         response.status_code = 200
         response.json.return_value = {"revoked": True}
@@ -329,3 +333,56 @@ def stamphog_chain() -> Iterator[StamphogChain]:
             sandbox_class=fake_sandbox,
             attest_gates=attest_gates,
         )
+
+
+ROUTING_APP_SLUG = "stamphog-test"
+
+
+@dataclass(frozen=True)
+class RoutingChain:
+    """Handle for the reviewer routing boundaries: GitHub, the cut model, and analytics."""
+
+    recorder: fakes.GitHubRecorder
+    cut_model: fakes.FakeCutModel
+    captured: MagicMock
+
+
+@pytest.fixture
+def routing_chain() -> Iterator[RoutingChain]:
+    """Wire reviewer routing's boundaries to fakes and run everything between them as real code."""
+    # The ownership reader caches head commits and blobs across tests, keyed by the scripted files.
+    cache.clear()
+    recorder = fakes.GitHubRecorder()
+    cut_model = fakes.FakeCutModel()
+    captured = MagicMock()
+    with ExitStack() as stack:
+        stack.enter_context(
+            override_settings(
+                STAMPHOG_GITHUB_APP_ID="123456",
+                STAMPHOG_GITHUB_APP_PRIVATE_KEY=_generate_app_private_key(),
+                STAMPHOG_GITHUB_APP_SLUG=ROUTING_APP_SLUG,
+                AI_GATEWAY_URL="https://ai-gateway.test/v1",
+                AI_GATEWAY_API_KEY="phs_test_mint",
+            )
+        )
+        stack.enter_context(patch("products.stamphog.backend.logic.gateway_tokens.requests.post", _fake_gateway_post))
+        stack.enter_context(patch("products.stamphog.backend.logic.routing.model.Anthropic", cut_model.client))
+        capture_scope = stack.enter_context(patch("products.stamphog.backend.logic.routing.service.ph_scoped_capture"))
+        capture_scope.return_value.__enter__.return_value = captured
+        stack.enter_context(
+            patch("products.stamphog.backend.logic.github_client.github_request", recorder.github_request)
+        )
+        stack.enter_context(patch("posthog.ownership.github_files.github_request", recorder.github_request))
+        stack.enter_context(
+            patch(
+                "products.stamphog.backend.logic.github_client.remember_observed_core_limit",
+                fakes.noop_remember_observed_core_limit,
+            )
+        )
+        stack.enter_context(
+            patch(
+                "products.stamphog.backend.logic.github_client.raise_if_github_rate_limited",
+                fakes.noop_raise_if_github_rate_limited,
+            )
+        )
+        yield RoutingChain(recorder=recorder, cut_model=cut_model, captured=captured)
