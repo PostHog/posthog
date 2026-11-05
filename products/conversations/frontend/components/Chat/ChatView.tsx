@@ -23,6 +23,9 @@ import { MessageList, type TimelineExtra } from './MessageList'
 export interface ChatViewProps {
     messages: ChatMessage[]
     messagesLoading: boolean
+    /** The last load failed, so the thread is unknown rather than empty. */
+    messagesLoadFailed?: boolean
+    onRetryLoadMessages?: () => void
     messageSending: boolean
     hasMoreMessages?: boolean
     olderMessagesLoading?: boolean
@@ -109,6 +112,8 @@ export interface ChatViewProps {
 export function ChatView({
     messages,
     messagesLoading,
+    messagesLoadFailed = false,
+    onRetryLoadMessages,
     messageSending,
     hasMoreMessages = false,
     olderMessagesLoading = false,
@@ -174,6 +179,8 @@ export function ChatView({
             <MessageList
                 messages={messages}
                 messagesLoading={messagesLoading}
+                messagesLoadFailed={messagesLoadFailed}
+                onRetryLoadMessages={onRetryLoadMessages}
                 hasMoreMessages={hasMoreMessages}
                 olderMessagesLoading={olderMessagesLoading}
                 onLoadOlderMessages={onLoadOlderMessages}

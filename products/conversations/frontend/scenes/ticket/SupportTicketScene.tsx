@@ -108,6 +108,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         chatMessages,
         deliveryStatusByMessageId,
         messagesLoading,
+        messagesLoadFailed,
         messageSending,
         hasMoreMessages,
         olderMessagesLoading,
@@ -150,6 +151,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         setSnoozedUntil,
         sendMessage,
         updateTicket,
+        loadMessages,
         loadOlderMessages,
         setDraftContent,
         setDraftIsPrivate,
@@ -301,6 +303,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         threadExtras={threadExtras}
                         messages={chatMessages}
                         messagesLoading={messagesLoading}
+                        messagesLoadFailed={messagesLoadFailed}
+                        onRetryLoadMessages={loadMessages}
                         messageSending={messageSending}
                         hasMoreMessages={hasMoreMessages}
                         olderMessagesLoading={olderMessagesLoading}
