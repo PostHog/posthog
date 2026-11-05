@@ -72,6 +72,25 @@ class SourceInputsStore:
         preload_connection_fields(sources)
 
     @staticmethod
+    def load_stored(source: ExternalDataSource) -> dict[str, Any]:
+        """The decoded `job_inputs` as stored, never merged with the credentials row.
+
+        Only a tool that copies or checks the stored data should use it, such as the backfill. Raises
+        `UnreadableSourceInputsError` like `load`.
+        """
+        return _decode(source.job_inputs)
+
+    @staticmethod
+    def write_credentials_reference(source: ExternalDataSource, reference: IntegrationReference | None) -> None:
+        """Point the source at a credentials row, and change nothing else.
+
+        Only a tool that links existing sources to their rows should use it, such as the backfill. It never
+        copies fields to the row, never changes `job_inputs`, and does not change `updated_at`.
+        """
+        source.credentials_integration_id = None if reference is None else str(reference)
+        source.save(update_fields=["credentials_integration_id"])
+
+    @staticmethod
     def load_settings(source: ExternalDataSource) -> dict[str, Any]:
         """Only the sync settings and runtime state of the source, never a connection field.
 
