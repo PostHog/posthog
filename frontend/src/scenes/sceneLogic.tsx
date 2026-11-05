@@ -76,8 +76,8 @@ interface MountedSceneLogic {
     unmount: () => void
 }
 
-function unmountSceneLogic(cache: { mountedSceneLogic: MountedSceneLogic | null }): void {
-    const mountedLogic = cache.mountedSceneLogic
+function unmountSceneLogic(cache: Record<string, any>): void {
+    const mountedLogic: MountedSceneLogic | null = cache.mountedSceneLogic
     if (!mountedLogic) {
         return
     }
