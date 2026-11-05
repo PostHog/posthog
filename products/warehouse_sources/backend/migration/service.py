@@ -172,10 +172,11 @@ def _start_crawl(migration: WarehouseMigration) -> None:
     except Exception as error:
         # Otherwise the migration stays `pending` and a refresh refuses to start it again.
         capture_exception(error)
-        migration.status = WarehouseMigration.Status.FAILED
-        migration.latest_error = "PostHog could not start reading the Fivetran account. Try again."
         # Conditional, so a crawl that did start and already set `crawling` keeps its status.
         rows.filter(status=WarehouseMigration.Status.PENDING).update(
-            status=migration.status, latest_error=migration.latest_error, updated_at=timezone.now()
+            status=WarehouseMigration.Status.FAILED,
+            latest_error="PostHog could not start reading the Fivetran account. Try again.",
+            updated_at=timezone.now(),
         )
+        migration.refresh_from_db(fields=["status", "latest_error", "updated_at"])
         return
