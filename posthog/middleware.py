@@ -70,7 +70,7 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, get_trusted_client_ip
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import find_action_team_id
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -449,6 +449,10 @@ class AutoProjectMiddleware:
             target_queryset = self.get_target_queryset(request)
             if target_queryset is not None:
                 self.switch_team_if_needed_and_allowed(request, target_queryset)
+            else:
+                target_team_id = self.get_target_team_id(request)
+                if target_team_id is not None:
+                    self.switch_to_team_id_if_needed_and_allowed(request, target_team_id)
         return self.get_response(request)
 
     def get_target_queryset(self, request: HttpRequest) -> Optional[QuerySet]:
@@ -473,17 +477,29 @@ class AutoProjectMiddleware:
                 if feature_flag_id.isnumeric():
                     # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
                     return FeatureFlag.objects.filter(id=feature_flag_id)
-            elif path_parts[0] == "action":
-                action_id = path_parts[1]
-                if action_id.isnumeric():
-                    # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
-                    return Action.objects.filter(deleted=False, id=action_id)
             elif path_parts[0] == "cohorts":
                 cohort_id = path_parts[1]
                 if cohort_id.isnumeric():
                     # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
                     return Cohort.objects.filter(deleted=False, id=cohort_id)
         return None
+
+    def get_target_team_id(self, request: HttpRequest) -> Optional[int]:
+        """The team owning the object a legacy app path names, for objects read through a product facade."""
+        path_parts = request.path.strip("/").split("/")
+        # Sync the paths with urls.ts!
+        if len(path_parts) >= 2 and path_parts[0] == "action" and path_parts[1].isnumeric():
+            # The permission check in switch_team_if_allowed guards the switch, so the lookup is unscoped.
+            return find_action_team_id(action_id=int(path_parts[1]), include_deleted=False)
+        return None
+
+    def switch_to_team_id_if_needed_and_allowed(self, request: HttpRequest, target_team_id: int) -> None:
+        user = cast(User, request.user)
+        current_team = user.team
+        if current_team is not None and current_team.pk != target_team_id:
+            target_team = Team.objects.filter(pk=target_team_id).first()
+            if target_team is not None:
+                self.switch_team_if_allowed(target_team, request)
 
     def switch_team_if_needed_and_allowed(self, request: HttpRequest, target_queryset: QuerySet):
         user = cast(User, request.user)

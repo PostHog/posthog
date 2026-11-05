@@ -26,7 +26,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_actions
 from products.experiments.backend.hogql_queries.breakdown_injector import BreakdownInjector
 from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig
 from products.experiments.backend.hogql_queries.experiment_cuped_query_builder import CupedQueryBuilder
@@ -149,7 +149,7 @@ def metric_reads_flag_call(
     action_ids = [int(source.id) for source in sources if isinstance(source, ActionsNode)]
     return bool(action_ids) and any(
         step.event == DEFAULT_EXPOSURE_EVENT
-        for action in Action.objects.filter(pk__in=action_ids, team__project_id=team.project_id)
+        for action in get_actions(action_ids=action_ids, project_id=team.project_id)
         for step in action.steps
     )
 
