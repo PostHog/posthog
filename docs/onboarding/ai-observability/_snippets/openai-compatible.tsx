@@ -1,3 +1,5 @@
+import { ReactNode } from 'react'
+
 import { OnboardingComponentsContext } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../../steps'
@@ -6,7 +8,7 @@ import { GO_OTEL_TAB } from './go-otel-tab'
 export interface OpenAICompatibleConfig {
     /** Display name, e.g. 'DeepSeek' */
     label: string
-    /** Example-repo slug, e.g. 'deepseek' */
+    /** Example-repo slug and `$ai_provider` value, e.g. 'deepseek' */
     slug: string
     /** e.g. 'https://api.deepseek.com' */
     baseUrl: string
@@ -14,6 +16,12 @@ export interface OpenAICompatibleConfig {
     apiKeyPlaceholder: string
     /** e.g. 'deepseek-chat' */
     defaultModel: string
+    /** Set false while posthog-python and posthog-js have no example-ai-<slug> folder, so the page does not link to a 404. */
+    exampleRepos?: boolean
+    /** Provider-specific note shown after the client setup code, e.g. a regional endpoint. */
+    configureNote?: ReactNode
+    /** Provider-specific note shown before the first call, e.g. the model ID format. */
+    callNote?: ReactNode
 }
 
 export const getOpenAICompatibleSteps = (
@@ -30,16 +38,18 @@ export const getOpenAICompatibleSteps = (
             badge: 'required',
             content: (
                 <>
-                    <CalloutBox type="info" icon="IconInfo" title="Full working examples">
-                        <Markdown>
-                            {dedent`
-                                See the complete
-                                [Node.js](https://github.com/PostHog/posthog-js/tree/main/examples/example-ai-${config.slug}) and
-                                [Python](https://github.com/PostHog/posthog-python/tree/master/examples/example-ai-${config.slug})
-                                examples on GitHub.
-                            `}
-                        </Markdown>
-                    </CalloutBox>
+                    {config.exampleRepos !== false && (
+                        <CalloutBox type="info" icon="IconInfo" title="Full working examples">
+                            <Markdown>
+                                {dedent`
+                                    See the complete
+                                    [Node.js](https://github.com/PostHog/posthog-js/tree/main/examples/example-ai-${config.slug}) and
+                                    [Python](https://github.com/PostHog/posthog-python/tree/master/examples/example-ai-${config.slug})
+                                    examples on GitHub.
+                                `}
+                            </Markdown>
+                        </CalloutBox>
+                    )}
 
                     <Markdown>Install the PostHog SDK and the OpenAI SDK.</Markdown>
 
@@ -113,6 +123,8 @@ export const getOpenAICompatibleSteps = (
                             },
                         ]}
                     />
+
+                    {config.configureNote}
                 </>
             ),
         },
@@ -127,6 +139,8 @@ export const getOpenAICompatibleSteps = (
                             an \`$ai_generation\` event.
                         `}
                     </Markdown>
+
+                    {config.callNote}
 
                     <CodeBlock
                         blocks={[

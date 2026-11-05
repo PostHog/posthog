@@ -15,6 +15,7 @@ import { CrewAIInstallation } from '@posthog/shared-onboarding/ai-observability/
 import { DedalusInstallation } from '@posthog/shared-onboarding/ai-observability/dedalus'
 import { DeepSeekInstallation } from '@posthog/shared-onboarding/ai-observability/deepseek'
 import { DSPyInstallation } from '@posthog/shared-onboarding/ai-observability/dspy'
+import { EdenAIInstallation } from '@posthog/shared-onboarding/ai-observability/eden-ai'
 import { EveInstallation } from '@posthog/shared-onboarding/ai-observability/eve'
 import { FireworksAIInstallation } from '@posthog/shared-onboarding/ai-observability/fireworks-ai'
 import { GoogleInstallation } from '@posthog/shared-onboarding/ai-observability/google'
@@ -201,6 +202,10 @@ const LLMPortkeyInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: PortkeyInstallation,
     snippets: PROVIDER_SNIPPETS,
 })
+const LLMEdenAIInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: EdenAIInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
 const LLMConvexInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: ConvexInstallation,
     snippets: PROVIDER_SNIPPETS,
@@ -274,6 +279,7 @@ export const AIObservabilitySDKInstructions: SDKInstructionsMap = {
     [SDKKey.CEREBRAS]: LLMCerebrasInstructionsWrapper,
     [SDKKey.PERPLEXITY]: LLMPerplexityInstructionsWrapper,
     [SDKKey.PORTKEY]: LLMPortkeyInstructionsWrapper,
+    [SDKKey.EDEN_AI]: LLMEdenAIInstructionsWrapper,
     [SDKKey.CONVEX]: LLMConvexInstructionsWrapper,
     [SDKKey.COHERE]: LLMCohereInstructionsWrapper,
     [SDKKey.HUGGING_FACE]: LLMHuggingFaceInstructionsWrapper,

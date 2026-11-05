@@ -7160,6 +7160,7 @@ export enum SDKKey {
     DOCUSAURUS = 'docusaurus',
     DOTNET = 'dotnet',
     DSPY = 'dspy',
+    EDEN_AI = 'eden_ai',
     ELIXIR = 'elixir',
     EVE = 'eve',
     FRAMER = 'framer',
