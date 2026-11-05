@@ -69,7 +69,7 @@ Every SDK takes the same optional fields as the HTTP API: `from`, `reply_to` and
 
 ## Elixir
 
-- **Package:** `{:posthog, "~> <release>"}` in `mix.exs`.
+- **Package:** `posthog` from Hex, in `mix.exs`, version `<release>` or later.
 - **Client:** set `secret_key` in the `:posthog` config, next to `api_host` and `api_key`. Behind a reverse proxy or on a self-hosted instance, set `app_host`. With `secret_key` set, the SDK loads flag definitions with it when it starts: give the key the feature flag read scope too, or set `enable_local_evaluation: false`.
 - **Code send:** `PostHog.Emails.send(to: ..., template_key: ..., subject: ..., html: ..., text: ..., distinct_id: ..., idempotency_key: ...)`, with `from:`, `reply_to:` and `capture_engagement:` optional.
 - **Template send:** `PostHog.Emails.send(to: ..., template_id: ..., template_data: %{...}, distinct_id: ..., idempotency_key: ...)`.
