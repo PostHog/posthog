@@ -7478,6 +7478,8 @@ class TestHogFlowSecretInputs(APIBaseTest):
             ("producer_on_error", False, 403),
             # A person's JSON can hold keys that look like compiler output.
             ("producer_json_value", False, 403),
+            # A secret on a step that keeps no credential can feed the variable too.
+            ("producer_secret_entered", False, 403),
             ("non_writer_inputs", False, 403),
             ("producer_rename", False, 200),
             # The save carries the producer's own secret recovered, and storage keeps it stripped.
@@ -7514,6 +7516,9 @@ class TestHogFlowSecretInputs(APIBaseTest):
             producer["config"]["inputs"]["headers"] = {
                 "value": {"bytecode": 0, "bytecode_contract": "attacker.example.com"}
             }
+            body = {"actions": payload["actions"]}
+        elif name == "producer_secret_entered":
+            producer["config"]["inputs"]["api_key"] = {"value": "attacker.example.com"}
             body = {"actions": payload["actions"]}
         elif name == "producer_on_error":
             producer["on_error"] = "abort"

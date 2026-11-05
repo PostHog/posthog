@@ -286,6 +286,7 @@ from products.workflows.backend.facade.secrets import (
     require_recent_login_to_move_credentials,
     secret_binding_enforced,
     secret_bindings_for_actions,
+    secret_inputs_changed,
     secret_keys_for_action,
     strip_content_secrets,
     variables_override_defaults,
@@ -855,7 +856,10 @@ def _require_recent_authentication_for_flow_edits(
         data.get("actions", stored_actions),
         data.get("edges", stored_edges),
         template_cache,
-    ) == credential_reach(stored_variables, stored_actions, stored_edges, template_cache):
+    ) == credential_reach(stored_variables, stored_actions, stored_edges, template_cache) and not (
+        "actions" in data
+        and secret_inputs_changed(data["actions"], context.get("existing_encrypted_inputs"), template_cache)
+    ):
         return
     holds_credentials = any(
         flow_holds_credentials(actions, secrets, template_cache)

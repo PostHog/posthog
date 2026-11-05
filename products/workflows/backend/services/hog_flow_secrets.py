@@ -216,6 +216,30 @@ def credential_reach(variables: Any, actions: Any, edges: Any, template_cache: O
     return json.dumps(without_bytecode_contracts([values, steps, order]), sort_keys=True, default=str)
 
 
+def secret_inputs_changed(
+    actions: Any, stored_secrets: Optional[dict], template_cache: Optional[TemplateCache]
+) -> bool:
+    """Whether a save enters, changes or removes a secret input on a step it keeps.
+
+    A secret on a step that keeps no credential can still feed a variable that a credentialed step
+    reads. `credential_reach` leaves secrets out, so this compares them on their own: a save carries
+    each kept secret recovered from storage, so an unchanged one matches its stored value.
+    """
+    if not isinstance(actions, list):
+        return False
+    step_ids = {str(action.get("id")) for action in actions if isinstance(action, dict)}
+
+    def by_input(secret_map: Optional[dict]) -> dict[tuple[str, str], Any]:
+        return {
+            (str(action_id), key): [item.get("value"), item.get("templating")] if isinstance(item, dict) else item
+            for action_id, inputs in (secret_map or {}).items()
+            if str(action_id) in step_ids and isinstance(inputs, dict)
+            for key, item in inputs.items()
+        }
+
+    return by_input(partition_flow_secrets(actions, template_cache)[1]) != by_input(stored_secrets)
+
+
 def variables_override_defaults(overrides: Any, variables: Any) -> bool:
     """Whether a run sets a variable to a value other than the flow's default for it."""
     if not overrides:
