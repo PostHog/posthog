@@ -151,7 +151,6 @@ export const RulesV2RuleEditor = memo(function RulesV2RuleEditor({
     subjects: Noun
     groupTypeIndex: number | null
     shadowedBy: number | null
-    /** Called after the rule is deleted, so focus can move somewhere that still exists. */
     onRemoved: () => void
 }): JSX.Element {
     const { fieldError } = useValues(featureFlagRulesV2EditorLogic({ id }))

@@ -279,7 +279,6 @@ describe('FeatureFlagRulesV2Readonly', () => {
                 '/api/projects/:team/feature_flags/user_blast_radius': () => [200, { affected: 200, total: 2000 }],
             },
         })
-        // The targeting and rollout rows share one estimate, so either Retry reloads both.
         fireEvent.click(within(rule).getAllByText('Retry')[0])
 
         await waitFor(() => expect(rule).toHaveTextContent('≈ 200 users'))

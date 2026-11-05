@@ -16,7 +16,6 @@ export interface RulesV2MatchCount {
 export interface RulesV2MatchCountLogicProps {
     /** The rule's targeting properties, serialized, so equal targeting shares one request. */
     propertiesKey: string
-    /** The flag's group type, or null when it targets persons. */
     groupTypeIndex: number | null
 }
 
