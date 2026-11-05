@@ -38,7 +38,6 @@ _JSON_EXTRACT_SCALAR_CASTS: dict[str, tuple[str, object]] = {
 }
 
 
-# ai_events copies event properties, so it shares the event property definitions.
 _EVENT_PROPERTY_TABLES = (*EVENT_ROW_TABLES, AiEventsTable)
 
 
