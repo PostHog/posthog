@@ -56,7 +56,7 @@ from posthog.utils import get_ip_address, get_trusted_client_ip
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -626,7 +626,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.assertEqual(response_insights_api.status_code, 200)
 
     def test_project_switched_when_accessing_action_of_another_accessible_team(self):
-        action = Action.objects.create(team=self.second_team)
+        action = create_action(team=self.second_team)
 
         response_app = self.client.get(f"/action/{action.id}")
         response_users_api = self.client.get(f"/api/users/@me/")

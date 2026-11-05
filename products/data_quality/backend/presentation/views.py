@@ -15,12 +15,12 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 from uuid import UUID
 
 from django.db.models import QuerySet
-from django.shortcuts import get_object_or_404
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import mixins, status, viewsets
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
+from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response

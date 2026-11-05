@@ -1,7 +1,6 @@
 import re
 import uuid
 from typing import Any, cast
-from urllib.parse import urlparse
 
 from django.conf import settings
 from django.db.models import QuerySet
@@ -66,12 +65,10 @@ from products.warehouse_sources.backend.facade.file_upload_sources import (
     can_replace_file,
     create_file_upload_source,
     discard_unused_upload,
-    file_upload_sources_enabled,
     has_file_upload_source,
     hosted_upload_in_use,
     is_legacy_upload_url,
     is_safe_upload_filename,
-    object_storage_sources_enabled,
     read_upload_in_place,
     replace_file_upload,
     sanitize_upload_filename,
@@ -124,24 +121,9 @@ _EVENT_SOURCE_TO_CREATED_VIA = {
 
 
 SELF_MANAGED_CREATE_BLOCKED_MESSAGE = (
-    "You can't create self-managed tables when managed object storage sources are enabled. "
-    "Add {provider} as a source instead."
+    "PostHog no longer links tables that read your bucket directly. "
+    "Add an Amazon S3, Google Cloud Storage, Azure Blob or Cloudflare R2 source instead."
 )
-
-MANAGED_SOURCE_NAME_BY_HOST_SUFFIX = (
-    ("r2.cloudflarestorage.com", "Cloudflare R2"),
-    ("amazonaws.com", "Amazon S3"),
-    ("googleapis.com", "Google Cloud Storage"),
-    ("blob.core.windows.net", "Azure Blob Storage"),
-)
-
-
-def _managed_source_name_for_url(url_pattern: str | None) -> str:
-    host = (urlparse(url_pattern or "").hostname or "").lower()
-    for suffix, name in MANAGED_SOURCE_NAME_BY_HOST_SUFFIX:
-        if host == suffix or host.endswith(f".{suffix}"):
-            return name
-    return "your bucket's provider (Amazon S3, Google Cloud Storage, Azure Blob Storage or Cloudflare R2)"
 
 
 def resolve_created_via(request: request.Request) -> str:
@@ -450,52 +432,6 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             return None
         return SimpleExternalDataSchemaSerializer(schema, read_only=True).data
 
-    def create(self, validated_data):
-        team_id = self.context["team_id"]
-
-        validated_data["team_id"] = team_id
-        validated_data["created_by"] = cast(User, self.context["request"].user)
-        validated_data["created_via"] = resolve_created_via(self.context["request"])
-        credential = validated_data.get("credential")
-
-        if not credential:
-            raise serializers.ValidationError("Credentials are required")
-
-        access_key: str | None = credential.get("access_key")
-        access_secret: str | None = credential.get("access_secret")
-
-        # CRITICAL: users MUST provide an access key and secret, otherwise we'll fall back to using the EC2 node's internal role.
-        # this would allow an external user to then access one of PostHog's internal S3 buckets
-        if not access_key or not access_secret:
-            raise serializers.ValidationError("Access key and secret are required")
-        if len(access_key.strip()) == 0 or len(access_secret.strip()) == 0:
-            raise serializers.ValidationError("Access key and secret can't be blank")
-
-        validated_data["credential"] = DataWarehouseCredential.objects.create(
-            team_id=team_id,
-            access_key=access_key,
-            access_secret=access_secret,
-        )
-        table = DataWarehouseTable(**validated_data)
-        if table._is_csv_format() and table.csv_allow_double_quotes is not None:
-            try:
-                table._validate_csv_double_quotes_setting()
-            except Exception as err:
-                raise serializers.ValidationError(str(err))
-        try:
-            table.columns = table.get_columns()
-        except Exception as err:
-            raise serializers.ValidationError(str(err))
-        try:
-            table.save()
-        except Exception as err:
-            raise serializers.ValidationError(str(err))
-        log_table_activity(table, "created")
-
-        validate_data_warehouse_table_columns.delay(self.context["team_id"], str(table.id))
-
-        return table
-
     def validate_url_pattern(self, url_pattern):
         # A credential-less table reads from PostHog's own storage by design - PostHog built the URL
         # when the file was uploaded. Editing anything else about such a table resubmits that URL
@@ -712,15 +648,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         return queryset.exclude(id__in=denied_table_ids(self.team_id, self.user_access_control))
 
     def create(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        # Checked before the serializer runs, so a blocked request never reaches URL validation.
-        if object_storage_sources_enabled(self.team_id):
-            url_pattern = request.data.get("url_pattern") if hasattr(request.data, "get") else None
-            raise serializers.ValidationError(
-                SELF_MANAGED_CREATE_BLOCKED_MESSAGE.format(
-                    provider=_managed_source_name_for_url(url_pattern if isinstance(url_pattern, str) else None)
-                )
-            )
-        return super().create(request, *args, **kwargs)
+        # Uploads go through `create_from_upload` and the file upload source, never this endpoint.
+        raise serializers.ValidationError(SELF_MANAGED_CREATE_BLOCKED_MESSAGE)
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: DataWarehouseTable = self.get_object()
@@ -1049,9 +978,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
         table.save()
         log_table_activity(table, "created")
-        if file_upload_sources_enabled(self.team_id):
-            # The table reads the file in place until the source's first sync imports it.
-            create_file_upload_source(self.team_id, table.pk, upload, read_settings)
+        # The table reads the file in place until the source's first sync imports it.
+        create_file_upload_source(self.team_id, table.pk, upload, read_settings)
 
         validate_data_warehouse_table_columns.delay(self.team_id, str(table.id))
 
