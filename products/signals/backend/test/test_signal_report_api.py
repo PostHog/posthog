@@ -6330,6 +6330,7 @@ class TestSignalReportClaimToCloseAPI(APIBaseTest):
                 ("unclaimed", status.HTTP_409_CONFLICT),
                 ("own_claim", status.HTTP_200_OK),
                 ("teammate_claim", status.HTTP_409_CONFLICT),
+                ("task_claim", status.HTTP_409_CONFLICT),
                 ("own_agent_claim", status.HTTP_200_OK),
                 ("agent_under_own_claim", status.HTTP_200_OK),
                 ("flag_off", status.HTTP_200_OK),
@@ -6343,6 +6344,8 @@ class TestSignalReportClaimToCloseAPI(APIBaseTest):
             create_claim(self.report, ArtefactAttribution.from_user(self.user.id))
         elif case == "teammate_claim":
             create_claim(self.report, ArtefactAttribution.from_user(self.teammate.id))
+        elif case == "task_claim":
+            create_claim(self.report, ArtefactAttribution.from_task(self._create_task("signal_report", internal=True)))
         elif case == "own_agent_claim":
             create_claim(self.report, ArtefactAttribution.from_agent(self.user.id, "codex"))
         elif case == "closed_report":
@@ -6357,7 +6360,9 @@ class TestSignalReportClaimToCloseAPI(APIBaseTest):
         assert response.status_code == expected, response.json()
         self.report.refresh_from_db()
         if expected == status.HTTP_409_CONFLICT:
-            assert "claim" in response.json()["error"].lower()
+            error = response.json()["error"].lower()
+            assert "claim" in error
+            assert ("someone else" in error) == (case == "teammate_claim")
             assert self.report.status == SignalReport.Status.READY
         else:
             assert self.report.status == target

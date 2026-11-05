@@ -14,7 +14,6 @@ import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { canCloseReport, canMonitorReport, canResolveReport } from '../../utils/reportActions'
-import { isReportClaimable } from '../../utils/reportClaim'
 import { hasMergedReportPullRequest } from '../../utils/reportPullRequests'
 import { setReportState } from '../../utils/writeTimeout'
 import { useReportDismiss } from '../cards/useReportDismiss'
@@ -43,7 +42,8 @@ export interface ReportDetailAction {
 export function useReportDetailActions(report: SignalReport): ReportDetailAction[] {
     const detailLogic = inboxReportDetailLogic({ reportId: report.id, report })
     const { changeReportState, setReportClaimed } = useActions(detailLogic)
-    const { reportStateSaving, reportChecks, teammateClaimHolder, claimSaving } = useValues(detailLogic)
+    const { reportStateSaving, reportChecks, teammateClaimHolder, isReportClaimable, claimSaving } =
+        useValues(detailLogic)
     const { reportStateChanged, reportWriteFailed } = useActions(inboxBulkActionsLogic)
     const { activeTab } = useValues(inboxSceneLogic)
     const { loadSelectedReport } = useActions(inboxSceneLogic)
@@ -227,8 +227,8 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
               ]
             : []),
         ...(canResolve ? [resolve] : []),
-        // Closing a report needs the claim, so Claim takes those actions' place. A teammate's claim is left to them.
-        ...(!canClose && isReportClaimable(report)
+        // Closing a report needs the claim, so Claim takes those actions' place. A teammate's claim gets Take over.
+        ...(!canClose && isReportClaimable
             ? [
                   {
                       key: 'claim',

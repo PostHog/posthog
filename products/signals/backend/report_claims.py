@@ -206,6 +206,9 @@ def close_denial(claim: ReportClaim | None, actor: ArtefactAttribution) -> Close
         return "unclaimed"
     if actor_works_under_claim(claim, actor):
         return None
+    # A task claim names no person, so a person claims the report as if nobody held it.
+    if claim.actor_kind == "task":
+        return "unclaimed"
     # A person and their external agents count as one owner, whichever of them claimed.
     if (
         actor.kind in {"user", "agent"}
