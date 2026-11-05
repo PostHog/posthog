@@ -1572,16 +1572,16 @@ class MappingsSerializer(FunctionInputsSerializer):
 class MappingsListField(serializers.ListField):
     def run_child_validation(self, data: list[Any]) -> list[Any]:
         result = []
-        errors: dict[int, Any] = {}
+        errors: dict[str, Any] = {}
         try:
             for index, item in enumerate(data):
                 self.context["mapping_index"] = index
                 try:
                     result.append(self.child.run_validation(item))
                 except ValidationError as error:
-                    errors[index] = error.detail
+                    errors[str(index)] = error.detail
                 except DjangoValidationError as error:
-                    errors[index] = get_error_detail(error)
+                    errors[str(index)] = get_error_detail(error)
         finally:
             self.context.pop("mapping_index", None)
         if errors:
