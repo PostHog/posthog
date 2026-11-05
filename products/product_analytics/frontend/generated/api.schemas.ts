@@ -7282,6 +7282,8 @@ export interface ErrorTrackingQueryApi {
     response?: ErrorTrackingQueryResponseApi | null
     /** Free-text search across exception type, message, and stack frames. */
     searchQuery?: string | null
+    /** Filter by issue severity. */
+    severity?: ErrorTrackingQueryIssueSeverityApi | null
     /** Filter by issue status. */
     status?: ErrorTrackingIssueStatusApi | string | null
     tags?: QueryLogTagsApi | null

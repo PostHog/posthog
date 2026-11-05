@@ -4558,6 +4558,8 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     dateRange: DateRange
     /** Filter by issue status. */
     status?: ErrorTrackingQueryStatus
+    /** Filter by issue severity. */
+    severity?: ErrorTrackingQueryIssueSeverity | null
     assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter
     /** Whether to filter out test accounts. */
@@ -6602,6 +6604,8 @@ export interface ExperimentExposureHealthFinding {
     actions: ExperimentExposureHealthFindingActionKind[]
     /** The id of the matching diagnostic in the diagnosing-experiment-health skill, for example 'A2'. Null when the skill has none. */
     diagnostic_ref: string | null
+    /** The key of the check in `health_checks` that reported the finding. Missing on an answer cached before the field existed. */
+    check?: ExperimentExposureHealthCheckKey
 }
 
 export type ExperimentExposureHealthCheckKey =
@@ -6613,16 +6617,60 @@ export type ExperimentExposureHealthCheckKey =
 
 export type ExperimentExposureHealthCheckStatus = 'passed' | 'finding' | 'not_applicable' | 'not_checked'
 
+/** The keys in the `values` of an exposure check. Same meaning as in the experiment's `health.checks`. */
+export type ExperimentExposureHealthValueKey =
+    | 'exposed_count'
+    | 'compared_count'
+    | 'multiple_variant_count'
+    | 'multiple_variant_percentage'
+    | 'multiple_variant_handling'
+    | 'p_value'
+    | 'since_launch_hours'
+    | 'exposed_without_test_account_filter_count'
+    | 'kept_by_test_account_filter_percentage'
+
+export type ExperimentExposureHealthRuleSide = 'above' | 'below'
+
+export type ExperimentExposureHealthRuleTest = 'chi_squared'
+
+/** What an exposure check needs before it judges. */
+export interface ExperimentExposureHealthRuleMinimum {
+    /** The key in `values` that must reach the threshold before the check judges. */
+    value: ExperimentExposureHealthValueKey
+    /** The value that the key must reach. Below it, the check reports no finding. */
+    threshold: number
+}
+
+/** How an exposure check decides. Same shape as the `rule` of the experiment's `health.checks`. */
+export interface ExperimentExposureHealthCheckRule {
+    /** The key in `values` that the check compares with the threshold. */
+    value: ExperimentExposureHealthValueKey
+    /** The threshold, in the unit that the suffix of the key gives. */
+    threshold: number
+    /** above: the check reports a finding when the value is above the threshold. below: when the value is below it. A value at the threshold passes. */
+    warns: ExperimentExposureHealthRuleSide
+    /** The statistical test that computes the value. Null for a count or a share. */
+    test: ExperimentExposureHealthRuleTest | null
+    /** What the check needs before it judges. Null when the check judges from the first value. */
+    minimum: ExperimentExposureHealthRuleMinimum | null
+}
+
 /** What one health check concluded on the exposure answer. Same shape as the experiment's `health.checks`. */
 export interface ExperimentExposureHealthCheck {
     /** Stable identifier of the check. */
     key: ExperimentExposureHealthCheckKey
     /** The problem the check looks for, as the health panel lists it. */
     name: string
+    /** What the check looks for and why it matters. Missing on an answer cached before the field existed. */
+    description?: string
     /** passed: no problem found. finding: a finding in `health_findings`. not_applicable: the check doesn't cover the experiment's state. not_checked: an input was missing or the check failed. */
     status: ExperimentExposureHealthCheckStatus
     /** Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding. */
     reason: string | null
+    /** What the check read on the experiment, for every status. The suffix of a key gives the unit: _count is a count, _percentage is on the 0-100 scale, _hours is hours. A key without a suffix is a setting. Missing on an answer cached before the field existed. */
+    values?: Record<string, string | number | boolean | null>
+    /** How the check decides, the same for every experiment. Null for a check without a numeric rule. Missing on an answer cached before the field existed. */
+    rule?: ExperimentExposureHealthCheckRule | null
 }
 
 export interface ExperimentExposureQueryResponse {
@@ -7219,6 +7267,8 @@ export interface MetricsAlertConfig {
     type: 'MetricsAlertConfig'
     /** When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one. */
     check_ongoing_interval?: boolean
+    /** Values for the `$name` variables in the insight's query. */
+    variables?: Record<string, MetricsDashboardVariableSelection>
 }
 
 /** One blocked period for quiet hours: 24-hour HH:MM in the project timezone; interval is half-open [start, end). */
@@ -9078,6 +9128,7 @@ export const MARKETING_INTEGRATION_CONFIGS = {
             'audience_network',
             'facebook_marketplace',
             'threads',
+            'th',
         ] as const,
         primarySource: 'meta',
         adsetTableName: 'adsets' as const,

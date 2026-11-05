@@ -17,6 +17,7 @@ from posthog.schema import (
     ActionsNode,
     ExperimentEventExposureConfig,
     ExperimentExposureCriteria,
+    ExperimentExposureHealthCheckKey,
     ExperimentExposureHealthFindingCode,
     ExperimentExposureQuery,
     ExperimentWarehouseNativeExposureConfig,
@@ -1507,7 +1508,22 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         # (well below the 0.001 threshold for SRM detection)
         self.assertLess(response.sample_ratio_mismatch.p_value, 0.001)
         self.assertEqual(
-            [finding.code for finding in response.health_findings or []], [ExperimentExposureHealthFindingCode.SRM]
+            [(finding.code, finding.check) for finding in response.health_findings or []],
+            [(ExperimentExposureHealthFindingCode.SRM, ExperimentExposureHealthCheckKey.SRM)],
+        )
+        srm_check = next(check for check in response.health_checks or [] if check.key == "srm")
+        self.assertEqual(
+            (srm_check.values, srm_check.rule and srm_check.rule.model_dump(mode="json")),
+            (
+                {"p_value": response.sample_ratio_mismatch.p_value, "compared_count": 100, "multiple_variant_count": 0},
+                {
+                    "value": "p_value",
+                    "threshold": 0.001,
+                    "warns": "below",
+                    "test": "chi_squared",
+                    "minimum": {"value": "compared_count", "threshold": 100},
+                },
+            ),
         )
 
         # Expected counts should be 50/50 of total (100)
