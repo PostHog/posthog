@@ -258,10 +258,8 @@ def variables_override_defaults(overrides: Any, variables: Any) -> bool:
 
 
 def _same_variable_value(default: Any, value: Any) -> bool:
-    # Defaults are stored as text, so a typed override such as 5 or true can equal the default "5" or "true".
-    return default == value or (
-        isinstance(default, str) and isinstance(value, (bool, int, float)) and json.dumps(value) == default
-    )
+    # The worker merges an override as sent, so `false` and the stored text "false" branch differently.
+    return json.dumps(default, sort_keys=True, default=str) == json.dumps(value, sort_keys=True, default=str)
 
 
 def recover_or_drop_masked_inputs(inputs: Any, secret_keys: set[str], existing: dict) -> set[str]:

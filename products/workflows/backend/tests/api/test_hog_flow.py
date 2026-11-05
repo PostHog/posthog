@@ -15,7 +15,7 @@ from unittest.mock import ANY, MagicMock, patch
 from django.conf import settings
 from django.core.management import call_command
 from django.db import connection
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -67,6 +67,7 @@ from products.replay_vision.backend.tests.helpers import create_experiment
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
 from products.workflows.backend.facade.enums import HogFlowOriginProduct
+from products.workflows.backend.facade.secrets import variables_override_defaults
 from products.workflows.backend.facade.transactional_emails import create_code_email_workflow
 from products.workflows.backend.facade.writes import update_workflow
 from products.workflows.backend.models.hog_flow.hog_flow import SUPPORTED_ACTION_TYPES, HogFlow
@@ -7196,6 +7197,24 @@ class TestHogFlowGlobalStats(ClickhouseTestMixin, APIBaseTest):
         )
         assert res.status_code == status.HTTP_200_OK, res.json()
         assert {r["workflow_id"] for r in res.json()} == {str(self.flow_a.id)}
+
+
+class TestVariablesOverrideDefaults(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("same_text", "false", False),
+            # The worker merges an override as sent, and Hog treats the text "false" as truthy.
+            ("bool_for_text", False, True),
+            ("number_for_text", 5, True),
+        ]
+    )
+    def test_an_override_matches_its_default_only_with_the_same_type(
+        self, _name: str, value: Any, overrides: bool
+    ) -> None:
+        defaults = [{"key": "flag", "default": "false"}, {"key": "count", "default": "5"}]
+        key = "count" if isinstance(value, int) and not isinstance(value, bool) else "flag"
+
+        assert variables_override_defaults({key: value}, defaults) is overrides
 
 
 @patch("products.cdp.backend.validation.posthoganalytics.feature_enabled", new=_secret_binding_flag_on)
