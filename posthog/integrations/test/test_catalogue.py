@@ -29,6 +29,7 @@ FROZEN_KIND_DEFAULTS: dict[str, str] = {
     "anthropic": "token",
     "apns": "credentials",
     "apple-ads": "oauth",
+    "aws-kinesis": "credentials",
     "aws-redshift": "credentials",
     "aws-s3": "credentials",
     "azure-blob": "credentials",
