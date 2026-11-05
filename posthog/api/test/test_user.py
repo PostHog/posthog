@@ -3851,6 +3851,11 @@ class TestUserTwoFactor(APIBaseTest):
         self.assertIn("django_two_factor-hex", self.client.session)
         self.assertIn("django_two_factor-qr_secret_key", self.client.session)
         self.assertEqual(len(self.client.session["django_two_factor-hex"]), 40)  # 20 bytes hex = 40 chars
+        hex_key = self.client.session["django_two_factor-hex"]
+
+        second_response = self.client.get(f"/api/users/@me/two_factor_start_setup/")
+        self.assertEqual(second_response.json()["secret"], response.json()["secret"])
+        self.assertEqual(self.client.session["django_two_factor-hex"], hex_key)
 
     @patch("posthog.api.user.send_two_factor_auth_enabled_email")
     @patch("posthog.api.user.TOTPDeviceForm")
