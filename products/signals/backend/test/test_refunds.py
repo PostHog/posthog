@@ -15,8 +15,9 @@ from rest_framework import status
 from posthog.models import Organization, Team
 
 from products.signals.backend.billing import SIGNALS_CREDITS_PER_REPORT_WITH_PR
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportRefund
+from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportRefund
 from products.signals.backend.quota import SELF_DRIVING_QUOTA_ENFORCEMENT_FLAG
+from products.signals.backend.report_assignments import create_claim
 from products.signals.backend.tasks import (
     _OUT_OF_PERIOD_SYNC_ERROR,
     _REFUND_SYNC_MAX_RETRIES,
@@ -431,6 +432,7 @@ class TestSignalReportRefundAPI(APIBaseTest):
         # dismissal receiver would never close that PR, so the caller keeps the work and the money.
         # The refund must suppress it, and it must then be non-restorable.
         report = self._report_with_pr(pr_created_at=datetime(2026, 6, 10, tzinfo=UTC))
+        create_claim(report, ArtefactAttribution.from_user(self.user.id))
         resolve = self.client.post(self._state_url(str(report.id)), {"state": "resolved"}, format="json")
         assert resolve.status_code == status.HTTP_200_OK, resolve.json()
 

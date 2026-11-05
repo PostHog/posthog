@@ -77,7 +77,7 @@ from products.signals.backend.models import (
 from products.signals.backend.personal_ranking.candidates import recommended_order
 from products.signals.backend.report_assignments import create_claim
 from products.signals.backend.report_claims import get_active_claim
-from products.signals.backend.report_content_gates import INBOX_CLAIM_TO_CLOSE_FLAG
+from products.signals.backend.report_content_gates import INBOX_CLAIM_TO_CLOSE_FLAG, REPORT_MONITORING_FLAG
 from products.signals.backend.report_merge import MERGE_DISMISSAL_REASON
 from products.signals.backend.report_monitoring_attempts import current_monitoring_attempt
 from products.signals.backend.scout_harness.profile.builders import _recent_reviewer_corrections
@@ -6262,10 +6262,15 @@ class TestSignalReportClaimToCloseAPI(APIBaseTest):
         self.teammate = User.objects.create_and_join(self.organization, "teammate@example.com", "password")
         self.report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="A report")
 
-    def _flag(self, enabled: bool = True):
+    def _flag(self, enabled: bool = True, *, monitoring: bool = False):
+        flags = set()
+        if enabled:
+            flags.add(INBOX_CLAIM_TO_CLOSE_FLAG)
+        if monitoring:
+            flags.add(REPORT_MONITORING_FLAG)
         return patch(
             "products.signals.backend.report_content_gates.feature_enabled_or_false",
-            side_effect=lambda flag, *_args, **_kwargs: enabled and flag == INBOX_CLAIM_TO_CLOSE_FLAG,
+            side_effect=lambda flag, *_args, **_kwargs: flag in flags,
         )
 
     def _state_url(self) -> str:
@@ -6392,6 +6397,31 @@ class TestSignalReportClaimToCloseAPI(APIBaseTest):
         assert response.status_code == status.HTTP_409_CONFLICT, response.json()
         self.report.refresh_from_db()
         assert self.report.status == SignalReport.Status.READY
+
+    @parameterized.expand(
+        [
+            ("unclaimed", None, status.HTTP_409_CONFLICT, SignalReport.Status.READY),
+            ("teammate_claim", "teammate", status.HTTP_409_CONFLICT, SignalReport.Status.READY),
+            # No follow-up check applies, so Monitoring resolves the report outright — which is why
+            # the claim gate has to cover it.
+            ("own_claim", "self", status.HTTP_200_OK, SignalReport.Status.RESOLVED),
+        ]
+    )
+    def test_starting_monitoring_needs_the_claim(
+        self, _name: str, holder: str | None, expected: int, expected_status: str
+    ) -> None:
+        if holder is not None:
+            user = self.user if holder == "self" else self.teammate
+            create_claim(self.report, ArtefactAttribution.from_user(user.id))
+
+        with self._flag(monitoring=True):
+            response = self.client.post(self._state_url(), {"state": "monitoring"}, format="json")
+
+        assert response.status_code == expected, response.json()
+        if expected == status.HTTP_409_CONFLICT:
+            assert "claim" in response.json()["error"].lower()
+        self.report.refresh_from_db()
+        assert self.report.status == expected_status
 
     def test_bulk_dismiss_skips_reports_the_caller_has_not_claimed(self) -> None:
         claimed = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="Mine")

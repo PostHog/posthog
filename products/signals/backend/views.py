@@ -886,6 +886,16 @@ _RESOLVABLE_STATUSES_BEFORE_SUPPRESSION = frozenset(
     }
 )
 
+# Targets the claim gate covers, and the verb each one is refused with. Monitoring is here because
+# it is a way of closing a report: `complete_implementation` resolves outright when no check
+# applies, and a report that does enter Monitoring leaves the claimable set, so a later resolve is
+# no longer gated either.
+_CLOSE_TARGET_VERBS = {
+    SignalReport.Status.SUPPRESSED: "dismiss",
+    SignalReport.Status.RESOLVED: "resolve",
+    SignalReport.Status.MONITORING: "start monitoring",
+}
+
 
 class SignalReportState(models.TextChoices):
     SUPPRESSED = "suppressed", "suppressed"
@@ -2138,9 +2148,9 @@ class SignalReportViewSet(
         return ArtefactAttribution.from_user(user_id) if user_id is not None else ArtefactAttribution.system()
 
     def _close_denial_message(self, report: SignalReport, target_status: SignalReport.Status) -> str | None:
-        """Why this request may not dismiss or resolve the report, or None when it may."""
+        """Why this request may not dismiss, resolve or start monitoring the report, or None when it may."""
         if (
-            target_status not in {SignalReport.Status.SUPPRESSED, SignalReport.Status.RESOLVED}
+            target_status not in _CLOSE_TARGET_VERBS
             or report.status not in CLAIMABLE_REPORT_STATUSES
             or not self._inbox_claim_to_close
             or self._is_automatic_signal_agent
@@ -2162,7 +2172,7 @@ class SignalReportViewSet(
                 "surface": "mcp" if is_mcp_request(self.request) else "api",
             },
         )
-        verb = "dismiss" if target_status == SignalReport.Status.SUPPRESSED else "resolve"
+        verb = _CLOSE_TARGET_VERBS[target_status]
         if denial == "unclaimed":
             return f"Claim this report before you {verb} it."
         return f"Someone else holds the claim on this report. Take over the claim before you {verb} it."

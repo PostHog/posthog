@@ -203,7 +203,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
                   },
               ]
             : []),
-        ...(canMonitorReport(report, (reportChecks?.length ?? 0) > 0)
+        ...(canClose && canMonitorReport(report, (reportChecks?.length ?? 0) > 0)
             ? [
                   {
                       key: 'monitor',
@@ -227,7 +227,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
               ]
             : []),
         ...(canResolve ? [resolve] : []),
-        // Dismiss and Resolve need the claim, so the claim takes their place. A teammate's claim is left to them.
+        // Closing a report needs the claim, so Claim takes those actions' place. A teammate's claim is left to them.
         ...(!canClose && isReportClaimable(report)
             ? [
                   {
