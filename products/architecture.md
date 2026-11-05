@@ -499,6 +499,9 @@ The facade pages in SQL instead, and the view builds the standard response from 
 - Every list returns `count`, `next`, `previous` and `results`, so clients and MCP tools page every product the same way.
   Add extra fields beside them when a list needs them, and do not replace them.
 - Do not set paginator attributes by hand, build a fake queryset for a paginator, or return a whole list for the view to slice.
+  The `no-hand-set-paginator-state` semgrep rule blocks the first.
+- Every paginator extends a base in `posthog/api/pagination.py`: `BoundedLimitOffsetPagination`, `BoundedPageNumberPagination` or `StableCursorPagination`.
+  `posthog/test/repo_invariants/test_pagination_contract.py` fails for a registered view whose paginator does not.
 
 `products/visual_review/backend/presentation/views.py` shows the limit/offset form.
 
