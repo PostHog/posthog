@@ -323,6 +323,7 @@ export interface TicketAssignmentApi {
  * * `project` - Project
  * * `replay` - Replay
  * * `survey` - Survey
+ * * `external` - External link
  * * `other` - Other
  */
 export type TicketBriefItemKindEnumApi = (typeof TicketBriefItemKindEnumApi)[keyof typeof TicketBriefItemKindEnumApi]
@@ -335,6 +336,7 @@ export const TicketBriefItemKindEnumApi = {
     Project: 'project',
     Replay: 'replay',
     Survey: 'survey',
+    External: 'external',
     Other: 'other',
 } as const
 
@@ -348,6 +350,7 @@ export interface TicketBriefAffectedItemApi {
      * * `project` - Project
      * * `replay` - Replay
      * * `survey` - Survey
+     * * `external` - External link
      * * `other` - Other */
     kind: TicketBriefItemKindEnumApi
     /**
@@ -397,7 +400,10 @@ export interface TicketBriefApi {
      * @nullable
      */
     error_message?: string | null
-    /** The PostHog items the ticket is about, with a link to each one. */
+    /**
+     * The items the ticket is about, with a link to each one.
+     * @maxItems 5
+     */
     affected_items?: TicketBriefAffectedItemApi[]
     /**
      * Images the customer attached, in the order they sent them.

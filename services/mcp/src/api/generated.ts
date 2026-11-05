@@ -76950,6 +76950,7 @@ export namespace Schemas {
      * * `project` - Project
      * * `replay` - Replay
      * * `survey` - Survey
+     * * `external` - External link
      * * `other` - Other
      */
     export type TicketBriefItemKindEnum = typeof TicketBriefItemKindEnum[keyof typeof TicketBriefItemKindEnum];
@@ -76963,6 +76964,7 @@ export namespace Schemas {
       Project: 'project',
       Replay: 'replay',
       Survey: 'survey',
+      External: 'external',
       Other: 'other',
     } as const;
 
@@ -76976,6 +76978,7 @@ export namespace Schemas {
        * * `project` - Project
        * * `replay` - Replay
        * * `survey` - Survey
+       * * `external` - External link
        * * `other` - Other */
       kind: TicketBriefItemKindEnum;
       /**
@@ -77025,7 +77028,10 @@ export namespace Schemas {
          * @nullable
          */
       error_message?: string | null;
-      /** The PostHog items the ticket is about, with a link to each one. */
+      /**
+         * The items the ticket is about, with a link to each one.
+         * @maxItems 5
+         */
       affected_items?: TicketBriefAffectedItem[];
       /**
          * Images the customer attached, in the order they sent them.

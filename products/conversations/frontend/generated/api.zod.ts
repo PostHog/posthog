@@ -100,6 +100,8 @@ export const conversationsTicketsUpdateBodyTicketBriefOneAffectedItemsItemUrlMax
 
 export const conversationsTicketsUpdateBodyTicketBriefOneAffectedItemsItemLabelMax = 120
 
+export const conversationsTicketsUpdateBodyTicketBriefOneAffectedItemsMax = 5
+
 export const conversationsTicketsUpdateBodyTicketBriefOneScreenshotUrlsItemMax = 2000
 
 export const conversationsTicketsUpdateBodyTicketBriefOneScreenshotUrlsMax = 5
@@ -208,13 +210,14 @@ export const ConversationsTicketsUpdateBody = /* @__PURE__ */ zod
                                         'project',
                                         'replay',
                                         'survey',
+                                        'external',
                                         'other',
                                     ])
                                     .describe(
-                                        '\* `dashboard` - Dashboard\n\* `experiment` - Experiment\n\* `feature_flag` - Feature flag\n\* `insight` - Insight\n\* `project` - Project\n\* `replay` - Replay\n\* `survey` - Survey\n\* `other` - Other'
+                                        '\* `dashboard` - Dashboard\n\* `experiment` - Experiment\n\* `feature_flag` - Feature flag\n\* `insight` - Insight\n\* `project` - Project\n\* `replay` - Replay\n\* `survey` - Survey\n\* `external` - External link\n\* `other` - Other'
                                     )
                                     .describe(
-                                        'What the customer is asking about: dashboard, experiment, feature_flag, insight, project, replay, survey, or other.\n\n\* `dashboard` - Dashboard\n\* `experiment` - Experiment\n\* `feature_flag` - Feature flag\n\* `insight` - Insight\n\* `project` - Project\n\* `replay` - Replay\n\* `survey` - Survey\n\* `other` - Other'
+                                        'What the customer is asking about: dashboard, experiment, feature_flag, insight, project, replay, survey, or other.\n\n\* `dashboard` - Dashboard\n\* `experiment` - Experiment\n\* `feature_flag` - Feature flag\n\* `insight` - Insight\n\* `project` - Project\n\* `replay` - Replay\n\* `survey` - Survey\n\* `external` - External link\n\* `other` - Other'
                                     ),
                                 url: zod
                                     .url()
@@ -228,8 +231,9 @@ export const ConversationsTicketsUpdateBody = /* @__PURE__ */ zod
                                     .describe('Name of the item as the customer would recognize it.'),
                             })
                         )
+                        .max(conversationsTicketsUpdateBodyTicketBriefOneAffectedItemsMax)
                         .optional()
-                        .describe('The PostHog items the ticket is about, with a link to each one.'),
+                        .describe('The items the ticket is about, with a link to each one.'),
                     screenshot_urls: zod
                         .array(zod.url().max(conversationsTicketsUpdateBodyTicketBriefOneScreenshotUrlsItemMax))
                         .max(conversationsTicketsUpdateBodyTicketBriefOneScreenshotUrlsMax)
@@ -276,6 +280,8 @@ export const conversationsTicketsPartialUpdateBodyTicketBriefOneErrorMessageMax 
 export const conversationsTicketsPartialUpdateBodyTicketBriefOneAffectedItemsItemUrlMax = 2000
 
 export const conversationsTicketsPartialUpdateBodyTicketBriefOneAffectedItemsItemLabelMax = 120
+
+export const conversationsTicketsPartialUpdateBodyTicketBriefOneAffectedItemsMax = 5
 
 export const conversationsTicketsPartialUpdateBodyTicketBriefOneScreenshotUrlsItemMax = 2000
 
@@ -385,13 +391,14 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
                                         'project',
                                         'replay',
                                         'survey',
+                                        'external',
                                         'other',
                                     ])
                                     .describe(
-                                        '\* `dashboard` - Dashboard\n\* `experiment` - Experiment\n\* `feature_flag` - Feature flag\n\* `insight` - Insight\n\* `project` - Project\n\* `replay` - Replay\n\* `survey` - Survey\n\* `other` - Other'
+                                        '\* `dashboard` - Dashboard\n\* `experiment` - Experiment\n\* `feature_flag` - Feature flag\n\* `insight` - Insight\n\* `project` - Project\n\* `replay` - Replay\n\* `survey` - Survey\n\* `external` - External link\n\* `other` - Other'
                                     )
                                     .describe(
-                                        'What the customer is asking about: dashboard, experiment, feature_flag, insight, project, replay, survey, or other.\n\n\* `dashboard` - Dashboard\n\* `experiment` - Experiment\n\* `feature_flag` - Feature flag\n\* `insight` - Insight\n\* `project` - Project\n\* `replay` - Replay\n\* `survey` - Survey\n\* `other` - Other'
+                                        'What the customer is asking about: dashboard, experiment, feature_flag, insight, project, replay, survey, or other.\n\n\* `dashboard` - Dashboard\n\* `experiment` - Experiment\n\* `feature_flag` - Feature flag\n\* `insight` - Insight\n\* `project` - Project\n\* `replay` - Replay\n\* `survey` - Survey\n\* `external` - External link\n\* `other` - Other'
                                     ),
                                 url: zod
                                     .url()
@@ -405,8 +412,9 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
                                     .describe('Name of the item as the customer would recognize it.'),
                             })
                         )
+                        .max(conversationsTicketsPartialUpdateBodyTicketBriefOneAffectedItemsMax)
                         .optional()
-                        .describe('The PostHog items the ticket is about, with a link to each one.'),
+                        .describe('The items the ticket is about, with a link to each one.'),
                     screenshot_urls: zod
                         .array(zod.url().max(conversationsTicketsPartialUpdateBodyTicketBriefOneScreenshotUrlsItemMax))
                         .max(conversationsTicketsPartialUpdateBodyTicketBriefOneScreenshotUrlsMax)

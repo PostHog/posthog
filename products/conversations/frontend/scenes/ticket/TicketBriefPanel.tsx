@@ -10,6 +10,7 @@ const ITEM_KIND_LABELS: Record<TicketBriefItemKindEnumApi, string> = {
     project: 'Project',
     replay: 'Replay',
     survey: 'Survey',
+    external: 'Link',
     other: 'Item',
 }
 
