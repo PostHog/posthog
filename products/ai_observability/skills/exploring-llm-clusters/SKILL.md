@@ -306,6 +306,7 @@ For the full `$ai_*` event schema, load the `exploring-llm-traces` skill.
 2. Calculate error rate per cluster: `items_with_errors / total_items`
 3. Focus on clusters with high error rates
 4. Drill into errored traces to find root causes
+5. If a cluster shows a failure that keeps recurring, offer to catch it with an online evaluation scoped to that cluster (`creating-online-evaluations`)
 
 ### "How do clusters compare across runs?"
 

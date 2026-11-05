@@ -339,6 +339,7 @@ export interface inboxFiltersLogicValues {
         uuid: string
     } | null
     modelSortAvailable: boolean
+    nonDefaultReportFilterCount: number
     priorityFilter: SignalReportPriority[]
     scope: InboxScope
     scoutFilter: string[]
@@ -354,6 +355,7 @@ export interface inboxFiltersLogicValues {
         | 'monitoring'
         | 'needs-decision'
         | 'not-actionable'
+        | 'outcome-monitoring'
         | 'resolved'
     )[]
     timeWindowAvailable: boolean
@@ -457,7 +459,15 @@ export interface inboxFiltersLogicActions {
         source: string
     }
     toggleState: (state: InboxReportSectionKey) => {
-        state: 'closed' | 'dismissed' | 'held-back' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved'
+        state:
+            | 'closed'
+            | 'dismissed'
+            | 'held-back'
+            | 'monitoring'
+            | 'needs-decision'
+            | 'not-actionable'
+            | 'outcome-monitoring'
+            | 'resolved'
     }
 }
 
@@ -499,10 +509,28 @@ export interface inboxFiltersLogicMeta {
                 | 'monitoring'
                 | 'needs-decision'
                 | 'not-actionable'
+                | 'outcome-monitoring'
                 | 'resolved'
             )[],
             user: UserType | null
         ) => InboxReportSectionKey[]
+        nonDefaultReportFilterCount: (
+            visibleStateFilter: (
+                | 'closed'
+                | 'dismissed'
+                | 'held-back'
+                | 'monitoring'
+                | 'needs-decision'
+                | 'not-actionable'
+                | 'outcome-monitoring'
+                | 'resolved'
+            )[],
+            priorityFilter: SignalReportPriority[],
+            activeCreatedWindow: InboxCreatedWindow | null,
+            activeSortField: InboxSortField,
+            activeSourceProductFilter: string[],
+            activeScoutFilter: string[]
+        ) => number
     }
 }
 
@@ -646,7 +674,13 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
             togglePriority: () => captureQueryChange('priority'),
             setPriorityFilter: () => captureQueryChange('priority'),
             toggleState: () => captureQueryChange('state'),
-            clearFilters: () => captureQueryChange('clear'),
+            clearFilters: () => {
+                // Under a ranking sort the default is the sort's own window, not "any time".
+                if (isRankingSortField(values.activeSortField) && values.timeWindowAvailable) {
+                    actions.applyDefaultCreatedWindow(MODEL_SORT_DEFAULT_WINDOW)
+                }
+                captureQueryChange('clear')
+            },
             setFilters: () => {
                 rememberSelectedTeammate()
                 captureQueryChange('url')
@@ -882,9 +916,34 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         visibleStateFilter: [
             (s) => [s.stateFilter, s.user],
             (stateFilter: InboxReportSectionKey[], user: UserType | null): InboxReportSectionKey[] =>
-                user?.is_staff
-                    ? stateFilter
-                    : stateFilter.filter((key) => !INBOX_STAFF_ONLY_REPORT_SECTION_KEYS.includes(key)),
+                stateFilter.filter((key) => user?.is_staff || !INBOX_STAFF_ONLY_REPORT_SECTION_KEYS.includes(key)),
+        ],
+        // The window a ranking sort applies on its own is that sort's default, so it does not count.
+        nonDefaultReportFilterCount: [
+            (s) => [
+                s.visibleStateFilter,
+                s.priorityFilter,
+                s.activeCreatedWindow,
+                s.activeSortField,
+                s.activeSourceProductFilter,
+                s.activeScoutFilter,
+            ],
+            (
+                visibleStateFilter: InboxReportSectionKey[],
+                priorityFilter: SignalReportPriority[],
+                activeCreatedWindow: InboxCreatedWindow | null,
+                activeSortField: InboxSortField,
+                activeSourceProductFilter: string[],
+                activeScoutFilter: string[]
+            ): number => {
+                const defaultCreatedWindow = isRankingSortField(activeSortField) ? MODEL_SORT_DEFAULT_WINDOW : null
+                return [
+                    !isDefaultStateFilter(visibleStateFilter),
+                    priorityFilter.length > 0,
+                    activeCreatedWindow !== null && activeCreatedWindow !== defaultCreatedWindow,
+                    activeSourceProductFilter.length > 0 || activeScoutFilter.length > 0,
+                ].filter(Boolean).length
+            },
         ],
     }),
 

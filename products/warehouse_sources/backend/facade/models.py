@@ -14,7 +14,10 @@ Consumers that only read fields should use ``facade.api`` (contracts) instead.
 
 from products.warehouse_sources.backend.facade.contracts import UnsupportedSyncTypeError
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
-from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
+from products.warehouse_sources.backend.models.column_statistics import (
+    WarehouseColumnStatistics,
+    clear_masked_column_bounds,
+)
 from products.warehouse_sources.backend.models.credential import (
     DataWarehouseCredential,
     get_or_create_datawarehouse_credential,
@@ -42,6 +45,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     discovered_schema_finder,
     get_all_schemas_for_source_id,
     get_schemas_for_direct_reconciliation,
+    is_pinned_schema,
     mark_schema_running_unless_halted,
     resolve_sync_type,
     self_managed_table_ref,
@@ -113,6 +117,7 @@ __all__ = [
     "asave_datawarehousetable",
     "auto_enable_new_schemas",
     "discovered_schema_finder",
+    "is_pinned_schema",
     "self_managed_table_ref",
     "create_datawarehousetable",
     "get_all_schemas_for_source_id",
@@ -123,6 +128,7 @@ __all__ = [
     "latest_completed_job_prefetch",
     "get_or_create_datawarehouse_credential",
     "get_or_create_warehouse_destination",
+    "clear_masked_column_bounds",
     "clickhouse_column_to_dwh_column",
     "clickhouse_columns_to_dwh_columns",
     "motherduck_column_to_dwh_column",

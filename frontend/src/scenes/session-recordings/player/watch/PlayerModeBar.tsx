@@ -11,34 +11,35 @@ import {
     SelectTrigger,
     SelectValue,
     Skeleton,
-    ToggleGroup,
-    ToggleGroupItem,
+    Tabs,
+    TabsList,
+    TabsTrigger,
 } from '@posthog/quill'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { parseUrl } from 'scenes/session-recordings/player/player-meta/PlayerMeta'
-import {
-    InsertInNotebookPlaylistButton,
-    MenuActions,
-} from 'scenes/session-recordings/player/player-meta/PlayerMetaLinks'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
-import {
-    InspectDOM,
-    SetPlaybackSpeed,
-    usePlayerChromeMenuItems,
-} from 'scenes/session-recordings/player/player-meta/PlayerMetaTopSettings'
+import { usePlayerChromeMenuItems } from 'scenes/session-recordings/player/player-meta/PlayerMetaTopSettings'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { PlayerShareMenu } from 'scenes/session-recordings/player/share/PlayerShareMenu'
 import { playerSidebarLogic } from 'scenes/session-recordings/player/sidebar/playerSidebarLogic'
 import { useLinkedIssuesAvailable } from 'scenes/session-recordings/player/sidebar/useLinkedIssuesAvailable'
+import { userLogic } from 'scenes/userLogic'
 
 import { SessionRecordingSidebarTab } from '~/types'
 
 import { debugTabKeys } from './DebugTabBar'
+import { QuillDebugReplayButton } from './QuillDebugReplayButton'
+import { QuillInsertInNotebookPlaylistButton } from './QuillInsertInNotebookPlaylistButton'
+import { QuillInspectDOM } from './QuillInspectDOM'
+import { QuillPlayerActionsMenu } from './QuillPlayerActionsMenu'
+import { QuillPlayerShareMenu } from './QuillPlayerShareMenu'
+import { QuillSetPlaybackSpeed } from './QuillSetPlaybackSpeed'
 
 type PlayerMode = 'watch' | 'debug'
 
@@ -53,11 +54,15 @@ export function PlayerModeBar(): JSX.Element {
     const { setDebugMode } = useActions(playerSettingsLogic)
     const { activeTab } = useValues(playerSidebarLogic)
     const { setTab } = useActions(playerSidebarLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { user } = useValues(userLogic)
     const chromeItems = usePlayerChromeMenuItems()
     const debugTabs = debugTabKeys(useLinkedIssuesAvailable())
     const { ref, size } = useResizeBreakpoints({ 0: 'small', 600: 'normal' })
 
     const mode: PlayerMode = debugMode ? 'debug' : 'watch'
+    const showDebugReplayButton =
+        (featureFlags[FEATURE_FLAGS.REPLAY_DEBUG_WITH_AI] || user?.is_impersonated) && logicProps.playerKey !== 'modal'
     const setMode = (next: PlayerMode): void => {
         posthog.capture('session recording mode changed', { mode: next })
         setDebugMode(next === 'debug')
@@ -79,19 +84,24 @@ export function PlayerModeBar(): JSX.Element {
     return (
         <div ref={ref} data-quill className="PlayerMeta relative text-foreground">
             <div className="flex flex-row items-center gap-x-1 whitespace-nowrap overflow-hidden px-1 py-0.5 text-xs">
-                <ToggleGroup
-                    variant="outline"
-                    size="sm"
-                    value={[mode]}
-                    onValueChange={(value: string[]) => value[0] && setMode(value[0] as PlayerMode)}
-                >
-                    <ToggleGroupItem value="watch" data-attr="player-mode-watch">
-                        Watch
-                    </ToggleGroupItem>
-                    <ToggleGroupItem value="debug" data-attr="player-mode-debug">
-                        Debug
-                    </ToggleGroupItem>
-                </ToggleGroup>
+                <Tabs value={mode} onValueChange={(value) => setMode(value as PlayerMode)} className="shrink-0">
+                    <TabsList className="h-7 [--quill-tabs-active-bg:var(--primary)]">
+                        <TabsTrigger
+                            value="watch"
+                            className="text-xs data-active:text-(--primary-foreground)"
+                            data-attr="player-mode-watch"
+                        >
+                            Watch
+                        </TabsTrigger>
+                        <TabsTrigger
+                            value="debug"
+                            className="text-xs data-active:text-(--primary-foreground)"
+                            data-attr="player-mode-debug"
+                        >
+                            Debug
+                        </TabsTrigger>
+                    </TabsList>
+                </Tabs>
                 {loading ? (
                     <Skeleton className="w-1/3 h-4 my-1" />
                 ) : (
@@ -134,7 +144,7 @@ export function PlayerModeBar(): JSX.Element {
                                 />
                                 {isWebUrl ? (
                                     <Button
-                                        variant="link"
+                                        variant="link-muted"
                                         size="inline"
                                         render={<LinkPrimitive to={urlToUse} target="_blank" />}
                                         tooltip={`Click to open url: ${urlToUse}`}
@@ -152,11 +162,12 @@ export function PlayerModeBar(): JSX.Element {
                 )}
                 <div className="flex-1 min-w-4" />
                 <div className="flex items-center gap-0.5">
-                    {sessionRecordingId && <MenuActions size={size} extraItems={chromeItems} />}
-                    <SetPlaybackSpeed />
-                    {debugMode && <InspectDOM />}
-                    <InsertInNotebookPlaylistButton size={size} />
-                    <PlayerShareMenu />
+                    {sessionRecordingId && <QuillPlayerActionsMenu extraItems={chromeItems} />}
+                    <QuillSetPlaybackSpeed />
+                    {debugMode && <QuillInspectDOM />}
+                    {debugMode && showDebugReplayButton && <QuillDebugReplayButton />}
+                    <QuillInsertInNotebookPlaylistButton size={size} />
+                    <QuillPlayerShareMenu />
                 </div>
             </div>
         </div>

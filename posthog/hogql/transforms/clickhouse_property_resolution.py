@@ -222,6 +222,21 @@ def resolve_json_subcolumn_source(
     )
 
 
+def stored_key_json_text(field_type: ast.FieldType, key: str, context: HogQLContext) -> ast.Expr | None:
+    """The JSON text of `<blob>.<key>` on the JSON events table, read from the key's own stored column and serialized as
+    `JSONExtractRaw(document, key)` returns it from the rebuilt document. None when no single column holds what the
+    document shows: the document leaves `$feature_flags` out in favour of its `$feature/<key>` pairs, and a key that a
+    restriction touches reads the masked document as text. The read is the `PropertyAccess` that lowering builds, so
+    it gets no property type and the value pass resolves it like any other key read.
+    """
+    if key == "$feature_flags" or property_path_overlaps_restriction(key, field_type.table_type, context):
+        return None
+    read = ast.PropertyAccess(
+        expr=ast.Field(chain=[field_type.name], type=field_type), keys=[key], type=ast.StringType(nullable=True)
+    )
+    return ast.Call(name="toJSONString", args=[read], type=ast.StringType(nullable=True))
+
+
 def resolve_property_group_source(
     field_type: ast.FieldType, property_name: str, context: HogQLContext
 ) -> MaterializedPropertySource | None:

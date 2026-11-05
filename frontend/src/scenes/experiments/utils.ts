@@ -83,7 +83,7 @@ export function getExposureConfigDisplayName(config: ExperimentExposureConfig): 
         return config.event || 'Unknown Event'
     }
     if (config.kind === NodeKind.ExperimentWarehouseNativeExposureConfig) {
-        return 'Warehouse exposures'
+        return 'Warehouse-native query'
     }
     return config.name || `Action ${config.id}`
 }
@@ -743,9 +743,8 @@ const getEventCountSeries = (metric: ExperimentMetric): AnyEntityNode[] => {
                     dataWarehouseNode.properties.length > 0 && { properties: dataWarehouseNode.properties }),
             },
         ])
-        .with({ kind: NodeKind.ExperimentWarehouseNativeNode }, () => {
-            throw new Error('Warehouse-native sources cannot be shown as an insight yet')
-        })
+        // PostHog holds no rows of a warehouse-native source, so it has no recent activity to count.
+        .with({ kind: NodeKind.ExperimentWarehouseNativeNode }, () => [])
         .exhaustive()
 
     return series

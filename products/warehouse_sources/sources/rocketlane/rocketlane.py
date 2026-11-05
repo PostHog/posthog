@@ -1,4 +1,5 @@
 import dataclasses
+from datetime import date
 from typing import Any, Optional, cast
 
 from requests import Request, Response
@@ -24,6 +25,12 @@ ROCKETLANE_BASE_URL = "https://api.rocketlane.com/api/1.0"
 # Cheap endpoint used to confirm an api-key is genuine. The key is account-wide, so one probe
 # validates access to every list endpoint.
 DEFAULT_PROBE_PATH = "/users"
+
+# Endpoints with a required date window return rows that start on or after `startDate` and end on or
+# before `endDate`. Rocketlane documents no maximum range, so the source sends one window wide enough
+# to hold every past and planned row.
+DATE_WINDOW_START = "2000-01-01"
+DATE_WINDOW_YEARS_AHEAD = 10
 
 
 @dataclasses.dataclass  # nosemgrep: prefer-frozen-dataclasses -- pre-existing; new field shifts the backlog finding into diff
@@ -113,6 +120,18 @@ def _client_config(api_key: str) -> ClientConfig:
     }
 
 
+def _date_window(today: date) -> dict[str, str]:
+    end = date(today.year + DATE_WINDOW_YEARS_AHEAD, 12, 31)
+    return {"startDate": DATE_WINDOW_START, "endDate": end.isoformat()}
+
+
+def _endpoint_params(config: RocketlaneEndpointConfig, today: date) -> dict[str, Any]:
+    params: dict[str, Any] = {"pageSize": PAGE_SIZE, **config.params}
+    if config.requires_date_window:
+        params.update(_date_window(today))
+    return params
+
+
 def _source_response(endpoint: str, config: RocketlaneEndpointConfig, resource: Resource) -> SourceResponse:
     return SourceResponse(
         name=endpoint,
@@ -192,7 +211,7 @@ def rocketlane_source(
                 "name": endpoint,
                 "endpoint": {
                     "path": config.path,
-                    "params": {"pageSize": PAGE_SIZE},
+                    "params": _endpoint_params(config, date.today()),
                     "data_selector": "data",
                     # `data` is always present in a well-formed list response; a 200 body without it
                     # means the shape changed — fail loud rather than silently syncing 0 rows.

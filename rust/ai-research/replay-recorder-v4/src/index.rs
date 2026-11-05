@@ -102,6 +102,7 @@ fn serialize_stats<S: Serializer>(stats: &&BlockStats, serializer: S) -> Result<
         written_jsonl_bytes,
         max_written_event_bytes,
         decode_failures,
+        unread_reason,
         moments_truncated,
         mouse_interactions,
         touch_moves,
@@ -164,6 +165,7 @@ fn serialize_stats<S: Serializer>(stats: &&BlockStats, serializer: S) -> Result<
         image_urls
     );
     map.serialize_entry("host", host)?;
+    map.serialize_entry("unread_reason", unread_reason)?;
     serialize_surfacing(&mut map, surfacing)?;
     map.end()
 }
@@ -575,6 +577,7 @@ mod tests {
         ("surfacing_visited_url_fingerprints", "LIST<UTF8>", true),
         ("surfacing_click_target_ids", "LIST<INT64>", true),
         ("surfacing_form_field_ids", "LIST<INT64>", true),
+        ("unread_reason", "UTF8", true),
     ];
 
     const IMAGE_COLUMNS: &[(&str, &str, bool)] = &[

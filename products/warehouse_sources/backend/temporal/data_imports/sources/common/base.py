@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.con
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.credential_kind import (
     default_credential_kind,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.legacy_oauth import LegacyOAuthGrant
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.oauth_pointers import (
     OAuthPointer,
     PointerPath,
@@ -56,7 +57,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
     SourceResponse,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import get_config_for_source
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField
+from products.warehouse_sources.backend.types import IncrementalField, SourceKey
 
 logger = structlog.get_logger(__name__)
 
@@ -315,7 +316,7 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
     @property
     @abstractmethod
-    def source_type(self) -> ExternalDataSourceType:
+    def source_type(self) -> SourceKey:
         raise NotImplementedError()
 
     @property
@@ -441,6 +442,19 @@ class _BaseSource(ABC, Generic[ConfigType]):
         """
         raise NotImplementedError()
 
+    def describe_pinned_schema(
+        self, config: ConfigType, team_id: int, name: str, schema_metadata: Mapping[str, Any]
+    ) -> SourceSchema | None:
+        """Describe a pinned schema from the definition stored on it, without discovery.
+
+        Discovery can't report a pinned schema (see `SCHEMA_PINNED_METADATA_KEY`), so callers ask
+        this first. A source that can rebuild the schema from `schema_metadata` checks that the
+        credentials can read the schema's own data, raises the errors a sync raises when they
+        can't, and returns the schema. `None` means the caller uses `validate_credentials` and
+        `get_schemas`, as for any other schema.
+        """
+        return None
+
     def _placeholder_config(self) -> ConfigType:
         """Build a credential-free config instance for static, no-network schema listing.
 
@@ -508,7 +522,7 @@ class _BaseSource(ABC, Generic[ConfigType]):
     def _vendor_label(self) -> str:
         # The label is for a message only, so a source config that cannot build must not hide the result.
         try:
-            return self.get_source_config.label or str(self.source_type.value)
+            return self.get_source_config.label or str(self.source_type)
         except Exception:
             return "the vendor"
 
@@ -571,6 +585,14 @@ class _BaseSource(ABC, Generic[ConfigType]):
         return frozenset(self.connection_host_fields) | (GENERIC_IDENTITY_FIELDS & declared)
 
     @property
+    def integration_id_fields_point_at_integrations(self) -> bool:
+        """True when each ``*_integration_id`` field of the inputs holds the id of a core ``Integration`` row.
+
+        The reconcile command checks that each such id points at a row. Override it to False when the source
+        keeps its OAuth rows in another model."""
+        return True
+
+    @property
     def credential_kind(self) -> str | None:
         """The ``Integration`` kind that holds this source's typed-in credentials, or None when the source has none.
 
@@ -592,6 +614,17 @@ class _BaseSource(ABC, Generic[ConfigType]):
         )
 
         return derive_credential_auth_type(self.get_source_config)
+
+    def has_legacy_oauth_tokens(self, job_inputs: Mapping[str, Any]) -> bool:
+        """Check for legacy OAuth tokens without network calls."""
+        return False
+
+    def adopt_legacy_oauth(self, job_inputs: Mapping[str, Any]) -> LegacyOAuthGrant | None:
+        """Prepare a grant for storage. This method can make network calls and raise LegacyOAuthGrantUnusable.
+
+        None means the inputs hold no legacy OAuth tokens to move into a row.
+        """
+        return None
 
     def in_use_oauth_slot(self, job_inputs: Mapping[str, Any]) -> PointerPath | None:
         """Where ``job_inputs`` keep the OAuth pointer (`*_integration_id`) that the sync uses, or None.

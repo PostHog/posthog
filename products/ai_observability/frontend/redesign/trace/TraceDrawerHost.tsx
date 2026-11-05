@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
+import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 
@@ -9,10 +10,12 @@ import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { DetailPanel, isDetailPanelFullWidth } from '../shared/components/DetailPanel'
 import { TraceViewContainer } from './adapter/TraceViewContainer'
 import { TraceDrawerToolbar } from './components/TraceDrawerToolbar'
-import { traceDrawerLogic } from './traceDrawerLogic'
+import { isOverlayOpen } from './shouldCloseOnEscape'
+import type { TraceDrawerListId } from './traceDrawerLists'
+import { TraceStepDirection, traceDrawerLogic } from './traceDrawerLogic'
 
 export interface TraceDrawerHostProps {
-    listId: string
+    listId: TraceDrawerListId
 }
 
 export function TraceDrawerHost({ listId }: TraceDrawerHostProps): JSX.Element | null {
@@ -30,6 +33,29 @@ export function TraceDrawerHost({ listId }: TraceDrawerHostProps): JSX.Element |
         minSize: 480,
     }
     const { desiredSize } = useValues(resizerLogic(resizerProps))
+
+    // Stepping unmounts the trace view, and with it any modal opened from it, so a key never steps under an open overlay.
+    const stepUnlessOverlayOpen = (direction: TraceStepDirection): void => {
+        if (!isOverlayOpen()) {
+            stepTo(direction)
+        }
+    }
+    useShortcut({
+        name: 'TraceDrawerPrevious',
+        keybind: [['p']],
+        intent: 'Previous trace',
+        interaction: 'function',
+        callback: () => stepUnlessOverlayOpen('previous'),
+        disabled: !previousTrace,
+    })
+    useShortcut({
+        name: 'TraceDrawerNext',
+        keybind: [['n']],
+        intent: 'Next trace',
+        interaction: 'function',
+        callback: () => stepUnlessOverlayOpen('next'),
+        disabled: !nextTrace,
+    })
 
     if (!isEnabled || !openRef || !fullPageHref || !mainContentRect) {
         return null

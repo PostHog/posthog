@@ -321,13 +321,13 @@ class RatioQueryBuilder:
             numerator_events_cte = build_precomputed_metric_events_cte(
                 cte_name="numerator_events",
                 source=self._b.metric.numerator,
-                entity_key=self._b.entity_key,
+                entity_id_sql=self._b.context.precomputed_entity_id_sql(),
                 job_ids_placeholder="numerator_job_ids",
             )
             denominator_events_cte = build_precomputed_metric_events_cte(
                 cte_name="denominator_events",
                 source=self._b.metric.denominator,
-                entity_key=self._b.entity_key,
+                entity_id_sql=self._b.context.precomputed_entity_id_sql(),
                 job_ids_placeholder="denominator_job_ids",
             )
         else:

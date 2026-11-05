@@ -1741,9 +1741,7 @@ class TestPostgresSourceNonRetryableErrors:
         [
             'infinite recursion detected in policy for relation "list_members"',
             # Temporal-wrapped form matches both this pattern and the "InvalidObjectDefinition"
-            # class-name key; `update_external_data_job_model` takes the friendly message from the
-            # *first* matching dict entry, so the specific pattern must be ordered before the
-            # class-name key or its `None` value silently shadows this actionable message.
+            # class-name key, so the first matching entry must carry the actionable message.
             'InvalidObjectDefinition: infinite recursion detected in policy for relation "orders"',
         ],
     )

@@ -258,6 +258,11 @@ class FramerClient:
             if message.get("type") == "methodResponse" and message.get("id") == invocation_id:
                 error = message.get("error")
                 if isinstance(error, str):
+                    # The server reports its own per-call timeout inline on an ordinary
+                    # methodResponse rather than the generic `{"type": "error"}` message
+                    # _receive() handles below, so it needs the same transient classification.
+                    if "timed out" in error.lower():
+                        raise FramerAPIError(f"{method}: {error}", code="TIMEOUT", retryable=True)
                     raise FramerAPIError(f"{method}: {error}", code="METHOD_ERROR")
                 return message.get("result")
             # Anything else (permissionUpdate, subscription traffic) is irrelevant here.

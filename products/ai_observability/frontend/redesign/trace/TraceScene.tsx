@@ -9,11 +9,13 @@ export function TraceScene(): JSX.Element | null {
         return null
     }
     return (
-        <TraceViewContainer
-            hostId={TRACE_PAGE_HOST_ID}
-            traceId={traceId}
-            timestampHint={timestampHint}
-            backLink={backLink}
-        />
+        <div className="flex min-h-0 flex-1 flex-col pb-4">
+            <TraceViewContainer
+                hostId={TRACE_PAGE_HOST_ID}
+                traceId={traceId}
+                timestampHint={timestampHint}
+                backLink={backLink}
+            />
+        </div>
     )
 }

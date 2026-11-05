@@ -1,0 +1,13 @@
+{# One Django message as a quill Item callout. The tone follows the message level. #}
+<div role="status"
+     data-tone="{{ message.level_tag }}"
+     class="quill-item quill-item--variant-outline quill-item--size-sm flex items-center gap-3 {% if message.level_tag == 'success' %}quill-item--tone-success{% elif message.level_tag == 'error' %}quill-item--tone-destructive{% elif message.level_tag == 'warning' %}quill-item--tone-warning{% else %}quill-item--tone-info{% endif %}">
+    {% if message.level_tag == 'success' %}
+        <img src="/static/admin-console/hoggies/stamp-approved.png"
+             class="w-10"
+             alt="" />
+    {% endif %}
+    <div class="quill-item__content">
+        <div class="quill-item__title">{{ message }}</div>
+    </div>
+</div>

@@ -1,9 +1,14 @@
 import dataclasses
+from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 from requests import Request, Response
 
-from products.warehouse_sources.sources.ruddr.settings import RUDDR_ENDPOINTS
+from products.warehouse_sources.sources.ruddr.settings import (
+    INCREMENTAL_FIELDS,
+    INCREMENTAL_FILTER_PARAMS,
+    RUDDR_ENDPOINTS,
+)
 from products.warehouse_sources.sources.sdk import (
     BasePaginator,
     RESTAPIConfig,
@@ -76,15 +81,40 @@ class RuddrCursorPaginator(BasePaginator):
             self._has_next_page = True
 
 
+def _format_watermark(value: Any) -> str:
+    if isinstance(value, datetime):
+        normalized = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+        return normalized.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    if isinstance(value, date):
+        return value.isoformat()
+    return str(value)
+
+
+def incremental_filter_params(
+    endpoint: str, incremental_field: Optional[str], db_incremental_field_last_value: Optional[Any]
+) -> dict[str, str]:
+    # The first incremental sync has no watermark, so it reads every row.
+    if incremental_field is None or db_incremental_field_last_value is None:
+        return {}
+    if incremental_field not in {f["field"] for f in INCREMENTAL_FIELDS.get(endpoint, [])}:
+        raise ValueError(f"Ruddr endpoint '{endpoint}' does not support incremental field '{incremental_field}'")
+    return {INCREMENTAL_FILTER_PARAMS[incremental_field]: _format_watermark(db_incremental_field_last_value)}
+
+
 def ruddr_source(
     api_key: str,
     endpoint: str,
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[RuddrResumeConfig],
+    incremental_field: Optional[str] = None,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = RUDDR_ENDPOINTS[endpoint]
+    params: dict[str, Any] = {
+        "limit": PAGE_SIZE,
+        **incremental_filter_params(endpoint, incremental_field, db_incremental_field_last_value),
+    }
 
     rest_config: RESTAPIConfig = {
         "client": {
@@ -100,7 +130,7 @@ def ruddr_source(
                 "name": endpoint,
                 "endpoint": {
                     "path": config.path,
-                    "params": {"limit": PAGE_SIZE},
+                    "params": params,
                     "data_selector": "results",
                     # A 200 body that isn't {"results": [...]} is a transient shape glitch — retried,
                     # matching the hand-rolled source's RuddrRetryableError on an unexpected payload.
