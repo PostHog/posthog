@@ -411,7 +411,7 @@ const depthBoundedTreeAdapter: TreeAdapter<DefaultTreeAdapterMap> = {
 }
 
 class FooterStyleAttributeBoundedParser extends AttributeBoundedParser {
-    static maxAttributesPerTag = MAX_ATTRIBUTES_PER_TAG + 1
+    static override maxAttributesPerTag = MAX_ATTRIBUTES_PER_TAG + 1
 }
 
 function parseBounded(html: string, scriptingEnabled = false): DefaultTreeAdapterMap['document'] {
