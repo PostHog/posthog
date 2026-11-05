@@ -50,7 +50,7 @@ export function ReportCheckRow({
                 </span>
             </div>
             {cancellable && (
-                <div className="flex flex-wrap justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+                <div className="-mt-1 flex h-0 flex-wrap justify-end gap-1 overflow-hidden group-hover:mt-0 group-hover:h-auto group-focus-within:mt-0 group-focus-within:h-auto group-focus-within:overflow-visible [@media(hover:none)]:mt-0 [@media(hover:none)]:h-auto">
                     <LemonButton
                         type="tertiary"
                         size="xsmall"
