@@ -187,6 +187,10 @@ describe('mcpSetupModeLogic', () => {
     describe('polling while setup mode connects', () => {
         beforeEach(() => {
             jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'] })
+            // Mounted again under fake timers, so the onboarding logic's own poll runs here too.
+            logic.unmount()
+            logic = mcpSetupModeLogic()
+            logic.mount()
         })
         afterEach(() => {
             jest.useRealTimers()
