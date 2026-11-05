@@ -50,6 +50,7 @@ type CountedSectionKey = (typeof COUNTED_SECTION_KEYS)[number]
 interface SectionListState {
     count: number | null
     countLoading: boolean
+    countSettled: boolean
     reports: SignalReport[]
     isLoaded: boolean
     reportsLoadFailed: boolean
@@ -68,6 +69,7 @@ function useSectionState(sectionKey: InboxReportSectionKey): SectionListState {
     const {
         count,
         countLoading,
+        countSettled,
         reports,
         isLoaded,
         reportsLoadFailed,
@@ -79,6 +81,7 @@ function useSectionState(sectionKey: InboxReportSectionKey): SectionListState {
     return {
         count,
         countLoading,
+        countSettled,
         reports,
         isLoaded,
         reportsLoadFailed,
@@ -127,10 +130,10 @@ function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListStat
         !isRunsOpen &&
         !isTriageOpen
 
-    // A count is settled once its request is no longer in flight: loaded, refreshed, or failed
-    // (count stays null). Waiting on the loading flags rather than non-null values means a scope or
-    // filter refresh in progress doesn't fire the event with the previous query's counts.
-    const settled = COUNTED_SECTION_KEYS.every((key) => !sections[key].countLoading)
+    // `countSettled` means the count request is no longer in flight and the total on screen was
+    // produced by the current query, so a scope or filter change doesn't fire the event with the
+    // previous query's counts.
+    const settled = COUNTED_SECTION_KEYS.every((key) => sections[key].countSettled)
     const firedRef = useRef(false)
 
     useEffect(() => {
