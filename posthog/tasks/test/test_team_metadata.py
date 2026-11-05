@@ -51,6 +51,12 @@ class TestRelatedTeamsMetadataFanoutTask(BaseTest):
 
 
 class TestClearTeamMetadataCacheForTokenTask(BaseTest):
+    def test_skips_a_token_that_belongs_to_a_team(self) -> None:
+        with patch.object(team_metadata_hypercache, "delete_cache_entry") as mock_delete:
+            clear_team_metadata_cache_for_token_task(self.team.api_token)
+
+        mock_delete.assert_not_called()
+
     def test_failed_mirror_delete_raises_so_the_task_retries(self) -> None:
         mirror = Mock()
         mirror.delete.side_effect = ConnectionError("mirror down")
@@ -60,4 +66,4 @@ class TestClearTeamMetadataCacheForTokenTask(BaseTest):
             patch.object(object_storage, "delete"),
             self.assertRaises(ConnectionError),
         ):
-            clear_team_metadata_cache_for_token_task(self.team.api_token)
+            clear_team_metadata_cache_for_token_task("phc_retired_token")

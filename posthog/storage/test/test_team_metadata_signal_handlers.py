@@ -1,12 +1,17 @@
-from posthog.test.base import BaseTest
-from unittest.mock import patch
+from collections.abc import Callable
 
+from posthog.test.base import BaseTest
+from unittest.mock import Mock, patch
+
+from django.db import transaction
 from django.test import override_settings
 
 from parameterized import parameterized
 
 from posthog.models.organization import Organization
 from posthog.models.project import Project
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.storage import object_storage
 from posthog.storage.team_metadata_cache import team_metadata_hypercache, update_team_metadata_cache
 
@@ -88,7 +93,7 @@ class TestTeamMetadataInvalidationSignals(BaseTest):
 
 
 @override_settings(FLAGS_REDIS_URL="redis://localhost:6379")
-class TestOrgProjectDeleteCascadesToTeamClear(BaseTest):
+class TestRetiredTokenTeamMetadataClear(BaseTest):
     def test_deleting_project_clears_team_metadata_via_cascade(self) -> None:
         project, team = Project.objects.create_with_team(
             organization=self.organization, initiating_user=self.user, name="Doomed project"
@@ -106,20 +111,42 @@ class TestOrgProjectDeleteCascadesToTeamClear(BaseTest):
 
         self.assertIn(team_id, cleared_team_ids)
 
-    def test_team_delete_clears_team_metadata_cache_in_redis_and_s3(self) -> None:
+    @parameterized.expand(
+        [
+            ("team_delete", lambda team, user: team.delete()),
+            ("token_reset", lambda team, user: team.reset_token_and_save(user=user, is_impersonated_session=False)),
+        ]
+    )
+    @patch("posthog.tasks.integrations.push_vercel_secrets.delay")
+    def test_retiring_token_clears_its_team_metadata_cache_in_redis_and_s3(
+        self, _name: str, retire_token: Callable[[Team, User], None], _mock_push_vercel: Mock
+    ) -> None:
         update_team_metadata_cache(self.team)
-        cache_key = team_metadata_hypercache.get_cache_key(self.team)
+        api_token = self.team.api_token
+        cache_key = team_metadata_hypercache.get_cache_key(api_token)
         assert team_metadata_hypercache.cache_client.get(cache_key) is not None
         assert object_storage.read(cache_key, missing_ok=True) is not None
 
         with self.captureOnCommitCallbacks(execute=True):
-            api_token = self.team.api_token
-            self.team.delete()
-            # This write stands in for a refresh that runs after the pre_delete clear and before the commit.
+            retire_token(self.team, self.user)
+            # This write stands in for a refresh that writes the old token's entry before the commit.
             team_metadata_hypercache.set_cache_value(api_token, {"api_token": api_token})
 
         assert team_metadata_hypercache.cache_client.get(cache_key) is None
         assert object_storage.read(cache_key, missing_ok=True) is None
+
+    @patch("posthog.tasks.integrations.push_vercel_secrets.delay")
+    def test_rolled_back_token_reset_keeps_the_live_entry(self, _mock_push_vercel: Mock) -> None:
+        update_team_metadata_cache(self.team)
+        cache_key = team_metadata_hypercache.get_cache_key(self.team.api_token)
+
+        with self.captureOnCommitCallbacks(execute=True), self.assertRaises(RuntimeError):
+            with transaction.atomic():
+                self.team.reset_token_and_save(user=self.user, is_impersonated_session=False)
+                raise RuntimeError("roll back the reset")
+
+        assert team_metadata_hypercache.cache_client.get(cache_key) is not None
+        assert object_storage.read(cache_key, missing_ok=True) is not None
 
 
 @override_settings(FLAGS_REDIS_URL="redis://localhost:6379")
