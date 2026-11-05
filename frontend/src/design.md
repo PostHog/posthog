@@ -121,7 +121,6 @@ Compose from the listed parts only. Part names are shown without their prefix (e
 - Read `packages/quill/packages/charts/AGENTS.md` ("Choosing a chart") before using
 - LineChart, BarChart, ScatterChart, ComboChart, FunnelChart, Sparkline
 - TimeSeriesLineChart, TimeSeriesBarChart, TimeSeriesComboChart
-- MetricCard
 
 ### Blocks
 

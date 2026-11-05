@@ -4,11 +4,17 @@ import { LemonBanner, LemonCard, Spinner } from '@posthog/lemon-ui'
 
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
-import { HealthChecksOverview } from './HealthChecksOverview'
+import { HealthChecksPanel } from './HealthChecksPanel'
 
 export function ExperimentHealthTab(): JSX.Element {
-    const { healthFindings, healthChecks, healthExposureChecks, isExperimentDraft, experimentHealthLoading } =
-        useValues(experimentLogic)
+    const {
+        healthFindings,
+        healthChecks,
+        healthExposureChecks,
+        isExperimentDraft,
+        experimentHealthLoading,
+        exposures,
+    } = useValues(experimentLogic)
 
     if (healthFindings === null || healthChecks === null) {
         return experimentHealthLoading ? (
@@ -24,9 +30,11 @@ export function ExperimentHealthTab(): JSX.Element {
     return (
         <div className="flex flex-col gap-2" data-attr="experiment-health-tab">
             <LemonCard hoverEffect={false} className="p-0">
-                <HealthChecksOverview
+                <HealthChecksPanel
                     checks={healthChecks}
                     findings={healthFindings}
+                    // A reset to draft keeps the previous exposure answer in the page, as for the checks.
+                    exposures={isExperimentDraft ? null : (exposures ?? null)}
                     isDraft={isExperimentDraft}
                     exposureChecksMissing={healthExposureChecks === 'missing'}
                 />
