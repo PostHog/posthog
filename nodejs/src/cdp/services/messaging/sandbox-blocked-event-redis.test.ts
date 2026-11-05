@@ -12,9 +12,12 @@ jest.mock('~/common/utils/utils', () => ({
     killGracefully: jest.fn(),
 }))
 
-// Answers the connection handshake and never answers SET, the way a store that stopped responding behaves.
-function startStalledStore(): Promise<{ port: number; stalledCommands: () => number; stop: () => void }> {
-    let stalled = 0
+type FakeStore = { port: number; setCommands: () => number; answer: () => void; stop: () => void }
+
+function startStore({ answering }: { answering: boolean }): Promise<FakeStore> {
+    let setCommands = 0
+    let answerSet = answering
+    const unanswered: Socket[] = []
     const sockets: Socket[] = []
     const server = createServer((socket) => {
         sockets.push(socket)
@@ -30,7 +33,12 @@ function startStalledStore(): Promise<{ port: number; stalledCommands: () => num
                 const name = lines[2].toUpperCase()
                 buffered = lines.slice(2 * argc + 1).join('\r\n')
                 if (name === 'SET') {
-                    stalled++
+                    setCommands++
+                    if (answerSet) {
+                        socket.write('+OK\r\n')
+                    } else {
+                        unanswered.push(socket)
+                    }
                 } else if (name === 'INFO') {
                     socket.write('$24\r\nloading:0\r\nrole:master\r\n\r\n')
                 } else {
@@ -43,7 +51,11 @@ function startStalledStore(): Promise<{ port: number; stalledCommands: () => num
         server.listen(0, '127.0.0.1', () =>
             resolve({
                 port: (server.address() as { port: number }).port,
-                stalledCommands: () => stalled,
+                setCommands: () => setCommands,
+                answer: () => {
+                    answerSet = true
+                    unanswered.splice(0).forEach((socket) => socket.write('+OK\r\n'))
+                },
                 stop: () => {
                     sockets.forEach((socket) => socket.destroy())
                     server.close()
@@ -53,11 +65,39 @@ function startStalledStore(): Promise<{ port: number; stalledCommands: () => num
     )
 }
 
+function senderOn(store: FakeStore, getTeam: jest.Mock): SandboxEmailSender {
+    return new SandboxEmailSender(
+        {
+            enabled: true,
+            tenantName: 'sandbox',
+            configurationSetName: 'sandbox',
+            fromAddress: 'sender@example.com',
+            dailyTeamCap: '1',
+            dailyRecipientCap: '1',
+        },
+        { getTeam } as unknown as TeamManager,
+        createRedisV2PoolFromConfig(
+            sandboxBlockedEventRedisConfig({
+                url: '127.0.0.1',
+                options: { port: store.port, retryStrategy: () => null },
+                name: 'sandbox-blocked-event-store-test',
+            })
+        ),
+        null
+    )
+}
+
+const blockProjects = (sender: SandboxEmailSender, firstTeamId: number, count: number): Promise<void[]> =>
+    Promise.all(
+        Array.from({ length: count }, (_, index) =>
+            sender.captureBlocked(firstTeamId + index, false, 'recipient_not_member', 1)
+        )
+    )
+
 describe('sandboxBlockedEventRedisConfig', () => {
     it('keeps the worker running when Redis refuses its connections', async () => {
         const { connection } = sandboxBlockedEventRedisConfig({
             url: '127.0.0.1',
-            // More reconnect attempts than a fatal client tolerates before it stops the process.
             options: { port: 1, commandTimeout: 5000, retryStrategy: (attempt) => (attempt < 15 ? 5 : null) },
             name: 'sandbox-blocked-event-test',
         })
@@ -66,42 +106,38 @@ describe('sandboxBlockedEventRedisConfig', () => {
         expect(killGracefully).not.toHaveBeenCalled()
     })
 
-    it('sends no more store commands than it has slots while the store does not answer', async () => {
-        const store = await startStalledStore()
+    it('sends no more store commands than the pool has clients while the store does not answer, and sends again once it answers', async () => {
+        const store = await startStore({ answering: false })
         try {
-            const sender = new SandboxEmailSender(
-                {
-                    enabled: true,
-                    tenantName: 'sandbox',
-                    configurationSetName: 'sandbox',
-                    fromAddress: 'sender@example.com',
-                    dailyTeamCap: '1',
-                    dailyRecipientCap: '1',
-                },
-                { getTeam: () => Promise.resolve(null) } as unknown as TeamManager,
-                createRedisV2PoolFromConfig(
-                    sandboxBlockedEventRedisConfig({
-                        url: '127.0.0.1',
-                        // Without a retry limit the clients reconnect forever after the store stops, and Jest never exits.
-                        options: { port: store.port, retryStrategy: () => null },
-                        name: 'sandbox-blocked-event-stalled-test',
-                    })
-                ),
-                null
+            const sender = senderOn(
+                store,
+                jest.fn(() => Promise.resolve(null))
             )
-            const blockEveryProject = (): Promise<void[]> =>
-                Promise.all(
-                    Array.from({ length: MAX_OPEN_STORE_CALLS }, (_, index) =>
-                        sender.captureBlocked(index + 1, false, 'recipient_not_member', 1)
-                    )
-                )
 
-            await blockEveryProject()
-            await blockEveryProject()
+            await blockProjects(sender, 1, MAX_OPEN_STORE_CALLS)
+            await blockProjects(sender, 1, MAX_OPEN_STORE_CALLS)
+            expect(store.setCommands()).toBe(MAX_OPEN_STORE_CALLS)
 
-            expect(store.stalledCommands()).toBe(MAX_OPEN_STORE_CALLS)
+            store.answer()
+            await blockProjects(sender, MAX_OPEN_STORE_CALLS + 1, MAX_OPEN_STORE_CALLS)
+            expect(store.setCommands()).toBe(2 * MAX_OPEN_STORE_CALLS)
         } finally {
             store.stop()
         }
-    })
+    }, 15_000)
+
+    it('captures every event of a burst larger than the pool while the store answers', async () => {
+        const store = await startStore({ answering: true })
+        try {
+            const getTeam = jest.fn(() => Promise.resolve(null))
+            const sender = senderOn(store, getTeam)
+
+            await blockProjects(sender, 1, 2 * MAX_OPEN_STORE_CALLS)
+
+            expect(store.setCommands()).toBe(2 * MAX_OPEN_STORE_CALLS)
+            expect(getTeam).toHaveBeenCalledTimes(2 * MAX_OPEN_STORE_CALLS)
+        } finally {
+            store.stop()
+        }
+    }, 15_000)
 })
