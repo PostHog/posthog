@@ -1729,7 +1729,6 @@ class SignalReportViewSet(
     scope_object = "inbox"
     queryset = SignalReport.objects.all()
     pagination_class = SignalReportListPagination
-    # Set by `_render_report_rows` for the list response.
     _source_metadata_available: bool = True
 
     request_dependent_scope_actions = frozenset({"claim", "bulk_claim"})
@@ -3130,6 +3129,7 @@ class SignalReportViewSet(
     def list(self, request: ValidatedRequest, *args, **kwargs):
         count_only: bool = request.validated_query_data["count_only"]
         include_source_metadata: bool = request.validated_query_data["include_source_metadata"]
+        self._source_metadata_available = include_source_metadata
         excluded = request.validated_query_data["exclude"]
         if count_only:
             # A count orders nothing, so it must not record a flag exposure for the ranker.
@@ -3259,10 +3259,7 @@ class SignalReportViewSet(
         # Source metadata is decorative. The serializer degrades to empty values when ClickHouse is
         # unavailable, so a metadata failure does not hide otherwise available reports. The web inbox
         # opts out and loads it after the rows render, so the page does not wait on ClickHouse.
-        # The read has a short deadline, so a slow read cannot hold up rows that are otherwise ready.
-        # `_source_metadata_available` tells the caller whether the empty values mean "none" or "not loaded".
         signal_meta_map: dict[str, ReportSignalMeta] = {}
-        self._source_metadata_available = include_source_metadata
         if include_source_metadata and report_ids:
             timed_out = False
             with tracer.start_as_current_span("signals.reports.list.fetch_source_products"):

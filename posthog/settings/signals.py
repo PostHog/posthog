@@ -57,9 +57,6 @@ SIGNALS_LIGHTHOUSE_TEAM_IDS: set[int] = _parse_team_ids(
     os.getenv("SIGNALS_LIGHTHOUSE_TEAM_IDS", _DEFAULT_LIGHTHOUSE_TEAM_IDS)
 )
 
-# Deadline for the source metadata read that the inbox report list makes before it responds. When the
-# read takes longer, the list returns its rows without source metadata. The `source_metadata`
-# endpoint has no such deadline.
 SIGNALS_REPORT_LIST_SOURCE_METADATA_TIMEOUT_SECONDS: int = get_from_env(
     "SIGNALS_REPORT_LIST_SOURCE_METADATA_TIMEOUT_SECONDS", 3, type_cast=int
 )

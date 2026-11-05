@@ -220,7 +220,11 @@ def fetch_source_products_for_reports(
             "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
             "report_ids": ast.Tuple(exprs=[ast.Constant(value=rid) for rid in report_ids]),
         },
-        settings=HogQLGlobalSettings(max_execution_time=max_execution_time) if max_execution_time else None,
+        settings=(
+            HogQLGlobalSettings(max_execution_time=max_execution_time, timeout_overflow_mode="throw")
+            if max_execution_time
+            else None
+        ),
     )
 
     return {
