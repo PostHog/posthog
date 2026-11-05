@@ -3383,12 +3383,12 @@ export type HogFlowsAssetContentRetrieveParams = {
 
 export type HogFlowsInvocationResultsRetrieveParams = {
     /**
-     * Start of the time range, matched on scheduled time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d — bounds the ClickHouse partition scan, so widen it explicitly for older runs.
+     * Start of the time range, matched on the time the invocation was first scheduled, so a run that finishes on a later day stays in the range it started in. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d, so widen it explicitly for older runs.
      * @minLength 1
      */
     after?: string
     /**
-     * End of the time range, matched on scheduled time. Same format as 'after'. Defaults to now.
+     * End of the time range, matched on the time the invocation was first scheduled. Same format as 'after'. Defaults to now.
      * @minLength 1
      */
     before?: string
@@ -3418,12 +3418,12 @@ export type HogFlowsInvocationResultsRetrieveParams = {
 
 export type HogFlowsInvocationResultsCountRetrieveParams = {
     /**
-     * Start of the time range, matched on scheduled time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d — bounds the ClickHouse partition scan, so widen it explicitly for older runs.
+     * Start of the time range, matched on the time the invocation was first scheduled, so a run that finishes on a later day stays in the range it started in. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d, so widen it explicitly for older runs.
      * @minLength 1
      */
     after?: string
     /**
-     * End of the time range, matched on scheduled time. Same format as 'after'. Defaults to now.
+     * End of the time range, matched on the time the invocation was first scheduled. Same format as 'after'. Defaults to now.
      * @minLength 1
      */
     before?: string
