@@ -1,10 +1,11 @@
+from collections.abc import Callable
 from uuid import UUID
 
 from django.db import transaction
 from django.utils import timezone
 
-from posthog.models import Team
-from posthog.ph_client import feature_enabled_or_false
+from posthog.models import Team, User
+from posthog.permissions import posthog_feature_flag_enabled
 
 from products.warehouse_sources.backend.migration import catalog as migration_catalog
 from products.warehouse_sources.backend.migration.capabilities import source_capabilities
@@ -25,6 +26,8 @@ _KEEP_ON_REFRESH = (
     WarehouseMigrationItem.Status.APPLIED,
     WarehouseMigrationItem.Status.SKIPPED,
 )
+# Kept items that have, or are creating, a PostHog source, so their prefixes are taken.
+_HAS_SOURCE = (WarehouseMigrationItem.Status.APPLYING, WarehouseMigrationItem.Status.APPLIED)
 _REPLANNED_FIELDS = ("vendor_service", "name", "verdict", "caveats", "proposal", "status", "error")
 _AUTH_FAILED_MESSAGE = (
     "Fivetran rejected the API key. Check that the key is active and can read connections and destinations."
@@ -44,13 +47,19 @@ def crawl_migration(
     if not own.update(status=WarehouseMigration.Status.CRAWLING, latest_error="", updated_at=timezone.now()):
         # Deleted, or a newer crawl replaced this one.
         return 0
-    migration = own.first()
+    migration = own.select_related("created_by").first()
     if migration is None:
         return 0
 
     snapshot = fetch_snapshot(FivetranClient(FivetranCredentials(**migration.credentials)))
     team = Team.objects.only("organization_id").get(id=team_id)
-    planned = plan_items(snapshot, catalog, source_capabilities, flag_enabled=lambda flag: _team_has_flag(team, flag))
+    planned = plan_items(
+        snapshot,
+        catalog,
+        source_capabilities,
+        flag_enabled=_flag_checker(team, migration.created_by),
+        unique_prefixes=False,
+    )
     with transaction.atomic():
         locked = own.select_for_update().first()
         if locked is None or locked.status != WarehouseMigration.Status.CRAWLING:
@@ -65,14 +74,18 @@ def crawl_migration(
     return len(planned)
 
 
-def _team_has_flag(team: Team, flag: str) -> bool:
-    organization_id = str(team.organization_id)
-    return feature_enabled_or_false(
-        flag,
-        organization_id,
-        groups={"organization": organization_id, "project": str(team.id)},
-        group_properties={"organization": {"id": organization_id}},
-    )
+def _flag_checker(team: Team, user: User | None) -> Callable[[str], bool]:
+    """Checks source flags for the user who started the migration, as the source page does for them."""
+    results: dict[str, bool] = {}
+
+    def enabled(flag: str) -> bool:
+        if flag not in results:
+            results[flag] = bool(user and user.distinct_id) and posthog_feature_flag_enabled(
+                flag, str(user.distinct_id) if user else "", organization_id=team.organization_id, team_id=team.id
+            )
+        return results[flag]
+
+    return enabled
 
 
 def mark_migration_failed(*, team_id: int, migration_id: UUID, workflow_id: str, auth_failed: bool) -> None:
@@ -92,18 +105,17 @@ def _save_items(migration: WarehouseMigration, planned: tuple[PlannedItem, ...])
     items = WarehouseMigrationItem.objects.for_team(migration.team_id).filter(migration=migration)
     # Locked so an apply cannot claim an item between this read and the save below.
     existing = {item.vendor_connection_id: item for item in items.select_for_update()}
-    # Kept items keep their sources, so a refreshed connection must not reuse one of their prefixes.
+    kept = {connection_id for connection_id, item in existing.items() if item.status in _KEEP_ON_REFRESH}
+    # A refreshed connection must not take the prefix of a source an item has or is creating.
     reserved = {
         (ExternalDataSourceType(item.proposal["source_type"]), item.proposal["prefix"])
         for item in existing.values()
-        if item.status in _KEEP_ON_REFRESH and item.proposal
+        if item.status in _HAS_SOURCE and item.proposal
     }
-    planned = with_unique_prefixes(planned, reserved)
+    replanned = with_unique_prefixes([plan for plan in planned if plan.vendor_connection_id not in kept], reserved)
 
-    for plan in planned:
+    for plan in replanned:
         item = existing.get(plan.vendor_connection_id)
-        if item is not None and item.status in _KEEP_ON_REFRESH:
-            continue
         is_new = item is None
         if item is None:
             item = WarehouseMigrationItem(

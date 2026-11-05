@@ -31,6 +31,7 @@ class _Provider:
     tunnel_config_keys: Mapping[str, str]
     config_key_overrides: Mapping[ExternalDataSourceType, Mapping[str, str]]
     destination_types: Mapping[str, ExternalDataDestination.Type]
+    destination_config_keys: Mapping[ExternalDataDestination.Type, frozenset[str]]
 
 
 _PROVIDERS: Mapping[str, _Provider] = {
@@ -41,6 +42,7 @@ _PROVIDERS: Mapping[str, _Provider] = {
         tunnel_config_keys=fivetran.TUNNEL_CONFIG_KEYS,
         config_key_overrides=fivetran.CONFIG_KEY_OVERRIDES,
         destination_types=fivetran.DESTINATION_TYPES,
+        destination_config_keys=fivetran.DESTINATION_CONFIG_KEYS,
     )
 }
 
@@ -77,7 +79,7 @@ def _source_types_by_letters() -> Mapping[str, ExternalDataSourceType]:
     return {_letters(source_type.value): source_type for source_type in ExternalDataSourceType}
 
 
-def match_source(provider: str, vendor_service: str) -> ExternalDataSourceType | None:
+def match_source(provider: str, vendor_service: str, *, log_unmatched: bool = True) -> ExternalDataSourceType | None:
     # Unreleased sources match too, so the caller can tell a planned source from a missing one.
     rules = _PROVIDERS[provider]
     if vendor_service in rules.rejected_sources:
@@ -86,13 +88,21 @@ def match_source(provider: str, vendor_service: str) -> ExternalDataSourceType |
         source_type = rules.source_overrides.get(vendor_service) or _source_types_by_letters().get(
             _letters(vendor_service)
         )
-    if source_type is None:
+    if source_type is None and log_unmatched:
         logger.info("warehouse_migration_unmatched_source", provider=provider, vendor_service=vendor_service)
     return source_type
 
 
 def match_destination(provider: str, vendor_service: str) -> ExternalDataDestination.Type | None:
     return _PROVIDERS[provider].destination_types.get(vendor_service)
+
+
+def destination_vendor_keys(provider: str, vendor_service: str) -> frozenset[str]:
+    """The vendor destination config keys a migration may keep. Empty for a destination PostHog cannot write to."""
+    destination_type = match_destination(provider, vendor_service)
+    if destination_type is None:
+        return frozenset()
+    return _PROVIDERS[provider].destination_config_keys.get(destination_type, frozenset())
 
 
 def posthog_tables(source_type: ExternalDataSourceType) -> PostHogTables | None:
