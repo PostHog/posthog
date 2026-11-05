@@ -121,10 +121,15 @@ class AmazonKinesisTransientError(AmazonKinesisError):
 
 
 @cache
+def _aws_partitions() -> list[dict[str, Any]]:
+    return Loader().load_data("partitions")["partitions"]
+
+
+# Not cached: the region comes from the setup form, so a cache keyed on it would grow without bound.
 def aws_dns_suffix(region: str) -> str | None:
     if not _REGION_ALPHABET.fullmatch(region):
         return None
-    for partition in Loader().load_data("partitions")["partitions"]:
+    for partition in _aws_partitions():
         if region in partition.get("regions", {}) or re.fullmatch(partition["regionRegex"], region):
             return partition["outputs"]["dnsSuffix"]
     return None
