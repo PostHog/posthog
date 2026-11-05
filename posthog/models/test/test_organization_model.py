@@ -238,22 +238,6 @@ class TestOrganization(BaseTest):
         self.organization.save()
         self.assertEqual(self.organization.get_plan_tier(), expected_tier)
 
-    def test_session_age_caching(self):
-        # Test caching when session_cookie_age is set
-        self.organization.session_cookie_age = 3600
-        self.organization.save()
-        self.assertEqual(cache.get(f"org_session_age:{self.organization.id}"), 3600)
-
-        # Test cache deletion when session_cookie_age is set to None
-        self.organization.session_cookie_age = None
-        self.organization.save()
-        self.assertIsNone(cache.get(f"org_session_age:{self.organization.id}"))
-
-        # Test cache update when session_cookie_age changes
-        self.organization.session_cookie_age = 7200
-        self.organization.save()
-        self.assertEqual(cache.get(f"org_session_age:{self.organization.id}"), 7200)
-
     def test_access_cache_reuses_organization_and_membership_details(self):
         with self.settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True):
             with self.assertNumQueries(1):

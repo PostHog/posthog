@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, Self, TypedDict, Union
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
-from django.core.cache import cache
 from django.db import IntegrityError, models, transaction
 from django.db.models.query import QuerySet
 from django.db.models.query_utils import Q
@@ -1037,12 +1036,3 @@ def sync_billing_on_membership_save(sender, instance: OrganizationMembership, cr
             sync_members_to_billing.delay(organization_id)
 
     transaction.on_commit(_sync_if_org_exists)
-
-
-@receiver(post_save, sender=Organization)
-def cache_organization_session_age(sender, instance, **kwargs):
-    """Cache organization's session_cookie_age in Redis when it changes."""
-    if instance.session_cookie_age is not None:
-        cache.set(f"org_session_age:{instance.id}", instance.session_cookie_age)
-    else:
-        cache.delete(f"org_session_age:{instance.id}")

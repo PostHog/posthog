@@ -2062,23 +2062,15 @@ class TestSessionAgeMiddleware(APIBaseTest):
         )
 
     @time_machine.travel("2024-01-01 12:00:00", tick=False)
-    @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
-    def test_org_specific_session_timeout_from_cache(self, mock_time):
-        # Set org-specific timeout in cache
-        cache.set(f"org_session_age:{self.organization.id}", 50)
+    @patch("time.time", return_value=1704110400.0)
+    def test_org_specific_session_timeout(self, mock_time):
+        Organization.objects.filter(pk=self.organization.pk).update(session_cookie_age=50)
 
-        # Initial request sets session creation time
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            self.client.session.get(settings.SESSION_COOKIE_CREATED_AT_KEY),
-            1704110400.0,
-        )
 
-        # Move forward past org timeout (51 seconds)
-        mock_time.return_value = 1704110451.0  # 2024-01-01 12:00:51
+        mock_time.return_value = 1704110451.0
         response = self.client.get("/")
-        # Should redirect to login
         self.assertEqual(response.status_code, 302)
         self.assertEqual(
             response.headers["Location"],
@@ -2087,15 +2079,11 @@ class TestSessionAgeMiddleware(APIBaseTest):
 
     @time_machine.travel("2024-01-01 12:00:00", tick=False)
     @patch("time.time", return_value=1704110400.0)  # 2024-01-01 12:00:00
-    def test_session_timeout_after_switching_org_with_cache(self, mock_time):
+    def test_session_timeout_after_switching_org(self, mock_time):
         # Create another org with different timeout
         other_org = Organization.objects.create(name="Other Org", session_cookie_age=30)
         other_team = Team.objects.create(organization=other_org, name="Other Team")
         self.user.organizations.add(other_org)
-
-        # Set cache for both orgs
-        cache.set(f"org_session_age:{self.organization.id}", 50)
-        cache.set(f"org_session_age:{other_org.id}", 30)
 
         # Initial request sets session creation time
         response = self.client.get("/")

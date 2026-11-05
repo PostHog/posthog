@@ -16,7 +16,6 @@ from django.conf import settings
 from django.contrib import auth
 from django.contrib.auth import BACKEND_SESSION_KEY, logout
 from django.contrib.auth.middleware import AuthenticationMiddleware as DjangoAuthenticationMiddleware
-from django.core.cache import cache
 from django.core.exceptions import MiddlewareNotUsed
 from django.db import (
     connection,
@@ -144,11 +143,9 @@ def region_authenticated_cookie_name() -> str | None:
 
 
 def session_age_for_user(user: User) -> int:
-    org_id = user.current_organization_id
-    if org_id:
-        org_session_age = cache.get(f"org_session_age:{org_id}")
-        if org_session_age is not None:
-            return org_session_age
+    organization = user.current_organization
+    if organization is not None and organization.session_cookie_age is not None:
+        return organization.session_cookie_age
     return settings.SESSION_COOKIE_AGE
 
 
