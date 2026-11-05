@@ -40,7 +40,7 @@ from posthog.temporal.oauth import (
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.signals.backend.artefact_schemas import (
     ChannelAssignment,
@@ -546,7 +546,7 @@ class TestSignalReportListAPI(APIBaseTest):
 
     def test_action_restricted_member_cannot_read_metric_snapshot_or_definition(self) -> None:
         self._enable_feature(AvailableFeature.ACCESS_CONTROL)
-        action = Action.objects.create(team=self.team, name="Restricted action")
+        action = create_action(team=self.team, name="Restricted action")
         AccessControl.objects.create(
             team=self.team,
             resource="action",
@@ -574,7 +574,7 @@ class TestSignalReportListAPI(APIBaseTest):
 
     def test_queryless_snapshot_is_redacted_when_action_provenance_cannot_be_proven(self) -> None:
         self._enable_feature(AvailableFeature.ACCESS_CONTROL)
-        action = Action.objects.create(team=self.team, name="Restricted action")
+        action = create_action(team=self.team, name="Restricted action")
         AccessControl.objects.create(
             team=self.team,
             resource="action",
@@ -670,7 +670,7 @@ class TestSignalReportListAPI(APIBaseTest):
         assert detail_metric["query"] is None
 
     def test_task_token_cannot_read_action_metric_without_action_scope(self) -> None:
-        action = Action.objects.create(team=self.team, name="Scoped action")
+        action = create_action(team=self.team, name="Scoped action")
         metric = self._affected_users_metric(series={"kind": "ActionsNode", "id": action.id, "math": "dau"})
         report = self._create_report(metrics=[metric])
         authenticate_as_sandbox_token(self, scopes=["task:read", "query:read"])
