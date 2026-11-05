@@ -58,7 +58,12 @@ BUSINESS_KNOWLEDGE = get_task_profile("business_knowledge")
 SOURCE_ID = uuid.UUID("5ab01f4d-5b1e-4990-9802-4f8792a76759")
 FLOW_SOURCE = TaskSource(kind=SourceKind.HOG_FLOW, id=str(SOURCE_ID))
 REPORT_PROFILE = replace(BUSINESS_KNOWLEDGE, key="test.report", source_kind=SourceKind.SIGNAL_REPORT)
-POSTHOG_AI_BOT_PROFILE = replace(BUSINESS_KNOWLEDGE, key="test.posthog_ai_bot", origin_product="posthog_ai")
+POSTHOG_AI_BOT_PROFILE = replace(
+    BUSINESS_KNOWLEDGE,
+    key="test.posthog_ai_bot",
+    origin_product="posthog_ai",
+    github_resolution=GithubResolution.ALWAYS,
+)
 PI_PROFILE = replace(BUSINESS_KNOWLEDGE, key="test.pi", runtimes=("pi",))
 NO_GITHUB_PROFILE = replace(BUSINESS_KNOWLEDGE, key="test.no_github", github_resolution=GithubResolution.NEVER)
 SUPPORT_AGENT_PROFILE = replace(BUSINESS_KNOWLEDGE, key="test.support_agent", mcp_agent="support")
