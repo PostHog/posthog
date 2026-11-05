@@ -123,7 +123,7 @@ export const ExternalDataSchemasPartialUpdateBody = () => zod
             ])
             .optional()
             .describe(
-                'For CDC and incremental syncs: consolidated, cdc_only, or both.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
+                'For CDC syncs: consolidated, cdc_only, or both.\n\n\* `consolidated` - consolidated\n\* `cdc_only` - cdc_only\n\* `both` - both'
             ),
         enabled_columns: zod
             .array(zod.string())

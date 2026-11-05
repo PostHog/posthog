@@ -995,7 +995,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         choices=["consolidated", "cdc_only", "both"],
         required=False,
         allow_null=True,
-        help_text="For CDC and incremental syncs: consolidated, cdc_only, or both.",
+        help_text="For CDC syncs: consolidated, cdc_only, or both.",
     )
     incremental_sync_blocked = serializers.ChoiceField(
         choices=IncrementalSyncBlockedReason.choices,

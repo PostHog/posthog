@@ -567,7 +567,7 @@ export interface ExternalDataSchemaApi {
      * @nullable
      */
     primary_key_columns?: string[] | null
-    /** For CDC and incremental syncs: consolidated, cdc_only, or both.
+    /** For CDC syncs: consolidated, cdc_only, or both.
      *
      * * `consolidated` - consolidated
      * * `cdc_only` - cdc_only
@@ -778,7 +778,7 @@ export interface PatchedExternalDataSchemaApi {
      * @nullable
      */
     primary_key_columns?: string[] | null
-    /** For CDC and incremental syncs: consolidated, cdc_only, or both.
+    /** For CDC syncs: consolidated, cdc_only, or both.
      *
      * * `consolidated` - consolidated
      * * `cdc_only` - cdc_only
