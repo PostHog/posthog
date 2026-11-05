@@ -35,7 +35,8 @@ from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     ARRAY_APP_CLIENT_ID_EU,
     ARRAY_APP_CLIENT_ID_US,
-    INTERACTIVE_RUN_SCOPE,
+    POSTHOG_AI_APP_CLIENT_ID_US,
+    SIGNALS_APP_CLIENT_ID_US,
     create_oauth_access_token_for_user,
 )
 
@@ -6294,11 +6295,13 @@ class TestSignalReportClaimToCloseAPI(APIBaseTest):
             ).id
         )
 
-    def _bind_task_token(self, origin_product: str, *, internal: bool = False, interactive: bool = False) -> str:
+    def _bind_task_token(
+        self, origin_product: str, *, internal: bool = False, client_id: str = SIGNALS_APP_CLIENT_ID_US
+    ) -> str:
         task_id = self._create_task(origin_product, internal=internal)
-        scope = "task:read task:write" + (f" {INTERACTIVE_RUN_SCOPE}" if interactive else "")
         app = OAuthApplication.objects.create(
             name="Synthetic sandbox",
+            client_id=client_id,
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://example.com/callback",
@@ -6310,7 +6313,7 @@ class TestSignalReportClaimToCloseAPI(APIBaseTest):
             user=self.user,
             application=app,
             token="pha_synthetic_sandbox",
-            scope=scope,
+            scope="task:read task:write",
             expires=timezone.now() + timedelta(hours=1),
             scoped_teams=[self.team.id],
             sandbox_task_id=task_id,
@@ -6361,23 +6364,44 @@ class TestSignalReportClaimToCloseAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("scout_task", "signals_scout", False, True, False, status.HTTP_200_OK),
-            ("pipeline_task", "signal_report", True, True, False, status.HTTP_200_OK),
+            ("scout_task", "signals_scout", False, True, SIGNALS_APP_CLIENT_ID_US, status.HTTP_200_OK),
+            ("pipeline_task", "signal_report", True, True, SIGNALS_APP_CLIENT_ID_US, status.HTTP_200_OK),
             # The Discuss and Create PR runs a person starts from the inbox share the pipeline's
             # origin product, and they answer for the person who started them.
-            ("inbox_discussion_task", "signal_report", False, True, False, status.HTTP_409_CONFLICT),
+            (
+                "inbox_discussion_task",
+                "signal_report",
+                False,
+                True,
+                POSTHOG_AI_APP_CLIENT_ID_US,
+                status.HTTP_409_CONFLICT,
+            ),
             # A person can start a later run on the task the pipeline created, which keeps
-            # `internal` true. Only the run's own interactive marker tells the two apart.
-            ("person_rerun_of_pipeline_task", "signal_report", True, True, True, status.HTTP_409_CONFLICT),
-            ("user_task", "user_created", False, True, False, status.HTTP_409_CONFLICT),
-            ("scout_header_without_token_binding", "signals_scout", False, False, False, status.HTTP_409_CONFLICT),
+            # `internal` true. That run bills to PostHog AI, so its application tells the two apart.
+            (
+                "person_rerun_of_pipeline_task",
+                "signal_report",
+                True,
+                True,
+                POSTHOG_AI_APP_CLIENT_ID_US,
+                status.HTTP_409_CONFLICT,
+            ),
+            ("user_task", "user_created", False, True, SIGNALS_APP_CLIENT_ID_US, status.HTTP_409_CONFLICT),
+            (
+                "scout_header_without_token_binding",
+                "signals_scout",
+                False,
+                False,
+                SIGNALS_APP_CLIENT_ID_US,
+                status.HTTP_409_CONFLICT,
+            ),
         ]
     )
     def test_only_token_bound_automatic_agents_skip_the_claim(
-        self, _name: str, origin_product: str, internal: bool, bound: bool, interactive: bool, expected: int
+        self, _name: str, origin_product: str, internal: bool, bound: bool, client_id: str, expected: int
     ) -> None:
         if bound:
-            task_id = self._bind_task_token(origin_product, internal=internal, interactive=interactive)
+            task_id = self._bind_task_token(origin_product, internal=internal, client_id=client_id)
         else:
             task_id = self._create_task(origin_product, internal=internal)
 

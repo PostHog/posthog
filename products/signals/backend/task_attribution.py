@@ -22,7 +22,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 
 from posthog.oauth_provenance import get_oauth_access_token
-from posthog.temporal.oauth import INTERACTIVE_RUN_SCOPE
+from posthog.temporal.oauth import SIGNALS_OAUTH_APP_CLIENT_IDS
 
 from products.signals.backend.models import ArtefactAttribution
 from products.tasks.backend.facade import api as tasks_api
@@ -90,29 +90,30 @@ def is_token_bound_task(request: Request, attribution: ArtefactAttribution) -> b
     return bound_task_id is not None and str(bound_task_id) == attribution.task_id
 
 
-def is_person_started_run(request: Request) -> bool:
-    """Whether a person started the sandbox run this token was minted for.
+def is_signals_application_token(request: Request) -> bool:
+    """Whether the sandbox token was minted against the Signals OAuth application.
 
-    `INTERACTIVE_RUN_SCOPE` is granted at mint time from the run's own server-side stamp, so it
-    answers for the run rather than for the task. That distinction matters because a person can
-    start a second run on a task the pipeline created, and `Task.internal` is written once at
-    task creation, so it still names the pipeline for that run.
+    `Task.create_run` stamps `billing_product="posthog_ai"` on every signals run that carries no
+    pipeline stage, and `_oauth_application_for_task` then mints against the PostHog AI
+    application instead of the Signals one. So the application answers for the run that holds the
+    token, where `Task.internal` answers only for the run that created the task. A region with no
+    Signals application row falls back to the Array application, which denies the close.
     """
-    scope = getattr(get_oauth_access_token(request), "scope", "") or ""
-    return INTERACTIVE_RUN_SCOPE in scope.split()
+    client_id = getattr(getattr(get_oauth_access_token(request), "application", None), "client_id", None)
+    return client_id in SIGNALS_OAUTH_APP_CLIENT_IDS
 
 
 def is_automatic_signal_agent(request: Request, attribution: ArtefactAttribution, team_id: int) -> bool:
     """Whether a pipeline or scout task makes this request.
 
-    A run a person starts from the inbox answers for that person, so it is not automatic even
-    though it shares the report origin with the pipeline. The pipeline creates its tasks internal,
-    which separates the two for the run that created the task, and the interactive run marker
-    separates them again for a later run a person starts on a task the pipeline already owns.
+    A run a person starts answers for that person, so it is not automatic even though it shares
+    the report origin, and can share the task, with the pipeline. `Task.internal` separates the
+    two for the run that created the task, and the OAuth application separates them again for a
+    later run a person starts on a task the pipeline already owns.
     """
     if not is_token_bound_task(request, attribution):
         return False
-    if is_person_started_run(request):
+    if not is_signals_application_token(request):
         return False
     tasks = tasks_api.get_tasks_by_ids([attribution.task_id], [team_id]) if attribution.task_id else []
     if not tasks:
