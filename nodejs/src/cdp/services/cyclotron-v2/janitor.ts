@@ -550,6 +550,7 @@ export class CyclotronV2Janitor {
                 `DELETE FROM cyclotron_email_attachments
                  WHERE id IN (
                      SELECT id FROM cyclotron_email_attachments WHERE created_at < $1 LIMIT $2
+                     FOR UPDATE SKIP LOCKED
                  )`,
                 [new Date(Date.now() - EMAIL_ATTACHMENTS_MAX_AGE_MS), this.cleanupBatchSize]
             )

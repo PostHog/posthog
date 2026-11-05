@@ -138,6 +138,7 @@ const BLOCKED_ATTACHMENT_EXTENSIONS: ReadonlySet<string> = new Set([
 const BASE64_RE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
 const MIME_TYPE_RE = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$/i
 const CONTROL_CHARACTER_RE = /[\x00-\x1F\x7F]/
+const SES_ATTACHMENT_HEADER_MAX_LENGTH = 78
 
 const AttachmentSchema = z
     .object({
@@ -159,11 +160,15 @@ const AttachmentSchema = z
             .string()
             .min(1, { message: 'content must not be empty' })
             .refine((content) => BASE64_RE.test(content), { message: 'content must be base64' }),
-        contentType: z.string().regex(MIME_TYPE_RE, { message: 'contentType must be a MIME type' }).optional(),
+        contentType: z
+            .string()
+            .max(SES_ATTACHMENT_HEADER_MAX_LENGTH)
+            .regex(MIME_TYPE_RE, { message: 'contentType must be a MIME type' })
+            .optional(),
         contentId: z
             .string()
             .min(1)
-            .max(255)
+            .max(SES_ATTACHMENT_HEADER_MAX_LENGTH)
             .refine((id) => !/[<>]/.test(id) && !CONTROL_CHARACTER_RE.test(id), {
                 message: 'contentId must not contain < or > or a line break',
             })

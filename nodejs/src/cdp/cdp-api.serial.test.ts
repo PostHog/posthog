@@ -2564,6 +2564,14 @@ describe('CDP API', () => {
                 { ...codeSend, attachments: [attachment({ contentType: 'pdf' })] },
             ],
             ['a content id in angle brackets', { ...codeSend, attachments: [attachment({ contentId: '<logo>' })] }],
+            [
+                'a content id longer than SES accepts',
+                { ...codeSend, attachments: [attachment({ contentId: 'x'.repeat(79) })] },
+            ],
+            [
+                'a content type longer than SES accepts',
+                { ...codeSend, attachments: [attachment({ contentType: `application/${'x'.repeat(67)}` })] },
+            ],
             ['a file field this version does not know', { ...codeSend, attachments: [attachment({ size: 11 })] }],
             ['more than 10 files', { ...codeSend, attachments: Array.from({ length: 11 }, () => attachment()) }],
             [
