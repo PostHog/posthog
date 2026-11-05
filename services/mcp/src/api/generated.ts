@@ -771,6 +771,7 @@ export namespace Schemas {
      * * `insight` - insight
      * * `insight_variable` - insight_variable
      * * `integration` - integration
+     * * `knowledge_writer` - knowledge_writer
      * * `legal_document` - legal_document
      * * `link` - link
      * * `live_debugger` - live_debugger
@@ -837,6 +838,7 @@ export namespace Schemas {
      * * `wizard_session` - wizard_session
      * * `wizard_run` - wizard_run
      * * `workload_trust_policy` - workload_trust_policy
+     * * `workload_trust_policy_request` - workload_trust_policy_request
      */
     export type ScopeObjectEnum = typeof ScopeObjectEnum[keyof typeof ScopeObjectEnum];
 
@@ -897,6 +899,7 @@ export namespace Schemas {
       Insight: 'insight',
       InsightVariable: 'insight_variable',
       Integration: 'integration',
+      KnowledgeWriter: 'knowledge_writer',
       LegalDocument: 'legal_document',
       Link: 'link',
       LiveDebugger: 'live_debugger',
@@ -963,6 +966,7 @@ export namespace Schemas {
       WizardSession: 'wizard_session',
       WizardRun: 'wizard_run',
       WorkloadTrustPolicy: 'workload_trust_policy',
+      WorkloadTrustPolicyRequest: 'workload_trust_policy_request',
     } as const;
 
     export interface AccessControlObjectRuleResource {
@@ -1023,6 +1027,7 @@ export namespace Schemas {
        * * `insight` - insight
        * * `insight_variable` - insight_variable
        * * `integration` - integration
+       * * `knowledge_writer` - knowledge_writer
        * * `legal_document` - legal_document
        * * `link` - link
        * * `live_debugger` - live_debugger
@@ -1088,7 +1093,8 @@ export namespace Schemas {
        * * `webhook` - webhook
        * * `wizard_session` - wizard_session
        * * `wizard_run` - wizard_run
-       * * `workload_trust_policy` - workload_trust_policy */
+       * * `workload_trust_policy` - workload_trust_policy
+       * * `workload_trust_policy_request` - workload_trust_policy_request */
       resource: ScopeObjectEnum;
       /** The levels an object rule on this resource type accepts, lowest first. */
       available_access_levels: string[];
@@ -1272,6 +1278,7 @@ export namespace Schemas {
        * * `insight` - insight
        * * `insight_variable` - insight_variable
        * * `integration` - integration
+       * * `knowledge_writer` - knowledge_writer
        * * `legal_document` - legal_document
        * * `link` - link
        * * `live_debugger` - live_debugger
@@ -1337,7 +1344,8 @@ export namespace Schemas {
        * * `webhook` - webhook
        * * `wizard_session` - wizard_session
        * * `wizard_run` - wizard_run
-       * * `workload_trust_policy` - workload_trust_policy */
+       * * `workload_trust_policy` - workload_trust_policy
+       * * `workload_trust_policy_request` - workload_trust_policy_request */
       source_resource: ScopeObjectEnum;
       /**
          * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).
@@ -1687,6 +1695,7 @@ export namespace Schemas {
        * * `insight` - insight
        * * `insight_variable` - insight_variable
        * * `integration` - integration
+       * * `knowledge_writer` - knowledge_writer
        * * `legal_document` - legal_document
        * * `link` - link
        * * `live_debugger` - live_debugger
@@ -1752,7 +1761,8 @@ export namespace Schemas {
        * * `webhook` - webhook
        * * `wizard_session` - wizard_session
        * * `wizard_run` - wizard_run
-       * * `workload_trust_policy` - workload_trust_policy */
+       * * `workload_trust_policy` - workload_trust_policy
+       * * `workload_trust_policy_request` - workload_trust_policy_request */
       resource: ScopeObjectEnum;
       /** The object's primary key. */
       resource_id: string;
@@ -5564,6 +5574,7 @@ export namespace Schemas {
      * * `project_secret_key` - project_secret_key
      * * `team_secret_token` - team_secret_token
      * * `id_jag` - id_jag
+     * * `oidc_workload` - oidc_workload
      * * `internal_jwt` - internal_jwt
      * * `service_jwt` - service_jwt
      * * `internal_api_secret` - internal_api_secret
@@ -5590,6 +5601,7 @@ export namespace Schemas {
       ProjectSecretKey: 'project_secret_key',
       TeamSecretToken: 'team_secret_token',
       IdJag: 'id_jag',
+      OidcWorkload: 'oidc_workload',
       InternalJwt: 'internal_jwt',
       ServiceJwt: 'service_jwt',
       InternalApiSecret: 'internal_api_secret',
@@ -5639,6 +5651,7 @@ export namespace Schemas {
        * * `project_secret_key` - project_secret_key
        * * `team_secret_token` - team_secret_token
        * * `id_jag` - id_jag
+       * * `oidc_workload` - oidc_workload
        * * `internal_jwt` - internal_jwt
        * * `service_jwt` - service_jwt
        * * `internal_api_secret` - internal_api_secret
@@ -33949,6 +33962,13 @@ export namespace Schemas {
       readonly tags: readonly string[];
       readonly archived: boolean;
       /**
+         * Earliest cleanup time if the dataset remains unused.
+         * @nullable
+         */
+      readonly expires_at: string | null;
+      /** Whether the dataset is within seven days of expiry. */
+      readonly expiring_soon: boolean;
+      /**
          * Latest dataset revision, or null before the first item is added.
          * @nullable
          */
@@ -33980,6 +34000,13 @@ export namespace Schemas {
       readonly created_by: UserBasic | null;
       /** Project that owns the revision. */
       readonly team_id: number;
+      /**
+         * Earliest expiry time of this dataset snapshot if unused.
+         * @nullable
+         */
+      readonly expires_at: string | null;
+      /** Whether this snapshot is within seven days of expiry. */
+      readonly expiring_soon: boolean;
     }
 
     export interface DayItem {
@@ -36484,6 +36511,11 @@ export namespace Schemas {
          * @maxLength 500
          */
       reviewer_retry_reason?: string;
+      /**
+         * Why no suitable owner exists, with `reviewer_outcome: no_suitable_owner`. Required to clear a report that already has suggested reviewers: without it the current reviewers stay and the response carries a warning. The reason is recorded in the report's work log.
+         * @maxLength 500
+         */
+      reviewer_outcome_reason?: string;
       /** Id of the report to edit (must belong to this project). */
       report_id: string;
       /**
@@ -37252,7 +37284,8 @@ export namespace Schemas {
       footers?: EmailTemplateDesignBodyFootersItem[];
       /** Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor. */
       values?: EmailTemplateDesignBodyValues;
-    };
+      [key: string]: unknown;
+     };
 
     /**
      * Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill.
@@ -37263,7 +37296,8 @@ export namespace Schemas {
       /** Design schema version, e.g. 16. */
       schemaVersion: number;
       body: EmailTemplateDesignBody;
-    };
+      [key: string]: unknown;
+     };
 
     export interface EmailTemplateSender {
       /**
@@ -47247,11 +47281,18 @@ export namespace Schemas {
        * * `missing_primary_key` - Missing primary key
        * * `duplicate_primary_key` - Duplicate primary key */
       readonly incremental_sync_blocked: IncrementalSyncBlockedReasonEnum | null;
+      /** Whether this table uses webhook sync, but its source has no enabled webhook. Such a table gets no webhook updates. Each sync polls the source API instead, which is slower and can read the whole table. Set up the webhook on the source, or change `sync_type`. */
+      readonly webhook_not_registered: boolean;
       /**
          * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /**
+         * Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key, partition and incremental columns can't be masked, and direct query sources don't support masking. Any change to this list starts a full resync of the table (CDC tables take a new snapshot), or stages it until syncing is turned on. A synced webhook table can't change its masked columns, because its data can't be fetched again.
+         * @nullable
+         */
+      masked_columns?: string[] | null;
       /**
          * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.
          * @nullable
@@ -47373,6 +47414,11 @@ export namespace Schemas {
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /**
+         * Columns whose values are replaced with a one-way digest at sync time. Null means mask nothing. Any change starts a full resync of the table.
+         * @nullable
+         */
+      masked_columns?: string[] | null;
       /**
          * Row-filter predicates ANDed onto the source query. Null/empty means sync all rows.
          * @nullable
@@ -47598,6 +47644,8 @@ export namespace Schemas {
          */
       readonly user_access_level: string | null;
       readonly supports_webhooks: boolean;
+      /** Whether at least one table of this source uses webhook sync, but the source has no enabled webhook. Those tables get no webhook updates. Each of their syncs polls the source API instead, which is slower and can read the whole table. Set up the webhook, or change the sync method of those tables. */
+      readonly webhook_not_registered: boolean;
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection: boolean;
       /**
@@ -51779,6 +51827,8 @@ export namespace Schemas {
      * * `dashboard` - On a dashboard you open often
      * * `key_metric` - Project key metric
      * * `popular` - Opened often in this project
+     * * `watched` - You get updates on this
+     * * `built` - You created or edited this
      */
     export type HighlightMetricReasonEnum = typeof HighlightMetricReasonEnum[keyof typeof HighlightMetricReasonEnum];
 
@@ -51788,6 +51838,8 @@ export namespace Schemas {
       Dashboard: 'dashboard',
       KeyMetric: 'key_metric',
       Popular: 'popular',
+      Watched: 'watched',
+      Built: 'built',
     } as const;
 
     export interface HighlightMover {
@@ -51837,12 +51889,14 @@ export namespace Schemas {
       value_format: HighlightValueFormat | null;
       /** The first day of the period each value in `series` covers, in the project's timezone. Same length and order as `series`. */
       period_starts: string[];
-      /** Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project, `popular` for an insight that many people in the project open. Null for metrics computed before this field existed.
+      /** Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project, `popular` for an insight that many people in the project open, `watched` for an insight the person gets an alert or a subscription for, `built` for an insight the person created or edited recently. Null for metrics computed before this field existed.
        *
        * * `routine` - You open this often
        * * `dashboard` - On a dashboard you open often
        * * `key_metric` - Project key metric
-       * * `popular` - Opened often in this project */
+       * * `popular` - Opened often in this project
+       * * `watched` - You get updates on this
+       * * `built` - You created or edited this */
       reason: HighlightMetricReasonEnum | null;
       /**
          * Name of the dashboard the tile comes from when `reason` is `dashboard`, else null.
@@ -51931,7 +51985,9 @@ export namespace Schemas {
        * * `routine` - You open this often
        * * `dashboard` - On a dashboard you open often
        * * `key_metric` - Project key metric
-       * * `popular` - Opened often in this project */
+       * * `popular` - Opened often in this project
+       * * `watched` - You get updates on this
+       * * `built` - You created or edited this */
       reason?: HighlightMetricReasonEnum | null;
       /** Stable key of the selected number. */
       key: string;
@@ -61180,6 +61236,11 @@ export namespace Schemas {
       readonly user_tag: string | null;
       /** @nullable */
       readonly sync_interval: string | null;
+      /**
+         * How often this node actually refreshes. A downstream view can make an unpinned view refresh more often than `sync_interval`, and a slow source can make it refresh less often. Null when the node is not scheduled.
+         * @nullable
+         */
+      readonly effective_sync_interval: string | null;
       /** How often this view refreshes. 'never' clears the cadence, and with it the pin. Read the stored cadence back from `sync_interval`. Only views and endpoints the team owns accept it.
        *
        * * `never` - never
@@ -65418,6 +65479,7 @@ export namespace Schemas {
        * * `insight` - insight
        * * `insight_variable` - insight_variable
        * * `integration` - integration
+       * * `knowledge_writer` - knowledge_writer
        * * `legal_document` - legal_document
        * * `link` - link
        * * `live_debugger` - live_debugger
@@ -65483,7 +65545,8 @@ export namespace Schemas {
        * * `webhook` - webhook
        * * `wizard_session` - wizard_session
        * * `wizard_run` - wizard_run
-       * * `workload_trust_policy` - workload_trust_policy */
+       * * `workload_trust_policy` - workload_trust_policy
+       * * `workload_trust_policy_request` - workload_trust_policy_request */
       source_resource: ScopeObjectEnum;
       /**
          * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).
@@ -65523,6 +65586,19 @@ export namespace Schemas {
     export interface MemberProjectAccessResponse {
       /** One entry per visible organization member. */
       results: MemberProjectAccess[];
+    }
+
+    export interface MergePush {
+      /**
+         * The 40-character SHA of the master merge commit.
+         * @pattern ^[0-9a-f]{40}$
+         */
+      commit_sha: string;
+    }
+
+    export interface MergePushResponse {
+      /** Always accepted; the merge check runs in the background. */
+      status: string;
     }
 
     export type MessageContextualTools = { [key: string]: unknown };
@@ -68893,18 +68969,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `legacy` - Default onboarding
-     * * `simple` - Simple onboarding
-     */
-    export type OnboardingFlowVariantEnum = typeof OnboardingFlowVariantEnum[keyof typeof OnboardingFlowVariantEnum];
-
-
-    export const OnboardingFlowVariantEnum = {
-      Legacy: 'legacy',
-      Simple: 'simple',
-    } as const;
-
-    /**
      * The first-run session that was started for the requester.
      */
     export interface OnboardingSession {
@@ -68996,11 +69060,6 @@ export namespace Schemas {
          * @maxLength 64
          */
       step_at_skip?: string;
-      /** Which onboarding flow the user skipped from, for analytics only.
-       *
-       * * `legacy` - Default onboarding
-       * * `simple` - Simple onboarding */
-      flow_variant?: OnboardingFlowVariantEnum;
     }
 
     /**
@@ -73407,6 +73466,7 @@ export namespace Schemas {
      * * `commit` - Commit
      * * `task_run` - Task Run
      * * `note` - Note
+     * * `scout_note_left` - Scout Note Left
      * * `title_change` - Title Change
      * * `summary_change` - Summary Change
      * * `code_review` - Code Review
@@ -73449,6 +73509,7 @@ export namespace Schemas {
       Commit: 'commit',
       TaskRun: 'task_run',
       Note: 'note',
+      ScoutNoteLeft: 'scout_note_left',
       TitleChange: 'title_change',
       SummaryChange: 'summary_change',
       CodeReview: 'code_review',
@@ -78462,6 +78523,114 @@ export namespace Schemas {
       results: WorkloadTrustPolicy[];
     }
 
+    export type WorkloadTrustPolicyRequestStatusEnum = typeof WorkloadTrustPolicyRequestStatusEnum[keyof typeof WorkloadTrustPolicyRequestStatusEnum];
+
+
+    export const WorkloadTrustPolicyRequestStatusEnum = {
+      Pending: 'pending',
+      Approved: 'approved',
+      Rejected: 'rejected',
+      Expired: 'expired',
+    } as const;
+
+    /**
+     * Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition.
+     */
+    export type WorkloadTrustPolicyRequestConditions = {[key: string]: string};
+
+    /**
+     * What each risky scope in the request lets a token do, keyed by scope. Show it before approving.
+     */
+    export type WorkloadTrustPolicyRequestRiskyScopes = {[key: string]: string};
+
+    export interface WorkloadTrustPolicyRequest {
+      readonly id: string;
+      /**
+         * The name the policy gets once approved.
+         * @maxLength 200
+         */
+      name: string;
+      /**
+         * The OIDC issuer of the workload provider, from the list of supported providers.
+         * @maxLength 255
+         */
+      issuer: string;
+      /**
+         * The key of the workload provider the issuer belongs to.
+         * @nullable
+         */
+      readonly provider: string | null;
+      /**
+         * The display name of the workload provider, or null.
+         * @nullable
+         */
+      readonly provider_name: string | null;
+      /**
+         * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
+         * @maxLength 255
+         */
+      subject_name: string;
+      /**
+         * The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match.
+         * @maxLength 255
+         */
+      subject: string;
+      /** Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition. */
+      conditions?: WorkloadTrustPolicyRequestConditions;
+      /** How the provider names the subject, the subject name and each condition claim, for display. */
+      readonly claim_labels: WorkloadClaimLabels;
+      /**
+         * The scopes the policy's tokens would carry.
+         * @items.maxLength 100
+         */
+      scopes: string[];
+      /** What each risky scope in the request lets a token do, keyed by scope. Show it before approving. */
+      readonly risky_scopes: WorkloadTrustPolicyRequestRiskyScopes;
+      /** Where the request stands. A request expires after 24 hours. */
+      readonly status: WorkloadTrustPolicyRequestStatusEnum;
+      /** The link to send to an admin to approve the request. */
+      readonly approval_url: string;
+      /** Whether the current user's role lets them approve the request, in the browser. */
+      readonly can_approve: boolean;
+      /** Names of the organization admins and owners who can approve, when the current user cannot. */
+      readonly approvers: readonly string[];
+      readonly requested_by: UserBasic | null;
+      /**
+         * The name of the OAuth app the request came through, or null for other credentials.
+         * @nullable
+         */
+      readonly requested_via: string | null;
+      /**
+         * Whether PostHog verified the OAuth app the request came through, or null for other credentials.
+         * @nullable
+         */
+      readonly requested_via_verified: boolean | null;
+      /** When the request was made. */
+      readonly created_at: string;
+      /** When a pending request stops being approvable. */
+      readonly expires_at: string;
+      readonly resolved_by: UserBasic | null;
+      /**
+         * When an admin approved or rejected the request.
+         * @nullable
+         */
+      readonly resolved_at: string | null;
+      /**
+         * The policy created on approval.
+         * @nullable
+         */
+      readonly policy_id: string | null;
+    }
+
+    export interface PaginatedWorkloadTrustPolicyRequestList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: WorkloadTrustPolicyRequest[];
+    }
+
     /**
      * * `sum` - Sum
      * * `avg` - Avg
@@ -81707,11 +81876,18 @@ export namespace Schemas {
        * * `missing_primary_key` - Missing primary key
        * * `duplicate_primary_key` - Duplicate primary key */
       readonly incremental_sync_blocked?: IncrementalSyncBlockedReasonEnum | null;
+      /** Whether this table uses webhook sync, but its source has no enabled webhook. Such a table gets no webhook updates. Each sync polls the source API instead, which is slower and can read the whole table. Set up the webhook on the source, or change `sync_type`. */
+      readonly webhook_not_registered?: boolean;
       /**
          * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /**
+         * Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key, partition and incremental columns can't be masked, and direct query sources don't support masking. Any change to this list starts a full resync of the table (CDC tables take a new snapshot), or stages it until syncing is turned on. A synced webhook table can't change its masked columns, because its data can't be fetched again.
+         * @nullable
+         */
+      masked_columns?: string[] | null;
       /**
          * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.
          * @nullable
@@ -81820,6 +81996,8 @@ export namespace Schemas {
          */
       readonly user_access_level?: string | null;
       readonly supports_webhooks?: boolean;
+      /** Whether at least one table of this source uses webhook sync, but the source has no enabled webhook. Those tables get no webhook updates. Each of their syncs polls the source API instead, which is slower and can read the whole table. Set up the webhook, or change the sync method of those tables. */
+      readonly webhook_not_registered?: boolean;
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection?: boolean;
       /**
@@ -83695,6 +83873,11 @@ export namespace Schemas {
       readonly user_tag?: string | null;
       /** @nullable */
       readonly sync_interval?: string | null;
+      /**
+         * How often this node actually refreshes. A downstream view can make an unpinned view refresh more often than `sync_interval`, and a slow source can make it refresh less often. Null when the node is not scheduled.
+         * @nullable
+         */
+      readonly effective_sync_interval?: string | null;
       /** How often this view refreshes. 'never' clears the cadence, and with it the pin. Read the stored cadence back from `sync_interval`. Only views and endpoints the team owns accept it.
        *
        * * `never` - never
@@ -84530,6 +84713,11 @@ export namespace Schemas {
     export interface PatchedProjectBackwardCompat {
       readonly id?: number;
       readonly organization?: string;
+      /**
+         * Whether the project's organization approved AI data processing. AI features need this approval.
+         * @nullable
+         */
+      readonly is_ai_data_processing_approved?: boolean | null;
       /**
          * Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.
          * @minLength 1
@@ -90600,6 +90788,11 @@ export namespace Schemas {
       readonly id: number;
       readonly organization: string;
       /**
+         * Whether the project's organization approved AI data processing. AI features need this approval.
+         * @nullable
+         */
+      readonly is_ai_data_processing_approved: boolean | null;
+      /**
          * Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.
          * @minLength 1
          * @maxLength 200
@@ -93683,6 +93876,109 @@ export namespace Schemas {
     }
 
     /**
+     * * `running` - Import running
+     * * `completed` - Import completed
+     * * `cancelled` - Import cancelled
+     * * `failed` - Import failed
+     */
+    export type PushTokenImportStatusEnum = typeof PushTokenImportStatusEnum[keyof typeof PushTokenImportStatusEnum];
+
+
+    export const PushTokenImportStatusEnum = {
+      Running: 'running',
+      Completed: 'completed',
+      Cancelled: 'cancelled',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * * `invalid_row` - The line is missing a value or a value is too long
+     * * `unknown_person` - No person has this distinct ID
+     * * `token_mismatch` - The token does not fit this channel
+     * * `not_stored` - The device was not stored
+     * * `person_processing_disabled` - Person processing is off for this person
+     */
+    export type PushTokenImportRowFailureReasonEnum = typeof PushTokenImportRowFailureReasonEnum[keyof typeof PushTokenImportRowFailureReasonEnum];
+
+
+    export const PushTokenImportRowFailureReasonEnum = {
+      InvalidRow: 'invalid_row',
+      UnknownPerson: 'unknown_person',
+      TokenMismatch: 'token_mismatch',
+      NotStored: 'not_stored',
+      PersonProcessingDisabled: 'person_processing_disabled',
+    } as const;
+
+    export interface PushTokenImportRowFailure {
+      /** Line of the file, counting the column names as line 1. */
+      line: number;
+      /** The distinct ID on the line. */
+      distinct_id: string;
+      /** The last characters of the line's device token. */
+      device_token_suffix: string;
+      /** Why the device on this line was not imported.
+       *
+       * * `invalid_row` - The line is missing a value or a value is too long
+       * * `unknown_person` - No person has this distinct ID
+       * * `token_mismatch` - The token does not fit this channel
+       * * `not_stored` - The device was not stored
+       * * `person_processing_disabled` - Person processing is off for this person */
+      reason: PushTokenImportRowFailureReasonEnum;
+      /** A sentence a person can act on. */
+      detail: string;
+    }
+
+    export interface PushTokenImport {
+      /** The import's ID. */
+      id: string;
+      /** The push channel the devices are added to. */
+      integration_id: number;
+      /** `running` while devices are sent. `completed`, `cancelled` and `failed` are final.
+       *
+       * * `running` - Import running
+       * * `completed` - Import completed
+       * * `cancelled` - Import cancelled
+       * * `failed` - Import failed */
+      status: PushTokenImportStatusEnum;
+      /** Whether the import creates missing persons. */
+      create_missing_persons: boolean;
+      /** Devices in the file that the import sends. */
+      total_devices: number;
+      /** Devices sent so far. */
+      processed_devices: number;
+      /** Devices stored on their person. */
+      imported_devices: number;
+      /** Lines that were not imported, for any reason. */
+      failed_devices: number;
+      /** Devices whose distinct ID had no person. */
+      unknown_person_devices: number;
+      /** Repeated lines that were left out. */
+      duplicate_lines: number;
+      /** The first 1,000 lines that were not imported, with the reason for each. */
+      failures: PushTokenImportRowFailure[];
+      /** True when the devices of unknown people can still be imported with new persons. */
+      can_import_unknown_persons: boolean;
+      /** Why a failed import stopped. Empty otherwise. */
+      error: string;
+      /** When the file was uploaded. */
+      created_at: string;
+      /**
+         * When the import ended. Empty while it runs, and while a stopped import finishes its last batch.
+         * @nullable
+         */
+      finished_at: string | null;
+    }
+
+    export interface PushTokenImportCreate {
+      /** The APNs or Firebase push channel to add the devices to. */
+      integration_id: number;
+      /** A UTF-8 CSV file of up to 20 MB. The first line names the columns: `distinct_id` (the ID your app passes to identify) and `device_token` (the APNs device token or FCM registration token). Other columns are ignored. */
+      device_token_file: Blob;
+      /** Create a person for a distinct ID that has none. Off by default, so devices of unknown people are listed as failed and can be imported later with new persons. */
+      create_missing_persons?: boolean;
+    }
+
+    /**
      * * `unknown_person` - No person has this distinct ID
      * * `token_mismatch` - The token does not fit this channel
      * * `not_stored` - The device was not stored
@@ -93714,6 +94010,11 @@ export namespace Schemas {
       reason: PushTokenImportFailureReasonEnum;
       /** A sentence a person can act on. */
       detail: string;
+    }
+
+    export interface PushTokenImportLatest {
+      /** The newest import into the channel, if any. */
+      latest: PushTokenImport | null;
     }
 
     export interface PushTokenSubscription {
@@ -102745,6 +103046,37 @@ export namespace Schemas {
       is_maintainer: boolean;
     }
 
+    export interface ScoutMemberActivityObject {
+      /** The object type in snake case, such as `dashboard` or `feature_flag`. */
+      type: string;
+      /** The latest name of the object. */
+      name: string;
+    }
+
+    /**
+     * What one member worked on recently, from their activity summary.
+     */
+    export interface ScoutMemberActivity {
+      /**
+         * One line about the member's recent work.
+         * @nullable
+         */
+      headline: string | null;
+      /** The labels of the main threads of the member's recent work. */
+      themes: string[];
+      /** Up to 5 objects the member created or changed, the most edited first. */
+      owned: ScoutMemberActivityObject[];
+      /** Up to 5 objects the member opened on several days, the most opened first. A member who only reads the work shows up here. A specific object here can support a reviewer pick when the pick's `reason` names it. */
+      watched: ScoutMemberActivityObject[];
+      /**
+         * When the summary was written.
+         * @nullable
+         */
+      generated_at: string | null;
+      /** True when the summary waits for a rebuild in a newer format. Give a stale summary less weight. */
+      stale: boolean;
+    }
+
     /**
      * One project member's routing identity, for picking a `suggested_reviewers` entry on a report.
      */
@@ -102764,6 +103096,8 @@ export namespace Schemas {
       github_login: string | null;
       /** The teams this member is on, from the project's synced team roster. Empty when no roster is synced, or when the member has no linked GitHub account, since the roster is keyed on that login. The roster is a periodic snapshot, so it can lag the live team. */
       teams: ScoutMemberTeam[];
+      /** What the member worked on recently. Use it as context to check against the report, not as proof: general activity is not evidence that the member owns the affected work. Filled only when the call passes `search` or `team` and returns at most 10 members. Null when the member has no ready summary, or when activity summaries are not available for this project. */
+      activity?: ScoutMemberActivity | null;
     }
 
     /**
@@ -102808,7 +103142,7 @@ export namespace Schemas {
          * @nullable
          */
       created_by_name: string | null;
-      /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. `report_feedback` for the note someone left when rating a report useful or not: one reader's rating of the named report, context to weigh rather than a directive. `report_reviewer_correction` for a suggested reviewer someone added or removed on a report: evidence about who owns that surface, and a prompt to revisit the routing memory it corrects, rather than a directive. */
+      /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. `report_feedback` for the note someone left when rating a report useful or not: one reader's rating of the named report, context to weigh rather than a directive. `report_reviewer_correction` for a suggested reviewer someone added or removed on a report, or for a report a person or their agent claimed: evidence about who owns that surface, and a prompt to revisit the routing memory it corrects or supports, rather than a directive. `report_note` for one left from a report through this API with `report_id` set: steering written straight for you, about the report its content names. */
       origin: string;
     }
 
@@ -102826,6 +103160,11 @@ export namespace Schemas {
          * @maxLength 200
          */
       skill_name?: string;
+      /**
+         * Optional id of the inbox report this note is about. The note then names the report so a scout can fetch it, and the report's activity log records that the note was left. Requires edit access to inbox reports, and the report must belong to this project. The report reference shares the note's character budget, so `content` is capped at 9938 characters when this is set.
+         * @nullable
+         */
+      report_id?: string | null;
       /**
          * Optional ISO-8601 expiry. After this time the note drops out of the default list view, so time-boxed steering ('watch closely this week') retires itself. Omit for a note that stays active until deleted. Best-effort — a value that can't be parsed or is already in the past is dropped (the note stays active), not rejected, so the note is never lost.
          * @nullable
@@ -117700,6 +118039,20 @@ export namespace Schemas {
       dateTo?: string;
     }
 
+    export interface _MetricQueryCount {
+      /** Metric name as it appears in the team's data. */
+      metric_name: string;
+      /** Number of builder and PromQL queries that read the metric in the window. SQL mode queries do not count. */
+      query_count: number;
+      /** When a query last read the metric, ISO 8601. */
+      last_queried_at: string;
+    }
+
+    export interface _MetricQueryCountsResponse {
+      /** Metrics that queries read in the window, the most queried first. */
+      results: _MetricQueryCount[];
+    }
+
     export interface _MetricQueryRequest {
       /** The metric query to execute. */
       query: _MetricQueryBody;
@@ -120463,6 +120816,7 @@ export namespace Schemas {
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
      * * `OAuthApplication` - OAuthApplication
      * * `WorkloadTrustPolicy` - WorkloadTrustPolicy
+     * * `WorkloadTrustPolicyRequest` - WorkloadTrustPolicyRequest
      * * `User` - User
      * * `Action` - Action
      * * `AccountView` - AccountView
@@ -120583,6 +120937,7 @@ export namespace Schemas {
       ProjectSecretAPIKey: 'ProjectSecretAPIKey',
       OAuthApplication: 'OAuthApplication',
       WorkloadTrustPolicy: 'WorkloadTrustPolicy',
+      WorkloadTrustPolicyRequest: 'WorkloadTrustPolicyRequest',
       User: 'User',
       Action: 'Action',
       AccountView: 'AccountView',
@@ -120689,6 +121044,7 @@ export namespace Schemas {
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
      * * `OAuthApplication` - OAuthApplication
      * * `WorkloadTrustPolicy` - WorkloadTrustPolicy
+     * * `WorkloadTrustPolicyRequest` - WorkloadTrustPolicyRequest
      * * `User` - User
      * * `Action` - Action
      * * `AccountView` - AccountView
@@ -120797,6 +121153,7 @@ export namespace Schemas {
       ProjectSecretAPIKey: 'ProjectSecretAPIKey',
       OAuthApplication: 'OAuthApplication',
       WorkloadTrustPolicy: 'WorkloadTrustPolicy',
+      WorkloadTrustPolicyRequest: 'WorkloadTrustPolicyRequest',
       User: 'User',
       Action: 'Action',
       AccountView: 'AccountView',
@@ -130574,6 +130931,21 @@ export namespace Schemas {
     value?: string;
     };
 
+    export type MetricsQueryCountsRetrieveParams = {
+    /**
+     * Number of UTC days to count, today included.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number;
+    /**
+     * Maximum number of metrics to return.
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number;
+    };
+
     export type MetricsValuesRetrieveParams = {
     /**
      * Max number of names to return. Defaults to 100; maximum 1000.
@@ -131338,6 +131710,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type PushTokenImportsLatestRetrieveParams = {
+    /**
+     * The push channel whose newest import to return.
+     */
+    integration_id: number;
     };
 
     export type QueryLogRetrieve200 = { [key: string]: unknown };
@@ -135789,6 +136168,17 @@ export namespace Schemas {
     };
 
     export type WorkloadTrustPoliciesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type WorkloadTrustPolicyRequestsListParams = {
     /**
      * Number of results to return per page.
      */

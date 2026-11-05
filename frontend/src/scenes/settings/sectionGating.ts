@@ -7,6 +7,7 @@ import { SettingSection, SettingSectionId, UnavailableSection } from '~/scenes/s
 export const ADMIN_ONLY_SECTION_IDS: SettingSectionId[] = [
     'organization-legal-documents',
     'organization-access-resolution',
+    'environment-trusted-workloads',
 ]
 
 interface FindUnavailableSectionInput {
