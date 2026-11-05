@@ -638,10 +638,7 @@ class TestProgressiveHighlights(BaseTest):
         pulse_pins.set_pins(team=self.team, user_id=self.user.id, pins=[contracts.PulsePin("insight:p", "P")])
         connect = MagicMock()
         connect.return_value.start_workflow = AsyncMock()
-        with (
-            patch.object(highlights, "progressive_pulse_enabled", return_value=True),
-            patch.object(highlights, "sync_connect", connect),
-        ):
+        with patch.object(highlights, "sync_connect", connect):
             highlights.get_highlights(team=self.team, user=self.user, scopes=None)
             rows = TodayHighlights.objects.for_team(self.team.id)
             first = rows.get()
@@ -709,10 +706,7 @@ class TestProgressiveHighlights(BaseTest):
         cache.clear()
         connect = MagicMock()
         connect.return_value.start_workflow = AsyncMock()
-        with (
-            patch.object(highlights, "progressive_pulse_enabled", return_value=True),
-            patch.object(highlights, "sync_connect", connect),
-        ):
+        with patch.object(highlights, "sync_connect", connect):
             highlights.get_highlights(team=self.team, user=self.user, scopes=None)
             rows = TodayHighlights.objects.for_team(self.team.id)
             first = rows.get()
@@ -752,7 +746,6 @@ class TestProgressiveHighlights(BaseTest):
                 [s.status for s in pending.pulse_slots or []], [PulseSlotStatus.READY, PulseSlotStatus.PENDING]
             )
             self.assertEqual(connect.return_value.start_workflow.call_count, 2)
-            self.assertTrue(connect.return_value.start_workflow.call_args.args[1].progressive)
             retry_at = timezone.now() + timedelta(seconds=highlights.FAILED_CACHE_SECONDS + 1)
             with time_machine.travel(timezone.now() + timedelta(seconds=30), tick=False):
                 highlights.finalize(

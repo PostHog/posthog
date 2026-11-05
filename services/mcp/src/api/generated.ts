@@ -134093,7 +134093,7 @@ export namespace Schemas {
 
     export type TodayHighlightsRetrieveParams = {
     /**
-     * Retry failed sources when progressive loading is enabled. An active computation is reused.
+     * Retry failed sources. An active computation is reused.
      */
     refresh?: boolean;
     };
