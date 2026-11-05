@@ -20,8 +20,7 @@ def first_team_owner(owners: list[str] | None) -> str:
 
 
 def owning_team(resolution: Resolution) -> str | None:
-    """The team that a test file's failures reach, or ``unowned`` when no team owns it.
-    ``None`` for an ``owners: null`` exemption, which a coverage report must not count (SPEC section 3.1)."""
+    """``None`` for an ``owners: null`` exemption (SPEC 3.1), ``unowned`` when no team owns the file."""
     if resolution.unowned_by_design:
         return None
     return first_team_owner(resolution.owners) or UNOWNED_TEAM
@@ -35,14 +34,12 @@ def runner_for_path(path: str) -> str | None:
     return None
 
 
-def unowned_test_directories(resolver: OwnersResolver) -> set[str]:
-    """Directories that hold a tracked test file whose failures reach no team. A new file inherits
-    the owner of its directory, so a baseline of directories stays steady while files come and go.
-    Unlike ``OwnersResolver.unowned``, a file owned only by ``@handles`` counts, because a person is
-    not a routing target for a failure report."""
+def unowned_test_directories(resolver: OwnersResolver, paths: Iterable[str]) -> set[str]:
+    """Directories, not files, so the baseline holds while files come and go. A file owned only by
+    ``@handles`` counts: a person is not a routing target."""
     return {
         str(PurePosixPath(path).parent)
-        for path in resolver.tracked_files()
+        for path in paths
         if runner_for_path(path) and owning_team(resolver.resolve(path)) == UNOWNED_TEAM
     }
 

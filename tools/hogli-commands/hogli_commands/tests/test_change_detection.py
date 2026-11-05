@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -15,36 +15,18 @@ def _completed(stdout: str = "", returncode: int = 0, stderr: str = "") -> Magic
     return MagicMock(stdout=stdout, stderr=stderr, returncode=returncode)
 
 
-def _git(repo: Path, *args: str) -> str:
-    return subprocess.run(
-        [
-            "git",
-            "-C",
-            str(repo),
-            "-c",
-            "user.name=t",
-            "-c",
-            "user.email=t@example.com",
-            "-c",
-            "commit.gpgsign=false",
-            *args,
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    ).stdout.strip()
-
-
 class TestChangedFiles:
-    def test_committed_rename_lists_both_paths(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_committed_rename_lists_both_paths(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, git: Callable[..., str]
+    ) -> None:
         monkeypatch.setattr(change_detection, "REPO_ROOT", tmp_path)
         (tmp_path / "test_a.py").write_text("def test_x():\n    pass\n")
-        _git(tmp_path, "init", "-q")
-        _git(tmp_path, "add", "-A")
-        _git(tmp_path, "commit", "-q", "-m", "init")
-        base = _git(tmp_path, "rev-parse", "HEAD")
-        _git(tmp_path, "mv", "test_a.py", "a.py")
-        _git(tmp_path, "commit", "-q", "-m", "rename")
+        git(tmp_path, "init", "-q")
+        git(tmp_path, "add", "-A")
+        git(tmp_path, "commit", "-q", "-m", "init")
+        base = git(tmp_path, "rev-parse", "HEAD")
+        git(tmp_path, "mv", "test_a.py", "a.py")
+        git(tmp_path, "commit", "-q", "-m", "rename")
 
         assert changed_files(base, include_worktree=False) == ["a.py", "test_a.py"]
 
