@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, Protocol, Self
+from typing import TYPE_CHECKING, Any, Literal, Protocol, Self
 
 from django.conf import settings
 
@@ -187,6 +187,15 @@ class ExecutionResult(BaseModel):
     stderr: str
     exit_code: int
     error: str | None = None
+
+
+@frozen
+class SandboxDirEntry:
+    name: str
+    # A symlink is reported as itself, never as the type of its target.
+    kind: Literal["file", "dir", "symlink", "other"]
+    size: int
+    mtime: float
 
 
 class ExecutionStream(Protocol):
@@ -503,6 +512,21 @@ class SandboxBase(ABC):
 
     @abstractmethod
     def write_file(self, path: str, payload: bytes, timeout_seconds: int | None = None) -> ExecutionResult: ...
+
+    def list_dir(self, path: str) -> list[SandboxDirEntry] | None:
+        """Entries in `path`; None when it is missing or not a directory, so an empty directory stays distinct.
+
+        The agent controls the sandbox filesystem, so callers must validate every name and size.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not support listing directories")
+
+    def read_file(self, path: str, max_bytes: int) -> bytes | None:
+        """The contents of `path`, or None when it is missing, not a regular file, or over `max_bytes`.
+
+        A file can grow between the size check and the read, so a result may hold up to
+        `max_bytes + 1` bytes and callers must re-check the length.
+        """
+        raise NotImplementedError(f"{type(self).__name__} does not support reading files")
 
     def stop_agent_server(self) -> ExecutionResult:
         """Stop the agent server gracefully so it can flush terminal events."""

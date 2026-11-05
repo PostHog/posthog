@@ -81,6 +81,21 @@ detector (`[TMPRL1101]`). Two mechanisms bound this:
   events), re-attaching to the same running sandbox instead of re-provisioning. The enable decision
   is captured at workflow start, so histories recorded with it off keep replaying deterministically.
 
+#### Agent memory
+
+Claude Code writes auto memory to `~/.claude/projects/<slug>/memory/`.
+agent-server links that directory to `/tmp/workspace/.posthog/agent-state/claude/projects`, so it lives in the sandbox and is lost at teardown.
+The workflow keeps it per project and user in object storage, one object per file, at `tasks/agent-memory/<team_id>/<user_id>/claude/<slug>/<filename>`.
+Memory does not cross projects, even for the same repository.
+
+- **Restore** runs inside `create_sandbox_for_repository`, before any agent-server launch, for every run mode, prewarmed sandboxes and rotation replacements included. For each slug in storage, the sandbox copy is replaced with the stored files. Restore then records what it wrote in `/tmp/workspace/.posthog/agent-memory/baseline.json` (MD5, size and mtime per file). It stops after 60 seconds, checked before every remote call.
+- **Persist** (`persist_agent_memory`) runs only for interactive runs: after agent turns (turns that end during a persist coalesce into one trailing persist), before the TTL-rotation snapshot, and at teardown before the resume snapshot. It compares the sandbox with the baseline. A file whose size and mtime match the baseline is not read. A slug with no added, changed or removed file is not touched in storage, so a sandbox cannot overwrite memory that another sandbox saved for a slug it never changed. Writes are last-writer-wins per file. After a persist the baseline moves forward.
+- A stored file is deleted only when the baseline had it and the sandbox no longer lists it, and only from a sandbox that received a complete restore (`agent_memory_restored_sandbox_id` in `TaskRun.state`). A missing or malformed baseline means writes only. An empty memory directory, or a baseline slug whose directory is gone, persists an empty file set, so deleting the last file propagates.
+- A persist skips the upload when the content MD5 matches the stored single-part ETag. Transient storage and sandbox failures raise so Temporal retries the activity. If the rotation persist fails, the run stays on its current sandbox.
+- Slugs, filenames and sizes are validated in `logic/services/agent_memory.py`: regular `.md` files only (symlinks and directories are skipped), 256 KiB per file, 2 MiB and 200 files per slug, 50 slugs per user.
+- Backends without file listing (hogland) record the `unsupported` outcome and skip both directions.
+- Gating: the `tasks-persist-agent-memory` flag, evaluated for the run's user and organization at context load, and the task creator driving the run. A persist is skipped (`actor_changed`) once another Slack member steers the run. Memory already restored into a sandbox stays readable by whoever drives the run. Claude keeps writing memory files during another member's turns, and the persist diff runs against the restore baseline, so those notes upload on the creator's next persist rather than never. The workflow commands sit behind the `persist-agent-memory-2026-11` patch.
+
 ### Temporal client
 
 `backend/temporal/client.py` — `execute_task_processing_workflow()` (sync) and `execute_task_processing_workflow_async()` check the `tasks` feature flag, then fire-and-forget the workflow. Workflow IDs follow the pattern `task-processing-{task_id}-{run_id}`.

@@ -31,9 +31,13 @@ from modal.exception import (
     ConnectionError as ModalConnectionError,
     InvalidError as ModalInvalidError,
     ResourceExhaustedError as ModalResourceExhaustedError,
+    SandboxFilesystemNotADirectoryError as ModalSandboxFilesystemNotADirectoryError,
+    SandboxFilesystemNotFoundError as ModalSandboxFilesystemNotFoundError,
+    SandboxFilesystemPermissionError as ModalSandboxFilesystemPermissionError,
     ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
 )
+from modal.types import FileType as ModalFileType
 from modal_proto import api_pb2
 from python_socks import ProxyError as SocksProxyError
 from semantic_version import NpmSpec
@@ -85,7 +89,11 @@ from products.tasks.backend.logic.services.modal_provision_diagnostics import (
     capture_modal_output_if_debug,
     summarize_modal_output,
 )
-from products.tasks.backend.logic.services.sandbox import build_bundled_skills_clear_command, redact_sandbox_command
+from products.tasks.backend.logic.services.sandbox import (
+    SandboxDirEntry,
+    build_bundled_skills_clear_command,
+    redact_sandbox_command,
+)
 from products.tasks.backend.logic.services.task_filesystem import (
     TASK_FILESYSTEM_SCRIPT,
     TASK_FILESYSTEM_VERSION,
@@ -115,6 +123,12 @@ from .sandbox import (
 )
 
 logger = logging.getLogger(__name__)
+
+_MODAL_FILE_KINDS: dict[ModalFileType, Literal["file", "dir", "symlink"]] = {
+    ModalFileType.FILE: "file",
+    ModalFileType.DIRECTORY: "dir",
+    ModalFileType.SYMLINK: "symlink",
+}
 
 
 DEFAULT_MODAL_APP_NAME = "posthog-sandbox-default"
@@ -1690,6 +1704,56 @@ class ModalSandbox(AgentServerLaunchMixin):
                 {"sandbox_id": self.id, "path": path, "write_stage": write_stage, "error": str(e)},
                 cause=e,
             )
+
+    def _raise_unless_running(self) -> None:
+        if not self._is_running_cached():
+            raise SandboxNotRunningError(
+                "Sandbox not in running state.",
+                {"sandbox_id": self.id},
+                cause=RuntimeError(f"Sandbox {self.id} is not running"),
+            )
+
+    def list_dir(self, path: str) -> list[SandboxDirEntry] | None:
+        self._raise_unless_running()
+        try:
+            infos = self._sandbox.filesystem.list_files(path)
+        except (ModalSandboxFilesystemNotFoundError, ModalSandboxFilesystemNotADirectoryError):
+            return None
+        except Exception as e:
+            _raise_if_proxy_failure(e, self.id, "filesystem_list")
+            raise
+        return [
+            SandboxDirEntry(
+                name=info.name,
+                kind=_MODAL_FILE_KINDS.get(info.type, "other"),
+                size=info.size,
+                mtime=info.modified_time,
+            )
+            for info in infos
+        ]
+
+    def read_file(self, path: str, max_bytes: int) -> bytes | None:
+        self._raise_unless_running()
+        try:
+            info = self._sandbox.filesystem.stat(path)
+        except (
+            ModalSandboxFilesystemNotFoundError,
+            ModalSandboxFilesystemNotADirectoryError,
+            ModalSandboxFilesystemPermissionError,
+        ):
+            return None
+        except Exception as e:
+            _raise_if_proxy_failure(e, self.id, "filesystem_stat")
+            raise
+        if not info.is_file() or info.size > max_bytes:
+            return None
+        # Modal's supported filesystem API has no bounded read, and a file can grow after the stat,
+        # so the bytes come from a capped shell read. Callers validate and cap the content, so a
+        # tampered shell can only corrupt the user's own memory.
+        result = self.execute(f"head -c {max_bytes + 1} -- {shlex.quote(path)} | base64 -w0")
+        if result.exit_code != 0:
+            return None
+        return base64.b64decode(result.stdout.strip())
 
     def _remove_temp_file(self, temp_path: str, step_timeout: int) -> None:
         try:

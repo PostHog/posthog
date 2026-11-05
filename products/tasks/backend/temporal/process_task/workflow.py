@@ -76,6 +76,7 @@ from .activities.get_task_processing_context import (
     get_task_processing_context,
 )
 from .activities.materialize_context_layer import MaterializeContextLayerInput, materialize_context_layer_in_sandbox
+from .activities.persist_agent_memory import PersistAgentMemoryInput, persist_agent_memory
 from .activities.post_slack_update import PostSlackUpdateInput, post_slack_update
 from .activities.provision_sandbox import (
     REPOSITORY_CLONE_RETRY_DELAYS_SECONDS,
@@ -361,6 +362,15 @@ def _check_rotation_activity_before_boot() -> bool:
     return workflow.patched(_PATCH_ID_ROTATION_ACTIVITY_BEFORE_BOOT)
 
 
+_PATCH_ID_PERSIST_AGENT_MEMORY = "persist-agent-memory-2026-11"
+
+
+def _check_persist_agent_memory_patch() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_PERSIST_AGENT_MEMORY)
+
+
 _PENDING_PROGRESS_FLUSH_SECONDS = 15.0
 
 # `Task.OriginProduct.ONBOARDING`, mirrored as a literal so workflow code stays free of
@@ -463,6 +473,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._slack_setup_chain: asyncio.Task[None] | None = None
         self._pending_progress_activities: dict[asyncio.Task[None], str] = {}
         self._agent_boot_interaction_telemetry_enabled = False
+        self._agent_memory_persist_enabled = False
+        self._agent_memory_persist_task: asyncio.Task[None] | None = None
+        self._agent_memory_persisted_turns = 0
+        self._agent_memory_sandbox_id: str | None = None
+        self._agent_memory_persist_closed = False
 
     @property
     def context(self) -> TaskProcessingContext:
@@ -1172,6 +1187,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     success=False,
                     error="Run environment is 'local' (desktop-driven); refusing to execute it as a cloud workflow",
                 )
+            # The patch check comes first so a pre-patch history records no marker and no persist.
+            self._agent_memory_persist_enabled = (
+                _check_persist_agent_memory_patch()
+                and self.context.persist_agent_memory_enabled
+                and self.context.mode == "interactive"
+                and self.context.task_created_by_id is not None
+            )
             if input.resumed_sandbox is None:
                 self._dev_stack_preview_enabled = self.context.dev_stack_preview_enabled
                 sandbox_id, sandbox_url, sandbox_connect_token = await self._provision_and_start_agent(input, run_id)
@@ -1241,6 +1263,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         permission_response_task,
                         preview_task,
                         agent_shadow_task,
+                        self._agent_memory_persist_task,
                     ):
                         if task is not None:
                             await self._cancel_relay(task)
@@ -1248,6 +1271,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     await self._flush_pending_progress_activities()
                     workflow.continue_as_new(self._build_resumed_input(input, sandbox_id))
                 event = await self._wait_for_event()
+                self._schedule_agent_memory_persist(sandbox_id)
                 match event:
                     case TaskEvent.TIMEOUT_REACHED:
                         timeout_event = event
@@ -1631,6 +1655,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
                     cleanup_sandbox_id = sandbox_id or self._sandbox_id_for_cleanup
                     if cleanup_sandbox_id:
+                        if self._agent_memory_persist_enabled:
+                            await self._persist_agent_memory_at_teardown(cleanup_sandbox_id)
                         if (
                             self._context
                             and self._context.mode == "interactive"
@@ -1651,6 +1677,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                         self._sandbox_id_for_cleanup = None
                     elif not run_stream_completed and (self._context is None or self._context.environment == "cloud"):
                         await self._complete_run_stream(run_id)
+                    if self._agent_memory_persist_task is not None:
+                        await self._cancel_relay(self._agent_memory_persist_task)
 
                     if sandbox_cleaned and self._slack_thread_context and self._context:
                         await self._post_slack_update(sandbox_cleaned=True)
@@ -2980,6 +3008,17 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         """
         self._resume_snapshot_invalidated = False
         activity_count = self._sandbox_activity_count
+        # The replacement restores memory from storage, so storage must match the snapshot first.
+        # Taken after the activity count, so agent activity during the persist abandons the rotation.
+        if self._agent_memory_persist_enabled:
+            await self._drain_agent_memory_persist_task()
+            if not await self._persist_agent_memory(old_sandbox_id, reason="ttl_rotation"):
+                # The replacement would restore older stored memory over the snapshot's newer files.
+                return SandboxRotation(
+                    relay_task=relay_task,
+                    credential_refresh_task=credential_refresh_task,
+                    reason="memory_persist_failed",
+                )
         snapshot = await self._create_resume_snapshot_output(old_sandbox_id, reason="ttl_rotation", allow_pruning=False)
         if snapshot is None or not snapshot.external_id:
             return SandboxRotation(
@@ -3289,6 +3328,79 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await relay_task
         except (asyncio.CancelledError, Exception):
             pass
+
+    async def _persist_agent_memory(self, sandbox_id: str, *, reason: str) -> bool:
+        """True only when the activity ran and reported no error."""
+        user_id = self.context.task_created_by_id
+        if user_id is None:
+            return False
+        try:
+            result = await workflow.execute_activity(
+                persist_agent_memory,
+                PersistAgentMemoryInput(
+                    sandbox_id=sandbox_id,
+                    run_id=self.context.run_id,
+                    team_id=self.context.team_id,
+                    user_id=user_id,
+                    reason=reason,
+                ),
+                start_to_close_timeout=timedelta(minutes=3),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+        except Exception as e:
+            workflow.logger.warning(
+                "agent_memory_persist_failed_non_fatal",
+                extra={"run_id": self.context.run_id, "sandbox_id": sandbox_id, "reason": reason, "error": str(e)},
+            )
+            return False
+        if result.error:
+            workflow.logger.warning(
+                "agent_memory_persist_skipped",
+                extra={
+                    "run_id": self.context.run_id,
+                    "sandbox_id": sandbox_id,
+                    "reason": reason,
+                    "error": result.error,
+                },
+            )
+            return False
+        return True
+
+    def _schedule_agent_memory_persist(self, sandbox_id: str | None) -> None:
+        if not self._agent_memory_persist_enabled or sandbox_id is None or self._agent_memory_persist_closed:
+            return
+        self._agent_memory_sandbox_id = sandbox_id
+        if self._turn_completion_signal_count <= self._agent_memory_persisted_turns:
+            return
+        if self._agent_memory_persist_task is not None and not self._agent_memory_persist_task.done():
+            # The running loop re-reads the turn count after each persist, so turns that end while it
+            # is in flight coalesce into one trailing persist.
+            return
+        self._agent_memory_persist_task = asyncio.create_task(self._persist_agent_memory_after_turns())
+
+    async def _persist_agent_memory_after_turns(self) -> None:
+        while (
+            not self._agent_memory_persist_closed
+            and self._agent_memory_sandbox_id is not None
+            and self._turn_completion_signal_count > self._agent_memory_persisted_turns
+        ):
+            persisted_through = self._turn_completion_signal_count
+            await self._persist_agent_memory(self._agent_memory_sandbox_id, reason="turn_completed")
+            self._agent_memory_persisted_turns = persisted_through
+
+    async def _drain_agent_memory_persist_task(self) -> None:
+        task = self._agent_memory_persist_task
+        if task is not None and not task.done():
+            # A per-turn persist that finished after the next one would write older file contents over newer ones.
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
+
+    async def _persist_agent_memory_at_teardown(self, sandbox_id: str) -> None:
+        self._agent_memory_persist_closed = True
+        await self._drain_agent_memory_persist_task()
+        await self._persist_agent_memory(sandbox_id, reason="teardown")
 
     async def _create_resume_snapshot(self, sandbox_id: str, *, reason: str, allow_pruning: bool) -> bool:
         result = await self._create_resume_snapshot_output(sandbox_id, reason=reason, allow_pruning=allow_pruning)

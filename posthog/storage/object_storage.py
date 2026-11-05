@@ -17,6 +17,13 @@ class ObjectStorageError(Exception):
     pass
 
 
+@frozen
+class StoredObjectSummary:
+    key: str
+    etag: str | None
+    size: int
+
+
 class ObjectStorageClient(metaclass=abc.ABCMeta):
     """Just because the full S3 API is available doesn't mean we should use it all"""
 
@@ -57,6 +64,11 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def list_objects(self, bucket: str, prefix: str) -> Optional[list[str]]:
+        pass
+
+    @abc.abstractmethod
+    def list_object_summaries(self, bucket: str, prefix: str) -> list[StoredObjectSummary]:
+        """Every object under `prefix`: empty for an empty prefix, ObjectStorageError on failure."""
         pass
 
     @abc.abstractmethod
@@ -139,6 +151,9 @@ class UnavailableStorage(ObjectStorageClient):
 
     def list_objects(self, bucket: str, prefix: str) -> Optional[list[str]]:
         pass
+
+    def list_object_summaries(self, bucket: str, prefix: str) -> list[StoredObjectSummary]:
+        raise ObjectStorageError("object storage is unavailable")
 
     def read(self, bucket: str, key: str, *, missing_ok: bool = False) -> Optional[str]:
         return None
@@ -286,6 +301,25 @@ class ObjectStorage(ObjectStorageClient):
             )
             capture_exception(e)
             return None
+
+    def list_object_summaries(self, bucket: str, prefix: str) -> list[StoredObjectSummary]:
+        summaries: list[StoredObjectSummary] = []
+        request: dict[str, Any] = {"Bucket": bucket, "Prefix": prefix}
+        try:
+            while True:
+                response = self.aws_client.list_objects_v2(**request)
+                summaries.extend(
+                    StoredObjectSummary(key=obj["Key"], etag=obj.get("ETag"), size=int(obj.get("Size", 0)))
+                    for obj in response.get("Contents") or []
+                )
+                token = response.get("NextContinuationToken")
+                if not response.get("IsTruncated") or not token:
+                    return summaries
+                request["ContinuationToken"] = token
+        except Exception as e:
+            logger.exception("object_storage.list_object_summaries_failed", bucket=bucket, prefix=prefix, error=e)
+            capture_exception(e)
+            raise ObjectStorageError("list_objects failed") from e
 
     def read(self, bucket: str, key: str, *, missing_ok: bool = False) -> Optional[str]:
         object_bytes = self.read_bytes(bucket, key, missing_ok=missing_ok)
@@ -595,6 +629,10 @@ def read_object(
 
 def list_objects(prefix: str, bucket: str | None = None) -> Optional[list[str]]:
     return object_storage_client().list_objects(bucket=bucket or settings.OBJECT_STORAGE_BUCKET, prefix=prefix)
+
+
+def list_object_summaries(prefix: str, bucket: str | None = None) -> list[StoredObjectSummary]:
+    return object_storage_client().list_object_summaries(bucket=bucket or settings.OBJECT_STORAGE_BUCKET, prefix=prefix)
 
 
 def copy_objects(source_prefix: str, target_prefix: str) -> int:

@@ -18,7 +18,7 @@ from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from django.conf import settings
 
@@ -29,6 +29,7 @@ from products.tasks.backend.exceptions import (
     SandboxCleanupError,
     SandboxExecutionError,
     SandboxNotFoundError,
+    SandboxNotRunningError,
     SandboxProvisionError,
     SandboxTimeoutError,
     SnapshotCreationError,
@@ -63,6 +64,7 @@ from .sandbox import (
     ExecutionResult,
     ExecutionStream,
     SandboxConfig,
+    SandboxDirEntry,
     SandboxStatus,
     SandboxTemplate,
     build_agent_runtime_env_prefix,
@@ -74,6 +76,8 @@ from .sandbox import (
 )
 
 logger = logging.getLogger(__name__)
+
+_FIND_KINDS: dict[str, Literal["file", "dir", "symlink"]] = {"f": "file", "d": "dir", "l": "symlink"}
 
 DEFAULT_IMAGE_NAME = "posthog-sandbox-base"
 NOTEBOOK_IMAGE_NAME = "posthog-sandbox-notebook"
@@ -1328,6 +1332,50 @@ class DockerSandbox(AgentServerLaunchMixin):
 
     def is_running(self) -> bool:
         return self.get_status() == SandboxStatus.RUNNING
+
+    def _raise_unless_running(self) -> None:
+        if not self.is_running():
+            raise SandboxNotRunningError(
+                "Sandbox not in running state.",
+                {"sandbox_id": self.id},
+                cause=RuntimeError(f"Sandbox {self.id} is not running"),
+            )
+
+    def list_dir(self, path: str) -> list[SandboxDirEntry] | None:
+        self._raise_unless_running()
+        quoted = shlex.quote(path)
+        result = self.execute(
+            f"test -d {quoted} || exit 3; find {quoted} -mindepth 1 -maxdepth 1 -printf '%y\\t%s\\t%T@\\t%f\\n'"
+        )
+        if result.exit_code == 3:
+            return None
+        if result.exit_code != 0:
+            raise SandboxExecutionError(
+                "Failed to list directory",
+                {"sandbox_id": self.id, "path": path, "stderr": result.stderr[:500]},
+                cause=RuntimeError(result.stderr[:500]),
+            )
+        entries: list[SandboxDirEntry] = []
+        for line in result.stdout.splitlines():
+            parts = line.split("\t", 3)
+            if len(parts) != 4 or not parts[1].isdigit():
+                continue
+            kind, size, mtime, name = parts
+            entries.append(
+                SandboxDirEntry(name=name, kind=_FIND_KINDS.get(kind, "other"), size=int(size), mtime=float(mtime))
+            )
+        return entries
+
+    def read_file(self, path: str, max_bytes: int) -> bytes | None:
+        self._raise_unless_running()
+        quoted = shlex.quote(path)
+        result = self.execute(
+            f"test -f {quoted} && test ! -L {quoted} && [ $(stat -c %s {quoted}) -le {max_bytes} ] || exit 3; "
+            f"head -c {max_bytes + 1} -- {quoted} | base64 -w0"
+        )
+        if result.exit_code != 0:
+            return None
+        return base64.b64decode(result.stdout.strip())
 
     @property
     def name(self) -> str:
