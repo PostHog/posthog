@@ -8,6 +8,7 @@ import { DEFAULT_OAUTH_SCOPES, getScopeGroupLabel, scopeGroupLevel, scopeGroupTo
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
+import type { MockSignature } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 import { AppContext } from '~/types'
 
@@ -340,7 +341,7 @@ describe('oauthAuthorizeLogic', () => {
         expect(logic.values.newOrganizationLoading).toBe(false)
     })
 
-    it.each([
+    it.each<{ failing: string; get: Record<string, MockSignature> }>([
         {
             failing: 'user',
             get: { '/api/users/@me/': () => [500, { detail: 'Server error' }] },
