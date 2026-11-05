@@ -54,6 +54,7 @@ from products.tasks.backend.dev_stack_image_models import (
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.facade.profiles import (
+    GithubAccess,
     GithubResolution,
     PrAuthorship,
     TaskProfile,
@@ -79,7 +80,7 @@ from products.tasks.backend.metrics import (
 )
 from products.tasks.backend.pr_urls import read_pr_urls
 from products.tasks.backend.redis import dedicated_stream_configured, run_uses_dedicated_stream
-from products.tasks.backend.run_options import RunSettings, apply_run_options, run_options_record
+from products.tasks.backend.run_options import RunSettings, apply_run_options, run_options_record, validate_run_options
 from products.tasks.backend.storage import append_jsonl_object
 from products.tasks.backend.task_sources import apply_task_source, source_from_columns
 
@@ -692,6 +693,11 @@ class Task(Taggable, DeletedMetaFields, models.Model):
 
         if is_new:
             transaction.on_commit(self._track_task_created)
+
+    @property
+    def github_access_limit(self) -> GithubAccess | None:
+        value = (self.options or {}).get("github_access")
+        return GithubAccess(value) if value else None
 
     @property
     def stored_profile(self) -> TaskProfile | None:
@@ -1316,7 +1322,15 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         )
 
     @staticmethod
-    def attaches_github(origin_product: str, profile: TaskProfile | None, *, has_repository: bool) -> bool:
+    def attaches_github(
+        origin_product: str,
+        profile: TaskProfile | None,
+        *,
+        has_repository: bool,
+        github_access: GithubAccess | None = None,
+    ) -> bool:
+        if github_access == GithubAccess.NONE:
+            return False
         if profile is None:
             return Task._github_resolution_allowed(origin_product, has_repository=has_repository)
         if profile.github_resolution == GithubResolution.WITH_REPOSITORY:
@@ -1371,6 +1385,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         mcp_gateway_server_ids: list[str] | None = None,
         mcp_tool_allowlist: list[str] | None = None,
         profile: TaskProfile | None = None,
+        github_access: GithubAccess | None = None,
     ) -> tuple["Task", dict[str, Any]]:
         """Prepare an unsaved Task and the initial run's `extra_state`.
 
@@ -1407,7 +1422,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             user_github_integration_is_usable,
         )
 
-        github_resolution_allowed = Task.attaches_github(origin_product, profile, has_repository=bool(repository))
+        github_resolution_allowed = Task.attaches_github(
+            origin_product, profile, has_repository=bool(repository), github_access=github_access
+        )
         github_integration = None
         if github_resolution_allowed:
             github_integration = next(
@@ -1692,6 +1709,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 source=source_from_columns(signal_report_id=columns.signal_report_id, hog_flow_id=columns.hog_flow_id),
             )
         runtime = profile.runtimes[0] if profile is not None else Task.Runtime.ACP.value
+        validate_run_options(profile, options)
         if options is not None:
             settings = apply_run_options(
                 options,
@@ -1734,6 +1752,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             client_provenance=client_provenance,
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
+            github_access=options.github_access if options is not None else None,
         )
         if options is not None:
             task.options = run_options_record(options)
@@ -1828,6 +1847,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             check_task_source(
                 profile=profile, source=source_from_columns(signal_report_id=signal_report_id, hog_flow_id=hog_flow_id)
             )
+        validate_run_options(profile, options)
         if options is not None:
             settings = apply_run_options(
                 options,
@@ -1912,6 +1932,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
             mcp_tool_allowlist=mcp_tool_allowlist,
+            github_access=options.github_access if options is not None else None,
         )
         if options is not None:
             task.options = run_options_record(options)

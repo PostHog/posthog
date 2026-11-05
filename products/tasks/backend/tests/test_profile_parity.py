@@ -8,6 +8,7 @@ from parameterized import parameterized
 
 from products.tasks.backend.facade.profiles import (
     DrivePolicy,
+    GithubAccess,
     GithubResolution,
     Read,
     TaskProfile,
@@ -154,6 +155,14 @@ class TestTaskProfilesMatchMaster(SimpleTestCase):
         }[profile.github_resolution]
         master = Task._github_resolution_allowed(profile.origin_product, has_repository=has_repository)
         self.assertEqual(attaches_github, master)
+
+    @parameterized.expand(PROFILES)
+    def test_github_access_matches_master(self, _key: str, profile: TaskProfile) -> None:
+        attaches_github = any(
+            Task._github_resolution_allowed(profile.origin_product, has_repository=has_repository)
+            for has_repository in (True, False)
+        )
+        self.assertEqual(profile.github_access, GithubAccess.WRITE if attaches_github else GithubAccess.NONE)
 
     @parameterized.expand(PROFILES)
     def test_user_authorable_prs_matches_master(self, _key: str, profile: TaskProfile) -> None:

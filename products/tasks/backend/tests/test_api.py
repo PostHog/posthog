@@ -5235,6 +5235,55 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertIsNone(task.github_user_integration_id)
         mock_workflow.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("create_run_user_authored", "runs", "user", None, {"github_access": "none"}, "bot", False),
+            ("create_run_bot_authored", "runs", "bot", None, {"github_access": "none"}, "bot", False),
+            ("run_user_authored", "run", "user", None, {"github_access": "none"}, "bot", False),
+            ("run_bot_authored", "run", "bot", None, {"github_access": "none"}, "bot", False),
+            ("run_caller_token", "run", "user", "ghu_test_token", {"github_access": "none"}, "bot", False),
+            ("create_run_without_a_limit", "runs", "user", None, None, "user", True),
+            ("create_run_with_a_read_limit", "runs", "user", None, {"github_access": "read"}, "user", True),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_starting_a_run_honors_the_task_github_access_limit(
+        self,
+        _name: str,
+        endpoint: str,
+        requested_mode: str,
+        github_user_token: str | None,
+        options: dict | None,
+        expected_mode: str,
+        attached: bool,
+        _mock_workflow,
+    ):
+        Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})
+        user_integration = _grant_user_github_access(self.user)
+        task = self.create_task(created_by=self.user)
+        task.repository = "posthog/posthog"
+        task.options = options
+        task.save(update_fields=["repository", "options"])
+        payload = {"pr_authorship_mode": requested_mode, "run_source": "manual"}
+        if endpoint == "runs":
+            payload["environment"] = "cloud"
+        else:
+            payload.update(mode="interactive", branch="main")
+        if github_user_token:
+            payload["github_user_token"] = github_user_token
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/{endpoint}/", payload, format="json")
+
+        self.assertIn(response.status_code, (status.HTTP_200_OK, status.HTTP_201_CREATED), response.content)
+        task.refresh_from_db()
+        run_id = response.json()["id"] if endpoint == "runs" else response.json()["latest_run"]["id"]
+        task_run = TaskRun.objects.get(id=run_id)
+        self.assertEqual(task_run.state["pr_authorship_mode"], expected_mode)
+        self.assertEqual(task.github_user_integration_id, user_integration.id if attached else None)
+        self.assertIsNone(task.github_integration_id)
+        self.assertEqual("github_credential_source" in task_run.state, attached)
+        self.assertIsNone(get_cached_github_user_token(run_id))
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_run_endpoint_cannot_start_a_product_private_account_audit(self, mock_workflow):
         Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})
@@ -17759,6 +17808,27 @@ class TestCloudUsageGate(BaseTaskAPITest):
         task.refresh_from_db()
         self.assertEqual(task.github_integration_id is not None, attached)
         self.assertEqual(task.github_user_integration_id is not None, attached and repository is not None)
+
+    @parameterized.expand(
+        [
+            ("none_refuses_a_later_attachment", {"github_access": "none"}, False),
+            ("read_takes_a_later_attachment", {"github_access": "read"}, True),
+            ("no_options_take_a_later_attachment", None, True),
+        ]
+    )
+    def test_update_follows_the_task_github_access_option(self, _name, options: dict | None, attached: bool):
+        integration = Integration.objects.create(team=self.team, kind="github", config={})
+        task = self.create_task()
+        task.options = options
+        task.save()
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/", {"github_integration": integration.id}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        task.refresh_from_db()
+        self.assertEqual(task.github_integration_id is not None, attached)
 
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_start_without_code_access_returns_403(self, mock_gate):

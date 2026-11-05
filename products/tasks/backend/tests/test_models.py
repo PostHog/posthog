@@ -24,6 +24,7 @@ from posthog.models.user_integration import UserIntegration
 from posthog.storage import object_storage
 
 from products.tasks.backend.facade.profiles import (
+    ContractCheck,
     GithubAccess,
     GithubResolution,
     PrAuthorship,
@@ -65,7 +66,12 @@ POSTHOG_AI_BOT_PROFILE = replace(
     github_resolution=GithubResolution.ALWAYS,
 )
 PI_PROFILE = replace(BUSINESS_KNOWLEDGE, key="test.pi", runtimes=("pi",))
-NO_GITHUB_PROFILE = replace(BUSINESS_KNOWLEDGE, key="test.no_github", github_resolution=GithubResolution.NEVER)
+NO_GITHUB_PROFILE = replace(
+    BUSINESS_KNOWLEDGE,
+    key="test.no_github",
+    github_resolution=GithubResolution.NEVER,
+    github_access=GithubAccess.NONE,
+)
 SUPPORT_AGENT_PROFILE = replace(BUSINESS_KNOWLEDGE, key="test.support_agent", mcp_agent="support")
 
 # Far enough back that any bump is unambiguously forward, and stable so a test can assert the
@@ -288,7 +294,16 @@ class TestTask(TestCase):
                 {"extra_run_state": {"model": "claude-opus-5"}},
                 TaskRunOptions(model="claude-sonnet-5"),
             ),
-            ("no_github_access", {}, TaskRunOptions(github_access=GithubAccess.NONE)),
+            (
+                "no_github_access_with_read_argument",
+                {"github_read_access": True},
+                TaskRunOptions(github_access=GithubAccess.NONE),
+            ),
+            (
+                "no_github_access_with_read_run_state",
+                {"extra_run_state": {"github_read_access": True}},
+                TaskRunOptions(github_access=GithubAccess.NONE),
+            ),
         ]
     )
     def test_run_options_refuse_a_setting_they_cannot_apply(
@@ -308,6 +323,35 @@ class TestTask(TestCase):
             )
 
         self.assertFalse(Task.objects.filter(team=self.team).exists())
+
+    @parameterized.expand(
+        [
+            ("run_unset", "create_and_run", None, True),
+            ("run_none", "create_and_run", GithubAccess.NONE, False),
+            ("run_read", "create_and_run", GithubAccess.READ, True),
+            ("run_write", "create_and_run", GithubAccess.WRITE, True),
+            ("without_run_none", "create_without_run", GithubAccess.NONE, False),
+            ("without_run_write", "create_without_run", GithubAccess.WRITE, True),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_github_access_none_attaches_no_github_integration(
+        self, name: str, entry: str, github_access: GithubAccess | None, attached: bool, _mock_execute_workflow
+    ) -> None:
+        user = User.objects.create(email=f"{name}@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
+
+        task = getattr(Task, entry)(
+            team=self.team,
+            title="t",
+            description="d",
+            user_id=user.id,
+            origin_product=Task.OriginProduct.USER_CREATED,
+            options=TaskRunOptions(github_access=github_access) if github_access else None,
+        )
+
+        task.refresh_from_db()
+        self.assertEqual(task.github_integration_id is not None, attached)
 
     @parameterized.expand([("empty", []), ("one_server", ["server-1"])])
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -759,6 +803,46 @@ class TestTask(TestCase):
 
         state = TaskRun.objects.get(id=mock_execute_workflow.call_args.kwargs["run_id"]).state
         self.assertEqual((task.runtime, state.get("sandbox_template")), expected)
+
+    @parameterized.expand(
+        [
+            ("run_in_log_mode", "create_and_run", frozenset(), True),
+            ("run_with_the_check_enforced", "create_and_run", frozenset({ContractCheck.RUNTIMES}), False),
+            ("run_with_another_check_enforced", "create_and_run", frozenset({ContractCheck.IDLE_MINUTES}), True),
+            ("without_run_in_log_mode", "create_without_run", frozenset(), True),
+            ("without_run_with_the_check_enforced", "create_without_run", frozenset({ContractCheck.RUNTIMES}), False),
+            (
+                "without_run_with_another_check_enforced",
+                "create_without_run",
+                frozenset({ContractCheck.SANDBOX_TEMPLATES}),
+                True,
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_task_creation_checks_run_options_against_the_profile(
+        self, name: str, entry: str, enforced: frozenset[ContractCheck], created: bool, _mock_execute_workflow
+    ) -> None:
+        user = User.objects.create(email=f"{name}@test.com")
+        profile = replace(BUSINESS_KNOWLEDGE, key="test.checked", enforced_checks=enforced)
+
+        with patch.dict("products.tasks.backend.facade.profiles._profiles", {profile.key: profile}):
+            create = partial(
+                getattr(Task, entry),
+                team=self.team,
+                title="t",
+                description="d",
+                profile=profile,
+                user_id=user.id,
+                options=TaskRunOptions(runtime="pi"),
+            )
+            if created:
+                self.assertEqual(create().runtime, "pi")
+            else:
+                with self.assertRaises(TaskRunOptionsError):
+                    create()
+
+        self.assertEqual(Task.objects.filter(team=self.team).exists(), created)
 
     @parameterized.expand([("caller_passes_the_key", "support"), ("caller_passes_none", None)])
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
