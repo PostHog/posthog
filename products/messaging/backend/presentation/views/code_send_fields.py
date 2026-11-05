@@ -14,6 +14,7 @@ from products.messaging.backend.facade.transactional_email import PIPELINE_ADDRE
 MAX_ADDRESSES_PER_FIELD = 10
 MAX_ATTACHMENTS = 10
 MAX_ATTACHMENTS_BYTES = 512 * 1024
+SES_ATTACHMENT_HEADER_MAX_LENGTH = 78
 BLOCKED_ATTACHMENT_EXTENSIONS = frozenset(
     {
         "ade", "adp", "apk", "app", "appx", "appxbundle", "asp", "bas", "bat", "cab", "cer", "chm", "cmd", "com", "cpl",
@@ -85,12 +86,12 @@ class EmailAttachmentSerializer(serializers.Serializer):
     )
     content_type = serializers.CharField(
         required=False,
-        max_length=255,
+        max_length=SES_ATTACHMENT_HEADER_MAX_LENGTH,
         help_text="MIME type of the file, such as `application/pdf`. Without it, the type follows from the file name.",
     )
     content_id = serializers.CharField(
         required=False,
-        max_length=255,
+        max_length=SES_ATTACHMENT_HEADER_MAX_LENGTH,
         help_text="Content ID that the HTML body references as `cid:<content_id>` to show the file inline, such as "
         "`logo`. Without `<` or `>`.",
     )
