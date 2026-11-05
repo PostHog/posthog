@@ -35,11 +35,13 @@ from posthog.hogql.property import action_to_expr
 from posthog.dataclasses import frozen
 from posthog.models.user import User
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import ActionNotFound
 from products.autoresearch.backend.access import has_report_notebook_access
 from products.autoresearch.backend.dataset.labeling import TrainingSample, build_target_condition
 from products.autoresearch.backend.inference.failures import UnscorableChampion, find_unscorable_champion
 from products.autoresearch.backend.inference.sandbox import _resolve_acting_user, measure_training_sample
+from products.autoresearch.backend.limits import TeamLimits, limits_for_team
 from products.autoresearch.backend.models import (
     AutoresearchModel,
     AutoresearchPipeline,
@@ -131,7 +133,7 @@ def _describe_target(pipeline: AutoresearchPipeline) -> _TargetDescription:
     if definition.get("type") == "action":
         action_id = definition.get("action_id")
         try:
-            action = Action.objects.get(id=int(action_id or 0), team__project_id=pipeline.team.project_id)
+            action = get_action(action_id=int(action_id or 0), project_id=pipeline.team.project_id)
             matcher = action_to_expr(action).to_hogql()
             spec_line = (
                 f"action `{_wrap_untrusted(action.name)}` (action_id {action_id}). "
@@ -139,7 +141,7 @@ def _describe_target(pipeline: AutoresearchPipeline) -> _TargetDescription:
             )
             inline_ref = f"the action `{_wrap_untrusted(action.name)}`"
             return _TargetDescription(spec_line=spec_line, inline_ref=inline_ref)
-        except (Action.DoesNotExist, TypeError, ValueError):
+        except (ActionNotFound, TypeError, ValueError):
             logger.warning("autoresearch_target_action_missing", pipeline_id=str(pipeline.pk), action_id=action_id)
     wrapped_event = _wrap_untrusted(pipeline.target_event)
     return _TargetDescription(spec_line=f"event `{wrapped_event}`", inline_ref=f"`{wrapped_event}`")
@@ -943,6 +945,7 @@ def run_training(
     user_id: int | None,
     rescue: bool = False,
     kickoff_reason: str = AutoresearchTrainingRun.KickoffReason.MANUAL,
+    limits: TeamLimits | None = None,
 ) -> AutoresearchTrainingRun:
     """
     Launch a real agent sandbox training run.
@@ -950,6 +953,10 @@ def run_training(
     Creates an AutoresearchTrainingRun (status=RUNNING) and fires Task.create_and_run()
     to start the autoresearch agent. Returns the training run immediately; recipe
     ingestion happens asynchronously when the TaskRun completes.
+
+    The run takes at most the project's ``max_iterations_per_run`` (``../limits.py``), whatever
+    the caller asked for. A caller that holds a lock passes the ``limits`` it read before taking
+    it, because the flag read can call out.
 
     Raises if Temporal is unreachable or the task cannot be created.
     """
@@ -969,6 +976,8 @@ def run_training(
         target_event=pipeline.target_event, target_definition=pipeline.target_definition, team=pipeline.team
     )
     agent_config = agent_run_config_for(pipeline)
+    limits = limits or limits_for_team(pipeline.team_id)
+    iteration_budget = min(iteration_budget, limits.max_iterations_per_run)
 
     now = django_timezone.now()
     with transaction.atomic():
