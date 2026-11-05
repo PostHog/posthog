@@ -3,6 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
+import posthog from 'posthog-js'
 
 import { initKeaTests } from '~/test/init'
 
@@ -85,15 +86,22 @@ describe('ErrorBoundary', () => {
     })
 
     it.each([
-        { value: null, expected: 'NonErrorThrown: Non-Error value thrown in scene Insight: null' },
-        { value: 'oops', expected: 'NonErrorThrown: Non-Error value thrown in scene Insight: string oops' },
-    ])('wraps a thrown $value in an Error that names the scene', ({ value, expected }) => {
+        { value: null, described: 'null' },
+        { value: 'oops', described: 'string oops' },
+    ])('names the scene and records a thrown $value', ({ value, described }) => {
+        const captureSpy = jest.spyOn(posthog, 'captureException')
         thrownValue = value
         throwUntilAttempt = 3
         renderBoundary({ feature: 'Insight' })
 
-        expect(screen.getByText('An error has occurred')).toBeInTheDocument()
-        expect(screen.getByText(expected, { exact: false })).toBeInTheDocument()
+        expect(
+            screen.getByText(`Non-Error value thrown in scene Insight: ${described}`, { exact: false })
+        ).toBeInTheDocument()
+        expect(captureSpy).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.objectContaining({ feature: 'Insight', thrown_value: described })
+        )
+        captureSpy.mockRestore()
     })
 
     // The app-root boundary in scenes/App.tsx has no key to remount it, so without an in-fallback

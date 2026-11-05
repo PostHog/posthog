@@ -3,7 +3,7 @@ import './ErrorBoundary.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { Component, type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconCopy } from '@posthog/icons'
 import { PostHogErrorBoundary, type PostHogErrorBoundaryFallbackProps } from '@posthog/react'
@@ -73,36 +73,22 @@ function describeThrownValue(value: unknown): string {
     return `${typeof value} ${text.slice(0, MAX_THROWN_VALUE_LENGTH)}`
 }
 
-interface NonErrorThrowWrapperProps {
-    scene?: unknown
-    children?: ReactNode
-}
+type ExceptionProperties = Record<string, number | string | boolean | bigint | symbol | null | undefined>
 
 /**
- * A thrown non-Error value has no stack, so it is captured with no clue to where it came from.
- * Error values pass through unchanged because the DOM mutation remount matches on the original.
+ * A property, not a rethrown Error: rethrowing from an inner boundary would replace React's
+ * component stack, which is the only trace of where a stackless non-Error value came from.
  */
-class NonErrorThrowWrapper extends Component<NonErrorThrowWrapperProps, { hasError: boolean; error: unknown }> {
-    override state = { hasError: false, error: null as unknown }
+function withThrownValue(properties: ExceptionProperties): (error: unknown) => ExceptionProperties {
+    return (error) => (isErrorLike(error) ? properties : { ...properties, thrown_value: describeThrownValue(error) })
+}
 
-    static getDerivedStateFromError(error: unknown): { hasError: boolean; error: unknown } {
-        return { hasError: true, error }
+function toDisplayError(error: unknown, scene: unknown): Error {
+    if (isErrorLike(error)) {
+        return error
     }
-
-    override render(): ReactNode {
-        const { hasError, error } = this.state
-        if (!hasError) {
-            return this.props.children
-        }
-        if (isErrorLike(error)) {
-            throw error
-        }
-        const { scene } = this.props
-        const location = typeof scene === 'string' && scene ? ` in scene ${scene}` : ''
-        const wrapped = new Error(`Non-Error value thrown${location}: ${describeThrownValue(error)}`)
-        wrapped.name = 'NonErrorThrown'
-        throw wrapped
-    }
+    const location = typeof scene === 'string' && scene ? ` in scene ${scene}` : ''
+    return new Error(`Non-Error value thrown${location}: ${describeThrownValue(error)}`)
 }
 
 interface RemountRecord {
@@ -116,7 +102,7 @@ function canRemountSilently(record: RemountRecord, now: number): boolean {
 
 interface ErrorBoundaryProps {
     children?: React.ReactNode
-    exceptionProps?: Record<string, number | string | boolean | bigint | symbol | null | undefined>
+    exceptionProps?: ExceptionProperties
     className?: string
 }
 
@@ -157,13 +143,9 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
     return (
         <PostHogErrorBoundary
             key={remountCount}
-            additionalProperties={additionalProperties}
+            additionalProperties={withThrownValue(additionalProperties)}
             fallback={(props: PostHogErrorBoundaryFallbackProps) => {
-                const rawError = props.error
-                const normalizedError =
-                    rawError instanceof Error
-                        ? rawError
-                        : new Error(typeof rawError === 'string' ? rawError : 'Unknown error')
+                const normalizedError = toDisplayError(props.error, exceptionProps.feature)
                 const { stack, name, message } = normalizedError
 
                 const exceptionEvent = props.exceptionEvent as SupportTicketExceptionEvent
@@ -250,7 +232,7 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                 )
             }}
         >
-            <NonErrorThrowWrapper scene={exceptionProps.feature}>{children}</NonErrorThrowWrapper>
+            {children}
         </PostHogErrorBoundary>
     )
 }
@@ -263,13 +245,9 @@ export function LightErrorBoundary({ children, exceptionProps = {}, className }:
     }
     return (
         <PostHogErrorBoundary
-            additionalProperties={additionalProperties}
+            additionalProperties={withThrownValue(additionalProperties)}
             fallback={(props: PostHogErrorBoundaryFallbackProps) => {
-                const rawError = props.error
-                const normalizedError =
-                    rawError instanceof Error
-                        ? rawError
-                        : new Error(typeof rawError === 'string' ? rawError : 'Unknown error')
+                const normalizedError = toDisplayError(props.error, exceptionProps.feature)
                 const { stack, name, message } = normalizedError
                 return (
                     <div className={clsx('text-danger', className)}>
@@ -278,7 +256,7 @@ export function LightErrorBoundary({ children, exceptionProps = {}, className }:
                 )
             }}
         >
-            <NonErrorThrowWrapper scene={exceptionProps.feature}>{children}</NonErrorThrowWrapper>
+            {children}
         </PostHogErrorBoundary>
     )
 }
