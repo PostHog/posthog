@@ -47,6 +47,20 @@ def scope_ids_problem(value: object) -> str | None:
     return None
 
 
+# ── Alert scope ─────────────────────────────────────────────────────────────────
+# `SignalSourceConfig.config` key that selects which firing insight alerts become signals. Only the
+# analytics source row accepts it, and a missing key means `investigated_only`.
+ALERT_SCOPE_KEY = "alert_scope"
+ALERT_SCOPE_SOURCE: tuple[str, str] = (SignalSourceProduct.ANALYTICS, SignalSourceType.ANOMALY_INVESTIGATION)
+
+
+class AlertScope(enum.StrEnum):
+    # Only alerts that the investigation agent confirmed.
+    INVESTIGATED_ONLY = "investigated_only"
+    # Every insight alert that starts to fire, also alerts without the investigation agent.
+    ALL_FIRING_ALERTS = "all_firing_alerts"
+
+
 # The sources that emit straight through `emit_signal` and still honor steering, via the gate in
 # `emission/direct_gate.py`. Every other direct source skips the gate, so writing steering onto its
 # row would store text nothing reads. The roster's `steerable` flags in `agentRosterMeta.ts` mirror
@@ -57,6 +71,8 @@ DIRECT_STEERABLE_SOURCES: frozenset[tuple[str, str]] = frozenset(
         (SignalSourceProduct.ERROR_TRACKING, SignalSourceType.ISSUE_REOPENED),
         (SignalSourceProduct.ERROR_TRACKING, SignalSourceType.ISSUE_SPIKING),
         (SignalSourceProduct.HEALTH_CHECKS, SignalSourceType.HEALTH_ISSUE),
+        (SignalSourceProduct.ANALYTICS, SignalSourceType.ANOMALY_INVESTIGATION),
+        (SignalSourceProduct.ANALYTICS, SignalSourceType.ALERT_FIRING),
     }
 )
 
@@ -169,6 +185,12 @@ class ZendeskTicketSignalInput(SignalInputBase):
 # ── GitHub ──────────────────────────────────────────────────────────────────────
 
 
+class GithubIssueDependencyRef(ContractModel):
+    # Lowercase `owner/repo`, so two spellings of one repository name one issue.
+    repository: str
+    number: int
+
+
 class GithubIssueSignalExtra(SignalExtraBase):
     html_url: str
     number: int
@@ -184,6 +206,9 @@ class GithubIssueSignalExtra(SignalExtraBase):
     # FIRST_TIMER, MANNEQUIN, NONE. Kept as a plain string so a value GitHub adds later widens the
     # taxonomy instead of failing validation and dropping the signal.
     author_association: str | None = None
+    # The issues this one names on a "Depends on" or "Blocked by" line. Research turns them into
+    # `depends_on` report links before auto-start decides.
+    depends_on_issues: list[GithubIssueDependencyRef] = []
 
 
 class GithubIssueSignalInput(SignalInputBase):
@@ -395,6 +420,17 @@ class CheckFailedSignalInput(SignalInputBase):
     extra: CheckFailedSignalExtra
 
 
+class MonitoringUnresolvedSignalExtra(SignalExtraBase):
+    report_id: str = Field(description="Original Closed report whose implementation remains unverified.")
+    attempt_id: str = Field(description="Monitoring attempt that durably requested this investigation.")
+
+
+class MonitoringUnresolvedSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.MONITORING_UNRESOLVED]
+    source_product: Literal[SignalSourceProduct.SIGNALS_CHECK]
+    extra: MonitoringUnresolvedSignalExtra
+
+
 # ── Logs ────────────────────────────────────────────────────────────────────────
 
 
@@ -453,7 +489,6 @@ class ReplayVisionScannerFindingSignalInput(SignalInputBase):
 class AnalyticsAnomalyInvestigationSignalExtra(SignalExtraBase):
     alert_id: str
     alert_name: str
-    alert_check_id: str
     insight_id: str
     detector_type: str
     verdict: Literal["true_positive", "false_positive", "inconclusive"]
@@ -462,12 +497,39 @@ class AnalyticsAnomalyInvestigationSignalExtra(SignalExtraBase):
     insight_short_id: str | None = None
     triggered_dates: list[str] | None = None
     notebook_short_id: str | None = None
+    alert_check_id: str | None = None
+    investigation_id: str | None = None
+    evaluation_key: str | None = None
 
 
 class AnalyticsAnomalyInvestigationSignalInput(SignalInputBase):
     source_type: Literal[SignalSourceType.ANOMALY_INVESTIGATION]
     source_product: Literal[SignalSourceProduct.ANALYTICS]
     extra: AnalyticsAnomalyInvestigationSignalExtra
+
+
+# An insight alert that started to fire and that the investigation agent does not investigate. Kept
+# apart from the investigation payload, which requires a verdict this path never has.
+class AnalyticsAlertFiringSignalExtra(SignalExtraBase):
+    alert_id: str
+    alert_name: str
+    insight_id: str
+    # The check that started the firing episode. It is also the signal's source id.
+    alert_check_id: str
+    # `threshold`, or the anomaly detector type.
+    detector_type: str
+    breaches: list[str]
+    episode_started_at: str
+    url: str
+    insight_name: str | None = None
+    insight_short_id: str | None = None
+    triggered_dates: list[str] | None = None
+
+
+class AnalyticsAlertFiringSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ALERT_FIRING]
+    source_product: Literal[SignalSourceProduct.ANALYTICS]
+    extra: AnalyticsAlertFiringSignalExtra
 
 
 # ── Health checks ───────────────────────────────────────────────────────────────
@@ -1922,8 +1984,10 @@ SignalInput = Annotated[
     | PgAnalyzeIssueSignalInput
     | SignalsScoutSignalInput
     | CheckFailedSignalInput
+    | MonitoringUnresolvedSignalInput
     | LogsAlertStateChangeSignalInput
     | AnalyticsAnomalyInvestigationSignalInput
+    | AnalyticsAlertFiringSignalInput
     | HealthCheckSignalInput
     | ReplayVisionScannerFindingSignalInput
     | FreshdeskTicketSignalInput
@@ -2040,6 +2104,7 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     SignalsScoutSignalInput,
     LogsAlertStateChangeSignalInput,
     AnalyticsAnomalyInvestigationSignalInput,
+    AnalyticsAlertFiringSignalInput,
     HealthCheckSignalInput,
     ReplayVisionScannerFindingSignalInput,
     FreshdeskTicketSignalInput,
@@ -2139,6 +2204,7 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     AwsInspectorScannerFindingSignalInput,
     MicrosoftDefenderCloudAppsScannerFindingSignalInput,
     CheckFailedSignalInput,
+    MonitoringUnresolvedSignalInput,
 )
 
 

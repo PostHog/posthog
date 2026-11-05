@@ -1,6 +1,7 @@
 import hmac
 import json
 from collections.abc import Mapping
+from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -24,7 +25,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from products.review_hog.backend.label_reviews import BOT_LABEL_COMMENT
+from products.review_hog.backend.facade.review_status_types import HeadReviewState, HeadReviewStatus
 from products.review_hog.backend.models import (
     ReviewInstallationClaim,
     ReviewProjectSettings,
@@ -35,16 +36,17 @@ from products.review_hog.backend.models import (
 )
 from products.review_hog.backend.ownership import OwnedRepositoryPrefilter
 from products.review_hog.backend.pull_request_events import accept_pull_request_event
-from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
-from products.review_hog.backend.tasks import process_authored_pr_event, process_label_event
+from products.review_hog.backend.receivers import queue_stamphog_handoff
+from products.review_hog.backend.tasks import process_authored_pr_event, process_stamphog_handoff
 from products.review_hog.backend.webhook_consumers import WEBHOOK_CONSUMERS
+from products.stamphog.backend.facade.enums import ReviewRunStatus, ReviewVerdict
+from products.stamphog.backend.facade.finished_review_hooks import FinishedReviewRun
 
 _QUEUE = "products.review_hog.backend.tasks.process_authored_pr_event.delay"
-_LABEL_QUEUE = "products.review_hog.backend.tasks.process_label_event.delay"
+_HANDOFF_QUEUE = "products.review_hog.backend.tasks.process_stamphog_handoff.delay"
 _START = "products.review_hog.backend.temporal.client.start_review_pr_workflow"
 _BUSY = "products.review_hog.backend.temporal.client.workflow_running"
-_GITHUB = "products.review_hog.backend.label_reviews.github_api_request"
-_GITHUB_LIST = "products.review_hog.backend.label_reviews.github_api_get_paginated"
+_HEAD_STATUS = "products.review_hog.backend.stamphog_handoff.HeadReviewStatusLookup.status"
 _SECRET = "test-review-hog-webhook-secret"
 _HEAD_SHA = "a" * 40
 _DISPATCH_METRIC = "posthog_review_hog_authored_pr_review_total"
@@ -81,13 +83,11 @@ def _payload(
     }
 
 
-def _label_payload(
-    *, label: str = "posthog-review", sender: str = "OctoCat", sender_type: str = "User", login: str = "OctoCat"
-) -> dict[str, object]:
+def _label_payload(label: str) -> dict[str, object]:
     return {
-        **_payload(action="labeled", login=login),
+        **_payload(action="labeled"),
         "label": {"name": label},
-        "sender": {"login": sender, "type": sender_type},
+        "sender": {"login": "OctoCat", "type": "User"},
     }
 
 
@@ -218,46 +218,12 @@ class TestAuthoredPRWebhook(SimpleTestCase):
 
         assert enqueue.called == expected_enqueue
 
-    @parameterized.expand(
-        [
-            ("person_adds_the_label", "posthog-review", "OctoCat", "User", True),
-            ("person_adds_the_retired_label", "reviewhog", "OctoCat", "User", False),
-            ("label_name_ignores_case", "PostHog-Review", "OctoCat", "User", True),
-            # The task explains the refusal on the pull request and removes the label.
-            ("bot_adds_the_label", "posthog-review", "renovate[bot]", "Bot", True),
-            ("another_label", "bug", "OctoCat", "User", False),
-        ]
-    )
+    @parameterized.expand([("review_label", "posthog-review"), ("legacy_label", "reviewhog")])
     @patch(_QUEUE)
-    @patch(_LABEL_QUEUE)
-    def test_a_review_label_queues_a_label_review(
-        self,
-        _name: str,
-        label: str,
-        sender: str,
-        sender_type: str,
-        expected_enqueue: bool,
-        label_enqueue: MagicMock,
-        enqueue: MagicMock,
-    ) -> None:
-        body = json.dumps(_label_payload(label=label, sender=sender, sender_type=sender_type)).encode()
-
-        assert self._post(body).status_code == 202
+    def test_a_review_label_starts_no_review(self, _name: str, label: str, enqueue: MagicMock) -> None:
+        assert self._post(json.dumps(_label_payload(label)).encode()).status_code == 202
 
         enqueue.assert_not_called()
-        if expected_enqueue:
-            label_enqueue.assert_called_once_with(
-                installation_id=_INSTALLATION_ID,
-                repository="PostHog/posthog",
-                github_repo_id=_REPO_ID,
-                pr_number=42,
-                author_login="octocat",
-                head_branch="feature",
-                labeler_login=sender,
-                labeled_by_bot=sender_type == "Bot",
-            )
-        else:
-            label_enqueue.assert_not_called()
 
     @patch(_QUEUE)
     def test_non_post_does_not_enqueue(self, enqueue: MagicMock) -> None:
@@ -461,7 +427,7 @@ class TestAuthoredPRReviewTask(BaseTest):
         start.assert_called_once_with(**self._expected_start(team_id=other_team.id, user_id=self.user.id))
 
 
-class TestLabelReviewTask(BaseTest):
+class TestStamphogHandoffTask(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.connector = User.objects.create_and_join(self.organization, "connector@example.com", None)
@@ -482,37 +448,56 @@ class TestLabelReviewTask(BaseTest):
             team=self.team, installation_id=_INSTALLATION_ID, full_name="PostHog/posthog", selected=True
         )
         self.enterContext(patch(_BUSY, return_value=False))
+        self.enterContext(patch(_HEAD_STATUS, return_value=None))
         self.start = self.enterContext(patch(_START))
-        self.github = self.enterContext(patch(_GITHUB))
-        self.github_comments = self.enterContext(patch(_GITHUB_LIST, return_value=[]))
-        self.enterContext(patch("products.review_hog.backend.label_reviews.GitHubIntegration.get_access_token"))
 
-    def _queued_event(self, payload: dict[str, object]) -> Mapping[str, object]:
-        with patch(_LABEL_QUEUE) as enqueue:
-            accept_pull_request_event(payload)
+    def _finished(self, author_login: str, *, request_external_review: bool = True) -> FinishedReviewRun:
+        return FinishedReviewRun(
+            run_id=uuid4(),
+            team_id=self.team.id + 1000,
+            repository="PostHog/posthog",
+            pr_number=42,
+            status=ReviewRunStatus.COMPLETED,
+            verdict=ReviewVerdict.REFUSED,
+            head_sha=_HEAD_SHA,
+            author_login=author_login,
+            head_branch="feature",
+            request_external_review=request_external_review,
+        )
+
+    def _queued_handoff(self, author_login: str) -> Mapping[str, object]:
+        with patch(_HANDOFF_QUEUE) as enqueue:
+            queue_stamphog_handoff(self._finished(author_login))
         enqueue.assert_called_once()
         return enqueue.call_args.kwargs
 
-    def _run(self, payload: dict[str, object]) -> None:
-        process_label_event.run(**self._queued_event(payload))
+    def _run(self, author_login: str = "octocat") -> None:
+        process_stamphog_handoff.run(**self._queued_handoff(author_login))
 
-    @parameterized.expand([("the_author_owns_it", "OctoCat", "author"), ("no_owner", "stranger", "connector")])
-    def test_a_label_review_runs_as_the_owner_else_as_the_connector(
+    @parameterized.expand([("the_author_owns_it", "octocat", "author"), ("no_owner", "stranger", "connector")])
+    def test_a_handoff_runs_as_the_owner_else_as_the_connector(
         self, _name: str, author_login: str, run_as: str
     ) -> None:
-        self._run(_label_payload(login=author_login))
+        self._run(author_login)
 
         self.start.assert_called_once_with(
             pr_url="https://github.com/PostHog/posthog/pull/42",
             team_id=self.team.id,
             user_id=self.user.id if run_as == "author" else self.connector.id,
             publish=True,
-            trigger_source="label",
+            trigger_source="stamphog",
             review_mode="flash",
+            requested_head_sha=_HEAD_SHA,
         )
 
-    def test_a_label_after_a_published_deep_review_runs_deep(self) -> None:
-        # A Standard request after a published Deep review is dropped, so the label would do nothing.
+    def test_a_finished_run_that_asks_for_no_review_queues_nothing(self) -> None:
+        with patch(_HANDOFF_QUEUE) as enqueue:
+            queue_stamphog_handoff(self._finished("octocat", request_external_review=False))
+
+        enqueue.assert_not_called()
+
+    def test_a_handoff_after_a_published_deep_review_runs_deep(self) -> None:
+        # A Standard request after a published Deep review is dropped, so the handoff would do nothing.
         ReviewReport.objects.for_team(self.team.id).create(
             team=self.team,
             repository="posthog/posthog",
@@ -522,68 +507,39 @@ class TestLabelReviewTask(BaseTest):
             published_heads_by_mode={"full": _HEAD_SHA},
         )
 
-        self._run(_label_payload())
+        self._run()
 
         assert self.start.call_args.kwargs["review_mode"] == "full"
 
     @parameterized.expand(
         [
-            ("another_bot", "posthog-review", "renovate[bot]", False),
-            ("stamphog_hands_off", "posthog-review", "stamphog[bot]", True),
-        ]
-    )
-    def test_only_stamphog_may_label_as_a_bot(self, _name: str, label: str, sender: str, starts: bool) -> None:
-        self._run(_label_payload(label=label, sender=sender, sender_type="Bot"))
-
-        assert self.start.called == starts
-        calls = [(call.args[0], call.args[1]) for call in self.github.call_args_list]
-        if starts:
-            assert calls == []
-        else:
-            assert calls == [
-                ("DELETE", "/repos/PostHog/posthog/issues/42/labels/posthog-review"),
-                ("POST", "/repos/PostHog/posthog/issues/42/comments"),
-            ]
-
-    def test_a_retried_bot_label_refusal_comments_once(self) -> None:
-        queued = self._queued_event(_label_payload(sender="renovate[bot]", sender_type="Bot"))
-        gone = GitHubAPIError("gone", status=404)
-        # The second POST fails after GitHub stored the comment, so the third run finds it and skips.
-        self.github.side_effect = [
-            GitHubAPIError("boom", status=502),
-            gone,
-            GitHubAPIError("boom", status=502),
-            gone,
-        ]
-        posted = {"body": BOT_LABEL_COMMENT, "user": {"login": "posthog[bot]", "type": "Bot"}}
-        self.github_comments.side_effect = [[], [posted]]
-
-        for _ in range(2):
-            with self.assertRaises(GitHubAPIError):
-                process_label_event.run(**queued)
-        process_label_event.run(**queued)
-
-        calls = [call.args[0] for call in self.github.call_args_list]
-        assert calls == ["DELETE", "DELETE", "POST", "DELETE"]
-        self.start.assert_not_called()
-
-    @parameterized.expand(
-        [
             ("repository_not_added", "repository_not_added"),
+            ("integration_missing", "integration_missing"),
             ("no_run_user", "no_run_user"),
+            ("head_pending", "head_already_reviewed"),
+            ("head_completed", "head_already_reviewed"),
         ]
     )
-    def test_a_label_without_an_owning_project_or_run_user_starts_nothing(self, change: str, outcome: str) -> None:
-        queued = self._queued_event(_label_payload(login="stranger"))
+    def test_a_handoff_that_has_nothing_to_start_starts_nothing(self, change: str, outcome: str) -> None:
+        queued = self._queued_handoff("stranger")
         if change == "repository_not_added":
             self.repository.delete()
-        else:
+        elif change == "integration_missing":
+            self.integration.team = Team.objects.create(organization=self.organization)
+            self.integration.save(update_fields=["team"])
+        elif change == "no_run_user":
             self.integration.created_by = None
             self.integration.save(update_fields=["created_by"])
-        before = REGISTRY.get_sample_value("posthog_review_hog_label_review_total", {"outcome": outcome}) or 0.0
+        else:
+            state = HeadReviewState.PENDING if change == "head_pending" else HeadReviewState.COMPLETED
+            status = HeadReviewStatus(
+                state=state, review_kind="", findings_count=0, published=False, head_sha=_HEAD_SHA
+            )
+            self.enterContext(patch(_HEAD_STATUS, return_value=status))
+        before = REGISTRY.get_sample_value("posthog_review_hog_stamphog_handoff_total", {"outcome": outcome}) or 0.0
 
-        process_label_event.run(**queued)
+        process_stamphog_handoff.run(**queued)
 
         self.start.assert_not_called()
-        after = REGISTRY.get_sample_value("posthog_review_hog_label_review_total", {"outcome": outcome}) or 0.0
+        after = REGISTRY.get_sample_value("posthog_review_hog_stamphog_handoff_total", {"outcome": outcome}) or 0.0
         assert after - before == 1.0

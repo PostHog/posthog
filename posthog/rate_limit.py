@@ -451,10 +451,24 @@ class CodexConnectUserThrottle(UserRateThrottle):
     rate = "10/hour"
 
 
-# Each internal feedback post lands in a shared Slack channel, so cap it per user.
-class InternalFeedbackUserThrottle(UserRateThrottle):
-    scope = "internal_feedback_user"
-    rate = "60/hour"
+class _WorkloadTrustPolicyRequestThrottle(SimpleRateThrottle):
+    """One bucket per user and project, because each request asks the organization's admins to act."""
+
+    def get_cache_key(self, request: "Request", view: "APIView") -> str | None:
+        if not request.user.is_authenticated:
+            return None
+        team_id = PersonalApiKeyRateThrottle.safely_get_team_id_from_view(view)
+        return self.cache_format % {"scope": self.scope, "ident": f"{team_id}:{request.user.pk}"}
+
+
+class WorkloadTrustPolicyRequestBurstThrottle(_WorkloadTrustPolicyRequestThrottle):
+    scope = "workload_trust_policy_request_burst"
+    rate = "10/hour"
+
+
+class WorkloadTrustPolicyRequestSustainedThrottle(_WorkloadTrustPolicyRequestThrottle):
+    scope = "workload_trust_policy_request_sustained"
+    rate = "30/day"
 
 
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
@@ -778,23 +792,35 @@ class ReplayVisionEstimateSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "200/hour"
 
 
-# The watch feed windows, ranks and hydrates a slice of the team's observation history per call, and
+# The highlight feed windows, ranks and hydrates a slice of the team's observation history per call, and
 # its primary caller is the session-authenticated home tab, which the default Burst/Sustained
 # throttles bypass. Team-wide bucket so minting keys doesn't multiply the budget.
-class ReplayVisionWatchFeedBurstRateThrottle(_TeamBucketRateThrottle):
-    scope = "replay_vision_watch_feed_burst"
+class ReplayVisionHighlightFeedBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_highlight_feed_burst"
     rate = "60/minute"
 
 
-class ReplayVisionWatchFeedSustainedRateThrottle(_TeamBucketRateThrottle):
-    scope = "replay_vision_watch_feed_sustained"
+class ReplayVisionHighlightFeedSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_highlight_feed_sustained"
+    rate = "600/hour"
+
+
+# Theme and group summaries aggregate a window of observation history per call, and scouts call them on a
+# schedule, so they get their own team bucket and never use up the highlight feed's.
+class ReplayVisionClustersBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_clusters_burst"
+    rate = "60/minute"
+
+
+class ReplayVisionClustersSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_clusters_sustained"
     rate = "600/hour"
 
 
 # Impression reports arrive while a reader scrolls, so they get their own per-user bucket and never use up the
 # team's feed bucket.
-class ReplayVisionWatchFeedImpressionsRateThrottle(_UserBucketRateThrottle):
-    scope = "replay_vision_watch_feed_impressions"
+class ReplayVisionHighlightFeedImpressionsRateThrottle(_UserBucketRateThrottle):
+    scope = "replay_vision_highlight_feed_impressions"
     rate = "120/minute"
 
 
@@ -1452,7 +1478,21 @@ class BreakGlassSustainedThrottle(UserOrEmailRateThrottle):
     rate = "75/hour"
 
 
-class WidgetUserBurstThrottle(SimpleRateThrottle):
+class _CountedWidgetThrottle(SimpleRateThrottle):
+    """Each widget view has a bucket per widget session (or client IP) and a bucket per widget token, and a 429
+    response does not say which one is empty. The counter records the scope so that dashboards can tell them apart."""
+
+    def allow_request(self, request: "Request", view: "APIView") -> bool:
+        allowed = super().allow_request(request, view)
+        if not allowed:
+            # WidgetAuthentication returns the team as request.auth, because widget requests have no user
+            team_id = getattr(request.auth, "id", None)
+            route = get_route_from_path(getattr(request, "path", None))
+            RATE_LIMIT_EXCEEDED_COUNTER.labels(team_id=team_id, scope=self.scope, path=route, route=route).inc()
+        return allowed
+
+
+class WidgetUserBurstThrottle(_CountedWidgetThrottle):
     """Rate limit per widget_session_id or IP for POST/GET requests."""
 
     scope = "widget_user_burst"
@@ -1468,7 +1508,7 @@ class WidgetUserBurstThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
-class _WidgetTeamTokenThrottle(SimpleRateThrottle):
+class _WidgetTeamTokenThrottle(_CountedWidgetThrottle):
     rate = "3600/hour"
 
     def get_cache_key(self, request: "Request", view: "APIView") -> str:

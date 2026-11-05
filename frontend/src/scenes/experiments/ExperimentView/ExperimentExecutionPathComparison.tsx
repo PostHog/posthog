@@ -11,6 +11,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { runWithLimit } from 'scenes/dashboard/dashboardUtils'
 
 import { performQuery } from '~/queries/query'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     ExperimentMetric,
     ExperimentQueryResponse,
@@ -20,7 +21,6 @@ import {
     NewExperimentQueryResponse,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentRefreshMode } from '../metricQueryUtils'

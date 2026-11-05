@@ -14,8 +14,8 @@ import {
     dataNodeLogic,
 } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { performQuery } from '~/queries/query'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import { DashboardFilter, HogQLVariable, NodeKind } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 
 import { ABANDONED_QUERY_GRACE_PERIOD, RESPONSE_CACHE_TTL } from './responseCache'
@@ -367,6 +367,30 @@ describe('dataNodeLogic', () => {
             .toMatchValues({ responseLoading: true, response: null })
             .delay(0)
             .toMatchValues({ responseLoading: false, response: partial({ results: results3 }) })
+    })
+
+    it.each([
+        ['runs a query with a valid regex filter', '^/api/.*', false, 1],
+        ['skips a query with an invalid regex filter', '(?=lookahead)', false, 0],
+        ['skips a query cancelled during the load', '^/api/cancelled', true, 0],
+    ])('%s once the RE2 engine loads', async (_name, pattern, cancel, expectedCalls) => {
+        mockedQuery.mockResolvedValueOnce({ results: [] })
+        logic = dataNodeLogic({
+            key: `regex-${pattern}`,
+            query: setLatestVersionsOnQuery({
+                kind: NodeKind.EventsQuery,
+                select: ['*', 'event', 'timestamp'],
+                properties: [{ type: 'event', key: '$current_url', operator: 'regex', value: pattern }],
+            }),
+        })
+        logic.mount()
+        if (cancel) {
+            logic.actions.cancelQuery()
+        }
+
+        await expectLogic(logic).toFinishAllListeners()
+        await waitFor(() => expect(logic.values.responseLoading).toBe(false))
+        expect(performQuery).toHaveBeenCalledTimes(expectedCalls)
     })
 
     it('reports the query kind to its collection when the query arrives after mount', async () => {

@@ -119,7 +119,9 @@ def _ddl_type(field: bigquery.SchemaField) -> str:
     base = (
         f"STRUCT<{', '.join(f'{_backtick(sub.name)} {_ddl_type(sub)}' for sub in field.fields)}>"
         if field.field_type in ("RECORD", "STRUCT")
-        else field.field_type
+        # DDL only accepts the standard SQL type names: FLOAT has no DDL alias, unlike INTEGER
+        # (INT64) and BOOLEAN (BOOL), so an unmapped FLOAT fails the ALTER TABLE outright.
+        else _STANDARD_BIGQUERY_TYPE.get(field.field_type, field.field_type)
     )
     return f"ARRAY<{base}>" if field.mode == "REPEATED" else base
 
@@ -208,9 +210,11 @@ class BigQueryDestinationWriter:
         if self._ctx.integration_id is None:
             raise ValueError(f"Destination {self._ctx.destination_name} has no integration to connect with")
 
-        from posthog.models.integration import Integration  # noqa: PLC0415 — avoids a model import cycle
+        from posthog.integrations import IntegrationManager  # noqa: PLC0415 — avoids a model import cycle
 
-        integration = Integration.objects.get(id=self._ctx.integration_id, team_id=self._ctx.team_id)
+        integration = IntegrationManager.google_cloud_service_account.credentials.get(
+            self._ctx.team_id, self._ctx.integration_id
+        )
         google_cloud_integration = GoogleCloudServiceAccountIntegration(integration)
         if not google_cloud_integration.has_key():
             # Keyless means PostHog impersonates the team's service account instead of holding
@@ -364,9 +368,15 @@ class BigQueryDestinationWriter:
             # pq.write_table needs a Table, and one record batch is one load job.
             table = pa.Table.from_batches([record_batch])
             target_ref = self._table_ref(run.table_name)
-            target_absent = self._check_owned_or_absent(client, target_ref, "append to it")
+            target = self._owned_table(client, target_ref, "append to it")
+            if target is not None:
+                # `ALLOW_FIELD_ADDITION` only covers a column the target lacks; it does not let
+                # a load job widen a column's existing type, so a batch sending a wider type
+                # than the target already has (e.g. a count turning into a fraction) fails the
+                # load outright on every retry without this.
+                table = self._align_to_target(table, target)
             self._load(client, run.table_name, table, bigquery.WriteDisposition.WRITE_APPEND)
-            if target_absent:
+            if target is None:
                 self._mark_owned(client, target_ref)
             return table.num_rows
 
@@ -457,6 +467,12 @@ class BigQueryDestinationWriter:
                 continue
             try:
                 cast = pc.cast(column, arrow_type)
+                # `safe` casting still lets any nonzero number through to BOOL as `true`, because
+                # Arrow does not treat that as a loss of precision the way it does a fractional
+                # float truncated to an int. Casting back and comparing catches it the same way a
+                # retry against the live table would have, instead of silently losing the number.
+                if arrow_type == pa.bool_() and not column.equals(pc.cast(cast, column.type)):
+                    raise pa.ArrowInvalid(f"{field.name} holds a value other than 0 or 1")
             except pa.ArrowException as err:
                 raise DestinationConfigurationError(
                     self._ctx.destination_name,

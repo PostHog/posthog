@@ -17,6 +17,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceDescription,
     SourceImageResolver,
     SourceKind,
+    SourceSlackRenderer,
 )
 
 # A source's context names things a user chose, such as services, so its size is unbounded. The
@@ -36,6 +37,7 @@ logger = structlog.get_logger(__name__)
 
 _describers: dict[SourceKind, SourceDescriber] = {}
 _image_resolvers: dict[SourceKind, SourceImageResolver] = {}
+_slack_renderers: dict[SourceKind, SourceSlackRenderer] = {}
 
 
 def register(source: SourceKind, describer: SourceDescriber) -> None:
@@ -112,3 +114,14 @@ def resolve_image(source: SourceKind, *, team_id: int, transition: AnnouncedTran
         logger.warning("alerts_platform.image_url_too_long", source=source.value, length=len(image.url))
         return None
     return MessageImage(url=image.url, alt_text=clip_text(image.alt_text, MAX_IMAGE_ALT_TEXT_CHARS))
+
+
+def register_slack_renderer(source: SourceKind, renderer: SourceSlackRenderer) -> None:
+    registered = _slack_renderers.get(source)
+    if registered is not None and registered is not renderer:
+        raise RuntimeError(f"A different Slack renderer is already registered for {source} alerts.")
+    _slack_renderers[source] = renderer
+
+
+def slack_renderer_for(source: SourceKind) -> SourceSlackRenderer | None:
+    return _slack_renderers.get(source)

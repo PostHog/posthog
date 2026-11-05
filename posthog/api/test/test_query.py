@@ -93,6 +93,31 @@ class TestQueryTraceCorrelation(SimpleTestCase):
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
     ENDPOINT = "query"
 
+    @patch("posthog.api.query.report_user_or_team_action")
+    @patch("posthog.api.query.process_query_model")
+    def test_query_response_identity_matches_query_analytics(self, mock_process_query_model, mock_report_action):
+        request_id = "01234567-89ab-4def-8123-456789abcdef"
+        client_query_id = "11111111-1111-4111-8111-111111111111"
+        mock_process_query_model.return_value = {"results": [[1]]}
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {
+                "query": {"kind": "HogQLQuery", "query": "select 1"},
+                "client_query_id": client_query_id,
+            },
+            HTTP_X_REQUEST_ID=request_id,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"results": [[1]]})
+        self.assertEqual(response["X-Request-ID"], request_id)
+        self.assertIn(f'request_id;desc="{request_id}"', response["Server-Timing"])
+        self.assertEqual(mock_process_query_model.call_args.kwargs["analytics_props"]["http_request_id"], request_id)
+        self.assertEqual(mock_report_action.call_args.args[0], "query api response")
+        self.assertEqual(mock_report_action.call_args.args[1]["client_query_id"], client_query_id)
+        self.assertEqual(mock_report_action.call_args.kwargs["analytics_props"]["http_request_id"], request_id)
+
     @parameterized.expand(
         [
             ("ascii", "abc"),

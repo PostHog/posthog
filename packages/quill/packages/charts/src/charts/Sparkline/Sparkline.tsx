@@ -3,6 +3,7 @@ import React, { useEffect, useMemo } from 'react'
 import { useChartHover } from '../../core/chart-context'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { useLatest } from '../../core/hooks/useLatest'
+import { useResolvedChartTheme } from '../../core/theme'
 import type { BarChartConfig, ChartTheme, LineChartConfig, Series, TooltipContext, ValueDomain } from '../../core/types'
 import { BarChart } from '../BarChart/BarChart'
 import { LineChart } from '../LineChart/LineChart'
@@ -17,7 +18,8 @@ export interface SparklineProps {
     /** Optional x-axis labels — when omitted, indices stand in. Consumers can look up
      *  the hovered index against their own labels. */
     labels?: string[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     color?: string
     /** `line` (default) draws a gradient-filled trend line; `bar` draws stacked bars. */
     type?: 'line' | 'bar'
@@ -67,7 +69,7 @@ function SparklineInner({
     data,
     series,
     labels,
-    theme,
+    theme: themeProp,
     color,
     type = 'line',
     height = 120,
@@ -81,6 +83,7 @@ function SparklineInner({
     dataAttr,
     onError,
 }: SparklineProps): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const resolvedColor = color ?? theme.colors[0]
     const chartSeries = useMemo<Series[]>(() => {
         if (series) {
@@ -96,36 +99,31 @@ function SparklineInner({
         return [single]
     }, [series, data, resolvedColor, type, fillOpacity, dashedFromIndex])
     // Longest series, not just the first — a shorter/empty leading series must not truncate the labels.
-    const pointCount = useMemo(() => Math.max(0, ...chartSeries.map(({ data }) => data.length)), [chartSeries])
+    const pointCount = Math.max(0, ...chartSeries.map(({ data }) => data.length))
     const resolvedLabels = useMemo<string[]>(
         () => labels ?? Array.from({ length: pointCount }, (_, i) => String(i)),
         [labels, pointCount]
     )
-    const hasTooltip = tooltip != null
-    const config = useMemo<LineChartConfig & BarChartConfig>(
-        () => ({
-            ...BASE_CONFIG,
-            ...(type === 'bar'
-                ? {
-                      barCornerRadius: 2,
-                      margins: BAR_MARGINS,
-                      showCrosshair: false,
-                      // Sparkline bars can be a pixel tall, or absent at a zero bucket.
-                      tooltip: { hitArea: 'band' as const },
-                  }
-                : { showCrosshair: true, margins: LINE_MARGINS }),
-            ...(hasTooltip ? {} : { tooltip: { enabled: false } }),
-            ...(valueDomain ? { valueDomain } : {}),
-        }),
-        [type, hasTooltip, valueDomain]
-    )
-    const wrapperStyle = useMemo<React.CSSProperties | undefined>(() => (fill ? undefined : { height }), [fill, height])
+    const config: LineChartConfig & BarChartConfig = {
+        ...BASE_CONFIG,
+        ...(type === 'bar'
+            ? {
+                  barCornerRadius: 2,
+                  margins: BAR_MARGINS,
+                  showCrosshair: false,
+                  // Sparkline bars can be a pixel tall, or absent at a zero bucket.
+                  tooltip: { hitArea: 'band' as const },
+              }
+            : { showCrosshair: true, margins: LINE_MARGINS }),
+        ...(tooltip != null ? {} : { tooltip: { enabled: false } }),
+        ...(valueDomain ? { valueDomain } : {}),
+    }
 
     const watcher = onHoverIndexChange ? <HoverWatcher onHoverChange={onHoverIndexChange} /> : null
     return (
         <div
             className={`relative flex flex-col ${fill ? 'flex-1 min-h-0' : ''} ${className ?? ''}`}
-            style={wrapperStyle}
+            style={fill ? undefined : { height }}
             data-attr={dataAttr}
         >
             {type === 'bar' ? (

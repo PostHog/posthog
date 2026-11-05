@@ -17,6 +17,7 @@ import {
     SOURCE_STEERING_KEY,
     SOURCE_STEERING_MAX_LENGTH,
     SignalSourceConfig,
+    SignalSourceProduct,
 } from '../types'
 
 export interface SourceSteeringFormValues {
@@ -24,11 +25,45 @@ export interface SourceSteeringFormValues {
 }
 
 /** A starting point offered in the modal: `label` is the chip, `line` is what it appends. */
-const STEERING_EXAMPLES: { label: string; line: string }[] = [
+interface SteeringExampleTemplate {
+    label: string
+    line: string
+}
+
+const DEFAULT_STEERING_EXAMPLES: SteeringExampleTemplate[] = [
     { label: 'Skip chores', line: 'Skip anything labeled chore, internal, or dependencies.' },
     { label: 'Billing only', line: 'Only report issues about billing, checkout, or payments.' },
     { label: 'Crashes first', line: 'Anything mentioning a crash, outage, or data loss is worth reporting.' },
 ]
+
+/** Sources whose records have no labels or issue text, so the default examples would not apply. */
+const SOURCE_STEERING_EXAMPLES: Partial<Record<SignalSourceProduct, SteeringExampleTemplate[]>> = {
+    [SignalSourceProduct.ErrorTracking]: [
+        { label: 'Skip noise', line: 'Skip errors from browser extensions, bots, or local development.' },
+        { label: 'Checkout first', line: 'Errors on checkout or payment pages are always worth reporting.' },
+        { label: 'Crashes first', line: 'Anything that crashes the app or loses data is worth reporting.' },
+    ],
+    [SignalSourceProduct.HealthChecks]: [
+        { label: 'Skip SDK updates', line: 'Skip outdated SDK warnings.' },
+        { label: 'Skip source maps', line: 'Skip missing source map warnings.' },
+        { label: 'Data gaps first', line: 'Missing events and failed warehouse syncs are always worth reporting.' },
+    ],
+    [SignalSourceProduct.Analytics]: [
+        {
+            label: 'Skip small changes',
+            line: 'Skip alerts where the metric moved only a little or recovered soon after.',
+        },
+        { label: 'Revenue first', line: 'Alerts on revenue, signups, or checkout metrics are always worth reporting.' },
+        { label: 'Skip test insights', line: 'Skip alerts on insights with test or draft in the name.' },
+    ],
+}
+
+/** Sources that emit each signal as it happens, so their guidance has no sync to wait for. */
+const DIRECT_SOURCE_PRODUCTS: ReadonlySet<SignalSourceProduct> = new Set([
+    SignalSourceProduct.ErrorTracking,
+    SignalSourceProduct.HealthChecks,
+    SignalSourceProduct.Analytics,
+])
 
 export interface SteeringExample {
     label: string
@@ -97,6 +132,7 @@ export interface sourceSteeringModalLogicValues {
     sourceSteeringTouched: boolean
     sourceSteeringTouches: Record<string, boolean>
     sourceSteeringValidationErrors: DeepPartialMap<SourceSteeringFormValues, ValidationErrorType>
+    steeringAppliesFrom: string
     steeringExamples: SteeringExample[]
 }
 
@@ -147,7 +183,11 @@ export interface sourceSteeringModalLogicActions {
 export interface sourceSteeringModalLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        steeringExamples: (sourceSteering: SourceSteeringFormValues) => SteeringExample[]
+        steeringExamples: (
+            sourceSteering: SourceSteeringFormValues,
+            sourceConfigs: SignalSourceConfig[]
+        ) => SteeringExample[]
+        steeringAppliesFrom: (sourceConfigs: SignalSourceConfig[]) => string
     }
 }
 
@@ -194,26 +234,15 @@ export const sourceSteeringModalLogic: LogicWrapper<sourceSteeringModalLogicType
                 // behind. Retrying writes the same text to all of them, so a partial save heals.
                 let firstError: unknown = null
                 for (const sourceConfig of logicProps.sourceConfigs) {
-                    // The endpoint replaces the config object wholesale, so the whole blob goes back
-                    // with the steering keys merged in; a partial object would clobber source-specific
-                    // keys like recording_filters. The merge base is the freshest cached row rather
-                    // than the open-time prop snapshot, so a config change that landed while the
-                    // modal was open (another card's toggle, an earlier save) survives. A concurrent
-                    // write from another client can still be lost until the endpoint merges
-                    // server-side.
-                    const baseConfig =
-                        values.sourceConfigs?.find((c: SignalSourceConfig) => c.id === sourceConfig.id)?.config ??
-                        sourceConfig.config
-                    // The posture flag has no UI any more; dropping it on save keeps the free text the
-                    // only thing steering the gate, so what a user sees here is all that applies.
-                    const { [SOURCE_DEFAULT_NOT_ACTIONABLE_KEY]: _droppedPosture, ...restConfig } = baseConfig
-                    const config = { ...restConfig, [SOURCE_STEERING_KEY]: steering }
                     let updated: SignalSourceConfigApi
                     try {
                         updated = await signalsSourceConfigsPartialUpdate(
                             String(values.currentTeamId),
                             sourceConfig.id,
-                            { config }
+                            {
+                                config_set: { [SOURCE_STEERING_KEY]: steering },
+                                config_remove: [SOURCE_DEFAULT_NOT_ACTIONABLE_KEY],
+                            }
                         )
                     } catch (error) {
                         firstError = firstError ?? error
@@ -225,7 +254,7 @@ export const sourceSteeringModalLogic: LogicWrapper<sourceSteeringModalLogicType
                     actions.replaceSourceConfig({
                         ...sourceConfig,
                         enabled: updated.enabled ?? sourceConfig.enabled,
-                        config: updated.config ?? config,
+                        config: updated.config ?? sourceConfig.config,
                         updated_at: updated.updated_at,
                         // The generated type widens the serializer's sync status to string | null.
                         status: (updated.status ?? null) as SignalSourceConfig['status'],
@@ -239,7 +268,7 @@ export const sourceSteeringModalLogic: LogicWrapper<sourceSteeringModalLogicType
                     throw firstError
                 }
                 captureSignalSourceSteeringChanged({ ...analyticsParams, success: true })
-                lemonToast.success('Guidance saved. It applies from the next sync.')
+                lemonToast.success(`Guidance saved. It applies ${values.steeringAppliesFrom}.`)
                 actions.loadSourceConfigs()
                 logicProps.onClose()
             },
@@ -250,13 +279,23 @@ export const sourceSteeringModalLogic: LogicWrapper<sourceSteeringModalLogicType
         // could push the value past the cap and leave the form unsavable with no edit of the
         // user's own. The view renders `result` and disables the chip when it does not fit.
         steeringExamples: [
-            (s) => [s.sourceSteering],
-            ({ steering }: SourceSteeringFormValues): SteeringExample[] =>
-                STEERING_EXAMPLES.map(({ label, line }) => {
+            (s, p) => [s.sourceSteering, p.sourceConfigs],
+            ({ steering }: SourceSteeringFormValues, sourceConfigs: SignalSourceConfig[]): SteeringExample[] =>
+                (
+                    (sourceConfigs.length > 0 && SOURCE_STEERING_EXAMPLES[sourceConfigs[0].source_product]) ||
+                    DEFAULT_STEERING_EXAMPLES
+                ).map(({ label, line }) => {
                     const current = steering.trimEnd()
                     const result = current ? `${current}\n${line}` : line
                     return { label, line, result, fits: result.length <= SOURCE_STEERING_MAX_LENGTH }
                 }),
+        ],
+        steeringAppliesFrom: [
+            (_, p) => [p.sourceConfigs],
+            (sourceConfigs: SignalSourceConfig[]): string =>
+                sourceConfigs.length > 0 && DIRECT_SOURCE_PRODUCTS.has(sourceConfigs[0].source_product)
+                    ? 'to new signals from now on'
+                    : 'from the next sync',
         ],
     }),
 ])

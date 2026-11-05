@@ -44,7 +44,7 @@ Segment = Annotated[TextSegment | ChipSegment, Field(discriminator="kind")]
 # The side-mission calibration floor: templated into the prompt and enforced at emission.
 MIN_SIGNAL_CONFIDENCE = 0.4
 
-# The watch feed lists up to three headlines on one line, so an overlong one reflows the whole card.
+# The highlight feed lists up to three headlines on one line, so an overlong one reflows the whole card.
 SIGNAL_HEADLINE_MAX_LENGTH = 80
 
 # Stable step names the producer (`mission_steps`) and consumers (`assemble`) key on.

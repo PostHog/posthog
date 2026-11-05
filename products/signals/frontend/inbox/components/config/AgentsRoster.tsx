@@ -13,6 +13,9 @@ import {
     Spinner,
 } from '@posthog/lemon-ui'
 
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 
 import type { CISignalsSyncStatusEnumApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
@@ -21,12 +24,18 @@ import { isExternalSignalSource } from '../../externalSignalSources'
 import { sourceSteeringIsSet } from '../../logics/sourceSteeringModalLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import type { SourceProductDataStatus, SourceProductStatus } from '../../signalSourcesLogic'
-import { SignalSourceConfig, SignalSourceConfigStatus, SignalSourceType, linearTeamIdsFromConfig } from '../../types'
+import {
+    SignalAlertScope,
+    SignalSourceConfig,
+    SignalSourceConfigStatus,
+    SignalSourceType,
+    linearTeamIdsFromConfig,
+} from '../../types'
+import { SourceSpendLabel } from '../spend/SourceSpendLabel'
 import { AGENT_ROSTER_GROUPS, AgentRosterDefinition, AgentRosterGroup, AgentRosterSource } from './agentRosterMeta'
+import { DataSourceSetupModal } from './DataSourceSetupModal'
 import { LinearTeamsModal } from './LinearTeamsModal'
 import { SourceAgentIcon } from './SourceAgentIcon'
-import { SourceCatalogModal } from './SourceCatalogModal'
-import { SourceRecommendations } from './SourceRecommendations'
 import { SourceSteeringModal } from './SourceSteeringModal'
 
 type AgentRosterStatus = 'standby' | 'watching' | 'syncing' | 'sync_failed'
@@ -104,6 +113,33 @@ interface SourceFilters {
     onChange: () => void
     disabledReason?: string
 }
+
+/** Product analytics only: which firing alerts become signals. */
+interface SourceAlertScope {
+    value: SignalAlertScope
+    onChange: (value: SignalAlertScope) => void
+    /** False before the source was ever turned on, as the choice is stored on its config row. */
+    canChange: boolean
+    disabledReason?: string
+}
+
+// Replaces the source detail while the alert scope control shows, since the default copy only covers investigated alerts.
+const ALERT_SCOPE_SOURCE_DETAIL = 'Fires when an insight alert goes off. Choose which alerts count below.'
+
+const ALERT_SCOPE_OPTIONS: { value: SignalAlertScope; label: string; description: string; dataAttr: string }[] = [
+    {
+        value: SignalAlertScope.InvestigatedOnly,
+        label: 'Investigated alerts only',
+        description: 'Only alerts where you turned on the investigation agent, once the agent confirms the change.',
+        dataAttr: 'signal-source-alert-scope-investigated-only',
+    },
+    {
+        value: SignalAlertScope.AllFiringAlerts,
+        label: 'All firing alerts',
+        description: 'Every insight alert that fires, including alerts without the investigation agent.',
+        dataAttr: 'signal-source-alert-scope-all-firing-alerts',
+    },
+]
 
 /** Per-source derived state assembled by `AgentsRoster` from `signalSourcesLogic`. */
 interface AgentSourceState {
@@ -207,6 +243,7 @@ interface ExpansionProps {
     onEnableProduct: (product: SourceProductStatus) => void
     onToggleEntity: (entityId: string) => void
     filters?: SourceFilters
+    alertScope?: SourceAlertScope
     /** Opens the steering form. Only set for steerable sources that are on with a persisted config row. */
     onSteer?: () => void
     onRetryData: () => void
@@ -276,6 +313,7 @@ function Expansion({
     onEnableProduct,
     onToggleEntity,
     filters,
+    alertScope,
     onSteer,
     onRetryData,
 }: ExpansionProps): JSX.Element {
@@ -314,7 +352,7 @@ function Expansion({
                 {/* Each part is its own element: a page-translation extension detaches a bare text
                     node, and React then throws when the link next to it appears or disappears. */}
                 <p className="mb-0 text-xs text-secondary">
-                    <span>{agent.detail}</span>
+                    <span>{alertScope ? ALERT_SCOPE_SOURCE_DETAIL : agent.detail}</span>
                     {!hasMetaLine && docsLink ? <span> {docsLink}</span> : null}
                 </p>
 
@@ -369,6 +407,31 @@ function Expansion({
                         >
                             {filters.changeLabel}
                         </LemonButton>
+                    </div>
+                )}
+                {alertScope && (
+                    <div className="flex flex-col gap-1.5 pt-1">
+                        <span className="text-xs font-semibold text-default">Alerts that become signals</span>
+                        {alertScope.canChange ? (
+                            <LemonRadio
+                                value={alertScope.value}
+                                onChange={alertScope.onChange}
+                                aria-label="Alerts that become signals"
+                                data-attr="signal-source-alert-scope"
+                                radioPosition="top"
+                                options={ALERT_SCOPE_OPTIONS.map(({ value, label, description, dataAttr }) => ({
+                                    value,
+                                    label,
+                                    description,
+                                    disabledReason: alertScope.disabledReason,
+                                    'data-attr': dataAttr,
+                                }))}
+                            />
+                        ) : (
+                            <span className="text-xs text-secondary">
+                                Turn on this source to choose which alerts become signals.
+                            </span>
+                        )}
                     </div>
                 )}
             </div>
@@ -460,6 +523,7 @@ interface AgentRowProps {
     onToggleEntity: (source: AgentRosterSource, entityId: string) => void
     onEnableProduct: (product: SourceProductStatus) => void
     filters?: SourceFilters
+    alertScope?: SourceAlertScope
     onSteer?: () => void
     onRetryData: () => void
 }
@@ -475,6 +539,7 @@ const AgentRow = memo(function AgentRow({
     onToggleEntity,
     onEnableProduct,
     filters,
+    alertScope,
     onSteer,
     onRetryData,
 }: AgentRowProps): JSX.Element {
@@ -542,6 +607,11 @@ const AgentRow = memo(function AgentRow({
                         {enabledCount} of {entities.length} {agent.entityNoun} on
                     </span>
                 )}
+                {armed && !productOff && (
+                    <FlaggedFeature flag={FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY}>
+                        <SourceSpendLabel sourceProduct={agent.sourceProduct} />
+                    </FlaggedFeature>
+                )}
                 {(loading || requiresSetup || hasMasterSwitch) && (
                     <div className={`flex shrink-0 justify-end ${warehouseSource ? 'w-20' : 'w-13'}`}>
                         {loading ? (
@@ -593,6 +663,7 @@ const AgentRow = memo(function AgentRow({
                     onEnableProduct={onEnableProduct}
                     onToggleEntity={(entityId) => onToggleEntity(agent.source, entityId)}
                     filters={filters}
+                    alertScope={alertScope}
                     onSteer={onSteer}
                     onRetryData={onRetryData}
                 />
@@ -613,8 +684,8 @@ export function AgentsRoster(): JSX.Element {
     const {
         externalSourceStates,
         rosterGroups,
-        visibleSourceRecommendations,
         sourcesLoadError,
+        dataWarehouseSources,
         dataWarehouseSourcesLoading,
         conversationsConfig,
         evalReportsConfig,
@@ -641,10 +712,11 @@ export function AgentsRoster(): JSX.Element {
         sourceConfigsLoadFailed,
         sourceConfigsLoading,
         linearTeamsPicker,
+        analyticsAlertScope,
+        savingAnalyticsAlertScope,
+        featureFlags,
     } = useValues(signalSourcesLogic)
     const {
-        openSourceCatalog,
-        hideSourceRecommendations,
         loadSources,
         openLinearTeamsPicker,
         closeLinearTeamsPicker,
@@ -660,6 +732,7 @@ export function AgentsRoster(): JSX.Element {
         enableSourceProduct,
         loadProductDataEvents,
         loadSourceConfigs,
+        setAnalyticsAlertScope,
     } = useActions(signalSourcesLogic)
     const [expandedSource, setExpandedSource] = useState<AgentRosterSource | null>(null)
     // Which modal is open is a view concern; the form and save live in sourceSteeringModalLogic.
@@ -755,6 +828,7 @@ export function AgentsRoster(): JSX.Element {
                         loading: isAnomalyInvestigationToggling,
                         requiresSetup: false,
                         syncStatus: anomalyInvestigationConfig?.status,
+                        steeringConfigs: anomalyInvestigationConfig ? [anomalyInvestigationConfig] : [],
                     }
                 case 'health_checks':
                     return {
@@ -873,6 +947,30 @@ export function AgentsRoster(): JSX.Element {
         [toggleScannerSignals, toggleErrorTrackingType]
     )
 
+    const showAlertScope = !!featureFlags[FEATURE_FLAGS.SIGNALS_ANALYTICS_ALL_ALERTS]
+    const alertScope = useMemo((): SourceAlertScope | undefined => {
+        if (!showAlertScope) {
+            return undefined
+        }
+        const blockedReason = stateFor('analytics').blockedReason
+        return {
+            value: analyticsAlertScope,
+            onChange: setAnalyticsAlertScope,
+            canChange: !!anomalyInvestigationConfig && !anomalyInvestigationConfig.id.startsWith('new_'),
+            disabledReason:
+                blockedReason ??
+                (savingAnalyticsAlertScope !== null || isAnomalyInvestigationToggling ? 'Saving' : undefined),
+        }
+    }, [
+        showAlertScope,
+        stateFor,
+        analyticsAlertScope,
+        setAnalyticsAlertScope,
+        anomalyInvestigationConfig,
+        savingAnalyticsAlertScope,
+        isAnomalyInvestigationToggling,
+    ])
+
     const renderAgent = useCallback(
         (agent: AgentRosterDefinition): JSX.Element => {
             const state = stateFor(agent.source)
@@ -915,6 +1013,7 @@ export function AgentsRoster(): JSX.Element {
                     onToggleEntity={handleToggleEntity}
                     onEnableProduct={(product) => product.enablement && enableSourceProduct(product.enablement)}
                     filters={filters}
+                    alertScope={agent.source === 'analytics' ? alertScope : undefined}
                     onSteer={
                         steeringConfigs
                             ? () => setSteeringTarget({ configs: steeringConfigs, label: agent.label })
@@ -937,6 +1036,7 @@ export function AgentsRoster(): JSX.Element {
             handleToggleEntity,
             enableSourceProduct,
             loadProductDataEvents,
+            alertScope,
         ]
     )
 
@@ -970,53 +1070,22 @@ export function AgentsRoster(): JSX.Element {
 
             {rosterGroups.map((group) => (
                 <div key={group.label} className="flex flex-col gap-2 pt-2">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                        <AgentRosterGroupHeader group={group} />
-                        {group.id === 'external' && (
-                            <div className="flex flex-wrap items-center gap-1">
-                                {group.agents.length === 0 && visibleSourceRecommendations.length > 0 && (
-                                    <LemonButton
-                                        type="tertiary"
-                                        size="xsmall"
-                                        onClick={hideSourceRecommendations}
-                                        data-attr="signal-source-recommendations-hide"
-                                    >
-                                        Hide recommendations
-                                    </LemonButton>
-                                )}
-                                <LemonButton
-                                    type="secondary"
-                                    size="xsmall"
-                                    icon={<IconPlus />}
-                                    onClick={openSourceCatalog}
-                                    data-attr="signal-source-catalog-open"
-                                >
-                                    Add source
-                                </LemonButton>
-                            </div>
-                        )}
-                    </div>
+                    <AgentRosterGroupHeader group={group} />
                     {group.agents.length > 0 && (
                         <div className="-mx-2 divide-y divide-primary">{group.agents.map(renderAgent)}</div>
                     )}
-                    {group.id === 'external' && group.agents.length > 0 && visibleSourceRecommendations.length > 0 && (
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                            <h4 className="m-0 text-sm font-semibold">Recommended for you</h4>
-                            <LemonButton
-                                type="tertiary"
-                                size="xsmall"
-                                onClick={hideSourceRecommendations}
-                                data-attr="signal-source-recommendations-hide"
-                            >
-                                Hide recommendations
-                            </LemonButton>
-                        </div>
-                    )}
-                    {group.id === 'external' && <SourceRecommendations />}
+                    {group.id === 'external' &&
+                        group.agents.length === 0 &&
+                        dataWarehouseSources !== null &&
+                        sourceConfigs !== null && (
+                            <p className="m-0 text-xs text-secondary">
+                                Connect external tools from the available sources below.
+                            </p>
+                        )}
                 </div>
             ))}
 
-            <SourceCatalogModal />
+            <DataSourceSetupModal />
 
             {linearTeamsPicker && (
                 <LinearTeamsModal

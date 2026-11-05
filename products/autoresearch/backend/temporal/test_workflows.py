@@ -577,6 +577,29 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         assert result.error
         mock_run_training.assert_not_called()
 
+    @patch("products.autoresearch.backend.training.stale.tasks_cancellation")
+    @patch("products.autoresearch.backend.training.stale.tasks_facade.get_task_run", return_value=None)
+    @patch("products.autoresearch.backend.temporal.workflows.run_training")
+    def test_kickoff_reaps_a_run_whose_sandbox_died(
+        self, mock_run_training: MagicMock, _get_task_run: MagicMock, _cancellation: MagicMock
+    ) -> None:
+        pipeline = self._create_pipeline()
+        with time_machine.travel(django_timezone.now() - timedelta(days=1), tick=False):
+            stranded = AutoresearchTrainingRun.objects.create(
+                pipeline=pipeline,
+                status=AutoresearchTrainingRun.Status.RUNNING,
+                iteration_budget=10,
+                started_at=django_timezone.now(),
+                task_run_id=uuid.uuid4(),
+            )
+
+        result = activity_kickoff_training(KickoffTrainingInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
+
+        assert result.kicked_off
+        mock_run_training.assert_called_once()
+        stranded.refresh_from_db()
+        assert stranded.status == AutoresearchTrainingRun.Status.FAILED
+
     @parameterized.expand(
         [
             ("pending_run", AutoresearchTrainingRun.Status.PENDING, False, True, True, "already_running"),

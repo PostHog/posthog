@@ -1,4 +1,4 @@
-import { isActionsNode } from '~/queries/utils'
+import { isActionsNode } from '~/queries/schema/node-guards'
 
 const ACTIONS_ENTITY_TYPE = 'actions'
 

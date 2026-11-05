@@ -23,6 +23,8 @@ class ModelRun(BaseModel):
 
     runtime: str
     model: str
+    service_tier: str | None = None
+    reasoning_effort: str | None = None
     exit_code: int | None = None
     wall_time_seconds: float = 0
     report: RunReport | None = None
@@ -35,9 +37,23 @@ class ModelComparison:
         self.directory = (
             options.comparison_dir or LOGS_ROOT / "comparisons" / f"{datetime.now(UTC):%Y%m%d-%H%M%S}_{uuid4().hex[:8]}"
         ).resolve()
-        self.runs = [ModelRun(runtime=target.runtime, model=target.model) for target in options.comparison_models]
+        self.runs = [self._model_run(target) for target in options.comparison_models]
         self.issues: list[str] = []
         self._snapshot_report = options.skill_snapshot_report
+
+    def _model_run(self, target: ModelTarget) -> ModelRun:
+        return ModelRun(
+            runtime=target.runtime,
+            model=target.model,
+            service_tier=target.service_tier or self.options.service_tier,
+            reasoning_effort=target.reasoning_effort or self.options.reasoning_effort,
+        )
+
+    @staticmethod
+    def _label(run: ModelRun) -> str:
+        return ModelTarget(
+            runtime=run.runtime, model=run.model, service_tier=run.service_tier, reasoning_effort=run.reasoning_effort
+        ).label
 
     def _command(self, target: ModelTarget, path: Path, *, check: bool) -> list[str]:
         options = self.options
@@ -66,9 +82,11 @@ class ModelComparison:
             str(path),
             "--no-tui",
         ]
+        arm = self._model_run(target)
         for flag, value in (
             ("--eval", options.case_filter),
-            ("--reasoning-effort", options.reasoning_effort),
+            ("--reasoning-effort", arm.reasoning_effort),
+            ("--service-tier", arm.service_tier),
             ("--fail-under", options.fail_under),
             ("--skill-snapshot-report", self._snapshot_report if not check else None),
             ("--skill-snapshot-output-dir", self.directory if not check else None),
@@ -134,8 +152,14 @@ class ModelComparison:
         report = run.report
         if report is None:
             return "No valid run report; inspect the child transcript."
-        if report.runtime != run.runtime or report.model != run.model or report.exit_code != run.exit_code:
-            return "Run report does not match the requested model or exit status."
+        if (
+            report.runtime != run.runtime
+            or report.model != run.model
+            or report.service_tier != run.service_tier
+            or report.reasoning_effort != run.reasoning_effort
+            or report.exit_code != run.exit_code
+        ):
+            return "Run report does not match the requested arm or exit status."
         if not report.experiments:
             return "No experiment results."
         if not report.skills_sha256 or not report.skills_source_sha256 or not report.skills_archive_path:
@@ -179,7 +203,7 @@ class ModelComparison:
 
     def _text(self) -> str:
         rows = [
-            ["Metric", *(f"{run.runtime}/{run.model}" for run in self.runs)],
+            ["Metric", *(self._label(run) for run in self.runs)],
             ["Exit status", *(str(run.exit_code) if run.exit_code is not None else "not run" for run in self.runs)],
             [
                 "Skill snapshot",
@@ -234,7 +258,7 @@ class ModelComparison:
             *(" | ".join(value.ljust(widths[index]) for index, value in enumerate(row)).rstrip() for row in rows),
         ]
         lines.extend(f"NOTE: {issue}" for issue in self.issues)
-        lines.extend(f"NOTE: {run.runtime}/{run.model}: {run.issue}" for run in self.runs if run.issue)
+        lines.extend(f"NOTE: {self._label(run)}: {run.issue}" for run in self.runs if run.issue)
         return "\n".join(lines) + "\n"
 
     def _save(self) -> None:
@@ -247,6 +271,7 @@ class ModelComparison:
                 "trials": self.options.trials,
                 "skill_delivery": self.options.skill_delivery,
                 "reasoning_effort": self.options.reasoning_effort,
+                "service_tier": self.options.service_tier,
                 "max_sandboxes": self.options.max_sandboxes,
                 "case_timeout": self.options.per_case_timeout_seconds,
                 "infrastructure_retries": self.options.infrastructure_retries,
@@ -266,13 +291,13 @@ class ModelComparison:
         try:
             checked: list[RunReport] = []
             for index, target in enumerate(self.options.comparison_models):
-                write_console(f"MODEL CHECK {index + 1}/{len(self.runs)}  {target.runtime}/{target.model}\n")
+                write_console(f"MODEL CHECK {index + 1}/{len(self.runs)}  {target.label}\n")
                 path = self.directory / f"{index + 1}-check.json"
                 code = self._execute(self._command(target, path, check=True))
                 report = self._read_report(path)
                 if code or report is None or report.suite_kinds != ["sandboxed"]:
                     self.issues.append(
-                        f"{target.runtime}/{target.model}: configuration check failed or selected suites are not all sandboxed. "
+                        f"{target.label}: configuration check failed or selected suites are not all sandboxed. "
                         "No model runs started. Inspect the child transcript above."
                     )
                     return 1
@@ -281,19 +306,19 @@ class ModelComparison:
                 self.issues.append("Suite selections differ. No model runs started.")
                 return 1
             for index, target in enumerate(self.options.comparison_models):
-                write_console(f"MODEL START {index + 1}/{len(self.runs)}  {target.runtime}/{target.model}\n")
+                write_console(f"MODEL START {index + 1}/{len(self.runs)}  {target.label}\n")
                 started = time.monotonic()
                 path = self.directory / f"{index + 1}-results.json"
                 try:
                     code = self._execute(self._command(target, path, check=False))
                 except KeyboardInterrupt:
                     code = 130
-                run = ModelRun(
-                    runtime=target.runtime,
-                    model=target.model,
-                    exit_code=code,
-                    wall_time_seconds=time.monotonic() - started,
-                    report=self._read_report(path),
+                run = self._model_run(target).model_copy(
+                    update={
+                        "exit_code": code,
+                        "wall_time_seconds": time.monotonic() - started,
+                        "report": self._read_report(path),
+                    }
                 )
                 self.runs[index] = run.model_copy(update={"issue": self._validate_run(run)})
                 if (

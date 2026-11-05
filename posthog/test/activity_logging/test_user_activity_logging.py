@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -168,6 +170,20 @@ class TestUserModelMixinIntegration(BaseTest):
             )
         finally:
             model_activity_signal.disconnect(self._signal_handler, sender=User)
+
+    def test_logged_update_does_not_read_reverse_one_to_one_rows(self) -> None:
+        user = User.objects.get(id=self.user.id)
+        user.first_name = "Renamed"
+
+        with CaptureQueriesContext(connection) as queries:
+            user.save()
+
+        autonomy_reads = [
+            query["sql"]
+            for query in queries.captured_queries
+            if 'FROM "signals_signaluserautonomyconfig"' in query["sql"]
+        ]
+        assert autonomy_reads == []
 
     def test_user_save_still_works_correctly(self) -> None:
         """Test that User save() method continues to work correctly with mixin."""

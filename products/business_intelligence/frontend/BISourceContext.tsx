@@ -13,6 +13,8 @@ import { captureBIWorksheetAction } from './biEditorAnalytics'
 import { biEditorLogic } from './biEditorLogic'
 import { joinKeyCheckQuery } from './biJoinKeyCheck'
 import { biSourceContextLogic } from './biSourceContextLogic'
+import { BISourceHealth } from './BISourceHealth'
+import { biSourceMetadataLogic } from './biSourceMetadataLogic'
 
 export function BISourceContext({ table }: { table: DatabaseSchemaTable }): JSX.Element {
     const { config } = useValues(biEditorLogic)
@@ -20,6 +22,10 @@ export function BISourceContext({ table }: { table: DatabaseSchemaTable }): JSX.
         biSourceContextLogic({ table })
     )
     const { loadRelationships } = useActions(biSourceContextLogic({ table }))
+    const metadata = biSourceMetadataLogic({ table })
+    const { annotations, annotationsError, annotationsLoading, health, healthError, healthLoading } =
+        useValues(metadata)
+    const { loadAnnotations, loadHealth } = useActions(metadata)
     const catalog = `${urls.dataCatalog('relationships')}&table=${encodeURIComponent(table.name)}`
     return (
         <details className="min-w-0 text-xs" data-attr="bi-source-context">
@@ -33,8 +39,19 @@ export function BISourceContext({ table }: { table: DatabaseSchemaTable }): JSX.
                 aria-label="Catalog details"
                 tabIndex={0}
             >
-                {description && <p className="m-0 break-words text-secondary">{description}</p>}
+                {(description || annotations['']) && (
+                    <p className="m-0 break-words text-secondary">{description || annotations['']}</p>
+                )}
+                {annotationsError && (
+                    <div>
+                        Couldn't load field descriptions.{' '}
+                        <LemonButton size="xsmall" loading={annotationsLoading} onClick={() => loadAnnotations()}>
+                            Retry
+                        </LemonButton>
+                    </div>
+                )}
                 {table.certification?.notes && <p className="m-0 break-words">{table.certification.notes}</p>}
+                <BISourceHealth health={health} loading={healthLoading} error={healthError} retry={loadHealth} />
                 <LemonButton
                     size="xsmall"
                     sideIcon={<IconExternal />}
