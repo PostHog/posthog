@@ -27,6 +27,7 @@ from products.slack_app.backend.inbox_channel import (
     has_inbox_scopes,
     invite_user_to_inbox,
 )
+from products.slack_app.backend.logic.dm_setup.dispatch import request_dm_setup_card_render
 from products.slack_app.backend.services.slack_messages import context_block
 from products.slack_app.backend.services.slack_welcome_messages import (
     INBOX_CREATE_ACTION_ID,
@@ -290,7 +291,8 @@ def run_install_onboarding(integration: WorkspaceIntegration) -> None:
         return
     if channel is not None:
         invite_user_to_inbox(integration, channel[0], installer)
-    # The DM setup thread takes over the installer's setup, so this DM would be a second setup message.
+    # The DM setup thread takes over the installer's setup, so it starts here in place of the old DM.
     if is_slack_app_dm_setup_card_enabled(integration):
+        request_dm_setup_card_render(integration, installer, opened_dm=True)
         return
     send_onboarding_dm(integration, installer)

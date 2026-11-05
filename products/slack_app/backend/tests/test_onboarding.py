@@ -68,12 +68,19 @@ class TestOnboarding:
         client.conversations_create.return_value = {"channel": {"id": "C_NEW"}}
         client.conversations_info.return_value = {"channel": {"id": "C_NEW"}}
 
-        with patch.object(onboarding, "is_slack_app_dm_setup_card_enabled", return_value=setup_thread_enabled):
+        with (
+            patch.object(onboarding, "is_slack_app_dm_setup_card_enabled", return_value=setup_thread_enabled),
+            patch.object(onboarding, "request_dm_setup_card_render") as start_setup_thread,
+        ):
             onboarding.run_install_onboarding(self.integration)
 
         client.conversations_create.assert_called_once()
         client.conversations_invite.assert_called_once_with(channel="C_NEW", users="U_INSTALL")
         assert client.chat_postMessage.called is not setup_thread_enabled
+        assert start_setup_thread.called is setup_thread_enabled
+        if setup_thread_enabled:
+            assert start_setup_thread.call_args.args[1] == "U_INSTALL"
+            assert start_setup_thread.call_args.kwargs == {"opened_dm": True}
         assert get_default_slack_notification_channel(self.team.id) == "C_NEW|#posthog-inbox"
 
     @patch("posthog.models.integration.slack.WebClient")
