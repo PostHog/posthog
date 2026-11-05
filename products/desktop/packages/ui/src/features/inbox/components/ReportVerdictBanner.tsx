@@ -260,6 +260,7 @@ export function ReportVerdictBanner({
     surface,
     triageId,
     onTaskCreated: handleImplementationStarted,
+    trackAction: fireAction,
   });
   const { discussReport, isDiscussing } = useDiscussReport({
     report,
@@ -289,13 +290,10 @@ export function ReportVerdictBanner({
 
   const handleCreatePr = useCallback(() => {
     const trimmed = prFeedback.trim();
-    fireAction("create_pr", {
-      has_feedback: trimmed.length > 0,
-    });
     setPrFeedback("");
     setPrOpen(false);
     void createPrReport(trimmed || undefined);
-  }, [createPrReport, fireAction, prFeedback]);
+  }, [createPrReport, prFeedback]);
 
   const handleComposeImplementation = useCallback(() => {
     if (artefactsLoading || awaitingChannel) return;

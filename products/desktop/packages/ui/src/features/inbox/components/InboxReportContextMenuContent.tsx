@@ -81,6 +81,7 @@ export function InboxReportContextMenuContent({
     cloudRepository,
     claim: report,
     surface: "context_menu",
+    trackAction: fireAction,
   });
 
   const isDismissed = report.status === "suppressed";
@@ -161,7 +162,6 @@ export function InboxReportContextMenuContent({
                 <ContextMenuItem
                   disabled={isCreatingPr}
                   onClick={() => {
-                    fireAction("create_pr", { has_feedback: false });
                     // A claim can open a confirmation, which must keep focus.
                     openedDialogRef.current = true;
                     void createPrReport();
