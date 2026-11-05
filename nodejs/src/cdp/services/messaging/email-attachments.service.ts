@@ -126,7 +126,11 @@ export class EmailAttachmentsService {
                 return
             }
             const result = await pool.query(
-                `DELETE FROM cyclotron_email_attachments WHERE job_id = $1 AND team_id = $2`,
+                `DELETE FROM cyclotron_email_attachments
+                 WHERE job_id = $1 AND team_id = $2
+                   AND NOT EXISTS (
+                       SELECT 1 FROM cyclotron_jobs WHERE id = $1 AND status IN ('available', 'running')
+                   )`,
                 [jobId, teamId]
             )
             emailAttachmentOutcomesTotal.inc({ outcome: 'deleted' }, result.rowCount ?? 0)

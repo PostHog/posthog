@@ -711,44 +711,81 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             })
 
             it.each([
-                ['deletes the files of a run canceled before its email step', 'canceled', true, true, 0, 0],
-                ['deletes the files of a run whose send finished', 'finished', true, true, 0, 0],
-                ['keeps the files of a finished send whose result was not written', 'finished', true, false, 1, 0],
-                ['keeps the files of a run rescheduled for a retry', 'rescheduled', true, true, 1, 0],
-                ['leaves stored files alone for a run that lists none', 'finished', false, true, 1, 0],
-                ["leaves another team's files under the same job id alone", 'finished', true, true, 1, 1],
-            ] as const)('%s', async (_name, outcome, listsFiles, resultWritten, rowsLeft, storedTeamOffset) => {
-                const invocation = createSerializedHogFlowInvocation(hogFlows[0], {
-                    event: { distinct_id: 'distinct_person_1', properties: {} } as any,
-                })
-                ;(invocation.state as CyclotronJobInvocationHogFlow['state']).send = {
-                    content: { subject: 'Receipt', text: 'Thanks' },
-                    tracking: { captureEngagement: false },
-                    attachments: listsFiles ? attachmentMetadata(files) : undefined,
-                }
-                if (outcome === 'canceled') {
-                    invocation.cancelRequestedAt = DateTime.now()
-                }
-                jest.spyOn(processor['hogFlowExecutor'], 'execute').mockImplementation((item) =>
-                    Promise.resolve(createInvocationResult(item, {}, { finished: outcome === 'finished' }))
-                )
-                await processor['emailAttachmentsService'].store(
-                    invocation.id,
-                    hogFlows[0].team_id + storedTeamOffset,
-                    files
-                )
-                if (!resultWritten) {
-                    jobQueue.queueInvocationResults.mockRejectedValueOnce(new Error('connection terminated'))
-                }
+                ['deletes the files of a run canceled before its email step', 'canceled', true, true, 0, 0, null],
+                ['deletes the files of a run whose send finished', 'finished', true, true, 0, 0, null],
+                [
+                    'deletes the files of a finished send whose job row is completed',
+                    'finished',
+                    true,
+                    true,
+                    0,
+                    0,
+                    'completed',
+                ],
+                [
+                    'keeps the files of a finished send whose job another worker now holds',
+                    'finished',
+                    true,
+                    true,
+                    1,
+                    0,
+                    'running',
+                ],
+                [
+                    'keeps the files of a finished send whose result was not written',
+                    'finished',
+                    true,
+                    false,
+                    1,
+                    0,
+                    null,
+                ],
+                ['keeps the files of a run rescheduled for a retry', 'rescheduled', true, true, 1, 0, null],
+                ['leaves stored files alone for a run that lists none', 'finished', false, true, 1, 0, null],
+                ["leaves another team's files under the same job id alone", 'finished', true, true, 1, 1, null],
+            ] as const)(
+                '%s',
+                async (_name, outcome, listsFiles, resultWritten, rowsLeft, storedTeamOffset, jobStatus) => {
+                    const invocation = createSerializedHogFlowInvocation(hogFlows[0], {
+                        event: { distinct_id: 'distinct_person_1', properties: {} } as any,
+                    })
+                    ;(invocation.state as CyclotronJobInvocationHogFlow['state']).send = {
+                        content: { subject: 'Receipt', text: 'Thanks' },
+                        tracking: { captureEngagement: false },
+                        attachments: listsFiles ? attachmentMetadata(files) : undefined,
+                    }
+                    if (outcome === 'canceled') {
+                        invocation.cancelRequestedAt = DateTime.now()
+                    }
+                    jest.spyOn(processor['hogFlowExecutor'], 'execute').mockImplementation((item) =>
+                        Promise.resolve(createInvocationResult(item, {}, { finished: outcome === 'finished' }))
+                    )
+                    await processor['emailAttachmentsService'].store(
+                        invocation.id,
+                        hogFlows[0].team_id + storedTeamOffset,
+                        files
+                    )
+                    if (!resultWritten) {
+                        jobQueue.queueInvocationResults.mockRejectedValueOnce(new Error('connection terminated'))
+                    }
+                    if (jobStatus) {
+                        await assertPool.query(
+                            `INSERT INTO cyclotron_jobs (id, team_id, queue_name, status, priority, scheduled, created, last_transition)
+                         VALUES ($1, $2, 'hogflow', $3, 0, NOW(), NOW(), NOW())`,
+                            [invocation.id, hogFlows[0].team_id, jobStatus]
+                        )
+                    }
 
-                const { backgroundTask } = await processor.processBatch([invocation])
-                await backgroundTask.catch(() => undefined)
+                    const { backgroundTask } = await processor.processBatch([invocation])
+                    await backgroundTask.catch(() => undefined)
 
-                const rows = await assertPool.query('SELECT id FROM cyclotron_email_attachments WHERE job_id = $1', [
-                    invocation.id,
-                ])
-                expect(rows.rowCount).toBe(rowsLeft)
-            })
+                    const rows = await assertPool.query(
+                        'SELECT id FROM cyclotron_email_attachments WHERE job_id = $1',
+                        [invocation.id]
+                    )
+                    expect(rows.rowCount).toBe(rowsLeft)
+                }
+            )
         })
 
         it('terminates cancel-requested invocations without loading the flow, so cancel works for deleted flows', async () => {
