@@ -6700,7 +6700,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             ),
         ]
     )
-    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    @patch("products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration")
     def test_flag_cleanup_target_endpoint(
         self, _name, stored_repository, team_default, cached_repos, expected_body, mock_resolve_github
     ):
@@ -6747,7 +6747,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
-    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    @patch("products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration")
     def test_end_endpoint_repository_persists_normalized_when_cleanup_opens(
         self, mock_resolve_github, mock_create_task, _mock_report
     ):
@@ -6770,7 +6770,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
-    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    @patch("products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration")
     def test_set_repository_as_team_default_requires_project_admin(
         self, mock_resolve_github, mock_create_task, _mock_report
     ):

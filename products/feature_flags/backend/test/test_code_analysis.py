@@ -17,7 +17,7 @@ from products.experiments.backend.models.team_experiments_config import TeamExpe
 from products.feature_flags.backend.models import FeatureFlag, FeatureFlagCodeAnalysis
 from products.tasks.backend.facade import api as tasks_facade
 
-GITHUB = "products.tasks.backend.facade.repo_selection.resolve_team_github_integration"
+GITHUB = "products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration"
 FLAG_GATE = "products.feature_flags.backend.api.code_analysis.posthog_feature_flag_enabled"
 CREATE_TASK = "products.feature_flags.backend.code_analysis.tasks_facade.create_and_run_task"
 LATEST_RUN = "products.feature_flags.backend.code_analysis.tasks_facade.get_latest_run_by_task"
