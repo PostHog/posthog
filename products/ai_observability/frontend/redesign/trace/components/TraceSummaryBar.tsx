@@ -38,7 +38,7 @@ export function TraceSummaryBar({
 }: TraceSummaryBarProps): JSX.Element {
     return (
         <div className="@container">
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
                 <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                     <TraceIdChip traceId={traceId} />
                     <LemonTag weight="normal">
@@ -47,6 +47,8 @@ export function TraceSummaryBar({
                             timestampStyle="absolute"
                             formatDate="MMM D, YYYY"
                             formatTime="HH:mm"
+                            // The default dotted border adds a pixel, which makes this chip taller than its neighbours.
+                            className="border-b-0 underline decoration-dotted underline-offset-2"
                         />
                     </LemonTag>
                     {person ? <PersonChip person={person} /> : null}
@@ -56,7 +58,7 @@ export function TraceSummaryBar({
                     {review ? <ReviewChip {...review} /> : null}
                     {git ? <GitBranchChip {...git} /> : null}
                 </div>
-                <NodeStatsLine stats={totals} className="@2xl:ml-auto" />
+                <NodeStatsLine stats={totals} wrap className="leading-[1.375rem] @4xl:ml-auto" />
             </div>
         </div>
     )

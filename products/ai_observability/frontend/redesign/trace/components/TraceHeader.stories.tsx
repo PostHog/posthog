@@ -1,5 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { IconChevronDown } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { withWidth } from '../storyFixtures'
 import { TraceHeader } from './TraceHeader'
 
@@ -27,20 +30,37 @@ export const ExportInProgress: Story = {
     // The busy button's spinner is the state this story shows, so the snapshot must not wait for it to go.
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
-export const WithSearch: Story = {
-    args: {
-        search: {
-            query: 'seats',
-            status: 'ready',
-            total: 3,
-            matchingSteps: 2,
-            position: 1,
-            failure: null,
-            onQueryChange: () => {},
-            onStep: () => {},
-        },
-    },
+const search = {
+    query: 'seats',
+    status: 'ready' as const,
+    total: 3,
+    matchingSteps: 2,
+    position: 1,
+    failure: null,
+    onQueryChange: () => {},
+    onStep: () => {},
 }
+
+// Stand-ins for the review controls the view passes in, at the widths the trace drawer and page give the header.
+const reviewActions = (
+    <>
+        <LemonButton type="secondary" size="small">
+            Review
+        </LemonButton>
+        <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
+            Add to queue
+        </LemonButton>
+    </>
+)
+const fullHeader = { search, copyAction, exportAction, actions: reviewActions }
+
+export const OneRow: Story = { args: fullHeader, decorators: [withWidth(1100)] }
+export const ToolbarBelowTitle: Story = { args: fullHeader, decorators: [withWidth(673)] }
+export const ButtonsBelowSearch: Story = {
+    args: { ...fullHeader, name: 'support-agent.handle-inbound-ticket.classify-and-route', hasError: true },
+    decorators: [withWidth(448)],
+}
+export const WithSearch: Story = { args: { search } }
 export const Narrow: Story = {
     args: { name: 'a-very-long-trace-name-that-should-truncate-cleanly', copyAction, exportAction },
     decorators: [withWidth(360)],

@@ -29,7 +29,7 @@ export function GitBranchChip(props: GitBranchChipProps): JSX.Element {
         // hover listeners to the first element only, so it remounts for the new one.
         <Tooltip key={pullRequest ? 'linked' : 'plain'} title={tooltipTitle(props)}>
             {pullRequest ? (
-                <Link to={pullRequest.href} subtle data-attr="trace-view-git-pull-request-link">
+                <Link to={pullRequest.href} subtle className="inline-flex" data-attr="trace-view-git-pull-request-link">
                     {tag}
                 </Link>
             ) : (

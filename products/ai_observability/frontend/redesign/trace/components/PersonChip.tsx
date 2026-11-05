@@ -9,9 +9,9 @@ export interface PersonChipProps {
 
 export function PersonChip({ person }: PersonChipProps): JSX.Element {
     return (
-        <Link to={person.href} subtle>
-            <LemonTag icon={<IconPerson />} weight="normal">
-                {person.label}
+        <Link to={person.href} subtle className="inline-flex min-w-0">
+            <LemonTag icon={<IconPerson />} weight="normal" className="max-w-full">
+                <span className="max-w-60 truncate">{person.label}</span>
             </LemonTag>
         </Link>
     )

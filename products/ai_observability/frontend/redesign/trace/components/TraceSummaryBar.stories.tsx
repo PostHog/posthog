@@ -64,3 +64,20 @@ export const WithGitPullRequest: Story = {
         },
     },
 }
+
+export const EveryChip: Story = {
+    ...wide,
+    args: {
+        traceId: 'support-chat-session-2026-09-01-weekly-billing-review',
+        person: { label: 'alexandra.konstantinopoulou@enterprise-customer.example.com', href: '/person/a' },
+        clusters: FIXTURE_CLUSTERS_CHIP,
+        evals: { chip: { passed: 2, graded: 5, unrated: 1 }, onClick: () => {} },
+        feedback: { chip: { total: 6, thumbsUp: 3, thumbsDown: 1 }, onClick: () => {} },
+        review: {
+            status: { review: null, queue: { id: 'q1', name: 'Refund and billing escalations', itemId: 'i1' } },
+            queueHref: '/reviews',
+            onRemoveFromQueue: () => {},
+        },
+        git: { branch: 'feat/billing-answers', repo: 'acme/support-bot', pullRequest: null },
+    },
+}
