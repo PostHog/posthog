@@ -38,6 +38,7 @@ from products.metrics.backend.dashboard_import.promql_text import drop_match_all
 from products.metrics.backend.date_range import metrics_query_date_range
 from products.metrics.backend.facade.api import derived_metric_resources, run_metric_query
 from products.metrics.backend.facade.contracts import (
+    DERIVED_SOURCE_QUERY_STATUS_LABEL_PREFIX,
     METRICS_FEATURE_FLAG,
     MetricFilter,
     MetricGroupBy,
@@ -106,6 +107,11 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
         ):
             raise UserAccessControlError("metrics", "viewer")
         return True
+
+    def query_status_labels(self) -> list[str] | None:
+        # Retrieving an async result skips validate_query_runner_access, so the status carries the sources to check.
+        resources = derived_metric_resources(clause.metricName for clause in self.query.clauses)
+        return [f"{DERIVED_SOURCE_QUERY_STATUS_LABEL_PREFIX}{resource}" for resource in resources] or None
 
     def _enforce_alpha_gates_without_a_request_user(self) -> None:
         # Shared-link renders execute with an anonymous SharedLinkUser, and userless runs (scheduled
