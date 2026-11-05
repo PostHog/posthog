@@ -87,6 +87,20 @@ def _keys(count: int, name: str, at: datetime) -> pa.Table:
 _TINY_CHUNKS = {"max_call_bytes": 1, "chunk_target_bytes": 256}
 
 
+def _disk_filled_by_chunk_files(*, times: int | None) -> Any:
+    """A free-disk reading that is 0 while a chunk file exists, for the first `times` such readings."""
+    full_readings = 0
+
+    def _free_bytes(directory: Path) -> int:
+        nonlocal full_readings
+        if any(directory.iterdir()) and (times is None or full_readings < times):
+            full_readings += 1
+            return 0
+        return 10**12
+
+    return _free_bytes
+
+
 class TestHistoryUpsert:
     @pytest.mark.asyncio
     async def test_a_sync_closes_changed_keys_and_skips_rows_that_are_not_newer(self, tmp_path: Path) -> None:
@@ -154,25 +168,31 @@ class TestHistoryUpsert:
     async def test_nothing_staged_writes_nothing(self, tmp_path: Path) -> None:
         tables = _Tables(tmp_path)
         assert await tables.finalize() is None
+        # The load path reads the staging table's schema after every batch, an empty first one too.
+        await tables.stage(_batch([(1, "a", _at(1))]).slice(0, 0), "run-0", 0)
+        assert await tables.staging.get_delta_table() is not None
+        assert await tables.finalize() is None
         await tables.run("run-1", _batch([(1, "a", _at(1))]))
 
         assert await tables.finalize() is None
 
     @pytest.mark.parametrize(
-        "name_width,chunk_kwargs,files_per_pass",
+        "name_width,chunk_kwargs,files_per_pass,disk_fills",
         [
-            (1, _TINY_CHUNKS, 256),
-            # A disk that holds two chunk files at a time spills the sync in several passes.
-            (1, _TINY_CHUNKS, 2),
+            (1, _TINY_CHUNKS, 256, False),
+            # An open-file cap of two spills the sync in several passes.
+            (1, _TINY_CHUNKS, 2, False),
+            # A disk that fills during a pass runs it again with fewer chunks.
+            (1, _TINY_CHUNKS, 256, True),
             # Parquet stores the repeated names in a few bytes, so only their decoded size crosses the limit.
-            (1000, {"max_call_bytes": 20_000, "chunk_target_bytes": 10_000}, 256),
+            (1000, {"max_call_bytes": 20_000, "chunk_target_bytes": 10_000}, 256, False),
             # Narrow rows decode under the limit, and only deltalite's key copies and per-row index entries cross it.
-            (1, {"max_call_bytes": 3_000, "chunk_target_bytes": 1_500}, 256),
+            (1, {"max_call_bytes": 3_000, "chunk_target_bytes": 1_500}, 256, False),
         ],
     )
     @pytest.mark.asyncio
     async def test_a_chunked_finalize_writes_the_same_history_as_one_call(
-        self, tmp_path: Path, name_width: int, chunk_kwargs: dict[str, int], files_per_pass: int
+        self, tmp_path: Path, name_width: int, chunk_kwargs: dict[str, int], files_per_pass: int, disk_fills: bool
     ) -> None:
         one_call, chunked = _Tables(tmp_path / "one"), _Tables(tmp_path / "chunked")
         syncs = [
@@ -183,7 +203,14 @@ class TestHistoryUpsert:
         for index, batches in enumerate(syncs):
             last_sync = index == len(syncs) - 1
             await one_call.run(f"run-{index}", *batches, commit_metadata=tag if last_sync else None)
-            with patch.object(history_upsert, "_MAX_OPEN_CHUNK_FILES", files_per_pass):
+            with (
+                patch.object(history_upsert, "_MAX_OPEN_CHUNK_FILES", files_per_pass),
+                patch.object(
+                    history_upsert,
+                    "_free_bytes",
+                    _disk_filled_by_chunk_files(times=1) if disk_fills else lambda _directory: 10**12,
+                ),
+            ):
                 result = await chunked.run(
                     f"run-{index}", *batches, commit_metadata=tag if last_sync else None, **chunk_kwargs
                 )
@@ -195,12 +222,20 @@ class TestHistoryUpsert:
             tagged = [commit["version"] for commit in history.history() if commit_matches(commit, tag)]
             assert tagged == [history.version()]
 
+    @pytest.mark.parametrize(
+        "limit",
+        [
+            patch.object(history_upsert, "_SOURCE_GUARD_BYTES", 1),
+            # Every pass fills the disk, down to a pass of one chunk.
+            patch.object(history_upsert, "_free_bytes", _disk_filled_by_chunk_files(times=None)),
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_a_chunk_above_the_source_limit_is_refused_and_stays_staged(self, tmp_path: Path) -> None:
+    async def test_a_chunk_above_a_limit_is_refused_and_stays_staged(self, tmp_path: Path, limit: Any) -> None:
         tables = _Tables(tmp_path)
         await tables.stage(_keys(40, "a", _at(1)), "run-1", 0)
 
-        with patch.object(history_upsert, "_SOURCE_GUARD_BYTES", 1):
+        with limit:
             with pytest.raises(HistoryChunkTooLargeError):
                 await tables.finalize(**_TINY_CHUNKS)
 
