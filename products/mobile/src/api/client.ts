@@ -159,18 +159,18 @@ async function send(fetcher: Fetcher, path: string, init: ApiInit, accept: strin
     }
     const sent = auth.accessToken as string
     const method = init.method ?? 'GET'
-    const performFetch = (token: string): Promise<Response> =>
-        instrumentApiRequest(path, method, (traceparent) => {
-            if (init.signal?.aborted) {
-                throw abortError()
-            }
-            const options = buildInit(init, token, accept)
-            if (traceparent) {
-                options.headers = { ...(options.headers as Record<string, string>), traceparent }
-            }
-            return transport(() => fetcher(url, options))
-        })
-    let response = await performFetch(sent)
+    const fetchResponse = (token: string): Promise<Response> => {
+        if (init.signal?.aborted) {
+            throw abortError()
+        }
+        const options = buildInit(init, token, accept)
+        return transport(() =>
+            instrumentApiRequest(path, method, (traceparent) =>
+                fetcher(url, traceparent ? { ...options, headers: { ...options.headers, traceparent } } : options)
+            )
+        )
+    }
+    let response = await fetchResponse(sent)
     if (init.signal?.aborted) {
         throw abortError()
     }
@@ -193,7 +193,7 @@ async function send(fetcher: Fetcher, path: string, init: ApiInit, accept: strin
         if (!token || !isSameSession(auth, provider.getAuth())) {
             throw new NotSignedInError()
         }
-        response = await performFetch(token)
+        response = await fetchResponse(token)
         noteServerDate(response)
     }
     return response
