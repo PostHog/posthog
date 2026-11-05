@@ -195,7 +195,9 @@ class TestReceivers(_MemberTeamsTest):
         self.member_push.assert_called_once_with(str(self.organization.id), str(self.member.uuid))
         self.member_push.reset_mock()
         with self.captureOnCommitCallbacks(execute=True):
-            access_testing.remove_role_member(role_membership_id=role_membership_id)
+            access_testing.remove_role_member(
+                organization_id=self.organization.id, role_membership_id=role_membership_id
+            )
         self.member_push.assert_called_once_with(str(self.organization.id), str(self.member.uuid))
 
     def test_project_and_warehouse_rules_push_the_organization(self) -> None:
@@ -206,7 +208,7 @@ class TestReceivers(_MemberTeamsTest):
             self.org_push.assert_called_once_with(str(self.organization.id))
             self.org_push.reset_mock()
             with self.captureOnCommitCallbacks(execute=True):
-                access_testing.delete_access_control(access_control_id=rule_id)
+                access_testing.delete_access_control(team_id=self.team.id, access_control_id=rule_id)
             self.org_push.assert_called_once_with(str(self.organization.id))
 
     def test_other_rules_push_nothing(self) -> None:
