@@ -109,7 +109,7 @@ async def test_sources_and_pins_are_resolved_once_and_finalized_together(
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
         )
 
-    assert (resolved, [(inputs.results, inputs.pins, inputs.pinned) for inputs in finalized]) == (
+    assert (resolved, [(inputs.results, inputs.pins, inputs.pinned, inputs.pins_failed) for inputs in finalized]) == (
         asked,
         [
             (
@@ -119,6 +119,7 @@ async def test_sources_and_pins_are_resolved_once_and_finalized_together(
                 ],
                 pins,
                 pinned,
+                pins_fail,
             )
         ],
     )

@@ -1343,6 +1343,7 @@ Wasabi,api_key,,,,,wasabi
 Watchmode,api_key,,,,,watchmode
 Waydev,api_key,,,,,waydev
 Wayfair,,,,,,wayfair
+Webengage,,,,,,webengage
 Webflow,api_token site_id,,,,,webflow
 WeightsAndBiases,api_key entity host,,,,,weights-and-biases
 WhatsappBusinessManagement,,,,,,whatsapp-business-management
