@@ -95,11 +95,14 @@ class SessionCoverage(StrEnum):
     NOTHING = "nothing"
 
 
+# Equal to the LIMIT in the query below. A scan that reads this many sessions read a sample, not the whole window.
+SESSION_SAMPLE_LIMIT = 1000
+
 # The scan reads a hash sample of 1000 sessions, because each one costs a model call. Ordering by the
 # session hash keeps the sample stable between scans and unbiased across sources. The sample takes only
 # sessions that queried data, so sessions that only read tickets or docs do not fill it.
 _SESSIONS_QUERY = """
-SELECT session, person, first_intents, data_intents, tools
+SELECT session, person, first_intents, data_intents, tools, client, started_at
 FROM (
     SELECT
         session,
@@ -107,6 +110,8 @@ FROM (
         arraySlice(arrayMap(call -> call.2, arraySort(groupArrayIf(tuple(timestamp, intent), length(intent) > 0))), 1, {first_intents}) AS first_intents,
         arraySlice(arrayMap(call -> call.2, arraySort(groupArrayIf(tuple(timestamp, intent), length(intent) > 0 AND is_data))), 1, {max_intents}) AS data_intents,
         groupUniqArray(tool) AS tools,
+        anyIf(client_name, length(client_name) > 0) AS client,
+        min(timestamp) AS started_at,
         max(source IN ('self_driving', 'wizard')) AS excluded,
         max(is_data) AS queried
     FROM (
@@ -116,6 +121,7 @@ FROM (
             timestamp,
             substring(toString(properties.$mcp_intent), 1, {max_intent_chars}) AS intent,
             toString(properties.$mcp_tool_name) AS tool,
+            ifNull(toString(properties.$mcp_client_name), '') AS client_name,
             toString(properties.source) AS source,
             toString(properties.$mcp_tool_name) IN {data_tools} OR startsWith(toString(properties.$mcp_tool_name), {data_tool_prefix}) AS is_data
         FROM events
@@ -266,6 +272,8 @@ class SessionText:
     person: str
     notes: tuple[str, ...]
     tools: frozenset[str]
+    client: str = ""
+    started_at: datetime | None = None
 
 
 @frozen
@@ -392,13 +400,18 @@ def fetch_topic_sessions(
         )
     return [
         SessionText(
-            session_id=session, person=person, notes=session_notes(first_intents, data_intents), tools=frozenset(tools)
+            session_id=session,
+            person=person,
+            notes=session_notes(first_intents, data_intents),
+            tools=frozenset(tools),
+            client=client,
+            started_at=started_at,
         )
-        for session, person, first_intents, data_intents, tools in response.results or []
+        for session, person, first_intents, data_intents, tools, client, started_at in response.results or []
     ]
 
 
-def _decoded(raw: str) -> Any:
+def decode_nested_json(raw: str) -> Any:
     value: Any = raw
     for _ in range(2):
         if not isinstance(value, str):
@@ -411,13 +424,13 @@ def _decoded(raw: str) -> Any:
 
 
 def query_text(raw_input: str) -> str:
-    value = _decoded(raw_input)
+    value = decode_nested_json(raw_input)
     return str(value.get("query", "")) if isinstance(value, dict) else str(value)
 
 
 def result_text(raw_output: str) -> str:
     """The rows as plain lines. The stored text is cut, so it often stops being valid JSON."""
-    value = _decoded(raw_output)
+    value = decode_nested_json(raw_output)
     if isinstance(value, dict):
         content = value.get("content")
         if isinstance(content, list) and content and isinstance(content[0], dict):
@@ -426,7 +439,7 @@ def result_text(raw_output: str) -> str:
 
 
 def _metric_name(raw_input: str) -> str:
-    value = _decoded(raw_input)
+    value = decode_nested_json(raw_input)
     return str(value.get("name", "")) if isinstance(value, dict) else ""
 
 
@@ -621,7 +634,7 @@ async def find_new_topics(
     return candidates
 
 
-async def _gather_each(items: Iterable[Awaitable[Any]], heartbeat: Callable[[], None]) -> list[Any]:
+async def gather_each(items: Iterable[Awaitable[Any]], heartbeat: Callable[[], None]) -> list[Any]:
     """Keep the activity alive between model calls, because a full scan makes more than a thousand."""
     semaphore = asyncio.Semaphore(_MODEL_CONCURRENCY)
 
@@ -643,7 +656,7 @@ async def group_into_topics(
     """Assign the sessions to the previous list, so scans stay comparable. Without one, name a list first."""
     definitions = previous or await name_topic_list(client, [member.reading.question for member in sessions])
     heartbeat()
-    titles = await _gather_each(
+    titles = await gather_each(
         (assign_question(client, member.reading.question, definitions) for member in sessions), heartbeat
     )
     members: dict[str, list[ReadSession]] = defaultdict(list)
@@ -726,7 +739,7 @@ async def collect_topics_into_snapshot(
         team_id=team_id,
         trace_id=f"data-catalog-usage-{snapshot_id}",
     ) as client:
-        readings = await _gather_each((read_session(client, session) for session in inputs.sessions), heartbeat)
+        readings = await gather_each((read_session(client, session) for session in inputs.sessions), heartbeat)
         read = [ReadSession(session=s, reading=r) for s, r in zip(inputs.sessions, readings, strict=True)]
         in_topics = [member for member in read if member.reading.kind in _TOPIC_KINDS]
         definitions: list[TopicDefinition] = []
@@ -753,7 +766,7 @@ async def collect_topics_into_snapshot(
             judged = [
                 member for member in asked if (found := lookups.get(member.session.session_id)) and found.needs_judge
             ]
-            results = await _gather_each(
+            results = await gather_each(
                 (judge_coverage(client, m.reading.question, lookups[m.session.session_id]) for m in judged), heartbeat
             )
             verdicts = {member.session.session_id: result for member, result in zip(judged, results, strict=True)}

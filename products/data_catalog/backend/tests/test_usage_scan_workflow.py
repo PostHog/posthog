@@ -9,6 +9,12 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from products.data_catalog.backend.temporal.effectiveness.types import (
+    EffectivenessInput,
+    MeasureTeamInput,
+    TeamMeasured,
+)
+from products.data_catalog.backend.temporal.effectiveness.workflows import DataCatalogEffectivenessWorkflow
 from products.data_catalog.backend.temporal.usage_scan.types import (
     CreateSnapshotInput,
     FinalizeSnapshotInput,
@@ -86,3 +92,32 @@ async def test_a_failed_step_keeps_the_other_sections_and_only_a_full_failure_fa
     assert failed.snapshot_id == SNAPSHOTS[2]
     assert "uncovered: ClickHouse refused the query." in (failed.error or "")
     assert (closed_by_parent.snapshot_id, closed_by_parent.error is not None) == (SNAPSHOTS[2], True)
+
+
+@pytest.mark.asyncio
+async def test_a_failed_team_does_not_stop_the_effectiveness_run(environment: WorkflowEnvironment) -> None:
+    @activity.defn(name="data-catalog-effectiveness-list-teams")
+    async def list_teams() -> list[int]:
+        return [1, 2, 3]
+
+    @activity.defn(name="data-catalog-effectiveness-measure-team")
+    async def measure(input: MeasureTeamInput) -> TeamMeasured:
+        if input.team_id == 1:
+            raise ApplicationError("ClickHouse refused the query.", non_retryable=True)
+        return TeamMeasured(skipped=input.team_id == 3, analysis_sessions=5, rows=6)
+
+    async with Worker(
+        environment.client,
+        task_queue=QUEUE,
+        workflows=[DataCatalogEffectivenessWorkflow],
+        activities=[list_teams, measure],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        result = await environment.client.execute_workflow(
+            DataCatalogEffectivenessWorkflow.run,
+            EffectivenessInput(),
+            id="effectiveness-run",
+            task_queue=QUEUE,
+        )
+
+    assert result == {"teams": 3, "measured": 1, "skipped": 1, "failed": 1}

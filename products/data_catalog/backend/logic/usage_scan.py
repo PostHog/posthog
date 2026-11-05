@@ -111,15 +111,22 @@ def teams_due_for_scan() -> list[int]:
     """Teams with at least one live metric and the usage flag on, in id order."""
     if not usage_scans_supported():
         return []
+    return teams_with_metrics_and_flag(USAGE_FLAG_KEY)
+
+
+def teams_with_metrics_and_flag(flag_key: str) -> list[int]:
+    """Teams with at least one live metric and the flag on, in id order."""
     team_ids = sorted(set(Metric.objects.unscoped().filter(deleted=False).values_list("team_id", flat=True)))
-    return [team.id for team in Team.objects.filter(id__in=team_ids).order_by("id") if _flag_on_for_team(team)]
+    return [
+        team.id for team in Team.objects.filter(id__in=team_ids).order_by("id") if _flag_on_for_team(team, flag_key)
+    ]
 
 
-def _flag_on_for_team(team: Team) -> bool:
+def _flag_on_for_team(team: Team, flag_key: str) -> bool:
     try:
         return bool(
             posthoganalytics.feature_enabled(
-                USAGE_FLAG_KEY,
+                flag_key,
                 f"team_{team.id}",
                 groups={"organization": str(team.organization_id), "project": str(team.uuid)},
                 only_evaluate_locally=False,
@@ -127,5 +134,5 @@ def _flag_on_for_team(team: Team) -> bool:
             )
         )
     except Exception as error:
-        logger.warning("data_catalog_usage_flag_eval_failed", team_id=team.id, error=str(error))
+        logger.warning("data_catalog_usage_flag_eval_failed", team_id=team.id, flag_key=flag_key, error=str(error))
         return False

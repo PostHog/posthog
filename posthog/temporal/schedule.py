@@ -100,6 +100,7 @@ from products.customer_analytics.backend.facade.temporal import (
     create_ownership_claims_coordinator_schedule,
 )
 from products.data_catalog.backend.facade.temporal import (
+    create_data_catalog_effectiveness_schedule,
     create_data_catalog_usage_scan_schedule,
     create_data_catalog_weekly_digest_schedule,
 )
@@ -1006,6 +1007,7 @@ schedules = [
     create_heatmap_page_history_schedule,
     create_data_catalog_weekly_digest_schedule,
     create_data_catalog_usage_scan_schedule,
+    create_data_catalog_effectiveness_schedule,
     create_alerts_platform_tick_schedule,
     create_alerts_platform_inventory_schedule,
     create_alerts_platform_expired_holds_schedule,

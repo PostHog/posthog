@@ -64,6 +64,9 @@ class TestAdjustedRunDetection(SimpleTestCase):
     def test_read_metric_first(self, _name: str, calls: list[CatalogCall], expected: bool) -> None:
         assert read_metric_first(_query(), "signups", calls) is expected
 
+    def test_a_query_older_than_the_metric_is_no_candidate(self) -> None:
+        assert build_candidate_groups([_query(at=AT - timedelta(days=1))], _index()) == []
+
     def test_repeated_sql_is_judged_once_and_scout_only_groups_go_last(self) -> None:
         sliced = "SELECT count() FROM events WHERE event = 'signup' AND properties.plan = 'pro'"
         groups = build_candidate_groups(
@@ -150,6 +153,20 @@ class TestAgentTelemetryQueries(ClickhouseTestMixin, BaseTest):
                 "$mcp_project_uuid": str(uuid4()),
             },
         )
+        self._telemetry(
+            "$ai_span",
+            "execute-sql",
+            "t1",
+            at - timedelta(minutes=2),
+            **{"$ai_input_state": json.dumps({"query": "SELECT table_name, description FROM tables"})},
+        )
+        self._telemetry(
+            "$ai_span",
+            "execute-sql",
+            "t1",
+            at - timedelta(minutes=3),
+            **{"$ai_input_state": json.dumps({"query": "SELECT column_name, data_type FROM columns"})},
+        )
         flush_persons_and_events()
 
         queries = fetch_agent_queries(
@@ -162,4 +179,7 @@ class TestAgentTelemetryQueries(ClickhouseTestMixin, BaseTest):
         assert [(query.trace_id, query.intent, query.sql, query.is_scout) for query in queries] == [
             ("t1", "weekly signups", SIGNUPS, True)
         ]
-        assert [(call.tool, call.metric_name) for call in calls["t1"]] == [("metric-describe", "signups")]
+        assert sorted((call.tool, call.metric_name) for call in calls["t1"]) == [
+            ("execute-sql", ""),
+            ("metric-describe", "signups"),
+        ]
