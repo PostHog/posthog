@@ -20,6 +20,7 @@ from products.feature_flags.backend.code_analysis import (
 )
 from products.feature_flags.backend.code_cleanup import (
     CodeCleanupUnavailableReason,
+    can_request_cleanup,
     get_cleanup_availability,
     get_cleanup_run,
     start_code_cleanup,
@@ -174,6 +175,12 @@ class FeatureFlagCodeCleanupSerializer(serializers.Serializer):
     outcome_options = serializers.ListField(
         child=serializers.CharField(), help_text="Outcomes whose code the cleanup can keep."
     )
+    can_request = serializers.BooleanField(
+        help_text=(
+            "Whether `open_cleanup_pr` accepts a request now. False when `unavailable_reason` is set, or while a "
+            "cleanup run is still opening its pull request. A finished run doesn't block a new request."
+        )
+    )
     run = FeatureFlagCodeCleanupRunSerializer(
         allow_null=True, help_text="The flag's latest cleanup run, or null when none was requested."
     )
@@ -232,6 +239,7 @@ def _serialize_status(flag: FeatureFlag, user: User, analysis_status: CodeAnalys
                 "unavailable_reason": availability.unavailable_reason,
                 "suggested_outcome": availability.suggested_outcome,
                 "outcome_options": list(availability.outcome_options),
+                "can_request": can_request_cleanup(availability, run),
                 "run": run,
             },
         }

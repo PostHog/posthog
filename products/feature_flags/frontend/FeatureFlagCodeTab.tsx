@@ -20,6 +20,29 @@ const RUNNING_STATUS_LABELS: Partial<Record<FeatureFlagCodeAnalysisApi['run_stat
     in_progress: 'Reading the repository',
 }
 
+// The buttons that start an analysis or a cleanup unmount when they are pressed, and the spinner and banners that
+// replace them have no live role. A screen reader announces this text each time it changes.
+function statusAnnouncement(analysis: FeatureFlagCodeAnalysisApi | null, isRunning: boolean): string {
+    if (!analysis) {
+        return ''
+    }
+    if (isRunning) {
+        return 'Analyzing the code.'
+    }
+    if (!analysis.result) {
+        return 'The analysis ended without a result.'
+    }
+    const { run } = analysis.cleanup
+    if (run && !run.is_terminal) {
+        return 'Opening a cleanup pull request.'
+    }
+    if (run) {
+        return run.pr_url ? 'The cleanup opened a draft pull request.' : 'The cleanup ended without a pull request.'
+    }
+    const count = analysis.result.references.length
+    return `The analysis found ${count} ${count === 1 ? 'check' : 'checks'} of this flag.`
+}
+
 export function FeatureFlagCodeTab({ id, featureFlag }: { id: number; featureFlag: FeatureFlagType }): JSX.Element {
     const logic = featureFlagCodeAnalysisLogic({ id })
     const {
@@ -144,6 +167,9 @@ export function FeatureFlagCodeTab({ id, featureFlag }: { id: number; featureFla
 
     return (
         <div className="flex flex-col gap-4">
+            <span aria-live="polite" aria-atomic="true" className="sr-only">
+                {statusAnnouncement(analysis, isRunning)}
+            </span>
             <div className="flex flex-wrap items-center gap-2">
                 {repositoryPicker && <span className="text-secondary text-sm">Repository</span>}
                 {repositoryPicker}

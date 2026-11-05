@@ -189,7 +189,7 @@ def build_code_cleanup_prompt(
     analysis summaries and notes are model output, so they stay out of the prompt.
     """
     title = f"Remove stale feature flag {flag.key}"
-    commit = result.commit_sha if _SAFE_COMMIT.fullmatch(result.commit_sha) else "an earlier commit"
+    at_commit = f" at commit {result.commit_sha}" if _SAFE_COMMIT.fullmatch(result.commit_sha) else ""
     description = "\n".join(
         [
             f'Remove every check of the PostHog feature flag "{flag.key}" from this repository, keep the right code path, and open a draft pull request.',
@@ -202,9 +202,9 @@ def build_code_cleanup_prompt(
             f"- {_keep_instruction(keep_outcome)}",
             "",
             "## Where the flag is checked",
-            f"An earlier read-only analysis at commit {commit} found checks at these places:",
+            f"An earlier read-only analysis{at_commit} found checks at these places:",
             *_reference_lines(result),
-            "The code can have changed since that commit. Use the list as a starting point, then search the repository again:",
+            "The code can have changed since that analysis. Use the list as a starting point, then search the repository again:",
             f'- Search for the exact key "{flag.key}" and follow every constant, enum, or config entry that holds it.',
             "- Inspect local flag helpers and wrapper components that take the key.",
             "- Cover every language and every directory that deploys on its own.",
@@ -229,10 +229,15 @@ def build_code_cleanup_prompt(
     return TaskPrompt(title=title, description=description)
 
 
-def _cleanup_blocks_new_request(run: CodeCleanupRun | None) -> bool:
+def _cleanup_in_progress(run: CodeCleanupRun | None) -> bool:
     # Only a run that is still going blocks another. A finished run can be followed by a new one even when it
     # opened a pull request, because that pull request may have been closed.
     return run is not None and not run.is_terminal
+
+
+def can_request_cleanup(availability: CodeCleanupAvailability, run: CodeCleanupRun | None) -> bool:
+    """Whether `start_code_cleanup` accepts a request now, so the page doesn't copy its rules."""
+    return availability.unavailable_reason is None and not _cleanup_in_progress(run)
 
 
 def start_code_cleanup(flag: FeatureFlag, user: User, keep_outcome: str | None = None) -> FeatureFlagCodeAnalysis:
@@ -261,7 +266,7 @@ def start_code_cleanup(flag: FeatureFlag, user: User, keep_outcome: str | None =
             raise CodeAnalysisError(
                 "cleanup_unavailable", "The flag was analyzed again. Review the new result, then try again."
             )
-        if _cleanup_blocks_new_request(get_cleanup_run(flag, user)):
+        if _cleanup_in_progress(get_cleanup_run(flag, user)):
             raise CodeAnalysisError(
                 "cleanup_exists", "A cleanup pull request for this flag is already being opened. Wait for it to finish."
             )

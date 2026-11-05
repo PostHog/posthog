@@ -35,7 +35,13 @@ const analysis = (overrides: Partial<FeatureFlagCodeAnalysisApi> = {}): FeatureF
     error_message: null,
     can_view_task: true,
     result: null,
-    cleanup: { unavailable_reason: 'analysis_not_ready', suggested_outcome: null, outcome_options: [], run: null },
+    cleanup: {
+        unavailable_reason: 'analysis_not_ready',
+        suggested_outcome: null,
+        outcome_options: [],
+        can_request: false,
+        run: null,
+    },
     ...overrides,
 })
 
@@ -57,7 +63,13 @@ const cleanupRun = (overrides: Partial<FeatureFlagCodeCleanupRunApi> = {}): Feat
 
 const staleWithCleanup = (run: FeatureFlagCodeCleanupRunApi | null): FeatureFlagCodeAnalysisApi => ({
     ...completed,
-    cleanup: { unavailable_reason: null, suggested_outcome: 'enabled', outcome_options: ['enabled', 'disabled'], run },
+    cleanup: {
+        unavailable_reason: null,
+        suggested_outcome: 'enabled',
+        outcome_options: ['enabled', 'disabled'],
+        can_request: !run || run.is_terminal,
+        run,
+    },
 })
 
 describe('featureFlagCodeAnalysisLogic', () => {
@@ -161,7 +173,25 @@ describe('featureFlagCodeAnalysisLogic', () => {
         expect(logic.values.analysis?.is_terminal).toBe(true)
     })
 
-    it('opens a cleanup PR for the suggested outcome and polls its run until it finishes', async () => {
+    it('starts the analysis on the repository the user chose', async () => {
+        silenceKeaLoadersErrors()
+        mockRetrieve.mockRejectedValue(new ApiError('Not found', 404))
+        mockStart.mockResolvedValue(analysis())
+
+        const logic = featureFlagCodeAnalysisLogic({ id: 1 })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+
+        logic.actions.selectRepository('example-org/other-repo')
+        logic.actions.startAnalysis()
+        await jest.advanceTimersByTimeAsync(0)
+        expect(mockStart).toHaveBeenCalledWith(expect.any(String), 1, { repository: 'example-org/other-repo' })
+    })
+
+    it.each([
+        { case: 'the suggested outcome', chosen: null, sent: 'enabled' },
+        { case: 'the outcome the user chose', chosen: 'disabled', sent: 'disabled' },
+    ])('opens a cleanup PR for $case and polls its run until it finishes', async ({ chosen, sent }) => {
         mockRetrieve
             .mockResolvedValueOnce(staleWithCleanup(null))
             .mockResolvedValue(
@@ -175,9 +205,12 @@ describe('featureFlagCodeAnalysisLogic', () => {
         logic.mount()
         await jest.advanceTimersByTimeAsync(0)
 
+        if (chosen) {
+            logic.actions.selectCleanupOutcome(chosen)
+        }
         logic.actions.openCleanupPr()
         await jest.advanceTimersByTimeAsync(0)
-        expect(mockOpenCleanup).toHaveBeenCalledWith(expect.any(String), 1, { keep_outcome: 'enabled' })
+        expect(mockOpenCleanup).toHaveBeenCalledWith(expect.any(String), 1, { keep_outcome: sent })
         expect(logic.values.isCleanupRunning).toBe(true)
 
         await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS)

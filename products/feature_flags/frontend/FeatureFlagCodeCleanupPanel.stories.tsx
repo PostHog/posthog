@@ -7,6 +7,7 @@ const available: FeatureFlagCodeCleanupApi = {
     unavailable_reason: null,
     suggested_outcome: 'enabled',
     outcome_options: ['enabled', 'disabled'],
+    can_request: true,
     run: null,
 }
 
@@ -63,11 +64,11 @@ export const ChooseOutcome: Story = {
 }
 
 export const Opening: Story = {
-    args: { cleanup: { ...available, run: run({}) } },
+    args: { cleanup: { ...available, can_request: false, run: run({}) } },
 }
 
 export const StatusStale: Story = {
-    args: { cleanup: { ...available, run: run({}) }, statusStale: true },
+    args: { cleanup: { ...available, can_request: false, run: run({}) }, statusStale: true },
 }
 
 export const Opened: Story = {

@@ -3,7 +3,7 @@ import { LemonBanner, LemonButton, LemonSelect, Link, Spinner } from '@posthog/l
 import { urls } from 'scenes/urls'
 
 import { describeOutcome } from './featureFlagCodeSnippets'
-import type { FeatureFlagCodeCleanupApi, FeatureFlagCodeCleanupRunApi } from './generated/api.schemas'
+import type { FeatureFlagCodeCleanupApi } from './generated/api.schemas'
 
 export interface FeatureFlagCodeCleanupPanelProps {
     cleanup: FeatureFlagCodeCleanupApi
@@ -16,11 +16,6 @@ export interface FeatureFlagCodeCleanupPanelProps {
     onSelectOutcome: (outcome: string) => void
     onOpen: () => void
     onCheckStatus: () => void
-}
-
-// Mirrors the server: only a run in progress blocks another request. An earlier pull request may have been closed.
-function blocksNewRequest(run: FeatureFlagCodeCleanupRunApi | null): boolean {
-    return !!run && !run.is_terminal
 }
 
 function outcomeLabel(outcome: string, suggestedOutcome: string | null): string {
@@ -40,8 +35,7 @@ export function FeatureFlagCodeCleanupPanel({
     onOpen,
     onCheckStatus,
 }: FeatureFlagCodeCleanupPanelProps): JSX.Element | null {
-    const { run } = cleanup
-    const canRequest = cleanup.unavailable_reason === null && !blocksNewRequest(run)
+    const { run, can_request: canRequest } = cleanup
 
     if (!run && !canRequest) {
         return null

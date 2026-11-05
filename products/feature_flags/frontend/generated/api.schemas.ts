@@ -1443,6 +1443,8 @@ export interface FeatureFlagCodeCleanupApi {
     suggested_outcome: string | null
     /** Outcomes whose code the cleanup can keep. */
     outcome_options: string[]
+    /** Whether `open_cleanup_pr` accepts a request now. False when `unavailable_reason` is set, or while a cleanup run is still opening its pull request. A finished run doesn't block a new request. */
+    can_request: boolean
     /** The flag's latest cleanup run, or null when none was requested. */
     run: FeatureFlagCodeCleanupRunApi | null
 }

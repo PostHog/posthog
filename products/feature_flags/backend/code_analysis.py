@@ -18,20 +18,13 @@ from pydantic import BaseModel, Field, ValidationError
 from posthog.dataclasses import frozen
 
 from products.feature_flags.backend.facade.config import ConfigFormatError
+from products.feature_flags.backend.facade.sdk_calls import FLAG_SDK_CALLS
 from products.feature_flags.backend.models import FeatureFlag, FeatureFlagCodeAnalysis
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskRunDTO
 
 if TYPE_CHECKING:
     from posthog.models import User
-
-# PostHog SDK calls that read a flag, across languages. The agent searches for these besides the key.
-FLAG_SDK_CALLS = (
-    "isFeatureEnabled, getFeatureFlag, getFeatureFlagPayload, getFeatureFlagResult, useFeatureFlagEnabled, "
-    "useFeatureFlagVariantKey, useFeatureFlagPayload, useFeatureFlagResult, PostHogFeature, evaluateFlags, "
-    "getFlag, isEnabled, feature_enabled, get_feature_flag, get_feature_flag_payload, evaluate_flags, "
-    "get_flag, is_enabled, GetFeatureFlag, IsFeatureEnabled"
-)
 
 # The pattern the flag API enforces on flag keys.
 SAFE_KEY = re.compile(r"[a-zA-Z0-9_-]+")
@@ -163,17 +156,8 @@ def get_code_analysis_target(flag: FeatureFlag, requested_repository: str | None
     # Keeps the sandbox/LLM runtime the repo-selection module pulls in off the request import path.
     from products.tasks.backend.facade import repo_selection as tasks_repo_selection  # noqa: PLC0415
 
-    # team_only: the candidates are shown to anyone who can see the flag, so a personal connection
-    # must not leak someone's private repository names.
-    github = tasks_repo_selection.resolve_team_github_integration(flag.team_id, team=flag.team, team_only=True)
-    if github is None:
-        return CodeAnalysisTarget(repository=None, source=CodeAnalysisRepositorySource.NO_INTEGRATION, candidates=())
-    # A stale snapshot is good enough to pick a repository, and refreshing it lists every GitHub
-    # page inside the request. Refresh here only when no snapshot exists yet.
-    repositories = github.list_all_cached_repositories(
-        max_repos=1000, allow_refresh=False
-    ) or github.list_all_cached_repositories(max_repos=1000)
-    cached = {full_name.lower(): full_name for repo in repositories if (full_name := repo.get("full_name"))}
+    # A stale snapshot is good enough to pick a repository, and this runs inside a page request.
+    cached = tasks_repo_selection.team_repository_names(flag.team_id, team=flag.team, refresh_stale_snapshot=False)
     if not cached:
         return CodeAnalysisTarget(repository=None, source=CodeAnalysisRepositorySource.NO_INTEGRATION, candidates=())
     candidates = tuple(sorted(cached.values(), key=str.lower))
@@ -373,23 +357,37 @@ def get_code_analysis_status(flag: FeatureFlag, user: User) -> CodeAnalysisStatu
     if analysis is None:
         return None
     run = latest_run_for_task(analysis.task_id, analysis.team_id)
+    can_view_task = tasks_facade.task_visible(analysis.task_id, flag.team_id, user.id)
+    # The run is created with its task, so a missing one can't be read, for example after a project transfer.
+    # Report it as finished so the page offers a new analysis instead of waiting for a run that never starts.
+    if run is None:
+        return CodeAnalysisStatus(
+            analysis=analysis,
+            run_status="failed",
+            is_terminal=True,
+            error_message="The status of this analysis can't be read. Run it again.",
+            result=None,
+            can_view_task=can_view_task,
+        )
     result: FlagCodeAnalysisResult | None = None
-    run_status = run.status if run else "queued"
-    error_message = run.error_message if run else None
-    if run is not None and run.is_terminal and run.output is not None:
+    run_status = run.status
+    error_message = run.error_message
+    # Only a completed run carries the structured result. The relay writes the agent's last message into
+    # `output` after each turn, so a failed or canceled run has output that is not a result.
+    if run.status == "completed" and run.output is None:
+        run_status = "failed"
+        error_message = "The analysis finished without a result. Run it again."
+    elif run.status == "completed":
         try:
             result = FlagCodeAnalysisResult.model_validate(run.output)
         except ValidationError:
             run_status = "failed"
             error_message = "The analysis finished, but its result couldn't be read. Run it again."
-    elif run is not None and run.status == "completed":
-        run_status = "failed"
-        error_message = "The analysis finished without a result. Run it again."
     return CodeAnalysisStatus(
         analysis=analysis,
         run_status=run_status,
-        is_terminal=run.is_terminal if run else False,
+        is_terminal=run.is_terminal,
         error_message=error_message,
         result=result,
-        can_view_task=tasks_facade.task_visible(analysis.task_id, flag.team_id, user.id),
+        can_view_task=can_view_task,
     )
