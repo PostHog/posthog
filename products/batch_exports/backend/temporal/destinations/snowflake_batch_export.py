@@ -654,11 +654,11 @@ def _is_connect_error_retryable(err: Exception) -> bool:
     return isinstance(err, OperationalError) and err.errno in (ER_FAILED_TO_CONNECT_TO_DB, ER_RETRYABLE_CODE)
 
 
-# These columns hold `$set` and `$set_once` only when a client sends them as strings, so a value can
-# be any text. PARSE_JSON fails the whole COPY on one malformed value, and every retry fails the same
-# way. COPY transformations do not support TRY_PARSE_JSON, so CHECK_JSON guards PARSE_JSON instead.
-# Other JSON columns do not use this guard: CHECK_JSON has no option to allow duplicate keys, so it
-# may reject a value that PARSE_JSON accepts with 'd', and the column would load as NULL.
+# These columns hold `$set` and `$set_once` and can include any text sent by a client. PARSE_JSON
+# fails the whole COPY on one malformed value, and unfortunately COPY transformations do not support
+# TRY_PARSE_JSON (at least according to the Snowflake docs), so we use CHECK_JSON as a guard
+# instead. Other JSON columns do not use this guard: we currently accept duplicate keys in JSON
+# objects and CHECK_JSON has no option to support this like PARSE_JSON does with the 'd' option.
 COLUMNS_WITH_UNVALIDATED_JSON = frozenset({"people_set", "people_set_once"})
 
 
