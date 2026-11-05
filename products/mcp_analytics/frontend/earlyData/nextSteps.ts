@@ -70,7 +70,7 @@ function createdReportDetail(report: SubscriptionApi): string {
 }
 
 // The tool health report has something to say on day one. The intent roundup needs intent capture first.
-function weeklyReportStep(offer: ActionableWeeklyReportOffer): NextStep {
+export function weeklyReportStep(offer: ActionableWeeklyReportOffer): NextStep {
     return {
         key: 'weekly-report',
         title: offer.state === 'created' ? 'Your weekly report is set up' : 'Get a weekly report in your inbox',
