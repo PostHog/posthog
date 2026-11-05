@@ -2,7 +2,7 @@ import type { WizardRunApi, WizardRunTaskApi } from '../../generated/api.schemas
 import { WizardRunProgressStep, wizardRunIsActive, wizardRunProgressStep } from '../../lib/wizardRunDisplay'
 import type { WizardRunProgressState } from '../../lib/wizardRunDisplay'
 
-export type WizardSpendAuditStepKey = 'audit' | 'audit_dashboard' | 'pull_requests' | 'unused_events'
+export type WizardSpendAuditStepKey = 'audit' | 'audit_notebook' | 'pull_requests' | 'unused_events'
 
 export interface WizardSpendAuditStep {
     key: WizardSpendAuditStepKey
@@ -15,15 +15,15 @@ export interface WizardSpendAuditStep {
 
 export const WIZARD_SPEND_AUDIT_STEPS: readonly WizardSpendAuditStep[] = [
     { key: 'audit', label: 'Audit the PostHog setup', taskWords: ['audit'] },
-    { key: 'audit_dashboard', label: 'Build the audit dashboard', taskWords: ['dashboard', 'report'] },
+    { key: 'audit_notebook', label: 'Write the audit notebook', taskWords: ['notebook', 'report'] },
     { key: 'pull_requests', label: 'Open pull requests', taskWords: ['pull request'] },
     { key: 'unused_events', label: 'Create dashboards and insights for unused events', taskWords: ['unused event'] },
 ]
 
 // Most specific first, so "unused events dashboard" lands on the unused events step and
-// "audit dashboard" on the dashboard step rather than the audit step. A pull request that
+// "audit notebook" on the notebook step rather than the audit step. A pull request that
 // mentions unused flags still lands on the pull requests step, because only "unused event" matches.
-const MATCH_ORDER: readonly WizardSpendAuditStepKey[] = ['unused_events', 'pull_requests', 'audit_dashboard', 'audit']
+const MATCH_ORDER: readonly WizardSpendAuditStepKey[] = ['unused_events', 'pull_requests', 'audit_notebook', 'audit']
 
 const TASK_STATES: Record<WizardRunTaskApi['status'], WizardRunProgressState> = {
     created: 'pending',

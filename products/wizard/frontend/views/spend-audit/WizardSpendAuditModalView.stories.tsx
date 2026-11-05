@@ -126,7 +126,7 @@ export const Running: Story = {
         run,
         tasks: [
             task('Audit the PostHog setup', 'completed'),
-            task('Build the audit dashboard', 'running'),
+            task('Write the audit notebook', 'running'),
             task('Open pull request: trim autocapture', 'created'),
         ],
     },

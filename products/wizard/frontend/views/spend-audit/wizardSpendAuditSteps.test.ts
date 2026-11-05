@@ -25,7 +25,7 @@ describe('wizardSpendAuditStepStates', () => {
             run('running'),
             [
                 task('Audit the PostHog setup', 'completed'),
-                task('Build the audit dashboard', 'completed'),
+                task('Write the audit notebook', 'completed'),
                 task('Open pull request: trim autocapture', 'completed'),
                 task('Open pull request: drop unused flags', 'running'),
                 task('Create unused events dashboard', 'created'),
@@ -41,7 +41,7 @@ describe('wizardSpendAuditStepStates', () => {
         [
             'the failed task as failed and later steps as pending',
             run('failed'),
-            [task('Audit the PostHog setup', 'completed'), task('Build the audit dashboard', 'failed')],
+            [task('Audit the PostHog setup', 'completed'), task('Write the audit notebook', 'failed')],
             ['complete', 'failed', 'pending', 'pending'],
         ],
         [
