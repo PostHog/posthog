@@ -55968,6 +55968,25 @@
             "required": ["type"],
             "type": "object"
         },
+        "TicketSidebarConfiguration": {
+            "additionalProperties": false,
+            "properties": {
+                "hidden": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "order": {
+                    "description": "Widget keys in display order. Typed as strings so a layout naming a removed widget still validates.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
         "TikTokAdsDefaultSources": {
             "enum": ["tiktok"],
             "type": "string"
@@ -57761,6 +57780,9 @@
                 },
                 "sql_editor": {
                     "$ref": "#/definitions/SQLEditorConfiguration"
+                },
+                "ticket_sidebar": {
+                    "$ref": "#/definitions/TicketSidebarConfiguration"
                 },
                 "version": {
                     "description": "Schema version of this configuration blob, for future format migrations.",

@@ -9573,6 +9573,12 @@ export interface AnalyticsListDisplayConfiguration {
     default_sort?: '-last_viewed_at' | '-created_at'
 }
 
+export interface TicketSidebarConfiguration {
+    /** Widget keys in display order. Typed as strings so a layout naming a removed widget still validates. */
+    order?: string[]
+    hidden?: string[]
+}
+
 export interface UserUIConfiguration {
     /**
      * Schema version of this configuration blob, for future format migrations.
@@ -9581,6 +9587,7 @@ export interface UserUIConfiguration {
     version: number
     sql_editor?: SQLEditorConfiguration
     analytics_list?: AnalyticsListDisplayConfiguration
+    ticket_sidebar?: TicketSidebarConfiguration
     [key: string]: unknown
 }
 
