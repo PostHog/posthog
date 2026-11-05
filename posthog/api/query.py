@@ -99,6 +99,7 @@ from products.customer_analytics.backend.facade.api import validate_account_user
 from products.customer_analytics.backend.facade.constants import ACCOUNT_USERS_QUERY_STATUS_LABEL_PREFIX
 from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
 from products.managed_warehouse.backend.facade.query_execution import validate_managed_trino_raw_access
+from products.metrics.backend.facade.api import derived_metric_resources
 from products.warehouse_sources.backend.facade.models import is_managed_warehouse_connection_ready
 
 from common.hogvm.python.utils import HogVMException
@@ -244,10 +245,21 @@ def required_scopes_for_query_payload(query: object) -> list[str] | None:
         # experiment:read on top of query:read — keyed on query content, not kind alone.
         if kind == "RecordingsQuery" and current_query.get("experiment_exposure"):
             return ["query:read", "experiment:read"]
+        if kind == "MetricsQuery":
+            return [*_QUERY_KIND_SCOPES[kind], *_derived_metric_source_scopes(current_query)]
         if isinstance(kind, str) and kind in _QUERY_KIND_SCOPES:
             return _QUERY_KIND_SCOPES[kind]
         current_query = current_query.get("source")
     return None
+
+
+def _derived_metric_source_scopes(query: dict) -> list[str]:
+    # A derived metric reads spans or logs, so the token also needs read access to that source.
+    clauses = query.get("clauses")
+    if not isinstance(clauses, list):
+        return []
+    names = [clause.get("metricName") for clause in clauses if isinstance(clause, dict)]
+    return [f"{resource}:read" for resource in derived_metric_resources(n for n in names if isinstance(n, str))]
 
 
 def add_query_response_identity_headers(response: Response) -> Response:

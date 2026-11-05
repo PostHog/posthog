@@ -301,13 +301,12 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
     def test_derived_queries_need_access_to_the_source(
         self, _name: str, scopes: list[str] | None, has_source_access: bool, expected_status: int
     ) -> None:
-        headers = {}
         if scopes is not None:
             value = generate_random_token_personal()
             PersonalAPIKey.objects.create(
                 label="test", user=self.user, secure_value=hash_key_value(value), scopes=scopes
             )
-            headers["HTTP_AUTHORIZATION"] = f"Bearer {value}"
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {value}")
 
         with (
             _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG),
@@ -328,7 +327,6 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
                     }
                 },
                 format="json",
-                **headers,
             )
 
         assert response.status_code == expected_status, response.json()
