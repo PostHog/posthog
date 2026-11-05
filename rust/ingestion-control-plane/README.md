@@ -75,6 +75,8 @@ Both etcd tools are disabled (their APIs return 503) unless `ETCD_ENDPOINTS` is 
 | `PERSONHOG_KAFKA_HOSTS` | `KAFKA_HOSTS` | Cluster the personhog changelog lives on, for the changelog panel |
 | `CHANGELOG_BACKUP_BUCKET` | empty | Versioned S3 bucket for `config/changelog` backups; empty disables backups and restore. Credentials and region come from the standard AWS environment |
 | `PERSONHOG_KAFKA_TLS` | `KAFKA_TLS` | TLS for `PERSONHOG_KAFKA_HOSTS` |
+| `CHANGELOG_KAFKA_CLUSTERS` | empty | Clusters the changelog can live on, by name, as JSON `{"name": {"hosts": "...", "tls": bool}}`; seeding and a migration write the named endpoint into the changelog config |
+| `PERSONHOG_CROSS_CLUSTER_MIGRATIONS` | `false` | Allows a migration onto another cluster; enable only once every personhog leader, writer, relay and router runs a build that reads the cluster, because an older router's coordinator drops the cluster at the flip and an older leader, writer or relay uses its own `KAFKA_HOSTS` for the new topic |
 | `PERSONHOG_HANDOFF_DEADLINE_SECS` | `120` | Per-phase deadline for flagging stuck handoffs; must match `COORDINATOR_HANDOFF_DEADLINE_SECS` |
 | `PERSONHOG_WARMING_DEADLINE_SECS` | `1800` | Warming-phase deadline; must match `COORDINATOR_WARMING_DEADLINE_SECS` |
 
