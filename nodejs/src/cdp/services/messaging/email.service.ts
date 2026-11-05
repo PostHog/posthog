@@ -516,8 +516,6 @@ type SesRoute = {
     bccAddresses?: string[]
 }
 
-// A check that could not run maps to the same email status as a blocked recipient, not to
-// `sending_suspended`, which means staff or billing turned sending off for the project.
 const SANDBOX_RECIPIENT_BLOCKS: Record<
     SandboxRecipientBlockReason,
     { explanation: string; label: string; guidance: string; statusReason: EmailSkipReason }
