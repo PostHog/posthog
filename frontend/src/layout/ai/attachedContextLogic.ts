@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, kea, path, reducers, selectors } from 'kea'
 
 import { type AttachedContextItem, NEW_CHAT_KEY, attachedContextItemKey } from '~/layout/ai/attachedContext'
-import { type ChatChipsByTask, addChatChips, removeChatChip } from '~/layout/ai/chatContextChips'
+import { type ChatChipsByTask, addChatChips, removeChatChip, withRemovedGroup } from '~/layout/ai/chatContextChips'
 
 function withoutPicks(
     pickedByChat: Record<string, AttachedContextItem[]>,
@@ -23,6 +23,7 @@ export interface attachedContextLogicValues {
     hasContext: boolean
     pickedByChat: Record<string, AttachedContextItem[]>
     providers: Record<string, AttachedContextItem[]>
+    removedGroupsByTask: Record<string, string[]>
     seenContextLinesByTask: Record<string, string[]>
     sentContextKeysByTask: Record<string, string[]>
 }
@@ -71,9 +72,11 @@ export interface attachedContextLogicActions {
     }
     removeChatChip: (
         taskId: string,
-        chipId: string
+        chipId: string,
+        dismissGroup?: string
     ) => {
         chipId: string
+        dismissGroup: string | undefined
         taskId: string
     }
     removePickedItem: (
@@ -165,7 +168,7 @@ export const attachedContextLogic = kea<attachedContextLogicType>([
          */
         dismissContext: (key: string, dismissGroup?: string) => ({ key, dismissGroup }),
         undismissContext: (key: string, dismissGroup?: string) => ({ key, dismissGroup }),
-        removeChatChip: (taskId: string, chipId: string) => ({ taskId, chipId }),
+        removeChatChip: (taskId: string, chipId: string, dismissGroup?: string) => ({ taskId, chipId, dismissGroup }),
         pickItem: (item: AttachedContextItem, taskId: string = NEW_CHAT_KEY) => ({ item, taskId }),
         removePickedItem: (key: string, taskId: string = NEW_CHAT_KEY) => ({ key, taskId }),
     }),
@@ -225,7 +228,16 @@ export const attachedContextLogic = kea<attachedContextLogicType>([
             { persist: true },
             {
                 contextDelivered: (state, { taskId, items }) => (taskId ? addChatChips(state, taskId, items) : state),
-                removeChatChip: (state, { taskId, chipId }) => removeChatChip(state, taskId, chipId),
+                removeChatChip: (state, { taskId, chipId, dismissGroup }) =>
+                    removeChatChip(state, taskId, chipId, dismissGroup),
+            },
+        ],
+        // Persisted with the chips, because a reload must not resume sending a hidden payload the user removed.
+        removedGroupsByTask: [
+            {} as Record<string, string[]>,
+            { persist: true },
+            {
+                removeChatChip: (state, { taskId, dismissGroup }) => withRemovedGroup(state, taskId, dismissGroup),
             },
         ],
         // Per-task set of rendered context-block lines observed in the task's run log (replay or live

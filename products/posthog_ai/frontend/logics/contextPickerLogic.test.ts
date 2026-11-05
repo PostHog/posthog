@@ -89,6 +89,32 @@ describe('contextPickerLogic', () => {
         chat.unmount()
     })
 
+    // Removing a chip must stop its hidden payload, or a closed worksheet keeps sending its draft on every follow-up.
+    it('stops sending a removed chip group in that started chat only, and across a re-registration', () => {
+        const dismissGroup = 'bi-worksheet:abc'
+        const worksheet = { type: 'insight', key: 'abc', label: 'Saved worksheet', dismissGroup }
+        const metric = { type: 'data_catalog_metric', key: 'mrr', label: 'mrr', dismissGroup }
+        const draft = { type: 'text', hidden: true, dismissGroup, value: 'worksheet draft' }
+        store.actions.registerContext('bi', [worksheet, metric, draft])
+        store.actions.contextDelivered('task-a', [worksheet, metric, draft])
+        store.actions.contextDelivered('task-b', [worksheet, metric, draft])
+        const chatA = chatContextLogic({ taskId: 'task-a' })
+        const chatB = chatContextLogic({ taskId: 'task-b' })
+        chatA.mount()
+        chatB.mount()
+        expect(chatA.values.pageItems).toEqual([draft])
+
+        chatA.actions.removeChip(chatA.values.chips[0])
+        store.actions.registerContext('bi', [worksheet, metric, { ...draft, value: 'edited draft' }])
+
+        expect(chatA.values.chips).toEqual([])
+        expect(chatA.values.pageItems).toEqual([])
+        expect(chatB.values.pageItems.map((item) => item.value)).toEqual(['edited draft'])
+        expect(chatB.values.chips).toHaveLength(2)
+        chatA.unmount()
+        chatB.unmount()
+    })
+
     it('clears a new chat draft only when the new chat delivers it, not when another chat does', () => {
         const pick = { type: 'dashboard', key: 7, label: 'Growth' }
         store.actions.pickItem(pick)

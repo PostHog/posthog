@@ -189,6 +189,7 @@ A new chat shows and sends `contextItems` plus its picks.
 A started chat shows its saved chips (`attachedContextLogic.chatChipsByTask`) plus its own picks, and sends those picks plus the `hidden` items, which follow the current page because tools act on that state.
 Every send path takes its items from `chatSendItems`, and reports what it delivered with `contextDelivered(taskId, items, fromNewChat)`, which updates the dedupe keys, the chat's chips and the picks in one action.
 `chatChipsByTask` persists in `localStorage`, so a stored chip keeps only references and labels, never `value` or `previewHtml`.
+Removing a chip from a started chat also stops the hidden items in its `dismissGroup` for that chat (`removedGroupsByTask`).
 
 **User-picked context (`logics/contextPickerLogic.ts` + `components/composer/AttachedContextBar.tsx`):** the
 composer's @-affordance. `AttachedContextBar` (Tier 2, drop into `Composer.Header`, the top-of-frame row above the textarea; already wired into

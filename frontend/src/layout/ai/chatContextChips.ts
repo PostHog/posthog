@@ -25,8 +25,9 @@ function chipReference({
     key,
     pageId,
     dismissible,
-}: AttachedContextItem): Pick<ContextChip, 'type' | 'key' | 'pageId' | 'dismissible'> {
-    return { type, key, pageId, dismissible }
+    dismissGroup,
+}: AttachedContextItem): Pick<ContextChip, 'type' | 'key' | 'pageId' | 'dismissible' | 'dismissGroup'> {
+    return { type, key, pageId, dismissible, dismissGroup }
 }
 
 /** The chip for an item on screen now. Its id matches `attachedContextItemKey`, so it can dismiss the item. */
@@ -35,7 +36,6 @@ export function contextChip(item: AttachedContextItem): ContextChip {
         ...chipReference(item),
         id: attachedContextItemKey(item),
         label: item.label || (item.type === 'text' && item.value) || keyedLabel(item) || 'Text',
-        dismissGroup: item.dismissGroup,
     }
 }
 
@@ -70,7 +70,34 @@ export function addChatChips(chats: ChatChipsByTask, taskId: string, items: Atta
     return added.length > 0 ? withChatLast(chats, taskId, [...existing, ...added]) : chats
 }
 
-export function removeChatChip(chats: ChatChipsByTask, taskId: string, chipId: string): ChatChipsByTask {
+export function removeChatChip(
+    chats: ChatChipsByTask,
+    taskId: string,
+    chipId: string,
+    dismissGroup?: string
+): ChatChipsByTask {
     const existing = chats[taskId]
-    return existing ? { ...chats, [taskId]: existing.filter((chip) => chip.id !== chipId) } : chats
+    return existing
+        ? {
+              ...chats,
+              [taskId]: existing.filter(
+                  (chip) => chip.id !== chipId && (!dismissGroup || chip.dismissGroup !== dismissGroup)
+              ),
+          }
+        : chats
+}
+
+export function withRemovedGroup(
+    removedGroups: Record<string, string[]>,
+    taskId: string,
+    dismissGroup: string | undefined
+): Record<string, string[]> {
+    if (!dismissGroup) {
+        return removedGroups
+    }
+    const { [taskId]: existing = [], ...others } = removedGroups
+    return {
+        ...Object.fromEntries(Object.entries(others).slice(-(MAX_PERSISTED_CHATS - 1))),
+        [taskId]: [...new Set([...existing, dismissGroup])],
+    }
 }

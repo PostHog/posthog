@@ -40,6 +40,7 @@ export interface chatContextLogicValues {
     chatChipsByTask: ChatChipsByTask // attachedContextLogic
     contextItems: AttachedContextItem[] // attachedContextLogic
     pickedByChat: Record<string, AttachedContextItem[]> // attachedContextLogic
+    removedGroupsByTask: Record<string, string[]> // attachedContextLogic
     attachments: ContextAttachment[]
     chips: ContextChip[]
     pageItems: AttachedContextItem[]
@@ -57,9 +58,11 @@ export interface chatContextLogicActions {
     } // attachedContextLogic
     removeChatChip: (
         taskId: string,
-        chipId: string
+        chipId: string,
+        dismissGroup?: string | undefined
     ) => {
         chipId: string
+        dismissGroup: string | undefined
         taskId: string
     } // attachedContextLogic
     removePickedItem: (
@@ -79,7 +82,11 @@ export interface chatContextLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         picks: (pickedByChat: Record<string, AttachedContextItem[]>, arg: string) => AttachedContextItem[]
-        pageItems: (contextItems: AttachedContextItem[], arg: string | undefined) => AttachedContextItem[]
+        pageItems: (
+            contextItems: AttachedContextItem[],
+            removedGroupsByTask: any,
+            arg: string | undefined
+        ) => AttachedContextItem[]
         chips: (
             chatChipsByTask: ChatChipsByTask,
             pageItems: AttachedContextItem[],
@@ -110,7 +117,7 @@ export const chatContextLogic: LogicWrapper<chatContextLogicType> = kea<chatCont
     path((logicKey) => ['products', 'posthog_ai', 'frontend', 'logics', 'chatContextLogic', logicKey]),
 
     connect(() => ({
-        values: [attachedContextLogic, ['contextItems', 'chatChipsByTask', 'pickedByChat']],
+        values: [attachedContextLogic, ['contextItems', 'chatChipsByTask', 'pickedByChat', 'removedGroupsByTask']],
         actions: [attachedContextLogic, ['dismissContext', 'removeChatChip', 'removePickedItem']],
     })),
 
@@ -125,9 +132,20 @@ export const chatContextLogic: LogicWrapper<chatContextLogicType> = kea<chatCont
                 pickedByChat[chat] ?? [],
         ],
         pageItems: [
-            (s) => [s.contextItems, (_, p: ChatContextLogicProps) => p.taskId],
-            (contextItems: AttachedContextItem[], taskId?: string): AttachedContextItem[] =>
-                taskId ? contextItems.filter((item) => item.hidden) : contextItems,
+            (s) => [s.contextItems, s.removedGroupsByTask, (_, p: ChatContextLogicProps) => p.taskId],
+            (
+                contextItems: AttachedContextItem[],
+                removedGroupsByTask: Record<string, string[]>,
+                taskId?: string
+            ): AttachedContextItem[] => {
+                if (!taskId) {
+                    return contextItems
+                }
+                const removedGroups = removedGroupsByTask[taskId] ?? []
+                return contextItems.filter(
+                    (item) => item.hidden && !(item.dismissGroup && removedGroups.includes(item.dismissGroup))
+                )
+            },
         ],
         chips: [
             (s) => [s.chatChipsByTask, s.pageItems, s.picks, chatKey],
@@ -159,7 +177,7 @@ export const chatContextLogic: LogicWrapper<chatContextLogicType> = kea<chatCont
         removeChip: ({ chip }) => {
             actions.removePickedItem(chip.id, props.taskId)
             if (props.taskId) {
-                actions.removeChatChip(props.taskId, chip.id)
+                actions.removeChatChip(props.taskId, chip.id, chip.dismissGroup)
             } else if (values.pageItems.some((item: AttachedContextItem) => attachedContextItemKey(item) === chip.id)) {
                 actions.dismissContext(chip.id, chip.dismissGroup)
             }
