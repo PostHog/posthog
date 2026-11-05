@@ -76,23 +76,16 @@ export type StepProvider = (ctx: OnboardingFlowContext) => OnboardingStepDescrip
 
 /**
  * Per-product registration unit for the onboarding system. Wires a product into
- * the flow with everything the central machinery needs to know:
+ * the flow via `steps`: how to build the product's contribution to the flow.
  *
- *  - `steps`: how to build the product's contribution to the flow.
- *  - `completeRedirectUrl`: where to send the user after their onboarding for
- *    this product completes (was previously a central switch in onboardingLogic).
+ * Adding a product is a single-file change inside
+ * `products/<name>/frontend/onboarding/steps.tsx` plus a registry entry.
  *
- * Co-locating both here means adding a product is a single-file change inside
- * `products/<name>/frontend/onboarding/steps.tsx` plus a registry entry — no
- * scattered switches to keep in sync.
+ * Post-onboarding redirection is not a per-product decision: `onboardingLogic`
+ * owns it centrally (see `onCompleteOnboardingRedirectUrl`).
  */
 export interface ProductOnboardingProvider {
     steps: StepProvider
-    /**
-     * Where to redirect when this product's onboarding completes (used when this
-     * product is the primary). Falls back to the homepage if not provided.
-     */
-    completeRedirectUrl?: () => string
 }
 
 /**
