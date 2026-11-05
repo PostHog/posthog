@@ -457,7 +457,8 @@ class SandboxedEvalHarness:
             # publicly reachable before any settings pointing at them are computed.
             self.provider.start(self._stack)
 
-        self._posthog_client = get_client("US")
+        # The harness uses TEST for its database, but this client captures eval traces deliberately.
+        self._posthog_client = get_client("US", disabled=bool(os.environ.get("OPT_OUT_CAPTURE", False)))
         if self._posthog_client is not None:
             self._stack.callback(self._posthog_client.shutdown)
 

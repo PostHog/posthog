@@ -17,7 +17,7 @@ They require `OPENAI_API_KEY` and honor `OPENAI_BASE_URL` when set; they do not 
 Scorer models and other provider credentials are unchanged.
 
 Offline API uploads run through the Python SDK independently of `TEST` and `OPT_OUT_CAPTURE`.
-The shared trace client retains its existing `TEST` and `OPT_OUT_CAPTURE` guards for `$ai_generation`, `$ai_span`, and `$ai_trace` events.
+The harness's dedicated trace client captures `$ai_generation`, `$ai_span`, and `$ai_trace` events despite the harness's `TEST` database setting, and honors `OPT_OUT_CAPTURE`.
 
 ## Result contents and scope
 
@@ -215,7 +215,8 @@ A failed scorer does not replace successful results from other scorers on the sa
 Scorer metadata and `reason` or `rationale` explanations are retained for each trial, including skip reasons and judge errors.
 The scorer recorder observes return values and exceptions only when a suite has valid offline publishing configuration and allows uploads. Other runs pass scorers directly to Braintrust.
 Braintrust still owns scorer execution, return-value validation, and numeric aggregation.
-Application and evaluator trace links are included when capture is enabled and the trace and offline destinations match.
+The harness publishes case `trace_id` values as `application_trace_id` and recorded scorer trace IDs as `evaluator_trace_id` when the trace and offline destinations match.
+Existing IDs are retained even when capture is disabled; the inspector checks that the trace exists before showing a button.
 Application and dataset revisions use the commit captured at run start.
 
 Items include available input, output, expected output, and case metadata.
