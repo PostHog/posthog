@@ -1,12 +1,13 @@
 import { defineCommand } from '@/core/command'
-import { HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
 import { PersonalAPIKey } from '@/posthog/access-key'
 import { parseJson } from '@/posthog/credential-store/helpers'
 import type { StoreChoice } from '@/posthog/credential-store/types'
-import { checkApiKey, checkHost, checkProjectId, DEFAULT_HOST, posthogFile } from '@/posthog/credentials'
-import { trimHost } from '@/posthog/host'
+import { DEFAULT_HOST, posthogFile } from '@/posthog/credentials'
+import { parseHost } from '@/posthog/host'
+import { parseProjectId } from '@/posthog/ids'
 import { saveLogin } from '@/posthog/login/flow'
+import { parsePersonalApiKey } from '@/posthog/tokens'
 
 type MigrateResult =
     | {
@@ -45,17 +46,14 @@ export default defineCommand({
             throw error
         }
         const stored = parseJson(text) as { token?: unknown; env_id?: unknown; host?: unknown } | null | undefined
-        const apiKey = typeof stored?.token === 'string' ? stored.token : ''
-        const projectId = stored?.env_id === undefined ? '' : String(stored.env_id)
-        const host = trimHost(typeof stored?.host === 'string' ? stored.host : DEFAULT_HOST)
-        const problem = checkApiKey(apiKey) ?? checkProjectId(projectId) ?? checkHost(host)
-        if (problem) {
-            throw new HogError(
-                'invalid_legacy_credentials',
-                `hog couldn't move the key in ${legacyFile}. ${problem}`,
-                'Run `hog auth login` to log in instead.'
-            )
+        const failure = {
+            code: 'invalid_legacy_credentials',
+            context: `hog couldn't move the key in ${legacyFile}.`,
+            hint: 'Run `hog auth login` to log in instead.',
         }
+        const apiKey = parsePersonalApiKey(stored?.token, failure)
+        const projectId = parseProjectId(stored?.env_id, failure)
+        const host = typeof stored?.host === 'string' ? parseHost(stored.host, failure) : DEFAULT_HOST
         const key = new PersonalAPIKey({ host, projectId, apiKey })
         const loggedIn = await saveLogin(runtime, key)
         const { store, credentialsPath, keychainError } = loggedIn

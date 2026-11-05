@@ -1,6 +1,8 @@
 import { dirname, join } from 'node:path'
 import { z } from 'zod'
 
+import { HostSchema } from '@/posthog/host'
+
 import { HogError } from './errors'
 import type { Runtime } from './runtime'
 
@@ -69,8 +71,7 @@ export type SchemaLanguage = z.infer<typeof SchemaLanguage>
 export const PostHogConfig = z
     .strictObject({
         $schema: z.string().optional().describe('The JSON schema for this file.'),
-        host: z
-            .url()
+        host: HostSchema.meta({ format: 'uri' })
             .optional()
             .describe(
                 'The PostHog host for this project, like https://eu.posthog.com. `hog auth login` uses it, and other commands stop when your credentials are for another host. --host and HOG_HOST override it.'

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 
 import { HogError } from '@/core/errors'
 import type { Runtime } from '@/core/runtime'
-import { hostKey } from '@/posthog/host'
+import { hostKey, type Host } from '@/posthog/host'
 
 import { parseJson, parseSecret } from './helpers'
 import type { CredentialStore, StoredSecret } from './types'
@@ -76,12 +76,12 @@ export class KeychainStore implements CredentialStore {
 
     constructor(private readonly runtime: Runtime) {}
 
-    async read(host: string): Promise<StoredSecret | undefined> {
+    async read(host: Host): Promise<StoredSecret | undefined> {
         const value = await keychainCall(this.runtime, () => this.runtime.secrets.get(hostKey(host)))
         return value === null ? undefined : parseSecret(parseJson(value))
     }
 
-    async write(host: string, secret: StoredSecret, options: { removeIfLate?: boolean } = {}): Promise<void> {
+    async write(host: Host, secret: StoredSecret, options: { removeIfLate?: boolean } = {}): Promise<void> {
         const name = hostKey(host)
         await keychainCall(
             this.runtime,
@@ -90,7 +90,7 @@ export class KeychainStore implements CredentialStore {
         )
     }
 
-    async remove(host: string): Promise<boolean> {
+    async remove(host: Host): Promise<boolean> {
         return keychainCall(this.runtime, () => this.runtime.secrets.delete(hostKey(host)))
     }
 }

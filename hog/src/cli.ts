@@ -5,7 +5,9 @@ import { COMMANDS } from '@/commands'
 import { resolveMode, type Mode, type OutputFormat } from '@/core/agent'
 import {
     argumentSyntax,
+    longFlag,
     optionFlags,
+    parseOption,
     type Command,
     type CommandTree,
     type Group,
@@ -184,6 +186,11 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
                 resolveCredentials({ ...runtime, writeStderr: () => {} }, { ...globals, skipStore: true })
             const commandRuntime = networkRuntime(runtime, globals)
             const options = self.opts()
+            // An empty value, often an unset shell variable, fails here instead of falling back to a
+            // default, such as the login's project.
+            for (const [name, spec] of Object.entries(node.options ?? {})) {
+                options[name] = parseOption(spec, options[name], longFlag(name), 'invalid_input')
+            }
             if (envFlag(runtime.env, DRY_RUN_ENV)) {
                 if (Object.hasOwn(node.options ?? {}, 'dryRun')) {
                     options.dryRun = true

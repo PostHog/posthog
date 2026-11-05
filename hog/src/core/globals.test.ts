@@ -101,6 +101,7 @@ describe('global options', () => {
     test.each([
         ['an env flag that is not a boolean', ['endpoints', 'list'], { HOG_DEBUG: 'maybe' }],
         ['a rate limit that is not a number', ['endpoints', 'list'], { HOG_RATE_LIMIT: 'fast' }],
+        ['a host with a password in it', ['endpoints', 'list'], { HOG_HOST: 'https://user:secret@ph.example.com' }],
     ])('%s is a usage error', async (_name, argv, env) => {
         const result = await runHog(argv, { env: { ...AGENT, ...TEST_CREDENTIALS, ...env } })
         expect(result.exitCode).toBe(2)

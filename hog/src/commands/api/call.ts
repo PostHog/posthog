@@ -1,6 +1,7 @@
 import { defineCommand } from '@/core/command'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { findTool, grantedScopes, missingScopesError, toHogError, withApiConnection } from '@/posthog/api-tools'
+import { parseOrganizationId, parseProjectId } from '@/posthog/ids'
 
 function parseInput(text: string | undefined): Record<string, unknown> {
     if (text === undefined) {
@@ -37,10 +38,16 @@ export default defineCommand({
     options: {
         dryRun: { type: 'boolean', description: 'Check the input against the schema without calling the tool' },
         confirm: { type: 'boolean', description: 'Allow a tool that changes or deletes data it cannot restore' },
-        projectId: { type: 'string', placeholder: 'id', description: 'Call the tool in this project instead' },
+        projectId: {
+            type: 'string',
+            placeholder: 'id',
+            parse: parseProjectId,
+            description: 'Call the tool in this project instead',
+        },
         organizationId: {
             type: 'string',
             placeholder: 'id',
+            parse: parseOrganizationId,
             description: 'The organization for organization-level tools',
         },
     },

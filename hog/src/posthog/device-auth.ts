@@ -3,7 +3,8 @@ import { HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
 import type { Runtime } from '@/core/runtime'
 
-import { hostKey, hostUrl } from './host'
+import { hostKey, hostUrl, type Host } from './host'
+import { parseProjectId } from './ids'
 import { HOG_CLIENT_ID, OAuthLogin, oauthPost, type TokenResponse } from './oauth'
 
 const DEVICE_CODE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code'
@@ -86,14 +87,14 @@ export const READ_ONLY_LOGIN_SCOPES: readonly string[] = [
 // A login the person still has to approve in the browser. `deviceCode` redeems the tokens once
 // they approve, so it stays in a private file and never reaches the output.
 export interface PendingLogin extends PendingApproval {
-    host: string
+    host: Host
     deviceCode: string
     userCode: string
     scopes: string[]
 }
 
 // PostHog refuses a client it hasn't verified with `unauthorized_client`, and its description says why.
-function unauthorizedClient(host: string, body: { error?: string; error_description?: unknown }): HogError | undefined {
+function unauthorizedClient(host: Host, body: { error?: string; error_description?: unknown }): HogError | undefined {
     if (body.error !== 'unauthorized_client' || typeof body.error_description !== 'string') {
         return undefined
     }
@@ -115,8 +116,8 @@ interface DeviceAuthorizationResponse {
 
 // hog opens the approval page only on the host it logs in to. A server that names another origin could
 // send the person to a look-alike page, and the code check wouldn't catch it: that server chose the code.
-function approvalUrl(host: string, userCode: string, named: string): string {
-    if (URL.canParse(named) && hostKey(named) === hostKey(host)) {
+function approvalUrl(host: Host, userCode: string, named: string): string {
+    if (URL.canParse(named) && new URL(named).origin === hostKey(host)) {
         return named
     }
     const url = hostUrl(host, 'device')
@@ -124,11 +125,7 @@ function approvalUrl(host: string, userCode: string, named: string): string {
     return url.toString()
 }
 
-export async function startDeviceLogin(
-    runtime: Runtime,
-    host: string,
-    scopes: readonly string[]
-): Promise<PendingLogin> {
+export async function startDeviceLogin(runtime: Runtime, host: Host, scopes: readonly string[]): Promise<PendingLogin> {
     const response = await oauthPost(runtime, host, 'oauth/device-authorization/', {
         client_id: HOG_CLIENT_ID,
         scope: scopes.join(' '),
@@ -185,8 +182,8 @@ export async function pollDeviceLogin(
     }
     const body = (response.json ?? {}) as TokenResponse & { error?: string; error_description?: unknown }
     if (response.ok) {
-        const projectId = body.scoped_teams?.[0]
-        if (projectId === undefined || !body.refresh_token) {
+        const scopedTeam = body.scoped_teams?.[0]
+        if (scopedTeam === undefined || !body.refresh_token) {
             throw new HogError(
                 'unexpected_response',
                 'PostHog approved the login, but its answer had no project or no refresh token.',
@@ -197,8 +194,10 @@ export async function pollDeviceLogin(
             state: 'approved',
             value: OAuthLogin.fromTokens(runtime, body, {
                 host: pending.host,
-                projectId: String(projectId),
-                refreshToken: body.refresh_token,
+                projectId: parseProjectId(scopedTeam, {
+                    code: 'unexpected_response',
+                    hint: 'Run `hog auth login` to start again.',
+                }),
                 scopes: pending.scopes,
             }),
         }

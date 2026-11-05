@@ -7,6 +7,8 @@ import { probeKeychain } from '@/posthog/credential-store/keychain'
 import { openStore } from '@/posthog/credential-store/open'
 import type { StoreChoice } from '@/posthog/credential-store/types'
 import { pollDeviceLogin, startDeviceLogin, type PendingLogin } from '@/posthog/device-auth'
+import type { Host } from '@/posthog/host'
+import type { ProjectId } from '@/posthog/ids'
 import { withLoginLock, type OAuthLogin } from '@/posthog/oauth'
 import { loginFor, readSettings } from '@/posthog/settings'
 
@@ -15,8 +17,8 @@ import { writeLogin } from './stored'
 export const LOGIN_COMMAND = 'hog auth login'
 
 export interface LoggedIn {
-    host: string
-    projectId: string
+    host: Host
+    projectId: ProjectId
     store: StoreChoice
     // Set when the credentials are in a file.
     credentialsPath: string | null
@@ -38,7 +40,7 @@ export function loginWait(runtime: Runtime): ApprovalWait<PendingLogin, OAuthLog
 // already shared keeps working.
 export function loginFlow(
     runtime: Runtime,
-    host: string,
+    host: Host,
     scopes: readonly string[]
 ): ApprovalFlow<PendingLogin, OAuthLogin> {
     return {

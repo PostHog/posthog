@@ -556,6 +556,27 @@ describe('hog auth login', () => {
     )
 
     test.each([
+        ['a personal API key without the phx_ prefix', KEYCHAIN_LOGIN.files, { apiKey: 'unprefixedkey123' }, null],
+        [
+            'an OAuth login without token prefixes, which it says it could not revoke',
+            OAUTH_LOGIN.files,
+            { accessToken: 'legacyaccess', refreshToken: 'legacyrefresh' },
+            false,
+        ],
+    ])('logout removes a stored key hog can no longer read: %s', async (_name, files, secret, revoked) => {
+        const result = await runHog(['auth', 'logout'], {
+            env: { CLAUDECODE: '1' },
+            files,
+            keychain: { [EU]: JSON.stringify(secret) },
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.json()).toMatchObject({ status: 'logged_out', revoked })
+        expect(result.requests).toEqual([])
+        expect(result.keychain).toEqual({})
+    })
+
+    test.each([
         ['revokes an OAuth login in PostHog before it removes it', 200, true],
         ['says when PostHog could not revoke the login, and still removes it', 503, false],
     ])('logout %s', async (_name, status, revoked) => {
@@ -647,6 +668,8 @@ describe('hog auth login', () => {
                 [HOG_CREDENTIALS_FILE]: JSON.stringify({
                     'https://us.posthog.com': { apiKey: 'phx_us' },
                     'https://posthog.example.com': { apiKey: 'phx_orphan' },
+                    // An older hog keyed `localhost:8000` by its origin, which is "null".
+                    null: { apiKey: 'phx_unreadable' },
                 }),
                 [PENDING_FILE]: PENDING,
             },

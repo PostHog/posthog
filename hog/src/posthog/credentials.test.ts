@@ -4,6 +4,7 @@ import { HogError } from '@/core/errors'
 import { fakeRuntime } from '@/testing'
 
 import { DEFAULT_HOST, resolveCredentials } from './credentials'
+import { parseHost, type Host } from './host'
 
 const ENV = { HOG_PERSONAL_API_KEY: 'phx_env', HOG_PROJECT_ID: '1', HOG_HOST: 'https://env.example.com' }
 const DOTENV = 'HOG_PERSONAL_API_KEY="phx_dotenv"\n# comment\nHOG_PROJECT_ID=2\n'
@@ -12,6 +13,13 @@ const LEGACY_CLI_FILE = '/home/test/.posthog/credentials.json'
 const SETTINGS_FILE = '/home/test/.config/hog/settings.json'
 const EU = 'https://eu.posthog.com'
 const US = 'https://us.posthog.com'
+
+function parsedHosts(options: { host?: string; configHost?: string }): { host?: Host; configHost?: Host } {
+    return {
+        host: options.host === undefined ? undefined : parseHost(options.host),
+        configHost: options.configHost === undefined ? undefined : parseHost(options.configHost),
+    }
+}
 
 // What the store keeps for a login: only its secret.
 function login(apiKey: string): string {
@@ -183,8 +191,8 @@ describe('resolveCredentials', () => {
             'host_mismatch',
         ],
     ] as const)('%s', async (_name, files, keychain, options, expected) => {
-        const outcome = await resolveCredentials(fakeRuntime({ files, keychain }), options).catch((error: unknown) =>
-            error instanceof HogError ? error.code : error
+        const outcome = await resolveCredentials(fakeRuntime({ files, keychain }), parsedHosts(options)).catch(
+            (error: unknown) => (error instanceof HogError ? error.code : error)
         )
         if (typeof expected === 'string') {
             expect(outcome).toBe(expected)
