@@ -3,15 +3,17 @@ import { installMockEventSource } from 'lib/wizard-sync/eventSource.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import type { PreflightStatus } from '~/types'
+import type { BillingType, PreflightStatus } from '~/types'
 
 import type { GitHubRepoApi } from 'products/integrations/frontend/generated/api.schemas'
 
@@ -208,6 +210,24 @@ describe('wizardSpendAuditLogic', () => {
         expect(logic.values.view).toBe('pick_repository')
         expect(logic.values.autoStartPending).toBe(false)
         expect(wizardRunsCreate).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        ['a managed account', { name: 'Sam Rivera', email: 'sam@example.com' }, 'sam@example.com'],
+        ['an owner with no email', { name: 'Sam Rivera' }, null],
+        ['no owner', undefined, null],
+    ])('tells the account owner alert who to notify for %s', async (_, accountOwner, expectedEmail) => {
+        const capture = jest.spyOn(posthog, 'capture')
+        await mountLogic()
+        billingLogic.actions.loadBillingSuccess({ account_owner: accountOwner } as BillingType)
+
+        logic.actions.openModal('billing_button')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(capture).toHaveBeenCalledWith(
+            'billing optimize spend opened',
+            expect.objectContaining({ has_account_owner: !!expectedEmail, account_owner_email: expectedEmail })
+        )
     })
 
     it('reopens the modal when GitHub sends the user back', async () => {

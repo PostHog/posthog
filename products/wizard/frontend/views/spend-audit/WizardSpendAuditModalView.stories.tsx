@@ -240,3 +240,14 @@ export const Failed: Story = {
 export const Unavailable: Story = {
     args: { view: 'unavailable' },
 }
+
+const accountOwner = { name: 'Sam Rivera', email: 'sam@example.com' }
+
+export const ManagedAccountBeforeRun: Story = {
+    args: { ...PickRepository.args, accountOwner, organizationName: 'Example Co' },
+}
+
+export const ManagedAccountResults: Story = {
+    ...CompletedWithSavings,
+    args: { ...CompletedWithSavings.args, accountOwner, organizationName: 'Example Co' },
+}
