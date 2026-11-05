@@ -60,7 +60,8 @@ export class SandboxSenderStateService {
         const giveUpAt = performance.now() + maxElapsedMs
         for (;;) {
             try {
-                return await this.fetchStates(tenantNames)
+                const remainingMs = Math.max(1, Math.ceil(giveUpAt - performance.now()))
+                return await this.fetchStates(tenantNames, Math.min(LOOKUP_TIMEOUT_MS, remainingMs))
             } catch (error) {
                 const delayMs = retryIntervalMs + Math.floor(Math.random() * retryJitterMs)
                 if (error?.isRetriable !== true || performance.now() + delayMs >= giveUpAt) {
@@ -71,18 +72,22 @@ export class SandboxSenderStateService {
         }
     }
 
-    private async fetchStates(tenantNames: string[]): Promise<Record<string, SandboxSenderState>> {
+    private async fetchStates(tenantNames: string[], timeoutMs: number): Promise<Record<string, SandboxSenderState>> {
         const generation = this.generation
         const tag = 'fetch-sandbox-sender-state'
-        const rows = await this.lookup.run(tag, async (tx) => {
-            const result = await this.postgres.query<{ tenant_name: string; sending_status: string }>(
-                tx,
-                'SELECT tenant_name, sending_status FROM workflows_sandboxsendertenantstate WHERE tenant_name = ANY($1)',
-                [tenantNames],
-                tag
-            )
-            return result.rows
-        })
+        const rows = await this.lookup.run(
+            tag,
+            async (tx) => {
+                const result = await this.postgres.query<{ tenant_name: string; sending_status: string }>(
+                    tx,
+                    'SELECT tenant_name, sending_status FROM workflows_sandboxsendertenantstate WHERE tenant_name = ANY($1)',
+                    [tenantNames],
+                    tag
+                )
+                return result.rows
+            },
+            { timeoutMs }
+        )
         const statuses = new Map(rows.map((row) => [row.tenant_name, row.sending_status]))
         return Object.fromEntries(tenantNames.map((name) => [name, { sendingStatus: statuses.get(name), generation }]))
     }
