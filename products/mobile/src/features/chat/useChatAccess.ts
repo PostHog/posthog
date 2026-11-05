@@ -1,4 +1,4 @@
-import { createContext, useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AppState } from 'react-native'
 
 import { useAuthStore } from '@/auth/authStore'
@@ -13,14 +13,11 @@ export type ChatAccess = AiAccess | { kind: 'checking' }
 export interface ChatAccessState {
     access: ChatAccess
     rechecking: boolean
-    organization?: ProjectOrganization
     accept: () => void
     checkAgain: () => void
 }
 
-export const ChatAccessContext = createContext<ChatAccessState | null>(null)
-
-export function useChatAccess(enabled = true): ChatAccessState {
+export function useChatAccess(): ChatAccessState {
     const dataMode = useDataMode()
     const auth = useAuthStore()
     const identity = currentAiIdentity()
@@ -35,7 +32,7 @@ export function useChatAccess(enabled = true): ChatAccessState {
 
     const verificationVersion = useRef(0)
     const checkAgain = useCallback((): void => {
-        if (!enabled || dataMode !== 'live' || !identity) {
+        if (dataMode !== 'live' || !identity) {
             return
         }
         const version = ++verificationVersion.current
@@ -50,10 +47,9 @@ export function useChatAccess(enabled = true): ChatAccessState {
                     setVerification({ identity, failed: true, checking: false })
             }
         )
-    }, [dataMode, enabled, identity])
+    }, [dataMode, identity])
 
     useEffect(() => {
-        if (!enabled) return
         checkAgain()
         const subscription = AppState.addEventListener('change', (next) => {
             if (next === 'active') checkAgain()
@@ -62,7 +58,7 @@ export function useChatAccess(enabled = true): ChatAccessState {
             verificationVersion.current++
             subscription.remove()
         }
-    }, [checkAgain, enabled])
+    }, [checkAgain])
 
     const accept = useCallback((): void => {
         if (identity && currentAiIdentity() === identity && auth.host && auth.user) {
@@ -82,11 +78,5 @@ export function useChatAccess(enabled = true): ChatAccessState {
         access = { kind: 'checking' }
     else if (verification.failed) access = { kind: 'org_unknown' }
     else access = currentAiAccess(verification.organization)
-    return {
-        access,
-        rechecking: verification?.checking ?? false,
-        organization: verification?.identity === identity ? verification.organization : undefined,
-        accept,
-        checkAgain,
-    }
+    return { access, rechecking: verification?.checking ?? false, accept, checkAgain }
 }

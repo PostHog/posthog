@@ -1,4 +1,4 @@
-import { type ReactElement, type ReactNode, useContext, useEffect, useState } from 'react'
+import { type ReactElement, type ReactNode, useEffect, useState } from 'react'
 import { ActivityIndicator, Linking, StyleSheet, View } from 'react-native'
 
 import { track } from '@/lib/analytics'
@@ -6,7 +6,7 @@ import { useColors } from '@/ui/theme'
 import { AiConsentSheet } from './AiConsentSheet'
 import { AiOrgNotice } from './AiOrgNotice'
 import { PRIVACY_POLICY_URL } from './aiAccess'
-import { ChatAccessContext, useChatAccess } from './useChatAccess'
+import { useChatAccess } from './useChatAccess'
 
 interface ChatAccessGateProps {
     /** "Not now" on the consent sheet. The chat closes, because it cannot send without consent. */
@@ -18,9 +18,7 @@ interface ChatAccessGateProps {
 /** Shows `children` only once the organization allows PostHog AI and the person agreed on this device. */
 export function ChatAccessGate({ onDecline, children }: ChatAccessGateProps): ReactElement {
     const colors = useColors()
-    const sharedAccess = useContext(ChatAccessContext)
-    const localAccess = useChatAccess(sharedAccess === null)
-    const { access, rechecking, accept, checkAgain } = sharedAccess ?? localAccess
+    const { access, rechecking, accept, checkAgain } = useChatAccess()
     const [declined, setDeclined] = useState(false)
     const kind = access.kind
 

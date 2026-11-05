@@ -5,15 +5,7 @@ import { useAuthStore } from '@/auth/authStore'
 import { useDemoMode } from '@/demo/demoMode'
 import { aiConsentKey, useAiConsentStore, waitForAiConsent } from '@/features/chat/aiConsentStore'
 
-import {
-    cancelAiApproval,
-    checkAiApproval,
-    currentAiIdentity,
-    refreshAiOrganization,
-    requestAiApproval,
-    useAiApproval,
-    useAiApprovalStore,
-} from './aiApproval'
+import { cancelAiApproval, checkAiApproval, requestAiApproval, useAiApproval, useAiApprovalStore } from './aiApproval'
 
 jest.mock('@/api/users', () => ({ fetchOrganization: jest.fn() }))
 
@@ -175,12 +167,3 @@ test.each(['unmount', 'context'] as const)(
         expect(useAiConsentStore.getState().accepted).toEqual({})
     }
 )
-
-test.each([true, false, undefined])('organization refresh carries AI 2.0 access (%s)', async (enabled) => {
-    fetchOrg.mockResolvedValue({ ...ORG, posthog_ai_access: enabled })
-    const identity = currentAiIdentity()
-    if (!identity) throw new Error('Expected a signed-in identity')
-    const organization = await refreshAiOrganization(identity)
-    expect(organization.posthogAiAccess).toBe(enabled === true)
-    expect(useAuthStore.getState().organizations[0]?.posthogAiAccess).toBe(enabled === true)
-})

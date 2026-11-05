@@ -8,7 +8,6 @@ import { OverlayHost } from '@/ui/OverlayPortal'
 
 import { aiConsentKey, useAiConsentStore } from './aiConsentStore'
 import { ChatAccessGate } from './ChatAccessGate'
-import { ChatAccessContext } from './useChatAccess'
 
 jest.mock('@/api/users', () => ({ fetchOrganization: jest.fn() }))
 
@@ -67,23 +66,6 @@ afterEach(() => {
 })
 
 describe('ChatAccessGate', () => {
-    test('uses the shared organization check without making another request', async () => {
-        signIn(true)
-        render(
-            <ChatAccessContext.Provider
-                value={{ access: { kind: 'ready' }, rechecking: false, accept: jest.fn(), checkAgain: jest.fn() }}
-            >
-                <ChatAccessGate onDecline={jest.fn()}>
-                    <Text testID="composer">Composer</Text>
-                </ChatAccessGate>
-            </ChatAccessContext.Provider>,
-            { wrapper: OverlayHost }
-        )
-        await act(async () => undefined)
-        expect(screen.getByTestId('composer')).toBeTruthy()
-        expect(fetchOrganization).not.toHaveBeenCalled()
-    })
-
     test.each<[string, { approved: boolean; consented: boolean; demo: boolean }, string, string[]]>([
         [
             'an organization that has not approved AI shows the notice instead of the composer',

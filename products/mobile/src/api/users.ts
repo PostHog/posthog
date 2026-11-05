@@ -13,7 +13,6 @@ export interface OrganizationApi {
     /** Null means not approved, as the server treats anything but `true`. */
     is_ai_data_processing_approved?: boolean | null
     membership_level?: number | null
-    posthog_ai_access?: boolean
 }
 
 export interface OrganizationBasicApi {

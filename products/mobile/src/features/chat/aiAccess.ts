@@ -8,7 +8,6 @@ export interface ProjectOrganization {
     name: string | null
     status: OrgAiStatus
     canApprove: boolean
-    posthogAiAccess?: boolean
 }
 
 // The chat runs in the selected project, so the approval that counts is the one of that project's organization,
@@ -25,7 +24,6 @@ export function projectOrganization(
     const approved = organization?.aiDataProcessingApproved
     return {
         name: organization?.name ?? project?.organizationName ?? null,
-        posthogAiAccess: organization?.posthogAiAccess === true,
         status: approved === undefined ? 'unknown' : approved ? 'approved' : 'not_approved',
         canApprove: organization?.membershipLevel === 8 || organization?.membershipLevel === 15,
     }

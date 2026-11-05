@@ -69,7 +69,6 @@ export async function refreshAiOrganization(identity: string, signal?: AbortSign
                           fresh.is_ai_data_processing_approved === undefined
                               ? undefined
                               : fresh.is_ai_data_processing_approved === true,
-                      posthogAiAccess: fresh.posthog_ai_access === true,
                       membershipLevel: fresh.membership_level,
                   }
                 : organization
@@ -77,7 +76,6 @@ export async function refreshAiOrganization(identity: string, signal?: AbortSign
     }))
     return {
         name: fresh.name,
-        posthogAiAccess: fresh.posthog_ai_access === true,
         status:
             fresh.is_ai_data_processing_approved === undefined
                 ? 'unknown'
