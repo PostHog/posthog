@@ -647,6 +647,8 @@ describe('hog auth login', () => {
                 [HOG_CREDENTIALS_FILE]: JSON.stringify({
                     'https://us.posthog.com': { apiKey: 'phx_us' },
                     'https://posthog.example.com': { apiKey: 'phx_orphan' },
+                    // An older hog keyed `localhost:8000` by its origin, which is "null".
+                    null: { apiKey: 'phx_unreadable' },
                 }),
                 [PENDING_FILE]: PENDING,
             },

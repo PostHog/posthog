@@ -1,6 +1,7 @@
 import { hogFile } from '@/core/paths'
 import type { Runtime } from '@/core/runtime'
-import { hostKey } from '@/posthog/host'
+import { parseOrUndefined } from '@/core/schema'
+import { hostKey, HostSchema, type Host } from '@/posthog/host'
 
 import { parseJson, parseSecret } from './helpers'
 import type { CredentialStore, StoredSecret } from './types'
@@ -31,31 +32,41 @@ export class FileStore implements CredentialStore {
             : {}
     }
 
-    async hosts(): Promise<string[]> {
-        return Object.keys(await this.readAll())
+    async hosts(): Promise<Host[]> {
+        return Object.keys(await this.readAll()).flatMap((key) => parseOrUndefined(HostSchema, key) ?? [])
     }
 
-    async read(host: string): Promise<StoredSecret | undefined> {
+    async read(host: Host): Promise<StoredSecret | undefined> {
         return parseSecret((await this.readAll())[hostKey(host)])
     }
 
-    async write(host: string, secret: StoredSecret): Promise<void> {
+    async write(host: Host, secret: StoredSecret): Promise<void> {
         const all = await this.readAll()
         all[hostKey(host)] = secret
         await this.runtime.writePrivateFile(this.path, JSON.stringify(all, null, 2))
     }
 
-    async remove(host: string): Promise<boolean> {
-        const all = await this.readAll()
+    async remove(host: Host): Promise<boolean> {
         const key = hostKey(host)
-        if (!(key in all)) {
+        return this.removeKeys((name) => name === key)
+    }
+
+    // Removes the entries under a name that isn't a host, such as one an older hog wrote, which
+    // `hosts` leaves out.
+    async removeUnreadable(): Promise<boolean> {
+        return this.removeKeys((name) => parseOrUndefined(HostSchema, name) === undefined)
+    }
+
+    private async removeKeys(matches: (name: string) => boolean): Promise<boolean> {
+        const all = await this.readAll()
+        const kept = Object.fromEntries(Object.entries(all).filter(([name]) => !matches(name)))
+        if (Object.keys(kept).length === Object.keys(all).length) {
             return false
         }
-        delete all[key]
-        if (Object.keys(all).length === 0) {
+        if (Object.keys(kept).length === 0) {
             await this.runtime.removeFile(this.path)
         } else {
-            await this.runtime.writePrivateFile(this.path, JSON.stringify(all, null, 2))
+            await this.runtime.writePrivateFile(this.path, JSON.stringify(kept, null, 2))
         }
         return true
     }

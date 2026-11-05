@@ -9,8 +9,10 @@ import type { OAuthSecret, StoreChoice } from '@/posthog/credential-store/types'
 
 import type { AccessKey, AccessKeyStatus, AccessKeyStorage, LogoutOutcome } from './access-key'
 import { sendRequest, type HttpResponse } from './api'
-import { hostKey, hostUrl } from './host'
+import { hostKey, hostUrl, type Host } from './host'
+import type { ProjectId } from './ids'
 import type { LoginRecord } from './settings'
+import { parseOAuthAccessToken, parseOAuthRefreshToken, type OAuthAccessToken, type OAuthRefreshToken } from './tokens'
 
 // hog's CIMD client ID: the URL of its client metadata document, which PostHog fetches.
 export const HOG_CLIENT_ID = 'https://posthog.com/.well-known/oauth/hog/client-metadata.json'
@@ -29,7 +31,7 @@ export interface TokenResponse {
 
 export function oauthPost(
     runtime: Runtime,
-    host: string,
+    host: Host,
     path: string,
     form: Record<string, string>,
     timeoutMs = REQUEST_TIMEOUT_MS
@@ -42,10 +44,10 @@ export function oauthPost(
 }
 
 interface OAuthLoginFields {
-    host: string
-    projectId: string
-    accessToken: string
-    refreshToken: string
+    host: Host
+    projectId: ProjectId
+    accessToken: OAuthAccessToken
+    refreshToken: OAuthRefreshToken
     // Epoch milliseconds after which the access token stops working.
     expiresAt: number
     scopes: string[]
@@ -55,7 +57,7 @@ interface OAuthLoginFields {
 }
 
 // Serializes the processes that renew or remove the login to one host.
-export function withLoginLock<T>(runtime: Runtime, host: string, work: () => Promise<T>): Promise<T> {
+export function withLoginLock<T>(runtime: Runtime, host: Host, work: () => Promise<T>): Promise<T> {
     // By origin, so `https://eu.posthog.com/` and `https://eu.posthog.com` take the same lock.
     const name = createHash('sha256').update(hostKey(host)).digest('hex').slice(0, 16)
     return withFileLock(runtime, `refresh-${name}.lock`, work)
@@ -63,10 +65,10 @@ export function withLoginLock<T>(runtime: Runtime, host: string, work: () => Pro
 
 // What `hog auth login` gets from the OAuth device grant. The access token works in one project.
 export class OAuthLogin implements AccessKey {
-    readonly host: string
-    readonly projectId: string
-    readonly accessToken: string
-    readonly refreshToken: string
+    readonly host: Host
+    readonly projectId: ProjectId
+    readonly accessToken: OAuthAccessToken
+    readonly refreshToken: OAuthRefreshToken
     readonly expiresAt: number
     readonly scopes: string[]
     readonly loginId: string
@@ -86,7 +88,10 @@ export class OAuthLogin implements AccessKey {
     static fromTokens(
         runtime: Runtime,
         body: TokenResponse,
-        previous: Pick<OAuthLoginFields, 'host' | 'projectId' | 'refreshToken' | 'scopes'> & { loginId?: string }
+        previous: Pick<OAuthLoginFields, 'host' | 'projectId' | 'scopes'> & {
+            refreshToken?: OAuthRefreshToken
+            loginId?: string
+        }
     ): OAuthLogin {
         if (!body.access_token || body.expires_in === undefined) {
             throw new HogError(
@@ -95,18 +100,19 @@ export class OAuthLogin implements AccessKey {
                 'Run `hog auth login` to log in again.'
             )
         }
+        const unexpected = { code: 'unexpected_response' }
         return new OAuthLogin({
             host: previous.host,
             projectId: previous.projectId,
-            accessToken: body.access_token,
-            refreshToken: body.refresh_token ?? previous.refreshToken,
+            accessToken: parseOAuthAccessToken(body.access_token, unexpected),
+            refreshToken: parseOAuthRefreshToken(body.refresh_token ?? previous.refreshToken, unexpected),
             expiresAt: runtime.now() + body.expires_in * 1000,
             scopes: body.scope ? body.scope.split(' ').filter(Boolean) : previous.scopes,
             loginId: previous.loginId ?? randomUUID(),
         })
     }
 
-    get token(): string {
+    get token(): OAuthAccessToken {
         return this.accessToken
     }
 

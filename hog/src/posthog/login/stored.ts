@@ -5,7 +5,7 @@ import { accessKeyFromStorage, type AccessKey, type AccessKeyStorage, type Logou
 import { FileStore } from '@/posthog/credential-store/file'
 import { KeychainStore } from '@/posthog/credential-store/keychain'
 import { openStore } from '@/posthog/credential-store/open'
-import { hostKey, type HostKey } from '@/posthog/host'
+import { hostKey, type Host, type HostKey } from '@/posthog/host'
 import { withLoginLock } from '@/posthog/oauth'
 import { loginFor, readSettings, withLogin, writeSettings, type HogSettings } from '@/posthog/settings'
 
@@ -19,7 +19,7 @@ export interface LoggedOut extends LogoutOutcome {
 }
 
 export interface LoggedOutHost extends LoggedOut {
-    host: string
+    host: Host
 }
 
 export interface StoredLogin {
@@ -27,11 +27,7 @@ export interface StoredLogin {
     store: KeychainStore | FileStore
 }
 
-export async function readLogin(
-    runtime: Runtime,
-    settings: HogSettings,
-    host: string
-): Promise<StoredLogin | undefined> {
+export async function readLogin(runtime: Runtime, settings: HogSettings, host: Host): Promise<StoredLogin | undefined> {
     const record = loginFor(settings, host)
     if (!record) {
         return undefined
@@ -73,7 +69,7 @@ export async function writeLogin(
 }
 
 // Resolves to false when the store held nothing for the host.
-export async function removeLogin(runtime: Runtime, host: string, store: KeychainStore | FileStore): Promise<boolean> {
+export async function removeLogin(runtime: Runtime, host: Host, store: KeychainStore | FileStore): Promise<boolean> {
     return withFileLock(runtime, LOGINS_LOCK, async () => {
         const removed = await store.remove(host)
         const settings = withLogin(await readSettings(runtime), host, undefined)
@@ -87,7 +83,7 @@ export async function removeLogin(runtime: Runtime, host: string, store: Keychai
 // stored copy. Resolves to undefined when hog had no login to remove.
 // Under the renewal lock, so a renewal in another hog process can neither restore the login after
 // this removes it, nor rotate the refresh token this revokes.
-export async function logout(runtime: Runtime, host: string): Promise<LoggedOut | undefined> {
+export async function logout(runtime: Runtime, host: Host): Promise<LoggedOut | undefined> {
     return withLoginLock(runtime, host, async () => {
         const settings = await readSettings(runtime)
         const record = loginFor(settings, host)
@@ -113,7 +109,7 @@ export async function logout(runtime: Runtime, host: string): Promise<LoggedOut 
 }
 
 // Resolves to why the removal failed, or null once no item is left.
-async function removeKeychainLeftover(runtime: Runtime, host: string): Promise<string | null> {
+async function removeKeychainLeftover(runtime: Runtime, host: Host): Promise<string | null> {
     try {
         await new KeychainStore(runtime).remove(host)
         return null
@@ -124,7 +120,7 @@ async function removeKeychainLeftover(runtime: Runtime, host: string): Promise<s
 
 // For a host settings.json names no keychain item for. A machine without a usable keychain can't
 // hold one, so only a refused or abandoned removal counts as a failure.
-async function sweepKeychain(runtime: Runtime, host: string): Promise<{ removed: boolean; error: string | null }> {
+async function sweepKeychain(runtime: Runtime, host: Host): Promise<{ removed: boolean; error: string | null }> {
     try {
         return { removed: await new KeychainStore(runtime).remove(host), error: null }
     } catch (error) {
@@ -141,7 +137,7 @@ async function sweepKeychain(runtime: Runtime, host: string): Promise<{ removed:
 export async function logoutAll(runtime: Runtime): Promise<LoggedOutHost[]> {
     const settings = await readSettings(runtime)
     const file = new FileStore(runtime)
-    const hosts = new Map<HostKey, string>()
+    const hosts = new Map<HostKey, Host>()
     const recorded = Object.values(settings.logins ?? {}).flatMap((record) => (record ? [record.host] : []))
     for (const host of [...recorded, ...(await file.hosts())]) {
         if (!hosts.has(hostKey(host))) {
@@ -163,5 +159,6 @@ export async function logoutAll(runtime: Runtime): Promise<LoggedOutHost[]> {
             loggedOut.push({ ...base, keychainLeftover: base.keychainLeftover ?? swept.error, host })
         }
     }
+    await withFileLock(runtime, LOGINS_LOCK, () => file.removeUnreadable())
     return loggedOut
 }

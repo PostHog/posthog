@@ -5,7 +5,9 @@ import { COMMANDS } from '@/commands'
 import { resolveMode, type Mode, type OutputFormat } from '@/core/agent'
 import {
     argumentSyntax,
+    longFlag,
     optionFlags,
+    parseOption,
     type Command,
     type CommandTree,
     type Group,
@@ -19,7 +21,7 @@ import { DRY_RUN_ENV, envFlag, GLOBAL_OPTIONS, networkRuntime, optOutFlag, resol
 import { Output } from '@/core/output'
 import type { Runtime } from '@/core/runtime'
 import { Telemetry } from '@/core/telemetry'
-import { kebabCase } from '@/core/text'
+import { capitalize, kebabCase } from '@/core/text'
 import { ApiError } from '@/posthog/api'
 import { resolveCredentials } from '@/posthog/credentials'
 import { VERSION } from '@/version'
@@ -184,6 +186,11 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
                 resolveCredentials({ ...runtime, writeStderr: () => {} }, { ...globals, skipStore: true })
             const commandRuntime = networkRuntime(runtime, globals)
             const options = self.opts()
+            // An empty value, often an unset shell variable, fails here instead of falling back to a
+            // default, such as the login's project.
+            for (const [name, spec] of Object.entries(node.options ?? {})) {
+                options[name] = parseOption(spec, options[name], longFlag(name), 'invalid_input')
+            }
             if (envFlag(runtime.env, DRY_RUN_ENV)) {
                 if (Object.hasOwn(node.options ?? {}, 'dryRun')) {
                     options.dryRun = true
@@ -381,7 +388,7 @@ function toHogError(caught: unknown): HogError {
     }
     if (caught instanceof CommanderError) {
         const message = caught.message.replace(/^error: /, '')
-        const sentence = message.charAt(0).toUpperCase() + message.slice(1)
+        const sentence = capitalize(message)
         if (caught.code === 'commander.unknownCommand') {
             const name = /unknown command '([^']+)'/.exec(caught.message)?.[1] ?? ''
             const renamed = RENAMED[name]

@@ -1,5 +1,7 @@
 import type { Context } from './context'
+import { EXIT_USAGE } from './errors'
 import type { Output } from './output'
+import type { ParseFailure } from './schema'
 import { kebabCase } from './text'
 
 export interface ArgumentSpec {
@@ -32,6 +34,9 @@ export type OptionSpec =
           choices?: readonly string[]
           // The option can repeat, as in `--var a=1 --var b=2`, and its value is a list.
           multiple?: boolean
+          // Turns the text into the value the command gets, such as a `Host`. It throws with `failure`
+          // when the text is not valid, so a bad flag or env var fails before the command runs.
+          parse?: (raw: string, failure: ParseFailure) => unknown
       } & OptionSource)
 
 type ArgumentValues<Args> = {
@@ -47,7 +52,9 @@ export type OptionValues<Options> = {
         ? boolean | undefined
         : Options[Name] extends { multiple: true }
           ? string[] | undefined
-          : (Options[Name] extends { choices: readonly (infer Choice)[] } ? Choice : string) | undefined
+          : Options[Name] extends { parse: (...args: never[]) => infer Parsed }
+            ? Parsed | undefined
+            : (Options[Name] extends { choices: readonly (infer Choice)[] } ? Choice : string) | undefined
 }
 
 interface CommandInput<Args, Options> {
@@ -131,8 +138,20 @@ export function defineLegacy(definition: Omit<Legacy, 'kind'>): Legacy {
     return { kind: 'legacy', ...definition }
 }
 
+// `source` names where the value came from, such as `--host` or `HOG_HOST`, so the error says what to fix.
+export function parseOption(spec: OptionSpec, value: unknown, source: string, code: string): unknown {
+    if (spec.type !== 'string' || !spec.parse || value === undefined) {
+        return value
+    }
+    return spec.parse(String(value), { code, context: `${source} is not valid.`, exitCode: EXIT_USAGE })
+}
+
+export function longFlag(name: string): string {
+    return `--${kebabCase(name)}`
+}
+
 export function optionFlags(name: string, spec: OptionSpec): string {
-    const long = `--${kebabCase(name)}`
+    const long = longFlag(name)
     const flag = spec.type === 'string' ? `${long} <${spec.placeholder ?? kebabCase(name)}>` : long
     return spec.short ? `-${spec.short}, ${flag}` : flag
 }

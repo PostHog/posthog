@@ -6,11 +6,13 @@ import type { StoreChoice } from '@/posthog/credential-store/types'
 import { loginStorage, readLogin } from '@/posthog/login/stored'
 
 import { PersonalAPIKey, type AccessKey, type AccessKeyStorage } from './access-key'
-import { hostKey, sameHost } from './host'
+import { hostKey, parseHost, type Host } from './host'
+import { parseProjectId } from './ids'
 import { readSettings } from './settings'
+import { parsePersonalApiKey } from './tokens'
 
 // posthog-cli falls back to this host when neither --host nor the credentials name one.
-export const DEFAULT_HOST = 'https://us.i.posthog.com'
+export const DEFAULT_HOST = parseHost('https://us.i.posthog.com')
 
 export type Credentials = { key: AccessKey } & (
     | { source: 'env' }
@@ -107,46 +109,6 @@ export function posthogFile(runtime: Runtime, name: string): string {
     return join(home, name)
 }
 
-export function checkApiKey(apiKey: string): string | undefined {
-    return apiKey.startsWith('phx_') ? undefined : "The personal API key doesn't look right: it must start with 'phx_'."
-}
-
-export function checkProjectId(projectId: string): string | undefined {
-    return /^\d+$/.test(projectId) ? undefined : `The project ID must be a number, but it is "${projectId}".`
-}
-
-function sameOrigin(a: string, b: string): boolean {
-    return URL.canParse(a) && URL.canParse(b) && new URL(a).origin === new URL(b).origin
-}
-
-export function checkHost(host: string): string | undefined {
-    return URL.canParse(host) ? undefined : `The host must be a valid URL, but it is "${host}".`
-}
-
-function validate(raw: RawCredentials, host: string): PersonalAPIKey {
-    const keyError = checkApiKey(raw.apiKey)
-    if (keyError) {
-        throw new HogError(
-            'invalid_credentials',
-            keyError,
-            'Create a personal API key in PostHog under Settings > Personal API keys.'
-        )
-    }
-    const projectError = checkProjectId(raw.projectId)
-    if (projectError) {
-        throw new HogError(
-            'invalid_credentials',
-            projectError,
-            'Use the number in your project URL, like the 2 in https://us.posthog.com/project/2.'
-        )
-    }
-    const hostError = checkHost(host)
-    if (hostError) {
-        throw new HogError('invalid_credentials', hostError)
-    }
-    return new PersonalAPIKey({ host, projectId: raw.projectId, apiKey: raw.apiKey })
-}
-
 // Every credential source, in order: HOG_PERSONAL_API_KEY in the environment, then in --dotenv-file,
 // then what `hog auth login` stored. The global host overrides the host a key in the environment
 // or --dotenv-file carried, and picks which stored login to use. posthog.json comes from the repository, so its host never
@@ -156,11 +118,11 @@ export async function resolveCredentials(
     runtime: Runtime,
     // `skipStore` leaves out what `hog auth login` stored, for callers that must never open the
     // keychain or renew a token, like telemetry for a command that needed no credentials.
-    options: { host?: string; dotenvFile?: string; configHost?: string; skipStore?: boolean }
+    options: { host?: Host; dotenvFile?: string; configHost?: Host; skipStore?: boolean }
 ): Promise<Credentials> {
-    const checkConfigHost = (host: string): void => {
+    const checkConfigHost = (host: Host): void => {
         const { configHost } = options
-        if (options.host === undefined && configHost !== undefined && !sameOrigin(configHost, host)) {
+        if (options.host === undefined && configHost !== undefined && hostKey(configHost) !== hostKey(host)) {
             throw new HogError(
                 'host_mismatch',
                 `posthog.json sets the host to ${configHost}, but your credentials are for ${host}.`,
@@ -170,9 +132,14 @@ export async function resolveCredentials(
         }
     }
     const keyFrom = (raw: RawCredentials): PersonalAPIKey => {
-        const host = options.host ?? raw.host ?? DEFAULT_HOST
+        const failure = { code: 'invalid_credentials' }
+        const host = options.host ?? (raw.host === undefined ? DEFAULT_HOST : parseHost(raw.host, failure))
         checkConfigHost(host)
-        return validate(raw, host)
+        return new PersonalAPIKey({
+            host,
+            projectId: parseProjectId(raw.projectId, failure),
+            apiKey: parsePersonalApiKey(raw.apiKey, failure),
+        })
     }
 
     const fromEnv = fromLookup((name) => runtime.env[name] || undefined)
@@ -218,7 +185,7 @@ export async function resolveCredentials(
             // Before a renewal, so hog never renews a key it then refuses to send.
             checkConfigHost(login.key.host)
             // Logins are kept per origin, so another path on it is another PostHog the login isn't for.
-            if (options.host !== undefined && !sameHost(options.host, login.key.host)) {
+            if (options.host !== undefined && options.host !== login.key.host) {
                 throw new HogError(
                     'host_mismatch',
                     `Your login for ${hostKey(options.host)} is for ${login.key.host}, not ${options.host}.`,

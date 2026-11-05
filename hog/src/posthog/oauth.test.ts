@@ -7,6 +7,7 @@ import { fakeRuntime, type FakeRuntime } from '@/testing'
 
 import { PostHogApi } from './api'
 import { resolveCredentials, type Credentials } from './credentials'
+import { parseHost } from './host'
 import { KeySession } from './key-session'
 import { HOG_CLIENT_ID } from './oauth'
 
@@ -228,7 +229,7 @@ describe('OAuth credentials', () => {
             respond: () => ({ status: 200, body: { access_token: 'pha_new', expires_in: 3600 } }),
         })
 
-        const error = await resolveCredentials(runtime, { configHost: 'https://us.posthog.com' }).catch(
+        const error = await resolveCredentials(runtime, { configHost: parseHost('https://us.posthog.com') }).catch(
             (caught: unknown) => caught
         )
 
