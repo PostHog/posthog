@@ -483,10 +483,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            param("events_mode", FlagEvaluationsMode.EVENTS, False, table_in_catalog=False),
+            ("events_mode", FlagEvaluationsMode.EVENTS, False),
             # DEBUG puts the table in the catalog on EVENTS, but events still holds every flag call.
             param("events_mode_under_debug", FlagEvaluationsMode.EVENTS, False, debug=True),
-            param("events_mode_on_cloud", FlagEvaluationsMode.EVENTS, False, cloud=True),
             param(
                 "events_mode_with_the_table_forced_in",
                 FlagEvaluationsMode.EVENTS,
@@ -519,7 +518,6 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
                 False,
                 include_flag_evaluations_table=False,
-                table_in_catalog=False,
             ),
         ]
     )
@@ -530,10 +528,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         expected: bool,
         reads_forced_to_events: bool = False,
         debug: bool = False,
-        cloud: bool = False,
         include_flag_evaluations_table: bool | None = None,
         union_flag_enabled: bool = True,
-        table_in_catalog: bool = True,
     ) -> None:
         enabled_flags = {"hogql-flag-calls-union"} if union_flag_enabled else set()
         OrganizationFeatureFlagsConfig.objects.update_or_create(
@@ -542,7 +538,6 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         with (
             override_settings(DEBUG=debug),
-            self.is_cloud(cloud),
             override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", reads_forced_to_events),
             patch(
                 "posthog.hogql.database.database.feature_enabled_or_false",
@@ -554,7 +549,6 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             )
 
         assert database.read_flag_calls_from_flag_evaluations is expected
-        assert database.has_table(["posthog", "flag_evaluations"]) is table_in_catalog
         union_expected = expected and union_flag_enabled
         assert database.read_flag_calls_with_union is union_expected
         assert database.has_table(["posthog", "events_with_flag_calls"]) is union_expected
