@@ -1624,11 +1624,6 @@
         "params": [],
         "scope": "global"
     },
-    "simpleOnboarding": {
-        "template": "/onboarding/simple",
-        "params": [],
-        "scope": "project"
-    },
     "site": {
         "template": "/site/{url}",
         "params": ["url"],
@@ -2092,6 +2087,11 @@
     "workflowsLibraryTemplateNew": {
         "template": "/workflows/library/templates/new",
         "params": [],
+        "scope": "project"
+    },
+    "workloadTrustPolicyRequest": {
+        "template": "/workload-trust-policy-requests/{id}",
+        "params": ["id"],
         "scope": "project"
     }
 }

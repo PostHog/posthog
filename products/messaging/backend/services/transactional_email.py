@@ -32,6 +32,7 @@ from products.messaging.backend.facade.contracts import (
     InvalidRecipient,
     InvalidRequest,
     MarketingTemplate,
+    NamedSenderNotVerified,
     QueuedEmail,
     QuotaLimited,
     RecipientSuppressed,
@@ -47,7 +48,7 @@ from products.messaging.backend.facade.contracts import (
     TransactionalEmailError,
     TransactionalEmailPaused,
 )
-from products.messaging.backend.models import MessageCategory, MessageTemplate, TransactionalEmailKey
+from products.messaging.backend.models import FirstCodeSend, MessageCategory, MessageTemplate, TransactionalEmailKey
 from products.messaging.backend.models.message_category import MessageCategoryType
 from products.messaging.backend.services.html_text import text_from_html
 from products.workflows.backend.facade.api import WorkflowNotFound, get_workflow_summary
@@ -447,6 +448,18 @@ def _lock_team_keys(team_id: int) -> None:
         )
 
 
+def report_first_code_send(team_id: int, capture: Callable[[], bool]) -> None:
+    _, claimed = FirstCodeSend.objects.for_team(team_id).get_or_create(defaults={"team_id": team_id})
+    if not claimed:
+        return
+    captured = False
+    try:
+        captured = capture()
+    finally:
+        if not captured:
+            FirstCodeSend.objects.for_team(team_id).delete()
+
+
 def require_code_email_access(
     team_id: int,
     key: str,
@@ -557,7 +570,7 @@ def _code_send_sender(team_id: int, address: str | None) -> dict[str, Any]:
         ) from e
     except TransactionalEmailSenderUnavailable as e:
         if address:
-            raise SenderNotVerified(f"No verified sender in this project can send from `{email}`.") from e
+            raise NamedSenderNotVerified(f"No verified sender in this project can send from `{email}`.") from e
         raise SenderNotVerified("This project has no verified email sender. Verify a sender domain first.") from e
     return {"integrationId": sender_id, "email": email, "name": name}
 

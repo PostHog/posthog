@@ -60,6 +60,15 @@ export function personLabel(
     return label
 }
 
+export function countryCode(person: RecordingPersonApi | null | undefined): string | null {
+    const code = text(asRecord(person?.properties)?.$geoip_country_code)?.toUpperCase()
+    return code && /^[A-Z]{2}$/.test(code) && code !== 'XX' && code !== 'ZZ' ? code : null
+}
+
+export function countryFlag(code: string | null): string | null {
+    return code ? String.fromCodePoint(...[...code].map((letter) => 0x1f1e6 + letter.charCodeAt(0) - 65)) : null
+}
+
 export function urlPath(url: string | null | undefined): string | null {
     const value = text(url)
     if (!value) {
@@ -76,6 +85,7 @@ export function recordingView(api: RecordingApi): RecordingView {
     return {
         sessionId: api.id,
         personLabel: personLabel(api.person, api.distinct_id),
+        countryCode: countryCode(api.person),
         startedAt: text(api.start_time),
         endedAt: text(api.end_time),
         durationSeconds: Math.max(0, Math.round(count(api.recording_duration))),
@@ -452,6 +462,7 @@ export function sessionListRows(
                 (text(observation.summary_line) ? truncate(observation.summary_line ?? '', 100) : null),
             personLabel:
                 view?.personLabel ?? personLabel(null, observation.distinct_id, observation.recording_subject_email),
+            countryCode: view?.countryCode ?? null,
             startedAt: view?.startedAt ?? null,
             durationSeconds: view?.durationSeconds ?? null,
             keyMomentMs: typeof output.key_moment_ms === 'number' ? output.key_moment_ms : null,
@@ -479,6 +490,7 @@ export function sessionListRows(
             sessionId: view.sessionId,
             title: null,
             personLabel: view.personLabel,
+            countryCode: view.countryCode,
             startedAt: view.startedAt,
             durationSeconds: view.durationSeconds,
             keyMomentMs: null,
@@ -494,7 +506,7 @@ export function sessionListRows(
 
 export function sessionRowMeta(row: SessionListRow, now: Date): string[] {
     return [
-        row.personLabel,
+        [countryFlag(row.countryCode), row.personLabel].filter(Boolean).join(' '),
         row.durationSeconds !== null ? formatShortDuration(row.durationSeconds) : null,
         row.keyMomentMs !== null ? `key moment ${formatOffset(row.keyMomentMs)}` : null,
         row.title === null && row.startPath ? row.startPath : null,

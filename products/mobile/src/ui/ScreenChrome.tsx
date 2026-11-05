@@ -5,21 +5,41 @@ import Animated, { useAnimatedStyle } from 'react-native-reanimated'
 import { BackChip } from './BackChip'
 import { BlurEdge } from './BlurEdge'
 import { FadeEdge } from './FadeEdge'
+import { NativeScreenChrome } from './NativeScreenChrome'
 import { screenLayout } from './screenLayout'
 import { scrollTitleOpacity } from './scrollTitleOpacity'
 import { createStyles } from './theme'
 import { layout, type } from './tokens'
+import { useNativeRail } from './useNativeRail'
 import { topOffset, useScreenInsets } from './useScreenInsets'
 import type { ScrollTitle } from './useScrollTitle'
 
-interface ScreenChromeProps {
+export interface ScreenChromeProps {
     onBack: () => void
     backTestID: string
     title?: ScrollTitle
     right?: ReactNode
+    nativeActions?: ReactNode
+    hideNativeTitle?: boolean
 }
 
-export function ScreenChrome({ onBack, backTestID, title, right }: ScreenChromeProps): ReactElement {
+export function ScreenChrome(props: ScreenChromeProps): ReactElement {
+    const nativeRail = useNativeRail()
+    return (
+        <>
+            {nativeRail ? <NativeScreenChrome {...props} /> : null}
+            <CustomScreenChrome {...props} nativeRail={nativeRail} />
+        </>
+    )
+}
+
+function CustomScreenChrome({
+    onBack,
+    backTestID,
+    title,
+    right,
+    nativeRail,
+}: ScreenChromeProps & { nativeRail: boolean }): ReactElement {
     const styles = useStyles()
     const insets = useScreenInsets()
     const [leftWidth, setLeftWidth] = useState(0)
@@ -35,9 +55,9 @@ export function ScreenChrome({ onBack, backTestID, title, right }: ScreenChromeP
             <BlurEdge solid={solid} />
             <FadeEdge direction="down" solid={solid} opacity={layout.chromeTint} />
             <View onLayout={(event) => setLeftWidth(event.nativeEvent.layout.width)}>
-                <BackChip onPress={onBack} testID={backTestID} />
+                {nativeRail ? null : <BackChip onPress={onBack} testID={backTestID} />}
             </View>
-            <View onLayout={(event) => setRightWidth(event.nativeEvent.layout.width)}>{right}</View>
+            <View onLayout={(event) => setRightWidth(event.nativeEvent.layout.width)}>{nativeRail ? null : right}</View>
             <Animated.View
                 style={[styles.titleSlot, { top, left: sideInset, right: sideInset }, titleStyle]}
                 pointerEvents="none"

@@ -3,7 +3,7 @@ const WORD = /[\p{L}\p{N}_]+/gu
 export type RankKey = number[]
 
 const MIN_ALIAS_QUERY_LENGTH = 3
-const MAX_LOCAL_QUERY_LENGTH = 200
+export const MAX_LOCAL_QUERY_LENGTH = 200
 const STARTS_WITH = 1
 
 export const searchWords = (text: string): string[] => text.toLowerCase().match(WORD) ?? []
@@ -165,7 +165,13 @@ interface LocalRank {
     matchedAlias: string | null
 }
 
-export function rankLocalItem(query: string, name: string, aliases: string[] = [], isTab = false): LocalRank | null {
+export function rankLocalItem(
+    query: string,
+    name: string,
+    aliases: string[] = [],
+    isTab = false,
+    shortQueryAliases = false
+): LocalRank | null {
     const normalized = query.trim().toLowerCase().replace(/\s+/g, ' ').slice(0, MAX_LOCAL_QUERY_LENGTH)
     const tokens = searchWords(normalized)
     if (!tokens.length) {
@@ -176,7 +182,7 @@ export function rankLocalItem(query: string, name: string, aliases: string[] = [
     if (byName) {
         best = { rank: byName, matchedAlias: null }
     }
-    for (const alias of normalized.length >= MIN_ALIAS_QUERY_LENGTH ? aliases : []) {
+    for (const alias of shortQueryAliases || normalized.length >= MIN_ALIAS_QUERY_LENGTH ? aliases : []) {
         const byAlias = rankName(normalized, tokens, alias, isTab ? 2 : 1)
         if (byAlias && (!best || compareRanks(byAlias, best.rank) < 0)) {
             best = { rank: byAlias, matchedAlias: alias }

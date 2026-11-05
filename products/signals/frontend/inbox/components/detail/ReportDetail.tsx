@@ -55,6 +55,7 @@ import { useReportDetailActions } from './ReportDetailActions'
 import { ReportExpectedImpact } from './ReportExpectedImpact'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportImpactMetrics } from './ReportImpactMetrics'
+import { ReportNotesSection } from './ReportNotesSection'
 import { ReportPlanBlock } from './ReportPlanBlock'
 import { ReportPrimaryMetric } from './ReportPrimaryMetric'
 import { ReportSourceSuggestion } from './ReportSourceSuggestion'
@@ -355,6 +356,7 @@ export function InboxDetailFrame({
     // The key observation leads the evidence rail; the supporting tiles belong to the body's Impact section.
     const metricsEnabled = useFeatureFlag('SIGNALS_REPORT_METRICS')
     const expectedImpactEnabled = useFeatureFlag('SIGNALS_EXPECTED_IMPACT_DISPLAY')
+    const notesEnabled = useFeatureFlag('SIGNALS_REPORT_NOTES')
     const primaryMetric = metricsEnabled ? report.metrics?.find((metric) => metric.role === 'primary') : undefined
     const supportingMetrics = metricsEnabled
         ? (report.metrics?.filter((metric) => metric.role !== 'primary') ?? [])
@@ -417,8 +419,9 @@ export function InboxDetailFrame({
                     )}
                 </div>
             </ReportChartsContext.Provider>
-            {/* The rating closes out the report body, pinned to the bottom of the column. */}
+            {/* The notes and the rating close out the report body, pinned to the bottom of the column. */}
             <div className="mt-auto">
+                {notesEnabled && <ReportNotesSection report={report} />}
                 <ReportFeedbackFooter report={report} align="end" />
             </div>
         </div>
