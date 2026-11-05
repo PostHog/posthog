@@ -474,7 +474,8 @@ class TestTopicSessionsQuery(ClickhouseTestMixin, BaseTest):
         )
 
         assert {session.started_at for session in sessions} == {at}
-        sessions = [dataclasses.replace(session, started_at=None) for session in sessions]
+        assert {session.source for session in sessions} == {"mcp"}
+        sessions = [dataclasses.replace(session, started_at=None, source="") for session in sessions]
         assert sorted(sessions, key=lambda session: session.session_id) == [
             _session(
                 "person",

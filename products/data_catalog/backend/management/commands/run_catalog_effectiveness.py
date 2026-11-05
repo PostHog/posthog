@@ -34,6 +34,8 @@ def _report(result: TeamEffectiveness) -> dict[str, object]:
         "examples": [
             {
                 "outcome": row.outcome.value,
+                "source": row.source,
+                "client": row.client,
                 "metric": row.metric_name,
                 "relation": row.relation.value if row.relation else None,
                 "missed_reason": row.missed_reason.value if row.missed_reason else None,

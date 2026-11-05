@@ -91,6 +91,7 @@ def _outcomes(
     evidence = SessionEvidence(
         session_id="s1",
         client="claude",
+        source="mcp",
         asked=bool(calls),
         used_metric_ids=used,
         used_table=used_table,
@@ -126,7 +127,7 @@ class TestSessionOutcomes(SimpleTestCase):
             ),
             ("never_asked", {"calls": [], "matches": (_match(),)}, SessionOutcome.DID_NOT_ASK),
             ("asked_and_nothing_fit", {"calls": [_call("metric-list")]}, SessionOutcome.ASKED_NO_MATCH),
-            ("never_asked_and_nothing_fit", {"calls": []}, SessionOutcome.NO_ASK_NO_FIT),
+            ("never_asked_and_nothing_fit", {"calls": []}, SessionOutcome.DID_NOT_ASK),
         ]
     )
     def test_each_kind_of_session_gets_its_outcome(self, _name: str, evidence: dict, expected: SessionOutcome) -> None:
@@ -261,6 +262,7 @@ def _row(session: str, outcome: SessionOutcome, kind: AssetKind, *, headline: bo
     return OutcomeRow(
         session_id=session,
         client="claude",
+        source="mcp",
         outcome=outcome,
         asset_kind=kind,
         is_headline=headline,
@@ -274,7 +276,7 @@ class TestTeamEffectiveness(SimpleTestCase):
             (
                 _row("s1", SessionOutcome.USED, AssetKind.TABLE),
                 _row("s1", SessionOutcome.DID_NOT_ASK, AssetKind.METRIC, headline=False),
-                _row("s2", SessionOutcome.NO_ASK_NO_FIT, AssetKind.NONE),
+                _row("s2", SessionOutcome.DID_NOT_ASK, AssetKind.NONE),
                 _row("s3", SessionOutcome.ADAPTED, AssetKind.METRIC),
                 _row("s4", SessionOutcome.MISSED, AssetKind.METRIC),
             ),
@@ -287,14 +289,16 @@ class TestTeamEffectiveness(SimpleTestCase):
     def test_examples_are_capped_per_unserved_outcome_and_stable(self) -> None:
         rows = [_row(f"used{n}", SessionOutcome.USED, AssetKind.METRIC) for n in range(3)]
         rows += [_row(f"silent{n}", SessionOutcome.DID_NOT_ASK, AssetKind.METRIC) for n in range(9)]
+        rows += [_row(f"nometric{n}", SessionOutcome.DID_NOT_ASK, AssetKind.NONE) for n in range(9)]
         rows += [_row("asked", SessionOutcome.ASKED_NO_MATCH, AssetKind.NONE)]
 
         examples = [row for row in mark_examples(rows, per_outcome=4) if row.is_example]
         rerun = [row for row in mark_examples(list(reversed(rows)), per_outcome=4) if row.is_example]
 
-        assert Counter(row.outcome for row in examples) == {
-            SessionOutcome.DID_NOT_ASK: 4,
-            SessionOutcome.ASKED_NO_MATCH: 1,
+        assert Counter((row.outcome, row.asset_kind) for row in examples) == {
+            (SessionOutcome.DID_NOT_ASK, AssetKind.METRIC): 4,
+            (SessionOutcome.DID_NOT_ASK, AssetKind.NONE): 4,
+            (SessionOutcome.ASKED_NO_MATCH, AssetKind.NONE): 1,
         }
         assert {row.session_id for row in rerun} == {row.session_id for row in examples}
 
@@ -421,7 +425,13 @@ class TestMeasureTeam(ClickhouseTestMixin, BaseTest):
             event="$mcp_tool_call",
             distinct_id="d1",
             timestamp=at,
-            properties={**shared, "$mcp_intent": intent, "$mcp_tool_name": "execute-sql", "$mcp_client_name": "claude"},
+            properties={
+                **shared,
+                "$mcp_intent": intent,
+                "$mcp_tool_name": "execute-sql",
+                "$mcp_client_name": "claude",
+                "source": "posthog_ai",
+            },
         )
         for offset, tool in enumerate(catalog_tools, start=1):
             _create_event(
@@ -481,7 +491,7 @@ class TestMeasureTeam(ClickhouseTestMixin, BaseTest):
             "read": (SessionOutcome.ADAPTED, "claude"),
             "listed": (SessionOutcome.MISSED, "claude"),
             "silent": (SessionOutcome.DID_NOT_ASK, "claude"),
-            "nofit": (SessionOutcome.NO_ASK_NO_FIT, "claude"),
+            "nofit": (SessionOutcome.DID_NOT_ASK, "claude"),
             "asked": (SessionOutcome.ASKED_NO_MATCH, "claude"),
         }
         assert result.served_share == 2 / 6
@@ -489,6 +499,7 @@ class TestMeasureTeam(ClickhouseTestMixin, BaseTest):
         assert (silent.metric_name, silent.is_example, silent.reasoning) == ("signups", True, "It counts signups.")
         assert silent.question == "How many signups happen each week?"
         assert silent.started_at == self.END - timedelta(hours=6)
+        assert silent.source == "posthog_ai"
 
     def test_a_team_without_ai_consent_reaches_no_model(self) -> None:
         self.organization.is_ai_data_processing_approved = False

@@ -102,7 +102,7 @@ SESSION_SAMPLE_LIMIT = 1000
 # session hash keeps the sample stable between scans and unbiased across sources. The sample takes only
 # sessions that queried data, so sessions that only read tickets or docs do not fill it.
 _SESSIONS_QUERY = """
-SELECT session, person, first_intents, data_intents, tools, client, started_at
+SELECT session, person, first_intents, data_intents, tools, client, started_at, agent_source
 FROM (
     SELECT
         session,
@@ -112,6 +112,7 @@ FROM (
         groupUniqArray(tool) AS tools,
         anyIf(client_name, length(client_name) > 0) AS client,
         min(timestamp) AS started_at,
+        anyIf(source, length(source) > 0) AS agent_source,
         max(source IN ('self_driving', 'wizard')) AS excluded,
         max(is_data) AS queried
     FROM (
@@ -122,7 +123,7 @@ FROM (
             substring(toString(properties.$mcp_intent), 1, {max_intent_chars}) AS intent,
             toString(properties.$mcp_tool_name) AS tool,
             ifNull(toString(properties.$mcp_client_name), '') AS client_name,
-            toString(properties.source) AS source,
+            ifNull(toString(properties.source), '') AS source,
             toString(properties.$mcp_tool_name) IN {data_tools} OR startsWith(toString(properties.$mcp_tool_name), {data_tool_prefix}) AS is_data
         FROM events
         WHERE event = '$mcp_tool_call'
@@ -274,6 +275,7 @@ class SessionText:
     tools: frozenset[str]
     client: str = ""
     started_at: datetime | None = None
+    source: str = ""
 
 
 @frozen
@@ -406,8 +408,10 @@ def fetch_topic_sessions(
             tools=frozenset(tools),
             client=client,
             started_at=started_at,
+            source=agent_source,
         )
-        for session, person, first_intents, data_intents, tools, client, started_at in response.results or []
+        for session, person, first_intents, data_intents, tools, client, started_at, agent_source in response.results
+        or []
     ]
 
 

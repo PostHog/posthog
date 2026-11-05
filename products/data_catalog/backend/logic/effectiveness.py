@@ -1,7 +1,8 @@
 """Measure, per team, how many agent analysis sessions the catalog served.
 
-Each analysis session lands in one of six outcomes. Four need an asset that fits: used, adapted,
-missed and did not ask. Two mean that nothing fit: asked with no match, and did not ask with no fit.
+Each analysis session lands in one of five outcomes: used, adapted, missed, asked with no match, and
+did not ask. Every analysis session should ask the catalog, so a session that did not ask counts even
+when no metric fits. Its asset kind says whether a metric existed.
 The results go to PostHog's own project as events, so that staff can compare teams. They never go
 into a usage snapshot, because the usage tab and its API show snapshots to the team.
 """
@@ -103,7 +104,6 @@ class SessionOutcome(StrEnum):
     MISSED = "missed"
     DID_NOT_ASK = "did_not_ask"
     ASKED_NO_MATCH = "asked_no_match"
-    NO_ASK_NO_FIT = "no_ask_no_fit"
 
 
 class AssetKind(StrEnum):
@@ -173,6 +173,7 @@ class OutcomeRow:
 
     session_id: str
     client: str
+    source: str
     outcome: SessionOutcome
     asset_kind: AssetKind
     is_headline: bool
@@ -193,6 +194,7 @@ class SessionEvidence:
 
     session_id: str
     client: str
+    source: str
     asked: bool
     used_metric_ids: frozenset[UUID]
     used_table: bool
@@ -314,7 +316,7 @@ def classify_session(
         )
 
     if not rows:
-        outcome = SessionOutcome.ASKED_NO_MATCH if evidence.asked else SessionOutcome.NO_ASK_NO_FIT
+        outcome = SessionOutcome.ASKED_NO_MATCH if evidence.asked else SessionOutcome.DID_NOT_ASK
         rows.append(_row(evidence, outcome, AssetKind.NONE))
     return _mark_headline(rows)
 
@@ -323,6 +325,7 @@ def _row(evidence: SessionEvidence, outcome: SessionOutcome, asset_kind: AssetKi
     return OutcomeRow(
         session_id=evidence.session_id,
         client=evidence.client,
+        source=evidence.source,
         outcome=outcome,
         asset_kind=asset_kind,
         is_headline=False,
@@ -367,12 +370,13 @@ def _mark_headline(rows: Sequence[OutcomeRow]) -> list[OutcomeRow]:
 
 def mark_examples(rows: Iterable[OutcomeRow], per_outcome: int = EXAMPLES_PER_OUTCOME) -> list[OutcomeRow]:
     """Mark a few sessions of each outcome that the catalog did not serve. The choice comes from a hash of
-    the session id, so a rerun marks the same sessions and one busy hour cannot fill the list."""
+    the session id, so a rerun marks the same sessions and one busy hour cannot fill the list. Sessions with
+    and without a metric are marked apart, because far more sessions have none and would fill the list."""
     all_rows = list(rows)
-    candidates: dict[SessionOutcome, list[OutcomeRow]] = defaultdict(list)
+    candidates: dict[tuple[SessionOutcome, AssetKind], list[OutcomeRow]] = defaultdict(list)
     for row in all_rows:
         if row.outcome in _EXAMPLE_OUTCOMES:
-            candidates[row.outcome].append(row)
+            candidates[(row.outcome, row.asset_kind)].append(row)
     examples = {
         id(row)
         for outcome_rows in candidates.values()
@@ -527,6 +531,7 @@ def build_evidence(
     return SessionEvidence(
         session_id=session.session_id,
         client=session.client,
+        source=session.source,
         started_at=session.started_at,
         question=question,
         asked=bool(calls),
@@ -710,6 +715,7 @@ def capture_effectiveness(result: TeamEffectiveness, team: Team) -> None:
                     **shared,
                     "session_id": row.session_id,
                     "client": row.client,
+                    "source": row.source,
                     "outcome": row.outcome.value,
                     "asset_kind": row.asset_kind.value,
                     "is_headline": row.is_headline,
