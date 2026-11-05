@@ -49,7 +49,7 @@ export interface DerivedSchemaRequirements {
 
 export interface SqlxMigrationDir {
     database: SqlxDatabase
-    latestVersion: number
+    versions: number[]
     tables: Set<string>
 }
 
@@ -190,22 +190,22 @@ export function readSqlxMigrationDir(repoRoot: string, database: SqlxDatabase): 
     if (!existsSync(dir)) {
         throw new Error(`${dir} does not exist`)
     }
-    let latestVersion = 0
+    const versions = new Set<number>()
     const tables = new Set<string>()
     for (const fileName of readdirSync(dir)) {
         const version = fileName.match(SQLX_MIGRATION_FILE)?.[1]
         if (version === undefined) {
             continue
         }
-        latestVersion = Math.max(latestVersion, Number(version))
+        versions.add(Number(version))
         for (const table of matchAll(readFileSync(path.join(dir, fileName), 'utf8'), CREATE_TABLE)) {
             tables.add(table.toLowerCase())
         }
     }
-    if (latestVersion === 0) {
+    if (versions.size === 0) {
         throw new Error(`${dir} has no sqlx migrations`)
     }
-    return { database, latestVersion, tables }
+    return { database, versions: [...versions].sort((a, b) => a - b), tables }
 }
 
 export function deriveSchemaRequirements(repoRoot: string): DerivedSchemaRequirements {
@@ -249,7 +249,7 @@ export function deriveSchemaRequirements(repoRoot: string): DerivedSchemaRequire
             continue
         }
         tablesByRequirement.set(`sqlx:${database}`, tables)
-        sqlxRequirements.push({ kind: 'sqlx', database, version: migrationDir.latestVersion })
+        sqlxRequirements.push({ kind: 'sqlx', database, versions: migrationDir.versions })
     }
 
     return { requirements: [...djangoRequirements, ...sqlxRequirements], tablesByRequirement }

@@ -40,7 +40,7 @@ function main(): number {
         const target =
             requirement.kind === 'django'
                 ? `${requirement.app}.${requirement.migration}`
-                : `sqlx ${requirement.database}@${requirement.version}`
+                : `sqlx ${requirement.database} (${requirement.versions.length} versions, latest ${requirement.versions[requirement.versions.length - 1]})`
         console.log(`  ${target}: ${(tablesByRequirement.get(key) ?? []).join(', ')}`)
     }
     return 0

@@ -110,7 +110,7 @@ describe('deriveSchemaRequirements', () => {
                 replaces: ['0001_initial', '0002_span_kind'],
             },
             { kind: 'django', database: 'default', app: 'widgets', migration: '0002_widget_table' },
-            { kind: 'sqlx', database: 'cyclotron-node', version: 20260201000001 },
+            { kind: 'sqlx', database: 'cyclotron-node', versions: [20260101000001, 20260201000001] },
         ])
         expect(Object.fromEntries(tablesByRequirement)).toEqual({
             legacy: ['legacy_widget'],
