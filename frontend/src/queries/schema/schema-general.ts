@@ -65,7 +65,7 @@ import {
 } from '~/types'
 
 import { BIVisualizationNode } from './schema-business-intelligence'
-import { integer, numerical_key, positive_integer } from './type-utils'
+import { integer, non_negative_integer, numerical_key, positive_integer } from './type-utils'
 
 export { ChartDisplayCategory }
 // Re-exported so the codegen picks them up and emits matching `StrEnum`s in posthog/schema.py.
@@ -751,8 +751,8 @@ export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     variables?: Record<string, HogQLVariable>
     /** Constant values that can be referenced with the {placeholder} syntax in the query */
     values?: Record<string, any>
-    /** Rows to skip before the default row limit applies. Rejected when the query sets its own LIMIT or uses UNION. */
-    offset?: integer
+    /** Rows to skip before the default row limit applies. Rejected when the query sets its own LIMIT, uses UNION, or runs as raw SQL. */
+    offset?: non_negative_integer
     /** @deprecated use modifiers.debug instead */
     explain?: boolean
     /** Client provided name of the query */

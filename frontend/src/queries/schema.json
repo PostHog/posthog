@@ -30266,8 +30266,8 @@
                     "type": "string"
                 },
                 "offset": {
-                    "$ref": "#/definitions/integer",
-                    "description": "Rows to skip before the default row limit applies. Rejected when the query sets its own LIMIT or uses UNION."
+                    "$ref": "#/definitions/non_negative_integer",
+                    "description": "Rows to skip before the default row limit applies. Rejected when the query sets its own LIMIT, uses UNION, or runs as raw SQL."
                 },
                 "query": {
                     "type": "string"

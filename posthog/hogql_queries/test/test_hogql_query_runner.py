@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from unittest.mock import _patch
 
 from parameterized import parameterized
+from pydantic import ValidationError
 
 from posthog.schema import (
     CachedHogQLQueryResponse,
@@ -40,6 +41,7 @@ from posthog.hogql.visitor import clear_locations
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.hogql_queries.hogql_query_runner import API_SQL_WINDOW_CACHE_AGE_FLAG, HogQLQueryRunner
+from posthog.hogql_queries.paginators import OFFSET_NEEDS_DEFAULT_ROW_LIMIT_MESSAGE
 from posthog.hogql_queries.query_runner import CACHE_ENTRY_FRESHNESS_KEY, ExecutionMode
 from posthog.hogql_queries.sql_freshness.classifier import SqlFreshness, freshness_record
 from posthog.hogql_queries.sql_freshness.rules import FreshnessReason, Reject, SqlWindowClass
@@ -150,14 +152,25 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("own_limit", "SELECT number FROM numbers(10) ORDER BY number LIMIT 5"),
-            ("union", "SELECT 1 AS n UNION ALL SELECT 2 AS n"),
+            ("own_limit", "SELECT number FROM numbers(10) ORDER BY number LIMIT 5", {}, LimitContext.QUERY),
+            ("union", "SELECT 1 AS n UNION ALL SELECT 2 AS n", {}, LimitContext.QUERY),
+            ("raw_sql", "SELECT 1", {"sendRawQuery": True, "connectionId": "conn_example"}, LimitContext.QUERY),
+            ("alert", "SELECT number FROM numbers(10)", {}, LimitContext.SQL_ALERT),
         ]
     )
-    def test_offset_without_default_row_limit_is_rejected(self, _name: str, sql: str) -> None:
-        runner = self._create_runner(HogQLQuery(query=sql, offset=3))
-        with self.assertRaises(ExposedHogQLError):
+    def test_offset_without_default_row_limit_is_rejected(
+        self, _name: str, sql: str, query_fields: dict, limit_context: LimitContext
+    ) -> None:
+        runner = HogQLQueryRunner(
+            team=self.team, query=HogQLQuery(query=sql, offset=3, **query_fields), limit_context=limit_context
+        )
+        with self.assertRaises(ExposedHogQLError) as ctx:
             runner.calculate()
+        assert str(ctx.exception) == OFFSET_NEEDS_DEFAULT_ROW_LIMIT_MESSAGE
+
+    def test_negative_offset_is_rejected(self) -> None:
+        with self.assertRaises(ValidationError):
+            HogQLQuery(query="SELECT 1", offset=-1)
 
     @parameterized.expand([(3, False), (4, True)])
     def test_alert_explicit_limit_probes_one_extra_row(self, row_count, has_more):
