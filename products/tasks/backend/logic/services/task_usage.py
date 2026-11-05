@@ -152,6 +152,12 @@ def _internal_llm_analytics_team() -> Team:
         raise TaskTokenUsageUnavailable("The internal AI observability project is not readable here") from error
 
 
+# The products a task's own agent bills its generations to. A Slack task's agent bills `slack_app`,
+# so a `posthog_code`-only filter prices every Slack task at zero. Other products can tag the same
+# task id, such as `background_agents`, and stay out.
+TASK_AGENT_AI_PRODUCTS = ("posthog_code", "slack_app")
+
+
 def get_local_task_token_cost(*, team_id: int, task_id: UUID, task_created_at: datetime) -> Decimal:
     query = parse_select(
         """
@@ -159,7 +165,7 @@ def get_local_task_token_cost(*, team_id: int, task_id: UUID, task_created_at: d
         FROM events
         WHERE equals(event, '$ai_generation')
             AND greaterOrEquals(timestamp, {task_created_at})
-            AND equals(properties.ai_product, 'posthog_code')
+            AND in(properties.ai_product, {ai_products})
             AND equals(toString(properties.team_id), {team_id})
             AND (
                 equals(properties.task_id, {task_id})
@@ -174,6 +180,7 @@ def get_local_task_token_cost(*, team_id: int, task_id: UUID, task_created_at: d
                 "task_created_at": ast.Constant(value=task_created_at),
                 "team_id": ast.Constant(value=str(team_id)),
                 "task_id": ast.Constant(value=str(task_id)),
+                "ai_products": ast.Constant(value=list(TASK_AGENT_AI_PRODUCTS)),
             },
             team=_internal_llm_analytics_team(),
             query_type="TaskUsageTokenCost",

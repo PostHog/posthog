@@ -1,3 +1,4 @@
+from datetime import datetime
 from functools import partial
 from typing import NoReturn, cast
 from uuid import UUID
@@ -62,6 +63,7 @@ from products.ai_observability.backend.dataset_queries import (
     consistent_dataset_item_versions,
     dataset_item_versions_at_revision,
 )
+from products.ai_observability.backend.dataset_retention import DatasetRetentionPolicy, DatasetUsage
 from products.ai_observability.backend.dataset_service import (
     UNSET,
     DatasetItemMutationResult,
@@ -199,6 +201,8 @@ def _resolved_dataset_revision_id(dataset: Dataset) -> UUID | None:
 
 
 class DatasetReadSerializer(ResourceTagsReadSerializer, UserAccessControlSerializerMixin, serializers.ModelSerializer):
+    expires_at = serializers.SerializerMethodField(help_text="Earliest cleanup time if the dataset remains unused.")
+    expiring_soon = serializers.SerializerMethodField(help_text="Whether the dataset is within seven days of expiry.")
     created_by = UserBasicSerializer(read_only=True, allow_null=True)
     metadata = JSONObjectField(read_only=True, help_text="JSON object with descriptive dataset metadata.")
     current_revision = serializers.SerializerMethodField(
@@ -218,6 +222,8 @@ class DatasetReadSerializer(ResourceTagsReadSerializer, UserAccessControlSeriali
             "metadata",
             "tags",
             "archived",
+            "expires_at",
+            "expiring_soon",
             "current_revision",
             "current_revision_id",
             "created_at",
@@ -227,6 +233,14 @@ class DatasetReadSerializer(ResourceTagsReadSerializer, UserAccessControlSeriali
             "user_access_level",
         ]
         read_only_fields = fields
+
+    @extend_schema_field(serializers.DateTimeField(allow_null=True))
+    def get_expires_at(self, instance: Dataset) -> datetime | None:
+        return DatasetRetentionPolicy.dataset_expires_at(instance)
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_expiring_soon(self, instance: Dataset) -> bool:
+        return DatasetRetentionPolicy.expiring_soon(self.get_expires_at(instance))
 
     @extend_schema_field(serializers.IntegerField(allow_null=True))
     def get_current_revision(self, instance: Dataset) -> int | None:
@@ -305,14 +319,24 @@ class DatasetListQuerySerializer(ResourceTagFilterSerializer):
 
 
 class DatasetRevisionReadSerializer(serializers.ModelSerializer):
+    expires_at = serializers.SerializerMethodField(help_text="Earliest expiry time of this dataset snapshot if unused.")
+    expiring_soon = serializers.SerializerMethodField(help_text="Whether this snapshot is within seven days of expiry.")
     created_by = UserBasicSerializer(read_only=True, allow_null=True)
     dataset_id = serializers.UUIDField(read_only=True, help_text="Dataset this revision belongs to.")
     team_id = serializers.IntegerField(read_only=True, help_text="Project that owns the revision.")
 
     class Meta:
         model = DatasetRevision
-        fields = ["id", "dataset_id", "revision", "created_at", "created_by", "team_id"]
+        fields = ["id", "dataset_id", "revision", "created_at", "created_by", "team_id", "expires_at", "expiring_soon"]
         read_only_fields = fields
+
+    @extend_schema_field(serializers.DateTimeField(allow_null=True))
+    def get_expires_at(self, instance: DatasetRevision) -> datetime | None:
+        return DatasetRetentionPolicy.revision_expires_at(instance)
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_expiring_soon(self, instance: DatasetRevision) -> bool:
+        return DatasetRetentionPolicy.expiring_soon(self.get_expires_at(instance))
 
 
 class DatasetItemReadSerializer(serializers.ModelSerializer):
@@ -595,7 +619,9 @@ def _conflict_response(error: DatasetMutationConflict | DatasetLimitExceeded) ->
 
 def _item_version_queryset() -> QuerySet[DatasetItemVersion, DatasetItemVersion]:
     return consistent_dataset_item_versions(
-        DatasetItemVersion.objects.unscoped().select_related(
+        DatasetItemVersion.objects.unscoped()
+        .filter(dataset__expired_at__isnull=True)
+        .select_related(
             "created_by",
             "dataset",
             "dataset_revision",
@@ -609,6 +635,7 @@ def _dataset_queryset() -> QuerySet[Dataset, Dataset]:
     latest_revision = DatasetRevision.objects.unscoped().filter(dataset_id=OuterRef("id")).order_by("-revision")
     return (
         Dataset.objects.unscoped()
+        .filter(expired_at__isnull=True)
         .select_related("created_by", "current_revision")
         .prefetch_related(ResourceTags.prefetch())
         .annotate(
@@ -743,7 +770,12 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
     @llma_track_latency("llma_datasets_retrieve")
     @monitor(feature=None, endpoint="llma_datasets_retrieve", method="GET")
     def retrieve(self, request: Request, *args: object, **kwargs: object) -> Response:
-        return Response(DatasetReadSerializer(self.get_object(), context=self.get_serializer_context()).data)
+        dataset = self.get_object()
+        try:
+            DatasetUsage.record(dataset)
+        except Dataset.DoesNotExist as error:
+            raise Http404("Dataset not found.") from error
+        return Response(DatasetReadSerializer(dataset, context=self.get_serializer_context()).data)
 
     @extend_schema(
         request=DatasetCreateSerializer,
@@ -869,8 +901,8 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
         dataset = self.get_object()
         queryset = (
             DatasetRevision.objects.for_team(self.team.id, canonical=True)
-            .filter(dataset_id=dataset.id)
-            .select_related("created_by")
+            .filter(dataset_id=dataset.id, expired_at__isnull=True)
+            .select_related("created_by", "dataset")
             .order_by("-revision")
         )
         page = self.paginate_queryset(queryset)
@@ -974,6 +1006,10 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
                 {"detail": "The export is still being prepared."},
                 status=status.HTTP_409_CONFLICT,
             )
+        try:
+            DatasetUsage.read_revision(dataset, int((asset.export_context or {})["dataset_revision"]))
+        except (Dataset.DoesNotExist, DatasetRevision.DoesNotExist) as error:
+            raise Http404("Dataset revision not found.") from error
         response = get_export_asset_content_response(asset=asset, download=True)
         self._report_action(
             "llma dataset export downloaded",
@@ -1100,22 +1136,16 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         archived: bool = query["archived"]
 
         revision: int | None = query.get("revision")
+        try:
+            DatasetUsage.read_revision(dataset, revision)
+        except (Dataset.DoesNotExist, DatasetRevision.DoesNotExist) as error:
+            raise Http404("Dataset revision not found.") from error
         if revision is None:
             queryset = self.get_queryset().filter(
                 dataset_id=dataset.id,
                 archived=archived,
             )
         else:
-            if (
-                not DatasetRevision.objects.for_team(self.team.id, canonical=True)
-                .filter(
-                    dataset_id=dataset.id,
-                    revision=revision,
-                )
-                .exists()
-            ):
-                raise Http404("Dataset revision not found.")
-
             version_ids = dataset_item_versions_at_revision(
                 team_id=self.team.id,
                 dataset_id=dataset.id,
@@ -1145,20 +1175,14 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         query_serializer.is_valid(raise_exception=True)
         revision: int | None = query_serializer.validated_data.get("revision")
         current = self.get_object()
+        try:
+            DatasetUsage.read_revision(current.dataset, revision)
+        except (Dataset.DoesNotExist, DatasetRevision.DoesNotExist) as error:
+            raise Http404("Dataset revision not found.") from error
         if revision is None:
             return Response(DatasetItemReadSerializer(current).data)
 
         dataset = current.dataset
-        if (
-            not DatasetRevision.objects.for_team(self.team.id, canonical=True)
-            .filter(
-                dataset_id=dataset.id,
-                revision=revision,
-            )
-            .exists()
-        ):
-            raise Http404("Dataset revision not found.")
-
         version = (
             _item_version_queryset()
             .filter(
@@ -1326,6 +1350,11 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             dataset_item_id=current.dataset_item_id,
         )
         page = self.paginate_queryset(queryset)
+        versions = page if page is not None else list(queryset)
+        try:
+            DatasetUsage.record_versions(current.dataset, versions)
+        except (Dataset.DoesNotExist, DatasetItemVersion.DoesNotExist) as error:
+            raise Http404("Dataset item version not found.") from error
         if page is not None:
-            return self.get_paginated_response(DatasetItemReadSerializer(page, many=True).data)
-        return Response(DatasetItemReadSerializer(queryset, many=True).data)
+            return self.get_paginated_response(DatasetItemReadSerializer(versions, many=True).data)
+        return Response(DatasetItemReadSerializer(versions, many=True).data)

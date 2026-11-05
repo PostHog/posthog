@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+import os
 import math
+import time
+import fcntl
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from unittest.mock import Mock, patch
 
 import click
+from hogli import telemetry
 from hogli_commands import worktrees
+from hogli_commands.cargo_targets import unused_legacy_cargo_target, worktrees_running_cargo
 from hogli_commands.devbox import config as devbox_config
 from hogli_commands.worktrees import (
     Worktree,
@@ -21,14 +27,17 @@ from hogli_commands.worktrees import (
     _discover_root_worktrees,
     _du_sizes,
     _execute,
+    _in_use,
     _include_orphans,
     _is_under,
     _match_worktree_boxes,
     _parse_cutoff,
+    _populate_sizes,
     _reclaimed_bytes,
     _registered_worktrees,
     _resolve_box_action,
     _resolve_orphan_policy,
+    _unattended_lock,
     _worktree_roots,
 )
 
@@ -56,6 +65,75 @@ def _git_stub(responses: dict[str, tuple[int, str]]):
 
 # Frozen reference clock (2023-11-14T22:13:20Z) for deterministic cutoff math.
 _NOW = 1_700_000_000.0
+
+
+@pytest.mark.parametrize(
+    ("cwd", "expected"),
+    [
+        (Path("/repo/.claude/worktrees/a"), True),
+        (Path("/repo/.claude/worktrees/a/frontend/src"), True),
+        (Path("/repo/.claude/worktrees/ab"), False),
+        (Path("/repo"), False),
+    ],
+    ids=["worktree itself", "subdirectory", "sibling with same prefix", "parent"],
+)
+def test_in_use_matches_the_worktree_and_its_subdirectories(cwd: Path, expected: bool) -> None:
+    assert _in_use(Path("/repo/.claude/worktrees/a"), {cwd}) is expected
+
+
+@pytest.mark.parametrize(
+    "lsof",
+    [
+        Mock(side_effect=FileNotFoundError("lsof")),
+        Mock(side_effect=subprocess.TimeoutExpired("lsof", 30)),
+        Mock(return_value=subprocess.CompletedProcess(["lsof"], 0, stdout="", stderr="")),
+    ],
+    ids=["missing", "timed out", "empty"],
+)
+def test_process_cwds_is_none_when_lsof_gives_nothing(lsof: Mock, monkeypatch) -> None:
+    monkeypatch.setattr(worktrees.sys, "platform", "darwin")
+    with patch.object(worktrees.subprocess, "run", lsof):
+        assert worktrees._process_cwds() is None
+
+
+def test_reclaimed_properties_sum_across_unattended_tiers() -> None:
+    with click.Context(click.Command("worktrees:clean")) as ctx:
+        worktrees._add_reclaimed_properties(1.5e9, 2)
+        worktrees._add_reclaimed_properties(-1.0, 1)
+
+        assert ctx.meta[telemetry.COMMAND_PROPERTIES_META_KEY] == {"reclaimed_gb": 1.5, "worktrees_removed": 3}
+
+
+class TestUnattendedLock:
+    @pytest.fixture(autouse=True)
+    def _lock_path(self, tmp_path, monkeypatch) -> Path:
+        path = tmp_path / "worktrees-clean.lock"
+        monkeypatch.setattr(worktrees, "_UNATTENDED_LOCK", path)
+        return path
+
+    def _take(self, dry_run: bool) -> bool:
+        lock = _unattended_lock(dry_run)
+        if lock is None:
+            return False
+        lock.close()
+        return True
+
+    def test_second_run_same_day_is_refused(self) -> None:
+        assert self._take(dry_run=False)
+        assert not self._take(dry_run=False)
+
+    def test_dry_run_does_not_consume_the_day(self) -> None:
+        assert self._take(dry_run=True)
+        assert self._take(dry_run=False)
+
+    def test_concurrent_run_holding_the_lock_is_refused(self, _lock_path: Path) -> None:
+        with _lock_path.open("a") as other_shell:
+            fcntl.flock(other_shell, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            assert not self._take(dry_run=False)
+
+    def test_run_older_than_a_day_is_due(self, _lock_path: Path) -> None:
+        _lock_path.write_text(str(time.time() - 25 * 3600))
+        assert self._take(dry_run=False)
 
 
 class TestParseCutoff:
@@ -186,6 +264,87 @@ class TestCollectDepsItems:
         assert (worktree / "node_modules").resolve() in items
         assert all(_is_under(item, worktree_resolved) for item in items)
         assert (external / "dist").resolve() not in items
+
+    def test_deps_mode_keeps_a_cargo_target_built_after_the_cutoff(self, tmp_path) -> None:
+        cutoff = time.time() - 7 * 86400
+        worktree = tmp_path / "wt"
+        (worktree / "node_modules").mkdir(parents=True)
+        stale_target = _write_cargo_target(worktree / "rust" / "target", cutoff - 86400)
+        # Cargo rewrites fingerprint files in place, so a fresh build leaves the directory mtimes old.
+        _write_cargo_target(worktree / "cli" / "target", time.time())
+        _write_cargo_target(worktree / "plugin" / "target", time.time(), profile=Path("wasm32-wasip1") / "release")
+        wt = _make_worktree(worktree)
+
+        _populate_sizes([wt], "deps", cutoff)
+
+        assert sorted(wt.deps_items) == sorted([(worktree / "node_modules").resolve(), stale_target.resolve()])
+
+
+def _write_cargo_target(target: Path, last_build_epoch: float, profile: Path = Path("debug")) -> Path:
+    unit = target / profile / ".fingerprint" / "posthog-unit"
+    unit.mkdir(parents=True)
+    (unit / "lib-posthog").write_bytes(b"x" * 1024)
+    os.utime(unit / "lib-posthog", (last_build_epoch, last_build_epoch))
+    (target / "CACHEDIR.TAG").write_text("Signature: 8a477f597d28d172789f06886806bc55\n")
+    month_ago = time.time() - 30 * 86400
+    directory = unit
+    while directory != target.parent:
+        os.utime(directory, (month_ago, month_ago))
+        directory = directory.parent
+    return target
+
+
+def _fake_cargo_processes(monkeypatch, cargo_cwd: Path | None, lsof_available: bool = True) -> None:
+    def fake_run(args, **kwargs):
+        if args[0] == "pgrep":
+            return subprocess.CompletedProcess(
+                args, 0 if cargo_cwd else 1, stdout=f"{os.getpid()}\n" if cargo_cwd else ""
+            )
+        if not lsof_available:
+            raise FileNotFoundError("lsof")
+        return subprocess.CompletedProcess(args, 0, stdout=f"p{os.getpid()}\nn{cargo_cwd}\n")
+
+    monkeypatch.setattr("hogli_commands.cargo_targets.subprocess.run", fake_run)
+
+
+class TestCargoTargets:
+    @pytest.mark.parametrize("lsof_available", [True, False], ids=["traced", "lsof_unavailable"])
+    def test_worktree_with_cargo_running_below_its_root_is_busy(self, tmp_path, monkeypatch, lsof_available) -> None:
+        idle, building = tmp_path / "idle", tmp_path / "building"
+        cargo_cwd = building / "rust" / "capture"
+        cargo_cwd.mkdir(parents=True)
+        idle.mkdir()
+        _fake_cargo_processes(monkeypatch, cargo_cwd, lsof_available)
+
+        # A live cargo process that cannot be traced to a directory must block every worktree, not none.
+        assert worktrees_running_cargo([idle, building]) == ({building} if lsof_available else None)
+
+    @pytest.mark.parametrize(
+        "cargo_target_dir_set,days_since_build,cargo_running,expected_offered",
+        [(False, 10, False, True), (True, 10, False, False), (False, 1, False, False), (False, 10, True, False)],
+        ids=["unused", "cargo_target_dir_set", "built_recently", "cargo_running_elsewhere"],
+    )
+    def test_legacy_cargo_target_is_offered_only_when_nothing_builds_there(
+        self,
+        tmp_path,
+        monkeypatch,
+        cargo_target_dir_set: bool,
+        days_since_build: int,
+        cargo_running: bool,
+        expected_offered: bool,
+    ) -> None:
+        home = tmp_path / "home"
+        target = _write_cargo_target(home / ".cargo" / "target", time.time() - days_since_build * 86400)
+        monkeypatch.setattr(Path, "home", lambda: home)
+        _fake_cargo_processes(monkeypatch, tmp_path if cargo_running else None)
+        if cargo_target_dir_set:
+            monkeypatch.setenv("CARGO_TARGET_DIR", str(target))
+        else:
+            monkeypatch.delenv("CARGO_TARGET_DIR", raising=False)
+
+        offered = unused_legacy_cargo_target(time.time() - 7 * 86400)
+
+        assert offered == (target if expected_offered else None)
 
 
 class TestRegisteredWorktrees:
@@ -573,6 +732,33 @@ class TestReclaimedBytes:
 
 
 class TestExecute:
+    @pytest.fixture(autouse=True)
+    def no_busy_processes(self, monkeypatch) -> None:
+        monkeypatch.setattr(worktrees, "_process_cwds", lambda: set())
+
+    def test_worktree_entered_during_the_reap_is_kept(self, tmp_path, monkeypatch) -> None:
+        first, second = tmp_path / "first", tmp_path / "second"
+        (first / "src").mkdir(parents=True)
+        (second / "src").mkdir(parents=True)
+        snapshots = iter([set(), {(second / "src").resolve()}])
+        monkeypatch.setattr(worktrees, "_process_cwds", lambda: next(snapshots))
+        before_remove = Mock()
+
+        reap = _execute(
+            [
+                Worktree(source="claude", path=path, registered=False, locked=False, branch="", last_activity=0.0)
+                for path in (first, second)
+            ],
+            "full",
+            tmp_path,
+            before_remove=before_remove,
+        )
+
+        assert (reap.removed, reap.failed) == (1, 0)
+        assert not first.exists()
+        assert second.exists()
+        assert [call.args[0].path for call in before_remove.call_args_list] == [first]
+
     @pytest.mark.parametrize("read_only_go_module_cache", [True, False], ids=["read_only_tree", "already_removed"])
     def test_full_mode_counts_worktree_as_removed(self, tmp_path, read_only_go_module_cache) -> None:
         worktree = tmp_path / "wt"
@@ -583,13 +769,13 @@ class TestExecute:
             module.chmod(0o555)
             module.parent.chmod(0o555)
 
-        _, removed, failed = _execute(
+        reap = _execute(
             [Worktree(source="claude", path=worktree, registered=False, locked=False, branch="", last_activity=0.0)],
             "full",
             tmp_path,
         )
 
-        assert (removed, failed) == (1, 0)
+        assert (reap.removed, reap.failed) == (1, 0)
         assert not worktree.exists()
 
 

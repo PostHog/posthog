@@ -10,6 +10,7 @@ import {
     reducers,
     selectors,
 } from 'kea'
+import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
@@ -21,6 +22,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { themeLogic } from 'lib/logic/themeLogic'
 import posthog from 'lib/posthog-typed'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { navigateToHref } from 'lib/utils/navigateToHref'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { teamLogic } from 'scenes/teamLogic'
@@ -125,6 +127,7 @@ export interface commandKSearchLogicValues {
         query: SectionsQuery
         stale: boolean
     }
+    expandedGroups: string[]
     filterOptions: FilterOptions
     folders: FileSystemEntry[] | null
     highlightIsFilterRow: boolean
@@ -226,6 +229,9 @@ export interface commandKSearchLogicActions {
     }
     editChip: (index: number) => {
         index: number
+    }
+    expandGroup: (group: string) => {
+        group: string
     }
     foldersLoaded: (folders: FileSystemEntry[]) => {
         folders: FileSystemEntry[]
@@ -371,7 +377,8 @@ export interface commandKSearchLogicMeta {
                 stale: boolean
             },
             featureFlags: FeatureFlagsSet,
-            searchCorrection: SearchCorrection | null
+            searchCorrection: SearchCorrection | null,
+            expandedGroups: string[]
         ) => CommandKSection[]
         selectableRows: (sections: CommandKSection[]) => CommandKRow[]
         highlightedRow: (selectableRows: CommandKRow[], highlightedKey: string | null) => CommandKRow | null
@@ -395,6 +402,14 @@ const asLiteralPanelPrompt = (question: string): string => ` ${question}`
  * highlight, and loads remote results. It mounts with the palette and unmounts when the palette
  * closes, which is what scopes every cache and in-flight request to one use of the palette.
  */
+const scrollToAnchorOnCurrentPage = (href: string): void => {
+    const [path, anchor] = href.split('#')
+    const { pathname, hash } = router.values.location
+    if (anchor && hash === `#${anchor}` && removeProjectIdIfPresent(pathname) === removeProjectIdIfPresent(path)) {
+        document.getElementById(anchor)?.scrollIntoView()
+    }
+}
+
 export const commandKSearchLogic = kea<commandKSearchLogicType>([
     path(['lib', 'components', 'CommandKSearch', 'commandKSearchLogic']),
     connect(() => ({
@@ -405,7 +420,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             [
                 'starredItems',
                 'productsItems',
-                'settingsItems',
+                'commandKSettingsItems as settingsItems',
                 'newItems',
                 'dataManagementItems',
                 'peopleItems',
@@ -453,6 +468,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
         applyKeyIntent: (intent: KeyIntent) => ({ intent }),
         moveHighlight: (direction: 1 | -1) => ({ direction }),
         setHighlightedKey: (key: string | null) => ({ key }),
+        expandGroup: (group: string) => ({ group }),
         activateRow: (row: CommandKRow, newTab: boolean, via: CommitVia) => ({ row, newTab, via }),
         completeHighlighted: true,
         askAi: true,
@@ -498,6 +514,13 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             {
                 setHighlightedKey: (_, { key }) => key,
                 setChipsAndText: () => null,
+            },
+        ],
+        expandedGroups: [
+            [] as string[],
+            {
+                expandGroup: (state, { group }) => (state.includes(group) ? state : [...state, group]),
+                setChipsAndText: () => [],
             },
         ],
         // The query each request last asked for. No selector reads it, so starting a request never re-renders.
@@ -754,6 +777,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 s.displayedQuery,
                 s.featureFlags,
                 s.searchCorrection,
+                s.expandedGroups,
             ],
             (
                 mode: CommandKMode,
@@ -763,7 +787,8 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                 remote: RemoteSlots,
                 displayed: { query: SectionsQuery; stale: boolean },
                 featureFlags: FeatureFlagsSet,
-                searchCorrection: SearchCorrection | null
+                searchCorrection: SearchCorrection | null,
+                expandedGroups: string[]
             ): CommandKSection[] => {
                 const unifiedRanking =
                     freeWords(displayed.query.remoteQueries.results ?? '').length > 0 &&
@@ -778,6 +803,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     stale: displayed.stale,
                     personsFirst: !!displayed.query.remoteQueries.persons?.includes('@'),
                     unifiedRanking,
+                    expandedGroups,
                     searchCorrection:
                         searchCorrection &&
                         (displayed.query.remoteQueries.results ?? displayed.query.localQuery).endsWith(
@@ -895,6 +921,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             } else if (item?.href && newTab) {
                 newInternalTab(item.href)
             } else if (item?.href) {
+                scrollToAnchorOnCurrentPage(item.href)
                 navigateToHref(item.href)
             }
         }
@@ -1097,6 +1124,13 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                         context.kind === 'value' ? context.token : null,
                         via
                     )
+                } else if (row.kind === 'expand') {
+                    const index = values.selectableRows.findIndex((candidate) => candidate.key === row.key)
+                    actions.expandGroup(row.group)
+                    const next = values.selectableRows[index]
+                    if (next) {
+                        actions.setHighlightedKey(next.key)
+                    }
                 } else if (row.kind === 'scope') {
                     const option = values.filterOptions.is.find((candidate) => candidate.value === row.type)
                     actions.commitChip(
