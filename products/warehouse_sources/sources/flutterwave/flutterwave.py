@@ -56,9 +56,13 @@ WINDOW_END_PADDING_DAYS = 1
 # is deliberately narrow: a genuine parameter error ("page parameter must be a positive integer")
 # does not carry this wording and still raises. Both cases are listed because the substring match is
 # case sensitive and v3 is inconsistent about capitalizing "found".
+# v3's own reference docs document a third shape for this same "nothing to return" 400: a bare `{}`
+# body with no message at all. A genuine parameter error always carries a message, so an empty body
+# is unambiguous and safe to read the same way.
 _NO_RECORDS_RESPONSE_ACTIONS: list[ResponseAction] = [
     {"status_code": 400, "content": "found", "action": "ignore"},
     {"status_code": 400, "content": "Found", "action": "ignore"},
+    {"status_code": 400, "content": "{}", "action": "ignore"},
 ]
 
 
