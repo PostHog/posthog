@@ -19,6 +19,11 @@ class SandboxSenderOrganizationBlockAdmin(admin.ModelAdmin):
     list_select_related = ("organization", "created_by")
     ordering = ("-created_at",)
 
+    def get_readonly_fields(
+        self, request: HttpRequest, obj: SandboxSenderOrganizationBlock | None = None
+    ) -> tuple[str, ...]:
+        return ("organization", *self.readonly_fields) if obj is not None else tuple(self.readonly_fields)
+
     def save_model(
         self,
         request: HttpRequest,
