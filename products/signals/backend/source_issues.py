@@ -90,11 +90,14 @@ def append_source_issues(
     return written
 
 
-def schedule_source_issue_writeback(*, team_id: int, report_id: str) -> None:
+def schedule_source_issue_writeback(*, team_id: int, report_id: str, signals: list[dict] | None = None) -> None:
     """Queue the GitHub writeback for a READY report's source issues.
 
     Scout reports skip research, so the inbox notification workflow that comments for a researched
-    report never runs for them. The task re-checks the team opt-in and the report status itself.
+    report never runs for them. A source issue only gets a comment once the GitHub source ingested
+    it, which often happens after the scout filed the report, so grouping calls this again with the
+    issue's signal when that signal joins the report. The task re-checks the team opt-in and the
+    report status itself.
     """
     if not SignalReport.objects.filter(team_id=team_id, id=report_id, status=SignalReport.Status.READY).exists():
         return
@@ -102,7 +105,7 @@ def schedule_source_issue_writeback(*, team_id: int, report_id: str) -> None:
         post_source_issue_links,
     )
 
-    post_source_issue_links.delay(team_id=team_id, report_id=report_id)
+    post_source_issue_links.delay(team_id=team_id, report_id=report_id, signals=signals)
 
 
 def open_report_for_source_issue(*, team_id: int, url: str) -> SignalReport | None:

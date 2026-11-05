@@ -8,8 +8,8 @@ thread.
 
 A scout that files a report about an issue records it as a `source_issue` artefact instead of a
 signal, so the writeback reads both (see `source_issues.py`). Anyone who files a report can name any
-URL, so a source issue gets a comment only in a repository the team's GitHub source already ingests
-issues from. That keeps the comment's reach where it was before source issues existed.
+URL, so a source issue gets a comment only once the team's GitHub source has ingested that issue as a
+signal. That keeps the comment on the issues the pipeline actually picked up.
 """
 
 from __future__ import annotations
@@ -59,22 +59,17 @@ def _comment_body(report_url: str, marker: str) -> str:
     )
 
 
-# The `owner/repo` of a GitHub issue signal, read from its URL. Lowercased, like every stored ref.
-_SIGNAL_REPOSITORY = "arrayStringConcat(arraySlice(splitByChar('/', lower(JSONExtractString(metadata, 'extra', 'html_url'))), 4, 2), '/')"
-
-
-def _repositories_with_issue_signals(team: Team, repositories: Collection[str]) -> set[str]:
-    """The repositories, of those given, that the team's GitHub source has ingested an issue from."""
-    if not repositories:
+def _ingested_issue_urls(team: Team, urls: Collection[str]) -> set[str]:
+    """The issue URLs, of those given, that the team's GitHub source has ingested as a signal."""
+    if not urls:
         return set()
     issue_filter = (
         "JSONExtractString(metadata, 'source_product') = 'github' "
         "AND JSONExtractString(metadata, 'source_type') = 'issue' "
-        "AND startsWith(lower(JSONExtractString(metadata, 'extra', 'html_url')), 'https://github.com/') "
-        f"AND {_SIGNAL_REPOSITORY} IN {{repositories}}"
+        "AND lower(JSONExtractString(metadata, 'extra', 'html_url')) IN {urls}"
     )
     query = f"""
-        SELECT DISTINCT {_SIGNAL_REPOSITORY}
+        SELECT DISTINCT lower(JSONExtractString(metadata, 'extra', 'html_url'))
         FROM ({_deduped_signals_subquery(include_content=False, candidate_document_filter=issue_filter)})
         WHERE NOT JSONExtractBool(metadata, 'deleted')
           AND {issue_filter}
@@ -83,12 +78,12 @@ def _repositories_with_issue_signals(team: Team, repositories: Collection[str]) 
     result = execute_hogql_query(
         ch_user=ClickHouseUser.SIGNALS,
         workload=Workload.OFFLINE,
-        query_type="SignalsGithubWritebackRepositories",
+        query_type="SignalsGithubWritebackIngestedIssues",
         query=query,
         team=team,
         placeholders={
             "model_name": ast.Constant(value=EMBEDDING_MODEL.value),
-            "repositories": ast.Tuple(exprs=[ast.Constant(value=repository) for repository in repositories]),
+            "urls": ast.Tuple(exprs=[ast.Constant(value=url) for url in urls]),
         },
         context=_signals_query_context(team),
     )
@@ -253,8 +248,8 @@ def post_report_link_to_github_issues(team: Team, report_id: str, signals: list[
 
     source_issues = source_issues_by_report(team_id=team.pk, report_ids=[report_id]).get(report_id, [])
     if source_issues:
-        synced = _repositories_with_issue_signals(team, {issue.repository for issue in source_issues})
-        source_issues = [issue for issue in source_issues if issue.repository in synced]
+        ingested = _ingested_issue_urls(team, {issue.url for issue in source_issues})
+        source_issues = [issue for issue in source_issues if issue.url in ingested]
     refs = _issue_refs(signals, source_issues)
     if not refs:
         return 0

@@ -43,7 +43,7 @@ from products.signals.backend.recurrence import forks_recurrence
 from products.signals.backend.report_merge import signal_target_report
 from products.signals.backend.report_monitoring_signals import current_research_attempt
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
-from products.signals.backend.source_issues import open_report_for_source_issue
+from products.signals.backend.source_issues import open_report_for_source_issue, schedule_source_issue_writeback
 from products.signals.backend.spend import begin_report_spend, complete_signal_pipeline, signal_spend_summaries
 from products.signals.backend.spend_billing import system_source_exempt
 from products.signals.backend.temporal import metrics
@@ -888,6 +888,23 @@ def _link_check_follow_up(*, team_id: int, report_id: str, source_product: str, 
         )
 
 
+async def _schedule_writeback_for_source_issue_signal(input: "AssignAndEmitSignalInput", report_id: str) -> None:
+    # The report names this issue as its source, and the issue only now reached the pipeline, so this
+    # is the first moment the writeback may comment on it. Best-effort, like the writeback itself.
+    extra = input.extra or {}
+    signal = {
+        "source_product": input.source_product,
+        "source_type": input.source_type,
+        "extra": {key: extra.get(key) for key in ("html_url", "state", "locked")},
+    }
+    try:
+        await database_sync_to_async(schedule_source_issue_writeback, thread_sensitive=False)(
+            team_id=input.team_id, report_id=report_id, signals=[signal]
+        )
+    except Exception:
+        logger.exception("Failed to schedule source issue writeback", report_id=report_id, team_id=input.team_id)
+
+
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -1242,6 +1259,8 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     team_id=input.team_id,
                     source_id=input.source_id,
                 )
+            if isinstance(match_result, ExistingReportMatch) and match_result.source_issue_matched:
+                await _schedule_writeback_for_source_issue_signal(input, db_result.report_id)
             # A signal on an already-researched report that did not spawn re-research, because the
             # report is either between buckets or past its last one. Emitted so the withheld
             # re-research volume is trackable, split by which of the two reasons held it back.

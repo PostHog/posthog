@@ -13,7 +13,7 @@ from products.signals.backend.artefact_schemas import SourceIssue
 from products.signals.backend.github_writeback import (
     CLAIM_LEASE,
     MAX_COMMENT_PAGES,
-    _repositories_with_issue_signals,
+    _ingested_issue_urls,
     post_report_link_to_github_issues,
 )
 from products.signals.backend.models import (
@@ -148,16 +148,14 @@ class TestPostReportLinkToGithubIssues(BaseTest):
 
     @parameterized.expand(
         [
-            ("a source issue in a synced repository", False, {"acme/widgets"}, 1),
-            ("a source issue in a repository the source never synced", False, set(), 0),
+            ("a source issue the source ingested", False, {"https://github.com/acme/widgets/issues/42"}, 1),
+            ("a source issue the source never ingested", False, set(), 0),
             ("the same issue from a signal and a source issue", True, set(), 1),
         ]
     )
-    def test_comments_on_a_source_issue_only_in_a_repository_the_source_syncs(
-        self, _name, with_signal, synced, expected
-    ):
-        # Anyone who files a report can name any issue URL, so the app must not comment outside the
-        # repositories the team's GitHub source already reaches.
+    def test_comments_on_a_source_issue_only_once_the_source_ingested_it(self, _name, with_signal, synced, expected):
+        # Anyone who files a report can name any issue URL, so the app comments only on issues the
+        # team's GitHub source actually picked up.
         SignalReportArtefact.add_log(
             team_id=self.team.pk,
             report_id=str(self.report.id),
@@ -165,7 +163,7 @@ class TestPostReportLinkToGithubIssues(BaseTest):
             attribution=ArtefactAttribution.system(),
         )
 
-        with patch(f"{WRITEBACK_MODULE_PATH}._repositories_with_issue_signals", return_value=synced):
+        with patch(f"{WRITEBACK_MODULE_PATH}._ingested_issue_urls", return_value=synced):
             posted, comment = self._post([self.signal] if with_signal else [])
 
         assert posted == expected
@@ -251,12 +249,12 @@ class TestPostReportLinkToGithubIssues(BaseTest):
         assert SignalReportGithubComment.objects.for_team(self.team.pk).get().commented_at is None
 
 
-class TestRepositoriesWithIssueSignals(_SignalEmbeddingsTestBase):
-    def test_finds_only_repositories_with_a_live_github_issue_signal(self) -> None:
+class TestIngestedIssueUrls(_SignalEmbeddingsTestBase):
+    def test_finds_only_issues_with_a_live_github_issue_signal(self) -> None:
         for document_id, source_product, html_url, deleted in [
-            ("synced", "github", "https://github.com/Acme/Widgets/issues/7", False),
-            ("deleted", "github", "https://github.com/acme/gone/issues/1", True),
-            ("other-source", "linear", "https://github.com/acme/linear/issues/1", False),
+            ("ingested", "github", "https://github.com/Acme/Widgets/issues/7", False),
+            ("deleted", "github", "https://github.com/acme/widgets/issues/8", True),
+            ("other-source", "linear", "https://github.com/acme/widgets/issues/9", False),
         ]:
             self._emit_version(
                 document_id=document_id,
@@ -268,6 +266,6 @@ class TestRepositoriesWithIssueSignals(_SignalEmbeddingsTestBase):
                 extra={"html_url": html_url},
             )
 
-        found = _repositories_with_issue_signals(self.team, {"acme/widgets", "acme/gone", "acme/linear", "acme/never"})
+        urls = {f"https://github.com/acme/widgets/issues/{number}" for number in (7, 8, 9, 10)}
 
-        assert found == {"acme/widgets"}
+        assert _ingested_issue_urls(self.team, urls) == {"https://github.com/acme/widgets/issues/7"}
