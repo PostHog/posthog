@@ -197,10 +197,10 @@ Use one local dashboard with at least two working insight tiles and three SQL va
 
 ## Source files
 
-- `frontend/src/scenes/dashboard/DashboardFilters.tsx`
+- `products/dashboards/frontend/DashboardFilters.tsx`
 - `frontend/src/scenes/dashboard/DashboardUnsavedChangesIndicator.tsx`
 - `frontend/src/scenes/dashboard/dashboardChanges.ts`
 - `frontend/src/scenes/dashboard/dashboardLogic.tsx`
-- `frontend/src/scenes/dashboard/DashboardItems.tsx`
-- `frontend/src/scenes/dashboard/DashboardSceneMenuBar.tsx`
-- `frontend/src/scenes/dashboard/DashboardScenePanel.tsx`
+- `products/dashboards/frontend/DashboardItems.tsx`
+- `products/dashboards/frontend/DashboardSceneMenuBar.tsx`
+- `products/dashboards/frontend/DashboardScenePanel.tsx`

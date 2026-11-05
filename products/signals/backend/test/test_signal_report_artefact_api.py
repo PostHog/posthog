@@ -465,6 +465,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         if allowed:
             assert mock_autostart.call_args.kwargs["report_id"] == str(report.id)
             assert mock_autostart.call_args.kwargs["team_id"] == self.team.id
+            assert mock_autostart.call_args.kwargs["triggering_user_id"] == self.user.id
 
     def test_put_adding_reviewer_notifies_added_reviewer_on_commit(self):
         # Manually adding a reviewer enqueues a Slack ping (after commit) for only the newly-added
