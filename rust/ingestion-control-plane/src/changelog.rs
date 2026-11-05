@@ -184,6 +184,8 @@ pub struct ChangelogView {
     pub request: Option<MigrationRequest>,
     pub history: Vec<MigrationState>,
     pub draining: Vec<DrainingView>,
+    pub clusters: Vec<String>,
+    pub cross_cluster_migrations: bool,
 }
 
 #[derive(Serialize)]
@@ -202,6 +204,7 @@ pub struct DrainingView {
     pub topic: String,
     pub partitions: u32,
     pub epoch: u64,
+    pub cluster: Option<String>,
     pub writer: GroupDrain,
     pub retire_groups: Vec<GroupDrain>,
 }
@@ -473,6 +476,7 @@ pub async fn view(config: &Config, client: &Client, prefix: &str) -> anyhow::Res
                 topic: generation.topic.clone(),
                 partitions: generation.partitions,
                 epoch: generation.epoch,
+                cluster: generation.cluster.as_ref().map(|c| c.name.clone()),
                 writer: drain(&kafka, &changelog.writer_group, &generation.topic).await,
                 retire_groups: {
                     let mut drains = Vec::new();
@@ -501,6 +505,8 @@ pub async fn view(config: &Config, client: &Client, prefix: &str) -> anyhow::Res
         request,
         history,
         draining,
+        clusters: config.changelog_cluster_names()?,
+        cross_cluster_migrations: config.personhog_cross_cluster_migrations,
     })
 }
 
