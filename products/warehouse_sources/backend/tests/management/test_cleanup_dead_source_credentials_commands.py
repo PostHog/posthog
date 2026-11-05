@@ -454,11 +454,13 @@ class TestLegacyGrantFailures(SimpleTestCase):
             ("refresh_server_error", False, ScriptedResponse(status=503, json={"message": "retry"})),
             ("refresh_request_timeout", False, ScriptedResponse(status=408, json={"message": "retry"})),
             ("refresh_unknown_4xx", False, ScriptedResponse(status=477, json={"message": "retry"})),
+            ("refresh_malformed_body", False, ScriptedResponse(json=[])),
             ("info_timeout", True, requests.ReadTimeout(FAKE_TOKEN)),
             ("info_rate_limit", True, ScriptedResponse(status=429)),
             ("info_server_error", True, ScriptedResponse(status=503)),
             ("info_request_timeout", True, ScriptedResponse(status=408)),
             ("info_unknown_4xx", True, ScriptedResponse(status=477)),
+            ("info_malformed_body", True, ScriptedResponse(json=[])),
         ]
     )
     def test_transport_failures_do_not_mark_a_grant_unusable(

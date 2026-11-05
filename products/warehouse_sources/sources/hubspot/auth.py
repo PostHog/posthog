@@ -180,7 +180,7 @@ def hubspot_exchange_legacy_grant(refresh_token: str) -> HubspotLegacyGrant:
             raise LegacyOAuthGrantUnusable("HubSpot rejected the token information request")
         token_info = res.json()
         if not isinstance(token_info, Mapping):
-            raise LegacyOAuthGrantUnusable("HubSpot returned invalid token information")
+            raise HubspotRetryableError("HubSpot returned invalid token information")
         hub_id = token_info.get("hub_id")
         if isinstance(hub_id, bool) or not isinstance(hub_id, (int, str)) or not hub_id:
             raise LegacyOAuthGrantUnusable("HubSpot returned no hub id")
@@ -196,7 +196,8 @@ def hubspot_exchange_legacy_grant(refresh_token: str) -> HubspotLegacyGrant:
         )
     except HubspotTokenRefreshError as e:
         # A timeout or an unknown 4xx is not a rejection of the grant, so the cleanup must not clear the tokens.
-        if e.status_code is not None and _is_retryable_status(e.status_code):
+        # No status means HubSpot answered 200 with a malformed body, which does not reject the grant either.
+        if e.status_code is None or _is_retryable_status(e.status_code):
             raise HubspotRetryableError("The legacy HubSpot grant could not be checked") from None
         raise LegacyOAuthGrantUnusable("The legacy HubSpot grant could not be exchanged") from None
     except (HubspotRetryableError, requests.RequestException, ValueError):
