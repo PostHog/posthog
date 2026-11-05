@@ -102,6 +102,8 @@ export interface EmailStatusRow {
     recipient: string
     function_id: string
     sending_domain: string
+    // Only a scheduled row has one. A row without it stores NULL.
+    scheduled_at?: string
 }
 
 export interface EmailStatusUpdate {
@@ -117,6 +119,8 @@ export interface EmailStatusUpdate {
     recipient?: string
     functionId?: string
     sendingDomain?: string
+    // When a scheduled send is due.
+    scheduledAt?: Date
 }
 
 const isoMicroseconds = (date: Date): string => {
@@ -156,6 +160,7 @@ export const buildEmailStatusRow = (update: EmailStatusUpdate): EmailStatusRow =
         recipient: update.recipient ?? '',
         function_id: update.functionId ?? '',
         sending_domain: update.sendingDomain ?? '',
+        ...(update.scheduledAt && { scheduled_at: isoMicroseconds(update.scheduledAt) }),
     }
 }
 

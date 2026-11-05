@@ -2215,6 +2215,7 @@ describe('CDP API', () => {
 
         const DAY_MS = 24 * 60 * 60 * 1000
         const inDays = (days: number): string => new Date(Date.now() + days * DAY_MS).toISOString()
+        const toClickHouseTime = (date: Date): string => date.toISOString().replace('T', ' ').replace('Z', '000')
 
         const codeSend = {
             content: { subject: 'Reset your password', html: '<p>Hi {{ variables.name }}</p>', text: 'Hi' },
@@ -2470,10 +2471,13 @@ describe('CDP API', () => {
                 expect(retry.status).toEqual(202)
                 expect(retry.body).toEqual({ ...first.body, replayed: true })
                 expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-                expect(emailStatusRows()).toEqual([
-                    expect.objectContaining({ message_id: first.body.invocation_id, status: 'scheduled' }),
-                    expect.objectContaining({ message_id: first.body.invocation_id, status: 'scheduled' }),
-                ])
+                const scheduledRow = expect.objectContaining({
+                    message_id: first.body.invocation_id,
+                    status: 'scheduled',
+                    recipient: body.to,
+                    scheduled_at: toClickHouseTime(scheduledAt),
+                })
+                expect(emailStatusRows()).toEqual([scheduledRow, scheduledRow])
             })
 
             it('frees the key when the scheduled time is too far ahead', async () => {
@@ -2532,7 +2536,13 @@ describe('CDP API', () => {
                     expect(invocation.state.scheduledAt).toEqual(scheduledAt)
                     expect(invocation.queuePriority).toEqual(0)
                     expect(emailStatusRows()).toEqual([
-                        expect.objectContaining({ message_id: res.body.invocation_id, status: 'scheduled' }),
+                        expect.objectContaining({
+                            message_id: res.body.invocation_id,
+                            status: 'scheduled',
+                            recipient: body.to,
+                            function_id: hogFlow.id,
+                            scheduled_at: toClickHouseTime(new Date(scheduledAt)),
+                        }),
                     ])
                 }
             )

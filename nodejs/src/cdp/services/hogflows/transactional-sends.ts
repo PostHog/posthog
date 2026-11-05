@@ -120,6 +120,7 @@ export class TransactionalSends {
                             status: 'scheduled',
                             recipient: to,
                             functionId: hogFlow.id,
+                            scheduledAt: new Date(scheduledAt),
                         })
                     }
                     return { outcome: 'replayed', invocationId: reservation.invocationId, scheduledAt }
@@ -186,6 +187,7 @@ export class TransactionalSends {
             status: scheduledAt ? 'scheduled' : 'queued',
             recipient: to,
             functionId: hogFlow.id,
+            scheduledAt: scheduledAt ?? undefined,
         })
         // Best-effort rows, so the answer waits for the hand-off to Kafka (flushed on shutdown) but not the acks.
         const { produced } = await this.deps.invocationResultsRows.handOffQueuedRows()
