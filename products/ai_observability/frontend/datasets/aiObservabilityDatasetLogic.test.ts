@@ -23,6 +23,7 @@ import {
 } from './aiObservabilityDatasetLogic'
 import { aiObservabilityDatasetsLogic } from './aiObservabilityDatasetsLogic'
 import { datasetsApi } from './datasetsApi'
+import { getStorageKey, saveToDatasetButtonLogic } from './saveToDatasetButtonLogic'
 import { EMPTY_JSON } from './utils'
 
 jest.mock('./datasetsApi', () => ({
@@ -33,6 +34,7 @@ jest.mock('./datasetsApi', () => ({
         getItem: jest.fn(),
         listDatasets: jest.fn(),
         listItems: jest.fn(),
+        createItem: jest.fn(),
         listItemVersions: jest.fn(),
         listRevisions: jest.fn(),
         archiveDataset: jest.fn(),
@@ -135,6 +137,7 @@ describe('aiObservabilityDatasetLogic', () => {
         mockDatasetsApi.getDataset.mockResolvedValue(mockDataset)
         mockDatasetsApi.listDatasets.mockResolvedValue({ results: [], count: 0 })
         mockDatasetsApi.listItems.mockResolvedValue({ results: [], count: 0 })
+        mockDatasetsApi.createItem.mockResolvedValue(mockDatasetItem1)
         mockDatasetsApi.getItem.mockImplementation(async (itemId) => {
             const item = [mockDatasetItem1, mockDatasetItem2].find(({ id }) => id === itemId)
             if (!item) {
@@ -705,6 +708,42 @@ describe('aiObservabilityDatasetLogic', () => {
 
             expect(logic.values.selectedDatasetItem).toEqual(reloadedItem)
         })
+    })
+
+    describe('items added from the add to dataset button', () => {
+        it.each([
+            { via: 'pick', target: 'this', itemCreated: true, refreshes: true },
+            { via: 'pick', target: 'another', itemCreated: true, refreshes: false },
+            { via: 'modal', target: 'this', itemCreated: true, refreshes: true },
+            { via: 'modal', target: 'this', itemCreated: false, refreshes: false },
+            { via: 'modal', target: 'another', itemCreated: true, refreshes: false },
+        ])(
+            'an item saved by $via into $target dataset (created $itemCreated) refreshes the items: $refreshes',
+            async ({ via, target, itemCreated, refreshes }) => {
+                const logic = aiObservabilityDatasetLogic({ datasetId: mockDataset.id })
+                logic.mount()
+                const button = saveToDatasetButtonLogic({ partialDatasetItem: { input: { message: 'hello' } } })
+                button.mount()
+                await expectLogic(logic).toFinishAllListeners()
+                await expectLogic(button).toFinishAllListeners()
+                const targetDataset = target === 'this' ? mockDataset : { ...mockDataset, id: 'another-dataset-id' }
+                const listCallCount = mockDatasetsApi.listItems.mock.calls.length
+
+                await expectLogic(button, () => {
+                    if (via === 'pick') {
+                        button.actions.loadDatasetsSuccess({ [getStorageKey('')]: [targetDataset] })
+                        button.actions.setSearchFormValues({ search: '', datasetId: targetDataset.id })
+                        button.actions.submitSearchForm()
+                    } else {
+                        button.actions.setSelectedDataset(targetDataset)
+                        button.actions.closeItemModal(itemCreated)
+                    }
+                }).toFinishAllListeners()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(mockDatasetsApi.listItems).toHaveBeenCalledTimes(listCallCount + (refreshes ? 1 : 0))
+            }
+        )
     })
 
     describe('dataset loading and defaults', () => {

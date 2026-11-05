@@ -15,6 +15,7 @@ import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
+import { saveToDatasetButtonLogic } from '../../../datasets/saveToDatasetButtonLogic'
 import type { TraceClusterApi } from '../../../generated/api.schemas'
 import { traceReviewLogic } from '../traceReviewLogic'
 import { TraceScene } from '../TraceScene'
@@ -72,6 +73,7 @@ const askedGeneration = makeNodeDetail({
 })
 const nodeDetails: Record<string, typeof answeredGeneration> = { 'gen-1': askedGeneration, 'gen-2': answeredGeneration }
 let nodeRequests: string[] = []
+let datasetListRequests = 0
 const nodeMock = {
     [NODE_URL]: ({ params }: { params: Record<string, unknown> }) => {
         const nodeId = decodeIdSegment(String(params.node_id))
@@ -122,6 +124,7 @@ function renderNewView(
         flags
     )
     nodeRequests = []
+    datasetListRequests = 0
     jest.mocked(performQuery).mockReset()
     jest.mocked(performQuery).mockResolvedValue({ results: [] })
     aiObservabilityTraceLogic.mount()
@@ -148,7 +151,10 @@ describe('TraceScene', () => {
             useMocks({
                 get: {
                     [TRACE_URL]: () => [200, makeTraceResource({ defaultNodeId: 'gen-2' })],
-                    [DATASETS_URL]: () => [200, { count: 0, results: [] }],
+                    [DATASETS_URL]: () => {
+                        datasetListRequests++
+                        return [200, { count: 0, results: [] }]
+                    },
                     [SEARCH_URL]: () => [200, { total: 1, matches: [{ nodeId: 'gen-1', count: 1 }] }],
                     ...nodeMock,
                     ...evaluationsMock,
@@ -490,6 +496,20 @@ describe('TraceScene', () => {
 
             expect(await findByText('Two seats were added.')).toBeTruthy()
             expect(queryByText('Add to dataset') !== null).toBe(enabled)
+        })
+
+        it('keeps the dataset list loaded while an unread step loads', async () => {
+            const { findByText } = renderNewView({ [DATASETS_FLAG]: true })
+            await findByText('Add to dataset')
+            await waitFor(() => expect(datasetListRequests).toBeGreaterThan(0))
+            const requestsBeforeStep = datasetListRequests
+
+            fireEvent.click(await findByText('span-1'))
+            await waitFor(() => expect(nodeRequests).toContain('span-1'))
+            await findByText('Add to dataset')
+            await expectLogic(saveToDatasetButtonLogic).toFinishAllListeners()
+
+            expect(datasetListRequests).toBe(requestsBeforeStep)
         })
 
         it.each([
