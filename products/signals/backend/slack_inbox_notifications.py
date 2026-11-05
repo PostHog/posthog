@@ -19,6 +19,7 @@ from collections.abc import Collection, Iterable
 
 from django.conf import settings
 
+from markdown_to_mrkdwn import SlackMarkdownConverter
 from rest_framework import serializers
 from slack_sdk.errors import SlackApiError
 
@@ -44,6 +45,7 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.report_content_gates import organization_inbox_slack_section_blocks_enabled
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     enrich_reviewer_dicts_with_org_members,
@@ -58,6 +60,7 @@ from products.signals.backend.slack_formatting import (
     first_sentence as _first_sentence,
     prepare_slack_markdown as _prepare_markdown,
     strip_chart_references as _strip_chart_references,
+    truncate_slack_text,
 )
 from products.signals.backend.slack_notification_targets import is_slack_member_target, lookup_slack_user_id_by_email
 from products.signals.backend.slack_report_threads import record_report_slack_thread
@@ -76,6 +79,7 @@ _SLACK_HEADER_MAX_LEN = 150
 _INBOX_INVITE_UTM_TAGS = "utm_source=posthog&utm_campaign=signals_inbox&utm_medium=slack"
 # Bound message size / avoid pinging a crowd.
 _MAX_REVIEWER_MENTIONS = 5
+_slack_converter = SlackMarkdownConverter()
 
 # Deep link opened by the PostHog Desktop app. Override via env for dev (`posthog-code-dev`).
 POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME = getattr(settings, "POSTHOG_CODE_INBOX_DEEP_LINK_SCHEME", "posthog-code")
@@ -340,7 +344,9 @@ def _display_title(title: str | None) -> str:
     return description or title
 
 
-def _build_message_blocks(report: SignalReport, *, reviewer_mentions: list[str]) -> tuple[list[dict], str]:
+def _build_message_blocks(
+    report: SignalReport, *, reviewer_mentions: list[str], use_section_blocks: bool = False
+) -> tuple[list[dict], str]:
     title_line = _display_title(report.title)
     header_text = (
         title_line if len(title_line) <= _SLACK_HEADER_MAX_LEN else title_line[: _SLACK_HEADER_MAX_LEN - 3] + "..."
@@ -360,12 +366,21 @@ def _build_message_blocks(report: SignalReport, *, reviewer_mentions: list[str])
     if not body_parts:
         body_parts.append(f"**{title_line}**")
 
+    body = _prepare_markdown("\n\n".join(body_parts))
+    body_block = (
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": truncate_slack_text(_slack_converter.convert(body), 3000)},
+        }
+        if use_section_blocks
+        else _markdown_block(body)
+    )
     blocks: list[dict] = [
         {"type": "header", "text": {"type": "plain_text", "text": header_text}},
-        _markdown_block(_prepare_markdown("\n\n".join(body_parts))),
+        body_block,
     ]
 
-    # Mentions sit in mrkdwn, not plain_text, so the `<@U…>` token still pings the owner.
+    # Plain-text blocks would show the raw mention token instead of resolving the user.
     if reviewer_mentions:
         owner_label = "Suggested owner" if len(reviewer_mentions) == 1 else "Suggested owners"
         blocks.append(
@@ -533,7 +548,11 @@ def _deliver_route_notification(
             return False
         # The only reviewer a direct message could mention is the person already reading it.
         mentions = [] if route.is_direct_message else _resolve_reviewer_mentions(slack, route.users)
-        blocks, text = _build_message_blocks(report, reviewer_mentions=mentions)
+        blocks, text = _build_message_blocks(
+            report,
+            reviewer_mentions=mentions,
+            use_section_blocks=organization_inbox_slack_section_blocks_enabled(report.team.organization_id),
+        )
         # Added here rather than inside the block builder, which stays free of the integration so it
         # can be tested without one. Approval is read now, not assumed from generation time: a
         # reviewer can be added to a retained report after the org revoked it.

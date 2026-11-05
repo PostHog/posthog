@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.conf import settings
+from django.test import override_settings
 
 from rest_framework.exceptions import ValidationError
 from slack_sdk.errors import SlackApiError
@@ -104,13 +105,14 @@ def _plain_text_block_texts(blocks: list[dict]) -> list[str]:
     return texts
 
 
-def test_build_message_blocks_includes_recipient_and_open_in_posthog_button() -> None:
+@pytest.mark.parametrize("use_section_blocks", [False, True])
+def test_build_message_blocks_includes_recipient_and_open_in_posthog_button(use_section_blocks: bool) -> None:
     report = SignalReport(
         id="report-uuid",
         team_id=42,
         title="fix(checkout): Checkout errors spiked",
         summary=(
-            "Error rate rose after deploy. Ignored second sentence.\nIgnored second line.\n\n"
+            "See [errors](https://example.com/errors?a=1&b=2) after deploy. Ignored second sentence.\nIgnored second line.\n\n"
             "## Problem\n\nThe payment form throws.\n\n"
             "## Impact\n\nAbout **300 buyers** could not pay\nin the last hour. Ignored second sentence.\n\n"
             "A second paragraph stays out.\n\n"
@@ -118,12 +120,24 @@ def test_build_message_blocks_includes_recipient_and_open_in_posthog_button() ->
         ),
         signal_count=12,
     )
-    blocks, text = _build_message_blocks(report, reviewer_mentions=["<@U123>"])
+    blocks, text = _build_message_blocks(report, reviewer_mentions=["<@U123>"], use_section_blocks=use_section_blocks)
 
     assert blocks[0]["text"]["text"] == "Checkout errors spiked"
-    assert blocks[1]["text"] == (
-        "Error rate rose after deploy.\n\n**Impact:** About **300 buyers** could not pay in the last hour."
-    )
+    if use_section_blocks:
+        assert blocks[1] == {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "See <https://example.com/errors?a=1&b=2|errors> after deploy.\n\n"
+                "*Impact:* About *300 buyers* could not pay in the last hour.",
+            },
+        }
+    else:
+        assert blocks[1] == {
+            "type": "markdown",
+            "text": "See [errors](https://example.com/errors?a=1&b=2) after deploy.\n\n"
+            "**Impact:** About **300 buyers** could not pay in the last hour.",
+        }
     # A mention in plain_text would render as the raw token, never pinging anyone.
     assert all("<@" not in t for t in _plain_text_block_texts(blocks))
     assert blocks[2]["elements"][0]["text"] == "👤 Suggested owner: <@U123>"
@@ -162,7 +176,18 @@ def test_build_message_blocks_mentions_every_routed_reviewer() -> None:
     assert blocks[2]["elements"][0]["text"] == "👤 Suggested owners: <@U1> <@U2>"
 
 
-def test_build_message_blocks_escapes_mrkdwn_in_llm_derived_fields() -> None:
+def test_build_message_blocks_caps_section_body_without_truncating_mentions() -> None:
+    report = SignalReport(id="report-uuid", title="🚀" * 2000)
+    blocks, _ = _build_message_blocks(report, reviewer_mentions=["<@U123>"], use_section_blocks=True)
+
+    body = blocks[1]["text"]["text"]
+    assert len(body.encode("utf-16-le")) // 2 <= 3000
+    assert body.endswith("…")
+    assert blocks[2]["elements"][0]["text"] == "👤 Suggested owner: <@U123>"
+
+
+@pytest.mark.parametrize("use_section_blocks", [False, True])
+def test_build_message_blocks_escapes_mrkdwn_in_llm_derived_fields(use_section_blocks: bool) -> None:
     # A crafted summary must not inject Slack mentions (<!here>, <@U…>) into mrkdwn.
     report = SignalReport(
         id="report-uuid",
@@ -170,9 +195,9 @@ def test_build_message_blocks_escapes_mrkdwn_in_llm_derived_fields() -> None:
         summary="<!here> everyone & <@U999> look\n\n## Impact\n\n<!channel> is affected",
         signal_count=1,
     )
-    blocks, _ = _build_message_blocks(report, reviewer_mentions=[])
+    blocks, _ = _build_message_blocks(report, reviewer_mentions=[], use_section_blocks=use_section_blocks)
 
-    section_text = blocks[1]["text"]
+    section_text = blocks[1]["text"]["text"] if use_section_blocks else blocks[1]["text"]
     assert "<!here>" not in section_text
     assert "<@U999>" not in section_text
     assert "<!channel>" not in section_text
@@ -317,8 +342,12 @@ def test_dispatch_no_notification_without_team_channel_or_user_config(org_and_te
         ("U0123ABC456|@reviewer", "U0123ABC456", False),
     ],
 )
+@pytest.mark.parametrize("flag_result", [False, True, None, RuntimeError("flag unavailable")])
 @pytest.mark.django_db
-def test_dispatch_sends_to_configured_reviewer(org_and_team, target, expected_conversation, expects_mention):
+@override_settings(DEBUG=True)
+def test_dispatch_sends_to_configured_reviewer(
+    org_and_team, target, expected_conversation, expects_mention, flag_result
+):
     org, team = org_and_team
     user = _make_reviewer_user(org, "reviewer2@example.com", "another-bot")
     integration = _make_slack_integration(team, user)
@@ -336,6 +365,11 @@ def test_dispatch_sends_to_configured_reviewer(org_and_team, target, expected_co
             "products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email",
             return_value="U_REVIEWER",
         ),
+        patch(
+            "products.signals.backend.report_content_gates.feature_enabled_or_false",
+            side_effect=flag_result if isinstance(flag_result, Exception) else None,
+            return_value=flag_result,
+        ) as evaluate_flag,
     ):
         slack_cls.return_value.client = fake_client
         sent = dispatch_inbox_item_notifications(str(report.id), team.id)
@@ -346,6 +380,15 @@ def test_dispatch_sends_to_configured_reviewer(org_and_team, target, expected_co
     assert call_kwargs["channel"] == expected_conversation
     assert call_kwargs["text"] == "Test report"
     blocks = call_kwargs["blocks"]
+    assert blocks[1]["type"] == ("section" if flag_result is True else "markdown")
+    evaluate_flag.assert_called_once_with(
+        "signals-inbox-slack-section-blocks",
+        str(org.id),
+        groups={"organization": str(org.id)},
+        group_properties={"organization": {"id": str(org.id)}},
+        send_feature_flag_events=False,
+        only_evaluate_locally=True,
+    )
     assert blocks[0]["text"]["text"] == "Test report"
     context_texts = [block["elements"][0]["text"] for block in blocks if block["type"] == "context"]
     if expects_mention:
