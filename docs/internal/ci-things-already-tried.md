@@ -475,10 +475,6 @@ If you propose this again, name the jobs and prove that each one reads only the 
 
 Storybook's `select-stories` job checks out only `.nvmrc` from the PR head. It keeps the bounded blobless history for changed-path detection, downloads the module graph, and runs the selector from a separate trusted base checkout. Source files do not need to exist in the PR worktree for this job.
 
-The MCP agent API diff compute job needs only `.nvmrc`, its entry script and library, schema definitions, and schema snapshots in the worktree.
-Keep its depth-2 history: the script archives each required subtree from `HEAD^1` with its original path prefix.
-Archiving the commit root with path filters prefetches unrelated blobs in a partial clone, which can cost more than the sparse checkout saves.
-
 _Also asked as:_ sparse-checkout, partial clone, do not check out the whole repo, speed up the checkout step
 
 ### Drop `filter: blob:none` from a deep checkout
