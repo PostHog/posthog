@@ -855,6 +855,44 @@ describe('inject_query', () => {
         expect(result.code).toContain('"include_design": false,')
     })
 
+    it.each([
+        {
+            method: 'GET',
+            expected: [
+                'const injectedQuery: Record<string, unknown> & { [K in keyof typeof parsedParams]?: never } = { "include_design": false }',
+                'query: { ...parsedParams, ...injectedQuery },',
+            ],
+        },
+        {
+            method: 'POST',
+            expected: [
+                'const injectedQuery = { "include_design": false }',
+                'body: parsedParams,',
+                'query: injectedQuery,',
+            ],
+        },
+    ])('sends a fixed query parameter from a $method tool with a custom input schema', ({ method, expected }) => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            input_schema: 'ThingListSchema',
+            inject_query: { include_design: false },
+        }
+        const result = generateToolCode(
+            'things-list',
+            config,
+            makeResolved({ method }),
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        for (const line of expected) {
+            expect(result.code).toContain(line)
+        }
+    })
+
     it('rejects an injected query parameter that remains exposed', () => {
         const config: ToolConfig = {
             operation: 'things_list',
