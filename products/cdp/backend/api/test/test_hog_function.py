@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, datetime
 from typing import Any, Optional
+from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
@@ -13,6 +14,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.integration import Integration
+from posthog.models.utils import UUIDT
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
@@ -2918,6 +2920,35 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
             assert response.status_code == status.HTTP_200_OK, response.json()
             assert mock_rerun.call_count == 1
+
+    @parameterized.expand(
+        [
+            ("at_cap", [str(uuid4()) for _ in range(2500)], status.HTTP_200_OK),
+            ("over_cap", [str(uuid4()) for _ in range(2501)], status.HTTP_400_BAD_REQUEST),
+            ("stored_id_format", [str(UUIDT())], status.HTTP_200_OK),
+            ("not_a_uuid", ["x" * 100], status.HTTP_400_BAD_REQUEST),
+            ("empty_list_would_match_whole_window", [], status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_rerun_invocation_ids_validation(self, _name, invocation_ids, expected_status):
+        fn = HogFunction.objects.create(team=self.team, type="destination", hog="return event", enabled=True)
+
+        with patch("products.cdp.backend.api.hog_function.rerun_hog_invocations") as mock_rerun:
+            mock_rerun.return_value = MagicMock(status_code=200, json=lambda: {"rerun_job_id": "job-1"})
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/{fn.id}/rerun/",
+                data={
+                    "filter": {
+                        "window_start": "2026-07-01T00:00:00Z",
+                        "window_end": "2026-07-02T00:00:00Z",
+                        "invocation_ids": invocation_ids,
+                    }
+                },
+            )
+
+        assert response.status_code == expected_status, response.json()
+        assert mock_rerun.call_count == (1 if expected_status == status.HTTP_200_OK else 0)
 
     @parameterized.expand(
         [

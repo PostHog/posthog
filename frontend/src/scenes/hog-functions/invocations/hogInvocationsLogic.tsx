@@ -23,6 +23,10 @@ export const HOG_INVOCATIONS_PAGE_SIZE = 100
  * `HOG_INVOCATION_RERUN_MAX_COUNT` env var (Django serializer + Node CDP config). */
 export const HOG_INVOCATIONS_RERUN_MAX_COUNT = 10000
 
+/** Display-side mirror of `HOG_INVOCATION_RERUN_MAX_IDS`. Selected rows rerun by ID, which has a lower cap
+ * than a rerun that matches on filters. */
+export const HOG_INVOCATIONS_RERUN_MAX_IDS = 2500
+
 export type RunStatus = 'running' | 'succeeded' | 'failed' | 'canceled'
 
 export type HogInvocationsFunctionKind = 'hog_function' | 'hog_flow'
@@ -1284,7 +1288,7 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
         ],
         canBulkRerun: [
             (s) => [s.selectedCount],
-            (selectedCount: number) => selectedCount > 0 && selectedCount <= HOG_INVOCATIONS_RERUN_MAX_COUNT,
+            (selectedCount: number) => selectedCount > 0 && selectedCount <= HOG_INVOCATIONS_RERUN_MAX_IDS,
         ],
         rerunableSelectedIds: [
             (s) => [s.selectedIds, s.runs],
@@ -1377,8 +1381,8 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                 lemonToast.warning('Nothing to rerun')
                 return
             }
-            if (invocationIds.length > HOG_INVOCATIONS_RERUN_MAX_COUNT) {
-                lemonToast.error(`Rerun request capped at ${HOG_INVOCATIONS_RERUN_MAX_COUNT} invocations per request`)
+            if (invocationIds.length > HOG_INVOCATIONS_RERUN_MAX_IDS) {
+                lemonToast.error(`Rerun request capped at ${HOG_INVOCATIONS_RERUN_MAX_IDS} invocations per request`)
                 return
             }
 

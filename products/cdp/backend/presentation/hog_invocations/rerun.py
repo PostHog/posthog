@@ -20,6 +20,15 @@ from posthog.settings.utils import get_from_env
 # env var from its CDP config — keep both in sync if you tweak the default.
 HOG_INVOCATION_RERUN_MAX_COUNT = get_from_env("HOG_INVOCATION_RERUN_MAX_COUNT", default=10000, type_cast=int)
 
+# The rerun worker sends the whole ID list to ClickHouse as one query parameter on every page.
+# `http_max_field_value_size` (128 KiB) applies to the URL-encoded value, so 2912 UUIDs is the
+# most that fits. A longer list fails every page until the worker gives up, so keep this below 2912.
+# The limit is in bytes, so it holds only because `invocation_ids` accepts UUIDs and nothing longer.
+HOG_INVOCATION_RERUN_MAX_IDS = min(2500, HOG_INVOCATION_RERUN_MAX_COUNT)
+
+# Not `UUIDField`: stored IDs are version 0 UUIDs, and the generated `zod.uuid()` schema rejects that version.
+INVOCATION_ID_PATTERN = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+
 # Matches the ClickHouse TTL on `hog_invocation_results` (30 days). A rerun
 # window any longer would point at partitions that have already been dropped.
 RERUN_MAX_WINDOW_DAYS = 30
@@ -65,12 +74,17 @@ class HogInvocationRerunFilterSerializer(serializers.Serializer):
         ),
     )
     invocation_ids = serializers.ListField(
-        child=serializers.CharField(),
+        child=serializers.RegexField(INVOCATION_ID_PATTERN, error_messages={"invalid": "Must be a lowercase UUID."}),
         required=False,
-        max_length=HOG_INVOCATION_RERUN_MAX_COUNT,
+        allow_empty=False,
+        max_length=HOG_INVOCATION_RERUN_MAX_IDS,
+        error_messages={
+            "max_length": "You can rerun up to {max_length} invocations by ID in one request. "
+            "Split the list into smaller requests."
+        },
         help_text=(
-            "Optional restriction to specific invocation IDs within the window. "
-            f"Capped at {HOG_INVOCATION_RERUN_MAX_COUNT} per request. Always combined with "
+            "Optional restriction to specific invocation IDs within the window. Omit it to match the whole "
+            f"window. Capped at {HOG_INVOCATION_RERUN_MAX_IDS} per request. Always combined with "
             "`window_start`/`window_end` so the ClickHouse query can be partition-pruned."
         ),
     )

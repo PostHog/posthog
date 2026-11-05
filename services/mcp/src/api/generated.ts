@@ -53605,8 +53605,9 @@ export namespace Schemas {
          */
       max_count?: number;
       /**
-         * Optional restriction to specific invocation IDs within the window. Capped at 10000 per request. Always combined with `window_start`/`window_end` so the ClickHouse query can be partition-pruned.
-         * @maxItems 10000
+         * Optional restriction to specific invocation IDs within the window. Omit it to match the whole window. Capped at 2500 per request. Always combined with `window_start`/`window_end` so the ClickHouse query can be partition-pruned.
+         * @maxItems 2500
+         * @items.pattern ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
          */
       invocation_ids?: string[];
     }
