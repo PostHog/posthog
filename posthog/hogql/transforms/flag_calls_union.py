@@ -36,6 +36,7 @@ from posthog.hogql.database.schema.events_with_flag_calls import (
     EventsWithFlagCallsTable,
     FlagEvaluationsColumns,
     property_read,
+    serialized_like_events,
     union_table_of,
 )
 from posthog.hogql.database.schema.util.where_clause_extractor import (
@@ -238,6 +239,7 @@ def union_branch_filters(
     union: EventsWithFlagCallsTable,
     columns: FlagEvaluationsColumns,
     flag_key_compares_as_string: Callable[[], bool],
+    context: HogQLContext,
 ) -> UnionBranchFilters:
     """The filters for the union scan that `node` reads, from the resolved WHERE and PREWHERE of `node`."""
     extracted = _scan_conjuncts(node, union)
@@ -250,7 +252,8 @@ def union_branch_filters(
     flag_evaluations_conjuncts = [
         mapped
         for conjunct in flag_call_conjuncts
-        if _truth(conjunct) is not True and (mapped := _FlagEvaluationsReads(columns).copy(conjunct)) is not None
+        if _truth(conjunct) is not True
+        and (mapped := _FlagEvaluationsReads(columns, context).copy(conjunct)) is not None
     ]
     return UnionBranchFilters(
         events=_events_filter(extracted),
@@ -593,9 +596,10 @@ class _Qualified(CloningVisitor):
 
 
 class _FlagEvaluationsReads(CloningVisitor):
-    def __init__(self, columns: FlagEvaluationsColumns) -> None:
+    def __init__(self, columns: FlagEvaluationsColumns, context: HogQLContext) -> None:
         super().__init__()
         self.columns = columns
+        self.context = context
         self.failed = False
 
     def copy(self, expr: ast.Expr) -> ast.Expr | None:
@@ -608,6 +612,15 @@ class _FlagEvaluationsReads(CloningVisitor):
             self.failed = True
             return super().visit_field(node)
         return ast.Field(chain=["flag_evaluations", *chain])
+
+    def visit_call(self, node: ast.Call):
+        argument = node.args[0] if node.name == "toJSONString" and len(node.args) == 1 else None
+        while isinstance(argument, ast.Alias):
+            argument = argument.expr
+        if isinstance(argument, ast.Field):
+            read = self.visit_field(argument)
+            return serialized_like_events(self.columns.events, argument.chain, read, self.context)
+        return super().visit_call(node)
 
 
 class _UnionChainCollector(SyntaxVisitor):

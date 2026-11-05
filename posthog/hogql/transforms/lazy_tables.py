@@ -181,6 +181,24 @@ class WrappedTableExport:
     as_json: bool
 
 
+def _add_json_text_export(table_to_add: LazyTableToAdd, chain: list[str | int]) -> str:
+    """Adds an export of the JSON text of `chain` to `table_to_add`, and returns its name.
+
+    Reads of the same chain share one export. A name that another export of the table uses gets a counter.
+    """
+    base = f"{'___'.join(str(link) for link in chain)}___json"
+    name = base
+    counter = 1
+    while name in table_to_add.fields_accessed and not (
+        name in table_to_add.json_text_fields and table_to_add.fields_accessed[name] == chain
+    ):
+        counter += 1
+        name = f"{base}_{counter}"
+    table_to_add.fields_accessed[name] = chain
+    table_to_add.json_text_fields.add(name)
+    return name
+
+
 class WrappedTableReferenceCollector(GroupedClauseTracker, TraversingVisitor):
     """Collects the outer reads of one table binding before a subquery replaces that table.
 
@@ -448,6 +466,26 @@ class LazyTableResolver(TraversingVisitor):
             field_type.table_type = join_ptr.type
         return scan
 
+    def _union_json_text_reads(self, node: ast.SelectQuery, select_type: ast.SelectQueryType) -> set[int]:
+        """The ids of the property reads in `node` that serialize a key of a union scan with `toJSONString`.
+
+        Each branch of the union exports the key's value as text. On the native JSON events table, `toJSONString` of
+        that text quotes a number, an object or an array, but a direct read on events returns the key's JSON value. So
+        each such read gets its own export, which each branch serializes as a direct read on events does.
+        """
+        reads: set[int] = set()
+        for table_type in select_type.tables.values():
+            if not isinstance(_lazy_table_of(table_type), EventsWithFlagCallsTable):
+                continue
+            collector = WrappedTableReferenceCollector(table_type, self.context)
+            collector.visit(node)
+            reads.update(
+                id(property_type)
+                for property_type, name, _ in collector.properties.values()
+                if collector.exports[name].as_json
+            )
+        return reads
+
     def _read_property_path(
         self, subquery_type: ast.SelectQueryType, column: ast.Alias, property_path: tuple[str | int, ...]
     ) -> None:
@@ -540,6 +578,8 @@ class LazyTableResolver(TraversingVisitor):
             field for field in field_collector if isinstance(field, ast.FieldType)
         ]
         sorted_properties: list[ast.PropertyType | ast.FieldType] = matched_properties + matched_fields
+        json_text_reads = self._union_json_text_reads(node, select_type)
+        pending_json_text: list[tuple[LazyTableToAdd, ast.PropertyType, list[str | int]]] = []
 
         # Look for tables without requested fields to support cases like `select count() from table`
         join = node.select_from
@@ -664,8 +704,11 @@ class LazyTableResolver(TraversingVisitor):
                         lazy_chain.append(field.name)
                         if property is not None:
                             lazy_chain.extend(property.chain)
-                            property.joined_subquery_field_name = "___".join(str(x) for x in lazy_chain)
-                            new_table.fields_accessed[property.joined_subquery_field_name] = lazy_chain
+                            if id(property) in json_text_reads:
+                                pending_json_text.append((new_table, property, lazy_chain))
+                            else:
+                                property.joined_subquery_field_name = "___".join(str(x) for x in lazy_chain)
+                                new_table.fields_accessed[property.joined_subquery_field_name] = lazy_chain
                         else:
                             new_table.fields_accessed[field.name] = lazy_chain
                 elif isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
@@ -720,10 +763,18 @@ class LazyTableResolver(TraversingVisitor):
                             chain.append(field.name)
                             if property is not None:
                                 chain.extend(property.chain)
-                                property.joined_subquery_field_name = "___".join(str(x) for x in chain)
-                                new_table.fields_accessed[property.joined_subquery_field_name] = chain
+                                if id(property) in json_text_reads:
+                                    pending_json_text.append((new_table, property, chain))
+                                else:
+                                    property.joined_subquery_field_name = "___".join(str(x) for x in chain)
+                                    new_table.fields_accessed[property.joined_subquery_field_name] = chain
                             else:
                                 new_table.fields_accessed[field.name] = chain
+
+        # A JSON text export gets its name after every other property export, so that it can avoid their names.
+        for new_table, property, chain in pending_json_text:
+            property.joined_subquery_field_name = _add_json_text_export(new_table, chain)
+            property.joined_subquery_json_text = True
 
         # Make sure we also add fields we will use for the join's "ON" condition into the list of fields accessed.
         # Without this "pdi.person.id" won't work if you did not ALSO select "pdi.person_id" explicitly for the join.

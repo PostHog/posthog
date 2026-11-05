@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from functools import partial
 
 from posthog.hogql import ast
-from posthog.hogql.constants import FLAG_CALLED_EVENT
+from posthog.hogql.constants import FEATURE_FLAG_PROPERTY_PREFIX, FLAG_CALLED_EVENT
 from posthog.hogql.database.models import (
     DatabaseField,
     ExpressionField,
@@ -20,6 +20,7 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
+from posthog.clickhouse.events_json import is_temporary_event_property
 from posthog.dataclasses import frozen
 
 EVENTS_WITH_FLAG_CALLS_TABLE = "events_with_flag_calls"
@@ -161,9 +162,15 @@ class EventsWithFlagCallsTable(LazyTable):
 
         # `SELECT count()` reads no field, and a subquery needs at least one column.
         accessed = dict(table_to_add.fields_accessed) or {"timestamp": ["timestamp"]}
-        events_columns: list[ast.Expr] = [
-            ast.Alias(alias=name, expr=ast.Field(chain=["events", *chain])) for name, chain in accessed.items()
-        ]
+        json_text = table_to_add.json_text_fields
+
+        def events_column(name: str, chain: list[str | int]) -> ast.Expr:
+            read: ast.Expr = ast.Field(chain=["events", *chain])
+            if name in json_text:
+                read = ast.Call(name="toJSONString", args=[read])
+            return ast.Alias(alias=name, expr=read)
+
+        events_columns = [events_column(name, chain) for name, chain in accessed.items()]
         if any(_is_expression(self, chain) for chain in accessed.values()):
             # An expression field reaches here as the key of a join, such as `person_id` for `person`. Resolving it on
             # a second scan of this table puts its own joins, such as `override`, above the branches, so each runs
@@ -180,7 +187,7 @@ class EventsWithFlagCallsTable(LazyTable):
         # Property type resolution ran before lazy tables, so the metadata holds the type of each property this query
         # reads, `$feature_flag` among them.
         filters = union_branch_filters(
-            node, self, columns, partial(flag_key_typed_as_string, context.property_metadata)
+            node, self, columns, partial(flag_key_typed_as_string, context.property_metadata), context
         )
 
         def flag_evaluations_field(chain: list[str | int]) -> ast.Field:
@@ -189,6 +196,12 @@ class EventsWithFlagCallsTable(LazyTable):
                 # union_unreadable_reason refuses such a query before lazy tables resolve.
                 raise QueryError(f"posthog.flag_evaluations has no column for {'.'.join(str(part) for part in chain)}")
             return ast.Field(chain=["flag_evaluations", *flag_chain])
+
+        def flag_evaluations_column(name: str, chain: list[str | int]) -> ast.Expr:
+            read = flag_evaluations_field(chain)
+            return ast.Alias(
+                alias=name, expr=serialized_like_events(self, chain, read, context) if name in json_text else read
+            )
 
         def events_branch(*conditions: ast.Expr | None) -> ast.SelectQuery:
             return ast.SelectQuery(
@@ -209,7 +222,7 @@ class EventsWithFlagCallsTable(LazyTable):
             branches.append(events_branch(flag_call_since_cutoff, ast.Not(expr=parse_expr(_HAS_FLAG_KEY))))
         branches.append(
             ast.SelectQuery(
-                select=[ast.Alias(alias=name, expr=flag_evaluations_field(chain)) for name, chain in accessed.items()],
+                select=[flag_evaluations_column(name, chain) for name, chain in accessed.items()],
                 select_from=ast.JoinExpr(
                     table=ast.Field(chain=["posthog", "flag_evaluations"]), alias="flag_evaluations"
                 ),
@@ -234,6 +247,41 @@ class EventsWithFlagCallsTable(LazyTable):
 
     def to_printed_hogql(self):
         return EVENTS_WITH_FLAG_CALLS_TABLE
+
+
+def serialized_like_events(table: Table, chain: list[str | int], read: ast.Field, context) -> ast.Expr:
+    """`toJSONString(read)` on flag_evaluations, as a direct read on the events table in use returns it for `chain`.
+
+    On the native JSON events table, `toJSONString` of one top-level key returns the key's JSON value. Events serializes
+    the text of a `$feature/<key>` property instead, because it rebuilds that property from `$feature_flags`. It does
+    the same for a key that a restriction overlaps, which it reads from the masked document, unless the key is stored
+    in `temporary_properties`. Every other read, and every read on the legacy events table, serializes the text.
+    flag_evaluations stores the document as JSON text, so the key's raw text is its JSON value.
+    """
+    # Deferred: restricted_properties imports this module.
+    from posthog.hogql.restricted_properties import property_path_overlaps_restriction  # noqa: PLC0415
+
+    serialized = ast.Call(name="toJSONString", args=[read])
+    field, rest = _field(table, chain)
+    if not context.uses_new_events_schema() or len(rest) != 1:
+        return serialized
+    key = str(rest[0])
+    on_event_properties = _column_name(field) == "properties"
+    if on_event_properties and key.startswith(FEATURE_FLAG_PROPERTY_PREFIX):
+        return serialized
+    owner = table.fields.get(str(chain[0]))
+    restriction_table = owner if isinstance(owner, VirtualTable) else context.database.get_table(["events"])
+    overlaps_restriction = property_path_overlaps_restriction(key, ast.TableType(table=restriction_table), context)
+    if overlaps_restriction and not (on_event_properties and is_temporary_event_property(key)):
+        return serialized
+    # Events reads a missing key and an empty object as NULL. An integer key names a key, not a position.
+    raw = parse_expr(
+        "nullIf(nullIf(JSONExtractRaw({document}, {key}), ''), '{}')",
+        {"document": ast.Field(chain=read.chain[:-1]), "key": ast.Constant(value=key)},
+    )
+    # Events reads a JSON null as NULL from a JSON subcolumn. A restriction makes events read the key from the
+    # `temporary_properties` text instead, and that text keeps the JSON null as `null`.
+    return raw if overlaps_restriction else ast.Call(name="nullIf", args=[raw, ast.Constant(value="null")])
 
 
 def union_table_of(table_type: ast.Type | None) -> "EventsWithFlagCallsTable | None":
