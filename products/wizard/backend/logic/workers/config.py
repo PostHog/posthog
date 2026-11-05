@@ -13,6 +13,7 @@ MAX_HANDOFF_BODY_BYTES = 60_000
 LOCAL_WIZARD_BUILD_TIMEOUT_SECONDS = 15 * 60
 LOCAL_WIZARD_ARCHIVE_PATH = "/tmp/posthog-local-wizard.tar.gz"
 LOCAL_WIZARD_INSTALL_PATH = "/tmp/posthog-local-wizard"
+LOCAL_WIZARD_GATEWAY_TOKEN_PATH = "/tmp/posthog-local-wizard-gateway-token"
 WIZARD_PACKAGE_INSTALL_PATH = "/tmp/posthog-wizard-package"
 WIZARD_DIFF_OUTPUT_PATH = "/tmp/posthog-wizard-diff.patch"
 LOCAL_WIZARD_SOURCE_ENTRIES = (
@@ -42,6 +43,13 @@ SANDBOX_DISK_SIZE_GB = 16
 
 def local_wizard_source_root() -> Path | None:
     value = getattr(settings, "LOCAL_WIZARD_ROOT", None)
+    if not settings.DEBUG or not value:
+        return None
+    return Path(value).expanduser().resolve()
+
+
+def local_wizard_gateway_token_file() -> Path | None:
+    value = getattr(settings, "LOCAL_WIZARD_GATEWAY_TOKEN_FILE", None)
     if not settings.DEBUG or not value:
         return None
     return Path(value).expanduser().resolve()

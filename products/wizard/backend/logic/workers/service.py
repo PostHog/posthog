@@ -40,6 +40,7 @@ from products.wizard.backend.logic.workers.commands import (
 from products.wizard.backend.logic.workers.config import (
     LOCAL_WIZARD_ARCHIVE_PATH,
     LOCAL_WIZARD_BUILD_TIMEOUT_SECONDS,
+    LOCAL_WIZARD_GATEWAY_TOKEN_PATH,
     SANDBOX_CPU_CORES,
     SANDBOX_DISK_SIZE_GB,
     SANDBOX_EXECUTION_TIMEOUT_SECONDS,
@@ -48,6 +49,7 @@ from products.wizard.backend.logic.workers.config import (
     SANDBOX_TTL_SECONDS,
     WIZARD_ERROR_DETAIL_LENGTH,
     WIZARD_TIMEOUT_EXIT_CODE,
+    local_wizard_gateway_token_file,
 )
 from products.wizard.backend.logic.workers.contracts import (
     RepositoryPullRequest,
@@ -55,7 +57,10 @@ from products.wizard.backend.logic.workers.contracts import (
     WizardWorkerResourceUsage,
     WizardWorkerUsageMeasurement,
 )
-from products.wizard.backend.logic.workers.local_package import build_local_wizard_source_archive
+from products.wizard.backend.logic.workers.local_package import (
+    build_local_wizard_source_archive,
+    read_local_wizard_gateway_token,
+)
 from products.wizard.backend.logic.workers.wizard_error_output import WizardErrorLine, stderr_to_wizard_error
 from products.wizard.backend.observability.service import wizard_observability
 from products.wizard.backend.observability.tracing import annotate_run_span, wizard_span
@@ -216,6 +221,8 @@ def clone_repository(request: GitRepositoryCloneRequest) -> str:
 def prepare_local_wizard(sandbox_id: str, source_root: Path) -> None:
     with wizard_span("wizard.package.archive"):
         archive = build_local_wizard_source_archive(source_root)
+    gateway_token_file = local_wizard_gateway_token_file()
+    gateway_token = read_local_wizard_gateway_token(gateway_token_file) if gateway_token_file else None
 
     try:
         sandbox = get_sandbox_class().get_by_id(sandbox_id)
@@ -228,6 +235,15 @@ def prepare_local_wizard(sandbox_id: str, source_root: Path) -> None:
                 stdout=upload_result.stdout,
                 stderr=upload_result.stderr,
             )
+            if gateway_token is not None:
+                token_result = sandbox.write_file(LOCAL_WIZARD_GATEWAY_TOKEN_PATH, gateway_token.encode())
+                _raise_for_failure(
+                    "local Wizard gateway token upload",
+                    token_result.exit_code,
+                    stdout=token_result.stdout,
+                    stderr=token_result.stderr,
+                    sensitive_values=(gateway_token,),
+                )
 
         with wizard_span("wizard.package.build"):
             build_result = sandbox.execute(
