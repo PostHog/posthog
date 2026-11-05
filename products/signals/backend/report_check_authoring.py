@@ -54,6 +54,7 @@ from products.signals.backend.report_checks import (
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.signals.backend.report_lifecycle import effective_report_status
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
+from products.signals.backend.report_monitoring_attempts import complete_implementation, current_monitoring_attempt
 
 logger = structlog.get_logger(__name__)
 
@@ -103,7 +104,9 @@ def create_check(
     now = timezone.now()
 
     with transaction.atomic():
-        locked_report = SignalReport.objects.select_for_update().filter(id=report.id, team_id=report.team_id).first()
+        locked_report = (
+            SignalReport.objects.select_for_update(no_key=True).filter(id=report.id, team_id=report.team_id).first()
+        )
         if locked_report is None:
             raise CheckCreationError("The report this check belongs to is gone.")
         if soak_minutes is None:
@@ -458,10 +461,19 @@ def replace_check_with_metric(
 ) -> SignalReportCheck:
     """Keep the previous check live if replacement validation fails."""
     with transaction.atomic():
-        report = SignalReport.objects.select_for_update().get(id=check.report_id, team_id=check.team_id)
+        report = SignalReport.objects.select_for_update(no_key=True).get(id=check.report_id, team_id=check.team_id)
         locked = SignalReportCheck.objects.for_team(check.team_id).select_for_update().get(id=check.id)
         if locked.report_id != report.id:
             raise CheckCreationError("This check moved to another report. Reload the report before replacing it.")
+        attempt = current_monitoring_attempt(report)
+        if (
+            report.status != SignalReport.Status.MONITORING
+            and attempt is not None
+            and str(locked.id) in attempt.check_versions
+        ):
+            raise CheckCreationError("Return this report to Monitoring before replacing this check.")
+        if runs_remaining not in (None, 1):
+            raise CheckCreationError("Monitoring supports exactly one terminal evaluation.")
         try:
             MetricThresholdReplacementConfig.model_validate(config)
             duration = soak_minutes if soak_minutes is not None else locked.soak_minutes
@@ -475,7 +487,7 @@ def replace_check_with_metric(
             raise CheckQueryAccessError("The measurement query is not available to you.")
         if not cancel_check(locked, reason="replaced_by_request", attribution=attribution):
             raise CheckCreationError("This check has already finished. Review its result before adding another.")
-        return create_check(
+        replacement = create_check(
             report=report,
             title=title,
             rationale=rationale,
@@ -484,8 +496,29 @@ def replace_check_with_metric(
             attribution=attribution,
             soak_minutes=duration,
             run_interval_minutes=interval,
-            runs_remaining=runs_remaining if runs_remaining is not None else locked.runs_remaining,
+            runs_remaining=1,
         )
+        if report.status == SignalReport.Status.MONITORING:
+            try:
+                attempt = complete_implementation(
+                    team_id=report.team_id,
+                    report_id=report.id,
+                    monitoring_started_at=timezone.now(),
+                    attribution=attribution,
+                    restart_monitoring=True,
+                )
+            except ValueError as error:
+                raise CheckCreationError(str(error)) from None
+            if attempt is None:
+                raise CheckCreationError("Monitoring is not available for this report.")
+            arm_pending_checks(
+                team_id=report.team_id,
+                report_id=report.id,
+                resolved_at=attempt.monitoring_started_at,
+                expected_monitoring_started_at=attempt.monitoring_started_at,
+            )
+            replacement.refresh_from_db()
+        return replacement
 
 
 def cancel_check(
@@ -607,7 +640,7 @@ def arm_pending_checks(
     expected_monitoring_started_at: datetime | None = None,
 ) -> int:
     with transaction.atomic():
-        report = SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).first()
+        report = SignalReport.objects.select_for_update(no_key=True).filter(team_id=team_id, id=report_id).first()
         if report is None:
             return 0
         if not (

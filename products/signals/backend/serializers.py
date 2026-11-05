@@ -3187,7 +3187,7 @@ class SignalReportCheckReplacementSerializer(serializers.Serializer):
         required=False,
         min_value=0,
         max_value=MAX_CHECK_SOAK_HOURS * 60,
-        help_text="Observation window in minutes from Monitoring start. Omission preserves the existing window, including zero.",
+        help_text="Observation window in minutes from Monitoring start. Omission preserves the existing window, including zero. Replacing a check during Monitoring restarts the period for all open checks.",
     )
     run_interval_minutes = serializers.IntegerField(
         required=False,
@@ -3198,8 +3198,8 @@ class SignalReportCheckReplacementSerializer(serializers.Serializer):
     runs_remaining = serializers.IntegerField(
         required=False,
         min_value=1,
-        max_value=MAX_CHECK_RUNS,
-        help_text="Remaining terminal evaluations. Omission preserves the existing count. Interim measurements do not consume this count.",
+        max_value=1,
+        help_text="Monitoring performs one terminal evaluation. Omit or set to 1; higher counts are not supported. Interim measurements do not consume this count.",
     )
 
     def validate_config(self, value: dict) -> dict:

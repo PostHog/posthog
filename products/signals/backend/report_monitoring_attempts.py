@@ -55,6 +55,7 @@ def complete_implementation(
     actor_user: User | None = None,
     close_pr_on_resolve: bool = False,
     from_pr_merge: bool = False,
+    restart_monitoring: bool = False,
 ) -> SignalReportMonitoringAttempt | None:
     if monitoring_started_at is not None and timezone.is_naive(monitoring_started_at):
         raise ValueError("An aware implementation-complete timestamp is required.")
@@ -70,13 +71,16 @@ def complete_implementation(
         if report.status in {SignalReport.Status.RESOLVED, SignalReport.Status.CLOSED}:
             return None
         enabled = team_report_monitoring_enabled(team_id)
+        previous_attempt = None
         if report.status == SignalReport.Status.MONITORING:
             if not enabled:
                 return None
             attempt = current_monitoring_attempt(report)
             if attempt is None:
                 raise ValueError("The Monitoring period has no check snapshot.")
-            return attempt
+            if not restart_monitoring:
+                return attempt
+            previous_attempt = attempt
         if not enabled:
             report._close_pr_on_resolve = close_pr_on_resolve  # type: ignore[attr-defined]
             report.save(update_fields=report.transition_to(SignalReport.Status.RESOLVED))
@@ -85,6 +89,7 @@ def complete_implementation(
             SignalReport.Status.READY,
             SignalReport.Status.PENDING_INPUT,
             SignalReport.Status.FAILED,
+            SignalReport.Status.MONITORING,
         }:
             raise InvalidStatusTransition(report.status, SignalReport.Status.MONITORING)
         earlier_attempts = SignalReportMonitoringAttempt.objects.for_team(team_id).filter(report_id=report.id)
@@ -123,7 +128,7 @@ def complete_implementation(
             report=report,
             monitoring_started_at=monitoring_started_at,
             check_versions={str(check.id): check_definition_version(check) for check in applicable},
-            close_pr_on_resolve=close_pr_on_resolve,
+            close_pr_on_resolve=previous_attempt.close_pr_on_resolve if previous_attempt else close_pr_on_resolve,
         )
         SignalReportCheck.objects.for_team(team_id).filter(id__in=[check.id for check in applicable]).update(
             status=SignalReportCheck.Status.PENDING,
@@ -139,9 +144,13 @@ def complete_implementation(
             legacy_monitoring_attempt_id=None,
             updated_at=now,
         )
-        report.save(
-            update_fields=report.transition_to(
-                SignalReport.Status.MONITORING, monitoring_started_at=monitoring_started_at
+        if previous_attempt is not None:
+            report.monitoring_started_at = monitoring_started_at
+            report.save(update_fields=["monitoring_started_at", "updated_at"])
+        else:
+            report.save(
+                update_fields=report.transition_to(
+                    SignalReport.Status.MONITORING, monitoring_started_at=monitoring_started_at
+                )
             )
-        )
         return attempt

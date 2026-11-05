@@ -334,9 +334,11 @@ tools:
             ID, an explicit comparison, a measured baseline, and config.monitoring with an explicit reference period,
             scaling policy, and baseline period. The old check stays live if the replacement fails validation. A
             successful replacement starts unapproved and is scheduled independently of human approval. The replacement
-            accepts soak_minutes, run_interval_minutes, and runs_remaining. Omitted duration and evaluation count
-            preserve the current values. Omitted cadence uses the current Monitoring defaults; windows of six hours or
-            less have no interim samples. The measurement also requires event_definition:read for event series,
+            accepts soak_minutes and run_interval_minutes. Omitted duration preserves the existing window. Monitoring
+            performs one terminal evaluation; runs_remaining may be omitted or set to 1. Replacing during Monitoring
+            starts a fresh period for the replacement and all other open checks. Their definitions stay unchanged.
+            Omitted cadence uses the current Monitoring defaults; windows of six hours or less have no interim samples.
+            The measurement also requires event_definition:read for event series,
             action:read for action series, and cohort:read for cohort filters when present.
         feature_flag: signals-report-monitoring
         feature_flag_behavior: enable

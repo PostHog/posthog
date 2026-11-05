@@ -6410,7 +6410,7 @@ export interface SignalReportCheckReplacementApi {
     /** Metric threshold configuration, including a bounded query, comparison, and required Monitoring definition. */
     config: MetricThresholdReplacementConfigApi
     /**
-     * Observation window in minutes from Monitoring start. Omission preserves the existing window, including zero.
+     * Observation window in minutes from Monitoring start. Omission preserves the existing window, including zero. Replacing a check during Monitoring restarts the period for all open checks.
      * @minimum 0
      * @maximum 43200
      */
@@ -6422,9 +6422,9 @@ export interface SignalReportCheckReplacementApi {
      */
     run_interval_minutes?: number
     /**
-     * Remaining terminal evaluations. Omission preserves the existing count. Interim measurements do not consume this count.
+     * Monitoring performs one terminal evaluation. Omit or set to 1; higher counts are not supported. Interim measurements do not consume this count.
      * @minimum 1
-     * @maximum 10
+     * @maximum 1
      */
     runs_remaining?: number
 }

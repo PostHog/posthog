@@ -1581,7 +1581,7 @@ export const signalsReportChecksReplaceCreateBodySoakMinutesMax = 43200
 export const signalsReportChecksReplaceCreateBodyRunIntervalMinutesMin = 360
 export const signalsReportChecksReplaceCreateBodyRunIntervalMinutesMax = 129600
 
-export const signalsReportChecksReplaceCreateBodyRunsRemainingMax = 10
+export const signalsReportChecksReplaceCreateBodyRunsRemainingMax = 1
 
 export const SignalsReportChecksReplaceCreateBody = () => zod.object({
     title: zod.string().max(signalsReportChecksReplaceCreateBodyTitleMax).describe('Label for the new metric check.'),
@@ -1704,7 +1704,7 @@ export const SignalsReportChecksReplaceCreateBody = () => zod.object({
         .max(signalsReportChecksReplaceCreateBodySoakMinutesMax)
         .optional()
         .describe(
-            'Observation window in minutes from Monitoring start. Omission preserves the existing window, including zero.'
+            'Observation window in minutes from Monitoring start. Omission preserves the existing window, including zero. Replacing a check during Monitoring restarts the period for all open checks.'
         ),
     run_interval_minutes: zod
         .number()
@@ -1720,7 +1720,7 @@ export const SignalsReportChecksReplaceCreateBody = () => zod.object({
         .max(signalsReportChecksReplaceCreateBodyRunsRemainingMax)
         .optional()
         .describe(
-            'Remaining terminal evaluations. Omission preserves the existing count. Interim measurements do not consume this count.'
+            'Monitoring performs one terminal evaluation. Omit or set to 1; higher counts are not supported. Interim measurements do not consume this count.'
         ),
 })
 
