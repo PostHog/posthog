@@ -234,10 +234,12 @@ export class GuidanceEngine {
                   )
                 : undefined
         if (result === undefined) {
-            await this.mirrorRule(rule, scopes, 'touch', false)
+            await productState.withinBudget('rule_mirror', () => this.mirrorRule(rule, scopes, 'touch', false))
             return RuleResult.None
         }
-        await this.mirrorRule(rule, scopes, 'mirror', result !== RuleResult.None)
+        await productState.withinBudget('rule_mirror', () =>
+            this.mirrorRule(rule, scopes, 'mirror', result !== RuleResult.None)
+        )
         return result as RuleResult
     }
 
