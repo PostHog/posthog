@@ -18,7 +18,7 @@ export default meta
 
 type Story = StoryObj<typeof TraceSummaryBar>
 
-// The bar is an inline-size container, which contributes no intrinsic width, so an unsized story root collapses to zero.
+// The stats sit at the right end of the bar's width, so the stories pin one.
 const wide: Story = { decorators: [withWidth(960)] }
 
 export const Default: Story = wide

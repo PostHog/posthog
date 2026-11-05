@@ -3,6 +3,7 @@ import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import type { TraceGitApi } from '../../../generated/api.schemas'
 import { GitPullRequestLink } from '../types'
+import { LabeledChipValue } from './LabeledChipValue'
 
 export interface GitBranchChipProps extends TraceGitApi {
     pullRequest: GitPullRequestLink | null
@@ -20,8 +21,10 @@ function tooltipTitle({ branch, repo, pullRequest }: GitBranchChipProps): string
 export function GitBranchChip(props: GitBranchChipProps): JSX.Element {
     const { branch, pullRequest } = props
     const tag = (
-        <LemonTag icon={<IconGitBranch />} weight="normal" data-attr="trace-view-git-branch-chip">
-            <span className="block max-w-60 truncate font-mono">{branch}</span>
+        <LemonTag weight="normal" data-attr="trace-view-git-branch-chip">
+            <LabeledChipValue label="Branch" icon={<IconGitBranch />}>
+                <span className="font-mono">{branch}</span>
+            </LabeledChipValue>
         </LemonTag>
     )
     return (
