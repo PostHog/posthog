@@ -143,7 +143,7 @@ def test_build_message_blocks_includes_recipient_and_open_in_posthog_button(use_
         }
     # A mention in plain_text would render as the raw token, never pinging anyone.
     assert all("<@" not in t for t in _plain_text_block_texts(blocks))
-    assert blocks[2]["elements"][0]["text"] == "🔴 *P1* · 👤 Suggested owner: <@U123>"
+    assert blocks[2]["elements"][0]["text"] == "🟠 *P1* · 👤 Suggested owner: <@U123>"
     buttons = blocks[3]["elements"]
     assert len(buttons) == 1
     assert buttons[0]["text"]["text"] == "Review in PostHog"
@@ -422,9 +422,9 @@ def test_dispatch_sends_to_configured_reviewer(
     assert blocks[0]["text"]["text"] == "Test report"
     context_texts = [block["elements"][0]["text"] for block in blocks if block["type"] == "context"]
     if expects_mention:
-        assert "🔴 *P1* · 👤 Suggested owner: <@U_REVIEWER>" in context_texts
+        assert "🟠 *P1* · 👤 Suggested owner: <@U_REVIEWER>" in context_texts
     else:
-        assert "🔴 *P1*" in context_texts
+        assert "🟠 *P1*" in context_texts
         assert not any("Suggested owner" in text for text in context_texts)
     assert all("<@" not in t for t in _plain_text_block_texts(blocks))
     actions = next(block for block in blocks if block["type"] == "actions")

@@ -92,11 +92,12 @@ _PRIORITY_ORDER: tuple[str, ...] = (
     AutonomyPriority.P3,
     AutonomyPriority.P4,
 )
+# Keep in sync with PRIORITY_TAG_TYPE in frontend/inbox/filterOptions.tsx, so Slack and the inbox agree.
 _PRIORITY_EMOJI: dict[str, str] = {
     AutonomyPriority.P0: "🔴",
-    AutonomyPriority.P1: "🔴",
-    AutonomyPriority.P2: "🟠",
-    AutonomyPriority.P3: "⚪️",
+    AutonomyPriority.P1: "🟠",
+    AutonomyPriority.P2: "🟡",
+    AutonomyPriority.P3: "🔵",
     AutonomyPriority.P4: "⚪️",
 }
 
