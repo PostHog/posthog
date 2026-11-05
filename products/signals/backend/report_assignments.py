@@ -139,15 +139,16 @@ def assignment_snapshot(
     return {"assignee": assignee, "implementation_pr": implementation_pr}
 
 
-def create_claim(report: SignalReport, actor: ArtefactAttribution) -> ReportClaim:
+def create_claim(report: SignalReport, actor: ArtefactAttribution, *, task_id: str | None = None) -> ReportClaim:
     claim = SignalReportArtefact.add_log(
         team_id=report.team_id,
         report_id=str(report.id),
         content=WorkClaim(display_name=claim_display_name(report, actor)),
         attribution=actor,
     )
-    if actor.task_id:
-        _associate_task_with_claim(report, actor.task_id, claim)
+    task_id = actor.task_id or task_id
+    if task_id:
+        _associate_task_with_claim(report, task_id, claim)
     return claim_from_artefact(claim)
 
 
@@ -194,7 +195,13 @@ def release_claim(claim: ReportClaim, actor: ArtefactAttribution, *, takeover: b
     )
 
 
-def claim_report_for_task(*, team_id: int, report_id: str, task_id: str) -> ReportClaim:
+def claim_report_for_task(*, team_id: int, report_id: str, task_id: str, for_task_creator: bool = False) -> ReportClaim:
+    """Claim the report for the work of a task, unless the task already works under the active claim.
+
+    With `for_task_creator`, a new claim goes to the person who started the task, because that
+    person chose to do the work, and readers hide task claims. A task without a creator keeps a
+    task claim.
+    """
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().get(id=report_id, team_id=team_id)
         import_report_pull_requests(report)
@@ -209,7 +216,12 @@ def claim_report_for_task(*, team_id: int, report_id: str, task_id: str) -> Repo
             return claim
         if claim is not None and not actor_owns_claim(claim, actor):
             raise ReportClaimConflict("This report already has an active claim.")
-        return claim or create_claim(report, actor)
+        if claim is not None:
+            return claim
+        creator_id = tasks_facade.get_task_creator_ids([task_id], [team_id]).get(task_id) if for_task_creator else None
+        if creator_id is None:
+            return create_claim(report, actor)
+        return create_claim(report, ArtefactAttribution.from_user(creator_id), task_id=task_id)
 
 
 def _pull_request_details(team_id: int, pr_url: str, *, raise_on_error: bool = False) -> PullRequestDetails:
@@ -343,14 +355,25 @@ def sync_task_pull_request_to_assignments(
                 .order_by("-created_at", "-id")
                 .first()
             )
-            claim_id = str(historical.id) if historical else None
+            # A task that works under its creator's claim holds no claim of its own, so its PR
+            # goes to the claim that its run artefact is attached to.
+            claim_id = (
+                historical.id
+                if historical
+                else SignalReportArtefact.objects.filter(
+                    team_id=team_id, report_id=report.id, type="task_run", task_id=task_id, claim__isnull=False
+                )
+                .order_by("-created_at", "-id")
+                .values_list("claim_id", flat=True)
+                .first()
+            )
             link_pull_request(
                 report=report,
                 details=PullRequestDetails(
                     url=pr_url, repository=repository, number=parsed.number, state=state, merged=merged
                 ),
                 actor=actor,
-                claim_id=claim_id,
+                claim_id=str(claim_id) if claim_id else None,
                 state_source=PullRequestStateSource.TASK_OUTPUT,
             )
         return len(reports)

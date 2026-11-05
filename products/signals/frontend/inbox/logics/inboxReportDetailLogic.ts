@@ -2262,6 +2262,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // never gets one going.
         createPrSuccess: () => {
             actions.loadReportArtefacts()
+            // The task claims the report for the person who pressed Create PR, so reload the claimant.
+            refreshSelectedReport(props.reportId)
         },
         discussReportSuccess: () => {
             actions.loadReportArtefacts()
