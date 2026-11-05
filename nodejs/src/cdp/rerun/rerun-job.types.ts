@@ -74,20 +74,23 @@ export interface RerunRequest {
  */
 export const RERUN_MAX_WINDOW_DAYS = 30
 
-/**
- * A cursor without `first_scheduled_at` comes from the previous release, so the job keeps paging by last row
- * and a deploy mid-job repeats no run. `scheduled_at` stays set because that release reads only it.
- */
 export interface RerunCursor {
     scheduled_at: string
-    first_scheduled_at?: string
     invocation_id: string
 }
+
+/**
+ * `run_start` pages on `first_scheduled_at`, which every lifecycle row of a run shares. `last_row` pages on
+ * the run's last in-window `scheduled_at`, as the previous release does; a job without the field is one.
+ * The mode is fixed when the job is created, because a worker on the previous release resuming a `run_start`
+ * cursor would collapse only part of a run's rows.
+ */
+export type RerunPagingMode = 'run_start' | 'last_row'
 
 export interface RerunJobProgress {
     queued: number
     skipped: number
-    /** Keyset cursor, see `RerunCursor`. Undefined on first page; null when exhausted. */
+    /** Keyset cursor on the paging mode's time and invocation_id. Undefined on first page; null when exhausted. */
     cursor?: RerunCursor | null
     /** True once the worker has processed every page or exhausted max_count. */
     done: boolean
@@ -113,6 +116,7 @@ export interface RerunJobProgress {
 export interface RerunJobState {
     function_kind: RerunFunctionKind
     function_id: string
+    paging?: RerunPagingMode
     request: RerunRequest
     progress: RerunJobProgress
 }

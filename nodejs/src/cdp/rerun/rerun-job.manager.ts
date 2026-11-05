@@ -1,5 +1,6 @@
 import { v7 as uuidv7 } from 'uuid'
 
+import { buildIntegerMatcher } from '~/common/config/matchers'
 import { logger } from '~/common/utils/logger'
 
 import { CyclotronV2Manager } from '../services/cyclotron-v2'
@@ -18,6 +19,8 @@ export interface RerunJobManagerConfig {
     depthLimit?: number
     /** Mirror of the Django serializer cap (HOG_INVOCATION_RERUN_MAX_COUNT env var). */
     maxCount: number
+    /** CDP_RERUN_RUN_START_PAGING_TEAMS: comma-separated team ids, or "*", whose new jobs page by run start. */
+    runStartPagingTeams?: string
 }
 
 /**
@@ -31,8 +34,10 @@ export interface RerunJobManagerConfig {
  */
 export class RerunJobManager {
     private manager: CyclotronV2Manager
+    private pagesByRunStart: (teamId: number) => boolean
 
     constructor(private config: RerunJobManagerConfig) {
+        this.pagesByRunStart = buildIntegerMatcher(config.runStartPagingTeams, true)
         this.manager = new CyclotronV2Manager({
             pool: {
                 dbUrl: config.dbUrl,
@@ -83,6 +88,7 @@ export class RerunJobManager {
         const state: RerunJobState = {
             function_kind: functionKind,
             function_id: functionId,
+            paging: this.pagesByRunStart(teamId) ? 'run_start' : 'last_row',
             request: { filter, replay_code_sends: request.replay_code_sends === true },
             progress: {
                 queued: 0,

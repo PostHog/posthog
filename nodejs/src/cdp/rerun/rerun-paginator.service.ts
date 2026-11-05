@@ -32,6 +32,7 @@ import {
     RerunFunctionKind,
     RerunJobProgress,
     RerunJobState,
+    RerunPagingMode,
 } from './rerun-job.types'
 
 const counterRerunPageProcessed = new Counter({
@@ -68,6 +69,30 @@ const toClickhouseDateTime = (value: string): string => {
         .replace(/Z$/, '')
         .replace(/([+-]\d{2}):?(\d{2})$/, '')
 }
+
+interface Paging {
+    /** Raw column the window and the cursor compare against. */
+    keyColumn: 'first_scheduled_at' | 'scheduled_at'
+    orderColumn: 'run_first_scheduled_at' | 'last_scheduled_at'
+    cursorTime: (row: InvocationRow) => string
+}
+
+const PAGING: Record<RerunPagingMode, Paging> = {
+    // Every row of a run shares `first_scheduled_at`, so the window and cursor keep or drop whole runs.
+    // There is no `scheduled_at` bound, because a rescheduled row can land before the run's start.
+    run_start: {
+        keyColumn: 'first_scheduled_at',
+        orderColumn: 'run_first_scheduled_at',
+        cursorTime: (row) => row.run_first_scheduled_at,
+    },
+    last_row: {
+        keyColumn: 'scheduled_at',
+        orderColumn: 'last_scheduled_at',
+        cursorTime: (row) => row.last_scheduled_at,
+    },
+}
+
+const pagingFor = (state: RerunJobState): Paging => PAGING[state.paging ?? 'last_row']
 
 interface InvocationRow {
     invocation_id: string
@@ -141,9 +166,8 @@ export class RerunPaginatorService {
             const remainingBudget = this.remainingBudget(state)
             const toProcess = rows.slice(0, remainingBudget)
 
-            // A page keyed on scheduled_at (a cursor from the previous release), or a row written
-            // without its run's first_scheduled_at, can miss the newer lifecycle rows a prior replay
-            // wrote, so the collapse can report 'failed' for an invocation that has since
+            // A `last_row` page, or a row written without its run's first_scheduled_at, can miss the
+            // newer lifecycle rows a prior replay wrote, so the collapse can report 'failed' for an invocation that has since
             // succeeded. Re-check the page against each invocation's latest status across
             // all partitions; without this, replaying the same window twice re-fires side
             // effects (emails, webhooks) for already-recovered runs.
@@ -435,19 +459,7 @@ export class RerunPaginatorService {
             return null
         }
         const last = processed[processed.length - 1]
-        if (!this.pagesByRunStart(state)) {
-            return { scheduled_at: last.last_scheduled_at, invocation_id: last.invocation_id }
-        }
-        return {
-            scheduled_at: last.run_first_scheduled_at,
-            first_scheduled_at: last.run_first_scheduled_at,
-            invocation_id: last.invocation_id,
-        }
-    }
-
-    private pagesByRunStart(state: RerunJobState): boolean {
-        const cursor = state.progress.cursor
-        return !cursor?.scheduled_at || cursor.first_scheduled_at !== undefined
+        return { scheduled_at: pagingFor(state).cursorTime(last), invocation_id: last.invocation_id }
     }
 
     /**
@@ -549,10 +561,7 @@ export class RerunPaginatorService {
             ? toClickhouseDateTime(state.progress.cursor.scheduled_at)
             : ''
 
-        // Every row of a run shares `first_scheduled_at`, so the window and cursor keep or drop whole runs.
-        // There is no `scheduled_at` bound, because a rescheduled row can land before the run's start.
-        const keyColumn = this.pagesByRunStart(state) ? 'first_scheduled_at' : 'scheduled_at'
-        const orderColumn = this.pagesByRunStart(state) ? 'run_first_scheduled_at' : 'last_scheduled_at'
+        const { keyColumn, orderColumn } = pagingFor(state)
 
         // Keyset pagination on (key, invocation_id). When the cursor
         // is undefined we start from the top of the window. ClickHouse needs
