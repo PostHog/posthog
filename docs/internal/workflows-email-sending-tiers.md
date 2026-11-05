@@ -121,7 +121,7 @@ A template whose HTML cannot keep the footer fails the send.
 The send also fails when the HTML and preview text exceed 75 KB, checked before and again after the footer is added, so every inbox shows the footer instead of clipping it.
 It fails as well when elements nest more than 256 deep, a tag carries more than 64 attributes, or an Outlook conditional comment holds a condition over 100 characters or a nested directive.
 The visible footer is best effort across email clients and template CSS; the signed tracking header still attributes the message.
-Right before delivery, every sandbox send, test sends included, claims a daily allowance per project (`WORKFLOWS_SANDBOX_DAILY_TEAM_CAP`, one token per distinct spelling of a recipient address, because two members can store one address in two cases) and per recipient address across the organization (`WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP`).
+Right before delivery, every sandbox send, test sends included, claims a daily allowance per project (`WORKFLOWS_SANDBOX_DAILY_TEAM_CAP`) and per recipient address across the organization (`WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP`). Both charge one token per delivered copy: each To, CC and BCC entry counts, so an address listed twice takes two tokens.
 The allowances are token buckets that refill their capacity over 24 hours, not calendar-day counters.
 A reached allowance skips the send instead of delaying it. A limiter error, or an empty or invalid cap value, skips every sandbox send.
 The `workflows sandbox email blocked` event names the outcome: `project_cap_reached`, `recipient_cap_reached`, or `cap_check_failed`.
