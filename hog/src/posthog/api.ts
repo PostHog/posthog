@@ -85,10 +85,11 @@ export class ApiError extends HogError {
 }
 
 // A DRF error body. `type` is the DRF error type, such as `validation_error`.
+// A field of another type reads as missing, so the others still reach the error message.
 const DRFErrorBody = z.object({
-    type: z.string().optional(),
-    code: z.string().optional(),
-    detail: z.string().optional(),
+    type: z.string().optional().catch(undefined),
+    code: z.string().optional().catch(undefined),
+    detail: z.string().optional().catch(undefined),
 })
 
 export class PostHogApi {
