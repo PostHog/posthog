@@ -27,7 +27,7 @@ export const getKMPErrorTrackingSteps = (ctx: OnboardingComponentsContext): Step
         content: (
             <>
                 <CalloutBox type="fyi" title="Version requirement">
-                    <Markdown>The error tracking configuration requires PostHog KMP version 0.4.0 or higher.</Markdown>
+                    <Markdown>The error tracking configuration requires PostHog KMP version 0.8.0 or higher.</Markdown>
                 </CalloutBox>
                 <Markdown>
                     Both the project setting from the previous step and `errorTracking.autoCapture` must be enabled.
