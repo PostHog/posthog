@@ -94,6 +94,7 @@ export const urls = {
         executionTarget,
         sendRawQuery,
         dashboard,
+        tileGroupKey,
         filters,
         metricName,
         metricPrefill,
@@ -110,6 +111,8 @@ export const urls = {
         executionTarget?: HogQLQuery['executionTarget']
         sendRawQuery?: boolean
         dashboard?: number
+        /** The dashboard tile group the saved insight goes into. Only applies with `dashboard`. */
+        tileGroupKey?: string | null
         /** Applied on top of the opened query/insight — carries unsaved view-mode filter edits into the editor */
         filters?: HogQLFilters
         /** Opens the editor bound to this data catalog metric so its query can be updated in place */
@@ -158,6 +161,9 @@ export const urls = {
 
         if (dashboard) {
             params.set('dashboard', String(dashboard))
+            if (tileGroupKey) {
+                params.set('tile_group', tileGroupKey)
+            }
         }
 
         const queryString = params.toString()
@@ -287,7 +293,6 @@ export const urls = {
         const queryString = params.toString()
         return `${base}${queryString ? `?${queryString}` : ''}`
     },
-    simpleOnboarding: (): string => '/onboarding/simple',
     onboardingWelcome: (): string => '/welcome',
     // Cloud only
     organizationBilling: (products?: ProductKey[]): string =>

@@ -2575,6 +2575,11 @@ export interface Tileable {
 
 export type DashboardTileIdOrNew = number | null
 
+/** A tile before the API creates it, so it has no id or server-set fields yet. */
+export type NewDashboardTile = Omit<Partial<DashboardTile>, 'text'> & {
+    text?: Partial<NonNullable<DashboardTile['text']>>
+}
+
 export interface DashboardTile extends Tileable {
     id: number
     insight?: InsightModel
@@ -8118,7 +8123,6 @@ export enum OnboardingStepKey {
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
     PATH_CLEANING = 'path_cleaning',
-    MCP = 'mcp',
 }
 
 // Managed viewset

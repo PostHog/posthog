@@ -35,7 +35,6 @@ frontend/src/layout/panel-layout/navbar/tabs/NavTabChat.tsx -> frontend/src/scen
 frontend/src/layout/panel-layout/navbar/tabs/NavTabChat.tsx -> products/posthog_ai/frontend/api/logics.ts
 frontend/src/layout/panel-layout/navbar/tabs/NavTabChat.tsx -> products/posthog_ai/frontend/api/primitives.ts
 frontend/src/layout/panel-layout/navbar/tabs/navProductItems.ts -> frontend/src/scenes/data-management/definitionsSceneTabsLogic.tsx
-frontend/src/layout/panel-layout/navbar/tabs/navProductItems.ts -> frontend/src/scenes/onboarding/welcome/welcomeNavItem.ts
 frontend/src/layout/scenes/components/SceneTitlePanelButton.tsx -> frontend/src/scenes/max/useMaxTool.ts
 frontend/src/layout/scenes/components/SceneTitleSection.tsx -> frontend/src/scenes/max/components/AnimatedSparkles.tsx
 frontend/src/layout/today/TodayAiPanel.tsx -> frontend/src/scenes/max/components/PhaiSidePanelChat.tsx
