@@ -342,6 +342,25 @@ describe('Tool Filtering - API Scopes', () => {
         expect(tools.some((tool) => tool.name === 'inbox-report-checks-replace')).toBe(visible)
     })
 
+    // The legacy fallback lets codegen accept `hog_flow:write` here, which would hide these tools from send-scoped keys.
+    it.each([
+        { scopes: ['transactional_email:write'], visible: true },
+        { scopes: ['hog_flow:write'], visible: true },
+        { scopes: ['transactional_email:read'], visible: false },
+    ])('making a template transactional needs the send scope: $scopes', async ({ scopes, visible }) => {
+        const tools = await getToolsFromContext(createMockContext(scopes), {
+            featureFlags: { 'workflows-transactional-email-api': true },
+        })
+        const names = tools.map((tool) => tool.name)
+
+        for (const name of [
+            'workflows-make-email-template-transactional-prepare',
+            'workflows-make-email-template-transactional-execute',
+        ]) {
+            expect(names.includes(name)).toBe(visible)
+        }
+    })
+
     it.each([
         { scopes: ['billing:read'], visible: true },
         { scopes: [], visible: false },
