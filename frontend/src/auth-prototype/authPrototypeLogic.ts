@@ -1,7 +1,7 @@
 import { MakeLogicType, afterMount, connect, kea, listeners, path } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
-import { handleLoginRedirect } from 'scenes/authentication/auth/loginLogic'
+import { handleLoginRedirect } from 'lib/utils/loginRedirect'
 import { userLogic } from 'scenes/userLogic'
 
 import type { UserType } from '~/types'

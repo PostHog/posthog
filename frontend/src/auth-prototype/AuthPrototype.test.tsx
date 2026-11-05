@@ -4,8 +4,8 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useActions, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { mountSupportRouter } from 'scenes/mountSupportRouter'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { AuthPrototype } from './AuthPrototype'
 
@@ -30,7 +30,7 @@ jest.mock('scenes/authentication/auth/Auth', () => ({
     ),
 }))
 jest.mock('scenes/authentication/auth/authLogic', () => ({ authLogic: {} }))
-jest.mock('scenes/PreflightCheck/preflightLogic', () => ({ preflightLogic: {} }))
+jest.mock('lib/logic/preflightLogic', () => ({ preflightLogic: {} }))
 jest.mock('scenes/userLogic', () => ({ userLogic: {} }))
 jest.mock('scenes/mountSupportRouter', () => ({
     mountSupportRouter: jest.fn(() => ({ unmount: jest.fn() })),

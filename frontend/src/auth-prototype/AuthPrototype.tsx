@@ -8,10 +8,10 @@ import { PostHogProvider } from '@posthog/react'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { Auth } from 'scenes/authentication/auth/Auth'
 import { authLogic } from 'scenes/authentication/auth/authLogic'
 import { mountSupportRouter } from 'scenes/mountSupportRouter'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { authPrototypeLogic } from './authPrototypeLogic'

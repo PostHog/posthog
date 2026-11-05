@@ -2,14 +2,14 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 
-import { handleLoginRedirect } from 'scenes/authentication/auth/loginLogic'
+import { handleLoginRedirect } from 'lib/utils/loginRedirect'
 import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
 
 import { authPrototypeLogic } from './authPrototypeLogic'
 
-jest.mock('scenes/authentication/auth/loginLogic', () => ({ handleLoginRedirect: jest.fn() }))
+jest.mock('lib/utils/loginRedirect', () => ({ handleLoginRedirect: jest.fn() }))
 
 describe('authPrototypeLogic', () => {
     const originalLocation = window.location
