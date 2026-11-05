@@ -235,6 +235,9 @@ export interface teamLogicActions {
             is_demo: boolean
         }
     }
+    currentProjectAccessDenied: () => {
+        value: true
+    }
     deleteSecretTokenBackup: () => any
     deleteSecretTokenBackupFailure: (
         error: string,
@@ -249,9 +252,6 @@ export interface teamLogicActions {
     ) => {
         currentTeam: TeamPublicType | TeamType | null
         payload?: any
-    }
-    currentProjectAccessDenied: () => {
-        value: true
     }
     deleteTeam: (team: TeamType) => {
         team: TeamType

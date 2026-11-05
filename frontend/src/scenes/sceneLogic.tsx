@@ -197,6 +197,24 @@ function isRefusedProjectPath(pathname: string): boolean {
     return !!refusedProject && getProjectIdentifierInPath(pathname) === refusedProject
 }
 
+// User and organization settings render in the project scene but do not read the project, so they
+// still work after the server refuses it.
+function isAccountSettingsPath(pathname: string): boolean {
+    return /^\/settings\/(user|organization)/.test(removeProjectIdIfPresent(pathname))
+}
+
+function isProjectAccessDenied(sceneId: string, pathname: string, isCurrentProjectAccessDenied: boolean): boolean {
+    if (!sceneConfigurations[sceneId]?.projectBased) {
+        return false
+    }
+    // The server refused the project this address names and served the user's own one, so the page
+    // cannot load. Once the address bar names a project we do serve, the scene loads as usual.
+    if (isRefusedProjectPath(pathname)) {
+        return true
+    }
+    return isCurrentProjectAccessDenied && !isAccountSettingsPath(pathname)
+}
+
 function isFirstProjectWithoutData(user: UserType): boolean {
     const { currentTeam, hasOnboardedAnyProduct } = teamLogic.values
     return (
@@ -633,14 +651,7 @@ export const sceneLogic = kea<sceneLogicType>([
                 const appContext = getAppContext()
                 const effectiveResourceAccessControl = appContext?.effective_resource_access_control
 
-                // The server refused the project this address names and served the user's own one,
-                // so the page cannot load. Once the address bar names a project we do serve, the
-                // scene loads as usual.
-                if (sceneId && sceneConfigurations[sceneId]?.projectBased && isRefusedProjectPath(location.pathname)) {
-                    return Scene.ErrorProjectAccessDenied
-                }
-
-                if (sceneId && sceneConfigurations[sceneId]?.projectBased && isCurrentProjectAccessDenied) {
+                if (sceneId && isProjectAccessDenied(sceneId, location.pathname, isCurrentProjectAccessDenied)) {
                     return Scene.ErrorProjectAccessDenied
                 }
 

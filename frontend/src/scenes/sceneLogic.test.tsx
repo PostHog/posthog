@@ -612,12 +612,20 @@ describe('sceneLogic', () => {
         }
     )
 
-    it('renders the project access denied scene for project pages once the server refuses the current project', async () => {
+    it('renders the project access denied scene for project pages, not account settings, once the server refuses the current project', async () => {
         router.actions.push(urls.eventDefinitions())
         await expectLogic(logic).delay(1)
         expect(logic.values.activeSceneId).toEqual(Scene.DataManagement)
 
         teamLogic.actions.currentProjectAccessDenied()
+        expect(logic.values.activeSceneId).toEqual(Scene.ErrorProjectAccessDenied)
+
+        router.actions.push(urls.settings('user'))
+        await expectLogic(logic).delay(1)
+        expect(logic.values.activeSceneId).toEqual(Scene.Settings)
+
+        router.actions.push(urls.settings('project'))
+        await expectLogic(logic).delay(1)
         expect(logic.values.activeSceneId).toEqual(Scene.ErrorProjectAccessDenied)
     })
 

@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+import { useState } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -10,10 +11,13 @@ import { getAppContext } from 'lib/utils/getAppContext'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { usersRetrieve } from '~/generated/core/api'
+
 export function ErrorProjectAccessDenied(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { loadUser, logout } = useActions(userLogic)
+    const { logout } = useActions(userLogic)
     const { isCurrentProjectAccessDenied } = useValues(teamLogic)
+    const [signedInEmail, setSignedInEmail] = useState(user?.email)
     // Staff keep the impersonation shortcut, which NotFound renders from the same app context.
     const showsImpersonationShortcut = !!getAppContext()?.suggested_users_with_access
 
@@ -25,10 +29,13 @@ export function ErrorProjectAccessDenied(): JSX.Element {
         posthog.capture('project access denied shown', {
             cause: isCurrentProjectAccessDenied ? 'access_lost' : 'refused_link',
         })
-        // Another tab can sign in as a different account, which the server then refuses here. Reload
-        // the user so the email shown is the account the server sees, not the one this page loaded with.
+        // Another tab can sign in as a different account, which the server then refuses here. Read the
+        // email the server sees without reloading `userLogic`, which drops the user and blanks the app
+        // when the request fails.
         if (isCurrentProjectAccessDenied) {
-            loadUser()
+            usersRetrieve('@me')
+                .then((signedInUser) => setSignedInEmail(signedInUser.email))
+                .catch(() => {})
         }
     })
 
@@ -45,10 +52,10 @@ export function ErrorProjectAccessDenied(): JSX.Element {
                             ? "You don't have access to this project."
                             : "This link points to a project you're not a member of."}
                     </span>
-                    {user?.email ? (
+                    {signedInEmail ? (
                         <>
                             {' '}
-                            You're signed in as <strong>{user.email}</strong>.
+                            You're signed in as <strong>{signedInEmail}</strong>.
                         </>
                     ) : null}
                 </>
