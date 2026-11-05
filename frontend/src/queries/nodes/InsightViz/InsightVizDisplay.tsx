@@ -432,7 +432,7 @@ export function InsightVizDisplay({
                     <TrendInsight
                         view={InsightType.LIFECYCLE}
                         editMode={editMode}
-                        context={context}
+                        context={viewContext}
                         embedded={embedded}
                         inSharedMode={inSharedMode}
                     />

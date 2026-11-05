@@ -242,6 +242,10 @@ export interface FunnelVisualizerProps {
 export interface LifecycleVisualizerProps {
     query: LifecycleQuery | undefined
     results: LifecycleResult
+    /** Drawn as a child of the bar chart, so it can read the chart's scales. */
+    overlay?: ReactNode
+    chartClassName?: string
+    showTitle?: boolean
 }
 
 export interface StickinessVisualizerProps {

@@ -34,12 +34,22 @@ export interface StorySeriesResult {
     label?: string
     data?: number[]
     days?: string[]
+    /** The lifecycle status a lifecycle chart's series counts. */
+    status?: string
 }
 
 export interface StoryTrendsQuery {
     kind: 'TrendsQuery'
     interval?: string
     trendsFilter?: Record<string, unknown>
+    series?: Record<string, unknown>[]
+    [key: string]: unknown
+}
+
+export interface StoryLifecycleQuery {
+    kind: 'LifecycleQuery'
+    interval?: string
+    lifecycleFilter?: Record<string, unknown>
     series?: Record<string, unknown>[]
     [key: string]: unknown
 }
@@ -71,7 +81,8 @@ interface ExplainChartBase {
 
 export interface TimeSeriesExplainChartData extends ExplainChartBase {
     shape: 'time_series'
-    query: StoryTrendsQuery
+    /** A lifecycle chart is a time series per status, so it shares this shape. */
+    query: StoryTrendsQuery | StoryLifecycleQuery
     results: StorySeriesResult[]
     lastPointInProgress: boolean
 }

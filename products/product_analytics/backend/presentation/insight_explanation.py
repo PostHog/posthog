@@ -51,9 +51,9 @@ class ChartExplanationShape(models.TextChoices):
     FUNNEL_STEPS = "funnel_steps", "Funnel steps"
 
 
-QUERY_KIND_BY_SHAPE = {
-    ChartExplanationShape.TIME_SERIES: "TrendsQuery",
-    ChartExplanationShape.FUNNEL_STEPS: "FunnelsQuery",
+QUERY_KINDS_BY_SHAPE = {
+    ChartExplanationShape.TIME_SERIES: {"TrendsQuery", "LifecycleQuery"},
+    ChartExplanationShape.FUNNEL_STEPS: {"FunnelsQuery"},
 }
 
 
@@ -193,6 +193,11 @@ class StorySeriesResultSerializer(serializers.Serializer):
         required=False,
         help_text="The date of each point, in the query's timezone. Saved for the followed series only.",
     )
+    status = serializers.CharField(
+        required=False,
+        max_length=40,
+        help_text="The lifecycle status the series counts, such as dormant. Lifecycle charts only.",
+    )
 
 
 class StoryFunnelStepSerializer(serializers.Serializer):
@@ -208,7 +213,7 @@ class ExplainChartDataSerializer(serializers.Serializer):
     )
     query = serializers.DictField(
         child=serializers.JSONField(allow_null=True),
-        help_text="The insight query the explanation follows: a TrendsQuery for a time series, a FunnelsQuery for funnel steps.",
+        help_text="The insight query the explanation follows: a TrendsQuery or LifecycleQuery for a time series, a FunnelsQuery for funnel steps.",
     )
     results = StorySeriesResultSerializer(  # type: ignore[call-arg]
         many=True,
@@ -254,7 +259,7 @@ class ExplainChartDataSerializer(serializers.Serializer):
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         shape = attrs["shape"]
-        if attrs["query"].get("kind", "TrendsQuery") != QUERY_KIND_BY_SHAPE[shape]:
+        if attrs["query"].get("kind", "TrendsQuery") not in QUERY_KINDS_BY_SHAPE[shape]:
             raise serializers.ValidationError({"query": "The query does not match the explanation's shape."})
         if shape == ChartExplanationShape.FUNNEL_STEPS:
             return self._validate_funnel_steps(attrs)

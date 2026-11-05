@@ -215,6 +215,29 @@ describe('explain-chart', () => {
         expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('Use step numbers')
     })
 
+    it('explains one status of a lifecycle chart by its dates, and links it', async () => {
+        const context = createContext(
+            { kind: 'InsightVizNode', source: { kind: 'LifecycleQuery', series: [], interval: 'day' } },
+            {
+                results: [
+                    { label: 'new', status: 'new', data: [5, 6, 5, 4, 5], days: DAYS },
+                    { label: 'dormant', status: 'dormant', data: [-2, -3, -30, -2, -3], days: DAYS },
+                ],
+            }
+        )
+
+        const result = await explainChartHandler(context, {
+            insightId: 'abc12345',
+            series: 1,
+            headline: 'Users went **dormant** after one release.',
+            chapters: [{ title: 'Churn on October 3', start: '2026-10-03' }],
+        })
+
+        expect(result.shape).toBe('time_series')
+        expect(result.chapters.map((chapter) => chapter.range)).toEqual([[2, 2]])
+        expect(result._posthogUrl).toBe('https://us.posthog.com/project/1/insights/abc12345?explanation=e1')
+    })
+
     it.each([
         ['a site other than GitHub', 'https://hackmycomputer.example/pull/1'],
         ['a GitHub file', 'https://github.com/example/app/raw/main/setup.exe'],
@@ -229,7 +252,7 @@ describe('explain-chart', () => {
     })
 
     it.each([
-        ['a retention chart', { kind: 'RetentionQuery' }, 'trends charts and funnels that show steps'],
+        ['a retention chart', { kind: 'RetentionQuery' }, 'trends and lifecycle charts, and funnels that show steps'],
         [
             'a funnel over time',
             { kind: 'FunnelsQuery', series: [], funnelsFilter: { funnelVizType: 'trends' } },

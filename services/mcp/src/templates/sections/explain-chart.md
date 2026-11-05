@@ -10,4 +10,5 @@ Write a notebook as well only when the person asks for one to keep.
 - When there is no saved trends insight, run the metric as one series over time with `query-trends` and pass that TrendsQuery as `query`. Do this also when you investigate with `execute-sql`: give each SQL finding as `evidence` with its `HogQLQuery`.
 - When `query-trends` cannot express the metric, such as a warehouse-only metric or a custom SQL join, write the explanation in the chat.
 - For a funnel that shows steps, pass the saved funnel's `insightId`, or the FunnelsQuery as `query`, and give each chapter step numbers.
-- For a funnel over time or time to convert, or a retention or paths insight, write the explanation in the chat.
+- For a lifecycle insight, follow the status that changed with `series`, and copy dates from the chart's `days` as for trends.
+- For a funnel over time or time to convert, or a retention, stickiness or paths insight, write the explanation in the chat.
