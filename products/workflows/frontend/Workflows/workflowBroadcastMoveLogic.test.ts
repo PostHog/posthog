@@ -64,6 +64,11 @@ describe('canMoveToBroadcasts', () => {
             { actions: [trigger, emailFrom({ integrationId: 7, integrationIds: ['9'] }), exit] },
             false,
         ],
+        [
+            'a workflow whose sender the list lacks',
+            { actions: [trigger, emailFrom({ integrationId: 11 }), exit] },
+            false,
+        ],
     ])('%s', (_name, overrides, expected) => {
         expect(canMoveToBroadcasts({ ...oneEmailFlow, ...overrides } as HogFlow, [ownSender, sandboxSender])).toBe(
             expected
