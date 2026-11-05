@@ -35,7 +35,8 @@ from posthog.hogql.property import action_to_expr
 from posthog.dataclasses import frozen
 from posthog.models.user import User
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import ActionNotFound
 from products.autoresearch.backend.access import has_report_notebook_access
 from products.autoresearch.backend.dataset.labeling import TrainingSample, build_target_condition
 from products.autoresearch.backend.inference.failures import UnscorableChampion, find_unscorable_champion
@@ -131,7 +132,7 @@ def _describe_target(pipeline: AutoresearchPipeline) -> _TargetDescription:
     if definition.get("type") == "action":
         action_id = definition.get("action_id")
         try:
-            action = Action.objects.get(id=int(action_id or 0), team__project_id=pipeline.team.project_id)
+            action = get_action(action_id=int(action_id or 0), project_id=pipeline.team.project_id)
             matcher = action_to_expr(action).to_hogql()
             spec_line = (
                 f"action `{_wrap_untrusted(action.name)}` (action_id {action_id}). "
@@ -139,7 +140,7 @@ def _describe_target(pipeline: AutoresearchPipeline) -> _TargetDescription:
             )
             inline_ref = f"the action `{_wrap_untrusted(action.name)}`"
             return _TargetDescription(spec_line=spec_line, inline_ref=inline_ref)
-        except (Action.DoesNotExist, TypeError, ValueError):
+        except (ActionNotFound, TypeError, ValueError):
             logger.warning("autoresearch_target_action_missing", pipeline_id=str(pipeline.pk), action_id=action_id)
     wrapped_event = _wrap_untrusted(pipeline.target_event)
     return _TargetDescription(spec_line=f"event `{wrapped_event}`", inline_ref=f"`{wrapped_event}`")
