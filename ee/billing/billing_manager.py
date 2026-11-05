@@ -87,6 +87,7 @@ class FundingStatusUnavailable(Exception):
 
 
 _FUNDING_STATUS_UNAVAILABLE_CACHE_VALUE = "__funding_status_unavailable__"
+_PAID_PACKAGES = ("boost", "teams", "scale", "enterprise")
 
 
 @frozen
@@ -138,35 +139,36 @@ def _has_quota_limiting_markers(usage: dict | None) -> bool:
     return False
 
 
-def _paid_package_status(products: object) -> bool | None:
+def _subscribes_to_paid_package(products: object) -> bool:
     if not isinstance(products, list):
-        return None
-    platform = next(
-        (
-            product
-            for product in products
-            if isinstance(product, dict) and product.get("type") == "platform_and_support"
-        ),
-        None,
-    )
-    if platform is None or not isinstance(platform.get("addons"), list):
-        return None
-    unknown = False
-    for addon in platform["addons"]:
-        if not isinstance(addon, dict) or not isinstance(addon.get("type"), str):
-            unknown = True
+        return False
+    for product in products:
+        if not isinstance(product, dict) or product.get("type") != "platform_and_support":
             continue
-        if addon["type"] not in {"boost", "teams", "scale", "enterprise"}:
-            continue
-        plans = addon.get("plans", [])
-        if addon.get("subscribed") is True or (
-            isinstance(plans, list)
-            and any(isinstance(plan, dict) and plan.get("current_plan") is True for plan in plans)
-        ):
-            return True
-        if addon.get("subscribed") is not False or not isinstance(plans, list):
-            unknown = True
-    return None if unknown else False
+        addons = product.get("addons")
+        for addon in addons if isinstance(addons, list) else []:
+            if not isinstance(addon, dict) or addon.get("type") not in _PAID_PACKAGES:
+                continue
+            plans = addon.get("plans")
+            if addon.get("subscribed") is True or (
+                isinstance(plans, list)
+                and any(isinstance(plan, dict) and plan.get("current_plan") is True for plan in plans)
+            ):
+                return True
+    return False
+
+
+def _paid_package_status(customer: CustomerInfo) -> bool | None:
+    billing_plan = customer.get("billing_plan")
+    trial = customer.get("trial")
+    if (
+        billing_plan in _PAID_PACKAGES
+        or customer.get("subscription_level") == "custom"
+        or (isinstance(trial, dict) and trial.get("status") == "active" and trial.get("target") in _PAID_PACKAGES)
+        or _subscribes_to_paid_package(customer.get("products"))
+    ):
+        return True
+    return False if billing_plan in ("free", "paid") else None
 
 
 def _free_trial_active(customer: CustomerInfo) -> bool:
@@ -905,9 +907,9 @@ class BillingManager:
             if org_modified:
                 organization.save()
             package_changed = data_modeling_api.update_organization_billing_package(
-                str(organization.id), _paid_package_status(data.get("products"))
+                str(organization.id), _paid_package_status(data)
             )
-            if plan_changed or package_changed:
+            if plan_changed or (package_changed and organization.billing_plan_label() == "paid"):
                 data_modeling_api.schedule_organization_schedule_reconcile(str(organization.id))
 
         if events_retention_changed:
