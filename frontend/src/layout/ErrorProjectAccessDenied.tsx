@@ -29,9 +29,8 @@ export function ErrorProjectAccessDenied(): JSX.Element {
         posthog.capture('project access denied shown', {
             cause: isCurrentProjectAccessDenied ? 'access_lost' : 'refused_link',
         })
-        // Another tab can sign in as a different account, which the server then refuses here. Read the
-        // email the server sees without reloading `userLogic`, which drops the user and blanks the app
-        // when the request fails.
+        // Another tab may have signed in as someone else. `loadUser()` would null the user on failure and
+        // blank the app, so read the email into local state instead.
         if (isCurrentProjectAccessDenied) {
             usersRetrieve('@me')
                 .then((signedInUser) => setSignedInEmail(signedInUser.email))

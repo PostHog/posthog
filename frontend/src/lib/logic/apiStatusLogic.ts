@@ -65,8 +65,6 @@ export function isUserActionInProgress(): boolean {
 
 const PROJECT_API_PATH = /^\/api\/(?:projects|environments)\/([^/]+)\//
 
-// Only the project this tab is in: a refusal from another project, such as a cross-project
-// lookup, leaves this one usable.
 function isCurrentProjectAccessDenial(url: string, responseData: any): boolean {
     if (responseData?.detail !== PROJECT_ACCESS_DENIED_DETAIL) {
         return false

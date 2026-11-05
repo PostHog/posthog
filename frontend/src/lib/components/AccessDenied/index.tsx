@@ -17,7 +17,6 @@ export interface AccessDeniedProps {
     /** Custom explanation of *why* access is denied. Rendered in place of the default first sentence; the support-link tail stays. */
     reason?: ReactNode
     inline?: boolean
-    /** Rendered below the explanation, for example a way out of the denied state. */
     children?: ReactNode
 }
 

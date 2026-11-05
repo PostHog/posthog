@@ -197,8 +197,6 @@ function isRefusedProjectPath(pathname: string): boolean {
     return !!refusedProject && getProjectIdentifierInPath(pathname) === refusedProject
 }
 
-// User and organization settings render in the project scene but do not read the project, so they
-// still work after the server refuses it.
 function isAccountSettingsPath(pathname: string): boolean {
     return /^\/settings\/(user|organization)/.test(removeProjectIdIfPresent(pathname))
 }
