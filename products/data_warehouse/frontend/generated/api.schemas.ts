@@ -1620,6 +1620,86 @@ export const DataWarehouseSavedQueryOriginEnumApi = {
     ManagedViewset: 'managed_viewset',
 } as const
 
+/**
+ * * `clickhouse` - ClickHouse
+ * * `managed_trino` - Hosted Trino
+ * * `connection` - Direct connection
+ */
+export type ViewEngineTargetEnumApi = (typeof ViewEngineTargetEnumApi)[keyof typeof ViewEngineTargetEnumApi]
+
+export const ViewEngineTargetEnumApi = {
+    Clickhouse: 'clickhouse',
+    ManagedTrino: 'managed_trino',
+    Connection: 'connection',
+} as const
+
+/**
+ * * `hogql` - HogQL
+ * * `raw` - Raw SQL
+ */
+export type ViewEngineDialectEnumApi = (typeof ViewEngineDialectEnumApi)[keyof typeof ViewEngineDialectEnumApi]
+
+export const ViewEngineDialectEnumApi = {
+    Hogql: 'hogql',
+    Raw: 'raw',
+} as const
+
+export interface ViewCapabilityApi {
+    /** Whether the view supports this. */
+    available: boolean
+    /**
+     * Why the view does not support this, written for the user. Null when available.
+     * @nullable
+     */
+    reason: string | null
+}
+
+/**
+ * * `clickhouse_probe` - ClickHouse probe
+ * * `client_types` - Column types sent by the client
+ */
+export type ViewColumnSourceEnumApi = (typeof ViewColumnSourceEnumApi)[keyof typeof ViewColumnSourceEnumApi]
+
+export const ViewColumnSourceEnumApi = {
+    ClickhouseProbe: 'clickhouse_probe',
+    ClientTypes: 'client_types',
+} as const
+
+export interface ViewEngineCapabilitiesApi {
+    /** Whether the view can be materialized, run or scheduled. */
+    materialize: ViewCapabilityApi
+    /** Whether the view has lineage and a node in the data modeling DAG. */
+    lineage: ViewCapabilityApi
+    /** Whether HogQL queries can read from this view by name. */
+    referenceable_from_hogql: ViewCapabilityApi
+    /** Where the view's column types come from: a ClickHouse probe of the query, or the types the client sends from its last run.
+     *
+     * * `clickhouse_probe` - ClickHouse probe
+     * * `client_types` - Column types sent by the client */
+    column_source: ViewColumnSourceEnumApi
+}
+
+export interface ViewEngineApi {
+    /** The engine that runs this view: ClickHouse, hosted Trino, or a direct connection.
+     *
+     * * `clickhouse` - ClickHouse
+     * * `managed_trino` - Hosted Trino
+     * * `connection` - Direct connection */
+    target: ViewEngineTargetEnumApi
+    /** Whether the view stores HogQL or raw SQL for its engine.
+     *
+     * * `hogql` - HogQL
+     * * `raw` - Raw SQL */
+    dialect: ViewEngineDialectEnumApi
+    /**
+     * The direct connection that runs this view. Null for any other engine.
+     * @nullable
+     */
+    connection_id: string | null
+    /** What the rest of the product can do with this view. */
+    capabilities: ViewEngineCapabilitiesApi
+}
+
 export type DataWarehouseSavedQueryMinimalApiColumnsItem = { [key: string]: unknown }
 
 /**
@@ -1677,7 +1757,9 @@ export interface DataWarehouseSavedQueryMinimalApi {
      * @nullable
      */
     readonly user_access_level: string | null
-    /** Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
+    /** The engine that runs this view, and what the product can do with it. */
+    readonly engine: ViewEngineApi
+    /** Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
     readonly is_raw_managed_trino: boolean
 }
 
@@ -2005,7 +2087,9 @@ export interface DataWarehouseSavedQueryApi {
     readonly user_access_level: string | null
     /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
     readonly suspended: DataWarehouseSavedQueryApiSuspended
-    /** Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
+    /** The engine that runs this view, and what the product can do with it. */
+    readonly engine: ViewEngineApi
+    /** Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
     readonly is_raw_managed_trino: boolean
 }
 
@@ -2131,7 +2215,9 @@ export interface PatchedDataWarehouseSavedQueryApi {
     readonly user_access_level?: string | null
     /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
     readonly suspended?: PatchedDataWarehouseSavedQueryApiSuspended
-    /** Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
+    /** The engine that runs this view, and what the product can do with it. */
+    readonly engine?: ViewEngineApi
+    /** Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
     readonly is_raw_managed_trino?: boolean
 }
 

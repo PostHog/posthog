@@ -41,7 +41,9 @@ from products.data_modeling.backend.facade.models import (
     Edge,
     Node,
     NodeType,
-    is_raw_managed_trino_query,
+    ViewEngine,
+    ViewEngineDialect,
+    ViewEngineTarget,
 )
 from products.data_modeling.backend.facade.tasks import refresh_downstream_view_columns
 from products.data_tools.backend.facade.models import DataWarehouseJoin
@@ -212,8 +214,11 @@ class TestSavedQuery(APIBaseTest):
         for flag_enabled in (True, False):
             with patch("posthoganalytics.feature_enabled", return_value=flag_enabled):
                 listed = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/").json()
-            flags = {row["name"]: row["is_raw_managed_trino"] for row in listed["results"]}
-            self.assertEqual(flags["hub_occupancy"], flag_enabled)
+            rows = {row["name"]: row for row in listed["results"]}
+            self.assertEqual(rows["hub_occupancy"]["is_raw_managed_trino"], flag_enabled)
+            self.assertEqual(
+                rows["hub_occupancy"]["engine"]["target"], "managed_trino" if flag_enabled else "clickhouse"
+            )
 
         # HogQL on ClickHouse cannot expand Trino SQL, so the view stays out of the HogQL database.
         response = self.client.post(
@@ -2976,18 +2981,52 @@ class TestSavedQuery(APIBaseTest):
         assert view.query != new_query
 
 
-class TestIsRawManagedTrinoQuery(SimpleTestCase):
+class TestViewEngineFromQuery(SimpleTestCase):
     @parameterized.expand(
         [
-            ("raw", True, True),
-            ("hogql", None, False),
-            ("string_false", "false", False),
-            ("string_true", "true", False),
+            ("clickhouse_hogql", {}, ViewEngine(target=ViewEngineTarget.CLICKHOUSE, dialect=ViewEngineDialect.HOGQL)),
+            (
+                "clickhouse_ignores_raw",
+                {"sendRawQuery": True},
+                ViewEngine(target=ViewEngineTarget.CLICKHOUSE, dialect=ViewEngineDialect.HOGQL),
+            ),
+            (
+                "trino_hogql",
+                {"executionTarget": "managed_trino"},
+                ViewEngine(target=ViewEngineTarget.MANAGED_TRINO, dialect=ViewEngineDialect.HOGQL),
+            ),
+            (
+                "trino_raw",
+                {"executionTarget": "managed_trino", "sendRawQuery": True},
+                ViewEngine(target=ViewEngineTarget.MANAGED_TRINO, dialect=ViewEngineDialect.RAW),
+            ),
+            (
+                "trino_string_true",
+                {"executionTarget": "managed_trino", "sendRawQuery": "true"},
+                ViewEngine(target=ViewEngineTarget.MANAGED_TRINO, dialect=ViewEngineDialect.HOGQL),
+            ),
+            (
+                "trino_wins_over_connection",
+                {"executionTarget": "managed_trino", "sendRawQuery": True, "connectionId": "conn-1"},
+                ViewEngine(target=ViewEngineTarget.MANAGED_TRINO, dialect=ViewEngineDialect.RAW),
+            ),
+            (
+                "connection_hogql",
+                {"connectionId": "conn-1"},
+                ViewEngine(target=ViewEngineTarget.CONNECTION, dialect=ViewEngineDialect.HOGQL, connection_id="conn-1"),
+            ),
+            (
+                "connection_raw",
+                {"connectionId": "conn-1", "sendRawQuery": True},
+                ViewEngine(target=ViewEngineTarget.CONNECTION, dialect=ViewEngineDialect.RAW, connection_id="conn-1"),
+            ),
         ]
     )
-    def test_only_a_json_true_marks_a_raw_trino_view(self, _name: str, send_raw: object, expected: bool) -> None:
-        query = {"query": "SELECT 1", "executionTarget": "managed_trino", "sendRawQuery": send_raw}
-        self.assertEqual(is_raw_managed_trino_query(query), expected)
+    def test_from_query(self, _name: str, keys: dict, expected: ViewEngine) -> None:
+        engine = ViewEngine.from_query({"kind": "HogQLQuery", "query": "SELECT 1", **keys})
+        self.assertEqual(engine, expected)
+        self.assertEqual(engine.can_materialize.available, not engine.is_raw_trino)
+        self.assertEqual(engine.referenceable_from_hogql.available, not engine.is_raw_trino)
 
 
 class TestSavedQueryNameValidation(SimpleTestCase):

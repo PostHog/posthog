@@ -23,7 +23,6 @@ from products.data_modeling.backend.models.datawarehouse_saved_query import (
     aget_saved_query_by_id,
     aget_table_by_saved_query_id,
     asave_saved_query,
-    is_raw_managed_trino_query,
     validate_saved_query_name,
 )
 from products.data_modeling.backend.models.datawarehouse_saved_query_column_annotation import (
@@ -32,6 +31,13 @@ from products.data_modeling.backend.models.datawarehouse_saved_query_column_anno
 from products.data_modeling.backend.models.datawarehouse_saved_query_draft import DataWarehouseSavedQueryDraft
 from products.data_modeling.backend.models.edge import NON_SCHEDULING_EDGES, Edge
 from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES, LineageIssueKind, Node, NodeType
+from products.data_modeling.backend.models.view_engine import (
+    ViewCapability,
+    ViewColumnSource,
+    ViewEngine,
+    ViewEngineDialect,
+    ViewEngineTarget,
+)
 
 __all__ = [
     "DAG",
@@ -52,9 +58,13 @@ __all__ = [
     "LineageIssueKind",
     "Node",
     "NodeType",
+    "ViewCapability",
+    "ViewColumnSource",
+    "ViewEngine",
+    "ViewEngineDialect",
+    "ViewEngineTarget",
     "aget_saved_query_by_id",
     "aget_table_by_saved_query_id",
     "asave_saved_query",
-    "is_raw_managed_trino_query",
     "validate_saved_query_name",
 ]
