@@ -871,6 +871,48 @@ def available_access_levels() -> list[PropertyAccessLevel]:
     return list(PropertyAccessLevel)
 
 
+_PROPERTY_LEVEL_ORDER = (PropertyAccessLevel.NONE, PropertyAccessLevel.READ, PropertyAccessLevel.READ_WRITE)
+
+
+def stored_property_rule_floor(*, user: User, team_id: int) -> PropertyAccessLevel | None:
+    """The lowest level the stored property rules can give ``user`` on one property of the team.
+
+    The property-rule counterpart of ``UserAccessControl.stored_rule_floor``, with the same
+    candidates per property: the user's member rows, else their role rows and the default rows.
+    It holds whether or not the organization is entitled to property access control or roles.
+    ``None`` means no stored rule applies. This includes org admins, who bypass property rules.
+    """
+    organization_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
+    if organization_id is None:
+        return None
+    membership = OrganizationMembership.objects.filter(user=user, organization_id=organization_id).first()
+    if membership is None or membership.level >= OrganizationMembership.Level.ADMIN:
+        return None
+    role_ids = list(
+        RoleMembership.objects.filter(user=user, role__organization_id=organization_id)
+        .valid_for_authorization()
+        .values_list("role_id", flat=True)
+    )
+    rows = PropertyAccessControl.objects.filter(team_id=team_id, property_definition__isnull=False).filter(
+        Q(organization_member=None, role=None)
+        | Q(organization_member_id=membership.id, role=None)
+        | Q(organization_member=None, role_id__in=role_ids)
+    )
+    rows_by_property: dict[UUID | None, list[PropertyAccessControl]] = {}
+    for row in rows:
+        rows_by_property.setdefault(row.property_definition_id, []).append(row)
+    lowest: PropertyAccessLevel | None = None
+    for property_rows in rows_by_property.values():
+        member_rows = [row for row in property_rows if row.organization_member_id is not None]
+        for row in member_rows or property_rows:
+            # A level outside the order is unknown: count it as no access.
+            level = next((known for known in _PROPERTY_LEVEL_ORDER if known.value == row.access_level), None)
+            level = level or PropertyAccessLevel.NONE
+            if lowest is None or _PROPERTY_LEVEL_ORDER.index(level) < _PROPERTY_LEVEL_ORDER.index(lowest):
+                lowest = level
+    return lowest
+
+
 def connect_access_change_receivers(
     *,
     on_rule_change: Callable[[int, str], None],
@@ -883,8 +925,8 @@ def connect_access_change_receivers(
     ``on_rule_change(team_id, resource)`` runs after a rule is saved or deleted. A property rule
     comes in as the ``property_definition`` resource.
     ``on_role_membership_change(user_id, organization_id)`` runs after a role membership is
-    saved and before one is deleted, so its role can still be read. ``organization_id`` is the
-    role's organization: most role memberships carry no organization membership.
+    saved or deleted. ``organization_id`` is the role's organization, read before a delete while
+    the role is still there: most role memberships carry no organization membership.
 
     Neither runs while ``is_active()`` is false, so a disabled caller costs no role query.
 
@@ -899,6 +941,19 @@ def connect_access_change_receivers(
     def role_membership_changed(sender: object, instance: RoleMembership, **kwargs: object) -> None:
         if is_active():
             on_role_membership_change(instance.user_id, instance.role.organization_id)
+
+    # Outside a transaction a callback's on_commit runs at once, so it must not run before the
+    # delete: read the organization before it, and call back after it.
+    pending_attr = f"_{dispatch_uid}_role_organization_id"
+
+    def role_membership_deleting(sender: object, instance: RoleMembership, **kwargs: object) -> None:
+        if is_active():
+            setattr(instance, pending_attr, instance.role.organization_id)
+
+    def role_membership_deleted(sender: object, instance: RoleMembership, **kwargs: object) -> None:
+        organization_id = getattr(instance, pending_attr, None)
+        if organization_id is not None:
+            on_role_membership_change(instance.user_id, organization_id)
 
     # weak=False: the receivers are closures, and nothing else holds them.
     post_save.connect(rule_changed, sender=AccessControl, weak=False, dispatch_uid=f"{dispatch_uid}_rule_saved")
@@ -924,12 +979,16 @@ def connect_access_change_receivers(
         role_membership_changed, sender=RoleMembership, weak=False, dispatch_uid=f"{dispatch_uid}_role_saved"
     )
     pre_delete.connect(
-        role_membership_changed, sender=RoleMembership, weak=False, dispatch_uid=f"{dispatch_uid}_role_deleting"
+        role_membership_deleting, sender=RoleMembership, weak=False, dispatch_uid=f"{dispatch_uid}_role_deleting"
+    )
+    post_delete.connect(
+        role_membership_deleted, sender=RoleMembership, weak=False, dispatch_uid=f"{dispatch_uid}_role_deleted"
     )
 
 
 __all__ = [
     "connect_access_change_receivers",
+    "stored_property_rule_floor",
     "InvalidPropertyAccessControlTargetError",
     "PropertyAccessControlRuleNotFoundError",
     "PropertyAccessLevel",

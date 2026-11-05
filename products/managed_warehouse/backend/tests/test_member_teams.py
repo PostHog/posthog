@@ -132,19 +132,44 @@ class TestMemberTeams(_MemberTeamsTest):
         self._rule(self.team, "warehouse_table", "editor", resource_id=table, role_id=role_id)
         self._rule(self.team, "warehouse_table", "none", resource_id=table, organization_member_id=self.membership.id)
 
-    def test_most_specific_resolution_lets_a_member_denial_beat_a_role_grant(self) -> None:
-        # PostHog hides the table from the member, so the namespace grant must go.
-        self.organization.uses_most_specific_access_resolution = True
-        self.organization.save()
+    def test_a_member_denial_withholds_the_team_under_either_resolution(self) -> None:
+        # Most-specific resolution hides the table from the member, so the floor holds for both
+        # modes and a switch between them needs no push.
         self._role_editor_and_member_denied_on_one_table()
+        for most_specific in (True, False):
+            self.organization.uses_most_specific_access_resolution = most_specific
+            self.organization.save()
+            assert member_teams.member_teams(self.organization, self.member) == {}, most_specific
+
+    def test_a_member_grant_lifts_a_default_denial(self) -> None:
+        # Every resolution lets the member's own row decide, so the member reads the table.
+        table = str(uuid4())
+        self._rule(self.team, "warehouse_table", "none", resource_id=table)
+        self._rule(self.team, "warehouse_table", "viewer", resource_id=table, organization_member_id=self.membership.id)
+        assert member_teams.member_teams(self.organization, self.member) == {self.team.id: "read"}
+
+    def test_a_role_grant_does_not_lift_a_default_denial(self) -> None:
+        # Without the roles entitlement the role row does not apply, so the floor keeps the denial.
+        table = str(uuid4())
+        role_id = access_testing.create_role(organization_id=self.organization.id, name="Analysts")
+        access_testing.add_role_member(role_id=role_id, user_id=self.member.id)
+        self._rule(self.team, "warehouse_table", "none", resource_id=table)
+        self._rule(self.team, "warehouse_table", "viewer", resource_id=table, role_id=role_id)
         assert member_teams.member_teams(self.organization, self.member) == {}
 
-    def test_legacy_resolution_lets_the_highest_explicit_row_win(self) -> None:
-        # Legacy resolution shows the member the table through the role, so the grant stays.
-        self.organization.uses_most_specific_access_resolution = False
+    def test_stored_rules_cap_without_the_entitlement(self) -> None:
+        # Restoring the entitlement makes the stored rules effective again with no push, so they
+        # cap the grant already.
+        self._rule(self.team, "warehouse_table", "none", resource_id=str(uuid4()))
+        self.organization.available_product_features = []
         self.organization.save()
-        self._role_editor_and_member_denied_on_one_table()
-        assert member_teams.member_teams(self.organization, self.member) == {self.team.id: "write"}
+        assert member_teams.member_teams(self.organization, self.member) == {}
+
+    def test_a_private_project_floor_withholds_the_team(self) -> None:
+        self._rule(self.team, "project", "none", resource_id=str(self.team.id))
+        self.organization.available_product_features = []
+        self.organization.save()
+        assert member_teams.member_teams(self.organization, self.member) == {}
 
     def test_an_object_default_viewer_lowers_write_to_read_in_both_modes(self) -> None:
         # Both resolutions give the member viewer on that view when no resource rule outranks it.
@@ -160,14 +185,32 @@ class TestMemberTeams(_MemberTeamsTest):
         self._property_rule(self.team, "none", organization_member_id=self.membership.id)
         assert member_teams.member_teams(self.organization, self.member) == {}
 
-    def test_a_read_only_property_does_not_restrict(self) -> None:
+    def test_a_read_only_property_caps_the_team_at_read(self) -> None:
+        # A team grant could rewrite the raw values, which the property rule forbids.
         self._property_rule(self.team, "read")
+        assert member_teams.member_teams(self.organization, self.member) == {self.team.id: "read"}
+
+    def test_a_member_property_grant_lifts_a_default_hidden_property(self) -> None:
+        definition = PropertyDefinition.objects.create(team=self.team, name="email", type=2)
+        for level, member in (("none", None), ("read_write", self.membership.id)):
+            access_testing.create_property_access_control(
+                team_id=self.team.id,
+                property_definition_id=definition.id,
+                access_level=level,
+                organization_member_id=member,
+            )
         assert member_teams.member_teams(self.organization, self.member) == {self.team.id: "write"}
 
-    def test_a_hidden_property_without_the_feature_does_not_restrict(self) -> None:
+    def test_a_stored_hidden_property_caps_without_the_feature(self) -> None:
         self._property_rule(self.team, "none")
         self.organization.available_product_features = []
         self.organization.save()
+        assert member_teams.member_teams(self.organization, self.member) == {}
+
+    def test_an_organization_admin_is_not_restricted_by_property_rules(self) -> None:
+        self._property_rule(self.team, "none")
+        self.membership.level = OrganizationMembership.Level.ADMIN
+        self.membership.save()
         assert member_teams.member_teams(self.organization, self.member) == {self.team.id: "write"}
 
     def test_an_organization_admin_is_not_restricted_by_object_rules(self) -> None:
@@ -319,27 +362,6 @@ class TestReceivers(_MemberTeamsTest):
             access_testing.delete_property_access_control_rule(team_id=self.team.id, property_access_control_id=rule_id)
         self.org_push.assert_called_once_with(str(self.organization.id))
 
-    def test_switching_to_most_specific_resolution_pushes_the_organization(self) -> None:
-        self.organization.uses_most_specific_access_resolution = False
-        self.organization.save()
-        self.org_push.reset_mock()
-        with self.captureOnCommitCallbacks(execute=True):
-            self.organization.uses_most_specific_access_resolution = True
-            self.organization.save(update_fields=["uses_most_specific_access_resolution", "updated_at"])
-        self.org_push.assert_called_once_with(str(self.organization.id))
-        self.org_push.reset_mock()
-        # Django admin saves every field, with no update_fields.
-        with self.captureOnCommitCallbacks(execute=True):
-            self.organization.uses_most_specific_access_resolution = False
-            self.organization.save()
-        self.org_push.assert_called_once_with(str(self.organization.id))
-        self.org_push.reset_mock()
-        with self.captureOnCommitCallbacks(execute=True):
-            self.organization.name = "renamed"
-            self.organization.save()
-            self.organization.save(update_fields=["name"])
-        self.org_push.assert_not_called()
-
     def test_other_rules_push_nothing(self) -> None:
         with self.captureOnCommitCallbacks(execute=True):
             self._rule(self.team, "dashboard", "viewer")
@@ -369,6 +391,20 @@ class TestReceivers(_MemberTeamsTest):
             self.team.save()
             self.team.save(update_fields=["name"])
         self.org_push.assert_not_called()
+
+    def test_receivers_before_a_write_only_record(self) -> None:
+        # Outside a transaction on_commit runs at once, so an enqueue from before the write could
+        # push the old state. The receivers before the write record, and the ones after enqueue.
+        target = Organization.objects.create(name="target")
+        self.team.organization_id = target.id
+        with self.captureOnCommitCallbacks(execute=False) as callbacks:
+            signals.membership_deleting(OrganizationMembership, self.membership)
+            signals.team_saving(Team, self.team)
+        assert callbacks == []
+        with self.captureOnCommitCallbacks(execute=False) as callbacks:
+            signals.membership_deleted(OrganizationMembership, self.membership)
+            signals.team_saved(Team, self.team)
+        assert len(callbacks) == 3
 
     def test_no_push_without_a_warehouse(self) -> None:
         DuckgresServer.objects.filter(organization=self.organization).delete()

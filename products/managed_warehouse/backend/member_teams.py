@@ -6,12 +6,14 @@ owner can see. PostHog is not a live dependency of that mint, so PostHog pushes 
 - Every team the member can see, by both access-control systems (``visible_teams_for_user``),
   goes in at the member's level on warehouse objects: ``viewer`` is ``read``, ``editor`` and
   above are ``write``. A team where that level is ``none`` is left out.
-- A team grant covers the whole namespace, so it cannot honor a rule on one table, view or
-  source. The level is the lowest of the warehouse-objects rule, the all-sources rule (a table
-  with a source falls back to it), and every object rule that applies to the member. A member
-  denied one table therefore gets no grant on that team.
-- For the same reason, a member with any hidden property on a team gets no grant on it: the
-  namespace holds the raw values that PostHog's queries mask.
+- A team grant covers the whole namespace, so it cannot honor a rule on one table, view,
+  source or property, and it cannot follow PostHog's resolution of rules either. So the level
+  is capped by the floor of the stored rules that apply to the member (see
+  ``UserAccessControl.stored_rule_floor``): the lowest level any of them can give, under either
+  resolution mode, with or without the access-control entitlements. A member denied one table
+  or one property gets no grant on the team; ``viewer`` on one object, or a read-only property,
+  caps the grant at ``read``. The cap can be stricter than PostHog, never looser, so a switch of
+  resolution mode or of entitlement needs no push.
 - A member who has left the organization, or whose user is deactivated, is removed. hogtower
   then revokes every team credential the member owns.
 
@@ -39,7 +41,8 @@ from posthog.models import Organization, OrganizationMembership, User
 from posthog.scopes import APIScopeObject
 from posthog.user_permissions import UserPermissions
 
-from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
+from products.access_control.backend.facade.api import stored_property_rule_floor
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 from products.managed_warehouse.backend.metrics import record_counter
 from products.managed_warehouse.backend.presentation import hogtower
@@ -50,15 +53,18 @@ READ = "read"
 WRITE = "write"
 # The access-control resource whose level decides read or write on a team's namespace.
 WAREHOUSE_RESOURCE: APIScopeObject = "warehouse_objects"
-SOURCE_RESOURCE: APIScopeObject = "external_data_source"
-# Every resource whose rules can lower a member's access to data in the namespace.
+# Every resource whose rules can lower a member's access to the team or to data in its namespace.
 RESTRICTING_RESOURCES: tuple[APIScopeObject, ...] = (
+    "project",
     WAREHOUSE_RESOURCE,
-    SOURCE_RESOURCE,
+    "external_data_source",
     "warehouse_table",
     "warehouse_view",
 )
 _LEVEL_ORDER = ("none", "viewer", "editor", "manager")
+# A property rule caps the namespace: a hidden property leaves the team out, a read-only one
+# allows reads only.
+_PROPERTY_CAPS = {PropertyAccessLevel.NONE: "none", PropertyAccessLevel.READ: "viewer"}
 _READ_LEVELS = frozenset({"viewer"})
 _WRITE_LEVELS = frozenset({"editor", "manager"})
 
@@ -86,9 +92,7 @@ def member_teams(organization: Organization, user: User) -> dict[int, str]:
     visible = visible_teams_for_user(organization, access, UserPermissions(user)).values_list("id", flat=True)
     teams: dict[int, str] = {}
     for team_id, team_access in access.for_team_ids(list(visible)).items():
-        level = _namespace_level(team_access)
-        if level is not None and get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id):
-            level = None
+        level = _namespace_level(team_access, user, team_id)
         if level in _WRITE_LEVELS:
             teams[team_id] = WRITE
         elif level in _READ_LEVELS:
@@ -96,16 +100,16 @@ def member_teams(organization: Organization, user: User) -> dict[int, str]:
     return teams
 
 
-def _namespace_level(team_access: UserAccessControl) -> str | None:
-    """The lowest level the member has on any data in the team's namespace."""
-    levels: list[str | None] = []
-    for resource in (WAREHOUSE_RESOURCE, SOURCE_RESOURCE):
-        resolved = team_access.access_level_for_resource(resource)
-        levels.append(resolved.access_level if resolved else None)
-    levels.append(team_access.lowest_object_access_level(RESTRICTING_RESOURCES))
-    known = [level for level in levels if level is not None]
-    if levels[0] is None or not known:
+def _namespace_level(team_access: UserAccessControl, user: User, team_id: int) -> str | None:
+    """The member's level on warehouse objects, capped by the floor of their stored rules."""
+    resolved = team_access.access_level_for_resource(WAREHOUSE_RESOURCE)
+    if resolved is None:
         return None
+    levels: list[str | None] = [resolved.access_level, team_access.stored_rule_floor(RESTRICTING_RESOURCES)]
+    property_floor = stored_property_rule_floor(user=user, team_id=team_id)
+    if property_floor is not None:
+        levels.append(_PROPERTY_CAPS.get(property_floor))
+    known = [level for level in levels if level is not None]
     # A level outside the order is unknown: treat it as no access.
     return min(known, key=lambda level: _LEVEL_ORDER.index(level) if level in _LEVEL_ORDER else -1)
 

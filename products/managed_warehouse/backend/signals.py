@@ -6,9 +6,10 @@ a managed warehouse. ``member_teams`` reads the committed state when the push ru
 - An organization membership is created, changed (its level) or deleted: that member.
 - A user is deactivated: that user, in each of their organizations.
 - A role membership is created or deleted: that member.
-- A project is created, deleted or moved to another organization, an access rule on the
-  project, on warehouse data or on a property changes, or the organization switches its access
-  resolution: every member of the organization (both, for a move).
+- A project is created, deleted or moved to another organization, or an access rule on the
+  project, on warehouse data or on a property changes: every member of the organization (both,
+  for a move). A switch of resolution mode or of entitlement needs no push, because the pushed
+  level is capped by a floor that holds under both (``member_teams``).
 
 Access rules and role memberships arrive through the access_control facade, as ids.
 """
@@ -21,7 +22,7 @@ from uuid import UUID
 from django.db import transaction
 from django.db.models.signals import post_delete, post_save, pre_delete, pre_save
 
-from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models import OrganizationMembership, Team, User
 
 from products.managed_warehouse.backend import member_teams
 
@@ -72,11 +73,23 @@ def membership_saved(sender: Any, instance: OrganizationMembership, **kwargs: An
         _on_commit_member(instance.organization_id, _user_uuid(instance.user_id))
 
 
+# A receiver that must read state before a write records it on the instance under this name,
+# and the receiver after the write enqueues. Outside a transaction on_commit runs at once, so an
+# enqueue from before the write could run its push before the write lands.
+_PENDING_ATTR = "_managed_warehouse_member_teams_pending"
+
+
 def membership_deleting(sender: Any, instance: OrganizationMembership, **kwargs: Any) -> None:
-    # pre_delete: the user row is still there to read the uuid from, even when the user's own
-    # deletion is what removes the membership.
+    # The user row is still there to read the uuid from, even when the user's own deletion is
+    # what removes the membership.
     if member_teams.is_enabled():
-        _on_commit_member(instance.organization_id, _user_uuid(instance.user_id))
+        setattr(instance, _PENDING_ATTR, _user_uuid(instance.user_id))
+
+
+def membership_deleted(sender: Any, instance: OrganizationMembership, **kwargs: Any) -> None:
+    user_uuid = getattr(instance, _PENDING_ATTR, None)
+    if user_uuid is not None:
+        _on_commit_member(instance.organization_id, user_uuid)
 
 
 def user_saved(sender: Any, instance: User, created: bool = False, **kwargs: Any) -> None:
@@ -89,35 +102,23 @@ def user_saved(sender: Any, instance: User, created: bool = False, **kwargs: Any
         _on_commit_member(organization_id, instance.uuid)
 
 
-def team_saved(sender: Any, instance: Team, created: bool = False, **kwargs: Any) -> None:
-    if created:
-        _on_commit_organization(instance.organization_id)
-
-
 def team_saving(sender: Any, instance: Team, update_fields: Any = None, **kwargs: Any) -> None:
-    # A project moved to another organization: the members of the old one lose the team.
+    # A project moved to another organization: record the old one, whose members lose the team.
     if instance._state.adding or not member_teams.is_enabled():
         return
     if update_fields is not None and not {"organization", "organization_id"} & set(update_fields):
         return
     previous = _team_organization_id(instance.pk)
     if previous is not None and previous != instance.organization_id:
-        _on_commit_organization(previous)
+        setattr(instance, _PENDING_ATTR, previous)
+
+
+def team_saved(sender: Any, instance: Team, created: bool = False, **kwargs: Any) -> None:
+    previous = instance.__dict__.pop(_PENDING_ATTR, None)
+    if created or previous is not None:
         _on_commit_organization(instance.organization_id)
-
-
-def organization_saving(sender: Any, instance: Organization, update_fields: Any = None, **kwargs: Any) -> None:
-    # A switch of access resolution can hide an object that a role used to show. The batch
-    # migration switches only organizations whose rules resolve the same either way, with
-    # .update(), so it sends no signal and needs no push.
-    field = "uses_most_specific_access_resolution"
-    if instance._state.adding or not member_teams.is_enabled():
-        return
-    if update_fields is not None and field not in update_fields:
-        return
-    stored = Organization.objects.filter(pk=instance.pk).values_list(field, flat=True).first()
-    if stored is not None and stored != getattr(instance, field):
-        _on_commit_organization(instance.id)
+    if previous is not None:
+        _on_commit_organization(previous)
 
 
 def team_deleted(sender: Any, instance: Team, **kwargs: Any) -> None:
@@ -141,11 +142,11 @@ def connect() -> None:
     uid = "managed_warehouse_member_teams"
     post_save.connect(membership_saved, sender=OrganizationMembership, dispatch_uid=f"{uid}_membership_saved")
     pre_delete.connect(membership_deleting, sender=OrganizationMembership, dispatch_uid=f"{uid}_membership_deleting")
+    post_delete.connect(membership_deleted, sender=OrganizationMembership, dispatch_uid=f"{uid}_membership_deleted")
     post_save.connect(user_saved, sender=User, dispatch_uid=f"{uid}_user_saved")
     pre_save.connect(team_saving, sender=Team, dispatch_uid=f"{uid}_team_saving")
     post_save.connect(team_saved, sender=Team, dispatch_uid=f"{uid}_team_saved")
     post_delete.connect(team_deleted, sender=Team, dispatch_uid=f"{uid}_team_deleted")
-    pre_save.connect(organization_saving, sender=Organization, dispatch_uid=f"{uid}_organization_saving")
     connect_access_change_receivers(
         on_rule_change=access_rule_changed,
         on_role_membership_change=role_membership_changed,

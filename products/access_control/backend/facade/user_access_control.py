@@ -1312,38 +1312,52 @@ class UserAccessControl:
 
         return False
 
-    def lowest_object_access_level(self, resources: Iterable[APIScopeObject]) -> Optional[AccessControlLevel]:
-        """The lowest level this user has on any object of ``resources`` that has an access rule.
+    def stored_rule_floor(self, resources: Iterable[APIScopeObject]) -> Optional[AccessControlLevel]:
+        """The lowest level the stored rules on ``resources`` can give this user in this team.
 
-        For a caller that grants a whole resource type at once and so cannot honor a restriction on one
-        object: it must not grant more than this. Each object goes through the enforced object
-        resolution (``_resolved_access_for_target``), so the answer follows the organization's
-        resolution mode and its default, role and member rules exactly as PostHog applies them. An
-        object without a rule resolves to the resource level, which the caller reads on its own.
-        ``None`` means no object restricts the user. This includes org admins, who bypass object rules.
+        For a caller that copies access to a place that cannot follow PostHog's resolution, such as
+        a grant over a whole warehouse namespace. The floor holds under either resolution mode and
+        whether or not the organization is entitled to access control or roles. So a later change
+        to either can only raise what PostHog enforces above it, never drop it below.
 
-        Two inputs are left out, and both can only lower the answer: the creator exemption (no
-        creator is passed), and a table's fallback to its source (the source's own rules count as
-        objects of their resource, when the caller passes ``external_data_source``).
+        Each scope (the resource, or one object) contributes its lowest candidate row. The
+        candidates are the user's member rows, if the scope has any. Otherwise they are the rows of
+        the user's roles and the default rows, because a role rule may not apply. Every resolution
+        picks one of the candidates or a level from a broader scope, which contributes on its own.
+        A ``project`` rule on this team contributes only when it denies the project.
+
+        ``None`` means no stored rule applies. This includes org admins, who bypass every rule.
         """
-        if not self._organization_membership or self.is_organization_admin:
+        membership = self._organization_membership
+        if not EE_AVAILABLE or not self._team or not membership or self.is_organization_admin:
             return None
+        role_ids = list(
+            cast(Any, self._user)
+            .role_memberships.filter(role__organization_id=self._organization_id)
+            .valid_for_authorization()
+            .values_list("role_id", flat=True)
+        )
+        rows = AccessControl.objects.filter(team_id=self._team.id, resource__in=list(resources)).filter(
+            Q(organization_member=None, role=None)
+            | Q(organization_member_id=membership.id, role=None)
+            | Q(organization_member=None, role_id__in=role_ids)
+        )
+        rows_by_scope: dict[tuple[str, Optional[str]], list[AccessControl]] = defaultdict(list)
+        for row in rows:
+            rows_by_scope[(row.resource, row.resource_id)].append(row)
+
         lowest: Optional[AccessControlLevel] = None
-        for resource in resources:
-            order = ordered_access_levels(resource)
-            object_ids = {
-                access_control.resource_id
-                for access_control in self._get_access_controls(self._access_controls_filters_for_queryset(resource))
-            }
-            for object_id in sorted(object_ids):
-                resolved = self._resolved_access_for_target(
-                    _ObjectAccessTarget(
-                        resource=resource, object_id=object_id, created_by_id=None, fallback_parent_id=None
-                    )
-                )
-                level = cast(AccessControlLevel, resolved.access_level if resolved else NO_ACCESS_LEVEL)
-                if level not in order:
-                    level = cast(AccessControlLevel, NO_ACCESS_LEVEL)
+        for (resource, resource_id), scope_rows in rows_by_scope.items():
+            member_rows = [row for row in scope_rows if row.organization_member_id is not None]
+            candidates = member_rows or scope_rows
+            if resource == "project":
+                if resource_id == str(self._team.id) and any(r.access_level == NO_ACCESS_LEVEL for r in candidates):
+                    return cast(AccessControlLevel, NO_ACCESS_LEVEL)
+                continue
+            order = ordered_access_levels(cast(APIScopeObject, resource))
+            for row in candidates:
+                # A level outside the order is unknown: count it as no access.
+                level = cast(AccessControlLevel, row.access_level if row.access_level in order else NO_ACCESS_LEVEL)
                 if lowest is None or order.index(level) < order.index(lowest):
                     lowest = level
         return lowest
