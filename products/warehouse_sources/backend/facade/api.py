@@ -74,7 +74,7 @@ from products.warehouse_sources.backend.models.util import (
     validate_warehouse_table_url_pattern,
 )
 from products.warehouse_sources.backend.source_status import effective_source_status
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataSourceType, WarehouseColumnAnnotationDescriptionSource
 from products.warehouse_sources.backend.view_consumers import saved_queries_feeding_consumers
 from products.warehouse_sources.backend.webhook_registration import schema_needs_webhook, sources_missing_webhook
 
@@ -563,32 +563,39 @@ def table_level_descriptions(team_id: int, table_ids: Collection[UUID]) -> dict[
         .filter(table_id__in=table_ids, column_name="")
         .values_list("table_id", "description", "description_source")
     ):
-        descriptions[table_id] = contracts.TableLevelDescription(text=text, source=source)
+        descriptions[table_id] = contracts.TableLevelDescription(
+            text=text, source=WarehouseColumnAnnotationDescriptionSource(source)
+        )
     return descriptions
 
 
 def live_table_exists(team_id: int, table_id: UUID) -> bool:
-    return _DataWarehouseTable.objects.filter(team_id=team_id, id=table_id).exclude(deleted=True).exists()
+    return _DataWarehouseTable.raw_objects.queryable().filter(team_id=team_id, id=table_id).exists()
 
 
 def write_table_level_description(team_id: int, table_id: UUID, description: str) -> None:
     """Store a user edit, protected from enrichment. An empty description deletes the row."""
-    from posthog.llm.semantic_enrichment import (  # noqa: PLC0415 -- keeps the LLM gateway off this module's import path
-        upsert_user_edited_annotation,
-    )
-
+    annotations = _WarehouseColumnAnnotation.objects.for_team(team_id)
     if not description:
-        _WarehouseColumnAnnotation.objects.for_team(team_id).filter(table_id=table_id, column_name="").delete()
+        annotations.filter(table_id=table_id, column_name="").delete()
         return
-    table = _DataWarehouseTable.objects.filter(team_id=team_id, id=table_id).exclude(deleted=True).get()
-    upsert_user_edited_annotation(
-        _WarehouseColumnAnnotation,
-        team_id,
-        parent_field="table",
-        parent=table,
+    table = _DataWarehouseTable.raw_objects.queryable().get(team_id=team_id, id=table_id)
+    user_edited = _WarehouseColumnAnnotation.DescriptionSource.USER_EDITED
+    annotation, created = annotations.get_or_create(
+        table=table,
         column_name="",
-        description=description,
+        defaults={
+            "team_id": team_id,
+            "description": description,
+            "description_source": user_edited,
+            "is_user_edited": True,
+        },
     )
+    if not created:
+        annotation.description = description
+        annotation.description_source = user_edited
+        annotation.is_user_edited = True
+        annotation.save(update_fields=["description", "description_source", "is_user_edited", "updated_at"])
 
 
 def pending_source_ids_for_tables(team_id: int, table_ids: Collection[UUID] | None = None) -> dict[UUID, UUID]:
