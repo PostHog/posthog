@@ -42494,6 +42494,13 @@ export namespace Schemas {
       workflow_ids: string[];
     }
 
+    export interface EventsDeleted {
+      /** The period in months that was counted for. */
+      readonly retention_months: number;
+      /** How many queryable events the next monthly cleanup deletes with this period. The count can be up to a day old. */
+      readonly events_deleted: number;
+    }
+
     export interface EventsRetention {
       /**
          * The period, in months, that every project without its own period uses. Null while those projects use the default period.
@@ -120907,6 +120914,15 @@ export namespace Schemas {
     status_min?: number;
     };
 
+    export type OrganizationEventsRetentionDeletionCountParams = {
+    /**
+     * The period in months to count for, at most 1200. Only events older than this period are counted.
+     * @minimum 1
+     * @maximum 1200
+     */
+    retention_months: number;
+    };
+
     export type OrgFeatureFlagsKeysParams = {
     /**
      * Page size (max 100)
@@ -127475,6 +127491,15 @@ export namespace Schemas {
       Csv: 'csv',
       Json: 'json',
     } as const;
+
+    export type EventsRetentionDeletionCountParams = {
+    /**
+     * The period in months to count for, at most 1200. Only events older than this period are counted.
+     * @minimum 1
+     * @maximum 1200
+     */
+    retention_months: number;
+    };
 
     export type ExperimentHoldoutsListParams = {
     /**
