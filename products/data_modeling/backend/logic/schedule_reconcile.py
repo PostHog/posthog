@@ -145,8 +145,9 @@ def bootstrap_dag_to_tiers(dag: DAG, *, requested_by: "DataWarehouseSavedQuery |
     caller does, never before.
 
     `requested_by` is the saved query whose enable triggered this, and is marked not materialized
-    if the reconcile fails. An unreadable plan floor raises here, before the commit, so the caller
-    can report the failure instead of retracting the enable after it has answered the request.
+    if the reconcile fails. An unreadable plan floor raises here, before any target is seeded.
+    `schedule_materialization` then turns materialization off, because nothing is scheduled to
+    back the query, and the next managed viewset sync sees the difference and tries again.
     """
     if not read_plan_refresh_floor(dag.team_id).evaluated:
         raise PlanFloorUnavailableError(f"Plan refresh floor unavailable for team {dag.team_id}")
