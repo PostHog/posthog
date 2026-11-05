@@ -1,19 +1,20 @@
 from concurrent.futures import ThreadPoolExecutor
-from threading import Barrier
+from threading import Barrier, Event
 from uuid import uuid4
 
 from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import patch
 
-from django.db import close_old_connections
+from django.db import close_old_connections, transaction
 
 from posthog.models import Team
 
+from products.signals.backend import spend as spend_module
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.models import SignalReport
+from products.signals.backend.models import SignalReport, SignalSpend
 from products.signals.backend.report_generation.research import ReportLayer
 from products.signals.backend.stack_plan import create_layer_reports
-from products.signals.backend.trial.models import SignalTrialReportReservation
+from products.signals.backend.trial.models import SignalTrialGrant, SignalTrialReportReservation
 from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
 
 
@@ -110,3 +111,81 @@ class TestTrialConcurrency(NonAtomicBaseTest):
             with ThreadPoolExecutor(max_workers=2) as pool:
                 assert sorted(pool.map(race_publish, range(2))) == [False, True]
             assert SignalTrialReportReservation.objects.for_team(self.team.id).filter(status="consumed").count() == 5
+
+    def test_report_finalization_and_late_settlement_share_a_grant_without_deadlocking(self) -> None:
+        with patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True):
+            grant = TrialPolicy(self.team).claim(user_id=self.user.pk)
+        first_id, pending_id = uuid4(), uuid4()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.IN_PROGRESS,
+            triggering_signal_id=first_id,
+            pending_triggering_signal_id=pending_id,
+        )
+        spend_module.record_llm_spend(
+            team_id=self.team.id,
+            signal_id=str(first_id),
+            stage="research",
+            token_cost_microusd=100,
+            trial_grant_id=str(grant.id),
+        )
+        spend_module.record_llm_spend(
+            team_id=self.team.id,
+            signal_id=str(pending_id),
+            stage="research",
+            token_cost_microusd=None,
+            source_id="late",
+            trial_grant_id=str(grant.id),
+            strict=True,
+        )
+        first_locked, pending_locked, finalizing_pending = Event(), Event(), Event()
+        lock_spend = spend_module._locked_ad_hoc_spend
+
+        def coordinated_lock(*, team_id: int, signal_id: str, trial_grant_id: str | None = None) -> SignalSpend:
+            if signal_id == str(pending_id):
+                finalizing_pending.set()
+            receipt = lock_spend(team_id=team_id, signal_id=signal_id, trial_grant_id=trial_grant_id)
+            if signal_id == str(first_id):
+                first_locked.set()
+                assert pending_locked.wait(timeout=10)
+            return receipt
+
+        def finalize() -> None:
+            close_old_connections()
+            try:
+                spend_module.finish_report_spend(
+                    team_id=self.team.id, report_id=str(report.id), signal_id=str(first_id)
+                )
+            finally:
+                close_old_connections()
+
+        def settle() -> None:
+            close_old_connections()
+            try:
+                assert first_locked.wait(timeout=10)
+                with transaction.atomic():
+                    SignalSpend.objects.for_team(self.team.id).select_for_update().get(signal_id=pending_id)
+                    pending_locked.set()
+                    assert finalizing_pending.wait(timeout=10)
+                    spend_module.record_llm_spend(
+                        "late-request",
+                        team_id=self.team.id,
+                        signal_id=str(pending_id),
+                        stage="research",
+                        source_id="late",
+                        token_cost_microusd=200,
+                    )
+            finally:
+                close_old_connections()
+
+        with patch.object(spend_module, "_locked_ad_hoc_spend", side_effect=coordinated_lock):
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                futures = [pool.submit(finalize), pool.submit(settle)]
+                for future in futures:
+                    future.result(timeout=15)
+        grant = SignalTrialGrant.objects.for_team(self.team.id, canonical=True).get(id=grant.id)
+        assert grant.settled_microusd == 300
+        assert grant.incomplete_sources == 0
+        assert SignalSpend.objects.for_team(self.team.id).filter(finalized_at__isnull=False).count() == 2
+        report.refresh_from_db()
+        assert report.pending_triggering_signal_id is None

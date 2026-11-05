@@ -398,16 +398,19 @@ def finish_report_spend(*, team_id: int, report_id: str, signal_id: str) -> None
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).first()
         spend = _locked_ad_hoc_spend(team_id=team_id, signal_id=signal_id)
+        # Lock both receipts before their shared grant; late settlement locks receipt then grant.
+        pending = (
+            _locked_ad_hoc_spend(team_id=team_id, signal_id=str(report.pending_triggering_signal_id))
+            if report
+            and report.triggering_signal_id == UUID(signal_id)
+            and report.pending_triggering_signal_id not in {None, report.triggering_signal_id}
+            else None
+        )
         if spend.finalized_at is None:
             if report:
                 apply_report_billing(spend, report)
             _save_ad_hoc_spend(spend, finalize=True)
-        if (
-            report
-            and report.triggering_signal_id == UUID(signal_id)
-            and report.pending_triggering_signal_id not in {None, report.triggering_signal_id}
-        ):
-            pending = _locked_ad_hoc_spend(team_id=team_id, signal_id=str(report.pending_triggering_signal_id))
+        if report and pending is not None:
             if pending.finalized_at is None:
                 apply_report_billing(pending, report)
                 _save_ad_hoc_spend(pending, finalize=True)
@@ -455,13 +458,16 @@ def complete_task_spend(
                 spend.spend = cost_to_spend(
                     run.cost_microusd or 0, compute_cost_microusd=run.compute_cost_microusd, task_count=1
                 )
-                spend.accounting_failed = run.accounting_failed or (final_attempt and not run.complete)
+                # Trial recovery can settle late receipts after this worker exhausts its retries.
+                spend.accounting_failed = run.accounting_failed or (
+                    final_attempt and not run.complete and spend.trial_grant_id is None
+                )
                 spend.accounting_pending = not run.complete
                 if run.is_terminal and run.complete:
                     spend.finalized_at = timezone.now()
                 save_trial_spend(spend)
                 _save_scout_total(spend)
-        if spend.finalized_at is None and not spend.accounting_failed:
+        if spend.finalized_at is None and not spend.accounting_failed and not final_attempt:
             raise TaskTokenUsageUnavailable("Task usage is not settled yet")
     if spend.signal_id:
         async_to_sync(submit_signal_metadata_updates)(team_id=team_id, signal_ids=[str(spend.signal_id)])
