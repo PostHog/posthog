@@ -124,10 +124,14 @@
             <a class="impersonation-stop" href="/admin/logout/">Stop impersonating</a>
         </div>
     {% endif %}
-    {% comment %}
-    Only the team change form fills this block: a few team actions moved to PostHog Admin, and
-    showing the notice on every admin page read as if the whole Django admin were moving.
-    {% endcomment %}
-    {% block console_banner %}{% endblock %}
+    {% if user.is_staff %}
+        <div class="console-banner">
+            <p>
+                This is the Django admin, for viewing and editing core database tables directly. Staff tools are in PostHog Admin.
+                <a href="{% block admin_console_url %}/admin/console/{% endblock %}">Open PostHog Admin</a>
+            </p>
+            <button type="button" class="console-banner-hide" data-hide-console-banner>Hide for a month</button>
+        </div>
+    {% endif %}
     {{ block.super }}
 {% endblock %}

@@ -201,13 +201,9 @@ class TestAdminConsoleViews(BaseTest):
 
         assert response.status_code == 200
         content = response.content.decode()
-        assert "A few team actions" in content
+        assert "This is the Django admin" in content
         for panel_key in ("remote-config", "email-sending", "ai-gateway", "api-token"):
             assert f"/admin/console/teams/{self.team.pk}/#panel-{panel_key}" in content
-
-        other_page = self.client.get(f"/admin/posthog/organization/{self.organization.pk}/change/")
-        assert other_page.status_code == 200
-        assert 'class="console-banner"' not in other_page.content.decode()
 
     @parameterized.expand(
         [
