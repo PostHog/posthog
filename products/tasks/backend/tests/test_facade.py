@@ -483,11 +483,35 @@ class TestFacadeReadsAndMappers(TestCase):
         assert run.status == TaskRun.Status.COMPLETED
         assert run.state == {}
 
-    def test_list_workflow_last_runs_uses_each_workflows_newest_listed_task(self):
+    @parameterized.expand(
+        [
+            ("old_columns", "old", "old"),
+            ("new_columns", "new", "new"),
+            ("old_column_then_new_columns", "old", "new"),
+            ("kind_without_id", "kind_only", "kind_only"),
+        ]
+    )
+    def test_list_workflow_last_runs_uses_each_workflows_newest_listed_task(
+        self, _name: str, older_columns: str, newer_columns: str
+    ):
+        def flow_columns(flow_id: UUID, columns: str) -> dict:
+            columns_by_name: dict[str, dict] = {
+                "old": {"hog_flow_id": flow_id},
+                "new": {"source_kind": "hog_flow", "source_id": str(flow_id)},
+                "kind_only": {"source_kind": "hog_flow", "hog_flow_id": flow_id},
+            }
+            return columns_by_name[columns]
+
         now = django_timezone.now()
         flow_with_runs, flow_without_run, flow_not_asked = uuid4(), uuid4(), uuid4()
-        older = self._make_task(origin_product=Task.OriginProduct.WORKFLOW, hog_flow_id=flow_with_runs)
-        newer = self._make_task(origin_product=Task.OriginProduct.WORKFLOW, hog_flow_id=flow_with_runs, archived=True)
+        older = self._make_task(
+            origin_product=Task.OriginProduct.WORKFLOW, **flow_columns(flow_with_runs, older_columns)
+        )
+        newer = self._make_task(
+            origin_product=Task.OriginProduct.WORKFLOW,
+            archived=True,
+            **flow_columns(flow_with_runs, newer_columns),
+        )
         Task.objects.filter(pk=older.pk).update(created_at=now - timedelta(hours=2))
         Task.objects.filter(pk=newer.pk).update(created_at=now - timedelta(hours=1))
         TaskRun.objects.create(task=older, team=self.team, status=TaskRun.Status.COMPLETED)
@@ -496,9 +520,15 @@ class TestFacadeReadsAndMappers(TestCase):
         TaskRun.objects.filter(pk=earlier_run.pk).update(created_at=now - timedelta(minutes=50))
         TaskRun.objects.filter(pk=newest_run.pk).update(created_at=now - timedelta(minutes=30))
         # Run history hides internal tasks, so the newest task here must not count as the last run.
-        self._make_task(origin_product=Task.OriginProduct.WORKFLOW, hog_flow_id=flow_with_runs, internal=True)
-        not_started = self._make_task(origin_product=Task.OriginProduct.WORKFLOW, hog_flow_id=flow_without_run)
-        self._make_task(origin_product=Task.OriginProduct.WORKFLOW, hog_flow_id=flow_not_asked)
+        self._make_task(
+            origin_product=Task.OriginProduct.WORKFLOW,
+            internal=True,
+            **flow_columns(flow_with_runs, newer_columns),
+        )
+        not_started = self._make_task(
+            origin_product=Task.OriginProduct.WORKFLOW, **flow_columns(flow_without_run, newer_columns)
+        )
+        self._make_task(origin_product=Task.OriginProduct.WORKFLOW, **flow_columns(flow_not_asked, newer_columns))
 
         last_runs = facade.list_workflow_last_runs(self.team.id, self.user.id, [flow_with_runs, flow_without_run])
 
@@ -517,12 +547,22 @@ class TestFacadeReadsAndMappers(TestCase):
             ),
         }
 
-    @parameterized.expand([("ordinary", False), ("scout_trial", True), ("scout_judge", True, "scout-trial-judge:")])
-    def test_task_exists_and_visibility(self, _name: str, is_trial: bool, prefix: str = "scout-trial:") -> None:
+    @parameterized.expand(
+        [
+            ("ordinary", False),
+            ("scout_trial", True),
+            ("scout_judge", True, "scout-trial-judge:"),
+            ("scout_trial_new_column", True, "scout-trial:", "idempotency_key"),
+            ("scout_judge_new_column", True, "scout-trial-judge:", "idempotency_key"),
+        ]
+    )
+    def test_task_exists_and_visibility(
+        self, _name: str, is_trial: bool, prefix: str = "scout-trial:", key_column: str = "origin_key"
+    ) -> None:
         task = self._make_task(
             **{
                 "origin_product": Task.OriginProduct.SIGNALS_SCOUT,
-                "origin_key": f"{prefix}{uuid4()}:{uuid4()}",
+                key_column: f"{prefix}{uuid4()}:{uuid4()}",
             }
             if is_trial
             else {}
@@ -552,13 +592,21 @@ class TestFacadeReadsAndMappers(TestCase):
             ("bound", True, True, True, True),
             ("sibling", True, True, False, False),
             ("legacy", True, True, None, False),
+            ("owner_new_column", True, False, False, True, "idempotency_key"),
+            ("sibling_new_column", True, True, False, False, "idempotency_key"),
         ]
     )
     def test_run_authorization_classifies_trial_in_one_lookup(
-        self, _name: str, is_trial: bool, sandbox: bool, bound: bool | None, allowed: bool
+        self,
+        _name: str,
+        is_trial: bool,
+        sandbox: bool,
+        bound: bool | None,
+        allowed: bool,
+        key_column: str = "origin_key",
     ) -> None:
         task = self._make_task(
-            **{"origin_product": Task.OriginProduct.SIGNALS_SCOUT, "origin_key": f"scout-trial:{uuid4()}"}
+            **{"origin_product": Task.OriginProduct.SIGNALS_SCOUT, key_column: f"scout-trial:{uuid4()}"}
             if is_trial
             else {}
         )
@@ -2097,6 +2145,7 @@ class TestFacadeReadsAndMappers(TestCase):
 
         task = Task.objects.get(id=created if isinstance(created, UUID) else created.task_id)
         self.assertEqual(task.hog_flow_id, flow_id)
+        self.assertEqual((task.source_kind, task.source_id), ("hog_flow", str(flow_id)))
 
     @parameterized.expand(
         [
