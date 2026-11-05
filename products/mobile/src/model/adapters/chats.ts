@@ -39,10 +39,9 @@ export function mergeChatLists(
     conversations: ConversationMinimalApi[] | undefined,
     scope: ProjectScope | null
 ): ChatListItem[] {
-    const classic = (conversations ?? []).filter((conversation) => conversation.agent_runtime !== 'sandbox')
-    const mirroredTasks = new Set(classic.flatMap((conversation) => (conversation.task ? [conversation.task.id] : [])))
+    const classic = (conversations ?? []).filter((conversation) => !conversation.task)
     return [
-        ...chatListFromSessions(sessions, scope).filter((item) => !mirroredTasks.has(item.sourceId)),
+        ...chatListFromSessions(sessions, scope),
         ...classic.map(
             (conversation): ChatListItem => ({
                 id: `conversation:${conversation.id}`,

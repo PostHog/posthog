@@ -1,19 +1,14 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, fireEvent, render, screen } from '@testing-library/react-native'
+import { fireEvent, render, screen } from '@testing-library/react-native'
 import type { ReactElement } from 'react'
 
 import { getConversation } from '@/api/conversations'
-import { fetchOrganization, type OrganizationApi } from '@/api/users'
-import { useAuthStore } from '@/auth/authStore'
+import { useProjectScope } from '@/auth/useProjectScope'
 import { useDataMode } from '@/demo/demoMode'
-import { aiConsentKey, useAiConsentStore, waitForAiConsent } from './aiConsentStore'
 import { ChatEntryScreen } from './ChatEntryScreen'
 
 jest.mock('@/api/conversations', () => ({ getConversation: jest.fn() }))
-jest.mock('@/api/users', () => ({ fetchOrganization: jest.fn() }))
-jest.mock('@/auth/useProjectScope', () => ({
-    useProjectScope: () => ({ host: 'https://app.example.com', projectId: 42 }),
-}))
+jest.mock('@/auth/useProjectScope', () => ({ useProjectScope: jest.fn() }))
 jest.mock('@/demo/demoMode', () => ({ ...jest.requireActual('@/demo/demoMode'), useDataMode: jest.fn() }))
 jest.mock('./ChatHeader', () => {
     const { Button } = require('react-native')
@@ -52,10 +47,8 @@ jest.mock('./classic/ClassicChatScreen', () => {
     }
 })
 
-function open(
-    props: Partial<React.ComponentProps<typeof ChatEntryScreen>> = {},
-    client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
-): void {
+function open(props: Partial<React.ComponentProps<typeof ChatEntryScreen>> = {}): void {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
     render(
         <QueryClientProvider client={client}>
             <ChatEntryScreen
@@ -68,66 +61,37 @@ function open(
     )
 }
 
-const organization: OrganizationApi = {
-    id: 'org-1',
-    name: 'Example',
-    teams: [{ id: 42, name: 'Project' }],
-    is_ai_data_processing_approved: true,
-}
-
 describe('mobile AI runtime selection', () => {
-    beforeEach(async () => {
+    beforeEach(() => {
         jest.clearAllMocks()
-        jest.mocked(fetchOrganization).mockReset()
         jest.mocked(getConversation).mockReset()
-        await waitForAiConsent()
         jest.mocked(useDataMode).mockReturnValue('live')
-        useAuthStore.setState({
-            status: 'signed_in',
-            signedIn: true,
-            host: 'https://app.example.com',
-            projectId: 42,
-            user: { id: 1, uuid: 'person-1', distinctId: 'person-1', email: 'person@example.com', name: 'Person' },
-            organizations: [{ id: 'org-1', name: 'Example', posthogAiAccess: true }],
-            projects: [{ id: 42, name: 'Project', organizationId: 'org-1', organizationName: 'Example' }],
-        })
-        useAiConsentStore.getState().accept(aiConsentKey('https://app.example.com', 'person-1'))
-        jest.mocked(fetchOrganization).mockResolvedValue(organization)
+        jest.mocked(useProjectScope).mockReturnValue({ host: 'https://us.posthog.com', projectId: 42 })
     })
 
-    test.each([true, false, undefined])('uses organization access for a new chat (%s)', async (enabled) => {
-        jest.mocked(fetchOrganization).mockResolvedValue({ ...organization, posthog_ai_access: enabled })
+    test.each([
+        ['https://us.posthog.com', 2, 'sandbox'],
+        ['https://us.posthog.com', 42, 'classic'],
+        ['https://eu.posthog.com', 2, 'classic'],
+        ['https://example.com', 2, 'classic'],
+        ['http://localhost:8010', 2, 'classic'],
+    ])('selects %s project %s as %s', (host, projectId, runtime) => {
+        jest.mocked(useProjectScope).mockReturnValue({ host, projectId })
         open()
-        await screen.findByTestId(enabled === true ? 'sandbox' : 'classic')
-        expect(fetchOrganization).toHaveBeenCalledTimes(1)
+        expect(screen.getByTestId(runtime)).toBeTruthy()
+        expect(getConversation).not.toHaveBeenCalled()
     })
 
-    test('a new chat rechecks access after a flag change', async () => {
-        jest.mocked(fetchOrganization)
-            .mockResolvedValueOnce({ ...organization, posthog_ai_access: false })
-            .mockResolvedValueOnce({ ...organization, posthog_ai_access: true })
+    test('waits for the selected project before showing a new chat', () => {
+        jest.mocked(useProjectScope).mockReturnValue(null)
         open()
-        await screen.findByTestId('classic')
-        fireEvent.press(screen.getByText('New'))
-        await screen.findByTestId('sandbox')
-        expect(fetchOrganization).toHaveBeenCalledTimes(2)
-    })
-
-    test('waits for fresh access instead of using cached organization access', async () => {
-        let resolve!: (value: OrganizationApi) => void
-        jest.mocked(fetchOrganization).mockReturnValue(
-            new Promise((done) => {
-                resolve = done
-            })
-        )
-        open()
+        expect(screen.getByLabelText('Loading chat')).toBeTruthy()
         expect(screen.queryByTestId('sandbox')).toBeNull()
-        await act(async () => resolve({ ...organization, posthog_ai_access: false }))
-        await screen.findByTestId('classic')
+        expect(screen.queryByTestId('classic')).toBeNull()
     })
 
-    test('an existing classic conversation keeps its engine even when AI 2.0 is enabled', async () => {
-        jest.mocked(fetchOrganization).mockResolvedValue({ ...organization, posthog_ai_access: true })
+    test('an existing classic conversation stays classic in the agent project', async () => {
+        jest.mocked(useProjectScope).mockReturnValue({ host: 'https://us.posthog.com', projectId: 2 })
         jest.mocked(getConversation).mockResolvedValue({ agent_runtime: 'langgraph' } as Awaited<
             ReturnType<typeof getConversation>
         >)
@@ -135,10 +99,25 @@ describe('mobile AI runtime selection', () => {
         await screen.findByTestId('classic')
     })
 
-    test('report chats keep their task path without requiring AI 2.0 access', async () => {
+    test('an existing sandbox conversation opens its task outside the agent project', async () => {
+        jest.mocked(getConversation).mockResolvedValue({ agent_runtime: 'sandbox', task: { id: 'task-1' } } as Awaited<
+            ReturnType<typeof getConversation>
+        >)
+        open({ conversationId: 'conversation-1' })
+        await screen.findByText('task-1')
+        expect(screen.getByTestId('sandbox')).toBeTruthy()
+    })
+
+    test('starting a new chat from a task uses the current project rule', () => {
+        open({ initialTaskId: 'task-1' })
+        expect(screen.getByText('task-1')).toBeTruthy()
+        fireEvent.press(screen.getByText('New'))
+        expect(screen.getByTestId('classic')).toBeTruthy()
+    })
+
+    test('report chats keep their task path outside the agent project', () => {
         open({ initialReportId: 'report-1' })
         expect(screen.getByTestId('sandbox')).toBeTruthy()
-        await act(async () => undefined)
     })
 
     test('an incomplete sandbox conversation never opens in the classic runtime', async () => {
@@ -151,27 +130,13 @@ describe('mobile AI runtime selection', () => {
         expect(screen.getByTestId('chat-back')).toBeTruthy()
     })
 
-    test('demo mode does not request organization access or conversation history', () => {
-        jest.mocked(useDataMode).mockReturnValue('demo')
-        open({ conversationId: 'demo-conversation' })
-        expect(screen.getByTestId('sandbox')).toBeTruthy()
-        expect(fetchOrganization).not.toHaveBeenCalled()
-        expect(getConversation).not.toHaveBeenCalled()
-    })
-
-    test('a new demo chat resets its task without calling the organization API', () => {
+    test('a new demo chat resets its task without requesting conversation history', () => {
         jest.mocked(useDataMode).mockReturnValue('demo')
         open({ initialTaskId: 'demo-task' })
         expect(screen.getByText('demo-task')).toBeTruthy()
         fireEvent.press(screen.getByText('New'))
         expect(screen.queryByText('demo-task')).toBeNull()
         expect(screen.getByTestId('sandbox')).toBeTruthy()
-        expect(fetchOrganization).not.toHaveBeenCalled()
-    })
-
-    test('falls back to classic when the organization lookup fails', async () => {
-        jest.mocked(fetchOrganization).mockRejectedValue(new Error('Offline'))
-        open()
-        await screen.findByTestId('classic')
+        expect(getConversation).not.toHaveBeenCalled()
     })
 })

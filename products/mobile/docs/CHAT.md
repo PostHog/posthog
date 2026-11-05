@@ -2,22 +2,21 @@
 
 ## Choosing the chat version
 
-General chats use the same PostHog AI rollout decision as the web. The mobile app reads
-`posthog_ai_access` from the organization refresh it already performs for AI consent.
-A true value selects the Tasks chat; false or a missing field selects classic AI through
-`conversations/`. The server calculates the value from the existing web access rules.
-An unavailable organization lookup selects classic, with sending blocked until organization
-consent can be verified. No flag changes happen in the app.
+New general chats use the Tasks agent only in project 2 on `https://us.posthog.com`.
+Every other project uses classic PostHog AI through the existing `conversations/` API.
+This temporary routing rule is local to the mobile app. It does not evaluate rollout flags
+or request an AI access field from the server. Organization approval and personal consent
+still apply before sending messages.
 
-The decision is held for the open chat. **New chat** checks again, so a rollout change takes
-effect without switching an in-flight conversation. A saved classic conversation retains
-its runtime; a conversation converted on the server opens its linked task. Report discussions
-and existing task links keep the Tasks path and its report-specific access exemptions.
+Saved conversation links read their runtime from the existing conversation detail response.
+Report discussions and existing task links keep the Tasks path and its report-specific access
+exemptions. **New chat** starts the version selected for the current project. Demo mode keeps
+its local Tasks fixtures.
 
 Classic chat supports streamed responses, saved history, follow-up messages, stopping a reply,
 and approving or rejecting a requested change. Generated charts and insights link to the web.
 Its composer omits the model and permission controls that only the Tasks runtime supports.
-The Chats list combines conversations and tasks, removing mirrored task duplicates. Classic
+The Chats list combines unlinked conversations and tasks. Conversations with a linked task use the task row. Classic
 conversation links use `conversationId`; Tasks links continue to use `taskId` and `runId`.
 Only task rows offer Archive, because classic conversations have no reversible archive API.
 

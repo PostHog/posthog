@@ -13,7 +13,6 @@ import { iconSizes } from '@/ui/tokens'
 import { ChatHeader } from './ChatHeader'
 import { ChatScreen } from './ChatScreen'
 import { ClassicChatScreen } from './classic/ClassicChatScreen'
-import { ChatAccessContext, useChatAccess } from './useChatAccess'
 
 type ChatEntryScreenProps = ComponentProps<typeof ChatScreen> & { conversationId?: string }
 
@@ -21,14 +20,9 @@ export function ChatEntryScreen({ conversationId, ...props }: ChatEntryScreenPro
     const styles = useStyles()
     const scope = useProjectScope()
     const mode = useDataMode()
-    const chatAccess = useChatAccess()
-    const explicitTask = !!props.initialTaskId || !!props.initialReportId || !!props.initialObject || mode === 'demo'
+    const explicitTask = !!props.initialTaskId || !!props.initialReportId || !!props.initialObject
     const [newChat, setNewChat] = useState(false)
     const [generation, setGeneration] = useState(0)
-    const [selected, setSelected] = useState<'langgraph' | 'sandbox' | null>(null)
-    const withAccess = (screen: ReactElement): ReactElement => (
-        <ChatAccessContext.Provider value={chatAccess}>{screen}</ChatAccessContext.Provider>
-    )
     const conversation = useQuery({
         queryKey: ['chat-conversation', ...scopeKey(scope), conversationId],
         queryFn: ({ signal }) => getConversation(conversationId as string, signal),
@@ -36,13 +30,11 @@ export function ChatEntryScreen({ conversationId, ...props }: ChatEntryScreenPro
         retry: false,
     })
     const restart = (): void => {
-        chatAccess.checkAgain()
         setNewChat(true)
-        setSelected(null)
         setGeneration((value) => value + 1)
     }
     if (mode === 'demo' || (explicitTask && !newChat))
-        return withAccess(
+        return (
             <ChatScreen
                 key={generation}
                 {...props}
@@ -55,26 +47,24 @@ export function ChatEntryScreen({ conversationId, ...props }: ChatEntryScreenPro
         )
     if (conversationId && !newChat) {
         if (conversation.data && (conversation.data.agent_runtime !== 'sandbox' || conversation.data.task)) {
-            return withAccess(
-                conversation.data.agent_runtime === 'sandbox' && conversation.data.task ? (
-                    <ChatScreen
-                        {...props}
-                        initialTaskId={conversation.data.task.id}
-                        initialRunId={undefined}
-                        onNewChat={restart}
-                    />
-                ) : (
-                    <ClassicChatScreen
-                        conversationId={conversationId}
-                        source={props.source}
-                        autoFocus={props.autoFocus ?? false}
-                        onBack={props.onBack}
-                        onNewChat={restart}
-                    />
-                )
+            return conversation.data.agent_runtime === 'sandbox' && conversation.data.task ? (
+                <ChatScreen
+                    {...props}
+                    initialTaskId={conversation.data.task.id}
+                    initialRunId={undefined}
+                    onNewChat={restart}
+                />
+            ) : (
+                <ClassicChatScreen
+                    conversationId={conversationId}
+                    source={props.source}
+                    autoFocus={props.autoFocus ?? false}
+                    onBack={props.onBack}
+                    onNewChat={restart}
+                />
             )
         }
-        return withAccess(
+        return (
             <View style={styles.screen}>
                 {conversation.isError || conversation.data ? (
                     <StateView
@@ -90,41 +80,31 @@ export function ChatEntryScreen({ conversationId, ...props }: ChatEntryScreenPro
             </View>
         )
     }
-    const resolved =
-        chatAccess.access.kind === 'checking'
-            ? null
-            : chatAccess.organization?.posthogAiAccess === true
-              ? 'sandbox'
-              : 'langgraph'
-    if (!selected && resolved) setSelected(resolved)
-    const active = selected ?? resolved
-    if (!active)
-        return withAccess(
+    if (mode === 'loading' || !scope)
+        return (
             <View style={styles.screen}>
                 <LoadingView label="Loading chat" />
                 <ChatHeader webUrl={undefined} onBack={props.onBack} onNewChat={restart} />
             </View>
         )
-    return withAccess(
-        active === 'sandbox' ? (
-            <ChatScreen
-                key={generation}
-                {...props}
-                initialTaskId={undefined}
-                initialRunId={undefined}
-                initialReportId={undefined}
-                initialObject={null}
-                onNewChat={restart}
-            />
-        ) : (
-            <ClassicChatScreen
-                key={generation}
-                source={props.source}
-                autoFocus={props.autoFocus ?? false}
-                onBack={props.onBack}
-                onNewChat={restart}
-            />
-        )
+    return scope.host === 'https://us.posthog.com' && scope.projectId === 2 ? (
+        <ChatScreen
+            key={generation}
+            {...props}
+            initialTaskId={undefined}
+            initialRunId={undefined}
+            initialReportId={undefined}
+            initialObject={null}
+            onNewChat={restart}
+        />
+    ) : (
+        <ClassicChatScreen
+            key={generation}
+            source={props.source}
+            autoFocus={props.autoFocus ?? false}
+            onBack={props.onBack}
+            onNewChat={restart}
+        />
     )
 }
 

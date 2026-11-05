@@ -21,18 +21,18 @@ function session(overrides: Partial<TaskSummaryApi> = {}): TaskSummaryApi {
 }
 
 describe('chatListFromSessions', () => {
-    test('merges classic history and report tasks without duplicating mirrored conversations', () => {
+    test('merges unlinked classic history and report tasks', () => {
         const conversations = [
             {
                 id: 'classic-1',
                 title: 'A classic chat',
                 status: 'idle',
                 updated_at: '2026-10-10T12:00:00Z',
-                task: { id: 'mirror-1' },
+                task: null,
             },
         ] as ConversationMinimalApi[]
         const items = mergeChatLists(
-            [session({ id: 'mirror-1' }), session({ id: 'report-task', origin_product: 'signal_report' })],
+            [session({ id: 'report-task', origin_product: 'signal_report' })],
             conversations,
             scope
         )
@@ -68,10 +68,8 @@ describe('chatListFromSessions', () => {
         ])
     })
 
-    test('keeps sandbox conversations as task rows with their status and archive actions', () => {
-        const conversations = [
-            { id: 'sandbox-chat', agent_runtime: 'sandbox', task: { id: 't1' } },
-        ] as ConversationMinimalApi[]
+    test('keeps linked conversations as task rows without requiring list runtime metadata', () => {
+        const conversations = [{ id: 'linked-chat', task: { id: 't1' } }] as ConversationMinimalApi[]
         const items = mergeChatLists([session()], conversations, scope)
         expect(items).toHaveLength(1)
         expect(items[0]).toMatchObject({ kind: 'session', sourceId: 't1', status: 'completed' })
