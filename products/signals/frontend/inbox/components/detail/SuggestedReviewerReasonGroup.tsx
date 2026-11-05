@@ -5,12 +5,8 @@ import { PersonDisplay } from 'products/persons/frontend/components/PersonDispla
 import { EnrichedReviewer, ReviewerRemoval } from '../../types'
 import { getReviewerDisplayName } from './reviewerDisplay'
 import { ReviewerRowMenu } from './ReviewerRowMenu'
-import {
-    ReviewerClaim,
-    reviewerClaimRemoveDisabledReason,
-    SuggestedReviewerClaimControls,
-} from './SuggestedReviewerClaimControls'
-import { getReviewerSourceLabel, isScoutReviewer } from './SuggestedReviewerPerson'
+import { SuggestedReviewerClaimControls } from './SuggestedReviewerClaimControls'
+import { ReviewerClaim, reviewerClaimRemoveDisabledReason, reviewerReasonGroupSources } from './suggestedReviewers'
 import { SuggestedReviewerScoutTag } from './SuggestedReviewerScoutTag'
 
 export function SuggestedReviewerReasonGroup({
@@ -26,23 +22,14 @@ export function SuggestedReviewerReasonGroup({
     onRemove: (reviewer: EnrichedReviewer, removal?: ReviewerRemoval) => void
     claim?: ReviewerClaim
 }): JSX.Element {
-    const scoutNames = new Set<string>()
-    const otherSourceLabels = new Set<string>()
-    for (const reviewer of reviewers) {
-        const sourceLabel = getReviewerSourceLabel(reviewer)
-        if (isScoutReviewer(reviewer)) {
-            scoutNames.add(sourceLabel)
-        } else if (sourceLabel !== 'Added by teammate' || !reason.startsWith('Added by ')) {
-            otherSourceLabels.add(sourceLabel)
-        }
-    }
+    const { scoutNames, otherSourceLabels } = reviewerReasonGroupSources(reviewers, reason)
 
     return (
         <div className="min-w-0 py-1">
             <div className="flow-root min-w-0">
                 <div className="float-right ml-2 flex min-w-0 flex-wrap justify-end gap-1">
-                    {scoutNames.size > 0 && <SuggestedReviewerScoutTag scoutNames={[...scoutNames]} />}
-                    {[...otherSourceLabels].map((sourceLabel) => (
+                    {scoutNames.length > 0 && <SuggestedReviewerScoutTag scoutNames={scoutNames} />}
+                    {otherSourceLabels.map((sourceLabel) => (
                         <LemonTag key={sourceLabel} type="muted" size="small" wrap className="max-w-32">
                             {sourceLabel}
                         </LemonTag>

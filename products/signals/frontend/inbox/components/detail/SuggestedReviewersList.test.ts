@@ -1,5 +1,5 @@
 import { EnrichedReviewer } from '../../types'
-import { buildReviewerItems } from './SuggestedReviewersList'
+import { buildReviewerItems } from './suggestedReviewers'
 
 function reviewer(
     id: string,

@@ -3,79 +3,9 @@ import { useState } from 'react'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { EnrichedReviewer, ReviewerRemoval } from '../../types'
-import { ReviewerClaim } from './SuggestedReviewerClaimControls'
-import {
-    getReviewerExplanation,
-    getReviewerSourceLabel,
-    isScoutReviewer,
-    SuggestedReviewerPerson,
-} from './SuggestedReviewerPerson'
+import { SuggestedReviewerPerson } from './SuggestedReviewerPerson'
 import { SuggestedReviewerReasonGroup } from './SuggestedReviewerReasonGroup'
-
-const MAX_VISIBLE_SUGGESTIONS = 5
-
-interface ReviewerPersonItem {
-    kind: 'person'
-    key: string
-    reviewer: EnrichedReviewer
-}
-
-interface ReviewerReasonGroupItem {
-    kind: 'reason-group'
-    key: string
-    reason: string
-    reviewers: EnrichedReviewer[]
-}
-
-type ReviewerItem = ReviewerPersonItem | ReviewerReasonGroupItem
-
-function reviewerKey(reviewer: EnrichedReviewer): string {
-    return reviewer.user?.uuid ?? reviewer.user_uuid ?? reviewer.github_login ?? getReviewerDisplayFallback(reviewer)
-}
-
-function getReviewerDisplayFallback(reviewer: EnrichedReviewer): string {
-    return reviewer.github_name ?? reviewer.user?.email ?? 'unknown-reviewer'
-}
-
-function reviewerReasonGroupKey(reviewer: EnrichedReviewer, reason: string): string {
-    const isScout = isScoutReviewer(reviewer)
-    return JSON.stringify([
-        'reason-group',
-        reason,
-        isScout ? 'scout' : 'other',
-        isScout ? null : getReviewerSourceLabel(reviewer),
-    ])
-}
-
-export function buildReviewerItems(reviewers: EnrichedReviewer[]): ReviewerItem[] {
-    const items: ReviewerItem[] = []
-    const reasonGroups = new Map<string, ReviewerReasonGroupItem>()
-
-    for (const reviewer of reviewers) {
-        const reason = getReviewerExplanation(reviewer)
-        if (!reason) {
-            items.push({ kind: 'person', key: reviewerKey(reviewer), reviewer })
-            continue
-        }
-
-        const groupKey = reviewerReasonGroupKey(reviewer, reason)
-        const existing = reasonGroups.get(groupKey)
-        if (existing) {
-            existing.reviewers.push(reviewer)
-        } else {
-            const item: ReviewerReasonGroupItem = {
-                kind: 'reason-group',
-                key: groupKey,
-                reason,
-                reviewers: [reviewer],
-            }
-            reasonGroups.set(groupKey, item)
-            items.push(item)
-        }
-    }
-
-    return items
-}
+import { buildReviewerItems, MAX_VISIBLE_SUGGESTIONS, ReviewerClaim } from './suggestedReviewers'
 
 export function SuggestedReviewersList({
     reviewers,

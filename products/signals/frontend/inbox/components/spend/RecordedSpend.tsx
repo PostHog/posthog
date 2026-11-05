@@ -2,12 +2,7 @@ import { Tooltip } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
-const currency = new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-})
+import { formatRecordedSpend, recordedSpendTooltip } from './recordedSpend'
 
 export function RecordedSpend({
     amount,
@@ -21,18 +16,9 @@ export function RecordedSpend({
         return null
     }
     return (
-        <Tooltip
-            title={[
-                description,
-                amount == null
-                    ? 'Usage was not recorded for this activity.'
-                    : 'Recorded usage in USD, before credits and billing exemptions.',
-            ]
-                .filter(Boolean)
-                .join(' ')}
-        >
+        <Tooltip title={recordedSpendTooltip(amount, description)}>
             <span className="tabular-nums" translate="no">
-                {amount == null ? 'Not tracked' : currency.format(amount / 100)}
+                {formatRecordedSpend(amount)}
             </span>
         </Tooltip>
     )

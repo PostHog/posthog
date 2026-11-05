@@ -5,41 +5,14 @@ import { PersonDisplay } from 'products/persons/frontend/components/PersonDispla
 import { EnrichedReviewer, ReviewerRemoval } from '../../types'
 import { getReviewerDisplayName } from './reviewerDisplay'
 import { ReviewerRowMenu } from './ReviewerRowMenu'
+import { SuggestedReviewerClaimControls } from './SuggestedReviewerClaimControls'
 import {
+    getReviewerSourceLabel,
+    isScoutReviewer,
     ReviewerClaim,
     reviewerClaimRemoveDisabledReason,
-    SuggestedReviewerClaimControls,
-} from './SuggestedReviewerClaimControls'
+} from './suggestedReviewers'
 import { SuggestedReviewerScoutTag } from './SuggestedReviewerScoutTag'
-
-const OTHER_SOURCE_LABELS = new Set(['Code history', 'Added by teammate', 'Agent suggestion'])
-
-export function getReviewerSourceLabel(reviewer: EnrichedReviewer): string {
-    if (reviewer.source_label) {
-        return reviewer.source_label
-    }
-    if (reviewer.relevant_commits.length > 0) {
-        return 'Code history'
-    }
-    if (reviewer.reason?.startsWith('Added as a reviewer by ')) {
-        return 'Added by teammate'
-    }
-    return 'Agent suggestion'
-}
-
-export function isScoutReviewer(reviewer: EnrichedReviewer): boolean {
-    if (reviewer.source_skill !== undefined) {
-        return Boolean(reviewer.source_skill && reviewer.relevant_commits.length === 0)
-    }
-    return !OTHER_SOURCE_LABELS.has(getReviewerSourceLabel(reviewer))
-}
-
-export function getReviewerExplanation(reviewer: EnrichedReviewer): string | null {
-    if ('explanation' in reviewer) {
-        return reviewer.explanation ?? null
-    }
-    return reviewer.reason ?? reviewer.relevant_commits[0]?.reason ?? null
-}
 
 export function SuggestedReviewerPerson({
     reviewer,

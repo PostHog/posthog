@@ -4,6 +4,7 @@ import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 import { ReportCheckRowData } from './reportCheckPresentation'
+import { reportCheckStopConfirmation } from './reportCheckStopConfirmation'
 import { ReportCheckTiming } from './ReportCheckTiming'
 
 export function ReportCheckRow({
@@ -68,18 +69,19 @@ export function ReportCheckRow({
                         disabledReason={cancelling ? 'Canceling this check' : undefined}
                         data-attr="signals-report-check-stop"
                         // Pinned for existing autocapture dashboards.
-                        onClick={() =>
+                        onClick={() => {
+                            const confirmation = reportCheckStopConfirmation(check)
                             LemonDialog.open({
-                                title: 'Cancel this check?',
-                                description: `This cancels future runs of "${check.title}". Results it already recorded stay on this report.`,
+                                title: confirmation.title,
+                                description: confirmation.description,
                                 primaryButton: {
-                                    children: 'Cancel this check',
+                                    children: confirmation.confirmLabel,
                                     status: 'danger',
                                     onClick: () => onCancel(check.id),
                                 },
-                                secondaryButton: { children: 'Keep it' },
+                                secondaryButton: { children: confirmation.dismissLabel },
                             })
-                        }
+                        }}
                     >
                         Cancel this check
                     </LemonButton>

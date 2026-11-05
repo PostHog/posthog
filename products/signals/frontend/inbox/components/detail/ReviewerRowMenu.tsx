@@ -6,7 +6,7 @@ import { LemonButton, LemonMenu, LemonMenuItem } from '@posthog/lemon-ui'
 import { userLogic } from 'scenes/userLogic'
 
 import { EnrichedReviewer, ReviewerRemoval } from '../../types'
-import { reviewerRemovalReasonOptions } from '../../utils/reviewerRemovalReasons'
+import { reviewerRemovalMenu } from './suggestedReviewers'
 
 /**
  * Makes a reviewer's name the trigger for the actions on that reviewer, so the row shows no buttons
@@ -29,8 +29,7 @@ export function ReviewerRowMenu({
     children: ReactNode
 }): JSX.Element {
     const { user } = useValues(userLogic)
-    const isSelf = !!user?.uuid && (reviewer.user?.uuid ?? reviewer.user_uuid) === user.uuid
-    const title = isSelf ? 'Remove yourself' : `Remove ${displayName}`
+    const { title, reasons } = reviewerRemovalMenu(reviewer, displayName, user?.uuid)
     const reason = (label: string, value: NonNullable<ReviewerRemoval['reason']>): LemonMenuItem => ({
         label,
         disabledReason,
@@ -43,7 +42,7 @@ export function ReviewerRowMenu({
             items={[
                 {
                     title,
-                    items: reviewerRemovalReasonOptions(isSelf).map((option) => reason(option.label, option.value)),
+                    items: reasons.map((option) => reason(option.label, option.value)),
                 },
                 { items: [{ label: 'Without a reason', disabledReason, onClick: () => onRemove() }] },
             ]}

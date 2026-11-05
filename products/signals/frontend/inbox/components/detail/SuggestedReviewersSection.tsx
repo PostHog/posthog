@@ -9,7 +9,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { EnrichedReviewer, ReviewerRemoval, SignalReport } from '../../types'
-import { removeSuggestedReviewers, ReviewerSearchList } from './ReviewerSearchList'
+import { ReviewerSearchList } from './ReviewerSearchList'
+import { removeSuggestedReviewers } from './suggestedReviewers'
 import { SuggestedReviewersSectionView } from './SuggestedReviewersSectionView'
 
 export function SuggestedReviewersSection({ report }: { report: SignalReport }): JSX.Element | null {
