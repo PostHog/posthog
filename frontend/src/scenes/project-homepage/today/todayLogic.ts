@@ -20,7 +20,11 @@ import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { TeamPublicType, TeamType, UserType } from '~/types'
 
-import { signalsReportsList, signalsReportsRetrieve } from 'products/signals/frontend/generated/api'
+import {
+    signalsReportsList,
+    signalsReportsRetrieve,
+    signalsReportsSourceMetadataCreate,
+} from 'products/signals/frontend/generated/api'
 import {
     TodayReportList,
     TodayReportSnapshot,
@@ -28,6 +32,7 @@ import {
     captureTodayReportsImpressed,
 } from 'products/signals/frontend/inbox/inboxAnalytics'
 import { isActionCapableReport } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
+import type { ReportSourceMeta } from 'products/signals/frontend/inbox/logics/reportListLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 import { reportPullRequests } from 'products/signals/frontend/inbox/utils/reportPullRequests'
 import type { HighlightItemApi, HighlightsApi } from 'products/today/frontend/generated/api.schemas'
@@ -55,11 +60,39 @@ export const RECENT_OBJECT_COUNT = 4
 const RECENT_OBJECT_MORE_COUNT = 8
 const CLOCK_MS = 30_000
 
+async function fetchSourceMeta(
+    projectId: number | string,
+    reportIds: string[]
+): Promise<Record<string, ReportSourceMeta>> {
+    if (reportIds.length === 0) {
+        return {}
+    }
+    try {
+        const response = await signalsReportsSourceMetadataCreate(String(projectId), { report_ids: reportIds })
+        return Object.fromEntries(
+            response.reports.map(({ id, source_products, scout_name }) => [
+                id,
+                { source_products: [...source_products], scout_name },
+            ])
+        )
+    } catch (error) {
+        posthog.captureException(error)
+        return {}
+    }
+}
+
+function withSourceMeta(reports: SignalReport[], meta: Record<string, ReportSourceMeta>): SignalReport[] {
+    return reports.map((report) => (meta[report.id] ? { ...report, ...meta[report.id] } : report))
+}
+
 function todayReportListParams(): Record<string, string | undefined> {
     return {
         view: 'for_you',
         sort: 'recommended',
         created_after: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+        // The source products come from ClickHouse. The rows render without them, and
+        // `fetchSourceMeta` fills the row icons after.
+        include_source_metadata: 'false',
     }
 }
 
@@ -249,6 +282,9 @@ export interface todayLogicActions {
         prompt: string
         report: SignalReport | undefined
         source: TodayAskSource
+    }
+    applyReportSourceMeta: (meta: Record<string, ReportSourceMeta>) => {
+        meta: Record<string, ReportSourceMeta>
     }
     askAiFinished: () => {
         value: true
@@ -467,6 +503,7 @@ export const todayLogic = kea<todayLogicType>([
         retryFailedLoads: true,
         setUseSampleData: (useSampleData: boolean) => ({ useSampleData }),
         tick: true,
+        applyReportSourceMeta: (meta: Record<string, ReportSourceMeta>) => ({ meta }),
     }),
     loaders(({ values }) => ({
         frequentObjects: [
@@ -603,9 +640,13 @@ export const todayLogic = kea<todayLogicType>([
         now: [Date.now(), { tick: () => Date.now() }],
         moreReports: {
             setUseSampleData: () => null,
+            applyReportSourceMeta: (state, { meta }) =>
+                state ? { ...state, results: withSourceMeta(state.results, meta) } : state,
         },
         topReports: {
             setUseSampleData: () => null,
+            applyReportSourceMeta: (state, { meta }) =>
+                state ? { ...state, results: withSourceMeta(state.results, meta) } : state,
         },
         listExpanded: [
             { for_you: false, recents: false } as Record<TodayList, boolean>,
@@ -909,29 +950,53 @@ export const todayLogic = kea<todayLogicType>([
                     }
                 }
             },
-            loadTopReportsSuccess: ({ topReports }) => {
+            loadTopReportsSuccess: async ({ topReports }, breakpoint) => {
                 if (values.useSampleData) {
                     return
                 }
-                captureImpressions()
                 // pinned: analytics event name and properties. Renaming them breaks dashboards.
                 posthog.capture('today home loaded', {
                     report_count: topReports.results.length,
                     more_report_count: values.moreReportCount,
                     jump_back_ranking: 'recent-and-frequent-v1',
                 })
+                const meta = await fetchSourceMeta(
+                    values.currentProjectId,
+                    topReports.results.map((report) => report.id)
+                )
+                // A newer load or an unmount supersedes this one.
+                breakpoint()
+                actions.applyReportSourceMeta(meta)
+                // Impressions carry each report's source products, so they wait for the metadata.
+                captureImpressions()
             },
             loadMoreReports: () => {
                 // pinned: analytics event name and properties. Renaming them breaks dashboards.
                 posthog.capture('today more reports clicked', { shown_report_count: values.shownReportIds.length })
             },
-            loadMoreReportsSuccess: () => {
-                captureImpressions()
+            loadMoreReportsSuccess: async ({ moreReports }, breakpoint) => {
                 // pinned: analytics event name and properties. Renaming them breaks dashboards.
                 posthog.capture('today more reports loaded', {
                     report_count: values.loadedMoreReports.length,
                     inbox_report_count: values.moreReportsInInbox,
                 })
+                // Each page keeps the rows before it, so ask only for the rows without metadata. A list that
+                // starts over (another `exclude`) loads all of its rows again.
+                const pageKey = (moreReports?.exclude ?? []).join(',')
+                if (cache.moreSourceMetaPageKey !== pageKey) {
+                    cache.moreSourceMetaPageKey = pageKey
+                    cache.moreSourceMetaIds = new Set<string>()
+                }
+                const withMeta: Set<string> = cache.moreSourceMetaIds
+                const reportIds = (moreReports?.results ?? [])
+                    .map((report) => report.id)
+                    .filter((id) => !withMeta.has(id))
+                const meta = await fetchSourceMeta(values.currentProjectId, reportIds)
+                // A newer page asks again for the rows this call did not finish, and an unmount drops the result.
+                breakpoint()
+                reportIds.forEach((id) => withMeta.add(id))
+                actions.applyReportSourceMeta(meta)
+                captureImpressions()
             },
             loadMoreReportsFailure: () => {
                 lemonToast.error('Couldn’t load more reports. Try again in a minute.')

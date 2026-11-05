@@ -25,6 +25,8 @@ describe('todayLogic', () => {
     let reportResponse: [number, any] | null
     let highlightResponses: [number, any][]
     let highlightCalls: number
+    let sourceMetaResponse: [number, any]
+    let sourceMetaRequests: string[][]
 
     beforeEach(() => {
         frequentResponse = [200, []]
@@ -33,6 +35,8 @@ describe('todayLogic', () => {
         highlightCalls = 0
         listParams = null
         reportResponse = null
+        sourceMetaResponse = [200, { reports: [] }]
+        sourceMetaRequests = []
         useMocks({
             get: {
                 '/api/projects/:team_id/file_system/frequent/': () => frequentResponse,
@@ -47,6 +51,10 @@ describe('todayLogic', () => {
                 },
             },
             post: {
+                '/api/projects/:team_id/signals/reports/source_metadata/': async ({ request }) => {
+                    sourceMetaRequests.push((await request.json()).report_ids)
+                    return sourceMetaResponse
+                },
                 '/api/projects/:team_id/signals/reports/:id/state/': () => [200, {}],
             },
         })
@@ -215,11 +223,13 @@ describe('todayLogic', () => {
 
     it('sends the Inbox ranking label events for the reports the home shows and acts on', async () => {
         const capture = jest.spyOn(posthog, 'capture')
-        const report = makeReport({ id: 'a' })
+        const report = makeReport({ id: 'a', source_products: [] })
         listResponse = [200, { results: [report], count: 1 }]
+        sourceMetaResponse = [200, { reports: [{ id: 'a', source_products: ['error_tracking'], scout_name: null }] }]
         const logic = todayLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.reports[0].source_products).toEqual(['error_tracking'])
         // A reload of the same list does not impress its reports again.
         logic.actions.loadTopReports()
         await expectLogic(logic).toFinishAllListeners()
@@ -246,7 +256,10 @@ describe('todayLogic', () => {
                     expect.objectContaining({
                         surface: 'today',
                         list: 'briefing',
-                        impressions: [expect.objectContaining({ report_id: 'a', rank: 1 })],
+                        // The impression waits for the source products, which the list leaves out.
+                        impressions: [
+                            expect.objectContaining({ report_id: 'a', rank: 1, source_products: ['error_tracking'] }),
+                        ],
                     }),
                     undefined,
                 ],
@@ -375,8 +388,10 @@ describe('todayLogic', () => {
             view: 'for_you',
             sort: 'recommended',
             created_after: '2026-10-21T12:00:00.000Z',
+            include_source_metadata: 'false',
             limit: String(TOP_REPORT_COUNT),
         })
+        expect(sourceMetaRequests).toEqual([['a', 'b']])
     })
 
     it('pages through the reports past the list without the ones it shows, and starts over when the list shows other reports', async () => {
@@ -399,10 +414,12 @@ describe('todayLogic', () => {
             view: 'for_you',
             sort: 'recommended',
             created_after: '2026-10-21T12:00:00.000Z',
+            include_source_metadata: 'false',
             limit: String(MORE_REPORTS_PAGE_SIZE),
             offset: '0',
             exclude: 'a',
         })
+        await expectLogic(logic).toFinishAllListeners()
 
         const second = page('q', 3)
         listResponse = [200, { results: second, count: MORE_REPORTS_PAGE_SIZE + 5 }]
@@ -416,6 +433,9 @@ describe('todayLogic', () => {
                 moreReportsInInbox: 2,
             })
         expect(listParams!.get('offset')).toBe(String(MORE_REPORTS_PAGE_SIZE))
+        await expectLogic(logic).toFinishAllListeners()
+        // Each page asks for the source products of its own rows only.
+        expect(sourceMetaRequests).toEqual([['a'], first.map((report) => report.id), second.map((report) => report.id)])
 
         listResponse = [200, { results: [makeReport({ id: 'z' })], count: 5 }]
         await expectLogic(logic, () => {
