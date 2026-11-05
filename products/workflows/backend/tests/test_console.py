@@ -77,7 +77,7 @@ class TestEmailSendingConsolePanel(BaseTest):
     def test_recompute_names_the_hold_reason_and_creates_a_missing_config(self, recompute: MagicMock) -> None:
         TeamWorkflowsConfig.objects.filter(team_id=self.team.pk).delete()
 
-        response = self.client.post(self._operation_url("recompute-tier"), follow=True)
+        response = self.client.post(self._operation_url("recompute-tier"), {"reason": "Customer asked"}, follow=True)
 
         recompute.assert_called_once_with(self.team.pk, user_id=self.user.pk, was_impersonated=False)
         assert TeamWorkflowsConfig.objects.filter(team_id=self.team.pk).exists()

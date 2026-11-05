@@ -9,7 +9,7 @@ import structlog
 
 from posthog.admin.admins.team_admin import TeamAdmin
 from posthog.admin.console.bridge import AdminViewBridge
-from posthog.admin.console.panels import Fact, Operation, Owner, Panel, Tone
+from posthog.admin.console.panels import Fact, Operation, Owner, Panel, ReasonForm, Tone
 from posthog.admin.console.registry import console
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.team.team import Team
@@ -143,7 +143,10 @@ class EmailSendingPanel(Panel):
                 key="recompute-tier",
                 label="Recompute tier",
                 handler=recompute_tier,
-                description="Runs the daily promotion check for this team now.",
+                danger=True,
+                description="Runs the daily tier check now. It can lower the team's limits as well as raise them.",
+                form_class=ReasonForm,
+                undo_hint="To undo a lower tier, set the tier back with Set sending tier and pin it.",
             ),
         ]
         if state is not None and state.suspended_at is not None:
