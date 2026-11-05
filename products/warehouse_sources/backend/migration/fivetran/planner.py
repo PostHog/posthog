@@ -111,8 +111,12 @@ def plan_items(
     capabilities: Callable[[ExternalDataSourceType], SourceCapabilities],
     *,
     flag_enabled: Callable[[str], bool],
+    unique_prefixes: bool = True,
 ) -> tuple[PlannedItem, ...]:
-    """`flag_enabled` tells whether the team has a feature flag, for sources that only some teams can create."""
+    """`flag_enabled` tells whether the team has a feature flag, for sources that only some teams can create.
+
+    `unique_prefixes=False` leaves prefix clashes for a caller that makes them unique against more prefixes.
+    """
     destinations = {destination.id: destination for destination in snapshot.destinations}
     items = [
         _plan_connection(
@@ -125,7 +129,7 @@ def plan_items(
         )
         for connection in snapshot.connections
     ]
-    return with_unique_prefixes(items)
+    return with_unique_prefixes(items) if unique_prefixes else tuple(items)
 
 
 def with_unique_prefixes(
