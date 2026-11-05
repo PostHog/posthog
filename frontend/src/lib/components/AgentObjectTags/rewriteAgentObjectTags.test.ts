@@ -1,4 +1,4 @@
-import { escapeRawHtmlTags, rewriteAgentObjectTags } from './rewriteAgentObjectTags'
+import { rewriteAgentObjectTags } from './rewriteAgentObjectTags'
 
 const BASE = '/project/2'
 const APP = window.location.origin
@@ -144,37 +144,5 @@ describe('rewriteAgentObjectTags', () => {
     it('keeps a trailing partial tag in complete text', () => {
         expect(rewriteAgentObjectTags('keep <insight', BASE)).toBe('keep ')
         expect(rewriteAgentObjectTags('keep <insight', BASE, { streaming: false })).toBe('keep <insight')
-    })
-
-    describe('escapeRawHtmlTags', () => {
-        it.each([
-            ['an unknown tag', 'keep <example> intact', 'keep &lt;example> intact'],
-            ['a closing tag', 'keep </example> intact', 'keep &lt;/example> intact'],
-            ['a tag with attributes', '<div class="a">x</div>', '&lt;div class="a">x&lt;/div>'],
-            ['a self-closing tag', 'line<br/>break', 'line&lt;br/>break'],
-            ['a comment', 'a <!-- note --> b', 'a &lt;!-- note --> b'],
-            [
-                'a bare url running into a tag',
-                '<script src="https://example.com/x.js"></script>',
-                '&lt;script src="https&#58;//example.com/x.js">&lt;/script>',
-            ],
-            ['a www url running into a tag', 'www.example.com/a<b>', 'www&#46;example.com/a&lt;b>'],
-            [
-                'a bare url before a space and a tag',
-                'see https://example.com/a <b>',
-                'see https://example.com/a &lt;b>',
-            ],
-            ['a bare url in inline code', '`https://example.com/a<b>`', '`https://example.com/a<b>`'],
-            ['a tag after an even backslash run', 'a \\\\<example>', 'a \\\\&lt;example>'],
-            ['a tag the person escaped', 'a \\<example>', 'a &lt;example>'],
-            ['inline code', 'use `<example>` here', 'use `<example>` here'],
-            ['a fenced block', '```html\n<example>\n```', '```html\n<example>\n```'],
-            ['a url autolink', 'see <https://example.com/a?b=1>', 'see <https://example.com/a?b=1>'],
-            ['an email autolink', 'mail <me@example.com>', 'mail <me@example.com>'],
-            ['a comparison', 'if a < b and c > d', 'if a < b and c > d'],
-            ['text with no tag', 'plain text', 'plain text'],
-        ])('handles %s', (_, text, expected) => {
-            expect(escapeRawHtmlTags(text)).toBe(expected)
-        })
     })
 })

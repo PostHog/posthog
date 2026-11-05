@@ -12,6 +12,7 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 import { isTrustedPostHogUrl } from 'lib/utils/trustedUrl'
 
 import { Link } from '../Link'
+import { remarkLiteralHtml } from './literalHtml'
 import remarkMentions from './mention'
 
 // lemon-ui must not statically import app code, and the mention chip reads members from membersLogic.
@@ -98,6 +99,11 @@ export interface LemonMarkdownProps {
      * from the source, which has to out-guess the inline, reference, autolink and image-fallback forms.
      */
     disableLinks?: boolean
+    /**
+     * Whether raw HTML shows as the text that was typed, instead of being dropped. Use for text a person
+     * wrote, where `<example>` is words and not markup.
+     */
+    literalHtml?: boolean
     className?: string
     wrapCode?: boolean
     /**
@@ -171,6 +177,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     disableImages = false,
     disableLinks = false,
     disableMentions = false,
+    literalHtml = false,
     wrapCode = false,
     codeMaxLines,
     generateHeadingIds = false,
@@ -374,9 +381,15 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     // remark-breaks: a single newline becomes a line break, so prose authored without the arcane
     // two-trailing-spaces hard-break rule (e.g. agent-written report summaries) renders with the
     // line breaks the author intended.
+    // remarkLiteralHtml runs before remark-breaks, so that a newline in converted HTML becomes a line break.
     const remarkPlugins = useMemo(
-        () => (disableMentions ? [remarkGfm, remarkBreaks] : [remarkGfm, remarkBreaks, remarkMentions]),
-        [disableMentions]
+        () => [
+            ...(literalHtml ? [remarkLiteralHtml] : []),
+            remarkGfm,
+            remarkBreaks,
+            ...(disableMentions ? [] : [remarkMentions]),
+        ],
+        [disableMentions, literalHtml]
     )
 
     return (
@@ -394,6 +407,7 @@ function LemonMarkdownComponent({
     disableImages = false,
     disableLinks = false,
     disableMentions = false,
+    literalHtml = false,
     wrapCode = false,
     codeMaxLines,
     generateHeadingIds = false,
@@ -411,6 +425,7 @@ function LemonMarkdownComponent({
                 disableImages={disableImages}
                 disableLinks={disableLinks}
                 disableMentions={disableMentions}
+                literalHtml={literalHtml}
                 wrapCode={wrapCode}
                 codeMaxLines={codeMaxLines}
                 generateHeadingIds={generateHeadingIds}

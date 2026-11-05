@@ -1,39 +1,3 @@
-import { marked } from 'marked'
-
-// `marked` passes raw HTML through to its output, unlike the app's renderer (`skipHtml`). Parsing
-// escaped text with it checks the escape on its own: any markup left in the output after the
-// tags `marked` generates itself came from raw HTML that the escape let through. The check reads
-// the HTML string, because a DOM parser silently drops some raw HTML (`<body>`, stray closers).
-// A link to an http(s) URL is generated too, by the autolink of a bare URL. Raw HTML that looks
-// like one is caught by the visible text check, which would show the link label and not the tag.
-const GENERATED_TAG =
-    /<\/?(?:p|br|pre|blockquote|ul|li|h[1-6]|strong|em|del|hr|table|thead|tbody|tr)>|<code(?: class="language-[\w-]+")?>|<\/code>|<ol(?: start="\d+")?>|<\/ol>|<\/?t[hd](?: align="\w+")?>|<a href="https?:\/\/[^"]*">|<\/a>/g
-const RAW_MARKUP = /<[a-zA-Z/!?][^]*?(?:>|$)/g
-
-function renderedHtml(markdown: string): string {
-    return marked.parse(markdown, { async: false })
-}
-
-export function unsafeMarkup(markdown: string): string[] {
-    return renderedHtml(markdown).replace(GENERATED_TAG, '').match(RAW_MARKUP) ?? []
-}
-
-export function renderedElements(markdown: string): Element[] {
-    const container = document.createElement('div')
-    container.innerHTML = renderedHtml(markdown)
-    return Array.from(container.querySelectorAll('*'))
-}
-
-export function renderedTags(markdown: string): string[] {
-    return renderedElements(markdown).map((element) => element.tagName)
-}
-
-export function visibleText(markdown: string): string {
-    const container = document.createElement('div')
-    container.innerHTML = renderedHtml(markdown)
-    return (container.textContent ?? '').trim()
-}
-
 export const XSS_PAYLOADS: [string, string][] = [
     ['script', '<script>alert(1)</script>'],
     ['uppercase script', '<SCRIPT>alert(1)</SCRIPT>'],
