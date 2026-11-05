@@ -530,11 +530,14 @@ class TestBackfillEmailSendingTiers(BaseTest):
 class TestOwnSendsAtTheWindowStart(ClickhouseTestMixin, BaseTest):
     NOW = datetime(2026, 11, 4, 11, 30, tzinfo=UTC)
 
-    def _record(self, metric_name: str, at: datetime, count: int = 1, source: str = "flow-a") -> None:
+    def _record(
+        self, metric_name: str, at: datetime, count: int = 1, source: str = "flow-a", instance: str = "step-1"
+    ) -> None:
         create_app_metric2(
             team_id=self.team.id,
             app_source="hog_flow",
             app_source_id=source,
+            instance_id=instance,
             timestamp=at,
             metric_kind="success",
             metric_name=metric_name,
@@ -561,10 +564,15 @@ class TestOwnSendsAtTheWindowStart(ClickhouseTestMixin, BaseTest):
             self._record("email_sandbox_sent", after + timedelta(minutes=20))
             self._record("email_sent", after - timedelta(minutes=10), source="flow-c")
             self._record("email_sandbox_sent", after + timedelta(minutes=10), source="flow-c")
+            self._record("email_sent", after - timedelta(minutes=10), source="flow-d")
+            self._record("email_sandbox_sent", after - timedelta(minutes=10), source="flow-d")
+            self._record("email_sent", after + timedelta(minutes=10), source="flow-d", instance="step-2")
+            self._record("email_sandbox_sent", after - timedelta(minutes=10), source="flow-e")
+            self._record("email_sent", after + timedelta(minutes=10), source="flow-e")
             self._record("email_sent", after + timedelta(hours=4), count=3)
             self._record("email_bounced_hard", after + timedelta(hours=4))
             histories = build_sending_histories(after=after, team_ids=[self.team.id])
 
-        assert histories[self.team.id].sent == 3
+        assert histories[self.team.id].sent == 4
         assert histories[self.team.id].hard_bounced == 1
-        assert histories[self.team.id].daily_sends == {(after + timedelta(hours=4)).strftime("%Y-%m-%d"): 3}
+        assert histories[self.team.id].daily_sends == {after.strftime("%Y-%m-%d"): 4}
