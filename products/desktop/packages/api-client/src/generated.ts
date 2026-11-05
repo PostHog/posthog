@@ -19234,8 +19234,8 @@ export namespace Endpoints {
      * Get survey response statistics for a specific survey.
      *
      * Args:
-     *     date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
-     *     date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+     *     date_from: Optional ISO timestamp (e.g. 2024-01-01T00:00:00Z) or relative date (e.g. -7d) for start date
+     *     date_to: Optional ISO timestamp (e.g. 2024-01-31T23:59:59Z) or relative date for end date
      *     exclude_archived: Optional boolean to exclude archived responses (default: false, includes archived)
      *     include_per_question_stats: Optional boolean to include per-question response counts and distributions
      *
