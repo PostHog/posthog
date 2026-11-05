@@ -194,3 +194,27 @@ class TestExternalDataSchemaAccessControl(APIBaseTest):
         self.client.force_login(self.editor_user)
         resp = self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/{self.source.id}/reload/")
         self.assertNotEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_history_table_lock_blocks_deleting_it(self):
+        # The schema resolves through its own table, so the history table's rule is checked on its own.
+        self.schema.sync_type = ExternalDataSchema.SyncType.CDC
+        self.schema.sync_type_config = {"cdc_table_mode": "consolidated"}
+        self.schema.save()
+        history = DataWarehouseTable.objects.create(
+            name="teststripe_customers_history",
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            team=self.team,
+            external_data_source=self.source,
+            options={"history_table": True, "history_naming": "ph_validity"},
+        )
+        self._grant(self.editor_user, "external_data_source", None, "editor")
+        self._grant(self.editor_user, "warehouse_table", str(history.id), "viewer")
+
+        self.client.force_login(self.editor_user)
+        response = self.client.delete(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{self.schema.id}/history_table/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        history.refresh_from_db()
+        self.assertFalse(history.deleted)

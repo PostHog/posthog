@@ -548,6 +548,24 @@ export const externalDataSchemasDestinationsPartialUpdate = async (
     })
 }
 
+export const getExternalDataSchemasHistoryTableDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/external_data_schemas/${id}/history_table/`
+}
+
+/**
+ * Delete the history table of a CDC schema that no longer writes it, for example after `cdc_table_mode` moved to `consolidated` or the schema left CDC while keeping it. Deletes the table and every past row version in it, and cannot be undone. Refused while the schema still writes the history table, or while a sync of it is still running. Switching back to a mode that keeps history later starts a new history table.
+ */
+export const externalDataSchemasHistoryTableDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSchemasHistoryTableDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getExternalDataSchemasIncrementalFieldsCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/external_data_schemas/${id}/incremental_fields/`
 }

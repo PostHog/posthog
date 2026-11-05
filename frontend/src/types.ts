@@ -6684,6 +6684,8 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
     /** The history table's name, or `null` when the table keeps no history. Older history tables end in `_cdc`. */
     history_table_name?: string | null
+    /** A history table the schema registered but no longer writes, which can still be deleted. Set on retrieve only. */
+    retired_history_table_name?: string | null
     /**
      * Why the last sync run could not merge rows on this table's primary key, or `null` when no such
      * failure is current. A later run that succeeds, or fails for another reason, clears it.

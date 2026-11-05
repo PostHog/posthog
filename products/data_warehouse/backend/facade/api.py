@@ -99,6 +99,7 @@ _LAZY = {
     "get_s3_client": "s3",
     "get_size_of_folder": "s3",
     "delta_proxy_storage_options": "s3_proxy",
+    "log_table_activity": "presentation.table_activity",
 }
 
 __all__ = sorted(_LAZY)
