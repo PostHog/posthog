@@ -277,8 +277,8 @@ tools:
             (ProseMirror JSON) only if you already have a structured document; the server converts it into the same
             markdown notebook format. In most cases leave it unset and write Markdown in `text_content`. The notebook is
             created with internal visibility so it does not appear in the global notebooks list. Pass `tags` (array of
-            tag names, shared with account tags) to tag the note at creation time. A note a scout writes is also
-            tagged `scout` and `scout-<skill name>` by the server, so pass only topic tags.
+            tag names, shared with account tags) to tag the note at creation time. A note a scout writes is also tagged
+            `scout` and `scout-<skill name>` by the server, so pass only topic tags.
         feature_flag: customer-analytics-csp
     accounts-notebooks-destroy:
         operation: accounts_notebooks_destroy
