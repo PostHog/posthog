@@ -6718,6 +6718,10 @@ snapshots:
         hash: v1.k794b7964.073ed0d4859386827dd0e45de3cf5eb857867e74e1b44f2fa4ede4a108742cca.hVQJteiYVN-fx70VzB55DOgKQVvHoDNtPEqzxqho5Ko
     products-autoresearch-model-detail-scene--coverage-with-failed-runs--wide--light:
         hash: v1.k794b7964.e50fd4ee2847fe0504c0aebc10c7eedb34d1ed4d2eff05b68848bc6f45b9f0d9.3zl510wgOjWMfOqmOycvoGw-M4D9VGx-OBni0PdNeok
+    products-autoresearch-model-detail-scene--first-champion-rolled-back--wide--dark:
+        hash: v1.k794b7964.bffc646c9c852bd652ba735564e0763d355979163c210368ea23e05554ae8fca.Be4kPj6BVaiNFWsNnZVL5rKyjBfc0WcEs_SVE8hbBx0
+    products-autoresearch-model-detail-scene--first-champion-rolled-back--wide--light:
+        hash: v1.k794b7964.86e7e37b4a768fb1d0d5b3e126581d16314fe29d9bd24e5d25ddaa505276ed0f.avvhk9BUjvIwcJ6q47-uiSktBYBomO64C9wF23tR2co
     products-autoresearch-model-detail-scene--narrow--narrow--dark:
         hash: v1.k794b7964.8d62dc0e26c677229f657685e9a91ff35456e8ea8a947afa92782e2b3359eb4e.YtQHUt83vFWkDF3SKK0iSQnyLikqzTYog0_46H_jOEg
     products-autoresearch-model-detail-scene--narrow--narrow--light:
@@ -8547,7 +8551,7 @@ snapshots:
     products-workflows-editor-configuration-panel--variables--light:
         hash: v1.k794b7964.213342dc86b3f7bfe22e99477cda7be5a9257d736c30fbb5eeca0f9fe2243e7a.JJCaR5ZB4A49d-BaatrNqY9RtQB5ewgqMB3DVY-YKqI
     products-workflows-editor-configuration-panel--webhook--dark:
-        hash: v1.k794b7964.5ab0d015fa9f4b1e588b4c5576c19cba1d7147337ea9440072b79b2e4c1a749e.buuQ6s2J9oN1-6u7OoQlxViMus3WlUZoeh8WeAAA_dc
+        hash: v1.k794b7964.8991e02cc4f66a0d9af4847ae5125e3588e76fc4da25e87060d290704a52e4c2.fVSYiTkGa_c4KCEi0RUX6Wiq4iVYaPjQ1eCfF1WhiaY
     products-workflows-editor-configuration-panel--webhook--light:
         hash: v1.k794b7964.580fcd7c7973765ac2621ff06f59af46aeaf3869e54fd951dbcab69ec77c7e1b.S_vxkKiZhfNIeigTUCkV3V1vz7q-b8mAg8boalMWfQQ
     products-workflows-editor-tile-canvas--long-emails--dark:
@@ -15139,7 +15143,7 @@ snapshots:
     scenes-app-replay-vision--observation-detail--light:
         hash: v1.k794b7964.00f35aceb5cdba733291648283aa55c2873814e1511e4394b1f563205e068e44.9QOwHay0_E6FTvDZyQ20RfIQkYA99RDf1vhpKelCORA
     scenes-app-replay-vision--observation-detail-classifier--dark:
-        hash: v1.k794b7964.e6f8885684dc72d6907a9a6d7d536295a28121bb9e2426756caa8d425c55570b.9fXVhl7PgIzxyVb6KXvatI8GYGvOcOZlWQ30TgOM6AA
+        hash: v1.k794b7964.d45277dfba336cd30f04cc29606acc8fb2c28684aadfcf6797eafbeafa8b6ae7.oShDx2RG6jQw8Gm1A7a_20iiTf2do35wZNle04yTdG4
     scenes-app-replay-vision--observation-detail-classifier--light:
         hash: v1.k794b7964.812c52630f07aad627bbef36145b4499599d5df16411d81dfe884abac4e5b48c.YNeITkL81fdUmXdlHQSOaVOxIi1otp_nLJPYEjWSWkc
     scenes-app-replay-vision--observation-detail-failed--dark:
