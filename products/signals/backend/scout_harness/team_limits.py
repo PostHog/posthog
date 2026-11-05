@@ -35,6 +35,7 @@ from products.signals.backend.scout_harness.limits import (
     MAX_DISPATCH_SMEAR_SECONDS,
     MAX_ENABLED_SCOUTS_PER_TEAM,
 )
+from products.signals.backend.trial.scouts import trial_scout_limit
 
 logger = structlog.get_logger(__name__)
 
@@ -647,6 +648,12 @@ def resolve_max_enabled_scouts(config_layers: Sequence[dict] | None) -> int:
     return MAX_ENABLED_SCOUTS_PER_TEAM
 
 
+def _resolve_enabled_scout_limit(canonical_team_id: int, config_layers: Sequence[dict]) -> int:
+    configured = resolve_max_enabled_scouts(config_layers)
+    trial_limit = trial_scout_limit(canonical_team_id)
+    return min(configured, trial_limit) if trial_limit is not None else configured
+
+
 def max_enabled_scouts_for_team(canonical_team_id: int) -> int:
     """One flag-payload read → this project's enabled-scout ceiling.
 
@@ -656,13 +663,9 @@ def max_enabled_scouts_for_team(canonical_team_id: int) -> int:
     """
     payload = _read_flag_payload()
     team_configs = _canonicalize_team_config_keys(_team_configs(payload))
-    from products.signals.backend.trial.scouts import (
-        trial_scout_limit,  # noqa: PLC0415 -- avoid model registration cycle
+    return _resolve_enabled_scout_limit(
+        canonical_team_id, [team_configs.get(canonical_team_id) or {}, _default_team_config(payload)]
     )
-
-    configured = resolve_max_enabled_scouts([team_configs.get(canonical_team_id) or {}, _default_team_config(payload)])
-    trial_limit = trial_scout_limit(canonical_team_id)
-    return min(configured, trial_limit) if trial_limit is not None else configured
 
 
 # Flag payload key overriding the GLOBAL per-tick dispatch ceiling (the coordinator's
@@ -962,8 +965,8 @@ def resolve_team_metadata(canonical_team_id: int) -> ScoutTeamMetadata:
             max_runs_per_day=max_runs_per_day,
             runs_today=runs_today,
             runs_remaining_today=runs_remaining_today,
-            max_enabled_scouts=resolve_max_enabled_scouts(
-                [team_configs.get(canonical_team_id) or {}, default_team_config]
+            max_enabled_scouts=_resolve_enabled_scout_limit(
+                canonical_team_id, [team_configs.get(canonical_team_id) or {}, default_team_config]
             ),
         ),
     )

@@ -20,7 +20,7 @@ from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
 class TestTrialConcurrency(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
-    def test_concurrent_plans_reserve_all_layers_or_publish_only_parent(self) -> None:
+    def test_concurrent_accepted_plans_publish_all_layers_after_the_report_limit(self) -> None:
         with patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True):
             policy = TrialPolicy(self.team)
             policy.claim(user_id=self.user.pk)
@@ -54,8 +54,8 @@ class TestTrialConcurrency(NonAtomicBaseTest):
                     close_old_connections()
 
             with ThreadPoolExecutor(max_workers=2) as pool:
-                assert sorted(pool.map(publish_layers, parents)) == [0, 2]
-            assert SignalTrialReportReservation.objects.for_team(self.team.id).filter(status="consumed").count() == 4
+                assert sorted(pool.map(publish_layers, parents)) == [2, 2]
+            assert SignalTrialReportReservation.objects.for_team(self.team.id).filter(status="consumed").count() == 6
             assert not SignalTrialReportReservation.objects.for_team(self.team.id).filter(status="reserved").exists()
 
     def test_final_organization_slot_and_report_slot_are_atomic(self) -> None:

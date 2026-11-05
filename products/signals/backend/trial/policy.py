@@ -147,28 +147,35 @@ class TrialPolicy:
             grant = SignalTrialGrant.objects.for_team(self.team_id, canonical=True).select_for_update().get(id=grant_id)
             yield grant
 
-    def _report_slots(self, grant: SignalTrialGrant) -> int:
-        return (
-            SignalTrialReportReservation.objects.for_team(self.team_id, canonical=True)
-            .filter(
-                grant=grant,
-                status__in=[SignalTrialReportReservation.Status.RESERVED, SignalTrialReportReservation.Status.CONSUMED],
-            )
-            .count()
+    def _check_report_capacity(self, grant: SignalTrialGrant, report_id: UUID | None) -> None:
+        slots = SignalTrialReportReservation.objects.for_team(self.team_id, canonical=True).filter(
+            grant=grant,
+            status__in=[SignalTrialReportReservation.Status.RESERVED, SignalTrialReportReservation.Status.CONSUMED],
         )
+        if report_id is not None and slots.filter(report_id=report_id).exists():
+            return
+        if slots.count() >= grant.report_limit:
+            raise TrialRefused("report_limit")
 
     def _reserve_report(self, grant: SignalTrialGrant, report_id: UUID) -> None:
         slots = SignalTrialReportReservation.objects.for_team(self.team_id, canonical=True)
         slot = slots.filter(report_id=report_id).first()
         if slot and slot.status != SignalTrialReportReservation.Status.RELEASED:
             return
-        if self._report_slots(grant) >= grant.report_limit:
-            raise TrialRefused("report_limit")
         slots.update_or_create(
             team_id=self.team_id,
             report_id=report_id,
             defaults={"grant": grant, "status": SignalTrialReportReservation.Status.RESERVED},
         )
+
+    def _fund_new_work(self, grant: SignalTrialGrant, *, paid_authorized: bool, report_id: UUID | None) -> TrialFunding:
+        if grant.exhausted_at:
+            if paid_authorized:
+                return TrialFunding(funding="paid")
+            raise TrialRefused(grant.exhaustion_reason)
+        self._check_accounting(grant)
+        self._check_report_capacity(grant, report_id)
+        return TrialFunding(funding="trial", grant_id=grant.id, policy_version=grant.policy_version)
 
     def admit(
         self,
@@ -176,41 +183,28 @@ class TrialPolicy:
         paid_authorized: bool,
         parent: TrialFunding | None = None,
         report_id: UUID | None = None,
-        finishing_research: bool = False,
     ) -> TrialFunding:
-        if not self.enabled():
-            # Funding already promised to a pass must survive rollout changes.
-            return parent or TrialFunding(funding="existing")
-        grant = self.grant()
         if parent is not None and parent.grant_id is None:
             return parent
+        if parent is None:
+            decision = self.flag_decision()
+            if decision.enabled is None:
+                raise TrialRefused("flag_unavailable")
+            if not decision.enabled:
+                return TrialFunding(funding="existing")
+        grant = self.grant()
         if grant is None:
             if parent is not None:
                 raise TrialRefused("grant_unavailable")
             return TrialFunding(funding="existing")
         with self.locked_grant(grant.id) as grant:
-            if parent is None and grant.exhausted_at:
-                if paid_authorized:
-                    return TrialFunding(funding="paid")
-                raise TrialRefused(grant.exhaustion_reason)
             if parent is not None and parent.grant_id != grant.id:
                 raise TrialRefused("grant_unavailable")
-            self.check_admitted(grant, finishing_research=finishing_research)
-            if report_id is not None:
+            # Accepted pipelines keep their funding even after the allowance runs out.
+            funding = parent or self._fund_new_work(grant, paid_authorized=paid_authorized, report_id=report_id)
+            if report_id is not None and funding.grant_id is not None:
                 self._reserve_report(grant, report_id)
-            return parent or TrialFunding(funding="trial", grant_id=grant.id, policy_version=grant.policy_version)
-
-    def check_funding(self, funding: TrialFunding, *, finishing_research: bool = False) -> None:
-        if not self.enabled():
-            return
-        if funding.grant_id is not None:
-            with self.locked_grant(funding.grant_id) as grant:
-                self.check_admitted(grant, finishing_research=finishing_research)
-
-    def check_admitted(self, grant: SignalTrialGrant, *, finishing_research: bool = False) -> None:
-        # Report exhaustion only stops new admissions; admitted work keeps its funding.
-        if not finishing_research:
-            self._check_accounting(grant)
+            return funding
 
     @staticmethod
     def _check_accounting(grant: SignalTrialGrant) -> None:
@@ -220,12 +214,9 @@ class TrialPolicy:
             raise TrialRefused("accounting_pending")
 
     def reserve_direct_report(self, funding: TrialFunding, report_id: UUID, *, run_id: UUID | None = None) -> None:
-        if funding.grant_id is None or not self.enabled():
+        if funding.grant_id is None:
             return
         with self.locked_grant(funding.grant_id) as grant:
-            if grant.exhausted_at is not None:
-                raise TrialRefused(grant.exhaustion_reason)
-            self._check_accounting(grant)
             self._reserve_report(grant, report_id)
             reservation = SignalTrialReportReservation.objects.for_team(self.team_id, canonical=True).get(
                 report_id=report_id
@@ -282,7 +273,7 @@ class TrialPolicy:
             return
         with self.locked_grant(reservation.grant_id) as grant:
             reservation.refresh_from_db()
-            if reservation.status == SignalTrialReportReservation.Status.RELEASED and delivered and self.enabled():
+            if reservation.status == SignalTrialReportReservation.Status.RELEASED and delivered:
                 raise TrialRefused("report_reservation_released")
             yield
             if reservation.status != SignalTrialReportReservation.Status.CONSUMED and (
@@ -306,9 +297,7 @@ class TrialPolicy:
                 grant.exhaustion_reason = "report_limit"
                 grant.save(update_fields=["exhausted_at", "exhaustion_reason"])
 
-    def reserve_report_layers(self, parent_id: UUID, child_ids: list[UUID]) -> bool:
-        if not self.enabled():
-            return True
+    def reserve_report_layers(self, parent_id: UUID, child_ids: list[UUID]) -> None:
         from products.signals.backend.models import SignalReport  # noqa: PLC0415 -- model registration cycle
 
         snapshot = (
@@ -327,10 +316,7 @@ class TrialPolicy:
                 .first()
             )
         if grant_id is None:
-            return True
+            return
         with self.locked_grant(grant_id) as grant:
-            if self._report_slots(grant) + len(child_ids) > grant.report_limit:
-                return False
             for child_id in child_ids:
                 self._reserve_report(grant, child_id)
-        return True

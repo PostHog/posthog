@@ -115,9 +115,7 @@ def create_layer_reports(
         logger.info("signals.stack_plan.layers_skipped_for_own_pull_request", report_id=str(parent.id), team_id=team_id)
         return []
     layer_ids = [uuid4() for _ in layers]
-    if not TrialPolicy(parent.team).reserve_report_layers(parent.id, layer_ids):
-        logger.info("signals.stack_plan.trial_report_limit", report_id=str(parent.id), team_id=team_id)
-        return []
+    TrialPolicy(parent.team).reserve_report_layers(parent.id, layer_ids)
     judgments = _inherited_judgments(parent)
     # A layer does the plan's work, so it keeps the plan's exemption. The scout policy matches only
     # the report the scout emitted, and a layer's id is never in that list.

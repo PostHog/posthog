@@ -1,5 +1,7 @@
+from datetime import timedelta
 from uuid import UUID, uuid4
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -13,6 +15,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.models import Organization, Team
 
 from products.signals.backend.models import SignalReport, SignalScoutConfig
+from products.signals.backend.scout_harness.team_limits import max_enabled_scouts_for_team, resolve_team_metadata
 from products.signals.backend.trial.funding import TrialFunding
 from products.signals.backend.trial.limits import TrialLimits
 from products.signals.backend.trial.models import SignalTrialGrant, SignalTrialReportReservation
@@ -61,9 +64,9 @@ class TestTrialPolicy(BaseTest):
             if exhaustion_reason:
                 with self.assertRaisesMessage(TrialRefused, exhaustion_reason):
                     policy.admit(paid_authorized=False)
+                assert policy.admit(paid_authorized=True).funding == "paid"
             else:
                 assert policy.admit(parent=funding, report_id=report_id, paid_authorized=False) == funding
-                policy.check_funding(funding)
             assert policy.organization_grants_claimed() == 0
 
         with TrialPolicy(self.team).publish_report(report_id, delivered=True):
@@ -85,17 +88,68 @@ class TestTrialPolicy(BaseTest):
             self.policy.claim(user_id=self.user.pk)
 
     def test_unknown_flag_retains_confirmed_decision_but_cannot_claim(self) -> None:
+        grant = self.claim()
+        grant.exhausted_at = timezone.now()
+        grant.exhaustion_reason = "cost_limit"
+        grant.save(update_fields=["exhausted_at", "exhaustion_reason"])
         assert self.policy.flag_decision().enabled is True
         with CaptureQueriesContext(connection) as queries:
             assert self.policy.flag_decision().enabled is True
         assert not any(query["sql"].startswith("UPDATE") for query in queries)
         self.flag_mock.side_effect = RuntimeError("unavailable")
         assert self.policy.flag_decision().enabled is True
+        with self.assertRaisesMessage(TrialRefused, "cost_limit"):
+            self.admit()
         with self.assertRaisesMessage(TrialRefused, "flag_unavailable"):
             self.policy.claim(user_id=self.user.pk)
         self.flag_mock.side_effect = None
         self.flag_mock.return_value = False
         assert self.policy.flag_decision().enabled is False
+        assert self.admit().funding == "existing"
+
+    @parameterized.expand(
+        [("missing", False, False), ("flag_unavailable", True, False), ("cache_unavailable", False, True)]
+    )
+    def test_unknown_flag_rejects_new_work_and_preserves_accepted_funding(
+        self, _name: str, flag_unavailable: bool, cache_unavailable: bool
+    ) -> None:
+        grant = self.claim()
+        funding = self.admit()
+        grant.exhausted_at = timezone.now()
+        grant.exhaustion_reason = "cost_limit"
+        grant.save(update_fields=["exhausted_at", "exhaustion_reason"])
+        self.flag_mock.return_value = None
+        self.flag_mock.side_effect = RuntimeError("flag unavailable") if flag_unavailable else None
+        with patch(
+            "products.signals.backend.trial.policy.cache.get",
+            return_value=None,
+            side_effect=RuntimeError("cache unavailable") if cache_unavailable else None,
+        ):
+            with self.assertRaisesMessage(TrialRefused, "flag_unavailable"):
+                self.admit()
+            assert self.policy.admit(paid_authorized=False, parent=funding) == funding
+
+    @parameterized.expand([("cost_limit",), ("report_limit",), ("accounting_pending",)])
+    @time_machine.travel("2026-11-05T00:00:00Z", tick=False)
+    def test_exhaustion_blocks_new_work_but_accepted_pipelines_finish(self, reason: str) -> None:
+        grant = self.claim()
+        report_id = uuid4()
+        funding = self.admit(report_id=report_id)
+        if reason == "accounting_pending":
+            grant.incomplete_since = timezone.now() - timedelta(minutes=3)
+        else:
+            grant.exhausted_at = timezone.now()
+            grant.exhaustion_reason = reason
+        grant.save()
+
+        with self.assertRaisesMessage(TrialRefused, reason):
+            self.admit()
+        assert self.policy.admit(paid_authorized=True, parent=funding, report_id=report_id) == funding
+        self.policy.reserve_direct_report(funding, report_id, run_id=uuid4())
+        with self.policy.publish_report(report_id, delivered=True):
+            pass
+        reservation = SignalTrialReportReservation.objects.for_team(self.team.id).get(report_id=report_id)
+        assert reservation.status == SignalTrialReportReservation.Status.CONSUMED
 
     def test_activation_pauses_excess_scouts_and_preserves_user_pause(self) -> None:
         scouts = [SignalScoutConfig.objects.create(team=self.team, skill_name=f"scout-{index}") for index in range(5)]
@@ -108,16 +162,28 @@ class TestTrialPolicy(BaseTest):
         assert scouts[-1].pause_reason == SignalScoutConfig.PauseReason.TRIAL_SCOUT_LIMIT
         assert paused.status == SignalScoutConfig.Status.PAUSED_BY_USER
 
+    @parameterized.expand([(None, 3), (2, 2), (10, 3)])
+    def test_scout_metadata_matches_the_enforced_trial_limit(self, configured_limit: int | None, expected: int) -> None:
+        self.claim()
+        payload = {"default_team_config": {"max_enabled_scouts": configured_limit}}
+        with patch("products.signals.backend.scout_harness.team_limits._read_flag_payload", return_value=payload):
+            assert resolve_team_metadata(self.team.id).limits.max_enabled_scouts == expected
+            assert max_enabled_scouts_for_team(self.team.id) == expected
+
     @parameterized.expand([(5,), (10,)])
     def test_report_slots_release_only_before_delivery(self, report_limit: int) -> None:
         grant = self.policy.claim(user_id=self.user.pk, limits=TrialLimits(report_limit=report_limit))
         reports = [uuid4() for _ in range(report_limit + 1)]
         for report_id in reports[:report_limit]:
             self.admit(report_id=report_id)
+        assert self.admit(report_id=reports[0]).grant_id == grant.id
+        with self.assertRaisesMessage(TrialRefused, "report_limit"):
+            self.admit()
         with self.assertRaisesMessage(TrialRefused, "report_limit"):
             self.admit(report_id=reports[-1])
         with self.policy.publish_report(reports[0], delivered=False):
             pass
+        assert self.admit().funding == "trial"
         self.admit(report_id=reports[-1])
         for report_id in reports[1:]:
             with self.policy.publish_report(report_id, delivered=True):
@@ -221,11 +287,10 @@ class TestTrialPolicy(BaseTest):
         )
         assert child.funding == "trial"
         assert child.grant_id == parent.grant_id
-        self.policy.check_funding(parent)
         assert self.admit().funding == "existing"
-        assert self.policy.reserve_report_layers(report, [uuid4() for _ in range(grant.report_limit + 1)])
+        self.policy.reserve_report_layers(report, [uuid4() for _ in range(grant.report_limit + 1)])
         self.policy.reserve_direct_report(parent, uuid4())
-        assert SignalTrialReportReservation.objects.for_team(self.team.id).count() == 1
+        assert SignalTrialReportReservation.objects.for_team(self.team.id).count() == grant.report_limit + 3
         with self.policy.publish_report(report, delivered=True):
             pass
         assert SignalTrialReportReservation.objects.for_team(self.team.id).get(report_id=report).status == "consumed"
