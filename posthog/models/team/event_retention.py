@@ -23,6 +23,8 @@ DEFAULT_EVENT_RETENTION_MONTHS = 84
 # Cohort feature flag — gates enforcement so the rollout can target a specific cohort.
 EVENTS_DATA_RETENTION_FLAG = "events-data-retention"
 
+EVENTS_DATA_DELETION_FLAG = "events-data-retention-deletion"
+
 # Billing entitlement key the sync job reconciles Team.event_retention_months against.
 EVENTS_DATA_RETENTION_FEATURE = AvailableFeature.PRODUCT_ANALYTICS_DATA_RETENTION
 
@@ -101,6 +103,33 @@ def team_plan(team: Team) -> TeamPlan:
         team_id=team.id,
         organization_id=team.organization_id,
         plan_months=team.event_retention_months or DEFAULT_EVENT_RETENTION_MONTHS,
+    )
+
+
+def should_delete_past_default_period(team: Team) -> bool:
+    """Whether the cleanup deletes this team's events past its default period.
+
+    The settings override forces it the same way as enforcement. Otherwise the team needs enforcement, so the cleanup
+    never deletes events the team can still query, and the deletion flag. The flag gets the plan period and the
+    organization, so a rollout can target a plan such as the free plan's 12 months and leave out organizations.
+    """
+    if settings.EVENTS_DATA_RETENTION_ENFORCED is not None:
+        return settings.EVENTS_DATA_RETENTION_ENFORCED
+
+    if not should_enforce_events_retention(team.id):
+        return False
+
+    return bool(
+        posthoganalytics.feature_enabled(
+            EVENTS_DATA_DELETION_FLAG,
+            str(team.id),
+            person_properties={
+                "plan_retention_months": team_plan(team).plan_months,
+                "organization_id": str(team.organization_id),
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
     )
 
 

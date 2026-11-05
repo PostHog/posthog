@@ -201,6 +201,22 @@ class OrganizationEventsRetention:
     min_months: int
     max_months: int
     months_choices: list[int]
+    next_cleanup_on: date
+
+
+@dataclass(frozen=True)
+class ScheduledEventsDeletion:
+    deletes_on: date
+    deletes_before: date
+
+
+@dataclass(frozen=True)
+class ProjectEventsRetention:
+    project_months: int | None
+    next_deletion: ScheduledEventsDeletion | None
+    scheduled_pass_on: date | None
+    first_pass_on: date
+    default_period_deletes: bool
 
 
 @dataclass(frozen=True)
