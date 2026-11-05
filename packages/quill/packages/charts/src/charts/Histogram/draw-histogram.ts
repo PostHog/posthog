@@ -31,7 +31,6 @@ export function drawHistogramSelectionBand(
     ctx.fillRect(span.x0, dimensions.plotTop, span.x1 - span.x0, dimensions.plotHeight)
 }
 
-/** The selection's two edges, drawn over the bars. */
 export function drawHistogramSelectionEdges(
     ctx: CanvasRenderingContext2D,
     dimensions: ChartDimensions,

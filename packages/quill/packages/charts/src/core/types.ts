@@ -642,7 +642,6 @@ export interface AreaSelectData extends LabelRange {
 export interface PixelRangeSelectData {
     /** Left edge of the dragged range (always <= xPixel1). */
     xPixel0: number
-    /** Right edge of the dragged range. */
     xPixel1: number
 }
 

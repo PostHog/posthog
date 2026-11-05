@@ -34,7 +34,6 @@ export interface HistogramLayoutBin extends HistogramEdges {
 }
 
 export interface HistogramSegment {
-    /** Position of the column in `HistogramLayout.bins`. */
     column: number
     seriesIndex: number
     x: number
@@ -60,7 +59,6 @@ export interface HistogramLayout {
     segments: HistogramSegment[]
     yTicks: number[]
     xTicks: HistogramXTick[]
-    /** Pixel of the value-axis floor that bars grow from. */
     baselineY: number
 }
 
@@ -167,7 +165,6 @@ function linearTickCandidates(scale: D3YScale, plotWidth: number): number[] {
     return scale.ticks?.(count) ?? []
 }
 
-/** Greedy left-to-right pass that keeps each label clear of the previous one. */
 function dropCollidingTicks(ticks: HistogramXTick[]): HistogramXTick[] {
     const kept: HistogramXTick[] = []
     let lastRight = -Infinity
@@ -280,7 +277,6 @@ interface PendingColumn extends HistogramEdges {
     x1: number
 }
 
-/** Groups drawable bins into columns at least one device pixel wide. */
 function buildColumns(
     bins: HistogramEdges[],
     drawStarts: number[],
@@ -341,7 +337,6 @@ function sumRange(values: number[], from: number, to: number): number {
     return sum
 }
 
-/** Places every bin on a numeric x axis at its real edges and stacks its series counts. */
 export function computeHistogramLayout({
     bins,
     series,
