@@ -236,13 +236,15 @@ def get_viewable_workflow_ids(*, team_id: int, user_access_control: UserAccessCo
 
 
 def get_workflow_view_access(*, team_id: int, user_access_control: UserAccessControl) -> WorkflowViewAccess:
-    """What the reader may view, for records that outlive their workflow. A deleted workflow has no access rules left,
-    so its records follow the reader's access to workflows as a whole."""
+    """What the reader may view, for records that outlive their workflow. A denial outlives the workflow it names, so a
+    deleted workflow stays hidden from a reader denied it, and otherwise follows their access to workflows as a whole."""
     viewable = get_viewable_workflow_ids(team_id=team_id, user_access_control=user_access_control)
     existing = {str(pk) for pk in HogFlow.objects.filter(team_id=team_id).values_list("id", flat=True)}
     return WorkflowViewAccess(
         viewable_ids=frozenset(viewable),
-        blocked_ids=frozenset(existing - viewable),
+        blocked_ids=frozenset(
+            (existing | user_access_control.blocked_resource_ids_by_scope.get("hog_flow", frozenset())) - viewable
+        ),
         can_view_deleted=user_access_control.has_resource_access("hog_flow"),
     )
 
