@@ -63,22 +63,29 @@ class TaskTokenUsageUnavailable(Exception):
 def get_task_reported_token_cost(*, team_id: int, task_id: UUID) -> Decimal | None:
     """The model spend the task's agents reported across its runs, or `None` when it is unknown.
 
-    The agent reports the SDK's running cost of each run in `state.budget_guard.sdk_total_usd`
-    after every settled turn. Each run reports its own cost from zero, so the task total is the
-    sum over runs. A run that settled no turn spent nothing. A run that settled a turn without a
-    reported cost, such as one on an adapter without a budget guard, makes the total unknown.
+    The agent reports each run's cost in `state.token_usage.cost_usd` after every settled turn.
+    Each run reports its own cost from zero, so the task total is the sum over runs. A run that
+    settled no turn spent nothing. A run that settled a turn without a reported cost, such as one
+    on an adapter that reports none, makes the total unknown.
     """
     total = Decimal(0)
-    # Only two keys are read, and `state` holds much more, so Postgres extracts them per run.
+    # Only a few keys are read, and `state` holds much more, so Postgres extracts them per run.
     runs = TaskRun.objects.filter(team_id=team_id, task_id=task_id).values_list(
-        "state__budget_guard__sdk_total_usd", "state__token_usage__turns"
+        "state__token_usage__cost_usd", "state__budget_guard__sdk_total_usd", "state__token_usage__turns"
     )
-    for reported, turns in runs:
-        if isinstance(reported, int | float) and not isinstance(reported, bool):
+    for cost_usd, budget_total_usd, turns in runs:
+        # Agents that predate `cost_usd` report the cost only in the budget snapshot. That total
+        # restarts from zero when a run resumes in a new sandbox, so it is the fallback only.
+        reported = cost_usd if _is_number(cost_usd) else budget_total_usd
+        if _is_number(reported):
             total += Decimal(str(reported))
         elif turns:
             return None
     return total
+
+
+def _is_number(value: object) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool)
 
 
 @frozen

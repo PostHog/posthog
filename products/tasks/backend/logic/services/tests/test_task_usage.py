@@ -427,6 +427,11 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
                 Decimal("1.5"),
             ),
             (
+                "the_run_cost_wins_over_the_budget_total_that_a_resume_restarts",
+                [{"token_usage": {"turns": 3, "cost_usd": 3.5}, "budget_guard": {"sdk_total_usd": 1.0}}],
+                Decimal("3.5"),
+            ),
+            (
                 "a_run_that_worked_without_a_report_is_unknown",
                 [{"budget_guard": {"sdk_total_usd": 1.5}}, {"token_usage": {"turns": 2}}],
                 None,

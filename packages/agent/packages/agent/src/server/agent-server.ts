@@ -326,6 +326,17 @@ function budgetSnapshotFromUsageUpdate(
     : undefined;
 }
 
+function costFromUsageUpdate(message: unknown): number | undefined {
+  if (typeof message !== "object" || message === null) return undefined;
+  const { method, params } = message as {
+    method?: unknown;
+    params?: { cost?: unknown };
+  };
+  if (method !== POSTHOG_NOTIFICATIONS.USAGE_UPDATE) return undefined;
+  const cost = params?.cost;
+  return typeof cost === "number" && Number.isFinite(cost) ? cost : undefined;
+}
+
 export function isTurnCompleteNotification(message: unknown): boolean {
   return (
     typeof message === "object" &&
@@ -1718,7 +1729,7 @@ export class AgentServer {
             void this.syncCloudBranchMetadata(commandSession.payload);
           }
 
-          this.recordTurnUsage(result.usage);
+          const usageReported = this.recordTurnUsage(result.usage);
           const turnTraceId = this.turnTraceId(result);
           this.broadcastTurnComplete(result.stopReason, turnTraceId);
 
@@ -1727,13 +1738,19 @@ export class AgentServer {
             // delivery path — the HTTP caller only handles reactions. Echo the
             // initiating message's id so the backend can attribute the answer,
             // and the turn's trace id so a rating on the reply names the turn.
-            this.relayAgentResponse(
-              commandSession.payload,
-              messageId,
-              turnTraceId,
-            ).catch((err) =>
-              this.logger.debug("Failed to relay follow-up response", err),
-            );
+            // The reply's footer reads the run's cost, so the relay waits for
+            // the usage report that carries it.
+            usageReported
+              .then(() =>
+                this.relayAgentResponse(
+                  commandSession.payload,
+                  messageId,
+                  turnTraceId,
+                ),
+              )
+              .catch((err) =>
+                this.logger.debug("Failed to relay follow-up response", err),
+              );
           }
 
           // Flush logs and include the assistant's response text so callers
@@ -3275,11 +3292,13 @@ export class AgentServer {
         void this.syncCloudBranchMetadata(payload);
       }
 
-      this.recordTurnUsage(result.usage);
+      const usageReported = this.recordTurnUsage(result.usage);
       const turnTraceId = this.turnTraceId(result);
       this.broadcastTurnComplete(result.stopReason, turnTraceId);
 
       if (result.stopReason === "end_turn") {
+        // The reply's footer reads the run's cost, so the relay waits for the usage report.
+        await usageReported;
         await this.relayAgentResponse(payload, undefined, turnTraceId);
       }
 
@@ -3677,11 +3696,13 @@ export class AgentServer {
         void this.syncCloudBranchMetadata(payload);
       }
 
-      this.recordTurnUsage(result.usage);
+      const usageReported = this.recordTurnUsage(result.usage);
       const turnTraceId = this.turnTraceId(result);
       this.broadcastTurnComplete(result.stopReason, turnTraceId);
 
       if (result.stopReason === "end_turn") {
+        // The reply's footer reads the run's cost, so the relay waits for the usage report.
+        await usageReported;
         await this.relayAgentResponse(payload, undefined, turnTraceId);
       }
 
@@ -5737,6 +5758,11 @@ export class AgentServer {
       message.method === POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED
     ) {
       this.session.contextSelection.resetHistory();
+      this.runUsage.startNewQuery();
+    }
+    const cost = costFromUsageUpdate(message);
+    if (cost !== undefined) {
+      this.runUsage.reportCost(cost);
     }
     const budget = budgetSnapshotFromUsageUpdate(message);
     if (budget) {
