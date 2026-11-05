@@ -17,8 +17,11 @@ from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from products.signals.backend.emission import get_signal_config
 from products.signals.backend.emission.pipeline import run_signal_pipeline
 from products.signals.backend.emission.steering import afetch_source_config
+from products.signals.backend.quota import is_team_signals_quota_limited
 from products.warehouse_sources.backend.facade.hooks import EmitSignalsActivityInputs
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+
+from ee.billing.quota_limiting import self_driving_quota_resource
 
 logger = structlog.get_logger(__name__)
 
@@ -39,6 +42,10 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
         if schema.table is None:
             log.warning(f"Schema {inputs.schema_id} has no table for emitting signals")
             return {"status": "skipped", "reason": "no_table", "signals_emitted": 0}
+        if await database_sync_to_async(is_team_signals_quota_limited, thread_sensitive=False)(
+            team.api_token, self_driving_quota_resource(team.organization)
+        ):
+            return {"status": "skipped", "reason": "quota_limited", "signals_emitted": 0}
         # `DataWarehouseTable.name` is the storage form (e.g. `<prefix><source_type>_<schema>`),
         # but HogQL exposes warehouse tables under the keys produced by `get_data_warehouse_table_name`
         # (e.g. `github.issues` or `github.<prefix>.<schema>`). Querying the storage name fails to resolve.
@@ -65,7 +72,7 @@ async def emit_data_import_signals_activity(inputs: EmitSignalsActivityInputs) -
 
 async def _fetch_schema_and_team(schema_id: uuid.UUID, team_id: int) -> tuple[ExternalDataSchema, Team]:
     schema = await ExternalDataSchema.objects.prefetch_related("table", "source").aget(id=schema_id, team_id=team_id)
-    team = await Team.objects.aget(id=team_id)
+    team = await Team.objects.select_related("organization").aget(id=team_id)
     return schema, team
 
 

@@ -891,8 +891,8 @@ class TestSignalSpend(BaseTest):
                 original_table = cursor.fetchone()[0]
             with connection.schema_editor() as editor:
                 state = migration.Migration("0208_reset_signal_spend", "signals").apply(state, editor)
-                meter_migration = import_module("products.signals.backend.migrations.0233_signalspend_usage_billing")
-                state = meter_migration.Migration("0233_signalspend_usage_billing", "signals").apply(state, editor)
+                meter_migration = import_module("products.signals.backend.migrations.0235_signalspend_usage_billing")
+                state = meter_migration.Migration("0235_signalspend_usage_billing", "signals").apply(state, editor)
             spend = state.apps.get_model("signals", "SignalSpend")
             assert not spend.objects.exists()
             row = spend.objects.create(
