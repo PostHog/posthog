@@ -1,3 +1,5 @@
+import { IntegrationType } from '~/types'
+
 import { HogFlow } from './hogflows/types'
 import { canMoveToBroadcasts } from './workflowBroadcastMoveLogic'
 
@@ -5,7 +7,11 @@ const step = (id: string, type: string, config: Record<string, any>): HogFlow['a
     ({ id, type, name: id, description: '', created_at: 0, updated_at: 0, config }) as HogFlow['actions'][number]
 
 const trigger = step('trigger_node', 'trigger', { type: 'batch', filters: {} })
-const email = step('email_node', 'function_email', { template_id: 'template-email', inputs: {} })
+const ownSender = { id: 7, kind: 'email', config: { provider: 'ses' } } as IntegrationType
+const sandboxSender = { id: 9, kind: 'email', config: { provider: 'sandbox' } } as IntegrationType
+const emailFrom = (from: Record<string, unknown>): HogFlow['actions'][number] =>
+    step('email_node', 'function_email', { template_id: 'template-email', inputs: { email: { value: { from } } } })
+const email = emailFrom({ integrationId: ownSender.id })
 const secondEmail = step('email_node_2', 'function_email', { template_id: 'template-email', inputs: {} })
 const exit = step('exit_node', 'exit', { reason: 'Default exit' })
 
@@ -48,7 +54,19 @@ describe('canMoveToBroadcasts', () => {
             { actions: [step('trigger_node', 'trigger', { type: 'event', filters: {} }), email, exit] },
             false,
         ],
+        [
+            'a workflow that sends from the sandbox sender',
+            { actions: [trigger, emailFrom({ integrationId: 9 }), exit] },
+            false,
+        ],
+        [
+            'a workflow that rotates in the sandbox sender',
+            { actions: [trigger, emailFrom({ integrationId: 7, integrationIds: ['9'] }), exit] },
+            false,
+        ],
     ])('%s', (_name, overrides, expected) => {
-        expect(canMoveToBroadcasts({ ...oneEmailFlow, ...overrides } as HogFlow)).toBe(expected)
+        expect(canMoveToBroadcasts({ ...oneEmailFlow, ...overrides } as HogFlow, [ownSender, sandboxSender])).toBe(
+            expected
+        )
     })
 })
