@@ -247,7 +247,7 @@ def stop_rollout_plans_with_ended_runs() -> None:
         if not ai_processing_off and active_plan["latest_run_id"] not in ended_run_ids:
             continue
         with team_scope(active_plan["team_id"]):
-            plan = FeatureFlagRolloutPlan.objects.get(pk=active_plan["id"])
+            plan = FeatureFlagRolloutPlan.objects.get(pk=active_plan["id"], team_id=active_plan["team_id"])
             if ai_processing_off:
                 stop_rollout_plan(plan, reason=AI_PROCESSING_OFF_REASON, stopped_by=None, acting_user=plan.created_by)
                 _cancel_pending_run(plan, requested_by_user_id=plan.created_by_id)
