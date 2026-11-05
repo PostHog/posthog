@@ -33,7 +33,7 @@ export function ServicesTab(): JSX.Element {
                     <Link onClick={() => showServiceEndpoints(row.service_name)} data-attr="apm-service-endpoints">
                         Endpoints
                     </Link>
-                    <TelemetryLinks serviceName={row.service_name} timeRange={timeRange} />
+                    <TelemetryLinks serviceName={row.service_name} timeRange={timeRange} source="services" />
                 </span>
             ),
         },

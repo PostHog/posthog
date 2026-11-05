@@ -12,8 +12,10 @@ import type {
     ApmEndpointsListParams,
     ApmServiceMapListParams,
     ApmServicesListParams,
+    ApmUsageListParams,
     EndpointsHealthResponseApi,
     ServiceMapResponseApi,
+    ServiceUsageResponseApi,
     ServicesHealthResponseApi,
 } from './api.schemas'
 
@@ -105,6 +107,39 @@ export const apmServicesList = async (
     options?: RequestInit
 ): Promise<ServicesHealthResponseApi> => {
     return apiMutator<ServicesHealthResponseApi>(getApmServicesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getApmUsageListUrl = (projectId: string, params?: ApmUsageListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/apm/usage/?${stringifiedParams}`
+        : `/api/projects/${projectId}/apm/usage/`
+}
+
+/**
+ * How much each service sends across logs, traces, and metrics in a window. Same gate and window as services.
+ *
+ * Usage covers every environment: logs and metrics often carry no environment attribute, so a
+ * filter would hide the services that send the most.
+ */
+export const apmUsageList = async (
+    projectId: string,
+    params?: ApmUsageListParams,
+    options?: RequestInit
+): Promise<ServiceUsageResponseApi> => {
+    return apiMutator<ServiceUsageResponseApi>(getApmUsageListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
