@@ -279,6 +279,23 @@ def _git_worktree(path: Path, files: dict[str, str], tracked: tuple[str, ...] = 
         subprocess.run(["git", "add", "--", *tracked], cwd=path, check=True)
     return path
 
+    @pytest.mark.parametrize(
+        ("selected_sources", "mode", "expected_other"),
+        [(None, "deps,build", True), (None, "full", False), ({"other"}, "full", True), ({"claude"}, "deps", False)],
+        ids=["artifacts_by_default", "full_skips_by_default", "full_when_named", "other_source_selected"],
+    )
+    def test_worktree_registered_outside_every_tool_root_is_other(
+        self, tmp_path, monkeypatch, selected_sources: set[str] | None, mode: str, expected_other: bool
+    ) -> None:
+        monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+        hand_made = tmp_path / "projects" / "repo-wt-feature"
+        hand_made.mkdir(parents=True)
+        registry = {hand_made.resolve(): {"locked": False, "branch": "feature"}}
+
+        discovered = worktrees._discover_candidate_worktrees(tmp_path / "repo", registry, selected_sources, mode)
+
+        assert discovered == ([("other", hand_made.resolve())] if expected_other else [])
+
 
 class TestCollectDepsItems:
     @pytest.mark.parametrize(

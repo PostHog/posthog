@@ -410,6 +410,7 @@ Every mode skips a worktree where `cargo` or `rustc` is running.
 `--mode deps` and `--mode build` keep a Cargo `target` that a build used after the cutoff.
 Without `--source`, they also offer to delete a shared Cargo target (`CARGO_TARGET_DIR`, `build.target-dir` in `~/.cargo/config.toml`, or the old `~/.cargo/target`) when no build used it after the cutoff.
 Every mode also removes folders of removed worktrees that hold only flox caches.
+`--mode deps` and `--mode build` also act on worktrees that `git worktree list` registers outside these folders, such as ones made by hand. `--mode full` removes those only with `--source other`.
 
 Flox activation also runs this once a day in the background: `--mode deps,build` on worktrees idle for 7 days and `--mode full` on worktrees idle for 14 days.
 It skips worktrees with uncommitted or unpushed work and keeps every branch.

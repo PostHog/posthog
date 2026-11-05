@@ -72,7 +72,7 @@ from .devbox.config import (
 from .disk_usage import NO_USAGE, DiskUsage, measure_disk_usage
 from .doctor import _format_size
 
-WORKTREE_SOURCES = ("claude", "claude-scratchpad", "codex", "posthog-code", "phw")
+WORKTREE_SOURCES = ("claude", "claude-scratchpad", "codex", "posthog-code", "phw", "other")
 
 
 # Roots that hold agent-created worktrees, keyed by the tool that owns them.
@@ -261,7 +261,8 @@ class WorktreeBox:
     "sources",
     multiple=True,
     type=click.Choice(WORKTREE_SOURCES, case_sensitive=False),
-    help="Restrict to specific tool(s). Repeatable. Default: all of them.",
+    help="Restrict to specific tool(s). Repeatable. 'other' is a worktree that `git worktree list` registers "
+    "outside every tool's folder. Default: all of them, except that --mode full skips 'other' unless you name it.",
 )
 @click.option(
     "--repo",
@@ -396,33 +397,30 @@ def worktrees_clean(
         return
     in_use: list[Path] = []
     candidates: list[Worktree] = []
-    for source, root in _worktree_roots(repo_root):
-        if selected_sources is not None and source not in selected_sources:
+    for source, path in _discover_candidate_worktrees(repo_root, registry, selected_sources, mode):
+        resolved = _resolve(path)
+        if resolved in protected:
             continue
-        for path in _discover_root_worktrees(root, registry):
-            resolved = _resolve(path)
-            if resolved in protected:
-                continue
-            # PostHog Desktop worktrees live outside the repo and the home root is
-            # shared across repos, so only act on worktrees owned by this repo.
-            if not _belongs_to_repo(resolved, repo_root, repo_common):
-                continue
-            meta = registry.get(resolved)
-            if meta and meta["locked"]:
-                continue  # never touch a git-locked worktree
-            if _in_use(resolved, busy):
-                in_use.append(path)
-                continue
-            candidates.append(
-                Worktree(
-                    source=source,
-                    path=path,
-                    registered=meta is not None,
-                    locked=bool(meta and meta["locked"]),
-                    branch=(meta["branch"] if meta else ""),
-                    last_activity=_last_activity(path),
-                )
+        # PostHog Desktop worktrees live outside the repo and the home root is
+        # shared across repos, so only act on worktrees owned by this repo.
+        if not _belongs_to_repo(resolved, repo_root, repo_common):
+            continue
+        meta = registry.get(resolved)
+        if meta and meta["locked"]:
+            continue  # never touch a git-locked worktree
+        if _in_use(resolved, busy):
+            in_use.append(path)
+            continue
+        candidates.append(
+            Worktree(
+                source=source,
+                path=path,
+                registered=meta is not None,
+                locked=bool(meta and meta["locked"]),
+                branch=(meta["branch"] if meta else ""),
+                last_activity=_last_activity(path),
             )
+        )
 
     if in_use:
         click.echo(f"Skipping {len(in_use)} worktree(s) that a running process has as its working directory:")
@@ -961,6 +959,28 @@ def _discover_worktrees(root: Path, max_depth: int = 2) -> list[Path]:
 
     scan(root, 1)
     return found
+
+
+def _discover_candidate_worktrees(
+    repo_root: Path, registry: dict[Path, dict], selected_sources: set[str] | None, mode: str
+) -> list[tuple[str, Path]]:
+    """Worktrees under the known tool roots, then the ones that `git worktree list` registers anywhere else.
+
+    A worktree outside every tool root is one a person made by hand, so --mode
+    full removes it only when --source other asks for it.
+    """
+
+    discovered: list[tuple[str, Path]] = []
+    resolved_roots = [_resolve(root) for _, root in _worktree_roots(repo_root)]
+    for source, root in _worktree_roots(repo_root):
+        if selected_sources is None or source in selected_sources:
+            discovered.extend((source, path) for path in _discover_root_worktrees(root, registry))
+    include_other = "other" in selected_sources if selected_sources is not None else mode != "full"
+    if include_other:
+        for path in registry:
+            if path.is_dir() and not any(_is_under(path, root) for root in resolved_roots):
+                discovered.append(("other", path))
+    return discovered
 
 
 def _discover_root_worktrees(root: Path, registry: dict[Path, dict]) -> list[Path]:
