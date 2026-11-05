@@ -141,7 +141,7 @@ export function loadPostHogJS(): void {
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
-            metrics: { network: true, serviceName: 'posthog-app' },
+            metrics: { network: true, flags: true, serviceName: 'posthog-app' },
             before_send: [
                 dropScopeNotFoundExceptions,
                 dropHandledAuthGateExceptions,

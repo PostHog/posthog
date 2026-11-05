@@ -1,5 +1,9 @@
+import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
+
+import { templateOutputText } from '../components/templateSummary'
 import { categoricalOutputConfigError } from '../constants'
 import type { EvaluationConfig, EvaluationOutputConfig } from '../types'
+import { triggerText } from './evaluationSummary'
 
 export type ChecklistKey = 'name' | 'criteria' | 'result' | 'model' | 'sampling'
 
@@ -9,8 +13,8 @@ export interface ChecklistItem {
     done: boolean
     /** What to do next when the item is not done. Also the reason the create button is disabled. */
     todo: string
-    /** Set when the fix lives on another page, such as adding a provider key in settings. */
-    fixInSettings?: boolean
+    /** What was chosen, shown once the item is done. */
+    summary?: string
 }
 
 export interface ChecklistInput {
@@ -33,14 +37,28 @@ const CRITERIA: Record<'llm_judge' | 'hog', { label: string; todo: string }> = {
 export function creationChecklist(input: ChecklistInput): ChecklistItem[] {
     const { evaluation } = input
     const items: ChecklistItem[] = [
-        { key: 'name', label: 'Name', done: evaluation.name.trim().length > 0, todo: 'Give the evaluation a name' },
+        {
+            key: 'name',
+            label: 'Name',
+            done: evaluation.name.trim().length > 0,
+            todo: 'Give the evaluation a name',
+            summary: evaluation.name.trim(),
+        },
     ]
     if (evaluation.evaluation_type === 'llm_judge' || evaluation.evaluation_type === 'hog') {
         const content =
             evaluation.evaluation_type === 'llm_judge'
                 ? evaluation.evaluation_config.prompt
                 : evaluation.evaluation_config.source
-        items.push({ key: 'criteria', done: content.trim().length > 0, ...CRITERIA[evaluation.evaluation_type] })
+        items.push({
+            key: 'criteria',
+            done: content.trim().length > 0,
+            summary:
+                evaluation.evaluation_type === 'llm_judge'
+                    ? content.trim().split('\n')[0]
+                    : pluralize(content.trim().split('\n').length, 'line') + ' of code',
+            ...CRITERIA[evaluation.evaluation_type],
+        })
     }
     if (evaluation.evaluation_type !== 'sentiment') {
         items.push({
@@ -48,6 +66,7 @@ export function creationChecklist(input: ChecklistInput): ChecklistItem[] {
             label: 'Result',
             done: input.resultError === null,
             todo: input.resultError ?? '',
+            summary: templateOutputText(evaluation),
         })
     }
     if (input.modelSelectionRequired) {
@@ -58,7 +77,7 @@ export function creationChecklist(input: ChecklistInput): ChecklistItem[] {
             todo: input.hasAvailableModels
                 ? 'Pick the model that judges each run'
                 : 'Add an API key for an AI provider, then pick a model',
-            fixInSettings: !input.hasAvailableModels,
+            summary: evaluation.model_configuration?.model,
         })
     }
     items.push({
@@ -66,6 +85,7 @@ export function creationChecklist(input: ChecklistInput): ChecklistItem[] {
         label: 'Sampling',
         done: !input.hasUnsetSampling,
         todo: 'Set a sampling percentage between 0.1% and 100%',
+        summary: capitalizeFirstLetter(triggerText(evaluation)),
     })
     return items
 }
