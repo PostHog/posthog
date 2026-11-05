@@ -8487,6 +8487,8 @@ export namespace Schemas {
       errors: HogQLNotice[];
       /** One entry per property filter, in query order. */
       index_usage?: PredicateIndexUsage[] | null;
+      /** The validator raised an internal error, such as a database failure, so the errors do not prove that the query is invalid. */
+      internalError?: boolean | null;
       isUsingIndices?: QueryIndexUsage | null;
       isValid?: boolean | null;
       notices: HogQLNotice[];
@@ -27523,6 +27525,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly proposal_id: string | null;
+      /**
+         * Tracked AI visibility prompt this opportunity came from.
+         * @nullable
+         */
+      readonly aeo_prompt_id: string | null;
       /** Type of visibility gap.
        *
        * * `ai_visibility_gap` - AI visibility gap */
@@ -39467,26 +39474,6 @@ export namespace Schemas {
       current_from: string;
     }
 
-    /**
-     * * `own_code` - Own Code
-     * * `third_party` - Third Party
-     * * `network` - Network
-     * * `bots` - Bots
-     * * `expected` - Expected
-     * * `unclear` - Unclear
-     */
-    export type IssueSummaryCategoryEnum = typeof IssueSummaryCategoryEnum[keyof typeof IssueSummaryCategoryEnum];
-
-
-    export const IssueSummaryCategoryEnum = {
-      OwnCode: 'own_code',
-      ThirdParty: 'third_party',
-      Network: 'network',
-      Bots: 'bots',
-      Expected: 'expected',
-      Unclear: 'unclear',
-    } as const;
-
     export interface ErrorTrackingIssueSummary {
       /** What the error is and where it happens, in plain language. */
       what_happened: string;
@@ -39496,15 +39483,6 @@ export namespace Schemas {
       who_is_affected: string;
       /** One concrete step to investigate or fix the error. */
       suggested_next_step: string;
-      /** Where the error most likely comes from. 'own_code' is a bug in the application's code, 'third_party' a third-party script, browser extension or dependency, 'network' a network or connectivity failure, 'bots' automated traffic, 'expected' handled behavior that needs no fix, and 'unclear' means the stack trace does not tell. Absent when no category was inferred.
-       *
-       * * `own_code` - Own Code
-       * * `third_party` - Third Party
-       * * `network` - Network
-       * * `bots` - Bots
-       * * `expected` - Expected
-       * * `unclear` - Unclear */
-      category?: IssueSummaryCategoryEnum;
       /** When the summary was written. */
       generated_at: string;
     }
@@ -40003,15 +39981,6 @@ export namespace Schemas {
       who_is_affected: string;
       /** One concrete step to investigate or fix the issue. */
       suggested_next_step: string;
-      /** Broad source of the issue, or null when the category model did not answer.
-       *
-       * * `own_code` - Own Code
-       * * `third_party` - Third Party
-       * * `network` - Network
-       * * `bots` - Bots
-       * * `expected` - Expected
-       * * `unclear` - Unclear */
-      category: IssueSummaryCategoryEnum | null;
       /** Model that wrote the summary. */
       model: string;
       /** When the summary was written. */
@@ -42492,6 +42461,13 @@ export namespace Schemas {
       status: DataSuggestionBuildStatusEnum;
       /** With status ready: the saved draft workflows, which never run until enabled. Empty otherwise. */
       workflow_ids: string[];
+    }
+
+    export interface EventsDeleted {
+      /** The period in months that was counted for. */
+      readonly retention_months: number;
+      /** How many queryable events the next monthly cleanup deletes with this period. The count can be up to a day old. */
+      readonly events_deleted: number;
     }
 
     export interface EventsRetention {
@@ -57313,6 +57289,8 @@ export namespace Schemas {
       debug?: boolean | null;
       /** Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder */
       filters?: HogQLFilters | null;
+      /** Validate on the Python validator with freshly fetched sources, the same sources query execution uses. Adds a sources fetch on every request, so only set it where the result blocks an action. */
+      freshSources?: boolean | null;
       /** Extra globals for the query */
       globals?: HogQLMetadataGlobals;
       /** Infer output column names and types without executing the query. Adds a type-resolution pass, so callers must opt in. */
@@ -95429,6 +95407,8 @@ export namespace Schemas {
       errors: HogQLNotice[];
       /** One entry per property filter, in query order. */
       index_usage?: PredicateIndexUsage[] | null;
+      /** The validator raised an internal error, such as a database failure, so the errors do not prove that the query is invalid. */
+      internalError?: boolean | null;
       isUsingIndices?: QueryIndexUsage | null;
       isValid?: boolean | null;
       notices: HogQLNotice[];
@@ -120907,6 +120887,15 @@ export namespace Schemas {
     status_min?: number;
     };
 
+    export type OrganizationEventsRetentionDeletionCountParams = {
+    /**
+     * The period in months to count for, at most 1200. Only events older than this period are counted.
+     * @minimum 1
+     * @maximum 1200
+     */
+    retention_months: number;
+    };
+
     export type OrgFeatureFlagsKeysParams = {
     /**
      * Page size (max 100)
@@ -122207,6 +122196,10 @@ export namespace Schemas {
      * @maximum 1000
      */
     limit?: number;
+    /**
+     * Only list prompts that the engines answered in the last 30 days without citing a target domain. Prompts with no answered check in that window are left out.
+     */
+    needs_improvement?: boolean;
     /**
      * The initial index from which to return the results.
      */
@@ -127475,6 +127468,15 @@ export namespace Schemas {
       Csv: 'csv',
       Json: 'json',
     } as const;
+
+    export type EventsRetentionDeletionCountParams = {
+    /**
+     * The period in months to count for, at most 1200. Only events older than this period are counted.
+     * @minimum 1
+     * @maximum 1200
+     */
+    retention_months: number;
+    };
 
     export type ExperimentHoldoutsListParams = {
     /**
@@ -133431,6 +133433,10 @@ export namespace Schemas {
      */
     created_after?: string;
     /**
+     * ISO 8601 datetime. Keeps reports created before this time. Use it for reports older than a cutoff, instead of reading every page.
+     */
+    created_before?: string;
+    /**
      * Report ids to leave out of the results and counts, for example the reports a client already shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100.
      * @maxItems 100
      */
@@ -133693,6 +133699,10 @@ export namespace Schemas {
      * ISO 8601 datetime. Keeps reports created at or after this time.
      */
     created_after?: string;
+    /**
+     * ISO 8601 datetime. Keeps reports created before this time. Use it for reports older than a cutoff, instead of reading every page.
+     */
+    created_before?: string;
     /**
      * Report ids to leave out of the results and counts, for example the reports a client already shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100.
      * @maxItems 100
@@ -136868,6 +136878,44 @@ export namespace Schemas {
       Dismissed: 'dismissed',
       Expired: 'expired',
       AutoResolved: 'auto_resolved',
+    } as const;
+
+    export type WarehouseSuggestionsAcceptCreateParams = {
+    /**
+     * Page the decision was made on. Only recorded on the analytics event.
+     *
+     * * `models` - Models
+     * * `catalog` - Data catalog
+     * @minLength 1
+     */
+    surface?: WarehouseSuggestionsAcceptCreateSurface;
+    };
+
+    export type WarehouseSuggestionsAcceptCreateSurface = typeof WarehouseSuggestionsAcceptCreateSurface[keyof typeof WarehouseSuggestionsAcceptCreateSurface];
+
+
+    export const WarehouseSuggestionsAcceptCreateSurface = {
+      Models: 'models',
+      Catalog: 'catalog',
+    } as const;
+
+    export type WarehouseSuggestionsDismissCreateParams = {
+    /**
+     * Page the decision was made on. Only recorded on the analytics event.
+     *
+     * * `models` - Models
+     * * `catalog` - Data catalog
+     * @minLength 1
+     */
+    surface?: WarehouseSuggestionsDismissCreateSurface;
+    };
+
+    export type WarehouseSuggestionsDismissCreateSurface = typeof WarehouseSuggestionsDismissCreateSurface[keyof typeof WarehouseSuggestionsDismissCreateSurface];
+
+
+    export const WarehouseSuggestionsDismissCreateSurface = {
+      Models: 'models',
+      Catalog: 'catalog',
     } as const;
 
     export type WarehouseTablesListParams = {

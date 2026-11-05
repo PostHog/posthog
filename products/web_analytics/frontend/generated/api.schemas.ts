@@ -1542,6 +1542,11 @@ export interface ContentAutopilotOpportunityApi {
      * @nullable
      */
     readonly proposal_id: string | null
+    /**
+     * Tracked AI visibility prompt this opportunity came from.
+     * @nullable
+     */
+    readonly aeo_prompt_id: string | null
     /** Type of visibility gap.
      *
      * * `ai_visibility_gap` - AI visibility gap */
@@ -2095,6 +2100,10 @@ export type AeoPromptsListParams = {
      * @maximum 1000
      */
     limit?: number
+    /**
+     * Only list prompts that the engines answered in the last 30 days without citing a target domain. Prompts with no answered check in that window are left out.
+     */
+    needs_improvement?: boolean
     /**
      * The initial index from which to return the results.
      */

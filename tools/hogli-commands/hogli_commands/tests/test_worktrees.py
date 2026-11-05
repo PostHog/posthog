@@ -729,6 +729,57 @@ class TestComputeGitState:
         _compute_git_state(wt, has_remotes=True)
         assert wt.dirty and wt.unpushed == 3 and not wt.detached and wt.unsafe
 
+    def test_untracked_file_is_dirty_when_git_config_hides_untracked_files(self, tmp_path) -> None:
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+        subprocess.run(["git", "config", "status.showUntrackedFiles", "no"], cwd=tmp_path, check=True)
+        (tmp_path / "new.py").write_text("never added\n")
+
+        wt = _make_worktree(tmp_path)
+        _compute_git_state(wt, has_remotes=False)
+        assert wt.dirty and wt.unsafe
+
+    def test_squash_merged_branch_is_safe_until_it_gets_a_new_commit(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.setattr(worktrees.shutil, "which", lambda name: None)
+
+        def git(cwd: Path, *args: str) -> None:
+            subprocess.run(
+                ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+                cwd=cwd,
+                check=True,
+                capture_output=True,
+            )
+
+        remote, repo, worktree = tmp_path / "remote.git", tmp_path / "repo", tmp_path / "topic"
+        git(tmp_path, "init", "-q", "--bare", "-b", "main", str(remote))
+        git(tmp_path, "clone", "-q", str(remote), str(repo))
+        (repo / "a.txt").write_text("one\n")
+        git(repo, "add", "a.txt")
+        git(repo, "commit", "-q", "-m", "first")
+        git(repo, "push", "-q", "origin", "main")
+        git(repo, "worktree", "add", "-q", "-b", "topic", str(worktree), "origin/main")
+        for name, text in (("b.txt", "two\n"), ("a.txt", "one\nmore\n")):
+            (worktree / name).write_text(text)
+            git(worktree, "add", name)
+            git(worktree, "commit", "-q", "-m", f"change {name}")
+        (repo / "c.txt").write_text("landed first\n")
+        git(repo, "add", "c.txt")
+        git(repo, "commit", "-q", "-m", "unrelated")
+        git(repo, "merge", "--squash", "topic")
+        git(repo, "commit", "-q", "-m", "topic (#1)")
+        git(repo, "push", "-q", "origin", "main")
+        git(worktree, "fetch", "-q", "origin")
+
+        merged = _make_worktree(worktree)
+        _compute_git_state(merged, has_remotes=True)
+        assert merged.unpushed == 2 and merged.squash_merged is not None and not merged.unsafe
+
+        (worktree / "d.txt").write_text("after the merge\n")
+        git(worktree, "add", "d.txt")
+        git(worktree, "commit", "-q", "-m", "after the merge")
+        later = _make_worktree(worktree)
+        _compute_git_state(later, has_remotes=True)
+        assert later.unpushed == 3 and later.squash_merged is None and later.unsafe
+
     def test_no_remotes_skips_unpushed_check(self, tmp_path, monkeypatch) -> None:
         # Without remotes, rev-list HEAD --not --remotes would count every commit;
         # the check must be skipped so a clean local-only worktree isn't flagged.

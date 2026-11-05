@@ -5,7 +5,7 @@ import time
 import uuid
 from collections.abc import Callable, Iterable, Sequence
 from contextlib import ExitStack
-from datetime import UTC, timedelta
+from datetime import UTC, datetime, timedelta
 from functools import cached_property, partial
 from typing import Any, Literal, cast
 
@@ -1678,6 +1678,16 @@ _REPORT_LIST_PARAMETERS = [
         description="ISO 8601 datetime. Keeps reports created at or after this time.",
     ),
     OpenApiParameter(
+        name="created_before",
+        type=OpenApiTypes.DATETIME,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "ISO 8601 datetime. Keeps reports created before this time. Use it for reports older than a "
+            "cutoff, instead of reading every page."
+        ),
+    ),
+    OpenApiParameter(
         name="task_id",
         type=OpenApiTypes.UUID,
         location=OpenApiParameter.QUERY,
@@ -1992,7 +2002,7 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_status_filter(qs)
         qs = self._apply_signal_report_listed_filter(qs)
         qs = self._apply_signal_report_search_filter(qs)
-        qs = self._apply_signal_report_created_after_filter(qs)
+        qs = self._apply_signal_report_created_at_filters(qs)
         unread = self.request.query_params.get("unread")
         if unread is not None:
             if unread not in {"true", "false"}:
@@ -2227,15 +2237,23 @@ class SignalReportViewSet(
             return queryset
         return queryset.filter(Q(title__icontains=search) | Q(summary__icontains=search))
 
-    def _apply_signal_report_created_after_filter(self, queryset):
-        raw = self.request.query_params.get("created_after")
+    def _datetime_query_param(self, name: str) -> datetime | None:
+        raw = self.request.query_params.get(name)
         if not raw:
-            return queryset
+            return None
         try:
-            created_after = serializers.DateTimeField().to_internal_value(raw)
+            return serializers.DateTimeField().to_internal_value(raw)
         except serializers.ValidationError:
-            raise serializers.ValidationError({"created_after": "Use an ISO 8601 datetime."})
-        return queryset.filter(created_at__gte=created_after)
+            raise serializers.ValidationError({name: "Use an ISO 8601 datetime."})
+
+    def _apply_signal_report_created_at_filters(self, queryset):
+        created_after = self._datetime_query_param("created_after")
+        if created_after is not None:
+            queryset = queryset.filter(created_at__gte=created_after)
+        created_before = self._datetime_query_param("created_before")
+        if created_before is not None:
+            queryset = queryset.filter(created_at__lt=created_before)
+        return queryset
 
     def _apply_signal_report_source_product_filter(self, queryset):
         source_product_filter = self.request.query_params.get("source_product")
@@ -4799,7 +4817,9 @@ class SignalReportViewSet(
                     "the current billing period, or the report is system-marked never-billable."
                 )
             ),
+            403: OpenApiResponse(description="PR refunds are not available with usage-based pricing."),
             404: OpenApiResponse(description="Report not found, or refunds are not enabled for this organization."),
+            503: OpenApiResponse(description="Pricing could not be determined. Retry the request."),
         },
         summary="Refund a report's implementation PR",
         description=(
@@ -4817,6 +4837,20 @@ class SignalReportViewSet(
     def refund(self, request: ValidatedRequest, pk=None, **kwargs):
         if not self._signals_pr_refunds_enabled():
             raise NotFound("PR refunds are not enabled for this organization.")
+
+        org_id = str(self.organization.id)
+        usage_based_pricing = posthoganalytics.feature_enabled(
+            "self-driving-ubp",
+            org_id,
+            groups={"organization": org_id},
+            group_properties={"organization": {"id": org_id}},
+        )
+        if usage_based_pricing is True:
+            raise exceptions.PermissionDenied("PR refunds are not available with usage-based pricing.")
+        if usage_based_pricing is not False:
+            return Response(
+                {"detail": "Unable to determine pricing. Please try again."}, status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
 
         report = cast(SignalReport, self.get_object())
         data = request.validated_data

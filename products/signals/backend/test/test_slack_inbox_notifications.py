@@ -17,11 +17,15 @@ from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.signals.backend.artefact_schemas import ReportLink
+from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.facade.api import set_default_slack_notification_channel
 from products.signals.backend.models import (
+    ArtefactAttribution,
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
+    SignalReportTask,
     SignalScoutConfig,
     SignalScoutRun,
     SignalUserAutonomyConfig,
@@ -30,6 +34,7 @@ from products.signals.backend.report_generation.research import ActionabilityCho
 from products.signals.backend.slack_inbox_notifications import (
     _build_message_blocks,
     _meets_min_priority,
+    _offers_implementation,
     _resolve_reviewer_mentions,
     _summary_excerpt,
     dispatch_inbox_item_notifications,
@@ -63,6 +68,20 @@ from products.signals.backend.tasks import send_reviewer_added_slack_notificatio
 )
 def test_meets_min_priority(report_priority: str | None, min_priority: str | None, expected: bool) -> None:
     assert _meets_min_priority(report_priority, min_priority) is expected
+
+
+@pytest.mark.parametrize(
+    ("judgment", "expected"),
+    [
+        ({"actionability": ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value}, True),
+        ({"actionability": ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value, "already_addressed": False}, True),
+        ({"actionability": ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value, "already_addressed": True}, False),
+        ({"actionability": ActionabilityChoice.REQUIRES_HUMAN_INPUT.value}, False),
+        ({}, False),
+    ],
+)
+def test_offers_implementation_only_for_unstarted_ready_fixes(judgment: dict, expected: bool) -> None:
+    assert _offers_implementation(judgment) is expected
 
 
 @pytest.mark.parametrize(
@@ -120,7 +139,13 @@ def test_build_message_blocks_includes_recipient_and_open_in_posthog_button(use_
         ),
         signal_count=12,
     )
-    blocks, text = _build_message_blocks(report, reviewer_mentions=["<@U123>"], use_section_blocks=use_section_blocks)
+    blocks, text = _build_message_blocks(
+        report,
+        reviewer_mentions=["<@U123>"],
+        use_section_blocks=use_section_blocks,
+        priority=AutonomyPriority.P1,
+        offer_implementation=True,
+    )
 
     assert blocks[0]["text"]["text"] == "Checkout errors spiked"
     if use_section_blocks:
@@ -141,11 +166,12 @@ def test_build_message_blocks_includes_recipient_and_open_in_posthog_button(use_
         }
     # A mention in plain_text would render as the raw token, never pinging anyone.
     assert all("<@" not in t for t in _plain_text_block_texts(blocks))
-    assert blocks[2]["elements"][0]["text"] == "👤 Suggested owner: <@U123>"
-    buttons = blocks[3]["elements"]
-    assert len(buttons) == 1
-    assert buttons[0]["text"]["text"] == "Review in PostHog"
-    assert buttons[0]["url"] == f"{settings.SITE_URL}/project/42/inbox/reports/report-uuid?link_source=slack"
+    assert blocks[2]["elements"][0]["text"] == "🟠 *P1* · 👤 Suggested owner: <@U123>"
+    report_url = f"{settings.SITE_URL}/project/42/inbox/reports/report-uuid?link_source=slack"
+    assert [(button["text"]["text"], button.get("style"), button["url"]) for button in blocks[3]["elements"]] == [
+        ("Implement", "primary", f"{report_url}&link_action=implement"),
+        ("Review in PostHog", None, report_url),
+    ]
     assert text == "Checkout errors spiked"
 
 
@@ -420,14 +446,14 @@ def test_dispatch_sends_to_configured_reviewer(
     assert blocks[0]["text"]["text"] == "Test report"
     context_texts = [block["elements"][0]["text"] for block in blocks if block["type"] == "context"]
     if expects_mention:
-        assert "👤 Suggested owner: <@U_REVIEWER>" in context_texts
+        assert "🟠 *P1* · 👤 Suggested owner: <@U_REVIEWER>" in context_texts
     else:
+        assert "🟠 *P1*" in context_texts
         assert not any("Suggested owner" in text for text in context_texts)
     assert all("<@" not in t for t in _plain_text_block_texts(blocks))
     actions = next(block for block in blocks if block["type"] == "actions")
-    assert actions["elements"][0]["url"] == (
-        f"{settings.SITE_URL}/project/{team.id}/inbox/reports/{report.id}?link_source=slack"
-    )
+    report_url = f"{settings.SITE_URL}/project/{team.id}/inbox/reports/{report.id}?link_source=slack"
+    assert [element["url"] for element in actions["elements"]] == [f"{report_url}&link_action=implement", report_url]
 
 
 @pytest.mark.django_db
@@ -685,6 +711,86 @@ def test_dispatch_skips_non_actionable_report(org_and_team):
 
     assert sent == 0
     assert fake_client.chat_postMessage.call_count == 0
+
+
+@pytest.mark.parametrize(
+    ("run_status", "pr_url", "expects_implement"),
+    [
+        (None, None, True),
+        ("in_progress", None, False),
+        ("completed", "https://github.com/example/repo/pull/1", False),
+        # The inbox offers Implement again after a run that ended without a pull request.
+        ("failed", None, True),
+    ],
+)
+@pytest.mark.django_db
+def test_dispatch_offers_implement_only_without_implementation_underway(
+    org_and_team, run_status, pr_url, expects_implement
+):
+    org, team = org_and_team
+    reviewer = _make_reviewer_user(org, "impl@example.com", "impl-bot")
+    _make_slack_integration(team, reviewer)
+    _set_team_channel(team, "CTEAM|#posthog-signals")
+    report = _make_ready_report(team, priority=AutonomyPriority.P1)
+    if run_status:
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        task = Task.objects.create(
+            team=team, title="impl", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        SignalReportTask.objects.create(team=team, report=report, task=task, relationship="implementation")
+        TaskRun.objects.create(team=team, task=task, status=run_status, output={"pr_url": pr_url})
+
+    fake_client = MagicMock()
+    with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
+        slack_cls.return_value.client = fake_client
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    assert sent == 1
+    assert _implement_offered(fake_client.chat_postMessage) is expects_implement
+
+
+def _implement_offered(post_message: MagicMock) -> bool:
+    blocks = post_message.call_args.kwargs["blocks"]
+    return any(
+        element["text"]["text"] == "Implement"
+        for block in blocks
+        if block["type"] == "actions"
+        for element in block["elements"]
+    )
+
+
+@pytest.mark.parametrize("trigger", ["report_ready", "reviewer_added"])
+@pytest.mark.django_db
+def test_dispatch_does_not_offer_implement_for_a_plan_parent(org_and_team, trigger):
+    org, team = org_and_team
+    reviewer = _make_reviewer_user(org, "plan@example.com", "plan-bot")
+    integration = _make_slack_integration(team, reviewer)
+    SignalUserAutonomyConfig.objects.create(
+        user=reviewer, slack_notification_integration=integration, slack_notification_channel="COWN|#mine"
+    )
+    parent = _make_ready_report(team, priority=AutonomyPriority.P1, suggested_logins=["plan-bot"])
+    step = _make_ready_report(team, title="Step")
+    SignalReportArtefact.add_log(
+        team_id=team.id,
+        report_id=str(step.id),
+        content=ReportLink(kind=ReportLinkKind.PART_OF, report_id=str(parent.id)),
+        attribution=ArtefactAttribution.system(),
+    )
+
+    fake_client = MagicMock()
+    with (
+        patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
+        patch("products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email", return_value=None),
+    ):
+        slack_cls.return_value.client = fake_client
+        if trigger == "report_ready":
+            sent = dispatch_inbox_item_notifications(str(parent.id), team.id)
+        else:
+            sent = dispatch_reviewer_added_notifications(str(parent.id), team.id, ["plan-bot"])
+
+    assert sent == 1
+    assert not _implement_offered(fake_client.chat_postMessage)
 
 
 @pytest.mark.django_db
