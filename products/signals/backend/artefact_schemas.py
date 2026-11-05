@@ -26,8 +26,18 @@ from enum import Enum
 from typing import Annotated, Any, Literal, cast
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    RootModel,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
+from products.signals.backend.credential_redaction import redact_credentials
 from products.signals.backend.enums import ReportLinkKind, ReportPriority, SuggestedSourceProduct
 from products.signals.backend.report_checks import CheckComparison, CheckInconclusiveReason, CheckOutcome
 from products.signals.backend.report_metrics import MAX_METRIC_UNIT_LENGTH, ReportMetricValueFormat
@@ -358,6 +368,8 @@ class ReviewerProposal(BaseModel):
     source: str = "automatic"
     outcome: Literal["selected", "no_suitable_owner", "lookup_failed"] = "selected"
     retry_reason: str | None = Field(default=None, max_length=500)
+    # Why a scout edit found no suitable owner. Required before that outcome may clear a non-empty list.
+    outcome_reason: str | None = Field(default=None, max_length=500)
 
     @model_validator(mode="after")
     def validate_outcome(self) -> ReviewerProposal:
@@ -795,6 +807,21 @@ class NoteArtefact(BaseModel):
 
     note: str = Field(description="The note text (markdown allowed).")
     author: str | None = Field(default=None, description="Optional label for who authored the note.")
+    analytics_query_context: list[dict[str, JsonValue]] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description="Frozen source queries that gate access to the note's evidence.",
+    )
+    restricted_to_user_id: int | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description="Acting user allowed to read assessment evidence from additional sources.",
+    )
+    source_check_ids: list[str] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description="Follow-up checks whose evidence informed this note.",
+    )
 
     @field_validator("note")
     @classmethod
@@ -830,6 +857,12 @@ class TitleChange(BaseModel):
             raise ValueError("must not be empty or whitespace-only")
         return v
 
+    # The edit history outlives the edit, so a token pasted and then edited out must not stay here.
+    @field_validator("old_title", "new_title")
+    @classmethod
+    def redact_title_credentials(cls, v: str | None) -> str | None:
+        return None if v is None else redact_credentials(v)
+
 
 class SummaryChange(BaseModel):
     """Content schema for a `summary_change` artefact: a record of an edit to the report's summary
@@ -851,6 +884,12 @@ class SummaryChange(BaseModel):
         if not v.strip():
             raise ValueError("must not be empty or whitespace-only")
         return v
+
+    # The edit history outlives the edit, so a token pasted and then edited out must not stay here.
+    @field_validator("old_summary", "new_summary")
+    @classmethod
+    def redact_summary_credentials(cls, v: str | None) -> str | None:
+        return None if v is None else redact_credentials(v)
 
 
 class RelatedTo(BaseModel):

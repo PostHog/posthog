@@ -74,7 +74,7 @@ class AppsignalSource(ResumableSource[AppsignalSourceConfig, AppsignalResumeConf
 Your personal API token is in your [AppSignal personal settings](https://appsignal.com/users/edit) under "API key". The app ID is the identifier in your app's AppSignal URL: `https://appsignal.com/<organization>/sites/<app ID>`.""",
             iconPath="/static/services/appsignal.png",
             docsUrl="https://posthog.com/docs/cdp/sources/appsignal",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["apm", "error tracking", "monitoring"],
             fields=cast(
                 list[FieldType],

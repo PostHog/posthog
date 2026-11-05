@@ -187,16 +187,23 @@ def _iter_downloads(
             for entry in document.get("downloads") or []
             if isinstance(entry, dict) and entry.get("day")
         ]
+        last_window = window_end >= today
+        if last_window:
+            manager.save_state(NpmRegistryResumeConfig(package_index=package_index + 1, window_start=None))
+        else:
+            next_start = window_end + timedelta(days=1)
+            manager.save_state(
+                NpmRegistryResumeConfig(package_index=package_index, window_start=next_start.isoformat())
+            )
+
         if rows:
             yield rows
+        else:
+            manager.safe_point()
 
-        if window_end >= today:
+        if last_window:
             break
-
         window_start = window_end + timedelta(days=1)
-        # Save AFTER yielding the window so a crash re-fetches it rather than skipping it; merge
-        # dedupes the re-pulled days on the [package, day] primary key.
-        manager.save_state(NpmRegistryResumeConfig(package_index=package_index, window_start=window_start.isoformat()))
 
 
 def _iter_version_downloads(
@@ -303,6 +310,7 @@ def get_rows(
         # Advance past this package before moving on, so a crash between packages resumes at the
         # next one rather than re-walking one we already finished.
         resumable_source_manager.save_state(NpmRegistryResumeConfig(package_index=index + 1, window_start=None))
+        resumable_source_manager.safe_point()
 
 
 def validate_packages(packages_raw: str | None) -> tuple[bool, str | None]:

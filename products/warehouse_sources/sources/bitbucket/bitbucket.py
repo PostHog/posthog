@@ -299,7 +299,10 @@ def _map_rows(endpoint: str, items: list[dict[str, Any]], repo: dict[str, Any] |
 
 
 def _iter_repositories(
-    session: requests.Session, workspace: str, logger: FilteringBoundLogger
+    session: requests.Session,
+    workspace: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[BitbucketResumeConfig],
 ) -> Iterator[dict[str, Any]]:
     """Page through the workspace's repositories, oldest-first (created_on is immutable,
     so the enumeration order is stable across resume attempts)."""
@@ -307,6 +310,8 @@ def _iter_repositories(
     while True:
         data = _fetch_page(session, url, logger)
         yield from data.get("values", [])
+        # The repo list holds parents, not rows, so the walk can stop here and restart.
+        resumable_source_manager.safe_point()
         next_url = data.get("next")
         if not next_url:
             break
@@ -351,6 +356,7 @@ def _get_top_level_rows(
             # the last page rather than skipping it — merge dedupes on the primary key.
             if next_url:
                 resumable_source_manager.save_state(BitbucketResumeConfig(next_url=next_url))
+        resumable_source_manager.safe_point()
 
         if not next_url:
             break
@@ -367,7 +373,9 @@ def _get_fan_out_rows(
     cutoff: datetime | None,
     cursor_field: str | None,
 ) -> Iterator[list[dict[str, Any]]]:
-    repos = [repo for repo in _iter_repositories(session, workspace, logger) if repo.get("slug")]
+    repos = [
+        repo for repo in _iter_repositories(session, workspace, logger, resumable_source_manager) if repo.get("slug")
+    ]
 
     # Resolve the saved repo bookmark to the slice still to process. If the bookmarked
     # repo no longer exists, start over from the first repo — merge dedupes re-pulled rows.
@@ -405,6 +413,7 @@ def _get_fan_out_rows(
                         resumable_source_manager.save_state(
                             BitbucketResumeConfig(next_url=next_url, repo_slug=repo["slug"])
                         )
+                resumable_source_manager.safe_point()
 
                 if not next_url:
                     break
@@ -449,6 +458,7 @@ def _iter_fan_out_parents(
     repo_slug: str,
     logger: FilteringBoundLogger,
     since: Any,
+    resumable_source_manager: ResumableSourceManager[BitbucketResumeConfig],
 ) -> Iterator[dict[str, Any]]:
     """Walk one repository's parent rows for a two-level fan-out, reusing the parent
     endpoint's own page size and params so the list stays defined in one place."""
@@ -485,6 +495,8 @@ def _iter_fan_out_parents(
                 )
                 return
 
+        # The caller has handled every parent yielded so far and holds no rows.
+        resumable_source_manager.safe_point()
         if not next_url:
             return
         url = next_url
@@ -506,7 +518,9 @@ def _get_second_level_fan_out_rows(
     An incremental sync narrows the parent walk to what changed since the watermark. Without
     that bound every sync would issue one request per parent that ever existed, which no
     workspace's rate budget survives."""
-    repos = [repo for repo in _iter_repositories(session, workspace, logger) if repo.get("slug")]
+    repos = [
+        repo for repo in _iter_repositories(session, workspace, logger, resumable_source_manager) if repo.get("slug")
+    ]
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     remaining = repos
@@ -532,7 +546,9 @@ def _get_second_level_fan_out_rows(
         bookmark_url = resume_url if index == 0 else None
 
         try:
-            for parent in _iter_fan_out_parents(session, fan_out, workspace, repo["slug"], logger, parent_since):
+            for parent in _iter_fan_out_parents(
+                session, fan_out, workspace, repo["slug"], logger, parent_since, resumable_source_manager
+            ):
                 cursor = parent.get(fan_out.order_field)
                 if bookmark_cursor is not None and _parent_precedes_bookmark(fan_out.order, cursor, bookmark_cursor):
                     continue
@@ -569,6 +585,7 @@ def _get_second_level_fan_out_rows(
                         if rows:
                             yield rows
                             resumable_source_manager.save_state(dataclasses.replace(bookmark, next_url=next_url))
+                        resumable_source_manager.safe_point()
 
                         if not next_url:
                             break

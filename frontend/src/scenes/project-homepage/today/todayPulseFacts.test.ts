@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import { pulsePeak, pulseWhy } from './todayPulseFacts'
+import { pulseChange, pulseWhy } from './todayPulseFacts'
 import { makePulseMetric } from './todayTestFixtures'
 
 describe('todayPulseFacts', () => {
@@ -27,17 +27,64 @@ describe('todayPulseFacts', () => {
             { reason: 'key_metric', opened_days: null, last_opened: null },
             'It is a key metric for this project, set in Customer analytics.',
         ],
+        [
+            'a watched insight never opened',
+            { reason: 'watched', opened_days: null, last_opened: null },
+            'You get an alert or a subscription for this insight.',
+        ],
+        [
+            'a built insight never opened',
+            { reason: 'built', opened_days: null, last_opened: null },
+            'You created or edited this insight recently.',
+        ],
         ['a metric computed before reasons existed', { reason: null }, null],
     ] as const)('explains %s', (_name, overrides, expected) => {
         expect(pulseWhy(makePulseMetric(overrides), today)).toBe(expected)
     })
 
-    it('finds the highest value with the period it belongs to, skipping missing values', () => {
-        const metric = makePulseMetric({
-            interval: 'day',
-            series: [3, NaN, 9, 4],
-            period_starts: ['2026-09-26', '2026-09-27', '2026-09-28', '2026-09-29'],
-        })
-        expect(pulsePeak(metric)).toEqual({ label: 'Top day', value: 9, start: '2026-09-28', latest: null })
+    it.each([
+        ['a count', { value: 120, previous_value: 100, change_pct: 20, value_format: null }, { value: 20, unit: '%' }],
+        [
+            'a 0-100 rate',
+            {
+                value: 3.4,
+                previous_value: 3,
+                change_pct: 13.3,
+                value_format: { format: 'percentage', prefix: null, postfix: null, decimal_places: 1 },
+            },
+            { value: 3.4 - 3, unit: 'pp' },
+        ],
+        [
+            'a 0-1 rate',
+            {
+                value: 0.25,
+                previous_value: 0.2,
+                change_pct: 25,
+                value_format: { format: 'percentage_scaled', prefix: null, postfix: null, decimal_places: 1 },
+            },
+            { value: (0.25 - 0.2) * 100, unit: 'pp' },
+        ],
+        [
+            'a rate that starts from zero',
+            {
+                value: 5,
+                previous_value: 0,
+                change_pct: null,
+                value_format: { format: 'percentage', prefix: null, postfix: null, decimal_places: 1 },
+            },
+            { value: 5, unit: 'pp' },
+        ],
+        [
+            'a rate with no earlier period',
+            {
+                value: 5,
+                previous_value: null,
+                change_pct: null,
+                value_format: { format: 'percentage', prefix: null, postfix: null, decimal_places: 1 },
+            },
+            { value: null, unit: 'pp' },
+        ],
+    ] as const)('measures the change of %s', (_name, overrides, expected) => {
+        expect(pulseChange(makePulseMetric(overrides))).toEqual(expected)
     })
 })

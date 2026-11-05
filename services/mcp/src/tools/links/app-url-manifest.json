@@ -1319,6 +1319,11 @@
         "params": [],
         "scope": "global"
     },
+    "oauthDeviceAuthorize": {
+        "template": "/device",
+        "params": [],
+        "scope": "global"
+    },
     "onboarding": {
         "template": "/onboarding",
         "params": [],
@@ -1619,11 +1624,6 @@
         "params": [],
         "scope": "global"
     },
-    "simpleOnboarding": {
-        "template": "/onboarding/simple",
-        "params": [],
-        "scope": "project"
-    },
     "site": {
         "template": "/site/{url}",
         "params": ["url"],
@@ -1642,6 +1642,11 @@
     "skillsCategoryTab": {
         "template": "/skills/{categoryTab}",
         "params": ["categoryTab"],
+        "scope": "project"
+    },
+    "slackAppWorkspaceSetup": {
+        "template": "/integrations/slack/{integrationId}/setup",
+        "params": ["integrationId"],
         "scope": "project"
     },
     "slackTaskContext": {

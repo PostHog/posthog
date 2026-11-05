@@ -152,6 +152,8 @@ def ecb_data_portal_source(
                 resumable_source_manager.save_state(
                     ECBResumeConfig(next_start_period=(window.end + timedelta(days=1)).isoformat())
                 )
+                # Rows go out one at a time, so the window is staged only after its last row.
+                resumable_source_manager.safe_point()
             else:
                 resumable_source_manager.clear_state()
 

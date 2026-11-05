@@ -1907,23 +1907,26 @@ class TestMcpExecSkillsEnvVars(SimpleTestCase):
             ("eval_flag_on", "eval", None, True, True),
             ("desktop_keeps_bundled_skills_even_with_flag_on", None, None, True, False),
             ("web_phai_flag_off", "posthog_ai", None, False, False),
+            ("caller_disables_skills", None, "signal_report", False, True, True),
             ("web_phai_task_without_interaction_origin_flag_on", None, "posthog_ai", True, True),
             ("web_phai_task_without_interaction_origin_flag_off", None, "posthog_ai", False, False),
         ]
     )
-    def test_strips_bundled_skills_only_for_learn_capable_runs_with_the_flag_on(
+    def test_strips_bundled_skills_for_caller_or_learn_capable_runs(
         self,
         _name: str,
         interaction_origin: str | None,
         origin_product: str | None,
         flag_enabled: bool,
         expect_stripped: bool,
+        disable_skills: bool = False,
     ) -> None:
         ctx = MagicMock(
             interaction_origin=interaction_origin,
             origin_product=origin_product,
             organization_id="org-1",
             distinct_id="user-1",
+            state={"disable_skills": disable_skills},
         )
         with patch(
             "products.tasks.backend.temporal.process_task.utils.is_mcp_exec_skills_enabled", return_value=flag_enabled
@@ -1931,7 +1934,7 @@ class TestMcpExecSkillsEnvVars(SimpleTestCase):
             env = mcp_exec_skills_env_vars(ctx)
 
         assert env == ({"POSTHOG_CODE_DISABLE_BUNDLED_SKILLS": "1"} if expect_stripped else {})
-        if interaction_origin is None and origin_product is None:
+        if disable_skills or (interaction_origin is None and origin_product is None):
             flag_check.assert_not_called()
         else:
             flag_check.assert_called_once_with("org-1", "user-1")

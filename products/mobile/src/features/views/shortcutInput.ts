@@ -22,7 +22,6 @@ export type PinTarget =
           /** The insight's `query.kind`. A `BIVisualizationNode` lives under `/bi/`. */
           queryKind?: string | null
       }
-    | { kind: 'web_analytics' }
 
 export function shortcutInputFor(target: PinTarget): ShortcutInput {
     switch (target.kind) {
@@ -43,8 +42,6 @@ export function shortcutInputFor(target: PinTarget): ShortcutInput {
                         ? `/bi/${target.shortId}`
                         : `/insights/${target.shortId}`,
             }
-        case 'web_analytics':
-            return { path: 'Web analytics', type: 'web_analytics', ref: null, href: '/web' }
     }
 }
 

@@ -128,6 +128,20 @@ export function scopeMatchesSearch(scope: ScopeSearchFields, searchTerm: string)
     return tokens.every((token) => haystack.includes(token))
 }
 
+/**
+ * The warning a scope picker row shows for a risky scope at the picked level. The backend owns the list of
+ * risky scopes and their wording. Write access includes read, so a write pick also shows the read warning.
+ */
+export const riskyScopeWarning = (
+    scopeObject: string,
+    level: ScopeAccessLevel,
+    riskyScopes: Record<string, string>
+): string | undefined => {
+    const actions: APIScopeAction[] = level === 'write' ? ['write', 'read'] : level === 'read' ? ['read'] : []
+    const warnings = actions.map((action) => riskyScopes[`${scopeObject}:${action}`]).filter(Boolean)
+    return warnings.length > 0 ? `Add with care: ${warnings.join(' ')}` : undefined
+}
+
 // Scopes whose write action also writes a feature flag as a side effect (survey targeting flag,
 // early access feature linked flag), so they imply `feature_flag:write`. Single source of truth for
 // both the picker warning (attached below) and the auto-select in personalAPIKeysLogic, so the rule
@@ -151,6 +165,12 @@ export const API_SCOPES: APIScope[] = [
     { key: 'billing', objectName: 'Billing', objectPlural: 'billing' },
     { key: 'business_knowledge', objectName: 'Business knowledge', objectPlural: 'business knowledge' },
     { key: 'canvas', objectName: 'Canvas', objectPlural: 'canvases' },
+    {
+        key: 'workload_trust_policy',
+        objectName: 'Workload trust policy',
+        objectPlural: 'workload trust policies',
+        disabledActions: ['write'],
+    },
     { key: 'cohort', objectName: 'Cohort', objectPlural: 'cohorts' },
     { key: 'comment', objectName: 'Comment', objectPlural: 'comments' },
     {
@@ -229,6 +249,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'integration', objectName: 'Integration', objectPlural: 'integrations', disabledActions: ['write'] },
     { key: 'legal_document', objectName: 'Legal document', objectPlural: 'legal documents' },
     { key: 'link', objectName: 'Link', objectPlural: 'links' },
+    { key: 'knowledge_writer', objectName: 'Knowledge writer', objectPlural: 'knowledge writer verdicts' },
     { key: 'live_debugger', objectName: 'Live debugger', objectPlural: 'live debugger' },
     { key: 'llm_analytics', objectName: 'AI observability', objectPlural: 'AI observability' },
     { key: 'ai_observability_clusters', objectName: 'Cluster', objectPlural: 'clusters' },
@@ -312,6 +333,12 @@ export const API_SCOPES: APIScope[] = [
     { key: 'ticket', objectName: 'Ticket', objectPlural: 'tickets' },
     { key: 'toolbar', objectName: 'Toolbar', objectPlural: 'toolbar' },
     { key: 'tracing', objectName: 'Tracing', objectPlural: 'tracing' },
+    {
+        key: 'transactional_email',
+        objectName: 'Transactional email',
+        objectPlural: 'transactional emails',
+        info: "Write sends transactional email from a template. Read gets a sent email's status and works only with a project secret API key. This scope can't change templates or workflows.",
+    },
     { key: 'field_note', objectName: 'Field note', objectPlural: 'field notes' },
     { key: 'uploaded_media', objectName: 'Uploaded media', objectPlural: 'uploaded media' },
     { key: 'usage_metric', objectName: 'Usage metric', objectPlural: 'usage metrics' },
@@ -390,6 +417,9 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'session_recording:read',
     'hog_flow:read',
     'hog_flow:write',
+    'messaging_preference:write',
+    'transactional_email:read',
+    'transactional_email:write',
 ] as const
 
 export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]
@@ -504,6 +534,8 @@ export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: ProjectSecretAPIKeyScopePrese
     { value: 'endpoint_execution', label: 'Endpoint execution', scopes: ['endpoint:read'] },
     { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
     { value: 'llm_gateway', label: 'AI gateway access', scopes: ['llm_gateway:read'] },
+    { value: 'recipient_preferences', label: 'Set recipient preferences', scopes: ['messaging_preference:write'] },
+    { value: 'transactional_email', label: 'Send transactional email', scopes: ['transactional_email:write'] },
 ]
 
 // The product areas that the scope pickers use to group objects, in display order. Each scope object
@@ -573,7 +605,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
     },
     {
         label: 'Developer experience',
-        objects: ['engineering_analytics', 'stamphog', 'visual_review'],
+        objects: ['engineering_analytics', 'knowledge_writer', 'stamphog', 'visual_review'],
     },
     {
         label: 'LLM & MCP analytics',
@@ -609,6 +641,10 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'webhook',
             'plugin',
         ],
+    },
+    {
+        label: 'Messaging',
+        objects: ['transactional_email'],
     },
     {
         label: 'AI & context management tools',
@@ -662,6 +698,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'organization',
             'organization_member',
             'project',
+            'workload_trust_policy',
             'user',
             'billing',
             'access_control',
@@ -696,6 +733,31 @@ export const groupScopeRows = <Row extends ScopePickerRow>(rows: Row[]): ScopePi
     return [...API_SCOPE_GROUPS.map(({ label }) => label), OTHER_SCOPE_GROUP_LABEL]
         .filter((label) => rowsByLabel.has(label))
         .map((label) => ({ label, rows: rowsByLabel.get(label) ?? [] }))
+}
+
+export type ScopeGroupSummary = { label: string; write: number; read: number }
+
+// Counts the objects in each product area that a key can write, or only read, in API_SCOPE_GROUPS order.
+// `insight:read` and `insight:write` together count once, as write.
+export const summarizeScopesByGroup = (scopes: readonly string[]): ScopeGroupSummary[] => {
+    const levelByObject = new Map<string, 'read' | 'write'>()
+    for (const scope of scopes) {
+        const [object, action] = scope.split(':')
+        if (levelByObject.get(object) !== 'write') {
+            levelByObject.set(object, action === 'write' ? 'write' : 'read')
+        }
+    }
+    const summaryByLabel = new Map<string, ScopeGroupSummary>()
+    for (const [object, level] of levelByObject) {
+        const label = getScopeGroupLabel(object)
+        const summary = summaryByLabel.get(label) ?? { label, write: 0, read: 0 }
+        summary[level] += 1
+        summaryByLabel.set(label, summary)
+    }
+    return [...API_SCOPE_GROUPS.map(({ label }) => label), OTHER_SCOPE_GROUP_LABEL].flatMap((label) => {
+        const summary = summaryByLabel.get(label)
+        return summary ? [summary] : []
+    })
 }
 
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']

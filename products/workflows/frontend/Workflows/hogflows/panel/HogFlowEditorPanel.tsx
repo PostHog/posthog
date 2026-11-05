@@ -1,12 +1,9 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useRef } from 'react'
 
 import { IconArrowLeft, IconX } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
-import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
-import { ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { workflowLogic } from '../../workflowLogic'
@@ -28,7 +25,7 @@ import { HogFlowEditorPanelTest } from './testing/HogFlowEditorPanelTest'
 import { ViewOnlyArea } from './ViewOnlyArea'
 
 export interface HogFlowEditorPanelProps {
-    layout?: 'floating' | 'panel' | 'docked'
+    layout?: 'floating' | 'docked'
     onClose?: () => void
     view?: { title: string; content: JSX.Element }
 }
@@ -41,14 +38,6 @@ export function HogFlowEditorPanel({
     const { panelWidth, selectedNode, mode, workflow } = useValues(hogFlowEditorLogic)
     const { clearPanelWidth, setMode, setPanelWidth, setSelectedNodeId } = useActions(hogFlowEditorLogic)
     const { isViewOnly } = useValues(workflowLogic)
-    const panelRef = useRef<HTMLDivElement>(null)
-    const resizerProps: ResizerLogicProps = {
-        logicKey: 'hog-flow-simple-panel',
-        containerRef: panelRef,
-        placement: 'left',
-        persistent: true,
-    }
-    const { desiredSize: panelLayoutWidth } = useValues(resizerLogic(resizerProps))
 
     const variablesCount = workflow?.variables?.length || 0
     const width = panelWidth ?? HOG_FLOW_EDITOR_DEFAULT_PANEL_WIDTH
@@ -76,29 +65,16 @@ export function HogFlowEditorPanel({
 
     return (
         <div
-            ref={panelRef}
             data-attr="workflow-editor-panel"
             className={clsx(
                 'flex min-h-0 max-h-full flex-col justify-end overflow-hidden @max-[48rem]/workflow-editor:!relative @max-[48rem]/workflow-editor:!min-w-0 @max-[48rem]/workflow-editor:!w-full @max-[48rem]/workflow-editor:!max-w-full @max-[48rem]/workflow-editor:shrink-0',
                 layout === 'floating' && 'absolute right-0 max-w-full p-2 @max-[48rem]/workflow-editor:!h-96',
-                layout === 'panel' &&
-                    'relative h-full shrink-0 bg-surface-primary @max-[48rem]/workflow-editor:!h-96 @max-[48rem]/workflow-editor:border-t',
                 layout === 'docked' &&
                     'relative h-full min-w-80 max-w-[calc(100%-30rem)] shrink-0 border-l bg-surface-primary @max-[48rem]/workflow-editor:!h-1/2 @max-[48rem]/workflow-editor:border-t @max-[48rem]/workflow-editor:border-l-0'
             )}
-            style={
-                layout === 'panel'
-                    ? { width: panelLayoutWidth ?? '50%', minWidth: '20rem', maxWidth: '70%' }
-                    : { width }
-            }
+            style={{ width }}
         >
-            {layout !== 'panel' ? (
-                <HogFlowEditorPanelResizeHandle width={width} onResize={setPanelWidth} onReset={clearPanelWidth} />
-            ) : (
-                <div className="@max-[48rem]/workflow-editor:hidden">
-                    <Resizer {...resizerProps} />
-                </div>
-            )}
+            <HogFlowEditorPanelResizeHandle width={width} onResize={setPanelWidth} onReset={clearPanelWidth} />
             <div
                 className={clsx(
                     'relative z-10 flex min-h-0 flex-col overflow-hidden bg-surface-primary',

@@ -1,4 +1,3 @@
-import ipaddress
 from datetime import UTC, datetime
 from typing import Any
 
@@ -24,10 +23,9 @@ from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
+    mock_anti_ssrf_dns_lookup,
     scripted_network,
 )
-
-_PUBLIC_IP = {ipaddress.ip_address("93.184.216.34")}
 
 
 def _mock_response(status_code: int = 200, json_data: dict | None = None, text: str = "") -> mock.MagicMock:
@@ -107,7 +105,10 @@ class TestPostGraphql:
 
 class TestValidateCredentials:
     def test_returns_true_on_valid_credentials(self):
-        with mock.patch("products.warehouse_sources.sources.pganalyze.pganalyze.make_tracked_session") as mock_sess:
+        with (
+            mock.patch("products.warehouse_sources.sources.pganalyze.pganalyze.make_tracked_session") as mock_sess,
+            mock_anti_ssrf_dns_lookup(),
+        ):
             sess = mock.MagicMock()
             sess.post.return_value = _mock_response(json_data={"data": {"getServers": []}})
             mock_sess.return_value = sess
@@ -166,14 +167,14 @@ class TestResolveApiUrl:
     def test_defaults_to_public_api_when_none(self):
         with (
             mock.patch("posthog.security.url_validation.is_dev_mode", return_value=False),
-            mock.patch("posthog.security.url_validation.resolve_host_ips", return_value=_PUBLIC_IP),
+            mock_anti_ssrf_dns_lookup(),
         ):
             assert _resolve_api_url(None) == PGANALYZE_API_URL
 
     def test_defaults_to_public_api_when_empty_string(self):
         with (
             mock.patch("posthog.security.url_validation.is_dev_mode", return_value=False),
-            mock.patch("posthog.security.url_validation.resolve_host_ips", return_value=_PUBLIC_IP),
+            mock_anti_ssrf_dns_lookup(),
         ):
             assert _resolve_api_url("") == PGANALYZE_API_URL
             assert _resolve_api_url("   ") == PGANALYZE_API_URL
@@ -181,7 +182,7 @@ class TestResolveApiUrl:
     def test_accepts_well_formed_public_url(self):
         with (
             mock.patch("posthog.security.url_validation.is_dev_mode", return_value=False),
-            mock.patch("posthog.security.url_validation.resolve_host_ips", return_value=_PUBLIC_IP),
+            mock_anti_ssrf_dns_lookup(),
         ):
             url = "https://app.pganalyze.com/graphql"
             assert _resolve_api_url(url) == url

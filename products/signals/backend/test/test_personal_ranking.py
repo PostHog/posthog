@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.core.management import call_command
+from django.db.models import F
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -34,14 +35,23 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalReportAssignment,
 )
+from products.signals.backend.personal_ranking import serve as personal_ranking_serve
 from products.signals.backend.personal_ranking.candidates import Candidate
 from products.signals.backend.personal_ranking.config import (
     CandidatePool,
     PersonalRankingConfig,
+    PersonalRankingTickConfig,
     ReasonLimits,
     parse_config,
 )
-from products.signals.backend.personal_ranking.logic import BUILT_EVENT, build_personal_ranking
+from products.signals.backend.personal_ranking.logic import (
+    BUILT_EVENT,
+    InputChanges,
+    build_personal_ranking,
+    compare_inputs,
+    input_hash,
+    input_parts,
+)
 from products.signals.backend.personal_ranking.prompt import render_person, system_prompt, user_message
 from products.signals.backend.personal_ranking.validation import MalformedRankingError, validate_ranking
 from products.signals.backend.personal_ranking_tasks import build_lock_key, build_personal_inbox_ranking
@@ -52,19 +62,34 @@ MODEL_REASONS = {ref: f"model {ref}" for ref in REFS}
 LIMITS = ReasonLimits(top=40, worth_a_look=30, later=20)
 
 
-def _entry(ref: str, rank: Any, tier: str = "worth_a_look", reason: str = "matches", next_step: str | None = None):
-    return {"ref": ref, "rank": rank, "tier": tier, "reason": reason, "matched": None, "next_step": next_step}
+def _entry(
+    ref: str,
+    rank: Any,
+    tier: str = "worth_a_look",
+    reason: str = "matches",
+    next_step: str | None = None,
+    matched: dict | None = None,
+):
+    return {"ref": ref, "rank": rank, "tier": tier, "reason": reason, "matched": matched, "next_step": next_step}
 
 
 def _answer(ranked: list[dict], folded: list[dict] | None = None) -> str:
     return json.dumps({"ranked": ranked, "folded": folded or []})
 
 
-def _validate(content: str | None, limit: int = 2, rank_top: int = 10, top_max: int = 5, worth_a_look_max: int = 10):
+def _validate(
+    content: str | None,
+    limit: int = 2,
+    rank_top: int = 10,
+    top_max: int = 5,
+    worth_a_look_max: int = 10,
+    needs_you: dict[str, tuple] | None = None,
+):
     return validate_ranking(
         content,
         refs=REFS,
         model_reasons=MODEL_REASONS,
+        needs_you=needs_you or {},
         limit=limit,
         rank_top=rank_top,
         top_max=top_max,
@@ -221,6 +246,62 @@ class TestValidateRanking(SimpleTestCase):
 
     @parameterized.expand(
         [
+            (
+                "status_read_as_a_personal_claim_falls_back_to_the_theme",
+                {"theme": "Checkout", "needs_you": ["waiting_on_input"]},
+                (),
+                {"theme": "Checkout", "needs_you": ()},
+                "Matches your recent work: Checkout.",
+                1,
+            ),
+            (
+                "false_claim_with_no_theme_gets_the_model_reason",
+                {"theme": None, "needs_you": ["suggested_reviewer"]},
+                (),
+                {"theme": None, "needs_you": ()},
+                "model c1",
+                1,
+            ),
+            (
+                "only_the_false_kind_drops_and_the_real_fact_wins_over_the_theme",
+                {"theme": "Checkout", "needs_you": ["waiting_on_input", "claimed"]},
+                ("claimed",),
+                {"theme": "Checkout", "needs_you": ("claimed",)},
+                "model c1",
+                1,
+            ),
+            (
+                "true_claim_keeps_the_model_reason",
+                {"theme": None, "needs_you": ["claimed"]},
+                ("claimed",),
+                {"theme": None, "needs_you": ("claimed",)},
+                "Waiting on you",
+                0,
+            ),
+        ]
+    )
+    def test_needs_you_claims_must_match_the_facts(
+        self,
+        _name: str,
+        matched: dict,
+        facts: tuple,
+        expected_matched: dict,
+        expected_reason: str,
+        expected_false: int,
+    ) -> None:
+        result = _validate(
+            _answer([_entry("c1", 1, tier="top", reason="Waiting on you", matched=matched)]),
+            needs_you={"c1": facts},
+        )
+
+        entry = result.entries[0]
+        assert (entry.rank, entry.tier) == (1, "top")
+        assert dataclasses.asdict(entry.matched) == expected_matched
+        assert entry.reason == expected_reason
+        assert result.counts.false_needs_you == expected_false
+
+    @parameterized.expand(
+        [
             ("empty", None),
             ("not_json", "Here is your ranking: c1, c2"),
             ("no_ranked_list", json.dumps({"order": ["c1"]})),
@@ -258,6 +339,103 @@ def _candidate(index: int, report_id: str, **overrides: Any) -> Candidate:
         "pools": ("for_you_recommended",),
     }
     return Candidate(**{**fields, **overrides})
+
+
+_IDS = ["018f3d0e-0000-7000-8000-000000000001", "018f3d0e-0000-7000-8000-000000000002"]
+
+
+def _scored(probability: float) -> ReportPredictions:
+    return ReportPredictions(
+        status="scored",
+        model="m@1",
+        predictions=(OutcomePrediction(outcome="action", probability=probability, lift=None, readable=True),),
+    )
+
+
+class TestInputParts(SimpleTestCase):
+    def test_input_hash_keeps_its_value(self) -> None:
+        candidates = [_candidate(1, _IDS[0]), _candidate(2, _IDS[1], predictions=None, needs_you=())]
+
+        assert (
+            input_hash(candidates, activity_summary_version=7, focus="checkout")
+            == "f942040677219aed0d042d2e28ac23bb82ae2e26e40fe21eb10d7d2b17466fdd"
+        )
+
+    @parameterized.expand(
+        [
+            ("nothing", {}, 7, InputChanges(changed_parts=(), changed_report_count=0, max_score_move=0.0)),
+            (
+                "score_jitter_under_the_rounding",
+                {"predictions": _scored(0.421)},
+                7,
+                InputChanges(changed_parts=(), changed_report_count=0, max_score_move=0.001),
+            ),
+            (
+                "score",
+                {"predictions": _scored(0.5)},
+                7,
+                InputChanges(changed_parts=("scores",), changed_report_count=1, max_score_move=0.08),
+            ),
+            (
+                "summary_version",
+                {},
+                8,
+                InputChanges(changed_parts=("activity_summary_version",), changed_report_count=0, max_score_move=0.0),
+            ),
+            (
+                "text_and_needs_you",
+                {"title": "Renamed", "needs_you": ("claimed",)},
+                7,
+                InputChanges(changed_parts=("text", "needs_you"), changed_report_count=1, max_score_move=0.0),
+            ),
+        ]
+    )
+    def test_names_the_changed_parts(
+        self, _name: str, overrides: dict[str, Any], summary_version: int, expected: InputChanges
+    ) -> None:
+        stored = PersonalInboxRanking(
+            input_parts=input_parts([_candidate(1, _IDS[0])], activity_summary_version=7, focus=None)
+        )
+        current = input_parts(
+            [_candidate(1, _IDS[0], **overrides)], activity_summary_version=summary_version, focus=None
+        )
+
+        assert compare_inputs(stored, current, rank_top=10) == dataclasses.replace(
+            expected, joined_count=0, left_count=0, left_top_count=0
+        )
+
+    def test_counts_the_reports_that_joined_and_left_the_stored_top(self) -> None:
+        ids = [f"018f3d0e-0000-7000-8000-00000000000{index}" for index in range(1, 5)]
+        stored = PersonalInboxRanking(
+            input_parts=input_parts(
+                [_candidate(index, ids[index - 1]) for index in (1, 2, 3)], activity_summary_version=7, focus=None
+            ),
+            result={"ranked": [{"report_id": ids[1]}, {"report_id": ids[0]}, {"report_id": ids[2]}]},
+        )
+        current = input_parts([_candidate(1, ids[0]), _candidate(4, ids[3])], activity_summary_version=7, focus=None)
+
+        changes = compare_inputs(stored, current, rank_top=2)
+
+        assert (changes.changed_parts, changes.joined_count, changes.left_count, changes.left_top_count) == (
+            ("candidate_set",),
+            1,
+            2,
+            1,
+        )
+
+    @parameterized.expand(
+        [
+            ("no_previous_list", None, ("no_previous_list",)),
+            ("row_from_before_the_parts", PersonalInboxRanking(input_parts=None), ("unknown",)),
+            ("unreadable_parts", PersonalInboxRanking(input_parts={"parts": []}), ("unknown",)),
+        ]
+    )
+    def test_a_previous_list_without_parts_reports_why(
+        self, _name: str, previous: PersonalInboxRanking | None, expected: tuple[str, ...]
+    ) -> None:
+        current = input_parts([_candidate(1, _IDS[0])], activity_summary_version=7, focus=None)
+
+        assert compare_inputs(previous, current, rank_top=10) == InputChanges(changed_parts=expected)
 
 
 class TestPrompt(SimpleTestCase):
@@ -314,23 +492,16 @@ class TestConfig(SimpleTestCase):
                 "pools_in_order_with_default_names_and_large_values_capped",
                 {
                     "pools": [
-                        {"source": "priority", "size": 5, "lowest_priority": "P0", "window_days": 1000},
+                        {"source": "for_you_updated", "size": 5},
                         {"source": "assigned", "size": 0},
-                        {"source": "scored", "size": 500, "head": "fixed", "has_pr": True, "actionable_only": True},
+                        {"source": "for_you_recommended", "size": 500},
                     ]
                 },
                 PersonalRankingConfig(
                     pools=(
-                        CandidatePool(name="priority", source="priority", size=5, lowest_priority="P0", window_days=90),
+                        CandidatePool(name="for_you_updated", source="for_you_updated", size=5),
                         CandidatePool(name="assigned", source="assigned", size=0),
-                        CandidatePool(
-                            name="scored_fixed",
-                            source="scored",
-                            size=100,
-                            head="fixed",
-                            has_pr=True,
-                            actionable_only=True,
-                        ),
+                        CandidatePool(name="for_you_recommended", source="for_you_recommended", size=100),
                     )
                 ),
             ),
@@ -341,18 +512,22 @@ class TestConfig(SimpleTestCase):
                         {"source": "assigned", "size": 5, "name": "mine"},
                         {"source": "for_you_updated", "size": 5, "name": "mine"},
                         {"source": "everything", "size": 5},
-                        {"source": "scored", "size": 5},
+                        {"source": "scored", "size": 5, "head": "action"},
+                        {"source": "priority", "size": 5, "lowest_priority": "P1"},
                         {"source": "assigned", "size": 5, "head": "open"},
+                        {"source": "assigned", "size": 5, "window_days": 30},
                         {"source": "assigned", "size": True},
                         {"source": "assigned", "size": -1},
-                        {"source": "priority", "size": 5, "lowest_priority": "urgent"},
-                        {"source": "priority", "size": 5, "has_pr": "yes"},
                         {"source": "assigned", "size": 5, "name": "Has Spaces"},
                     ]
                 },
                 PersonalRankingConfig(pools=(CandidatePool(name="mine", source="assigned", size=5),)),
             ),
-            ("no_valid_pool_keeps_the_defaults", {"pools": [{"source": "scored", "size": 5}]}, PersonalRankingConfig()),
+            (
+                "no_valid_pool_keeps_the_defaults",
+                {"pools": [{"source": "scored", "size": 5, "head": "action"}]},
+                PersonalRankingConfig(),
+            ),
             ("pools_not_a_list", {"pools": {"source": "assigned", "size": 5}}, PersonalRankingConfig()),
             (
                 "pools_past_the_maximum_drop",
@@ -363,6 +538,45 @@ class TestConfig(SimpleTestCase):
             ),
             ("reasoning_effort", {"reasoning_effort": "high"}, PersonalRankingConfig(reasoning_effort="high")),
             ("invalid_reasoning_effort", {"reasoning_effort": "max"}, PersonalRankingConfig()),
+            ("tick_without_enabled_stays_off", {"tick": {"organization_ids": ["org"]}}, PersonalRankingConfig()),
+            (
+                "tick_drops_invalid_values_and_caps_large_ones",
+                {
+                    "tick": {
+                        "enabled": True,
+                        "organization_ids": ["org", 3, ""],
+                        "skip_team_ids": [1, True, "2"],
+                        "self_driving_organization_percentage": 101,
+                        "max_pairs_per_tick": 10_000,
+                        "max_tick_builds_per_day": -1,
+                        "max_org_share": 2,
+                    }
+                },
+                PersonalRankingConfig(
+                    tick=PersonalRankingTickConfig(
+                        enabled=True, organization_ids=("org",), skip_team_ids=(1,), max_pairs_per_tick=500
+                    )
+                ),
+            ),
+            (
+                "enabled_tick_raises_freshness_and_leaves_a_shared_reserve",
+                {
+                    "max_builds_per_day": 100,
+                    "tick": {"enabled": True, "target_interval_minutes": 180, "max_tick_builds_per_day": 100},
+                },
+                PersonalRankingConfig(
+                    max_builds_per_day=100,
+                    freshness_minutes=180,
+                    tick=PersonalRankingTickConfig(
+                        enabled=True, target_interval_minutes=180, max_tick_builds_per_day=80
+                    ),
+                ),
+            ),
+            (
+                "disabled_tick_leaves_freshness_alone",
+                {"tick": {"target_interval_minutes": 180}},
+                PersonalRankingConfig(),
+            ),
         ]
     )
     def test_parse_config(self, _name: str, payload: Any, expected: PersonalRankingConfig) -> None:
@@ -578,60 +792,50 @@ class TestBuildPersonalRanking(BaseTest):
 
     @parameterized.expand(
         [
-            ("can_see_scores", True, True, True),
-            ("cannot_see_ranking", False, True, False),
-            ("no_scores_as_in_eu", True, False, False),
+            ("can_see_scores", True, True),
+            ("cannot_see_ranking", False, True),
+            ("nothing_tied_to_them", True, False),
         ]
     )
-    def test_ranking_pools_join_only_with_access_and_scores(
-        self, _name: str, staff: bool, scored: bool, expect_pool: bool
-    ) -> None:
+    def test_only_reports_tied_to_the_person_are_candidates(self, _name: str, staff: bool, has_own: bool) -> None:
         self.user.is_staff = staff
         self.user.save(update_fields=["is_staff"])
-        unowned = self._report("Unowned actionable")
-        if scored:
-            self._score(unowned, action=0.8)
+        unowned = self._prioritize(self._report("Unowned actionable"), "P0")
+        self._score(unowned, action=0.9)
+        own = self._names_me(self._report("Routed to me")) if has_own else None
+        if own is not None:
+            self._score(own, action=0.2)
         self.create.return_value = _response(_answer([_entry("c1", 1)]))
 
         with patch("products.signals.backend.ranking.access.feature_enabled_or_false", return_value=False):
             build = self._build(dry_run=True)
 
-        pools = {candidate.report_id: candidate.pools for candidate in build.candidates}
-        if expect_pool:
-            assert pools == {str(unowned.id): ("actionable", "new")}
-            assert build.candidates[0].predictions is not None
-        else:
-            assert pools == {}
-            assert build.status == "empty"
+        assert str(unowned.id) not in {candidate.report_id for candidate in build.candidates}
+        if own is None:
+            assert (build.status, build.fallback_reason, build.model_called) == ("empty", "no_candidates", False)
             self.create.assert_not_called()
+        else:
+            assert [candidate.report_id for candidate in build.candidates] == [str(own.id)]
+            assert (build.candidates[0].predictions is not None) is staff
 
-    @parameterized.expand([("can_see_scores", True), ("cannot_see_ranking", False)])
-    def test_configured_pools_keep_their_order_and_names(self, _name: str, staff: bool) -> None:
-        self.user.is_staff = staff
-        self.user.save(update_fields=["is_staff"])
-        urgent = self._prioritize(self._report("Urgent and unscored"), "P1")
-        self._prioritize(self._report("Not urgent"), "P3")
-        scored = self._report("Scored")
-        self._score(scored, action=0.8)
+    def test_configured_pools_keep_their_order_and_names(self) -> None:
         claimed = self._report("Claimed", status=SignalReport.Status.IN_PROGRESS)
         SignalReportAssignment.all_teams.create(team=self.team, report=claimed, actor_kind="user", actor_user=self.user)
+        routed = self._names_me(self._report("Routed"))
+        self._report("Unrelated")
         self.create.return_value = _response(_answer([_entry("c1", 1)]))
         config = PersonalRankingConfig(
             pools=(
                 CandidatePool(name="assigned", source="assigned", size=0),
-                CandidatePool(name="scored_action", source="scored", size=5, head="action"),
-                CandidatePool(name="urgent", source="priority", size=5),
+                CandidatePool(name="mine", source="assigned", size=5),
+                CandidatePool(name="routed", source="for_you_updated", size=5),
             )
         )
 
-        with patch("products.signals.backend.ranking.access.feature_enabled_or_false", return_value=False):
-            build = build_personal_ranking(self.team, self.user, config=config, dry_run=True)
+        build = build_personal_ranking(self.team, self.user, config=config, dry_run=True)
 
         pools = [(candidate.report_id, candidate.pools) for candidate in build.candidates]
-        expected = [(str(urgent.id), ("urgent",))]
-        if staff:
-            expected = [(str(scored.id), ("scored_action",)), *expected]
-        assert pools == expected
+        assert pools == [(str(claimed.id), ("mine",)), (str(routed.id), ("routed",))]
 
     @parameterized.expand([("dry_run", True, 0), ("stored", False, 1)])
     def test_command(self, _name: str, dry_run: bool, expected_rows: int) -> None:
@@ -770,6 +974,12 @@ class TestForMeEndpoint(APIBaseTest):
         assert (self._state(self._get()), self._rows()) == ((True, False, False), 3)
 
         second = self._claimed_report("Second")
+        body = self._get()
+        assert (self._state(body), self.queued) == ((True, False, False), [])
+        assert [entry["report"]["id"] for entry in body["results"]] == [str(first.id)]
+        PersonalInboxRanking.objects.for_team(self.team.id).update(
+            created_at=F("created_at") - datetime.timedelta(days=2)
+        )
         assert self._state(self._get()) == (True, True, True)
         self._run_builds()
         body = self._get()
@@ -784,6 +994,45 @@ class TestForMeEndpoint(APIBaseTest):
         body = self._get(refresh="true", wait_seconds=5)
         assert (self._state(body), self._rows()) == ((False, False, False), 5)
 
+    @parameterized.expand(
+        [
+            ("during_gather", "gather_candidates", {}, False, False),
+            ("before_lock", "may_call_model", {}, False, False),
+            ("refresh", "gather_candidates", {"refresh": "true"}, False, False),
+            ("refresh_before_lock", "may_call_model", {"refresh": "true"}, False, False),
+            ("inputs_changed", "gather_candidates", {}, True, True),
+            ("focus", "gather_candidates", {"focus": "checkout"}, False, True),
+        ]
+    )
+    def test_a_build_that_lands_during_the_read_answers_it(
+        self, _name: str, step: str, params: dict[str, Any], change_inputs: bool, builds: bool
+    ) -> None:
+        self.payload = {"build_burst": 3, "builds_per_hour": 1}
+        report = self._claimed_report("First")
+        self._get()
+        self._run_builds()
+        report.title = "First, edited"
+        report.save()
+        self._get()
+
+        real_step = getattr(personal_ranking_serve, step)
+
+        def build_lands(*args: Any, **kwargs: Any) -> Any:
+            self._run_builds()
+            if change_inputs:
+                report.title = "First, edited again"
+                report.save()
+            return real_step(*args, **kwargs)
+
+        with patch.object(personal_ranking_serve, step, side_effect=build_lands):
+            body = self._get(**params)
+
+        assert (self._rows(), len(self.queued)) == (2, int(builds))
+        assert self._state(body) == ((True, True, True) if builds else (True, False, False))
+        self._run_builds()
+        # A read that queued no build spent no bucket, so the burst still has one build left.
+        assert self._get(refresh="true")["building"] is not builds
+
     def test_throttled_build_serves_the_stored_list_or_the_inbox_order(self) -> None:
         self.payload = {"build_burst": 1, "builds_per_hour": 1}
         first = self._claimed_report("First")
@@ -792,6 +1041,8 @@ class TestForMeEndpoint(APIBaseTest):
 
         assert (self._state(self._get(refresh="true")), self.queued) == ((True, False, False), [])
         self._claimed_report("Second")
+        first.title = "First, edited"
+        first.save()
         body = self._get()
         assert (self._state(body), self._rows()) == ((True, True, False), 1)
         assert [entry["report"]["id"] for entry in body["results"]] == [str(first.id)]
@@ -848,6 +1099,23 @@ class TestForMeEndpoint(APIBaseTest):
             assert self._get()["building"] is True
 
         assert [args[1] for args in self.queued] == [self.user.id, third.id]
+
+    def test_a_list_the_tick_checked_stays_fresh_past_its_build_time(self) -> None:
+        self._claimed_report("First")
+        with time_machine.travel(timezone.now(), tick=False) as traveller:
+            self._get()
+            self._run_builds()
+            traveller.shift(datetime.timedelta(hours=2))
+            assert self._get()["stale"] is True
+            self._run_builds()
+
+            traveller.shift(datetime.timedelta(hours=2))
+            PersonalInboxRanking.objects.for_team(self.team.id).filter(user_id=self.user.id).update(
+                checked_at=timezone.now()
+            )
+            body = self._get()
+
+        assert (self._state(body), self.queued) == ((True, False, False), [])
 
     def test_another_user_never_reads_your_list(self) -> None:
         self._get()

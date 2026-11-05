@@ -24,7 +24,7 @@ A new vendor still needs its `ExternalDataSourceType` enum member.
 
 Import shared code only from `products.warehouse_sources.sources.sdk`. Tests can also import from `products.warehouse_sources.sources.sdk.testing`.
 Import your own directory as `products.warehouse_sources.sources.<vendor>`. Do not import another vendor.
-tach (`products.warehouse_sources.sources.*` in `tach.toml`) checks vendor code, and import-linter (`pyproject.toml`) also checks vendor tests.
+tach (`products.warehouse_sources.sources.*` in `tach.toml`) checks vendor code, and import-linter (`pyproject.toml`) also checks vendor tests, including that a vendor does not import a sibling vendor.
 If you need a shared name that the SDK does not have, add it to `products/warehouse_sources/sources/sdk/__init__.py` (or `testing.py`) from its origin module.
 `products/warehouse_sources/sources/sdk/internals.py` holds names from product modules that tach does not expose. Do not add to it if a module that the product exposes has the name.
 A `mock.patch` target names the origin module, not `products.warehouse_sources.sources.sdk`: a patch on a re-export changes nothing.
@@ -40,4 +40,8 @@ hogli test products/warehouse_sources/sources/<vendor>/
 ```
 
 `products/warehouse_sources/sources/conftest.py` isolates the job context of each test and caps `time.sleep`, so retry backoff does not run at real duration.
-CI runs these tests in the `warehouse_sources` product job (`products/warehouse_sources/package.json`, `backend:test`).
+CI runs these tests in the `Warehouse sources checks and tests` job of `.github/workflows/ci-python.yml`, not in Backend CI or the product shard (`backend:test` collects `backend/` only).
+That job has no Postgres, ClickHouse, Redis or Kafka, so a vendor test must not need one.
+A pull request that changes only vendor directories runs the tests of those vendors, the catalog tests of those vendors, and the repo invariants scoped to those directories.
+A change to `products/warehouse_sources/sources/sdk/`, a file at the top of `products/warehouse_sources/sources/` (for example `conftest.py`), `products/warehouse_sources/backend/` or any other file runs every vendor.
+`tools/warehouse_sources_vendor_selection.py` makes that choice.

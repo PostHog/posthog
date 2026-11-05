@@ -47,6 +47,7 @@ describe('memberProjectAccess', () => {
 
     it.each([
         ['org_admin', null, 'Organization admins always have full access'],
+        ['org_membership', null, 'Based on organization membership'],
         ['system_default', null, 'No access rules set'],
         ['object', 'member', 'Set for this member'],
         ['object', 'role', 'Based on role Engineering'],

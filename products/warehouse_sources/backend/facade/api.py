@@ -20,6 +20,7 @@ exception is ``soft_delete_tables``: consumers may not iterate the model to call
 
 from collections import defaultdict
 from collections.abc import Collection
+from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -72,6 +73,7 @@ from products.warehouse_sources.backend.models.util import (
 from products.warehouse_sources.backend.source_status import effective_source_status
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 from products.warehouse_sources.backend.view_consumers import saved_queries_feeding_consumers
+from products.warehouse_sources.backend.webhook_registration import schema_needs_webhook, sources_missing_webhook
 
 from . import contracts
 
@@ -98,12 +100,16 @@ __all__ = [
     "allowed_table_ids",
     "denied_table_ids",
     "pending_source_ids_for_tables",
+    "tables_awaiting_first_sync",
     "all_queryable_tables",
     "all_queryable_table_columns",
     "list_tables_for_source",
     "list_jobs_for_source",
+    "import_started_before",
     "list_column_statistics",
     "saved_queries_feeding_consumers",
+    "schema_needs_webhook",
+    "sources_missing_webhook",
     # framework-free helper transforms
     "effective_source_status",
     "clickhouse_columns_to_dwh_columns",
@@ -584,6 +590,60 @@ def pending_source_ids_for_tables(team_id: int, table_ids: Collection[UUID] | No
     return found
 
 
+def tables_awaiting_first_sync(team_id: int) -> list[contracts.TableAwaitingFirstSync]:
+    """Every table a live, syncing schema of this team will create, but has not created yet. One query.
+
+    The names are built the way the first sync builds them, so they match what a query writes for
+    the table once it exists. Direct-access sources are skipped, because they never create tables.
+    """
+    from posthog.hogql.database.database import (  # noqa: PLC0415 -- keeps HogQL off this module's import path
+        get_data_warehouse_table_name,
+    )
+
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (  # noqa: PLC0415 -- keeps the import pipeline off this module's import path
+        build_table_name,
+        resolve_table_and_folder_names,
+    )
+
+    schemas = (
+        _ExternalDataSchema.objects.filter(
+            team_id=team_id,
+            source__team_id=team_id,
+            source__access_method=_ExternalDataSource.AccessMethod.WAREHOUSE,
+            table__isnull=True,
+            should_sync=True,
+            initial_sync_complete=False,
+        )
+        .exclude(deleted=True)
+        .exclude(source__deleted=True)
+        .select_related("source")
+        .only(
+            "name",
+            "status",
+            "s3_folder_name",
+            "sync_type_config",
+            "source__id",
+            "source__source_type",
+            "source__prefix",
+            "source__access_method",
+        )
+    )
+    pending: list[contracts.TableAwaitingFirstSync] = []
+    for schema in schemas:
+        storage_name = resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name).table_storage_name
+        row_name = build_table_name(schema.source, storage_name)
+        pending.append(
+            contracts.TableAwaitingFirstSync(
+                names=contracts.TableNames(
+                    row_name=row_name,
+                    queryable_key=get_data_warehouse_table_name(schema.source, row_name),
+                ),
+                first_sync_failed=schema.status == _ExternalDataSchema.Status.FAILED,
+            )
+        )
+    return pending
+
+
 def denied_table_ids(team_id: int, user_access_control: "UserAccessControl") -> frozenset[UUID]:
     """Every table this caller may not view.
 
@@ -746,6 +806,30 @@ def list_jobs_for_source(
         .order_by("-created_at")[: min(max(limit, 1), MAX_JOBS_PER_SOURCE)]
     )
     return [_to_job(j) for j in qs]
+
+
+def import_started_before(
+    team_id: int, table_names: Collection[str], finished_by: datetime
+) -> dict[str, datetime | None]:
+    """Start time of the newest import that finished by `finished_by`, per synced table name. None when there is none.
+
+    Ordered on `created_at` so each probe walks `idx_extdatajob_latest_run` and stops at the first match.
+    """
+    consumed = (
+        _ExternalDataJob.objects.filter(
+            team_id=team_id,
+            pipeline_id=OuterRef("source_id"),
+            schema_id=OuterRef("pk"),
+            status=_ExternalDataJob.Status.COMPLETED,
+            finished_at__lte=finished_by,
+        )
+        .order_by("-created_at")
+        .values("created_at")[:1]
+    )
+    schemas = _ExternalDataSchema.objects.filter(
+        team_id=team_id, table__name__in=table_names, deleted=False, should_sync=True
+    ).annotate(consumed_started_at=Subquery(consumed))
+    return dict(schemas.values_list("table__name", "consumed_started_at"))
 
 
 def list_column_statistics(team_id: int) -> list[contracts.ColumnStatistics]:

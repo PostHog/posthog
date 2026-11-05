@@ -1868,6 +1868,13 @@ export const ExperimentWarehouseNativeMathTypeApi = {
     Sum: 'sum',
 } as const
 
+export interface ExperimentWarehouseNativeUnitBindingApi {
+    /** Which ids represent that unit, such as `billing_customer_id`. */
+    id_namespace: string
+    /** What was randomized, as a stable project-scoped label such as `customer` or `account`. */
+    unit_type: string
+}
+
 export type ExperimentWarehouseNativeNodeApiResponse = { [key: string]: unknown } | null
 
 export interface ExperimentWarehouseNativeNodeApi {
@@ -1882,6 +1889,7 @@ export interface ExperimentWarehouseNativeNodeApi {
     /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id` and `timestamp` columns plus any numeric columns a metric can measure. */
     query: string
     response?: ExperimentWarehouseNativeNodeApiResponse
+    unit: ExperimentWarehouseNativeUnitBindingApi
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -2320,6 +2328,7 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `new_flag_no_traffic` - New Flag No Traffic
  * * `early_significance` - Early Significance
  * * `metrics_not_matured` - Metrics Not Matured
+ * * `flag_shared` - Flag Shared
  */
 export type ExperimentHealthFindingCodeEnumApi =
     (typeof ExperimentHealthFindingCodeEnumApi)[keyof typeof ExperimentHealthFindingCodeEnumApi]
@@ -2349,6 +2358,7 @@ export const ExperimentHealthFindingCodeEnumApi = {
     NewFlagNoTraffic: 'new_flag_no_traffic',
     EarlySignificance: 'early_significance',
     MetricsNotMatured: 'metrics_not_matured',
+    FlagShared: 'flag_shared',
 } as const
 
 /**
@@ -2420,7 +2430,8 @@ export interface ExperimentHealthFindingApi {
      * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `early_significance` - Early Significance
-     * * `metrics_not_matured` - Metrics Not Matured */
+     * * `metrics_not_matured` - Metrics Not Matured
+     * * `flag_shared` - Flag Shared */
     code: ExperimentHealthFindingCodeEnumApi
     /**
      * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -2455,6 +2466,7 @@ export interface ExperimentHealthFindingApi {
 
 /**
  * * `flag_state` - Flag State
+ * * `flag_shared` - Flag Shared
  * * `flag_history` - Flag History
  * * `split_changed_mid_run` - Split Changed Mid Run
  * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
@@ -2482,6 +2494,7 @@ export type ExperimentHealthCheckKeyEnumApi =
 
 export const ExperimentHealthCheckKeyEnumApi = {
     FlagState: 'flag_state',
+    FlagShared: 'flag_shared',
     FlagHistory: 'flag_history',
     SplitChangedMidRun: 'split_changed_mid_run',
     BucketingChangedMidRun: 'bucketing_changed_mid_run',
@@ -2521,10 +2534,52 @@ export const ExperimentHealthCheckStatusEnumApi = {
     NotChecked: 'not_checked',
 } as const
 
+/**
+ * * `percentage` - Percentage of exposed units
+ * * `p_value` - P-value of a statistical test
+ */
+export type ExperimentHealthMeasurementUnitEnumApi =
+    (typeof ExperimentHealthMeasurementUnitEnumApi)[keyof typeof ExperimentHealthMeasurementUnitEnumApi]
+
+export const ExperimentHealthMeasurementUnitEnumApi = {
+    Percentage: 'percentage',
+    PValue: 'p_value',
+} as const
+
+/**
+ * * `above` - Finding above the threshold
+ * * `below` - Finding below the threshold
+ */
+export type ExperimentHealthMeasurementSideEnumApi =
+    (typeof ExperimentHealthMeasurementSideEnumApi)[keyof typeof ExperimentHealthMeasurementSideEnumApi]
+
+export const ExperimentHealthMeasurementSideEnumApi = {
+    Above: 'above',
+    Below: 'below',
+} as const
+
+export interface ExperimentHealthMeasurementApi {
+    /** The value that the check measured on the experiment. */
+    value: number
+    /** The value at which the check reports a finding. */
+    threshold: number
+    /** percentage: a share of the exposed users or groups, on the 0-100 scale. p_value: the p-value of a statistical test.
+     *
+     * * `percentage` - Percentage of exposed units
+     * * `p_value` - P-value of a statistical test */
+    unit: ExperimentHealthMeasurementUnitEnumApi
+    /** The side of the threshold that reports a finding: above or below.
+     *
+     * * `above` - Finding above the threshold
+     * * `below` - Finding below the threshold */
+    warns: ExperimentHealthMeasurementSideEnumApi
+}
+
 export interface ExperimentHealthCheckResultApi {
     /** Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
      *
      * * `flag_state` - Flag State
+     * * `flag_shared` - Flag Shared
      * * `flag_history` - Flag History
      * * `split_changed_mid_run` - Split Changed Mid Run
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
@@ -2549,6 +2604,8 @@ export interface ExperimentHealthCheckResultApi {
     key: ExperimentHealthCheckKeyEnumApi
     /** The problem the check looks for, for example 'Metrics not set up'. */
     name: string
+    /** What the check looks for and why it matters. The same for every experiment and every status. */
+    description: string
     /** passed: the check found no problem. finding: the check reported a finding in `findings`. not_applicable: the check does not cover the experiment's current state, for example a check of the changes since launch on a draft. not_checked: the check covers the experiment, but it could not read an input or it failed, so a problem it looks for can be present without a finding.
      *
      * * `passed` - Passed
@@ -2561,6 +2618,8 @@ export interface ExperimentHealthCheckResultApi {
      * @nullable
      */
     reason: string | null
+    /** The value that decided a passed check, against its threshold. Null for the other statuses, and for a pass without a value. A finding carries its values in `evidence`. */
+    measurement: ExperimentHealthMeasurementApi | null
 }
 
 export interface ExperimentHealthApi {
@@ -5433,9 +5492,9 @@ export const ExperimentsRunningTimeTargetRetrieveMode = {
 
 export type ExperimentsTimeseriesResultsRetrieveParams = {
     /**
-     * Fingerprint of the metric configuration. Available alongside metric_uuid on each metric in the experiment's metrics array.
+     * Ignored. The server derives the metric's calculation key from the experiment's current settings. Accepted so that existing clients keep working.
      */
-    fingerprint: string
+    fingerprint?: string
     /**
      * UUID of the metric to fetch timeseries for. Available on each metric in the experiment's metrics array.
      */

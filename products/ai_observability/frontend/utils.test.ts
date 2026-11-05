@@ -251,6 +251,7 @@ describe('AI observability utils', () => {
                     line: '5',
                     tab: 'conversation',
                     back_to: 'traces',
+                    back_url: '/ai-observability/traces',
                     filters: [{ key: '$ai_model', value: ['gpt-4o'] }],
                     search: 'foo',
                 },
