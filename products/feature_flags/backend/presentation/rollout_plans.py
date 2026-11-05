@@ -13,19 +13,17 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import SessionAuthentication
 from posthog.models.user import User
 from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_oauth_request
-from posthog.ph_client import feature_enabled_or_false
 
 from products.feature_flags.backend.facade.rollout_plans import (
     RolloutPlan,
     advance_rollout_plan,
     fail_rollout_plan,
-    get_rollout_plan,
+    is_latest_run_of_plan,
     list_rollout_plans,
     start_rollout_plan,
     stop_rollout_plan,
 )
 
-FEATURE_FLAG_ROLLOUT_AGENT_FLAG = "feature-flag-rollout-agent"
 MAX_ROLLOUT_STEPS = 10
 MAX_SOAK_HOURS = 24 * 14
 MAX_TEXT_LENGTH = 4000
@@ -139,18 +137,10 @@ class FeatureFlagRolloutPlanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         """
         if not isinstance(request.successful_authenticator, SessionAuthentication):
             raise exceptions.PermissionDenied("Only a person signed in to PostHog can approve a rollout plan.")
-        user = _user(request)
-        if not feature_enabled_or_false(
-            FEATURE_FLAG_ROLLOUT_AGENT_FLAG,
-            str(user.distinct_id),
-            groups={"organization": str(self.team.organization_id), "project": str(self.team.uuid)},
-            send_feature_flag_events=False,
-        ):
-            raise exceptions.PermissionDenied("Agent rollouts are not available for this project.")
         data = request.validated_data
         plan = start_rollout_plan(
             team=self.team,
-            user=user,
+            user=_user(request),
             feature_flag_id=data["feature_flag"],
             condition_index=data["condition_index"],
             percentages=data["percentages"],
@@ -206,11 +196,18 @@ class FeatureFlagRolloutPlanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(FeatureFlagRolloutPlanSerializer(plan).data)
 
     def _require_plan_run(self, request: Request, plan_id: UUID | str) -> UUID:
-        plan = get_rollout_plan(UUID(str(plan_id)), team=self.team)
-        task_id = getattr(get_oauth_access_token(request), "sandbox_task_id", None)
-        if not is_sandbox_oauth_request(request) or task_id is None or task_id != plan.task_id:
-            raise exceptions.PermissionDenied("Only the run of this rollout plan can do this.")
-        return plan.id
+        parsed_plan_id = UUID(str(plan_id))
+        token = get_oauth_access_token(request)
+        task_id = getattr(token, "sandbox_task_id", None)
+        token_id = getattr(token, "id", None)
+        if (
+            task_id is None
+            or token_id is None
+            or not is_sandbox_oauth_request(request)
+            or not is_latest_run_of_plan(parsed_plan_id, team=self.team, task_id=task_id, token_id=token_id)
+        ):
+            raise exceptions.PermissionDenied("Only the latest run of this rollout plan can do this.")
+        return parsed_plan_id
 
 
 def _user(request: Request) -> User:

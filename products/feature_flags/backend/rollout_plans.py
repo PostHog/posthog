@@ -13,7 +13,7 @@ from posthog.exceptions import Conflict
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.temporal.oauth import McpScopePreset
+from posthog.ph_client import get_feature_flag_or_none
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.approvals.backend.exceptions import ApprovalRequired
@@ -23,6 +23,7 @@ from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.facade.filters import condition_rollout_percentage, set_release_condition_rollout
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.feature_flag_rollout_plan import FeatureFlagRolloutPlan
+from products.feature_flags.backend.task_profiles import FEATURE_FLAG_ROLLOUT_PROFILE, ROLLOUT_PLAN_MCP_SCOPES
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -32,18 +33,21 @@ from products.notifications.backend.facade.api import (
     create_notification,
 )
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.access import is_sandbox_run_request
 from products.tasks.backend.facade.cancellation import cancel_task_run
 from products.tasks.backend.facade.usage import task_run_usage_limited
 
 logger = structlog.get_logger(__name__)
 
-ROLLOUT_PLAN_MCP_SCOPES: McpScopePreset = "feature_flag_rollout"
+FEATURE_FLAG_ROLLOUT_AGENT_FLAG = "feature-flag-rollout-agent"
 TITLE_MAX_LENGTH = 255
 MAX_LISTED_PLANS = 20
 SCHEDULE_FAILURE_REASON = "PostHog could not schedule the next health check."
 RUN_ENDED_REASON = (
     "The health check ended without a result, so the next step did not run. Start a new rollout to continue."
 )
+AGENT_ROLLOUTS_OFF_REASON = "Agent rollouts are turned off for this project."
+AI_PROCESSING_OFF_REASON = "AI data processing is turned off for this organization, so agent rollouts cannot run."
 
 
 def get_rollout_plan(plan_id: UUID, *, team: Team) -> FeatureFlagRolloutPlan:
@@ -55,6 +59,17 @@ def get_rollout_plan(plan_id: UUID, *, team: Team) -> FeatureFlagRolloutPlan:
     if plan is None:
         raise exceptions.NotFound("This rollout plan does not exist in this project.")
     return plan
+
+
+def is_latest_run_of_plan(plan_id: UUID, *, team: Team, task_id: UUID, token_id: UUID) -> bool:
+    plan = get_rollout_plan(plan_id, team=team)
+    return (
+        plan.task_id == task_id
+        and plan.latest_run_id is not None
+        and is_sandbox_run_request(
+            team_id=plan.team_id, task_id=str(task_id), run_id=str(plan.latest_run_id), token_id=token_id
+        )
+    )
 
 
 def list_rollout_plans(feature_flag_id: int, *, team: Team, user: User) -> list[FeatureFlagRolloutPlan]:
@@ -77,6 +92,10 @@ def start_rollout_plan(
     soak_hours: int,
     health_checks: str,
 ) -> FeatureFlagRolloutPlan:
+    if _agent_rollouts_flag_value(user, team) is not True:
+        raise exceptions.PermissionDenied(AGENT_ROLLOUTS_OFF_REASON)
+    if not _ai_processing_approved(team):
+        raise exceptions.PermissionDenied(AI_PROCESSING_OFF_REASON)
     flag = FeatureFlag.objects.filter(team__project_id=team.project_id, pk=feature_flag_id, deleted=False).first()
     if flag is None:
         raise exceptions.NotFound("This feature flag does not exist in this project.")
@@ -102,7 +121,7 @@ def start_rollout_plan(
                 team=team,
                 title=f"Roll out {flag.key}"[:TITLE_MAX_LENGTH],
                 description=_run_prompt(plan, flag),
-                origin_product=tasks_facade.TaskOriginProduct.POSTHOG_AI,
+                profile=FEATURE_FLAG_ROLLOUT_PROFILE,
                 user_id=user.pk,
                 repository=None,
                 create_pr=False,
@@ -120,6 +139,8 @@ def start_rollout_plan(
 
 def advance_rollout_plan(plan_id: UUID, *, team: Team, user: User, summary: str) -> FeatureFlagRolloutPlan:
     now = timezone.now()
+    agent_rollouts_turned_off = _agent_rollouts_flag_value(user, team) is False
+    failure: str | None = None
     with transaction.atomic():
         plan = FeatureFlagRolloutPlan.objects.select_for_update(of=("self",)).get(
             pk=plan_id, team__project_id=team.project_id
@@ -134,9 +155,25 @@ def advance_rollout_plan(plan_id: UUID, *, team: Team, user: User, summary: str)
             plan.status = FeatureFlagRolloutPlan.Status.COMPLETED
             plan.next_check_at = None
         else:
-            plan.steps_applied = step + 1
-            plan.next_check_at = now + timedelta(hours=plan.soak_hours)
-        plan.save(update_fields=["last_summary", "next_check_at", "status", "steps_applied", "updated_at"])
+            if agent_rollouts_turned_off:
+                failure = AGENT_ROLLOUTS_OFF_REASON
+            elif not _ai_processing_approved(team):
+                failure = AI_PROCESSING_OFF_REASON
+            else:
+                failure = _apply_step(plan, team=team, percentage=plan.percentages[step])
+            if failure is None:
+                plan.steps_applied = step + 1
+                plan.next_check_at = now + timedelta(hours=plan.soak_hours)
+        plan.save(
+            update_fields=[
+                "expected_flag_version",
+                "last_summary",
+                "next_check_at",
+                "status",
+                "steps_applied",
+                "updated_at",
+            ]
+        )
 
     if plan.status == FeatureFlagRolloutPlan.Status.COMPLETED:
         _notify(
@@ -147,14 +184,10 @@ def advance_rollout_plan(plan_id: UUID, *, team: Team, user: User, summary: str)
         _report(plan, user, "feature flag rollout plan completed")
         return plan
 
-    percentage = plan.percentages[step]
-    failure = _apply_step(plan, team=team, percentage=percentage)
     if failure is not None:
-        FeatureFlagRolloutPlan.objects.filter(pk=plan.pk).update(steps_applied=step)
         return stop_rollout_plan(plan, reason=failure, stopped_by=None, acting_user=user)
 
-    FeatureFlagRolloutPlan.objects.filter(pk=plan.pk).update(expected_flag_version=plan.expected_flag_version)
-    _report(plan, user, "feature flag rollout plan step applied", percentage=percentage)
+    _report(plan, user, "feature flag rollout plan step applied", percentage=plan.percentages[step])
     failure = _schedule_next_check(plan, at=plan.next_check_at)
     if failure is not None:
         return stop_rollout_plan(plan, reason=failure, stopped_by=None, acting_user=user)
@@ -162,9 +195,17 @@ def advance_rollout_plan(plan_id: UUID, *, team: Team, user: User, summary: str)
 
 
 def stop_rollout_plan(
-    plan: FeatureFlagRolloutPlan, *, reason: str, stopped_by: User | None, acting_user: User | None
+    plan: FeatureFlagRolloutPlan,
+    *,
+    reason: str,
+    stopped_by: User | None,
+    acting_user: User | None,
+    only_if_latest_run: UUID | None = None,
 ) -> FeatureFlagRolloutPlan:
-    updated = FeatureFlagRolloutPlan.objects.filter(pk=plan.pk, status=FeatureFlagRolloutPlan.Status.ACTIVE).update(
+    active = FeatureFlagRolloutPlan.objects.filter(pk=plan.pk, status=FeatureFlagRolloutPlan.Status.ACTIVE)
+    if only_if_latest_run is not None:
+        active = active.filter(latest_run_id=only_if_latest_run)
+    updated = active.update(
         status=FeatureFlagRolloutPlan.Status.STOPPED, stop_reason=reason, next_check_at=None, updated_at=timezone.now()
     )
     plan.refresh_from_db()
@@ -172,7 +213,7 @@ def stop_rollout_plan(
         return plan
 
     if stopped_by is not None:
-        _cancel_pending_run(plan, stopped_by)
+        _cancel_pending_run(plan, requested_by_user_id=stopped_by.pk)
     else:
         _notify(
             plan,
@@ -198,14 +239,39 @@ def stop_rollout_plans_with_ended_runs() -> None:
     plans = list(
         FeatureFlagRolloutPlan.objects.unscoped()
         .filter(status=FeatureFlagRolloutPlan.Status.ACTIVE)
-        .only("id", "team_id", "latest_run_id")
+        .values("id", "team_id", "latest_run_id", "team__organization__is_ai_data_processing_approved")
     )
-    ended_run_ids = tasks_facade.ended_task_run_ids(plan.latest_run_id for plan in plans if plan.latest_run_id)
+    ended_run_ids = tasks_facade.ended_task_run_ids(plan["latest_run_id"] for plan in plans if plan["latest_run_id"])
     for active_plan in plans:
-        if active_plan.latest_run_id in ended_run_ids:
-            with team_scope(active_plan.team_id):
-                plan = FeatureFlagRolloutPlan.objects.get(pk=active_plan.pk)
-                stop_rollout_plan(plan, reason=RUN_ENDED_REASON, stopped_by=None, acting_user=plan.created_by)
+        ai_processing_off = active_plan["team__organization__is_ai_data_processing_approved"] is not True
+        if not ai_processing_off and active_plan["latest_run_id"] not in ended_run_ids:
+            continue
+        with team_scope(active_plan["team_id"]):
+            plan = FeatureFlagRolloutPlan.objects.get(pk=active_plan["id"])
+            if ai_processing_off:
+                stop_rollout_plan(plan, reason=AI_PROCESSING_OFF_REASON, stopped_by=None, acting_user=plan.created_by)
+                _cancel_pending_run(plan, requested_by_user_id=plan.created_by_id)
+            else:
+                stop_rollout_plan(
+                    plan,
+                    reason=RUN_ENDED_REASON,
+                    stopped_by=None,
+                    acting_user=plan.created_by,
+                    only_if_latest_run=active_plan["latest_run_id"],
+                )
+
+
+def _agent_rollouts_flag_value(user: User, team: Team) -> str | bool | None:
+    return get_feature_flag_or_none(
+        FEATURE_FLAG_ROLLOUT_AGENT_FLAG,
+        str(user.distinct_id),
+        groups={"organization": str(team.organization_id), "project": str(team.uuid)},
+        send_feature_flag_events=False,
+    )
+
+
+def _ai_processing_approved(team: Team) -> bool:
+    return team.organization.is_ai_data_processing_approved is True
 
 
 def _check_flag_can_roll_out(flag: FeatureFlag, condition_index: int, percentages: list[int]) -> None:
@@ -232,14 +298,17 @@ def _apply_step(plan: FeatureFlagRolloutPlan, *, team: Team, percentage: int) ->
     if (flag.version or 0) != version:
         return "Someone changed the feature flag after the last step, so the plan no longer matches it."
     try:
-        filters = set_release_condition_rollout(flag.get_filters(), plan.condition_index, percentage)
-        updated = update_flag(
-            flag,
-            {"filters": filters},
-            team=team,
-            user=plan.created_by,
-            request=FlagVersionCheckedWriteRequest(ServiceRequest(plan.created_by, method="PATCH"), version=version),
-        )
+        with transaction.atomic():
+            filters = set_release_condition_rollout(flag.get_filters(), plan.condition_index, percentage)
+            updated = update_flag(
+                flag,
+                {"filters": filters},
+                team=team,
+                user=plan.created_by,
+                request=FlagVersionCheckedWriteRequest(
+                    ServiceRequest(plan.created_by, method="PATCH"), version=version
+                ),
+            )
     except ApprovalRequired:
         return f"Changing this feature flag needs approval, so the agent did not set it to {percentage}%."
     except Conflict:
@@ -268,12 +337,24 @@ def _schedule_next_check(plan: FeatureFlagRolloutPlan, *, at: datetime | None) -
     if result is None or result.error is not None or result.run_id is None:
         logger.warning("feature_flag_rollout_plan_schedule_failed", plan_id=str(plan.pk))
         return SCHEDULE_FAILURE_REASON
-    FeatureFlagRolloutPlan.objects.filter(pk=plan.pk).update(latest_run_id=result.run_id)
-    plan.latest_run_id = result.run_id
+    recorded = FeatureFlagRolloutPlan.objects.filter(pk=plan.pk, status=FeatureFlagRolloutPlan.Status.ACTIVE).update(
+        latest_run_id=result.run_id
+    )
+    if recorded:
+        plan.latest_run_id = result.run_id
+        return None
+    cancel_task_run(
+        result.run_id,
+        plan.task_id,
+        plan.team_id,
+        reason="The rollout plan was stopped.",
+        requested_by_user_id=plan.created_by_id,
+    )
+    plan.refresh_from_db()
     return None
 
 
-def _cancel_pending_run(plan: FeatureFlagRolloutPlan, user: User) -> None:
+def _cancel_pending_run(plan: FeatureFlagRolloutPlan, *, requested_by_user_id: int | None) -> None:
     if plan.task_id is None or plan.latest_run_id is None:
         return
     cancel_task_run(
@@ -281,7 +362,7 @@ def _cancel_pending_run(plan: FeatureFlagRolloutPlan, user: User) -> None:
         plan.task_id,
         plan.team_id,
         reason="The rollout plan was stopped.",
-        requested_by_user_id=user.pk,
+        requested_by_user_id=requested_by_user_id,
     )
 
 
@@ -302,7 +383,9 @@ def _run_prompt(plan: FeatureFlagRolloutPlan, flag: FeatureFlag) -> str:
         "If every check passes, call feature-flag-rollout-plan-advance with a short summary of the numbers you read. "
         "PostHog changes the percentage and schedules the next check, so do neither yourself.\n"
         "If a check fails, or you cannot tell whether it passes, call feature-flag-rollout-plan-fail with the reason. "
-        "PostHog notifies the person and leaves the flag at its current percentage."
+        "PostHog notifies the person and leaves the flag at its current percentage.\n"
+        "If PostHog refuses either call, it already recorded this check or the plan has stopped, "
+        "so end your turn and do not call feature-flag-rollout-plan-fail because of the refusal."
     )
 
 

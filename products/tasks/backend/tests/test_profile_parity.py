@@ -39,10 +39,14 @@ from products.tasks.backend.visibility import (
     TEAM_VISIBLE_ORIGIN_PRODUCTS,
 )
 
-PROFILES = [(profile.key, profile) for profile in task_profiles()]
+PROFILES_NARROWER_THAN_THEIR_ORIGIN = {"feature_flags.rollout"}
+ORIGIN_PARITY_PROFILES = [
+    profile for profile in task_profiles() if profile.key not in PROFILES_NARROWER_THAN_THEIR_ORIGIN
+]
+PROFILES = [(profile.key, profile) for profile in ORIGIN_PARITY_PROFILES]
 PROFILES_BY_REPOSITORY = [
     (f"{profile.key}_{'with' if has_repository else 'without'}_repository", profile, has_repository)
-    for profile in task_profiles()
+    for profile in ORIGIN_PARITY_PROFILES
     for has_repository in (True, False)
 ]
 MAX_RUN_DURATION_SECONDS = 3 * 60 * 60

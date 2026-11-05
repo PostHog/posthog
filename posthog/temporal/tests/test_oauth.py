@@ -525,22 +525,6 @@ class TestCreateWizardOAuthAccessTokenForUser(TestCase):
             create_wizard_oauth_access_token_for_user(user, team.id)
 
 
-class TestFeatureFlagRolloutToolset(SimpleTestCase):
-    def test_opens_the_plan_writes_and_nothing_else(self) -> None:
-        catalog = Path(__file__).parents[3] / "services" / "mcp" / "schema" / "generated-tool-definitions.json"
-        definitions: dict[str, dict] = json.loads(catalog.read_text())
-        granted = set(resolve_scopes("feature_flag_rollout"))
-
-        reachable_writes = {
-            name
-            for name, definition in definitions.items()
-            for required in [definition.get("required_scopes") or []]
-            if any(scope.endswith(":write") for scope in required) and set(required) <= granted
-        }
-
-        assert reachable_writes == {"feature-flag-rollout-plan-advance", "feature-flag-rollout-plan-fail"}
-
-
 class TestSignalsResearchToolset(SimpleTestCase):
     """What the MCP server actually serves a `signals_research` token.
 

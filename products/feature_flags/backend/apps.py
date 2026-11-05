@@ -28,4 +28,7 @@ class FeatureFlagsConfig(AppConfig):
             flags_cache,
             local_evaluation,
             session_recording_links,
+            task_profiles,  # noqa: PLC0415
         )
+
+        task_profiles.register()

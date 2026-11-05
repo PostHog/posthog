@@ -45,8 +45,8 @@ def _to_contract(plan: FeatureFlagRolloutPlan) -> RolloutPlan:
     )
 
 
-def get_rollout_plan(plan_id: UUID, *, team: Team) -> RolloutPlan:
-    return _to_contract(rollout_plans.get_rollout_plan(plan_id, team=team))
+def is_latest_run_of_plan(plan_id: UUID, *, team: Team, task_id: UUID, token_id: UUID) -> bool:
+    return rollout_plans.is_latest_run_of_plan(plan_id, team=team, task_id=task_id, token_id=token_id)
 
 
 def list_rollout_plans(feature_flag_id: int, *, team: Team, user: User) -> list[RolloutPlan]:
