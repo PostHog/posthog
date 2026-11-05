@@ -779,20 +779,24 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
         jobs: [
             [] as ExternalDataJob[],
             {
-                loadJobs: async (_, breakpoint) => {
+                loadJobs: async () => {
                     const schemas = values.selectedSchemas.length > 0 ? values.selectedSchemas : undefined
 
                     try {
                         let result: ExternalDataJob[]
                         if (values.jobs.length === 0) {
                             result = await api.externalDataSources.jobs(values.sourceId, null, null, schemas)
-                            breakpoint()
                         } else {
                             // Re-fetch recent jobs without an `after` filter to get updated statuses.
                             // The API returns up to 50 jobs sorted by created_at desc, so this
                             // will refresh the status of recent jobs (e.g. Running -> Completed).
                             const freshJobs = await api.externalDataSources.jobs(values.sourceId, null, null, schemas)
-                            breakpoint()
+                            // The poll can outlive the source page, and reading values from the
+                            // unmounted logic throws. A breakpoint would also drop this load whenever
+                            // the 5s source refresh starts another one, so a slow query never lands.
+                            if (cache.disposables.isDisposed) {
+                                return []
+                            }
 
                             // Merge fresh jobs with existing jobs, preferring the fresh data
                             const jobsById = new Map(values.jobs.map((job) => [job.id, job]))
@@ -808,11 +812,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         cache.jobsPollSoftFailureCount = 0
                         return result
                     } catch (error) {
-                        // A request can finish after the source page closes. Kea moves every breakpoint
-                        // on unmount, so breakpoint() stops here instead of reading values from the
-                        // unmounted logic, which throws. It also drops this result when a newer load
-                        // started while the request ran.
-                        breakpoint()
+                        if (cache.disposables.isDisposed) {
+                            return []
+                        }
                         // Gateway timeouts / transient upstream errors are expected when the jobs
                         // query is slow. Swallow them here so the 5s poll doesn't become a source
                         // of error-tracking noise; loadJobsSuccess reschedules with backoff.
@@ -823,7 +825,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                         throw error
                     }
                 },
-                loadMoreJobs: async (_, breakpoint) => {
+                loadMoreJobs: async () => {
                     const schemas = values.selectedSchemas.length > 0 ? values.selectedSchemas : undefined
                     const hasJobs = values.jobs.length > 0
                     if (hasJobs) {
@@ -834,7 +836,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                             null,
                             schemas
                         )
-                        breakpoint()
+                        if (cache.disposables.isDisposed) {
+                            return []
+                        }
 
                         if (oldJobs.length === 0) {
                             actions.setCanLoadMoreJobs(false)

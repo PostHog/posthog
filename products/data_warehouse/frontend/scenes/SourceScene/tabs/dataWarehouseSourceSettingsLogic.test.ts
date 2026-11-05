@@ -467,6 +467,25 @@ describe('sourceSettingsLogic', () => {
         expect(consoleErrorSpy).not.toHaveBeenCalled()
     })
 
+    it('keeps a slow jobs load when another load starts while it is pending', async () => {
+        logic = sourceSettingsLogic({ id: 'source-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        let resolveSlowLoad: (jobs: ExternalDataJob[]) => void = () => {}
+        jest.spyOn(api.externalDataSources, 'jobs')
+            .mockReturnValueOnce(new Promise<ExternalDataJob[]>((resolve) => (resolveSlowLoad = resolve)))
+            .mockReturnValueOnce(new Promise<ExternalDataJob[]>(() => {}))
+
+        logic.actions.loadJobs()
+        logic.actions.loadJobs()
+        const slowJob = { id: 'job-1', created_at: '2026-01-01T00:00:00Z' } as ExternalDataJob
+
+        await expectLogic(logic, () => resolveSlowLoad([slowJob])).toDispatchActions(['loadJobsSuccess'])
+
+        expect(logic.values.jobs).toEqual([slowJob])
+    })
+
     it('re-throws non-transient errors from loadJobs so the failure path runs', async () => {
         logic = sourceSettingsLogic({ id: 'source-1' })
         logic.mount()
