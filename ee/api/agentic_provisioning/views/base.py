@@ -15,11 +15,13 @@ from django.core.exceptions import ImproperlyConfigured
 
 from rest_framework import serializers
 from rest_framework.authentication import BaseAuthentication
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 
+from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.team.team import Team
 
@@ -182,6 +184,9 @@ class ProvisioningAPIView(RegionProxyMixin, APIView):
 class BearerResourceAPIView(ProvisioningAPIView):
     """Base for the bearer-authenticated resource endpoints (status envelope)."""
 
+    # Resource IDs and token scopes resolve the organization inside the handler.
+    _ip_restrictions_use_view_scope = True
+
     error_envelope = "status"
     region_proxy_strategy = "bearer_lookup"
     authentication_classes = [ProvisioningBearerAuthentication]
@@ -213,6 +218,17 @@ class BearerResourceAPIView(ProvisioningAPIView):
             self.assert_team_access(team, access_token, resource_id=resource_id)
         return team_id, team
 
+    def enforce_team_ip_policy(self, team: Team, access_token: OAuthAccessToken, *, resource_id: str = "") -> None:
+        try:
+            enforce_ip_restrictions(
+                self.request,
+                access_token.user,
+                self.request.successful_authenticator,
+                organization_id=str(team.organization_id),
+            )
+        except PermissionDenied as error:
+            raise ProvisioningError("forbidden", str(error.detail), resource_id=resource_id, status=403) from error
+
     def assert_team_access(self, team: Team, access_token: OAuthAccessToken, *, resource_id: str = "") -> None:
         """Re-check that the token's user can still reach the team.
 
@@ -220,6 +236,7 @@ class BearerResourceAPIView(ProvisioningAPIView):
         the request's resource id or through the token's own scope. The scope alone does not
         answer the question: it records the access the user had when the token was minted.
         """
+        self.enforce_team_ip_policy(team, access_token, resource_id=resource_id)
         if access_token.user is None or not user_can_access_team(access_token.user, team):
             raise ProvisioningError(
                 "forbidden", "Resource not accessible with this token", resource_id=resource_id, status=403

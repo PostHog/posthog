@@ -167,6 +167,7 @@ class SetupWizardCloudRunTests(APIBaseTest):
     def test_rejects_project_without_access(self, same_organization: bool, ip: str) -> None:
         other_org = Organization.objects.create(name="Other Cloud Run Org")
         other_user = User.objects.create_and_join(other_org, "other-cloud-run@example.com", None)
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
         if same_organization:
             self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
             self.organization.save()
@@ -174,9 +175,6 @@ class SetupWizardCloudRunTests(APIBaseTest):
                 team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
             )
             other_user.join(organization=self.organization)
-            OrganizationIPRestrictions.objects.create(
-                organization=self.organization, ip_restrictions=["203.0.113.0/24"]
-            )
         self.client.force_login(other_user)
 
         response = self.client.post(
