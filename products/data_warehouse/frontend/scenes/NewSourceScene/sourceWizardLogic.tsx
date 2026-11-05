@@ -57,7 +57,6 @@ import {
 import type { WebhookCreateResult } from '../../shared/components/forms/WebhookSetupForm'
 import { sourceManagementLogic } from '../../shared/logics/sourceManagementLogic'
 import { clonePayloadPreservingFiles, findUploadedFiles, readJsonFile } from '../../shared/sourceFieldFiles'
-import { MANUAL_LINK_SOURCE_LABELS } from '../../shared/storageProvider'
 import { destinationStepBlockReason, shouldShowDestinationStep } from './components/destinationStepUtils'
 import { FILE_UPLOAD_SOURCE_CONFIG, FILE_UPLOAD_SOURCE_NAME } from './fileUploadSource'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
@@ -528,10 +527,6 @@ export interface sourceWizardLogicValues {
     isWebhookFieldInputsSubmitting: boolean
     isWebhookFieldInputsValid: boolean
     isWrapped: boolean
-    manualConnectors: {
-        name: string
-        type: ManualLinkSourceType
-    }[]
     manualLinkingProvider: ManualLinkSourceType | null
     modalTitle:
         | ''
@@ -545,7 +540,6 @@ export interface sourceWizardLogicValues {
     nextButtonDisabledReason: string | null
     nextButtonText: string
     oauthRedirectUrl: string | undefined
-    objectStorageSourcesEnabled: boolean
     prefixRequired: boolean
     requiredTables: any
     returnConfig: {
@@ -984,14 +978,7 @@ export interface sourceWizardLogicMeta {
         requiredTables: (arg: any) => any
         defaultSourceConnectionDetails: (selectedConnector: SourceConfigResponseApi | null) => Record<string, unknown>
         suggestedTablesMap: (selectedConnector: SourceConfigResponseApi | null) => Record<string, string | null>
-        breadcrumbs: (
-            selectedConnector: SourceConfigResponseApi | null,
-            manualLinkingProvider: 'aws' | 'azure' | 'cloudflare-r2' | 'google-cloud' | null,
-            manualConnectors: {
-                name: string
-                type: ManualLinkSourceType
-            }[]
-        ) => Breadcrumb[]
+        breadcrumbs: (selectedConnector: SourceConfigResponseApi | null) => Breadcrumb[]
         hasWebhookSchemas: (databaseSchema: ExternalDataSourceSyncSchema[]) => boolean
         webhookNeedsManualConfirmation: (
             webhookResult: WebhookCreateResult | null,
@@ -1059,11 +1046,6 @@ export interface sourceWizardLogicMeta {
             dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
             availableSources: any
         ) => SourceConfigResponseApi[]
-        objectStorageSourcesEnabled: (featureFlags: FeatureFlagsSet) => boolean
-        manualConnectors: (objectStorageSourcesEnabled: boolean) => {
-            name: string
-            type: ManualLinkSourceType
-        }[]
         isSelfManagedSource: (
             manualLinkingProvider: 'aws' | 'azure' | 'cloudflare-r2' | 'google-cloud' | null
         ) => boolean
@@ -1667,15 +1649,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.selectedConnector, s.manualLinkingProvider, s.manualConnectors],
-            (
-                selectedConnector: SourceConfigResponseApi | null,
-                manualLinkingProvider: ManualLinkSourceType | null,
-                manualConnectors: {
-                    name: string
-                    type: ManualLinkSourceType
-                }[]
-            ): Breadcrumb[] => {
+            (s) => [s.selectedConnector],
+            (selectedConnector: SourceConfigResponseApi | null): Breadcrumb[] => {
                 return [
                     {
                         key: Scene.Sources,
@@ -1685,11 +1660,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     },
                     {
                         key: Scene.DataWarehouseSource,
-                        name:
-                            selectedConnector?.label ??
-                            (manualLinkingProvider
-                                ? manualConnectors.find((c) => c.type === manualLinkingProvider)?.name
-                                : 'New'),
+                        name: selectedConnector?.label ?? 'New',
                         iconType: 'data_pipeline',
                     },
                 ]
@@ -1938,22 +1909,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             : false,
                 }))
             },
-        ],
-        // The managed object storage sources replace self-managed tables, so no new ones are created.
-        objectStorageSourcesEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean =>
-                !!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_OBJECT_STORAGE_SOURCES],
-        ],
-        manualConnectors: [
-            (s) => [s.objectStorageSourcesEnabled],
-            (objectStorageSourcesEnabled: boolean): { name: string; type: ManualLinkSourceType }[] =>
-                objectStorageSourcesEnabled
-                    ? []
-                    : manualLinkSources.map((source) => ({
-                          name: MANUAL_LINK_SOURCE_LABELS[source],
-                          type: source,
-                      })),
         ],
         isSelfManagedSource: [
             (s) => [s.manualLinkingProvider],
@@ -2908,8 +2863,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.clearReturnConfig()
             }
 
-            // File upload has no backend connector (the uploaded file becomes a self-managed table),
-            // so resolve its client-only synthetic config directly rather than from `connectors`.
+            // File upload isn't in the connector list, so resolve its client-only synthetic config
+            // directly rather than from `connectors`.
             if (kind === FILE_UPLOAD_SOURCE_NAME.toLowerCase()) {
                 if (values.selectedConnector?.name === FILE_UPLOAD_SOURCE_NAME && values.currentStep > 1) {
                     return
@@ -2919,7 +2874,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 return
             }
 
-            if (values.objectStorageSourcesEnabled && manualLinkSources.some((type) => type === kind)) {
+            // The managed object storage sources replace self-managed tables, so no new ones are created.
+            if (manualLinkSources.some((type) => type === kind)) {
                 actions.selectConnector(null)
                 actions.setStep(1)
                 router.actions.replace(urls.dataWarehouseSourceNew())
@@ -2927,16 +2883,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
 
             const source = values.connectors?.find((s) => s?.name?.toLowerCase?.() === kind)
-            const manualSource = values.manualConnectors?.find((s) => s?.type?.toLowerCase() === kind)
-
-            if (manualSource) {
-                if (values.manualLinkingProvider === manualSource.type && values.currentStep > 1) {
-                    return
-                }
-                actions.toggleManualLinkFormVisible(true)
-                actions.setManualLinkingProvider(manualSource.type)
-                return
-            }
 
             if (source) {
                 if (
