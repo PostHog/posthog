@@ -52,12 +52,12 @@ from products.warehouse_sources.backend.facade.contracts import (
     UnusableCredentialsReferenceError,
 )
 from products.warehouse_sources.backend.facade.models import (
-    SETTABLE_SYNC_FREQUENCIES,
     DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSource,
     PendingSourceCredential,
+    SettableSyncFrequency,
     get_or_create_warehouse_destination,
     sync_frequency_to_sync_frequency_interval,
     sync_old_schemas_with_new_schemas,
@@ -136,7 +136,9 @@ def _payload_sync_frequency_interval(frequency: Any) -> timedelta:
 
     Only frequencies a schema update accepts count, so creation cannot go below the 5-minute floor.
     """
-    interval = sync_frequency_to_sync_frequency_interval(frequency) if frequency in SETTABLE_SYNC_FREQUENCIES else None
+    interval = (
+        sync_frequency_to_sync_frequency_interval(frequency) if frequency in SettableSyncFrequency.values else None
+    )
     return interval or timedelta(hours=6)
 
 
