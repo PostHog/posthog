@@ -68,9 +68,11 @@ describe('visualReviewRunSceneLogic', () => {
         const toastError = jest.spyOn(lemonToast, 'error')
         logic = visualReviewRunSceneLogic({ runId: RUN_ID })
         logic.mount()
+        // PR comment links carry a snapshot, which makes a successful snapshots load fetch it again.
+        logic.actions.setSelectedSnapshotId(UNCHANGED_SNAPSHOT.id)
 
         await expectLogic(logic)
-            .toDispatchActions(['setRunNotFound', 'loadRunSuccess', 'loadSnapshotsSuccess'])
+            .toDispatchActions(['setRunNotFound', 'loadRunSuccess', 'loadDeepLinkedSnapshotSuccess'])
             .toMatchValues({ runNotFound: true, run: null })
         expect(captureException).not.toHaveBeenCalled()
         expect(toastError).not.toHaveBeenCalled()

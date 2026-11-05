@@ -601,10 +601,18 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             null as SnapshotApi | null,
             {
                 loadDeepLinkedSnapshot: async (snapshotId: string, breakpoint) => {
-                    const response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), props.runId, {
-                        include_quarantined: true,
-                        snapshot_id: snapshotId,
-                    })
+                    let response
+                    try {
+                        response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), props.runId, {
+                            include_quarantined: true,
+                            snapshot_id: snapshotId,
+                        })
+                    } catch (error) {
+                        if (isNotFoundError(error)) {
+                            return null
+                        }
+                        throw error
+                    }
                     breakpoint()
                     // The user may have gone back to a snapshot cached here, which starts no request.
                     if (values.selectedSnapshotId !== snapshotId) {
