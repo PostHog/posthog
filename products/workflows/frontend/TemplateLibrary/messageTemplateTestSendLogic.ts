@@ -45,6 +45,7 @@ export interface messageTemplateTestSendLogicValues {
     emailIntegrations: IntegrationType[]
     isModalOpen: boolean
     isSandboxSenderSelected: boolean
+    membersLoadFailed: boolean
     membersNeeded: boolean
     recipientEmail: string
     recipientIsUnverifiedSelf: boolean
@@ -62,6 +63,13 @@ export interface messageTemplateTestSendLogicValues {
 export interface messageTemplateTestSendLogicActions {
     loadAllMembers: () => {
         value: true
+    } // membersLogic
+    loadAllMembersFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
     } // membersLogic
     clearTestSendResult: () => {
         value: true
@@ -146,7 +154,8 @@ export interface messageTemplateTestSendLogicMeta {
             recipientEmail: string,
             senderIntegrationId: number | null,
             isSandboxSenderSelected: boolean,
-            membersLoading: boolean
+            membersLoading: boolean,
+            recipientIsUnverifiedSelf: boolean
         ) => string | undefined
     }
 }
@@ -175,7 +184,7 @@ export const messageTemplateTestSendLogic = kea<messageTemplateTestSendLogicType
             membersLogic,
             ['members', 'membersLoading', 'meFirstMembers'],
         ],
-        actions: [membersLogic, ['loadAllMembers']],
+        actions: [membersLogic, ['loadAllMembers', 'loadAllMembersFailure']],
     })),
     actions({
         setModalOpen: (open: boolean) => ({ open }),
@@ -187,6 +196,7 @@ export const messageTemplateTestSendLogic = kea<messageTemplateTestSendLogicType
         isModalOpen: [false, { setModalOpen: (_, { open }) => open }],
         recipientEmail: ['', { setRecipientEmail: (_, { email }) => email }],
         senderIntegrationIdOverride: [null as number | null, { setSenderIntegrationId: (_, { id }) => id }],
+        membersLoadFailed: [false, { loadAllMembers: () => false, loadAllMembersFailure: () => true }],
     }),
     loaders(({ values }) => ({
         testSendResult: [
@@ -329,13 +339,21 @@ export const messageTemplateTestSendLogic = kea<messageTemplateTestSendLogicType
                 !recipientSuggestions.some((suggestion) => sameEmail(suggestion, recipientEmail)),
         ],
         sendDisabledReason: [
-            (s) => [s.template, s.recipientEmail, s.senderIntegrationId, s.isSandboxSenderSelected, s.membersLoading],
+            (s) => [
+                s.template,
+                s.recipientEmail,
+                s.senderIntegrationId,
+                s.isSandboxSenderSelected,
+                s.membersLoading,
+                s.recipientIsUnverifiedSelf,
+            ],
             (
                 template: MessageTemplate,
                 recipientEmail: string,
                 senderIntegrationId: number | null,
                 isSandboxSenderSelected: boolean,
-                membersLoading: boolean
+                membersLoading: boolean,
+                recipientIsUnverifiedSelf: boolean
             ): string | undefined => {
                 if (!template.content.email?.subject) {
                     return 'Add a subject first'
@@ -351,6 +369,9 @@ export const messageTemplateTestSendLogic = kea<messageTemplateTestSendLogicType
                 }
                 if (isSandboxSenderSelected && membersLoading) {
                     return 'Checking your organization members'
+                }
+                if (recipientIsUnverifiedSelf) {
+                    return 'Verify your email address first'
                 }
                 return undefined
             },

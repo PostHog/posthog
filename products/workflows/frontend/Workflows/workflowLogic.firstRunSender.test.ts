@@ -337,7 +337,7 @@ describe('workflow first-run sender', () => {
         expectedEnsureCalls: number
     }>([
         {
-            name: 'an inserted email step gets the sandbox sender set up when the editor opened',
+            name: 'an inserted email step gets the sandbox sender set up when it is inserted',
             step: emailAction('function_email'),
             senders: [],
             flag: true,
@@ -426,10 +426,37 @@ describe('workflow first-run sender', () => {
 
             editor.actions.setNodeToBeAdded({ ...step, id: undefined } as any)
             editor.actions.onDrop(undefined, NEW_WORKFLOW.edges[0])
+            await expectLogic(editor).toFinishAllListeners()
 
             const inserted = workflow.values.workflow.actions.find((action) => action.type === step.type)
             expect((inserted?.config as any)?.inputs?.email?.value?.from).toEqual(expectedFrom)
             expect(ensureCalls).toBe(expectedEnsureCalls)
+            editor.unmount()
+            workflow.unmount()
+        }
+    )
+
+    it.each<[string, 'broadcasts' | undefined]>([
+        ['a workflow', undefined],
+        ['a broadcast', 'broadcasts'],
+    ])(
+        'sets up no sandbox sender when the editor opens %s without inserting an email step',
+        async (_, originProduct) => {
+            integrations = []
+            setSandboxFlag(true)
+            const workflow = workflowLogic({ id: 'new' })
+            workflow.mount()
+            await expectLogic(workflow).toDispatchActions(['loadWorkflowSuccess'])
+            if (originProduct) {
+                workflow.actions.setWorkflowInfo({ origin_product: originProduct })
+            }
+            const editor = hogFlowEditorLogic({ id: 'new' })
+            editor.mount()
+            await expectLogic(editor).toFinishAllListeners()
+            setSandboxFlag(true)
+            await expectLogic(editor).toFinishAllListeners()
+
+            expect(ensureCalls).toBe(0)
             editor.unmount()
             workflow.unmount()
         }

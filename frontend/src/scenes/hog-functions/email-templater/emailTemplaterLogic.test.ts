@@ -153,14 +153,27 @@ describe('emailTemplaterLogic', () => {
                 from: { integrationId: 5, email: 'hello@acme.example.com' },
                 replyTo: '',
                 confirm: true,
+                removes: 'This removes your custom sender.',
             },
-            { field: 'a custom name', from: { integrationId: 5, name: 'Acme' }, replyTo: '', confirm: true },
-            { field: 'a Reply-To', from: { integrationId: 5 }, replyTo: 'replies@acme.example.com', confirm: true },
+            {
+                field: 'a custom name',
+                from: { integrationId: 5, name: 'Acme' },
+                replyTo: '',
+                confirm: true,
+                removes: 'This removes your custom sender.',
+            },
+            {
+                field: 'a Reply-To',
+                from: { integrationId: 5 },
+                replyTo: 'replies@acme.example.com',
+                confirm: true,
+                removes: 'This removes your Reply-To.',
+            },
             { field: 'a rotation', from: { integrationId: 5, integrationIds: [5, 6] }, replyTo: '', confirm: true },
             { field: 'one plain sender', from: { integrationId: 5 }, replyTo: '', confirm: false },
         ])(
             'picking the sandbox sender over $field replaces it after any confirmation',
-            async ({ from, replyTo, confirm }) => {
+            async ({ from, replyTo, confirm, removes }) => {
                 enableSandboxFlag()
                 useMocks({
                     get: {
@@ -184,6 +197,10 @@ describe('emailTemplaterLogic', () => {
                 expect(dialog).toHaveBeenCalledTimes(confirm ? 1 : 0)
                 if (confirm) {
                     expect(onChange).not.toHaveBeenCalled()
+                    expect(dialog.mock.calls[0][0].description).toContain(removes ?? 'sends from its own address')
+                    if (!removes) {
+                        expect(dialog.mock.calls[0][0].description).not.toContain('This removes')
+                    }
                     if (from.integrationIds) {
                         expect(dialog.mock.calls[0][0].description).toContain(
                             'This replaces Acme <hello@acme.example.com> and Second <second@acme.example.com>'
