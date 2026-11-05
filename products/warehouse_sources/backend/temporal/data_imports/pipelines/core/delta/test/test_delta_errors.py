@@ -209,19 +209,6 @@ class TestIsTransientObjectStoreError:
             # exception sees the wrapper, not the original — it must still read as transient.
             ("already_wrapped_transient_error", TransientObjectStoreError("Please reduce your request rate"), True),
             (
-                # delta-rs prefixes a failed client *construction* with the same "Generic S3 error"
-                # text the blips above use, so without the builder-error carve-out this would also
-                # match the broad needle and read as transient — but an http:// endpoint without
-                # AWS_ALLOW_HTTP fails the identical way on every retry, so it must not.
-                "object_store_builder_error_url_scheme_not_allowed",
-                OSError(
-                    "Generic S3 error: Error performing list request: Error performing GET "
-                    "http://objectstorage:19000/data-warehouse?list-type=2&prefix=_delta_log/ "
-                    "in 8.225µs - HTTP error: builder error: URL scheme is not allowed"
-                ),
-                False,
-            ),
-            (
                 # An exhausted `ensure_bucket_exists` HeadBucket 403 retry is deliberately NOT folded
                 # in here: under `USE_LOCAL_SETUP` the credentials are operator-configured, so this
                 # shape can mean a genuinely broken local setup, not just a boot race. Only

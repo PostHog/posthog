@@ -745,10 +745,11 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                   })
                 : null
         return {
-            updateNodeDescriptionSuccess: ({ node }) => {
+            updateNodeDescriptionSuccess: ({ node, payload }) => {
+                // A cleared table annotation returns the source description, so read what was sent.
                 posthog.capture('model description edited', {
                     node_type: node.type,
-                    cleared: !node.description,
+                    cleared: !payload?.description.trim(),
                 })
             },
             setLineageTypeFilter: ({ typeFilter }) => {

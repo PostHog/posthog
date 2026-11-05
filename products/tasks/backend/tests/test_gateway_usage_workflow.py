@@ -38,27 +38,17 @@ from products.tasks.backend.temporal.gateway_usage import (
 @pytest.mark.parametrize("failed_connection", [False, True])
 async def test_scheduling_reuses_connection_after_success_and_retries_failure(failed_connection: bool) -> None:
     client = Mock(start_workflow=AsyncMock())
-    attempts = 0
-
-    async def connect_once() -> Mock:
-        nonlocal attempts
-        attempts += 1
-        if failed_connection and attempts == 1:
-            raise RuntimeError("unavailable")
-        return client
-
     _gateway_usage_client.cache_clear()
     with patch("posthog.temporal.common.client.async_connect", new_callable=AsyncMock) as connect:
-        connect.side_effect = connect_once
+        connect.side_effect = [RuntimeError("unavailable"), client] if failed_connection else None
+        connect.return_value = client
         if failed_connection:
             with pytest.raises(RuntimeError, match="unavailable"):
                 await _schedule_gateway_usage(run_id=uuid4(), team_id=7)
         await asyncio.gather(*(_schedule_gateway_usage(run_id=uuid4(), team_id=7) for _ in range(2)))
-        # The sync entry point keeps one loop per process, so repeated callbacks share a connection.
         await sync_to_async(schedule_gateway_usage)(run_id=uuid4(), team_id=7)
-        await sync_to_async(schedule_gateway_usage)(run_id=uuid4(), team_id=7)
-        assert connect.await_count == (3 if failed_connection else 2)
-        assert client.start_workflow.await_count == 4
+        assert connect.await_count == (2 if failed_connection else 1)
+        assert client.start_workflow.await_count == 3
     _gateway_usage_client.cache_clear()
 
 

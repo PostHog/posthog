@@ -27,6 +27,8 @@ from pydantic.dataclasses import dataclass
 
 from posthog.integrations import IntegrationUsage
 
+from products.warehouse_sources.backend.facade.types import WarehouseColumnAnnotationDescriptionSource
+
 # The request flag that confirms an edit of credentials that other sources or products also use.
 UPDATE_SHARED_CREDENTIALS_PARAM = "update_shared_credentials"
 
@@ -326,7 +328,7 @@ class TableLevelDescription:
     """What a warehouse table represents. `source` is null for text from the source schema."""
 
     text: str
-    source: str | None
+    source: WarehouseColumnAnnotationDescriptionSource | None
 
 
 @dataclass(frozen=True)

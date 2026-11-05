@@ -7,13 +7,7 @@ from posthog.ingress.github.provider import build_github_provider
 from posthog.ingress.views import build_webhook_view
 from posthog.utils import opt_slash_path
 
-from .presentation.views import (
-    DigestRunViewSet,
-    PullRequestViewSet,
-    ReviewRunViewSet,
-    RoutingRunViewSet,
-    StamphogRepoConfigViewSet,
-)
+from .presentation.views import DigestRunViewSet, PullRequestViewSet, ReviewRunViewSet, StamphogRepoConfigViewSet
 
 # Stamphog runs on its own GitHub App, with its own signing secret and its own consumers, so it
 # gets its own view rather than sharing the customer-facing App's endpoint.
@@ -31,4 +25,3 @@ def register_routes(routers: RouterRegistry) -> None:
     )
     routers.projects.register(r"stamphog/review_runs", ReviewRunViewSet, "project_stamphog_review_runs", ["team_id"])
     routers.projects.register(r"stamphog/digest_runs", DigestRunViewSet, "project_stamphog_digest_runs", ["team_id"])
-    routers.projects.register(r"stamphog/routing_runs", RoutingRunViewSet, "project_stamphog_routing_runs", ["team_id"])

@@ -21,7 +21,6 @@ const serverFinding = (
     evidence: {},
     actions: [],
     diagnostic_ref: null,
-    check: 'no_metric',
 })
 
 const exposureFinding = (code: ExperimentExposureHealthFindingCode): ExperimentExposureHealthFinding => ({

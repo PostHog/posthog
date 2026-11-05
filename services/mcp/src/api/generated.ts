@@ -37184,30 +37184,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `queued` - Queued
-     * * `failed` - Failed
-     * * `sent` - Sent
-     * * `delivered` - Delivered
-     * * `bounced` - Bounced
-     * * `complained` - Complained
-     * * `opened` - Opened
-     * * `clicked` - Clicked
-     */
-    export type EmailLogEventKindEnum = typeof EmailLogEventKindEnum[keyof typeof EmailLogEventKindEnum];
-
-
-    export const EmailLogEventKindEnum = {
-      Queued: 'queued',
-      Failed: 'failed',
-      Sent: 'sent',
-      Delivered: 'delivered',
-      Bounced: 'bounced',
-      Complained: 'complained',
-      Opened: 'opened',
-      Clicked: 'clicked',
-    } as const;
-
-    /**
      * How much workflow email this project may send, and how much of that it has used.
      */
     export interface EmailSendingAllowance {
@@ -43128,60 +43104,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `flag_state` - Flag State
-     * * `flag_shared` - Flag Shared
-     * * `flag_history` - Flag History
-     * * `split_changed_mid_run` - Split Changed Mid Run
-     * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
-     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
-     * * `flag_variants_mismatch` - Flag Variants Mismatch
-     * * `forced_variant_release_condition` - Forced Variant Release Condition
-     * * `new_flag_no_traffic` - New Flag No Traffic
-     * * `no_metric` - No Metric
-     * * `metric_event_not_ingested` - Metric Event Not Ingested
-     * * `metric_cannot_compile` - Metric Cannot Compile
-     * * `metric_calculation_failed` - Metric Calculation Failed
-     * * `metric_all_zero` - Metric All Zero
-     * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
-     * * `exposure_filters` - Exposure Filters
-     * * `early_significance` - Early Significance
-     * * `metrics_not_matured` - Metrics Not Matured
-     * * `zero_exposures` - Zero Exposures
-     * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
-     * * `srm` - Srm
-     * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
-     * * `multiple_variants_share` - Multiple Variants Share
-     */
-    export type ExperimentHealthCheckKeyEnum = typeof ExperimentHealthCheckKeyEnum[keyof typeof ExperimentHealthCheckKeyEnum];
-
-
-    export const ExperimentHealthCheckKeyEnum = {
-      FlagState: 'flag_state',
-      FlagShared: 'flag_shared',
-      FlagHistory: 'flag_history',
-      SplitChangedMidRun: 'split_changed_mid_run',
-      BucketingChangedMidRun: 'bucketing_changed_mid_run',
-      ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
-      FlagVariantsMismatch: 'flag_variants_mismatch',
-      ForcedVariantReleaseCondition: 'forced_variant_release_condition',
-      NewFlagNoTraffic: 'new_flag_no_traffic',
-      NoMetric: 'no_metric',
-      MetricEventNotIngested: 'metric_event_not_ingested',
-      MetricCannotCompile: 'metric_cannot_compile',
-      MetricCalculationFailed: 'metric_calculation_failed',
-      MetricAllZero: 'metric_all_zero',
-      ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
-      ExposureFilters: 'exposure_filters',
-      EarlySignificance: 'early_significance',
-      MetricsNotMatured: 'metrics_not_matured',
-      ZeroExposures: 'zero_exposures',
-      TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
-      Srm: 'srm',
-      BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
-      MultipleVariantsShare: 'multiple_variants_share',
-    } as const;
-
-    /**
      * The values behind the finding, such as the key of a shipped variant or the share of users exposed to multiple variants. The keys depend on the code.
      */
     export type ExperimentHealthFindingEvidence = {[key: string]: string | number | boolean | null};
@@ -43244,33 +43166,61 @@ export namespace Schemas {
          * @nullable
          */
       diagnostic_ref: string | null;
-      /** The key of the check in `checks` that reported the finding. A check can report several codes, so the code doesn't name the check.
-       *
-       * * `flag_state` - Flag State
-       * * `flag_shared` - Flag Shared
-       * * `flag_history` - Flag History
-       * * `split_changed_mid_run` - Split Changed Mid Run
-       * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
-       * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
-       * * `flag_variants_mismatch` - Flag Variants Mismatch
-       * * `forced_variant_release_condition` - Forced Variant Release Condition
-       * * `new_flag_no_traffic` - New Flag No Traffic
-       * * `no_metric` - No Metric
-       * * `metric_event_not_ingested` - Metric Event Not Ingested
-       * * `metric_cannot_compile` - Metric Cannot Compile
-       * * `metric_calculation_failed` - Metric Calculation Failed
-       * * `metric_all_zero` - Metric All Zero
-       * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
-       * * `exposure_filters` - Exposure Filters
-       * * `early_significance` - Early Significance
-       * * `metrics_not_matured` - Metrics Not Matured
-       * * `zero_exposures` - Zero Exposures
-       * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
-       * * `srm` - Srm
-       * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
-       * * `multiple_variants_share` - Multiple Variants Share */
-      check: ExperimentHealthCheckKeyEnum;
     }
+
+    /**
+     * * `flag_state` - Flag State
+     * * `flag_shared` - Flag Shared
+     * * `flag_history` - Flag History
+     * * `split_changed_mid_run` - Split Changed Mid Run
+     * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+     * * `flag_variants_mismatch` - Flag Variants Mismatch
+     * * `forced_variant_release_condition` - Forced Variant Release Condition
+     * * `new_flag_no_traffic` - New Flag No Traffic
+     * * `no_metric` - No Metric
+     * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_cannot_compile` - Metric Cannot Compile
+     * * `metric_calculation_failed` - Metric Calculation Failed
+     * * `metric_all_zero` - Metric All Zero
+     * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `exposure_filters` - Exposure Filters
+     * * `early_significance` - Early Significance
+     * * `metrics_not_matured` - Metrics Not Matured
+     * * `zero_exposures` - Zero Exposures
+     * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
+     * * `srm` - Srm
+     * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+     * * `multiple_variants_share` - Multiple Variants Share
+     */
+    export type ExperimentHealthCheckKeyEnum = typeof ExperimentHealthCheckKeyEnum[keyof typeof ExperimentHealthCheckKeyEnum];
+
+
+    export const ExperimentHealthCheckKeyEnum = {
+      FlagState: 'flag_state',
+      FlagShared: 'flag_shared',
+      FlagHistory: 'flag_history',
+      SplitChangedMidRun: 'split_changed_mid_run',
+      BucketingChangedMidRun: 'bucketing_changed_mid_run',
+      ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
+      FlagVariantsMismatch: 'flag_variants_mismatch',
+      ForcedVariantReleaseCondition: 'forced_variant_release_condition',
+      NewFlagNoTraffic: 'new_flag_no_traffic',
+      NoMetric: 'no_metric',
+      MetricEventNotIngested: 'metric_event_not_ingested',
+      MetricCannotCompile: 'metric_cannot_compile',
+      MetricCalculationFailed: 'metric_calculation_failed',
+      MetricAllZero: 'metric_all_zero',
+      ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
+      ExposureFilters: 'exposure_filters',
+      EarlySignificance: 'early_significance',
+      MetricsNotMatured: 'metrics_not_matured',
+      ZeroExposures: 'zero_exposures',
+      TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
+      Srm: 'srm',
+      BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
+      MultipleVariantsShare: 'multiple_variants_share',
+    } as const;
 
     /**
      * * `passed` - Passed
@@ -43289,146 +43239,45 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `exposed_count` - Users or groups exposed since launch, as the exposure criteria count them, including those exposed to multiple variants
-     * * `compared_count` - Exposed users or groups in the variants that the sample ratio test compares, without those exposed to multiple variants
-     * * `multiple_variant_count` - Users or groups exposed to more than one variant
-     * * `multiple_variant_percentage` - multiple_variant_count as a share of exposed_count
-     * * `multiple_variant_handling` - What the results do with users exposed to more than one variant: exclude or first_seen
-     * * `p_value` - P-value of the sample ratio test
-     * * `since_launch_hours` - Hours since launch
-     * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
-     * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
-     * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
-     * * `primary_metric_count` - Primary metrics that the calculation computes
-     * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
-     * * `metric_count` - Metrics that the calculation computes
-     * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
-     * * `failed_metric_count` - Metrics whose latest calculation failed
-     * * `calculated_at` - When the latest calculation of the metrics finished
-     * * `flag_active` - Whether the feature flag is enabled
-     * * `flag_deleted` - Whether the feature flag is deleted
-     * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
-     * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+     * * `percentage` - Percentage of exposed units
+     * * `p_value` - P-value of a statistical test
      */
-    export type ExperimentHealthValueKeyEnum = typeof ExperimentHealthValueKeyEnum[keyof typeof ExperimentHealthValueKeyEnum];
+    export type ExperimentHealthMeasurementUnitEnum = typeof ExperimentHealthMeasurementUnitEnum[keyof typeof ExperimentHealthMeasurementUnitEnum];
 
 
-    export const ExperimentHealthValueKeyEnum = {
-      ExposedCount: 'exposed_count',
-      ComparedCount: 'compared_count',
-      MultipleVariantCount: 'multiple_variant_count',
-      MultipleVariantPercentage: 'multiple_variant_percentage',
-      MultipleVariantHandling: 'multiple_variant_handling',
+    export const ExperimentHealthMeasurementUnitEnum = {
+      Percentage: 'percentage',
       PValue: 'p_value',
-      SinceLaunchHours: 'since_launch_hours',
-      ExposedWithoutTestAccountFilterCount: 'exposed_without_test_account_filter_count',
-      KeptByTestAccountFilterPercentage: 'kept_by_test_account_filter_percentage',
-      OnlyCountMaturedUsers: 'only_count_matured_users',
-      PrimaryMetricCount: 'primary_metric_count',
-      WaitingMetricCount: 'waiting_metric_count',
-      MetricCount: 'metric_count',
-      CompletedMetricCount: 'completed_metric_count',
-      FailedMetricCount: 'failed_metric_count',
-      CalculatedAt: 'calculated_at',
-      FlagActive: 'flag_active',
-      FlagDeleted: 'flag_deleted',
-      FlagRolledOut: 'flag_rolled_out',
-      ShippedVariant: 'shipped_variant',
     } as const;
 
     /**
      * * `above` - Finding above the threshold
      * * `below` - Finding below the threshold
      */
-    export type ExperimentHealthRuleSideEnum = typeof ExperimentHealthRuleSideEnum[keyof typeof ExperimentHealthRuleSideEnum];
+    export type ExperimentHealthMeasurementSideEnum = typeof ExperimentHealthMeasurementSideEnum[keyof typeof ExperimentHealthMeasurementSideEnum];
 
 
-    export const ExperimentHealthRuleSideEnum = {
+    export const ExperimentHealthMeasurementSideEnum = {
       Above: 'above',
       Below: 'below',
     } as const;
 
-    /**
-     * * `chi_squared` - Chi-squared goodness-of-fit test
-     */
-    export type ExperimentHealthRuleTestEnum = typeof ExperimentHealthRuleTestEnum[keyof typeof ExperimentHealthRuleTestEnum];
-
-
-    export const ExperimentHealthRuleTestEnum = {
-      ChiSquared: 'chi_squared',
-    } as const;
-
-    export interface ExperimentHealthRuleMinimum {
-      /** The key in `values` that must reach the threshold before the check judges.
-       *
-       * * `exposed_count` - Users or groups exposed since launch, as the exposure criteria count them, including those exposed to multiple variants
-       * * `compared_count` - Exposed users or groups in the variants that the sample ratio test compares, without those exposed to multiple variants
-       * * `multiple_variant_count` - Users or groups exposed to more than one variant
-       * * `multiple_variant_percentage` - multiple_variant_count as a share of exposed_count
-       * * `multiple_variant_handling` - What the results do with users exposed to more than one variant: exclude or first_seen
-       * * `p_value` - P-value of the sample ratio test
-       * * `since_launch_hours` - Hours since launch
-       * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
-       * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
-       * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
-       * * `primary_metric_count` - Primary metrics that the calculation computes
-       * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
-       * * `metric_count` - Metrics that the calculation computes
-       * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
-       * * `failed_metric_count` - Metrics whose latest calculation failed
-       * * `calculated_at` - When the latest calculation of the metrics finished
-       * * `flag_active` - Whether the feature flag is enabled
-       * * `flag_deleted` - Whether the feature flag is deleted
-       * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
-       * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one */
-      value: ExperimentHealthValueKeyEnum;
-      /** The value that the key must reach. Below it, the check reports no finding. */
+    export interface ExperimentHealthMeasurement {
+      /** The value that the check measured on the experiment. */
+      value: number;
+      /** The value at which the check reports a finding. */
       threshold: number;
-    }
-
-    export interface ExperimentHealthCheckRule {
-      /** The key in `values` that the check compares with the threshold.
+      /** percentage: a share of the exposed users or groups, on the 0-100 scale. p_value: the p-value of a statistical test.
        *
-       * * `exposed_count` - Users or groups exposed since launch, as the exposure criteria count them, including those exposed to multiple variants
-       * * `compared_count` - Exposed users or groups in the variants that the sample ratio test compares, without those exposed to multiple variants
-       * * `multiple_variant_count` - Users or groups exposed to more than one variant
-       * * `multiple_variant_percentage` - multiple_variant_count as a share of exposed_count
-       * * `multiple_variant_handling` - What the results do with users exposed to more than one variant: exclude or first_seen
-       * * `p_value` - P-value of the sample ratio test
-       * * `since_launch_hours` - Hours since launch
-       * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
-       * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
-       * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
-       * * `primary_metric_count` - Primary metrics that the calculation computes
-       * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
-       * * `metric_count` - Metrics that the calculation computes
-       * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
-       * * `failed_metric_count` - Metrics whose latest calculation failed
-       * * `calculated_at` - When the latest calculation of the metrics finished
-       * * `flag_active` - Whether the feature flag is enabled
-       * * `flag_deleted` - Whether the feature flag is deleted
-       * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
-       * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one */
-      value: ExperimentHealthValueKeyEnum;
-      /** The threshold, in the unit that the suffix of the key gives. */
-      threshold: number;
-      /** above: the check reports a finding when the value is above the threshold. below: when the value is below it. A value at the threshold passes.
+       * * `percentage` - Percentage of exposed units
+       * * `p_value` - P-value of a statistical test */
+      unit: ExperimentHealthMeasurementUnitEnum;
+      /** The side of the threshold that reports a finding: above or below.
        *
        * * `above` - Finding above the threshold
        * * `below` - Finding below the threshold */
-      warns: ExperimentHealthRuleSideEnum;
-      /** The statistical test that computes the value, for example chi_squared. Null for a count or a share.
-       *
-       * * `chi_squared` - Chi-squared goodness-of-fit test */
-      test: ExperimentHealthRuleTestEnum | null;
-      /** What the check needs before it judges. Null when the check judges from the first value. */
-      minimum: ExperimentHealthRuleMinimum | null;
+      warns: ExperimentHealthMeasurementSideEnum;
     }
-
-    /**
-     * What the check read on the experiment, for every status, as numbers, strings, booleans or null. Empty when the check read nothing or shows nothing. The suffix of a key gives the unit: _count is a count, _percentage is on the 0-100 scale, _hours is hours and _at is an ISO 8601 time in UTC. A key without a suffix is a setting or a state. A key means the same thing in every check. `rule.value` names the key that decides.
-     */
-    export type ExperimentHealthCheckResultValues = {[key: string]: string | number | boolean | null};
 
     export interface ExperimentHealthCheckResult {
       /** Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
@@ -43473,10 +43322,8 @@ export namespace Schemas {
          * @nullable
          */
       reason: string | null;
-      /** What the check read on the experiment, for every status, as numbers, strings, booleans or null. Empty when the check read nothing or shows nothing. The suffix of a key gives the unit: _count is a count, _percentage is on the 0-100 scale, _hours is hours and _at is an ISO 8601 time in UTC. A key without a suffix is a setting or a state. A key means the same thing in every check. `rule.value` names the key that decides. */
-      values: ExperimentHealthCheckResultValues;
-      /** How the check decides. The same for every experiment and every status. Null for a check without a numeric rule. */
-      rule: ExperimentHealthCheckRule | null;
+      /** The value that decided a passed check, against its threshold. Null for the other statuses, and for a pass without a value. A finding carries its values in `evidence`. */
+      measurement: ExperimentHealthMeasurement | null;
     }
 
     export interface ExperimentHealth {
@@ -43732,11 +43579,6 @@ export namespace Schemas {
       multiple_variant_handling?: MultipleVariantHandling | null;
     }
 
-    /**
-     * What the check read on the experiment, for every status. The suffix of a key gives the unit: _count is a count, _percentage is on the 0-100 scale, _hours is hours. A key without a suffix is a setting. Missing on an answer cached before the field existed.
-     */
-    export type ExperimentExposureHealthCheckValues = {[key: string]: string | number | boolean | null} | null;
-
     export type ExperimentExposureHealthCheckKey = typeof ExperimentExposureHealthCheckKey[keyof typeof ExperimentExposureHealthCheckKey];
 
 
@@ -43748,47 +43590,31 @@ export namespace Schemas {
       TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
     } as const;
 
-    export type ExperimentExposureHealthValueKey = typeof ExperimentExposureHealthValueKey[keyof typeof ExperimentExposureHealthValueKey];
+    export type ExperimentExposureHealthMeasurementUnit = typeof ExperimentExposureHealthMeasurementUnit[keyof typeof ExperimentExposureHealthMeasurementUnit];
 
 
-    export const ExperimentExposureHealthValueKey = {
-      ExposedCount: 'exposed_count',
-      ComparedCount: 'compared_count',
-      MultipleVariantCount: 'multiple_variant_count',
-      MultipleVariantPercentage: 'multiple_variant_percentage',
-      MultipleVariantHandling: 'multiple_variant_handling',
+    export const ExperimentExposureHealthMeasurementUnit = {
+      Percentage: 'percentage',
       PValue: 'p_value',
-      SinceLaunchHours: 'since_launch_hours',
-      ExposedWithoutTestAccountFilterCount: 'exposed_without_test_account_filter_count',
-      KeptByTestAccountFilterPercentage: 'kept_by_test_account_filter_percentage',
     } as const;
 
-    export interface ExperimentExposureHealthRuleMinimum {
-      /** The value that the key must reach. Below it, the check reports no finding. */
-      threshold: number;
-      /** The key in `values` that must reach the threshold before the check judges. */
-      value: ExperimentExposureHealthValueKey;
-    }
-
-    export type ExperimentExposureHealthRuleSide = typeof ExperimentExposureHealthRuleSide[keyof typeof ExperimentExposureHealthRuleSide];
+    export type ExperimentExposureHealthMeasurementSide = typeof ExperimentExposureHealthMeasurementSide[keyof typeof ExperimentExposureHealthMeasurementSide];
 
 
-    export const ExperimentExposureHealthRuleSide = {
+    export const ExperimentExposureHealthMeasurementSide = {
       Above: 'above',
       Below: 'below',
     } as const;
 
-    export interface ExperimentExposureHealthCheckRule {
-      /** What the check needs before it judges. Null when the check judges from the first value. */
-      minimum: ExperimentExposureHealthRuleMinimum | null;
-      /** The statistical test that computes the value. Null for a count or a share. */
-      test: 'chi_squared' | null;
-      /** The threshold, in the unit that the suffix of the key gives. */
+    export interface ExperimentExposureHealthMeasurement {
+      /** The value at which the check reports a finding. */
       threshold: number;
-      /** The key in `values` that the check compares with the threshold. */
-      value: ExperimentExposureHealthValueKey;
-      /** above: the check reports a finding when the value is above the threshold. below: when the value is below it. A value at the threshold passes. */
-      warns: ExperimentExposureHealthRuleSide;
+      /** percentage: a share of the exposed users or groups, on the 0-100 scale. p_value: the p-value of a statistical test. */
+      unit: ExperimentExposureHealthMeasurementUnit;
+      /** The value that the check measured on the experiment. */
+      value: number;
+      /** The side of the threshold that reports a finding. */
+      warns: ExperimentExposureHealthMeasurementSide;
     }
 
     export type ExperimentExposureHealthCheckStatus = typeof ExperimentExposureHealthCheckStatus[keyof typeof ExperimentExposureHealthCheckStatus];
@@ -43806,16 +43632,14 @@ export namespace Schemas {
       description?: string | null;
       /** Stable identifier of the check. */
       key: ExperimentExposureHealthCheckKey;
+      /** The value that decided a passed check. Null for the other statuses and for a pass without a value. */
+      measurement?: ExperimentExposureHealthMeasurement | null;
       /** The problem the check looks for, as the health panel lists it. */
       name: string;
       /** Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding. */
       reason: string | null;
-      /** How the check decides, the same for every experiment. Null for a check without a numeric rule. Missing on an answer cached before the field existed. */
-      rule?: ExperimentExposureHealthCheckRule | null;
       /** passed: no problem found. finding: a finding in `health_findings`. not_applicable: the check doesn't cover the experiment's state. not_checked: an input was missing or the check failed. */
       status: ExperimentExposureHealthCheckStatus;
-      /** What the check read on the experiment, for every status. The suffix of a key gives the unit: _count is a count, _percentage is on the 0-100 scale, _hours is hours. A key without a suffix is a setting. Missing on an answer cached before the field existed. */
-      values?: ExperimentExposureHealthCheckValues;
     }
 
     /**
@@ -43856,8 +43680,6 @@ export namespace Schemas {
     export interface ExperimentExposureHealthFinding {
       /** The actions that fix the problem, in order of preference. */
       actions: ExperimentExposureHealthFindingActionKind[];
-      /** The key of the check in `health_checks` that reported the finding. Missing on an answer cached before the field existed. */
-      check?: ExperimentExposureHealthCheckKey | null;
       /** Stable identifier of the problem. Each code has one meaning across every surface that reports it. */
       code: ExperimentExposureHealthFindingCode;
       /** What is wrong, what it does to the experiment, and how to fix it. */
@@ -61541,26 +61363,6 @@ export namespace Schemas {
       provider?: string | null;
     }
 
-    /**
-     * * `single_candidate` - Single candidate
-     * * `fork` - Fork
-     * * `nothing_cuttable` - Nothing cuttable
-     * * `no_answer` - No answer
-     * * `stamphog_approved` - Stamphog approved
-     * * `files_truncated` - Files truncated
-     */
-    export type LlmSkipReasonEnum = typeof LlmSkipReasonEnum[keyof typeof LlmSkipReasonEnum];
-
-
-    export const LlmSkipReasonEnum = {
-      SingleCandidate: 'single_candidate',
-      Fork: 'fork',
-      NothingCuttable: 'nothing_cuttable',
-      NoAnswer: 'no_answer',
-      StamphogApproved: 'stamphog_approved',
-      FilesTruncated: 'files_truncated',
-    } as const;
-
     export interface LlmsTxtFetchRequest {
       /**
          * Public HTTP or HTTPS URL of the llms.txt file to load.
@@ -70075,18 +69877,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `team` - Team
-     * * `person` - Person
-     */
-    export type OwnerKindEnum = typeof OwnerKindEnum[keyof typeof OwnerKindEnum];
-
-
-    export const OwnerKindEnum = {
-      Team: 'team',
-      Person: 'person',
-    } as const;
-
-    /**
      * * `found` - Found
      * * `missing` - Missing
      * * `unavailable` - Unavailable
@@ -75025,181 +74815,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: StamphogRepoConfig[];
-    }
-
-    /**
-     * * `full` - Every owner
-     * * `pinned` - Pinned owners only
-     */
-    export type RoutingScopeEnum = typeof RoutingScopeEnum[keyof typeof RoutingScopeEnum];
-
-
-    export const RoutingScopeEnum = {
-      Full: 'full',
-      Pinned: 'pinned',
-    } as const;
-
-    /**
-     * * `requested` - Requested
-     * * `labeled` - Labeled
-     * * `refused` - Refused by GitHub
-     * * `cut` - Cut
-     * * `not_requested` - Not requested
-     * * `already_requested` - Already requested
-     */
-    export type RoutingOwnerOutcomeEnum = typeof RoutingOwnerOutcomeEnum[keyof typeof RoutingOwnerOutcomeEnum];
-
-
-    export const RoutingOwnerOutcomeEnum = {
-      Requested: 'requested',
-      Labeled: 'labeled',
-      Refused: 'refused',
-      Cut: 'cut',
-      NotRequested: 'not_requested',
-      AlreadyRequested: 'already_requested',
-    } as const;
-
-    /**
-     * * `sensitive` - Owns a sensitive path
-     * * `new_path` - Owns a new path
-     * * `largest_owner` - Has the largest part
-     * * `diff_not_seen` - Diff not shown to the model
-     * * `cut_skipped` - Cut step skipped
-     * * `model_kept` - Kept by the model
-     * * `model_cut` - Cut by the model
-     * * `stamphog_approved` - Stamphog approved
-     */
-    export type RoutingOwnerReasonEnum = typeof RoutingOwnerReasonEnum[keyof typeof RoutingOwnerReasonEnum];
-
-
-    export const RoutingOwnerReasonEnum = {
-      Sensitive: 'sensitive',
-      NewPath: 'new_path',
-      LargestOwner: 'largest_owner',
-      DiffNotSeen: 'diff_not_seen',
-      CutSkipped: 'cut_skipped',
-      ModelKept: 'model_kept',
-      ModelCut: 'model_cut',
-      StamphogApproved: 'stamphog_approved',
-    } as const;
-
-    /**
-     * * `sensitive` - Sensitive path
-     * * `new_path` - New path
-     */
-    export type PinReasonEnum = typeof PinReasonEnum[keyof typeof PinReasonEnum];
-
-
-    export const PinReasonEnum = {
-      Sensitive: 'sensitive',
-      NewPath: 'new_path',
-    } as const;
-
-    export interface StamphogRoutingPin {
-      /** Why the path pins its owner.
-       *
-       * * `sensitive` - Sensitive path
-       * * `new_path` - New path */
-      readonly reason: PinReasonEnum;
-      /** The changed path, or the new directory, that pinned the owner. */
-      path: string;
-    }
-
-    export interface StamphogRoutingRunOwner {
-      /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved and the owner is not pinned) or 'already_requested' (an earlier run asked this pinned owner).
-       *
-       * * `requested` - Requested
-       * * `labeled` - Labeled
-       * * `refused` - Refused by GitHub
-       * * `cut` - Cut
-       * * `not_requested` - Not requested
-       * * `already_requested` - Already requested */
-      readonly outcome: RoutingOwnerOutcomeEnum;
-      /** Why: 'sensitive' or 'new_path' (pinned, never cut), 'largest_owner' (a pull request keeps at least one reviewer), 'diff_not_seen' (the model did not see all of the owner's diff), 'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut' or 'stamphog_approved'.
-       *
-       * * `sensitive` - Owns a sensitive path
-       * * `new_path` - Owns a new path
-       * * `largest_owner` - Has the largest part
-       * * `diff_not_seen` - Diff not shown to the model
-       * * `cut_skipped` - Cut step skipped
-       * * `model_kept` - Kept by the model
-       * * `model_cut` - Cut by the model
-       * * `stamphog_approved` - Stamphog approved */
-      readonly reason: RoutingOwnerReasonEnum;
-      /** The changed paths that pinned the owner, so no cut could remove them. */
-      readonly pins: readonly StamphogRoutingPin[];
-      /** Whether the owner is a GitHub team or a person.
-       *
-       * * `team` - Team
-       * * `person` - Person */
-      readonly kind: OwnerKindEnum;
-      /** The owner as owners.yaml spells it: a team slug such as 'team-devex', or a GitHub login such as '@octocat'. */
-      owner: string;
-      /** The model's one-line reason to cut this owner. Also set when a guard kept the owner anyway. Blank when the model proposed no cut for them. */
-      model_reason?: string;
-      /** Changed lines in the files this owner owns. */
-      lines?: number;
-      /** Changed files this owner owns. */
-      file_count?: number;
-    }
-
-    export interface StamphogRoutingRun {
-      /** ID of the routing run. */
-      id: string;
-      /** Full name of the repository. */
-      repository: string;
-      /** Pull request number. */
-      pr_number: number;
-      /** The head commit the run routed. */
-      head_sha: string;
-      /** The repository's routing_mode when the run made its requests.
-       *
-       * * `off` - Off
-       * * `always` - Always
-       * * `fallback` - When stamphog does not approve */
-      readonly mode: RoutingModeEnum;
-      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>' or 'safety_net'. */
-      trigger: string;
-      /** 'full', or 'pinned' when a stamphog approval asked only the owners of sensitive and new paths.
-       *
-       * * `full` - Every owner
-       * * `pinned` - Pinned owners only */
-      readonly scope: RoutingScopeEnum;
-      /** Whether the pull request came from a fork, which skips the model. */
-      fork?: boolean;
-      /** Why the cut step made no model call. Null when it made one.
-       *
-       * * `single_candidate` - Single candidate
-       * * `fork` - Fork
-       * * `nothing_cuttable` - Nothing cuttable
-       * * `no_answer` - No answer
-       * * `stamphog_approved` - Stamphog approved
-       * * `files_truncated` - Files truncated */
-      readonly llm_skipped: LlmSkipReasonEnum | null;
-      /** The model the cut request reached. Blank when no request reached the gateway. */
-      model?: string;
-      /** Whether GitHub listed fewer files than the pull request changes, so owners may be missing. */
-      files_truncated?: boolean;
-      /** Whether the new-path lookup worked. When false, owners of new paths may not be pinned. */
-      additions_resolved?: boolean;
-      /** The default-branch commit whose owners.yaml files decided the owners. Blank when unknown. */
-      owners_sha?: string;
-      /** The run's decision for every owner of the changed code. */
-      readonly owners: readonly StamphogRoutingRunOwner[];
-      /**
-         * When the run made its requests.
-         * @nullable
-         */
-      created_at?: string | null;
-    }
-
-    export interface PaginatedStamphogRoutingRunList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: StamphogRoutingRun[];
     }
 
     /**
@@ -108483,112 +108098,6 @@ export namespace Schemas {
       routing_mode?: RoutingModeEnum;
     }
 
-    export interface StamphogRoutingFile {
-      /** The changed path. */
-      path: string;
-      /**
-         * The path before a rename. Null for any other change.
-         * @nullable
-         */
-      previous_path?: string | null;
-      /** GitHub's file status, such as 'added', 'modified', 'removed' or 'renamed'. */
-      status?: string;
-      /** Added lines. */
-      additions?: number;
-      /** Deleted lines. */
-      deletions?: number;
-    }
-
-    export interface StamphogRoutingRunOwnerDetail {
-      /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved and the owner is not pinned) or 'already_requested' (an earlier run asked this pinned owner).
-       *
-       * * `requested` - Requested
-       * * `labeled` - Labeled
-       * * `refused` - Refused by GitHub
-       * * `cut` - Cut
-       * * `not_requested` - Not requested
-       * * `already_requested` - Already requested */
-      readonly outcome: RoutingOwnerOutcomeEnum;
-      /** Why: 'sensitive' or 'new_path' (pinned, never cut), 'largest_owner' (a pull request keeps at least one reviewer), 'diff_not_seen' (the model did not see all of the owner's diff), 'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut' or 'stamphog_approved'.
-       *
-       * * `sensitive` - Owns a sensitive path
-       * * `new_path` - Owns a new path
-       * * `largest_owner` - Has the largest part
-       * * `diff_not_seen` - Diff not shown to the model
-       * * `cut_skipped` - Cut step skipped
-       * * `model_kept` - Kept by the model
-       * * `model_cut` - Cut by the model
-       * * `stamphog_approved` - Stamphog approved */
-      readonly reason: RoutingOwnerReasonEnum;
-      /** The changed paths that pinned the owner, so no cut could remove them. */
-      readonly pins: readonly StamphogRoutingPin[];
-      /** Whether the owner is a GitHub team or a person.
-       *
-       * * `team` - Team
-       * * `person` - Person */
-      readonly kind: OwnerKindEnum;
-      /** Every changed file this owner owns, which is what made them a candidate. Patches are not kept. */
-      readonly files: readonly StamphogRoutingFile[];
-      /** The owner as owners.yaml spells it: a team slug such as 'team-devex', or a GitHub login such as '@octocat'. */
-      owner: string;
-      /** The model's one-line reason to cut this owner. Also set when a guard kept the owner anyway. Blank when the model proposed no cut for them. */
-      model_reason?: string;
-      /** Changed lines in the files this owner owns. */
-      lines?: number;
-      /** Changed files this owner owns. */
-      file_count?: number;
-    }
-
-    export interface StamphogRoutingRunDetail {
-      /** ID of the routing run. */
-      id: string;
-      /** Full name of the repository. */
-      repository: string;
-      /** Pull request number. */
-      pr_number: number;
-      /** The head commit the run routed. */
-      head_sha: string;
-      /** The repository's routing_mode when the run made its requests.
-       *
-       * * `off` - Off
-       * * `always` - Always
-       * * `fallback` - When stamphog does not approve */
-      readonly mode: RoutingModeEnum;
-      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>' or 'safety_net'. */
-      trigger: string;
-      /** 'full', or 'pinned' when a stamphog approval asked only the owners of sensitive and new paths.
-       *
-       * * `full` - Every owner
-       * * `pinned` - Pinned owners only */
-      readonly scope: RoutingScopeEnum;
-      /** Whether the pull request came from a fork, which skips the model. */
-      fork?: boolean;
-      /** Why the cut step made no model call. Null when it made one.
-       *
-       * * `single_candidate` - Single candidate
-       * * `fork` - Fork
-       * * `nothing_cuttable` - Nothing cuttable
-       * * `no_answer` - No answer
-       * * `stamphog_approved` - Stamphog approved
-       * * `files_truncated` - Files truncated */
-      readonly llm_skipped: LlmSkipReasonEnum | null;
-      /** The model the cut request reached. Blank when no request reached the gateway. */
-      model?: string;
-      /** Whether GitHub listed fewer files than the pull request changes, so owners may be missing. */
-      files_truncated?: boolean;
-      /** Whether the new-path lookup worked. When false, owners of new paths may not be pinned. */
-      additions_resolved?: boolean;
-      /** The default-branch commit whose owners.yaml files decided the owners. Blank when unknown. */
-      owners_sha?: string;
-      /** The run's decision for every owner of the changed code, with the files each owner owns. */
-      readonly owners: readonly StamphogRoutingRunOwnerDetail[];
-      /**
-         * When the run made its requests.
-         * @nullable
-         */
-      created_at?: string | null;
-    }
-
     /**
      * Request body for binding a GitHub App installation to the current team.
      *
@@ -113514,164 +113023,6 @@ export namespace Schemas {
     export interface TrainingRunHistory {
       /** Recent completed training runs — the current pipeline first, then same-target sibling pipelines on the team — newest first. Mine these to reuse winning features and avoid repeating discarded approaches. */
       runs: TrainingRunHistoryEntry[];
-    }
-
-    export interface TransactionalEmailLogEvent {
-      /** What happened. The delivery statuses, plus `opened` and `clicked` for what the recipient did.
-       *
-       * * `queued` - Queued
-       * * `failed` - Failed
-       * * `sent` - Sent
-       * * `delivered` - Delivered
-       * * `bounced` - Bounced
-       * * `complained` - Complained
-       * * `opened` - Opened
-       * * `clicked` - Clicked */
-      kind: EmailLogEventKindEnum;
-      /** When it happened. */
-      at: string;
-      /**
-         * Why a send failed, or the bounce type. Null otherwise.
-         * @nullable
-         */
-      reason: string | null;
-    }
-
-    export interface TransactionalEmailLogDetail {
-      /** The `message_id` that the send returned. */
-      message_id: string;
-      /** When the send was queued. */
-      created_at: string;
-      /** The email's delivery status. `queued` waits to go out, `sent` reached the email provider, `delivered` was accepted by the recipient's mail server, `bounced` and `complained` came back later, and `failed` was not sent.
-       *
-       * * `queued` - Queued
-       * * `failed` - Failed
-       * * `sent` - Sent
-       * * `delivered` - Delivered
-       * * `bounced` - Bounced
-       * * `complained` - Complained */
-      status: EmailDeliveryStatusEnum;
-      /** When the email reached its delivery status. */
-      status_at: string;
-      /**
-         * Why a failed email was not sent, or the bounce type. Null otherwise.
-         * @nullable
-         */
-      reason: string | null;
-      /** The address the email was sent to. */
-      recipient: string;
-      /** The workflow behind the transactional email. */
-      workflow_id: string;
-      /**
-         * The transactional email template. Null when it no longer exists.
-         * @nullable
-         */
-      template_id: string | null;
-      /** The template's name. Empty when it was deleted. */
-      template_name: string;
-      /** The domain the email was sent from. Empty before it was sent. */
-      sending_domain: string;
-      /** Whether the recipient opened the email. */
-      opened: boolean;
-      /** Whether the recipient clicked a link in the email. */
-      clicked: boolean;
-      /** Everything that happened, oldest first. */
-      timeline: TransactionalEmailLogEvent[];
-      /** The subject the email went out with. Empty when it was never sent. */
-      subject: string;
-      /** The distinct ID the send named. Empty when it named none. */
-      distinct_id: string;
-      /** The workflow step that sent the email, which the rendered email is stored under. Empty when no rendered email was stored. */
-      action_id: string;
-      /** True when the template is marked sensitive, so no rendered body or subject values are kept. */
-      sensitive: boolean;
-    }
-
-    export interface TransactionalEmailLogEntry {
-      /** The `message_id` that the send returned. */
-      message_id: string;
-      /** When the send was queued. */
-      created_at: string;
-      /** The email's delivery status. `queued` waits to go out, `sent` reached the email provider, `delivered` was accepted by the recipient's mail server, `bounced` and `complained` came back later, and `failed` was not sent.
-       *
-       * * `queued` - Queued
-       * * `failed` - Failed
-       * * `sent` - Sent
-       * * `delivered` - Delivered
-       * * `bounced` - Bounced
-       * * `complained` - Complained */
-      status: EmailDeliveryStatusEnum;
-      /** When the email reached its delivery status. */
-      status_at: string;
-      /**
-         * Why a failed email was not sent, or the bounce type. Null otherwise.
-         * @nullable
-         */
-      reason: string | null;
-      /** The address the email was sent to. */
-      recipient: string;
-      /** The workflow behind the transactional email. */
-      workflow_id: string;
-      /**
-         * The transactional email template. Null when it no longer exists.
-         * @nullable
-         */
-      template_id: string | null;
-      /** The template's name. Empty when it was deleted. */
-      template_name: string;
-      /** The domain the email was sent from. Empty before it was sent. */
-      sending_domain: string;
-      /** Whether the recipient opened the email. */
-      opened: boolean;
-      /** Whether the recipient clicked a link in the email. */
-      clicked: boolean;
-    }
-
-    export interface TransactionalEmailLogList {
-      /** Sends, newest first. */
-      results: TransactionalEmailLogEntry[];
-      /** Whether another page follows. */
-      has_more: boolean;
-    }
-
-    export interface TransactionalEmailResults {
-      /** People the email was sent to in the date range. */
-      recipients: number;
-      /** Of those, people who did the event within the window. */
-      converted: number;
-      /** The sum of the revenue property on those events. */
-      revenue: number;
-      /**
-         * Median hours from the first send to the first conversion. Null when none converted.
-         * @nullable
-         */
-      median_hours_to_convert: number | null;
-    }
-
-    export interface TransactionalEmailStatsRow {
-      /** The template ID or the sending domain. */
-      key: string;
-      /** The template name or the sending domain. Empty for a deleted template. */
-      label: string;
-      /** Emails that reached the email provider. */
-      sent: number;
-      /** Emails the recipient's mail server accepted. */
-      delivered: number;
-      /** Emails that bounced. */
-      bounced: number;
-      /** Emails the recipient marked as spam. */
-      complained: number;
-      /** Emails the recipient opened. */
-      opened: number;
-      /** Emails where the recipient clicked a link. */
-      clicked: number;
-      /** Emails that were not sent. */
-      failed: number;
-    }
-
-    export interface TransactionalEmailStats {
-      /** One row per group, busiest first. */
-      results: TransactionalEmailStatsRow[];
     }
 
     export interface TranslateRequest {
@@ -133839,31 +133190,6 @@ export namespace Schemas {
       SelfDriving: 'self_driving',
     } as const;
 
-    export type StamphogRoutingRunsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * Keep only runs that decided about this owner, spelled as in owners.yaml: a team slug such as 'team-devex', or a GitHub login such as '@octocat'.
-     * @minLength 1
-     */
-    owner?: string;
-    /**
-     * Filter by pull request number.
-     */
-    pr_number?: number;
-    /**
-     * Filter by repository full name, e.g. 'PostHog/posthog'.
-     * @minLength 1
-     */
-    repository?: string;
-    };
-
     export type StreamlitAppsListParams = {
     /**
      * Number of results to return per page.
@@ -135012,117 +134338,6 @@ export namespace Schemas {
      */
     offset?: number;
     };
-
-    export type TransactionalEmailLogListParams = {
-    /**
-     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
-     */
-    date_from?: string;
-    /**
-     * Only sends queued before this time. Defaults to now.
-     */
-    date_to?: string;
-    /**
-     * Page size.
-     * @minimum 1
-     * @maximum 200
-     */
-    limit?: number;
-    /**
-     * Sends to skip.
-     * @minimum 0
-     */
-    offset?: number;
-    /**
-     * A `message_id` for an exact match, or part of the recipient's email address.
-     */
-    search?: string;
-    /**
-     * Only sends in this delivery status.
-     *
-     * * `queued` - Queued
-     * * `failed` - Failed
-     * * `sent` - Sent
-     * * `delivered` - Delivered
-     * * `bounced` - Bounced
-     * * `complained` - Complained
-     * @minLength 1
-     */
-    status?: TransactionalEmailLogListStatus;
-    /**
-     * Only sends of the transactional email backed by this workflow.
-     */
-    workflow_id?: string;
-    };
-
-    export type TransactionalEmailLogListStatus = typeof TransactionalEmailLogListStatus[keyof typeof TransactionalEmailLogListStatus];
-
-
-    export const TransactionalEmailLogListStatus = {
-      Queued: 'queued',
-      Failed: 'failed',
-      Sent: 'sent',
-      Delivered: 'delivered',
-      Bounced: 'bounced',
-      Complained: 'complained',
-    } as const;
-
-    export type TransactionalEmailLogResultsRetrieveParams = {
-    /**
-     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
-     */
-    date_from?: string;
-    /**
-     * Only sends queued before this time. Defaults to now.
-     */
-    date_to?: string;
-    /**
-     * The event that counts as a conversion, such as `signed_up`.
-     * @minLength 1
-     */
-    event: string;
-    /**
-     * An event property holding a revenue amount to add up.
-     */
-    revenue_property?: string;
-    /**
-     * How many days after the first send the event still counts.
-     * @minimum 1
-     * @maximum 30
-     */
-    window_days?: number;
-    /**
-     * The workflow behind the transactional email.
-     */
-    workflow_id: string;
-    };
-
-    export type TransactionalEmailLogStatsRetrieveParams = {
-    /**
-     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
-     */
-    date_from?: string;
-    /**
-     * Only sends queued before this time. Defaults to now.
-     */
-    date_to?: string;
-    /**
-     * Count per template or per sending domain.
-     *
-     * * `template` - Template
-     * * `sending_domain` - Sending domain
-     * @minLength 1
-     */
-    group_by?: TransactionalEmailLogStatsRetrieveGroupBy;
-    };
-
-    export type TransactionalEmailLogStatsRetrieveGroupBy = typeof TransactionalEmailLogStatsRetrieveGroupBy[keyof typeof TransactionalEmailLogStatsRetrieveGroupBy];
-
-
-    export const TransactionalEmailLogStatsRetrieveGroupBy = {
-      Template: 'template',
-      SendingDomain: 'sending_domain',
-    } as const;
 
     export type TurnSuggestionsStateRetrieveParams = {
     /**

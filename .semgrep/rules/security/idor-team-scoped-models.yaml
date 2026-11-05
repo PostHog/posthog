@@ -465,7 +465,6 @@ rules:
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
-                              |TaskRunGatewayRequest
                               |TaskWorkflowDispatch
                               |TaskSearchDocument
                               |TaskSession
@@ -970,7 +969,6 @@ rules:
                         |TaskAutomation
                         |TaskPresence
                         |TaskRun
-                        |TaskRunGatewayRequest
                         |TaskWorkflowDispatch
                         |TaskSession
                         |UserTasksConfig

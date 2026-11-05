@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 import { Skeleton } from '@posthog/quill'
 
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
@@ -12,9 +12,9 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { NODE_TYPE_TAG_SETTINGS } from '../lineage/nodeStyles'
 import { NodeDetailActions } from './NodeDetailActions'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
+import { NodeDetailTitleTags } from './NodeDetailTitleTags'
 
 export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
     const {
@@ -41,7 +41,6 @@ export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
                     : 'view'
                 : node.type
             : node?.type
-    const typeTag = nodeType ? NODE_TYPE_TAG_SETTINGS[nodeType] : null
     // A native table such as `events` has no warehouse table, so it has no annotation to edit.
     const isNativeTable = node?.type === 'table' && !node.warehouse_table_id
     const canEdit =
@@ -57,14 +56,7 @@ export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
         <>
             <SceneTitleSection
                 name={node?.name}
-                nameSuffix={
-                    <div className="flex items-center gap-1">
-                        {typeTag && <LemonTag type={typeTag.type}>{typeTag.label}</LemonTag>}
-                        {node?.description && node.description_source === 'ai_generated' && (
-                            <LemonTag type="muted">AI-written description</LemonTag>
-                        )}
-                    </div>
-                }
+                nameSuffix={<NodeDetailTitleTags nodeType={nodeType} node={node} />}
                 actions={
                     // A failed saved query never resolves on its own, so the placeholder must not
                     // outlive it. The Materialization and Query tabs carry the retry.

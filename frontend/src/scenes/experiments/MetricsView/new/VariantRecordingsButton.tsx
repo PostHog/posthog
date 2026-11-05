@@ -89,7 +89,7 @@ export function VariantRecordingsButton({
     return (
         <LemonButton
             size="xsmall"
-            type="tertiary"
+            type="secondary"
             truncate
             icon={<IconRewindPlay />}
             tooltip={unselectableReason ?? 'Watch recordings of this variant on the Recordings tab.'}

@@ -19,17 +19,10 @@ from pydantic.dataclasses import dataclass
 from .enums import (
     ChannelResolutionSource,
     DigestRunStatus,
-    LlmSkipReason,
-    OwnerKind,
-    PinReason,
     ReviewRequestRefusal,
     ReviewRunStatus,
     ReviewTrigger,
     ReviewVerdict,
-    RoutingMode,
-    RoutingOwnerOutcome,
-    RoutingOwnerReason,
-    RoutingScope,
 )
 
 
@@ -149,62 +142,6 @@ class ReviewRunDTO:
     created_at: datetime | None = None
     updated_at: datetime | None = None
     completed_at: datetime | None = None
-
-
-@dataclass(frozen=True)
-class RoutingPinDTO:
-    """A changed path that pinned an owner, so the cut step could not remove them."""
-
-    reason: PinReason
-    path: str
-
-
-@dataclass(frozen=True)
-class RoutingFileDTO:
-    """A changed file that one owner owns, as GitHub listed it when the run made its requests."""
-
-    path: str
-    previous_path: str | None = None
-    status: str = ""
-    additions: int = 0
-    deletions: int = 0
-
-
-@dataclass(frozen=True)
-class RoutingRunOwnerDTO:
-    """What one reviewer routing run did with one owner of the changed code, and why."""
-
-    owner: str
-    kind: OwnerKind
-    outcome: RoutingOwnerOutcome
-    reason: RoutingOwnerReason
-    model_reason: str = ""
-    pins: list[RoutingPinDTO] = Field(default_factory=list)
-    files: list[RoutingFileDTO] = Field(default_factory=list)
-    lines: int = 0
-    file_count: int = 0
-
-
-@dataclass(frozen=True)
-class RoutingRunDTO:
-    """One reviewer routing run that made its GitHub writes, with its decision for every owner."""
-
-    id: UUID
-    team_id: int
-    repository: str
-    pr_number: int
-    head_sha: str
-    mode: RoutingMode
-    trigger: str
-    scope: RoutingScope
-    fork: bool = False
-    llm_skipped: LlmSkipReason | None = None
-    model: str = ""
-    files_truncated: bool = False
-    additions_resolved: bool = True
-    owners_sha: str = ""
-    owners: list[RoutingRunOwnerDTO] = Field(default_factory=list)
-    created_at: datetime | None = None
 
 
 @dataclass(frozen=True)

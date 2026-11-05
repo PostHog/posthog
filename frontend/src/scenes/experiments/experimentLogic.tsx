@@ -84,7 +84,6 @@ import {
     type ExperimentHealthUi,
     captureExperimentHealthChecked,
     captureExperimentHealthCheckExpanded,
-    captureExperimentHealthSummaryOpened,
     captureExperimentHealthChecksOpened,
     captureExperimentHealthFindingActedOn,
     captureExperimentHealthFindingOpened,
@@ -784,9 +783,6 @@ export interface experimentLogicActions {
     reportHealthFindingShown: (finding: ExperimentHealthFinding) => {
         finding: ExperimentHealthFinding
     }
-    reportHealthSummaryOpened: () => {
-        value: true
-    }
     resetRunningExperiment: () => {
         value: true
     }
@@ -1098,7 +1094,6 @@ export const experimentLogic = kea<experimentLogicType>([
         ) => ({ finding, actionKind }),
         reportHealthChecksOpened: (openedFrom: ExperimentHealthChecksOpenedFrom) => ({ openedFrom }),
         reportHealthCheckExpanded: (check: HealthPanelCheck) => ({ check }),
-        reportHealthSummaryOpened: true,
         setExperimentMissing: true,
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
         setLaunchExperimentLoading: (loading: boolean) => ({ loading }),
@@ -1586,14 +1581,6 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         reportHealthCheckExpanded: ({ check }) => {
             captureExperimentHealthCheckExpanded(values.experiment, check, values.healthUi)
-        },
-        reportHealthSummaryOpened: () => {
-            captureExperimentHealthSummaryOpened(
-                values.experiment,
-                values.healthChecks ?? [],
-                values.healthFindings?.length ?? 0,
-                values.healthUi
-            )
         },
         reportHealthChecksOpened: ({ openedFrom }) => {
             captureExperimentHealthChecksOpened(

@@ -9,7 +9,6 @@ import type {
     HealthExposureInputsStatusEnumApi,
 } from '../../generated/api.schemas'
 import { FLAG_STATE_FINDING_CODES, experimentWarningFromHealth } from '../experimentHealthFindingEvents'
-import { exposureAnswerComputedAt } from '../exposureHealth'
 import type { HealthPanelFinding } from '../healthPanelFindings'
 
 export type HealthDebugDomain = 'experiment' | 'flag' | 'exposures' | 'metrics' | 'project' | 'raw'
@@ -322,6 +321,13 @@ function pageExposureResult(input: HealthDebugInput, code: HealthPanelFinding['c
     return finding ? describeFinding(code, finding) : NO_FINDING
 }
 
+// The page's answer comes from the cache, but its type does not declare the cache fields.
+function pageComputedAt(exposures: HealthDebugInput['exposures']): string | null {
+    return exposures && 'last_refresh' in exposures && typeof exposures.last_refresh === 'string'
+        ? exposures.last_refresh
+        : null
+}
+
 function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
     const exposureCheck = (
         check: HealthPanelFinding['code'],
@@ -339,7 +345,7 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
             browser: page,
             browserLabel: "Page's exposure answer",
             computedAt: serverAnswered ? (input.serverExposures?.computed_at ?? null) : null,
-            browserComputedAt: page !== null ? exposureAnswerComputedAt(input.exposures) : null,
+            browserComputedAt: page !== null ? pageComputedAt(input.exposures) : null,
             difference: serverAnswered && page !== null && page !== server.result ? 'drift' : null,
             note,
         }

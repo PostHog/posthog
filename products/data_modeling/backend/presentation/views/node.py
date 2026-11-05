@@ -35,6 +35,7 @@ from products.data_modeling.backend.facade.api import (
     get_declared_target,
     is_declared_pin,
     load_node_descriptions,
+    parse_warehouse_table_id,
     run_related_node_materializations,
     saved_query_pin_preview,
     saved_query_target_bounds,
@@ -58,6 +59,7 @@ from products.data_modeling.backend.presentation.views.edge import EdgeSerialize
 from products.data_modeling.backend.presentation.views.metric_visibility import (
     DELETE_DENIED,
     EDIT_DENIED,
+    TABLE_EDIT_DENIED,
     MetricNodeVisibilityMixin,
 )
 from products.warehouse_sources.backend.facade.api import allowed_table_ids
@@ -72,7 +74,6 @@ CADENCE_CHOICES = [NEVER] + [
     sync_frequency_interval_to_sync_frequency(bucket) for bucket in sorted(SCHEDULABLE_BUCKETS)
 ]
 PIN_NEEDS_A_CADENCE = "Pick how often this view refreshes before pinning it."
-TABLE_EDIT_DENIED = "You need edit access to this table."
 
 
 class NodeSuspensionSerializer(serializers.Serializer):
@@ -181,13 +182,7 @@ class NodeFrequencyBoundsSerializer(serializers.Serializer):
 def _description_target(node: Node) -> NodeDescriptionTarget:
     if node.saved_query_id:
         return NodeDescriptionTarget(node_id=node.id, saved_query_id=UUID(str(node.saved_query_id)))
-    table_id = node.properties.get("warehouse_table_id") if isinstance(node.properties, dict) else None
-    if node.type != NodeType.TABLE or not isinstance(table_id, str):
-        return NodeDescriptionTarget(node_id=node.id)
-    try:
-        return NodeDescriptionTarget(node_id=node.id, warehouse_table_id=UUID(table_id))
-    except ValueError:
-        return NodeDescriptionTarget(node_id=node.id)
+    return NodeDescriptionTarget(node_id=node.id, warehouse_table_id=parse_warehouse_table_id(node.properties))
 
 
 class NodeDescriptionField(serializers.CharField):
@@ -388,13 +383,8 @@ class NodeSerializer(serializers.ModelSerializer):
         )
     )
     def get_warehouse_table_id(self, node: Node) -> str | None:
-        table_id = node.properties.get("warehouse_table_id") if isinstance(node.properties, dict) else None
-        if not isinstance(table_id, str):
-            return None
-        try:
-            return str(UUID(table_id))
-        except ValueError:
-            return None
+        table_id = parse_warehouse_table_id(node.properties)
+        return str(table_id) if table_id else None
 
     def preload_descriptions(self, nodes: list[Node]) -> None:
         read_descriptions = self.context.get("read_node_descriptions")
@@ -640,23 +630,17 @@ class NodeViewSet(
         }
 
     def _readable_node_descriptions(self, nodes: list[Node]) -> dict[UUID, NodeDescription]:
-        """Descriptions of the nodes this caller may read, which the annotation APIs also require."""
-        saved_queries = {str(node.saved_query_id): node.saved_query for node in nodes if node.saved_query is not None}
-        levels = (
-            self.user_access_control.bulk_object_access_levels(
-                "warehouse_view", [(pk, saved_query.created_by_id) for pk, saved_query in saved_queries.items()]
-            )
-            if saved_queries
-            else {}
-        )
+        """Descriptions of the nodes this caller may read, by the same rule that names them."""
         targets = [_description_target(node) for node in nodes]
-        table_ids = {target.warehouse_table_id for target in targets if target.warehouse_table_id}
-        readable_tables = allowed_table_ids(self.team_id, self.user_access_control, ids=table_ids)
+        readable = self._readable_resources(
+            {str(target.saved_query_id) for target in targets if target.saved_query_id},
+            {target.warehouse_table_id for target in targets if target.warehouse_table_id},
+        )
 
         def can_read(target: NodeDescriptionTarget) -> bool:
             if target.saved_query_id:
-                return levels.get(str(target.saved_query_id)) not in (None, "none")
-            return target.warehouse_table_id in readable_tables
+                return str(target.saved_query_id) in readable.saved_query_ids
+            return target.warehouse_table_id in readable.warehouse_table_ids
 
         return load_node_descriptions(self.team_id, [target for target in targets if can_read(target)])
 

@@ -1,10 +1,13 @@
+from datetime import timedelta
 from typing import Any
 from uuid import uuid4
 
-from posthog.test.base import NonAtomicTestMigrations
+from posthog.test.base import TestMigrations
+
+from django.utils import timezone
 
 
-class TestCopyNodeDescriptionsToAnnotations(NonAtomicTestMigrations):
+class TestCopyNodeDescriptionsToAnnotations(TestMigrations):
     app = "data_modeling"
     migrate_from = "0057_datamodelingjob_drop_bytes_read_column"
     migrate_to = "0058_copy_node_descriptions_to_annotations"
@@ -46,6 +49,20 @@ class TestCopyNodeDescriptionsToAnnotations(NonAtomicTestMigrations):
         self.deleted_view = view("deleted_view", "Node text", deleted=True).id
         self.blank_node = view("blank_node", "").id
 
+        # The same view in a second DAG, edited later, so its text wins.
+        edited_twice = view("edited_twice", "Older text")
+        Node.objects.filter(saved_query=edited_twice).update(updated_at=timezone.now() - timedelta(days=1))
+        other_dag = DAG.objects.create(team_id=self.team.id, name="other")
+        Node.objects.create(
+            id=uuid4(),
+            team_id=self.team.id,
+            dag=other_dag,
+            name="edited_twice",
+            saved_query=edited_twice,
+            description="Newer text",
+        )
+        self.edited_twice = edited_twice.id
+
         table = Table.objects.create(
             team_id=self.team.id, name="orders", format="Parquet", url_pattern="https://bucket.s3/data/*"
         )
@@ -59,6 +76,23 @@ class TestCopyNodeDescriptionsToAnnotations(NonAtomicTestMigrations):
             description="Table text",
         )
         self.table = table.id
+        deleted_table = Table.objects.create(
+            team_id=self.team.id,
+            name="old_orders",
+            format="Parquet",
+            url_pattern="https://bucket.s3/data/*",
+            deleted=True,
+        )
+        Node.objects.create(
+            id=uuid4(),
+            team_id=self.team.id,
+            dag=dag,
+            name="old_orders",
+            type="table",
+            properties={"warehouse_table_id": str(deleted_table.id)},
+            description="Deleted table text",
+        )
+        self.deleted_table = deleted_table.id
         Node.objects.create(
             id=uuid4(),
             team_id=self.team.id,
@@ -90,7 +124,9 @@ class TestCopyNodeDescriptionsToAnnotations(NonAtomicTestMigrations):
         assert self._view_row(self.user_annotation).description == "User text"
         assert self._view_row(self.deleted_view) is None
         assert self._view_row(self.blank_node) is None
+        assert self._view_row(self.edited_twice).description == "Newer text"
 
         TableAnnotation = self.apps.get_model("warehouse_sources", "WarehouseColumnAnnotation")  # type: ignore[union-attr]
         table_row = TableAnnotation.objects.get(table_id=self.table, column_name="")
         assert (table_row.description, table_row.is_user_edited) == ("Table text", True)
+        assert not TableAnnotation.objects.filter(table_id=self.deleted_table).exists()

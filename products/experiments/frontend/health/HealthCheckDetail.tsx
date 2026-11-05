@@ -1,22 +1,7 @@
-import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
-
-import { HealthCheckReadSection } from './HealthCheckReadSection'
-import { HealthCheckRuleSection } from './HealthCheckRuleSection'
 import { HEALTH_CHECK_STATUS_DISPLAY, healthCheckStatusText } from './healthCheckStatusDisplay'
-import type { ListedHealthCheck } from './healthPanelChecks'
-import { HealthPanelSection } from './HealthPanelSection'
+import { type ListedHealthCheck, healthMeasurementText } from './healthPanelChecks'
 
-export function HealthCheckDetail({
-    check,
-    units,
-    exposures,
-    checkedAt,
-}: {
-    check: ListedHealthCheck
-    units: string
-    exposures: ExperimentExposureQueryResponse | null
-    checkedAt: string | null
-}): JSX.Element {
+export function HealthCheckDetail({ check }: { check: ListedHealthCheck }): JSX.Element {
     return (
         <div className="flex flex-col gap-4" data-attr="experiment-health-check-detail">
             <div className="flex flex-col gap-1">
@@ -27,12 +12,17 @@ export function HealthCheckDetail({
                 <span className="pl-6 text-xs text-secondary">{healthCheckStatusText(check)}</span>
             </div>
             {check.description && (
-                <HealthPanelSection title="What it looks for">
+                <section className="flex flex-col gap-1">
+                    <h4 className="m-0 text-xs font-semibold text-secondary">What it looks for</h4>
                     <p className="m-0 max-w-prose">{check.description}</p>
-                </HealthPanelSection>
+                </section>
             )}
-            <HealthCheckReadSection check={check} units={units} exposures={exposures} />
-            <HealthCheckRuleSection check={check} units={units} checkedAt={checkedAt} />
+            {check.measurement && (
+                <section className="flex flex-col gap-1">
+                    <h4 className="m-0 text-xs font-semibold text-secondary">Result</h4>
+                    <p className="m-0 max-w-prose">{healthMeasurementText(check.measurement)}</p>
+                </section>
+            )}
         </div>
     )
 }

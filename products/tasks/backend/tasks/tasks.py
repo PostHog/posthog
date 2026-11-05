@@ -95,24 +95,6 @@ def deliver_comment_slack_dms(
     )
 
 
-@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
-def schedule_task_run_gateway_usage(*, run_id: str, team_id: int) -> None:
-    from products.tasks.backend.logic.services.gateway_usage import (  # noqa: PLC0415 — keeps temporalio off the celery import path
-        schedule_gateway_usage,
-    )
-
-    schedule_gateway_usage(run_id=UUID(run_id), team_id=team_id)
-
-
-@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3)
-def sweep_queued_gateway_usage() -> None:
-    from products.tasks.backend.logic.services.gateway_usage import (  # noqa: PLC0415 — keeps temporalio off the celery import path
-        sweep_queued_gateway_requests,
-    )
-
-    sweep_queued_gateway_requests()
-
-
 # No retries: the wake is best-effort by design, and the parked step has its own deadline.
 @shared_task(ignore_result=True)
 def resume_workflow_step_for_run_deferred(run_id: str) -> None:

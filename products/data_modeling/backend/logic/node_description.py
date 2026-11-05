@@ -7,8 +7,6 @@ reads and writes the same rows to show the same text.
 from collections.abc import Iterable
 from uuid import UUID
 
-from posthog.llm.semantic_enrichment import upsert_user_edited_annotation
-
 from products.data_modeling.backend.facade.contracts import NodeDescription, NodeDescriptionTarget
 from products.data_modeling.backend.models.datawarehouse_saved_query_column_annotation import (
     DataWarehouseSavedQueryColumnAnnotation,
@@ -18,6 +16,7 @@ from products.warehouse_sources.backend.facade.api import (
     table_level_descriptions,
     write_table_level_description,
 )
+from products.warehouse_sources.backend.facade.types import WarehouseColumnAnnotationDescriptionSource
 
 # An annotation with an empty column name describes the whole view or table.
 OBJECT_LEVEL_COLUMN = ""
@@ -31,7 +30,7 @@ def load_node_descriptions(team_id: int, targets: Iterable[NodeDescriptionTarget
     view_descriptions: dict[UUID, NodeDescription] = {}
     if view_ids:
         view_descriptions = {
-            saved_query_id: NodeDescription(text=text, source=source)
+            saved_query_id: NodeDescription(text=text, source=WarehouseColumnAnnotationDescriptionSource(source))
             for saved_query_id, text, source in DataWarehouseSavedQueryColumnAnnotation.objects.for_team(team_id)
             .filter(saved_query_id__in=view_ids, column_name=OBJECT_LEVEL_COLUMN)
             .values_list("saved_query_id", "description", "description_source")
@@ -62,16 +61,23 @@ def write_node_description(team_id: int, target: NodeDescriptionTarget, descript
             raise ValueError("This node has no view or warehouse table to describe.")
         write_table_level_description(team_id, target.warehouse_table_id, description)
         return
-    if description:
-        upsert_user_edited_annotation(
-            DataWarehouseSavedQueryColumnAnnotation,
-            team_id,
-            parent_field="saved_query_id",
-            parent=target.saved_query_id,
-            column_name=OBJECT_LEVEL_COLUMN,
-            description=description,
-        )
+    annotations = DataWarehouseSavedQueryColumnAnnotation.objects.for_team(team_id)
+    if not description:
+        annotations.filter(saved_query_id=target.saved_query_id, column_name=OBJECT_LEVEL_COLUMN).delete()
         return
-    DataWarehouseSavedQueryColumnAnnotation.objects.for_team(team_id).filter(
-        saved_query_id=target.saved_query_id, column_name=OBJECT_LEVEL_COLUMN
-    ).delete()
+    user_edited = DataWarehouseSavedQueryColumnAnnotation.DescriptionSource.USER_EDITED
+    annotation, created = annotations.get_or_create(
+        saved_query_id=target.saved_query_id,
+        column_name=OBJECT_LEVEL_COLUMN,
+        defaults={
+            "team_id": team_id,
+            "description": description,
+            "description_source": user_edited,
+            "is_user_edited": True,
+        },
+    )
+    if not created:
+        annotation.description = description
+        annotation.description_source = user_edited
+        annotation.is_user_edited = True
+        annotation.save(update_fields=["description", "description_source", "is_user_edited", "updated_at"])

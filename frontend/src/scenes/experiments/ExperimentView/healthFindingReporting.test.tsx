@@ -52,7 +52,6 @@ const UNEVEN_EXPOSURES = {
         { variant: 'test', days: ['2026-01-01', '2026-01-02'], exposure_counts: [200, 400] },
     ],
     total_exposures: { control: 600, test: 400 },
-    date_range: { date_from: '2026-01-01', date_to: '2026-01-02' },
     sample_ratio_mismatch: { expected: { control: 500, test: 500 }, p_value: 0.0001 },
     bias_risk: { multiple_variant_percentage: 5 },
     health_findings: [
@@ -122,7 +121,6 @@ describe('health finding reporting', () => {
                     evidence: {},
                     actions: ['open_feature_flag'],
                     diagnostic_ref: 'A5',
-                    check: 'flag_state',
                 },
             ],
             checks: [
@@ -132,8 +130,7 @@ describe('health finding reporting', () => {
                     description: 'Checks that a launched experiment has at least one metric.',
                     status: 'passed',
                     reason: null,
-                    values: {},
-                    rule: null,
+                    measurement: null,
                 },
             ],
         })
@@ -269,7 +266,6 @@ describe('health finding reporting', () => {
             expected: [
                 ['experiment health finding opened', 'srm'],
                 ['experiment health check expanded', 'no_metric'],
-                ['experiment health summary opened', undefined],
             ],
         },
         {
@@ -280,12 +276,10 @@ describe('health finding reporting', () => {
                 ['experiment health finding opened', 'srm'],
                 ['experiment health finding opened', 'srm'],
                 ['experiment health check expanded', 'no_metric'],
-                ['experiment health summary opened', undefined],
-                ['experiment health summary opened', undefined],
             ],
         },
     ])(
-        'reports each finding, check or summary a person opens on the health tab in a $container container',
+        'reports each finding or check a person opens on the health tab in a $container container',
         async ({ isNarrow, expected }) => {
             // jsdom applies no container query, so the detail stays beside the list until `hidden` takes effect,
             // as it does below the breakpoint.
@@ -297,11 +291,9 @@ describe('health finding reporting', () => {
                 const pickEvents = (): (string | undefined)[][] =>
                     captureSpy.mock.calls
                         .filter(([event]) =>
-                            [
-                                'experiment health finding opened',
-                                'experiment health check expanded',
-                                'experiment health summary opened',
-                            ].includes(String(event))
+                            ['experiment health finding opened', 'experiment health check expanded'].includes(
+                                String(event)
+                            )
                         )
                         .map(([event, properties]) => [event, properties.finding_code ?? properties.check_key])
                 expect(pickEvents()).toEqual([])
@@ -312,8 +304,6 @@ describe('health finding reporting', () => {
                     'Users are not split across variants as configured',
                     'Users are not split across variants as configured',
                     'Metrics not set up',
-                    'Health checks',
-                    'Health checks',
                 ]) {
                     await pickFromList(title)
                     if (isNarrow) {

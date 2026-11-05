@@ -2,7 +2,7 @@ import uuid
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from functools import cached_property
-from typing import Any, Literal
+from typing import Any
 
 import structlog
 from rest_framework.exceptions import ValidationError
@@ -13,15 +13,14 @@ from posthog.schema import (
     DateRange,
     ExperimentExposureHealthCheck,
     ExperimentExposureHealthCheckKey,
-    ExperimentExposureHealthCheckRule,
     ExperimentExposureHealthCheckStatus,
     ExperimentExposureHealthFinding,
     ExperimentExposureHealthFindingActionKind,
     ExperimentExposureHealthFindingCode,
     ExperimentExposureHealthFindingSeverity,
-    ExperimentExposureHealthRuleMinimum,
-    ExperimentExposureHealthRuleSide,
-    ExperimentExposureHealthValueKey,
+    ExperimentExposureHealthMeasurement,
+    ExperimentExposureHealthMeasurementSide,
+    ExperimentExposureHealthMeasurementUnit,
     ExperimentExposureQuery,
     ExperimentExposureQueryResponse,
     ExperimentExposureTimeSeries,
@@ -49,12 +48,7 @@ from products.access_control.backend.facade.api import (
 )
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
-from products.experiments.backend.facade.contracts import (
-    ExperimentHealth,
-    ExperimentHealthCheckRule,
-    ExperimentHealthReaderAccess,
-    ExperimentHealthRuleTest,
-)
+from products.experiments.backend.facade.contracts import ExperimentHealth, ExperimentHealthReaderAccess
 from products.experiments.backend.health.checks.bias_risk import evaluate_bias_risk
 from products.experiments.backend.health.checks.filtered_exposures import reads_share_kept_by_test_account_filter
 from products.experiments.backend.health.checks.srm import (
@@ -469,7 +463,6 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 evidence=dict(finding.evidence),
                 actions=[ExperimentExposureHealthFindingActionKind(action.value) for action in finding.actions],
                 diagnostic_ref=finding.diagnostic_ref,
-                check=ExperimentExposureHealthCheckKey(finding.check.value) if finding.check else None,
             )
             for finding in health.findings
         ]
@@ -483,25 +476,17 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 description=check.description,
                 status=ExperimentExposureHealthCheckStatus(check.status.value),
                 reason=check.reason,
-                values={key.value: value for key, value in check.values.items()},
-                rule=ExperimentExposuresQueryRunner._health_check_rule(check.rule) if check.rule else None,
+                measurement=ExperimentExposureHealthMeasurement(
+                    value=check.measurement.value,
+                    threshold=check.measurement.threshold,
+                    unit=ExperimentExposureHealthMeasurementUnit(check.measurement.unit.value),
+                    warns=ExperimentExposureHealthMeasurementSide(check.measurement.warns.value),
+                )
+                if check.measurement
+                else None,
             )
             for check in health.checks
         ]
-
-    @staticmethod
-    def _health_check_rule(rule: ExperimentHealthCheckRule) -> ExperimentExposureHealthCheckRule:
-        return ExperimentExposureHealthCheckRule(
-            value=ExperimentExposureHealthValueKey(rule.value.value),
-            threshold=rule.threshold,
-            warns=ExperimentExposureHealthRuleSide(rule.warns.value),
-            test=_RULE_TESTS[rule.test] if rule.test else None,
-            minimum=ExperimentExposureHealthRuleMinimum(
-                value=ExperimentExposureHealthValueKey(rule.minimum.value.value), threshold=rule.minimum.threshold
-            )
-            if rule.minimum
-            else None,
-        )
 
     @experiment_error_handler
     def _calculate(self) -> ExperimentExposureQueryResponse:
@@ -646,9 +631,3 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         if applies_test_account_filters(self.team, self.exposure_criteria):
             payload["test_account_filters"] = self.team.test_account_filters
         return payload
-
-
-# The exposure schema types a single choice as a literal rather than an enum.
-_RULE_TESTS: dict[ExperimentHealthRuleTest, Literal["chi_squared"]] = {
-    ExperimentHealthRuleTest.CHI_SQUARED: "chi_squared"
-}

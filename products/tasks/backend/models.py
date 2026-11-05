@@ -2382,8 +2382,7 @@ def bump_task_activity(*, team_id: int, task_id: uuid.UUID | str, at: datetime) 
 @receiver(post_save, sender=TaskThreadMessage)
 def bump_task_activity_on_thread_message(sender, instance: "TaskThreadMessage", created: bool, **kwargs) -> None:
     if created:
-        team_id, task_id, at = instance.team_id, instance.task_id, instance.created_at
-        transaction.on_commit(lambda: bump_task_activity(team_id=team_id, task_id=task_id, at=at))
+        bump_task_activity(team_id=instance.team_id, task_id=instance.task_id, at=instance.created_at)
 
 
 @receiver(post_save, sender=Task)
@@ -3732,25 +3731,6 @@ class TaskRun(models.Model):
         raise Exception("Cannot delete TaskRun. Task runs are immutable records.")
 
 
-class TaskRunGatewayRequest(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
-    task_run_id = models.UUIDField()
-    request_id = models.CharField(max_length=255)
-    created_at = models.DateTimeField(default=django_timezone.now)
-
-    class Meta:
-        db_table = "posthog_task_run_gateway_request"
-        constraints = [
-            models.UniqueConstraint(
-                fields=["task_run_id", "request_id"],
-                name="task_run_gateway_request_unique",
-            )
-        ]
-        indexes = [
-            models.Index(fields=["task_run_id", "created_at"], name="task_run_gw_request_idx"),
-        ]
-
-
 class TaskWorkflowDispatch(TeamScopedRootMixin):
     class Kind(models.TextChoices):
         CREATE = "create", "create"
@@ -4527,8 +4507,7 @@ def bump_task_activity_on_run(sender, instance: TaskRun, created: bool, update_f
     # to bump would silently leave a live session reading as idle.
     if not created and update_fields is not None and not (RUN_ACTIVITY_FIELDS & set(update_fields)):
         return
-    team_id, task_id, at = instance.team_id, instance.task_id, django_timezone.now()
-    transaction.on_commit(lambda: bump_task_activity(team_id=team_id, task_id=task_id, at=at))
+    bump_task_activity(team_id=instance.team_id, task_id=instance.task_id, at=django_timezone.now())
 
 
 class TeamTasksConfig(models.Model):

@@ -1,8 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { memo, useEffect } from 'react'
+import { memo } from 'react'
 
 import { SaveToDatasetButton } from '../../../datasets/SaveToDatasetButton'
-import { saveToDatasetButtonLogic } from '../../../datasets/saveToDatasetButtonLogic'
 import { TraceView, TraceViewProps, TraceViewReadyProps } from '../components/TraceView'
 import { traceExportLogic } from '../traceExportLogic'
 import { traceMessagesOpeningLogic } from '../traceMessagesOpeningLogic'
@@ -200,7 +199,6 @@ export const TraceViewContainer = memo(function TraceViewContainer({
         detailData,
         detailTab,
         datasetItemSource,
-        datasetsEnabled,
         canViewInThread,
         thread,
         timeline,
@@ -230,9 +228,6 @@ export const TraceViewContainer = memo(function TraceViewContainer({
         useValues(reviewLogic)
     const { loadReviewStatus, removeFromQueue } = useActions(reviewLogic)
     useMountedLogic(traceReviewBridgeLogic({ traceId }))
-    // The dataset button unmounts while a step loads. Its logic has no key, so it would refetch datasets and recents
-    // on every remount without this mount.
-    useEffect(() => (datasetsEnabled ? saveToDatasetButtonLogic.mount() : undefined), [datasetsEnabled])
     const { messagesOpening } = useValues(traceMessagesOpeningLogic)
     const { setMessagesOpening } = useActions(traceMessagesOpeningLogic)
 

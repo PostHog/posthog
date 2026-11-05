@@ -7,14 +7,8 @@ import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { HealthChecksOverview } from './HealthChecksOverview'
 
 export function ExperimentHealthTab(): JSX.Element {
-    const {
-        healthFindings,
-        healthChecks,
-        healthExposureChecks,
-        isExperimentDraft,
-        experimentHealthLoading,
-        exposures,
-    } = useValues(experimentLogic)
+    const { healthFindings, healthChecks, healthExposureChecks, isExperimentDraft, experimentHealthLoading } =
+        useValues(experimentLogic)
 
     if (healthFindings === null || healthChecks === null) {
         return experimentHealthLoading ? (
@@ -33,8 +27,6 @@ export function ExperimentHealthTab(): JSX.Element {
                 <HealthChecksOverview
                     checks={healthChecks}
                     findings={healthFindings}
-                    // A reset to draft keeps the previous exposure answer in the page, as for the checks.
-                    exposures={isExperimentDraft ? null : (exposures ?? null)}
                     isDraft={isExperimentDraft}
                     exposureChecksMissing={healthExposureChecks === 'missing'}
                 />

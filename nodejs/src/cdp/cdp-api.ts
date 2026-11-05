@@ -362,7 +362,6 @@ export class CdpApi {
             this.rerunJobManager = new RerunJobManager({
                 dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL,
                 maxCount: this.config.HOG_INVOCATION_RERUN_MAX_COUNT,
-                runStartPagingTeams: this.config.CDP_RERUN_RUN_START_PAGING_TEAMS,
             })
             await this.rerunJobManager.connect()
         }

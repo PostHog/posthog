@@ -1273,33 +1273,6 @@ class TestNodeDescription(APIBaseTest):
         self.assertEqual(read.json()["description"], "")
         self.assertEqual(written.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_list_loads_descriptions_without_one_query_per_node(self):
-        self._view_annotation("First", DataWarehouseSavedQueryColumnAnnotation.DescriptionSource.USER_EDITED)
-        self._table_node("first_table")
-        with CaptureQueriesContext(connection) as baseline:
-            self.client.get(self._url())
-
-        for index in range(3):
-            saved_query = DataWarehouseSavedQuery.objects.create(
-                name=f"view_{index}", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
-            )
-            Node.objects.create(team=self.team, dag=self.dag, saved_query=saved_query, type=NodeType.VIEW)
-            self._view_annotation(
-                f"View {index}",
-                DataWarehouseSavedQueryColumnAnnotation.DescriptionSource.USER_EDITED,
-                saved_query=saved_query,
-            )
-            self._table_node(f"table_{index}")
-        with CaptureQueriesContext(connection) as larger:
-            response = self.client.get(self._url())
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        annotation_queries = [
-            [query["sql"] for query in captured.captured_queries if "annotation" in query["sql"]]
-            for captured in (baseline, larger)
-        ]
-        self.assertEqual(len(annotation_queries[0]), len(annotation_queries[1]))
-
 
 class TestNodeAccessControl(WarehouseAccessControlTestMixin):
     # NodeViewSet is scope_object = "INTERNAL", so AccessControlPermission does not gate it on any
@@ -1433,6 +1406,70 @@ class TestNodeAccessControl(WarehouseAccessControlTestMixin):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertNotIn("Private text", response.content.decode())
+
+    def _described_view_and_table(self, name: str) -> tuple[DataWarehouseTable, Node]:
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name=f"{name}_view", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+        Node.objects.create(team=self.team, dag=self.dag, saved_query=saved_query, type=NodeType.VIEW)
+        DataWarehouseSavedQueryColumnAnnotation.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            saved_query=saved_query,
+            column_name="",
+            description=f"{name} view text",
+            description_source=DataWarehouseSavedQueryColumnAnnotation.DescriptionSource.USER_EDITED,
+        )
+        table = DataWarehouseTable.objects.create(
+            team=self.team, name=f"{name}_table", format="Parquet", url_pattern="https://bucket.s3/data/*"
+        )
+        source = ExternalDataSource.objects.create(
+            source_id=f"{name}_src", connection_id=f"{name}_conn", team=self.team, source_type="Stripe"
+        )
+        ExternalDataSchema.objects.create(
+            name=f"{name}_table", team=self.team, source=source, table=table, description=f"{name} source text"
+        )
+        node = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            name=f"{name}_table",
+            type=NodeType.TABLE,
+            properties={"warehouse_table_id": str(table.id)},
+        )
+        return table, node
+
+    def test_list_loads_descriptions_without_one_query_per_node(self):
+        self._create_access_control(self.editor_user, access_level="editor")
+        self.client.force_login(self.editor_user)
+        self._described_view_and_table("first")
+        self.client.get(self._list_url())
+        with CaptureQueriesContext(connection) as baseline:
+            self.client.get(self._list_url())
+
+        for index in range(3):
+            self._described_view_and_table(f"more_{index}")
+        with CaptureQueriesContext(connection) as larger:
+            response = self.client.get(self._list_url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("more_2 view text", response.content.decode())
+        self.assertIn("more_2 source text", response.content.decode())
+        self.assertEqual(len(larger.captured_queries), len(baseline.captured_queries))
+
+    def test_table_description_is_withheld_from_a_member_denied_the_table(self):
+        table, node = self._described_view_and_table("private")
+        self._create_access_control(self.editor_user, access_level="editor")
+        self._create_access_control(
+            self.editor_user, resource="warehouse_table", resource_id=str(table.id), access_level="none"
+        )
+        self.client.force_login(self.editor_user)
+
+        listed = self.client.get(self._list_url())
+        detail = self.client.get(f"{self._list_url()}{node.id}/")
+
+        self.assertEqual(listed.status_code, status.HTTP_200_OK)
+        self.assertNotIn("private source text", listed.content.decode())
+        self.assertIn("private view text", listed.content.decode())
+        self.assertEqual(detail.json()["description"], "")
 
     def test_table_description_write_refuses_a_member_denied_the_table(self):
         table = DataWarehouseTable.objects.create(

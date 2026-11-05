@@ -18,6 +18,8 @@ from pydantic.dataclasses import dataclass
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
 
+from products.warehouse_sources.backend.facade.types import WarehouseColumnAnnotationDescriptionSource
+
 
 @dataclass(frozen=True)
 class DataModelingJob:
@@ -155,4 +157,4 @@ class NodeDescriptionTarget:
 @dataclass(frozen=True)
 class NodeDescription:
     text: str = ""
-    source: str | None = None
+    source: WarehouseColumnAnnotationDescriptionSource | None = None

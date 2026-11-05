@@ -99,6 +99,7 @@ import {
     type NodeApiSuspended,
     type NodeEndpointApi,
     NodeTypeEnumApi,
+    type WarehouseColumnAnnotationDescriptionSourceEnumApi,
 } from 'products/data_modeling/frontend/generated/api.schemas'
 import type {
     DataWarehouseSavedQueryApi,
@@ -6262,7 +6263,7 @@ export interface DataModelingNode {
     name: string
     type: DataModelingNodeType
     description?: string
-    description_source?: 'canonical' | 'ai_generated' | 'user_edited' | null
+    description_source?: WarehouseColumnAnnotationDescriptionSourceEnumApi | null
     saved_query_id?: string
     /** UUID of the data catalog metric a metric node stands for */
     metric_id?: string | null

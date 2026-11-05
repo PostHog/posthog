@@ -96,6 +96,7 @@ _LAZY = {
     "get_declared_target": "logic.node_frequency",
     "set_declared_target": "logic.node_frequency",
     "is_declared_pin": "logic.node_frequency",
+    "parse_warehouse_table_id": "logic.node_frequency",
     "saved_query_target_bounds": "logic.node_frequency",
     "SavedQueryFrequencyBounds": "logic.node_frequency",
     "saved_query_pin_preview": "logic.node_frequency",
