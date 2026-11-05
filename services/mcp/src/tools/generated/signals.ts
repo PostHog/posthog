@@ -683,6 +683,9 @@ const inboxReportsCreate = (): ToolBase<
         if (params.links !== undefined) {
             body['links'] = params.links
         }
+        if (params.source_issues !== undefined) {
+            body['source_issues'] = params.source_issues
+        }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
@@ -1812,6 +1815,9 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
         if (params.links !== undefined) {
             body['links'] = params.links
         }
+        if (params.source_issues !== undefined) {
+            body['source_issues'] = params.source_issues
+        }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
@@ -1897,6 +1903,9 @@ const scoutEmitReport = (): ToolBase<ReturnType<typeof ScoutEmitReportSchema>, S
         }
         if (params.links !== undefined) {
             body['links'] = params.links
+        }
+        if (params.source_issues !== undefined) {
+            body['source_issues'] = params.source_issues
         }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
@@ -3303,6 +3312,9 @@ const signalsScoutEditReport = (): ToolBase<
         if (params.links !== undefined) {
             body['links'] = params.links
         }
+        if (params.source_issues !== undefined) {
+            body['source_issues'] = params.source_issues
+        }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
@@ -3391,6 +3403,9 @@ const signalsScoutEmitReport = (): ToolBase<
         }
         if (params.links !== undefined) {
             body['links'] = params.links
+        }
+        if (params.source_issues !== undefined) {
+            body['source_issues'] = params.source_issues
         }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
