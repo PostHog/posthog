@@ -43104,6 +43104,60 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `flag_state` - Flag State
+     * * `flag_shared` - Flag Shared
+     * * `flag_history` - Flag History
+     * * `split_changed_mid_run` - Split Changed Mid Run
+     * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+     * * `flag_variants_mismatch` - Flag Variants Mismatch
+     * * `forced_variant_release_condition` - Forced Variant Release Condition
+     * * `new_flag_no_traffic` - New Flag No Traffic
+     * * `no_metric` - No Metric
+     * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_cannot_compile` - Metric Cannot Compile
+     * * `metric_calculation_failed` - Metric Calculation Failed
+     * * `metric_all_zero` - Metric All Zero
+     * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `exposure_filters` - Exposure Filters
+     * * `early_significance` - Early Significance
+     * * `metrics_not_matured` - Metrics Not Matured
+     * * `zero_exposures` - Zero Exposures
+     * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
+     * * `srm` - Srm
+     * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+     * * `multiple_variants_share` - Multiple Variants Share
+     */
+    export type ExperimentHealthCheckKeyEnum = typeof ExperimentHealthCheckKeyEnum[keyof typeof ExperimentHealthCheckKeyEnum];
+
+
+    export const ExperimentHealthCheckKeyEnum = {
+      FlagState: 'flag_state',
+      FlagShared: 'flag_shared',
+      FlagHistory: 'flag_history',
+      SplitChangedMidRun: 'split_changed_mid_run',
+      BucketingChangedMidRun: 'bucketing_changed_mid_run',
+      ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
+      FlagVariantsMismatch: 'flag_variants_mismatch',
+      ForcedVariantReleaseCondition: 'forced_variant_release_condition',
+      NewFlagNoTraffic: 'new_flag_no_traffic',
+      NoMetric: 'no_metric',
+      MetricEventNotIngested: 'metric_event_not_ingested',
+      MetricCannotCompile: 'metric_cannot_compile',
+      MetricCalculationFailed: 'metric_calculation_failed',
+      MetricAllZero: 'metric_all_zero',
+      ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
+      ExposureFilters: 'exposure_filters',
+      EarlySignificance: 'early_significance',
+      MetricsNotMatured: 'metrics_not_matured',
+      ZeroExposures: 'zero_exposures',
+      TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
+      Srm: 'srm',
+      BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
+      MultipleVariantsShare: 'multiple_variants_share',
+    } as const;
+
+    /**
      * The values behind the finding, such as the key of a shipped variant or the share of users exposed to multiple variants. The keys depend on the code.
      */
     export type ExperimentHealthFindingEvidence = {[key: string]: string | number | boolean | null};
@@ -43166,61 +43220,33 @@ export namespace Schemas {
          * @nullable
          */
       diagnostic_ref: string | null;
+      /** The key of the check in `checks` that reported the finding. A check can report several codes, so the code doesn't name the check.
+       *
+       * * `flag_state` - Flag State
+       * * `flag_shared` - Flag Shared
+       * * `flag_history` - Flag History
+       * * `split_changed_mid_run` - Split Changed Mid Run
+       * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+       * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+       * * `flag_variants_mismatch` - Flag Variants Mismatch
+       * * `forced_variant_release_condition` - Forced Variant Release Condition
+       * * `new_flag_no_traffic` - New Flag No Traffic
+       * * `no_metric` - No Metric
+       * * `metric_event_not_ingested` - Metric Event Not Ingested
+       * * `metric_cannot_compile` - Metric Cannot Compile
+       * * `metric_calculation_failed` - Metric Calculation Failed
+       * * `metric_all_zero` - Metric All Zero
+       * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+       * * `exposure_filters` - Exposure Filters
+       * * `early_significance` - Early Significance
+       * * `metrics_not_matured` - Metrics Not Matured
+       * * `zero_exposures` - Zero Exposures
+       * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
+       * * `srm` - Srm
+       * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+       * * `multiple_variants_share` - Multiple Variants Share */
+      check: ExperimentHealthCheckKeyEnum;
     }
-
-    /**
-     * * `flag_state` - Flag State
-     * * `flag_shared` - Flag Shared
-     * * `flag_history` - Flag History
-     * * `split_changed_mid_run` - Split Changed Mid Run
-     * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
-     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
-     * * `flag_variants_mismatch` - Flag Variants Mismatch
-     * * `forced_variant_release_condition` - Forced Variant Release Condition
-     * * `new_flag_no_traffic` - New Flag No Traffic
-     * * `no_metric` - No Metric
-     * * `metric_event_not_ingested` - Metric Event Not Ingested
-     * * `metric_cannot_compile` - Metric Cannot Compile
-     * * `metric_calculation_failed` - Metric Calculation Failed
-     * * `metric_all_zero` - Metric All Zero
-     * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
-     * * `exposure_filters` - Exposure Filters
-     * * `early_significance` - Early Significance
-     * * `metrics_not_matured` - Metrics Not Matured
-     * * `zero_exposures` - Zero Exposures
-     * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
-     * * `srm` - Srm
-     * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
-     * * `multiple_variants_share` - Multiple Variants Share
-     */
-    export type ExperimentHealthCheckKeyEnum = typeof ExperimentHealthCheckKeyEnum[keyof typeof ExperimentHealthCheckKeyEnum];
-
-
-    export const ExperimentHealthCheckKeyEnum = {
-      FlagState: 'flag_state',
-      FlagShared: 'flag_shared',
-      FlagHistory: 'flag_history',
-      SplitChangedMidRun: 'split_changed_mid_run',
-      BucketingChangedMidRun: 'bucketing_changed_mid_run',
-      ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
-      FlagVariantsMismatch: 'flag_variants_mismatch',
-      ForcedVariantReleaseCondition: 'forced_variant_release_condition',
-      NewFlagNoTraffic: 'new_flag_no_traffic',
-      NoMetric: 'no_metric',
-      MetricEventNotIngested: 'metric_event_not_ingested',
-      MetricCannotCompile: 'metric_cannot_compile',
-      MetricCalculationFailed: 'metric_calculation_failed',
-      MetricAllZero: 'metric_all_zero',
-      ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
-      ExposureFilters: 'exposure_filters',
-      EarlySignificance: 'early_significance',
-      MetricsNotMatured: 'metrics_not_matured',
-      ZeroExposures: 'zero_exposures',
-      TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
-      Srm: 'srm',
-      BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
-      MultipleVariantsShare: 'multiple_variants_share',
-    } as const;
 
     /**
      * * `passed` - Passed
@@ -43239,45 +43265,146 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `percentage` - Percentage of exposed units
-     * * `p_value` - P-value of a statistical test
+     * * `exposed_count` - Users or groups exposed since launch, as the exposure criteria count them, including those exposed to multiple variants
+     * * `compared_count` - Exposed users or groups in the variants that the sample ratio test compares, without those exposed to multiple variants
+     * * `multiple_variant_count` - Users or groups exposed to more than one variant
+     * * `multiple_variant_percentage` - multiple_variant_count as a share of exposed_count
+     * * `multiple_variant_handling` - What the results do with users exposed to more than one variant: exclude or first_seen
+     * * `p_value` - P-value of the sample ratio test
+     * * `since_launch_hours` - Hours since launch
+     * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
+     * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+     * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
+     * * `primary_metric_count` - Primary metrics that the calculation computes
+     * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
+     * * `metric_count` - Metrics that the calculation computes
+     * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
+     * * `failed_metric_count` - Metrics whose latest calculation failed
+     * * `calculated_at` - When the latest calculation of the metrics finished
+     * * `flag_active` - Whether the feature flag is enabled
+     * * `flag_deleted` - Whether the feature flag is deleted
+     * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
+     * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
      */
-    export type ExperimentHealthMeasurementUnitEnum = typeof ExperimentHealthMeasurementUnitEnum[keyof typeof ExperimentHealthMeasurementUnitEnum];
+    export type ExperimentHealthValueKeyEnum = typeof ExperimentHealthValueKeyEnum[keyof typeof ExperimentHealthValueKeyEnum];
 
 
-    export const ExperimentHealthMeasurementUnitEnum = {
-      Percentage: 'percentage',
+    export const ExperimentHealthValueKeyEnum = {
+      ExposedCount: 'exposed_count',
+      ComparedCount: 'compared_count',
+      MultipleVariantCount: 'multiple_variant_count',
+      MultipleVariantPercentage: 'multiple_variant_percentage',
+      MultipleVariantHandling: 'multiple_variant_handling',
       PValue: 'p_value',
+      SinceLaunchHours: 'since_launch_hours',
+      ExposedWithoutTestAccountFilterCount: 'exposed_without_test_account_filter_count',
+      KeptByTestAccountFilterPercentage: 'kept_by_test_account_filter_percentage',
+      OnlyCountMaturedUsers: 'only_count_matured_users',
+      PrimaryMetricCount: 'primary_metric_count',
+      WaitingMetricCount: 'waiting_metric_count',
+      MetricCount: 'metric_count',
+      CompletedMetricCount: 'completed_metric_count',
+      FailedMetricCount: 'failed_metric_count',
+      CalculatedAt: 'calculated_at',
+      FlagActive: 'flag_active',
+      FlagDeleted: 'flag_deleted',
+      FlagRolledOut: 'flag_rolled_out',
+      ShippedVariant: 'shipped_variant',
     } as const;
 
     /**
      * * `above` - Finding above the threshold
      * * `below` - Finding below the threshold
      */
-    export type ExperimentHealthMeasurementSideEnum = typeof ExperimentHealthMeasurementSideEnum[keyof typeof ExperimentHealthMeasurementSideEnum];
+    export type ExperimentHealthRuleSideEnum = typeof ExperimentHealthRuleSideEnum[keyof typeof ExperimentHealthRuleSideEnum];
 
 
-    export const ExperimentHealthMeasurementSideEnum = {
+    export const ExperimentHealthRuleSideEnum = {
       Above: 'above',
       Below: 'below',
     } as const;
 
-    export interface ExperimentHealthMeasurement {
-      /** The value that the check measured on the experiment. */
-      value: number;
-      /** The value at which the check reports a finding. */
-      threshold: number;
-      /** percentage: a share of the exposed users or groups, on the 0-100 scale. p_value: the p-value of a statistical test.
+    /**
+     * * `chi_squared` - Chi-squared goodness-of-fit test
+     */
+    export type ExperimentHealthRuleTestEnum = typeof ExperimentHealthRuleTestEnum[keyof typeof ExperimentHealthRuleTestEnum];
+
+
+    export const ExperimentHealthRuleTestEnum = {
+      ChiSquared: 'chi_squared',
+    } as const;
+
+    export interface ExperimentHealthRuleMinimum {
+      /** The key in `values` that must reach the threshold before the check judges.
        *
-       * * `percentage` - Percentage of exposed units
-       * * `p_value` - P-value of a statistical test */
-      unit: ExperimentHealthMeasurementUnitEnum;
-      /** The side of the threshold that reports a finding: above or below.
+       * * `exposed_count` - Users or groups exposed since launch, as the exposure criteria count them, including those exposed to multiple variants
+       * * `compared_count` - Exposed users or groups in the variants that the sample ratio test compares, without those exposed to multiple variants
+       * * `multiple_variant_count` - Users or groups exposed to more than one variant
+       * * `multiple_variant_percentage` - multiple_variant_count as a share of exposed_count
+       * * `multiple_variant_handling` - What the results do with users exposed to more than one variant: exclude or first_seen
+       * * `p_value` - P-value of the sample ratio test
+       * * `since_launch_hours` - Hours since launch
+       * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
+       * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+       * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
+       * * `primary_metric_count` - Primary metrics that the calculation computes
+       * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
+       * * `metric_count` - Metrics that the calculation computes
+       * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
+       * * `failed_metric_count` - Metrics whose latest calculation failed
+       * * `calculated_at` - When the latest calculation of the metrics finished
+       * * `flag_active` - Whether the feature flag is enabled
+       * * `flag_deleted` - Whether the feature flag is deleted
+       * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
+       * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one */
+      value: ExperimentHealthValueKeyEnum;
+      /** The value that the key must reach. Below it, the check reports no finding. */
+      threshold: number;
+    }
+
+    export interface ExperimentHealthCheckRule {
+      /** The key in `values` that the check compares with the threshold.
+       *
+       * * `exposed_count` - Users or groups exposed since launch, as the exposure criteria count them, including those exposed to multiple variants
+       * * `compared_count` - Exposed users or groups in the variants that the sample ratio test compares, without those exposed to multiple variants
+       * * `multiple_variant_count` - Users or groups exposed to more than one variant
+       * * `multiple_variant_percentage` - multiple_variant_count as a share of exposed_count
+       * * `multiple_variant_handling` - What the results do with users exposed to more than one variant: exclude or first_seen
+       * * `p_value` - P-value of the sample ratio test
+       * * `since_launch_hours` - Hours since launch
+       * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
+       * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+       * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
+       * * `primary_metric_count` - Primary metrics that the calculation computes
+       * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
+       * * `metric_count` - Metrics that the calculation computes
+       * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
+       * * `failed_metric_count` - Metrics whose latest calculation failed
+       * * `calculated_at` - When the latest calculation of the metrics finished
+       * * `flag_active` - Whether the feature flag is enabled
+       * * `flag_deleted` - Whether the feature flag is deleted
+       * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
+       * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one */
+      value: ExperimentHealthValueKeyEnum;
+      /** The threshold, in the unit that the suffix of the key gives. */
+      threshold: number;
+      /** above: the check reports a finding when the value is above the threshold. below: when the value is below it. A value at the threshold passes.
        *
        * * `above` - Finding above the threshold
        * * `below` - Finding below the threshold */
-      warns: ExperimentHealthMeasurementSideEnum;
+      warns: ExperimentHealthRuleSideEnum;
+      /** The statistical test that computes the value, for example chi_squared. Null for a count or a share.
+       *
+       * * `chi_squared` - Chi-squared goodness-of-fit test */
+      test: ExperimentHealthRuleTestEnum | null;
+      /** What the check needs before it judges. Null when the check judges from the first value. */
+      minimum: ExperimentHealthRuleMinimum | null;
     }
+
+    /**
+     * What the check read on the experiment, for every status, as numbers, strings, booleans or null. Empty when the check read nothing or shows nothing. The suffix of a key gives the unit: _count is a count, _percentage is on the 0-100 scale, _hours is hours and _at is an ISO 8601 time in UTC. A key without a suffix is a setting or a state. A key means the same thing in every check. `rule.value` names the key that decides.
+     */
+    export type ExperimentHealthCheckResultValues = {[key: string]: string | number | boolean | null};
 
     export interface ExperimentHealthCheckResult {
       /** Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
@@ -43322,8 +43449,10 @@ export namespace Schemas {
          * @nullable
          */
       reason: string | null;
-      /** The value that decided a passed check, against its threshold. Null for the other statuses, and for a pass without a value. A finding carries its values in `evidence`. */
-      measurement: ExperimentHealthMeasurement | null;
+      /** What the check read on the experiment, for every status, as numbers, strings, booleans or null. Empty when the check read nothing or shows nothing. The suffix of a key gives the unit: _count is a count, _percentage is on the 0-100 scale, _hours is hours and _at is an ISO 8601 time in UTC. A key without a suffix is a setting or a state. A key means the same thing in every check. `rule.value` names the key that decides. */
+      values: ExperimentHealthCheckResultValues;
+      /** How the check decides. The same for every experiment and every status. Null for a check without a numeric rule. */
+      rule: ExperimentHealthCheckRule | null;
     }
 
     export interface ExperimentHealth {
@@ -43579,6 +43708,11 @@ export namespace Schemas {
       multiple_variant_handling?: MultipleVariantHandling | null;
     }
 
+    /**
+     * What the check read on the experiment, for every status. The suffix of a key gives the unit: _count is a count, _percentage is on the 0-100 scale, _hours is hours. A key without a suffix is a setting. Missing on an answer cached before the field existed.
+     */
+    export type ExperimentExposureHealthCheckValues = {[key: string]: string | number | boolean | null} | null;
+
     export type ExperimentExposureHealthCheckKey = typeof ExperimentExposureHealthCheckKey[keyof typeof ExperimentExposureHealthCheckKey];
 
 
@@ -43590,31 +43724,47 @@ export namespace Schemas {
       TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
     } as const;
 
-    export type ExperimentExposureHealthMeasurementUnit = typeof ExperimentExposureHealthMeasurementUnit[keyof typeof ExperimentExposureHealthMeasurementUnit];
+    export type ExperimentExposureHealthValueKey = typeof ExperimentExposureHealthValueKey[keyof typeof ExperimentExposureHealthValueKey];
 
 
-    export const ExperimentExposureHealthMeasurementUnit = {
-      Percentage: 'percentage',
+    export const ExperimentExposureHealthValueKey = {
+      ExposedCount: 'exposed_count',
+      ComparedCount: 'compared_count',
+      MultipleVariantCount: 'multiple_variant_count',
+      MultipleVariantPercentage: 'multiple_variant_percentage',
+      MultipleVariantHandling: 'multiple_variant_handling',
       PValue: 'p_value',
+      SinceLaunchHours: 'since_launch_hours',
+      ExposedWithoutTestAccountFilterCount: 'exposed_without_test_account_filter_count',
+      KeptByTestAccountFilterPercentage: 'kept_by_test_account_filter_percentage',
     } as const;
 
-    export type ExperimentExposureHealthMeasurementSide = typeof ExperimentExposureHealthMeasurementSide[keyof typeof ExperimentExposureHealthMeasurementSide];
+    export interface ExperimentExposureHealthRuleMinimum {
+      /** The value that the key must reach. Below it, the check reports no finding. */
+      threshold: number;
+      /** The key in `values` that must reach the threshold before the check judges. */
+      value: ExperimentExposureHealthValueKey;
+    }
+
+    export type ExperimentExposureHealthRuleSide = typeof ExperimentExposureHealthRuleSide[keyof typeof ExperimentExposureHealthRuleSide];
 
 
-    export const ExperimentExposureHealthMeasurementSide = {
+    export const ExperimentExposureHealthRuleSide = {
       Above: 'above',
       Below: 'below',
     } as const;
 
-    export interface ExperimentExposureHealthMeasurement {
-      /** The value at which the check reports a finding. */
+    export interface ExperimentExposureHealthCheckRule {
+      /** What the check needs before it judges. Null when the check judges from the first value. */
+      minimum: ExperimentExposureHealthRuleMinimum | null;
+      /** The statistical test that computes the value. Null for a count or a share. */
+      test: 'chi_squared' | null;
+      /** The threshold, in the unit that the suffix of the key gives. */
       threshold: number;
-      /** percentage: a share of the exposed users or groups, on the 0-100 scale. p_value: the p-value of a statistical test. */
-      unit: ExperimentExposureHealthMeasurementUnit;
-      /** The value that the check measured on the experiment. */
-      value: number;
-      /** The side of the threshold that reports a finding. */
-      warns: ExperimentExposureHealthMeasurementSide;
+      /** The key in `values` that the check compares with the threshold. */
+      value: ExperimentExposureHealthValueKey;
+      /** above: the check reports a finding when the value is above the threshold. below: when the value is below it. A value at the threshold passes. */
+      warns: ExperimentExposureHealthRuleSide;
     }
 
     export type ExperimentExposureHealthCheckStatus = typeof ExperimentExposureHealthCheckStatus[keyof typeof ExperimentExposureHealthCheckStatus];
@@ -43632,14 +43782,16 @@ export namespace Schemas {
       description?: string | null;
       /** Stable identifier of the check. */
       key: ExperimentExposureHealthCheckKey;
-      /** The value that decided a passed check. Null for the other statuses and for a pass without a value. */
-      measurement?: ExperimentExposureHealthMeasurement | null;
       /** The problem the check looks for, as the health panel lists it. */
       name: string;
       /** Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding. */
       reason: string | null;
+      /** How the check decides, the same for every experiment. Null for a check without a numeric rule. Missing on an answer cached before the field existed. */
+      rule?: ExperimentExposureHealthCheckRule | null;
       /** passed: no problem found. finding: a finding in `health_findings`. not_applicable: the check doesn't cover the experiment's state. not_checked: an input was missing or the check failed. */
       status: ExperimentExposureHealthCheckStatus;
+      /** What the check read on the experiment, for every status. The suffix of a key gives the unit: _count is a count, _percentage is on the 0-100 scale, _hours is hours. A key without a suffix is a setting. Missing on an answer cached before the field existed. */
+      values?: ExperimentExposureHealthCheckValues;
     }
 
     /**
@@ -43680,6 +43832,8 @@ export namespace Schemas {
     export interface ExperimentExposureHealthFinding {
       /** The actions that fix the problem, in order of preference. */
       actions: ExperimentExposureHealthFindingActionKind[];
+      /** The key of the check in `health_checks` that reported the finding. Missing on an answer cached before the field existed. */
+      check?: ExperimentExposureHealthCheckKey | null;
       /** Stable identifier of the problem. Each code has one meaning across every surface that reports it. */
       code: ExperimentExposureHealthFindingCode;
       /** What is wrong, what it does to the experiment, and how to fix it. */
@@ -61357,6 +61511,26 @@ export namespace Schemas {
       provider?: string | null;
     }
 
+    /**
+     * * `single_candidate` - Single candidate
+     * * `fork` - Fork
+     * * `nothing_cuttable` - Nothing cuttable
+     * * `no_answer` - No answer
+     * * `stamphog_approved` - Stamphog approved
+     * * `files_truncated` - Files truncated
+     */
+    export type LlmSkipReasonEnum = typeof LlmSkipReasonEnum[keyof typeof LlmSkipReasonEnum];
+
+
+    export const LlmSkipReasonEnum = {
+      SingleCandidate: 'single_candidate',
+      Fork: 'fork',
+      NothingCuttable: 'nothing_cuttable',
+      NoAnswer: 'no_answer',
+      StamphogApproved: 'stamphog_approved',
+      FilesTruncated: 'files_truncated',
+    } as const;
+
     export interface LlmsTxtFetchRequest {
       /**
          * Public HTTP or HTTPS URL of the llms.txt file to load.
@@ -69871,6 +70045,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `team` - Team
+     * * `person` - Person
+     */
+    export type OwnerKindEnum = typeof OwnerKindEnum[keyof typeof OwnerKindEnum];
+
+
+    export const OwnerKindEnum = {
+      Team: 'team',
+      Person: 'person',
+    } as const;
+
+    /**
      * * `found` - Found
      * * `missing` - Missing
      * * `unavailable` - Unavailable
@@ -74809,6 +74995,181 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: StamphogRepoConfig[];
+    }
+
+    /**
+     * * `full` - Every owner
+     * * `pinned` - Pinned owners only
+     */
+    export type RoutingScopeEnum = typeof RoutingScopeEnum[keyof typeof RoutingScopeEnum];
+
+
+    export const RoutingScopeEnum = {
+      Full: 'full',
+      Pinned: 'pinned',
+    } as const;
+
+    /**
+     * * `requested` - Requested
+     * * `labeled` - Labeled
+     * * `refused` - Refused by GitHub
+     * * `cut` - Cut
+     * * `not_requested` - Not requested
+     * * `already_requested` - Already requested
+     */
+    export type RoutingOwnerOutcomeEnum = typeof RoutingOwnerOutcomeEnum[keyof typeof RoutingOwnerOutcomeEnum];
+
+
+    export const RoutingOwnerOutcomeEnum = {
+      Requested: 'requested',
+      Labeled: 'labeled',
+      Refused: 'refused',
+      Cut: 'cut',
+      NotRequested: 'not_requested',
+      AlreadyRequested: 'already_requested',
+    } as const;
+
+    /**
+     * * `sensitive` - Owns a sensitive path
+     * * `new_path` - Owns a new path
+     * * `largest_owner` - Has the largest part
+     * * `diff_not_seen` - Diff not shown to the model
+     * * `cut_skipped` - Cut step skipped
+     * * `model_kept` - Kept by the model
+     * * `model_cut` - Cut by the model
+     * * `stamphog_approved` - Stamphog approved
+     */
+    export type RoutingOwnerReasonEnum = typeof RoutingOwnerReasonEnum[keyof typeof RoutingOwnerReasonEnum];
+
+
+    export const RoutingOwnerReasonEnum = {
+      Sensitive: 'sensitive',
+      NewPath: 'new_path',
+      LargestOwner: 'largest_owner',
+      DiffNotSeen: 'diff_not_seen',
+      CutSkipped: 'cut_skipped',
+      ModelKept: 'model_kept',
+      ModelCut: 'model_cut',
+      StamphogApproved: 'stamphog_approved',
+    } as const;
+
+    /**
+     * * `sensitive` - Sensitive path
+     * * `new_path` - New path
+     */
+    export type PinReasonEnum = typeof PinReasonEnum[keyof typeof PinReasonEnum];
+
+
+    export const PinReasonEnum = {
+      Sensitive: 'sensitive',
+      NewPath: 'new_path',
+    } as const;
+
+    export interface StamphogRoutingPin {
+      /** Why the path pins its owner.
+       *
+       * * `sensitive` - Sensitive path
+       * * `new_path` - New path */
+      readonly reason: PinReasonEnum;
+      /** The changed path, or the new directory, that pinned the owner. */
+      path: string;
+    }
+
+    export interface StamphogRoutingRunOwner {
+      /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved and the owner is not pinned) or 'already_requested' (an earlier run asked this pinned owner).
+       *
+       * * `requested` - Requested
+       * * `labeled` - Labeled
+       * * `refused` - Refused by GitHub
+       * * `cut` - Cut
+       * * `not_requested` - Not requested
+       * * `already_requested` - Already requested */
+      readonly outcome: RoutingOwnerOutcomeEnum;
+      /** Why: 'sensitive' or 'new_path' (pinned, never cut), 'largest_owner' (a pull request keeps at least one reviewer), 'diff_not_seen' (the model did not see all of the owner's diff), 'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut' or 'stamphog_approved'.
+       *
+       * * `sensitive` - Owns a sensitive path
+       * * `new_path` - Owns a new path
+       * * `largest_owner` - Has the largest part
+       * * `diff_not_seen` - Diff not shown to the model
+       * * `cut_skipped` - Cut step skipped
+       * * `model_kept` - Kept by the model
+       * * `model_cut` - Cut by the model
+       * * `stamphog_approved` - Stamphog approved */
+      readonly reason: RoutingOwnerReasonEnum;
+      /** The changed paths that pinned the owner, so no cut could remove them. */
+      readonly pins: readonly StamphogRoutingPin[];
+      /** Whether the owner is a GitHub team or a person.
+       *
+       * * `team` - Team
+       * * `person` - Person */
+      readonly kind: OwnerKindEnum;
+      /** The owner as owners.yaml spells it: a team slug such as 'team-devex', or a GitHub login such as '@octocat'. */
+      owner: string;
+      /** The model's one-line reason to cut this owner. Also set when a guard kept the owner anyway. Blank when the model proposed no cut for them. */
+      model_reason?: string;
+      /** Changed lines in the files this owner owns. */
+      lines?: number;
+      /** Changed files this owner owns. */
+      file_count?: number;
+    }
+
+    export interface StamphogRoutingRun {
+      /** ID of the routing run. */
+      id: string;
+      /** Full name of the repository. */
+      repository: string;
+      /** Pull request number. */
+      pr_number: number;
+      /** The head commit the run routed. */
+      head_sha: string;
+      /** The repository's routing_mode when the run made its requests.
+       *
+       * * `off` - Off
+       * * `always` - Always
+       * * `fallback` - When stamphog does not approve */
+      readonly mode: RoutingModeEnum;
+      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>' or 'safety_net'. */
+      trigger: string;
+      /** 'full', or 'pinned' when a stamphog approval asked only the owners of sensitive and new paths.
+       *
+       * * `full` - Every owner
+       * * `pinned` - Pinned owners only */
+      readonly scope: RoutingScopeEnum;
+      /** Whether the pull request came from a fork, which skips the model. */
+      fork?: boolean;
+      /** Why the cut step made no model call. Null when it made one.
+       *
+       * * `single_candidate` - Single candidate
+       * * `fork` - Fork
+       * * `nothing_cuttable` - Nothing cuttable
+       * * `no_answer` - No answer
+       * * `stamphog_approved` - Stamphog approved
+       * * `files_truncated` - Files truncated */
+      readonly llm_skipped: LlmSkipReasonEnum | null;
+      /** The model the cut request reached. Blank when no request reached the gateway. */
+      model?: string;
+      /** Whether GitHub listed fewer files than the pull request changes, so owners may be missing. */
+      files_truncated?: boolean;
+      /** Whether the new-path lookup worked. When false, owners of new paths may not be pinned. */
+      additions_resolved?: boolean;
+      /** The default-branch commit whose owners.yaml files decided the owners. Blank when unknown. */
+      owners_sha?: string;
+      /** The run's decision for every owner of the changed code. */
+      readonly owners: readonly StamphogRoutingRunOwner[];
+      /**
+         * When the run made its requests.
+         * @nullable
+         */
+      created_at?: string | null;
+    }
+
+    export interface PaginatedStamphogRoutingRunList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: StamphogRoutingRun[];
     }
 
     /**
@@ -108086,6 +108447,112 @@ export namespace Schemas {
       routing_mode?: RoutingModeEnum;
     }
 
+    export interface StamphogRoutingFile {
+      /** The changed path. */
+      path: string;
+      /**
+         * The path before a rename. Null for any other change.
+         * @nullable
+         */
+      previous_path?: string | null;
+      /** GitHub's file status, such as 'added', 'modified', 'removed' or 'renamed'. */
+      status?: string;
+      /** Added lines. */
+      additions?: number;
+      /** Deleted lines. */
+      deletions?: number;
+    }
+
+    export interface StamphogRoutingRunOwnerDetail {
+      /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved and the owner is not pinned) or 'already_requested' (an earlier run asked this pinned owner).
+       *
+       * * `requested` - Requested
+       * * `labeled` - Labeled
+       * * `refused` - Refused by GitHub
+       * * `cut` - Cut
+       * * `not_requested` - Not requested
+       * * `already_requested` - Already requested */
+      readonly outcome: RoutingOwnerOutcomeEnum;
+      /** Why: 'sensitive' or 'new_path' (pinned, never cut), 'largest_owner' (a pull request keeps at least one reviewer), 'diff_not_seen' (the model did not see all of the owner's diff), 'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut' or 'stamphog_approved'.
+       *
+       * * `sensitive` - Owns a sensitive path
+       * * `new_path` - Owns a new path
+       * * `largest_owner` - Has the largest part
+       * * `diff_not_seen` - Diff not shown to the model
+       * * `cut_skipped` - Cut step skipped
+       * * `model_kept` - Kept by the model
+       * * `model_cut` - Cut by the model
+       * * `stamphog_approved` - Stamphog approved */
+      readonly reason: RoutingOwnerReasonEnum;
+      /** The changed paths that pinned the owner, so no cut could remove them. */
+      readonly pins: readonly StamphogRoutingPin[];
+      /** Whether the owner is a GitHub team or a person.
+       *
+       * * `team` - Team
+       * * `person` - Person */
+      readonly kind: OwnerKindEnum;
+      /** Every changed file this owner owns, which is what made them a candidate. Patches are not kept. */
+      readonly files: readonly StamphogRoutingFile[];
+      /** The owner as owners.yaml spells it: a team slug such as 'team-devex', or a GitHub login such as '@octocat'. */
+      owner: string;
+      /** The model's one-line reason to cut this owner. Also set when a guard kept the owner anyway. Blank when the model proposed no cut for them. */
+      model_reason?: string;
+      /** Changed lines in the files this owner owns. */
+      lines?: number;
+      /** Changed files this owner owns. */
+      file_count?: number;
+    }
+
+    export interface StamphogRoutingRunDetail {
+      /** ID of the routing run. */
+      id: string;
+      /** Full name of the repository. */
+      repository: string;
+      /** Pull request number. */
+      pr_number: number;
+      /** The head commit the run routed. */
+      head_sha: string;
+      /** The repository's routing_mode when the run made its requests.
+       *
+       * * `off` - Off
+       * * `always` - Always
+       * * `fallback` - When stamphog does not approve */
+      readonly mode: RoutingModeEnum;
+      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>' or 'safety_net'. */
+      trigger: string;
+      /** 'full', or 'pinned' when a stamphog approval asked only the owners of sensitive and new paths.
+       *
+       * * `full` - Every owner
+       * * `pinned` - Pinned owners only */
+      readonly scope: RoutingScopeEnum;
+      /** Whether the pull request came from a fork, which skips the model. */
+      fork?: boolean;
+      /** Why the cut step made no model call. Null when it made one.
+       *
+       * * `single_candidate` - Single candidate
+       * * `fork` - Fork
+       * * `nothing_cuttable` - Nothing cuttable
+       * * `no_answer` - No answer
+       * * `stamphog_approved` - Stamphog approved
+       * * `files_truncated` - Files truncated */
+      readonly llm_skipped: LlmSkipReasonEnum | null;
+      /** The model the cut request reached. Blank when no request reached the gateway. */
+      model?: string;
+      /** Whether GitHub listed fewer files than the pull request changes, so owners may be missing. */
+      files_truncated?: boolean;
+      /** Whether the new-path lookup worked. When false, owners of new paths may not be pinned. */
+      additions_resolved?: boolean;
+      /** The default-branch commit whose owners.yaml files decided the owners. Blank when unknown. */
+      owners_sha?: string;
+      /** The run's decision for every owner of the changed code, with the files each owner owns. */
+      readonly owners: readonly StamphogRoutingRunOwnerDetail[];
+      /**
+         * When the run made its requests.
+         * @nullable
+         */
+      created_at?: string | null;
+    }
+
     /**
      * Request body for binding a GitHub App installation to the current team.
      *
@@ -133177,6 +133644,31 @@ export namespace Schemas {
       Manual: 'manual',
       SelfDriving: 'self_driving',
     } as const;
+
+    export type StamphogRoutingRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Keep only runs that decided about this owner, spelled as in owners.yaml: a team slug such as 'team-devex', or a GitHub login such as '@octocat'.
+     * @minLength 1
+     */
+    owner?: string;
+    /**
+     * Filter by pull request number.
+     */
+    pr_number?: number;
+    /**
+     * Filter by repository full name, e.g. 'PostHog/posthog'.
+     * @minLength 1
+     */
+    repository?: string;
+    };
 
     export type StreamlitAppsListParams = {
     /**

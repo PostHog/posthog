@@ -1,15 +1,11 @@
 import { pluralize } from 'lib/utils/strings'
 
-import type {
-    ExperimentExposureHealthCheck,
-    ExperimentExposureHealthMeasurement,
-    ExperimentExposureQueryResponse,
-} from '~/queries/schema/schema-general'
+import type { ExperimentExposureHealthCheck, ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
 import type { ExperimentHealthApi, ExperimentHealthCheckResultApi } from '../generated/api.schemas'
 import { type HealthPanelFinding, healthIssues } from './healthPanelFindings'
 
-/** An exposure check from an answer cached before the server added a field has no description or measurement. */
+/** An exposure check from an answer cached before the server added a field has no description, values or rule. */
 export type HealthPanelCheck = ExperimentHealthCheckResultApi | ExperimentExposureHealthCheck
 
 /** A check in the list of checks. A check that reported a finding shows as that finding instead. */
@@ -120,21 +116,4 @@ export function healthChipState(
         .filter(Boolean)
         .join(' · ')
     return { kind: 'checks', label: label || 'No checks apply yet', checks, findings }
-}
-
-function formatMeasuredValue(value: number, unit: ExperimentExposureHealthMeasurement['unit']): string {
-    if (unit === 'p_value') {
-        return `p = ${Number(value.toPrecision(2))}`
-    }
-    // One decimal would print a small share as 0%, which reads as none.
-    return value > 0 && value < 0.1 ? 'less than 0.1%' : `${Number(value.toFixed(1))}%`
-}
-
-/** The value that decided a passed check, against its threshold, for example "Measured 4.2%. Warns above 5%." */
-export function healthMeasurementText(measurement: ExperimentExposureHealthMeasurement): string {
-    const threshold =
-        measurement.unit === 'p_value'
-            ? `${measurement.threshold}`
-            : formatMeasuredValue(measurement.threshold, 'percentage')
-    return `Measured ${formatMeasuredValue(measurement.value, measurement.unit)}. Warns ${measurement.warns} ${threshold}.`
 }
