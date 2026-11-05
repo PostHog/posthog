@@ -380,7 +380,7 @@ def _build_message_blocks(
     body_block = (
         {
             "type": "section",
-            "text": {"type": "mrkdwn", "text": _section_body(body)},
+            "text": {"type": "mrkdwn", "text": _section_body(body), "verbatim": True},
         }
         if use_section_blocks
         else _markdown_block(body)

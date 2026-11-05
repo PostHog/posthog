@@ -112,7 +112,7 @@ def test_build_message_blocks_includes_recipient_and_open_in_posthog_button(use_
         team_id=42,
         title="fix(checkout): Checkout errors spiked",
         summary=(
-            "See [errors](https://example.com/errors?a=1&b=2) after deploy. Ignored second sentence.\nIgnored second line.\n\n"
+            "@here see [errors](https://example.com/errors?a=1&b=2) after deploy. Ignored second sentence.\nIgnored second line.\n\n"
             "## Problem\n\nThe payment form throws.\n\n"
             "## Impact\n\nAbout **300 buyers** could not pay\nin the last hour. Ignored second sentence.\n\n"
             "A second paragraph stays out.\n\n"
@@ -128,14 +128,15 @@ def test_build_message_blocks_includes_recipient_and_open_in_posthog_button(use_
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": "See <https://example.com/errors?a=1&b=2|errors> after deploy.\n\n"
+                "text": "@here see <https://example.com/errors?a=1&b=2|errors> after deploy.\n\n"
                 "*Impact:* About *300 buyers* could not pay in the last hour.",
+                "verbatim": True,
             },
         }
     else:
         assert blocks[1] == {
             "type": "markdown",
-            "text": "See [errors](https://example.com/errors?a=1&b=2) after deploy.\n\n"
+            "text": "@here see [errors](https://example.com/errors?a=1&b=2) after deploy.\n\n"
             "**Impact:** About **300 buyers** could not pay in the last hour.",
         }
     # A mention in plain_text would render as the raw token, never pinging anyone.
