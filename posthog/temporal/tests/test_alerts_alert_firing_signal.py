@@ -6,12 +6,20 @@ from unittest.mock import AsyncMock, patch
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.schema import AlertState
 
 from posthog.redis import TEST_clear_clients
-from posthog.temporal.alerts.alert_firing_signal import dispatch_alert_firing_signal, prepare_alert_firing_signal
-from posthog.token_bucket import Budget, TEST_reset_scripts
+from posthog.temporal.alerts.alert_firing_signal import (
+    CAP_DROP_EVENT,
+    EMITTED_OUTCOME,
+    AlertFiringSkipReason,
+    cap_key,
+    dispatch_alert_firing_signal,
+    prepare_alert_firing_signal,
+)
+from posthog.token_bucket import BucketUnavailable, Budget, TEST_reset_scripts, consume
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
@@ -19,6 +27,21 @@ from products.signals.backend.facade.api import validate_signal_input
 from products.signals.backend.facade.source_configs import AlertNamePatterns, SignalSourceConfigSnapshot
 
 _MODULE = "posthog.temporal.alerts.alert_firing_signal"
+_ONE_TOKEN = Budget(burst=1, per_hour=1)
+_OUTCOMES = [EMITTED_OUTCOME, *(reason.value for reason in AlertFiringSkipReason)]
+
+
+def _outcome_counts() -> dict[str, float]:
+    return {
+        outcome: REGISTRY.get_sample_value("posthog_insight_alerts_firing_signals_total", {"outcome": outcome}) or 0.0
+        for outcome in _OUTCOMES
+    }
+
+
+def _counted_since(before: dict[str, float]) -> dict[str, float]:
+    return {
+        outcome: count - before[outcome] for outcome, count in _outcome_counts().items() if count != before[outcome]
+    }
 
 
 def _source(enabled: bool) -> SignalSourceConfigSnapshot:
@@ -192,3 +215,96 @@ class TestEmitAlertFiringSignal(BaseTest):
         assert filtered_emitted is False
         filtered_emit.assert_not_awaited()
         assert passing_emitted is True
+
+    def _spend_the_only_token(self) -> None:
+        consume(cap_key(self.team.id), _ONE_TOKEN)
+
+    @parameterized.expand(
+        [
+            ("emitted", {}, {}, None, EMITTED_OUTCOME),
+            ("not_new_episode_is_not_counted", {"previous_state": AlertState.FIRING}, {}, None, None),
+            (
+                "investigated_is_not_counted",
+                {},
+                {"investigation_agent_enabled": True, "detector_config": {"type": "zscore"}},
+                None,
+                None,
+            ),
+            ("source_disabled", {"source_enabled": False}, {}, None, "source_disabled"),
+            ("scope", {"scope": "investigated_only"}, {}, None, "scope"),
+            ("filtered", {"patterns": AlertNamePatterns(block=("dropped$",))}, {}, None, "filtered"),
+            ("filter_invalid", {"patterns": AlertNamePatterns(invalid=True)}, {}, None, "filter_invalid"),
+            ("cap", {}, {}, "spend", "cap"),
+            ("cap_unavailable", {}, {}, "unavailable", "cap_unavailable"),
+            ("not_dispatched", {"emit": AsyncMock(return_value=False)}, {}, None, "not_dispatched"),
+        ]
+    )
+    def test_records_each_counted_outcome_once(
+        self, _name: str, emit_kwargs: dict, alert_kwargs: dict, cap_state: str | None, expected: str | None
+    ) -> None:
+        alert, check = self._alert_and_check(**alert_kwargs)
+        before = _outcome_counts()
+
+        with (
+            patch(f"{_MODULE}.CAP_BUDGET", _ONE_TOKEN),
+            patch(f"{_MODULE}.posthoganalytics.capture") as capture,
+            patch(f"{_MODULE}.consume", return_value=BucketUnavailable(error="down"))
+            if cap_state == "unavailable"
+            else contextlib.nullcontext(),
+        ):
+            if cap_state == "spend":
+                self._spend_the_only_token()
+            self._emit(alert, check, **emit_kwargs)
+
+        assert _counted_since(before) == ({expected: 1.0} if expected else {})
+        if expected in ("cap", "cap_unavailable"):
+            capture.assert_called_once()
+            assert capture.call_args.kwargs["event"] == CAP_DROP_EVENT
+            assert capture.call_args.kwargs["properties"] == {
+                "source_product": "analytics",
+                "source_type": "alert_firing",
+                "source_id": f"{alert.id}:{check.id}",
+                "team_id": self.team.id,
+                "alert_id": str(alert.id),
+                "alert_check_id": str(check.id),
+                "reason": expected,
+            }
+        else:
+            capture.assert_not_called()
+
+    def test_retried_attempt_does_not_count_the_episode_twice(self) -> None:
+        alert, check = self._alert_and_check()
+        before = _outcome_counts()
+
+        with (
+            patch(f"{_MODULE}.CAP_BUDGET", _ONE_TOKEN),
+            patch(f"{_MODULE}.posthoganalytics.capture") as capture,
+        ):
+            first, _ = self._emit(alert, check)
+            retried, _ = self._emit(alert, check)
+
+        assert (first, retried) == (True, False)
+        assert _counted_since(before) == {EMITTED_OUTCOME: 1.0}
+        capture.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("failed_capture_on_a_cap_drop", "spend", "posthoganalytics.capture", False),
+            ("failed_counter_on_an_emitted_signal", None, "record_alert_firing_signal_outcome", True),
+        ]
+    )
+    def test_telemetry_failure_does_not_change_the_result(
+        self, _name: str, cap_state: str | None, failing: str, expected: bool
+    ) -> None:
+        alert, check = self._alert_and_check()
+
+        with (
+            patch(f"{_MODULE}.CAP_BUDGET", _ONE_TOKEN),
+            patch(f"{_MODULE}.{failing}", side_effect=RuntimeError("telemetry down")),
+        ):
+            if cap_state == "spend":
+                self._spend_the_only_token()
+            emitted, emit = self._emit(alert, check)
+
+        assert emitted is expected
+        assert emit.await_count == int(expected)
