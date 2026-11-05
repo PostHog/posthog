@@ -140,7 +140,64 @@ describe('reportCheckPresentation', () => {
                     },
                 },
                 'Awaiting verification',
-                'The observation window has ended. Interim measurements have stopped. A final verdict has not been recorded.',
+                'The observation window has ended. Final verification is pending.',
+            ],
+            [
+                'an agent check awaits its final window without appearing paused',
+                {
+                    monitoring_timing: {
+                        state: 'paused',
+                        final_verification_state: 'monitoring',
+                        started_at: '2026-09-20T09:00:00Z',
+                        ends_at: '2026-09-27T09:00:00Z',
+                        next_measurement_at: null,
+                    },
+                },
+                'Monitoring',
+                'Final verification is scheduled for the end of this check’s observation window.',
+            ],
+            [
+                'a final scout runs without a legacy dispatch timestamp',
+                {
+                    dispatched_at: null,
+                    monitoring_timing: {
+                        state: 'paused',
+                        final_verification_state: 'verifying',
+                        started_at: '2026-09-20T09:00:00Z',
+                        ends_at: '2026-09-27T09:00:00Z',
+                        next_measurement_at: null,
+                    },
+                },
+                'Verifying',
+                'The scout is running the final check.',
+            ],
+            [
+                'a settled inconclusive evaluation needs assessment',
+                {
+                    monitoring_timing: {
+                        state: 'paused',
+                        final_verification_state: 'assessment_required',
+                        started_at: '2026-09-20T09:00:00Z',
+                        ends_at: '2026-09-27T09:00:00Z',
+                        next_measurement_at: null,
+                    },
+                },
+                'Inconclusive',
+                'Final verification could not settle this check. Further assessment is needed.',
+            ],
+            [
+                'a recorded verdict does not promise another final run',
+                {
+                    monitoring_timing: {
+                        state: 'paused',
+                        final_verification_state: 'verification_complete',
+                        started_at: '2026-09-20T09:00:00Z',
+                        ends_at: '2026-09-27T09:00:00Z',
+                        next_measurement_at: null,
+                    },
+                },
+                'Verification complete',
+                'A final verdict has been recorded for this check.',
             ],
             [
                 'a paused Monitoring check does not promise a scout run',
@@ -149,6 +206,20 @@ describe('reportCheckPresentation', () => {
                         state: 'paused',
                         started_at: '2026-09-20T09:00:00Z',
                         ends_at: '2026-09-27T09:00:00Z',
+                        next_measurement_at: null,
+                    },
+                },
+                'Paused',
+                'This check is paused during Monitoring.',
+            ],
+            [
+                'null final verification metadata keeps the legacy paused state',
+                {
+                    monitoring_timing: {
+                        state: 'paused',
+                        final_verification_state: null,
+                        started_at: null,
+                        ends_at: null,
                         next_measurement_at: null,
                     },
                 },

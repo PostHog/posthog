@@ -6,10 +6,10 @@ from django.db import models, transaction
 from django.db.models import Exists, OuterRef, Subquery
 
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied, Throttled
 
 from posthog.api.pagination import BoundedPageNumberPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -21,6 +21,7 @@ from posthog.rbac.query_access import assert_user_can_read_query
 from products.data_modeling.backend.facade.api import (
     SCHEDULABLE_BUCKETS,
     MaterializationForbiddenError,
+    MaterializationRanRecentlyError,
     MaterializationRunDirection,
     SavedQueryFrequencyBounds,
     UnsatisfiableFrequencyError,
@@ -678,7 +679,15 @@ class NodeViewSet(
             self.ordering
         )
 
-    @extend_schema(request=NodeRunSerializer, responses={200: NodeRunResponseSerializer})
+    @extend_schema(
+        request=NodeRunSerializer,
+        responses={
+            200: NodeRunResponseSerializer,
+            429: OpenApiResponse(
+                description="Every view this run would build ran too recently and has not changed since. The Retry-After header gives the wait in seconds."
+            ),
+        },
+    )
     @action(methods=["POST"], detail=True)
     def run(self, req: request.Request, *args, **kwargs) -> response.Response:
         """Run this node with its upstream dependencies or downstream dependents."""
@@ -707,6 +716,8 @@ class NodeViewSet(
             )
         except MaterializationForbiddenError as error:
             raise PermissionDenied(str(error))
+        except MaterializationRanRecentlyError as error:
+            raise Throttled(wait=error.retry_after_seconds, detail=str(error))
         return response.Response({"node_ids": node_ids}, status=status.HTTP_200_OK)
 
     def _lineage_lookup(self, req: request.Request) -> dict[str, UUID]:
@@ -784,10 +795,20 @@ class NodeViewSet(
             LineageResponseSerializer({"nodes": nodes, "edges": edges}, context=self.get_serializer_context()).data
         )
 
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(description="Materialization started. The response has no body."),
+            400: OpenApiResponse(description="The node is not a view, materialized view or endpoint node."),
+            429: OpenApiResponse(
+                description="The view's latest run started too recently and the query has not changed since. The Retry-After header gives the wait in seconds."
+            ),
+        },
+    )
     @action(methods=["POST"], detail=True)
     def materialize(self, req: request.Request, *args, **kwargs) -> response.Response:
         """Materialize just this single node."""
-        from products.data_modeling.backend.facade.api import start_node_materialization
+        from products.data_modeling.backend.facade.api import raise_if_ran_recently, start_node_materialization
 
         node = self.get_object()
 
@@ -803,6 +824,10 @@ class NodeViewSet(
         self._require_view_edit_access(node.saved_query)
         if node.saved_query is not None:
             assert_user_can_read_query(node.saved_query.query, self.team_id, cast(User, req.user))
+            try:
+                raise_if_ran_recently(self.team_id, node.saved_query.id)
+            except MaterializationRanRecentlyError as error:
+                raise Throttled(wait=error.retry_after_seconds, detail=str(error))
 
         start_node_materialization(node, triggered_by_id=req.user.pk)
 

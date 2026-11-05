@@ -13,9 +13,25 @@ import { NodeKind } from '~/queries/schema/schema-general'
 
 import { recalculationMocks, resultsByMetricType } from './recalculationMocks'
 
-type Check = { key: string; name: string; status: string; reason: string | null }
+type Check = {
+    key: string
+    name: string
+    description: string
+    status: string
+    reason: string | null
+    measurement: { value: number; threshold: number; unit: string; warns: string } | null
+}
 
-const passed = (key: string, name: string): Check => ({ key, name, status: 'passed', reason: null })
+const DESCRIPTION = 'Looks for a problem in the setup of the experiment that can make its results wrong.'
+
+const passed = (key: string, name: string): Check => ({
+    key,
+    name,
+    description: DESCRIPTION,
+    status: 'passed',
+    reason: null,
+    measurement: null,
+})
 
 const EXPERIMENT_CHECKS: Check[] = [
     passed('flag_state', "Flag state that doesn't match the experiment"),
@@ -26,8 +42,7 @@ const EXPERIMENT_CHECKS: Check[] = [
     passed('flag_variants_mismatch', 'Flag variants not set up'),
     passed('forced_variant_release_condition', 'Release conditions that force a variant'),
     {
-        key: 'new_flag_no_traffic',
-        name: 'Flag calls not received yet',
+        ...passed('new_flag_no_traffic', 'Flag calls not received yet'),
         status: 'not_applicable',
         reason: 'Runs before launch',
     },
@@ -45,10 +60,12 @@ const EXPERIMENT_CHECKS: Check[] = [
 const EXPOSURE_CHECKS: Check[] = [
     passed('zero_exposures', 'Exposures not received since launch'),
     passed('test_account_filter_removes_exposures', 'Test account filters that leave out most users'),
-    passed('srm', 'Split of users across variants'),
     {
-        key: 'bias_risk_multiple_excluded',
-        name: 'Bias from an uneven split',
+        ...passed('srm', 'Split of users across variants'),
+        measurement: { value: 0.71, threshold: 0.001, unit: 'p_value', warns: 'below' },
+    },
+    {
+        ...passed('bias_risk_multiple_excluded', 'Bias from an uneven split'),
         status: 'not_applicable',
         reason: 'The split is even',
     },

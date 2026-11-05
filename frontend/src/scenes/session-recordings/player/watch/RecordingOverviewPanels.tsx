@@ -9,10 +9,10 @@ import { OverviewTab } from 'scenes/session-recordings/player/player-meta/overvi
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { OVERVIEW_SNAPSHOT_SCOPE } from 'scenes/session-recordings/player/sidebar/overviewSnapshotScope'
-import { PlayerSidebarExperimentsSection } from 'scenes/session-recordings/player/sidebar/PlayerSidebarExperimentsSection'
 import { playerSidebarLogic } from 'scenes/session-recordings/player/sidebar/playerSidebarLogic'
 import { PlayerSidebarOverviewOtherWatchers } from 'scenes/session-recordings/player/sidebar/PlayerSidebarOverviewOtherWatchers'
 
+import { QuillExperimentsSection } from './QuillExperimentsSection'
 import { QuillOverviewDeviceCard } from './QuillOverviewDeviceCard'
 import { QuillOverviewPersonCard } from './QuillOverviewPersonCard'
 import { QuillOverviewSessionCard } from './QuillOverviewSessionCard'
@@ -110,8 +110,8 @@ function OverviewExtras(): JSX.Element {
                     </div>
                 </CollapsibleContent>
             </Collapsible>
+            <QuillExperimentsSection />
             <div data-not-quill className="contents">
-                <PlayerSidebarExperimentsSection />
                 <PlayerSidebarOverviewOtherWatchers />
             </div>
         </>

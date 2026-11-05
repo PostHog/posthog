@@ -138,6 +138,7 @@ function candidateFor(item: SearchItem, groupKey: string, query: string): RankCa
         context: [...path, groupKey.replace(/[_/]/g, ' ')],
         frecency: -(item.rankKey?.[SERVER_FRECENCY_INDEX] ?? 0) / 1000,
         createdAt: -(item.rankKey?.[SERVER_CREATED_INDEX] ?? 0),
+        matchesQuery: !item.rankKey,
     }
 }
 
@@ -300,8 +301,8 @@ export function buildRankedResults({
     const capped = !!results[0]?.searchMatch?.countsCapped
     const mostWordsMatched = candidates[0].rank[0]
     const fullest = candidates.filter((entry) => entry.rank[0] === mostWordsMatched)
-    const fewestTypos = Math.min(...fullest.map((entry) => entry.rank[1]))
-    const matching = fullest.filter((entry) => entry.rank[1] === fewestTypos)
+    const fewestTypos = Math.min(...fullest.map((entry) => entry.rank[1] ?? 0))
+    const matching = fullest.filter((entry) => (entry.rank[1] ?? 0) === fewestTypos)
     const notices =
         state === 'stale'
             ? []
