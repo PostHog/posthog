@@ -313,11 +313,7 @@ def apply_saved_query_frequency_target(
 def check_saved_query_frequency_carry(
     team_id: int, target: timedelta, *, retained_saved_query_ids: Collection[uuid.UUID]
 ) -> None:
-    """Store on the saved query's nodes a cadence it inherits from the saved query it replaces.
-
-    The plan floor lets a saved cadence stay, so a query edit must not turn an existing cadence into
-    a new one. This writes without validating: the `apply_saved_query_frequency_target` that follows
-    still checks the sources and consumers of the new query.
+    """Raise `UnsatisfiableFrequencyError` if a saved query can't inherit `target` from the one it replaces.
 
     The endpoint version it replaces keeps running, so each edit would add a query below the floor.
     `retained_saved_query_ids` are the endpoint's other materialized versions. If one of them is also
@@ -335,7 +331,7 @@ def check_saved_query_frequency_carry(
         ):
             raise UnsatisfiableFrequencyError(
                 f"Can't keep refreshing every {humanize_cadence(target)}: an older version of this endpoint also"
-                f" refreshes more often than your plan allows. Pick {humanize_cadence(floor)} for this version,"
+                f" refreshes more often than your plan allows. Pick {humanize_cadence(floor)} for the new version,"
                 " or upgrade to refresh more often."
             )
 
@@ -443,6 +439,8 @@ def reconcile_dag_schedules(dag: DAG, *, graph: FrequencyGraph | None = None) ->
     A save can commit and reconcile while this writes a graph it read earlier, and this would then
     overwrite the newer schedules. So it reads the graph again after writing, and writes again if the
     graph moved. A save that commits after that last read reconciles after this has stopped writing.
+    If it can't confirm the schedules match, it queues a retry instead of raising, because the first
+    write has already taken effect and `_bootstrap_dag_best_effort` treats a raise as nothing written.
     """
     team = dag.team
     if graph is None:
@@ -459,25 +457,35 @@ def reconcile_dag_schedules(dag: DAG, *, graph: FrequencyGraph | None = None) ->
         raise PlanFloorUnavailableError(f"Plan refresh floor unavailable for team {team.pk}")
 
     written_schedule_ids: set[str] = set()
-    failed_deletes: list[str] = []
-    for _pass in range(MAX_RECONCILE_PASSES):
-        desired_tiers = _desired_tiers(graph)
-        failed_deletes = _apply_reconciliation(
+
+    def write(tiers: dict[Tier, set[str]]) -> list[str]:
+        failed = _apply_reconciliation(
             dag_id=str(dag.id),
             team_id=team.pk,
             organization_id=str(team.organization_id),
             team_timezone=team.timezone,
-            desired_tiers=desired_tiers,
+            desired_tiers=tiers,
             written_schedule_ids=written_schedule_ids,
         )
-        written_schedule_ids |= {
-            tier_schedule_id(str(dag.id), tier.interval, tier.anchor_minutes) for tier in desired_tiers
-        }
-        graph = build_frequency_graph(dag)
-        # A save made while the floor is unreadable fails its own reconcile and retries after this one.
-        if not graph.plan_floor_evaluated or _desired_tiers(graph) == desired_tiers:
-            return failed_deletes
-    logger.warning("Freshness schedule reconcile outpaced by saves", dag_id=str(dag.id), team_id=team.pk)
+        written_schedule_ids.update(tier_schedule_id(str(dag.id), tier.interval, tier.anchor_minutes) for tier in tiers)
+        return failed
+
+    desired_tiers = _desired_tiers(graph)
+    failed_deletes = write(desired_tiers)
+    try:
+        for _pass in range(MAX_RECONCILE_PASSES - 1):
+            graph = build_frequency_graph(dag)
+            if not graph.plan_floor_evaluated:
+                break
+            moved_tiers = _desired_tiers(graph)
+            if moved_tiers == desired_tiers:
+                return failed_deletes
+            desired_tiers = moved_tiers
+            failed_deletes = write(desired_tiers)
+    except Exception as error:
+        logger.exception("Freshness schedule reconcile failed after a write", dag_id=str(dag.id), team_id=team.pk)
+        capture_exception(error)
+    logger.warning("Freshness schedule reconcile needs another run", dag_id=str(dag.id), team_id=team.pk)
     schedule_dag_schedule_reconcile(str(dag.id), team.pk)
     return failed_deletes
 
@@ -749,6 +757,7 @@ async def _withdraw_unscheduled_nodes(
                     id=tier.schedule_id,
                     schedule=_build_tier_schedule(dag_id, team_id, team_timezone, cohort, kept),
                     search_attributes=search_attributes,
+                    keep_paused=True,
                 )
         except RPCError as error:
             if error.status != RPCStatusCode.NOT_FOUND:

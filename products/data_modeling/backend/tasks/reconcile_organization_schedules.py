@@ -71,11 +71,13 @@ def schedule_organization_schedule_reconcile(organization_id: str) -> None:
 
     now = timezone.now()
     PendingOrganizationReconcile.objects.update_or_create(
-        organization_id=organization_id, defaults={"requested_at": now, "first_requested_at": now}
+        organization_id=organization_id,
+        defaults={"requested_at": now},
+        create_defaults={"requested_at": now, "first_requested_at": now},
     )
     transaction.on_commit(lambda: reconcile_organization_schedules.delay(organization_id), robust=True)
 
 
 def schedule_dag_schedule_reconcile(dag_id: str, team_id: int) -> None:
-    """Apply a write to the DAG's schedules once the plan floor can be read again."""
+    """Retry applying a write to the DAG's schedules, for a reconcile that failed or couldn't confirm they match."""
     transaction.on_commit(lambda: reconcile_dag_schedules_with_retry.delay(dag_id, team_id), robust=True)

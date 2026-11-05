@@ -2,6 +2,7 @@ from datetime import timedelta
 from io import StringIO
 
 import pytest
+import time_machine
 from posthog.test.base import BaseTest
 from unittest import mock
 
@@ -23,6 +24,7 @@ from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_TYPE_KEY
 from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule_id
 from products.data_modeling.backend.logic.freshness import UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.node_frequency import (
+    build_frequency_graph,
     get_declared_anchor,
     get_declared_pin,
     get_declared_target,
@@ -750,8 +752,9 @@ class TestMaybeReconcileDag(BaseTest):
         )
 
         def plan_changes_again(_organization_id):
-            later = timezone.now() + timedelta(hours=1)
-            PendingOrganizationReconcile.objects.filter(organization_id=organization_id).update(requested_at=later)
+            PendingOrganizationReconcile.objects.filter(organization_id=organization_id).update(
+                requested_at=timezone.now()
+            )
 
         with mock.patch(f"{RECONCILE}.reconcile_organization_dags", side_effect=plan_changes_again):
             reconcile_organization_schedules(organization_id)
@@ -760,12 +763,13 @@ class TestMaybeReconcileDag(BaseTest):
 
     def test_sweep_gives_up_on_a_reconcile_that_keeps_failing(self):
         organization_id = str(self.organization.id)
-        long_ago = timezone.now() - timedelta(days=8)
-        PendingOrganizationReconcile.objects.create(
-            organization_id=organization_id, requested_at=long_ago, first_requested_at=long_ago
-        )
+        now = timezone.now()
 
         with mock.patch(f"{RECONCILE_TASKS}.reconcile_organization_schedules.delay") as dispatch:
+            with time_machine.travel(now - timedelta(days=8), tick=False):
+                schedule_organization_schedule_reconcile(organization_id)
+            with time_machine.travel(now - timedelta(hours=5), tick=False):
+                schedule_organization_schedule_reconcile(organization_id)
             retry_pending_organization_reconciles()
 
         dispatch.assert_not_called()
@@ -822,6 +826,30 @@ class TestMaybeReconcileDag(BaseTest):
             reconcile_dag_schedules(dag)
 
         self.assertGreater(create.call_count, 1)
+        queue_retry.assert_called_once_with(str(dag.id), dag.team_id)
+
+    @parameterized.expand(
+        [
+            ("graph_read_fails", {"side_effect": RuntimeError("database down")}),
+            ("floor_unreadable", {"return_value": mock.Mock(plan_floor_evaluated=False)}),
+        ]
+    )
+    def test_reconcile_queues_a_retry_when_it_cannot_confirm_its_write(self, _name, second_read):
+        dag = self._dag_with_target()
+        first_read = build_frequency_graph(dag)
+
+        with (
+            mock.patch(f"{RECONCILE}.build_frequency_graph", **second_read) as read_graph,
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=self._temporal_listing([]))),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
+            mock.patch(f"{RECONCILE}.capture_exception"),
+            mock.patch(f"{RECONCILE_TASKS}.reconcile_dag_schedules_with_retry.delay") as queue_retry,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            reconcile_dag_schedules(dag, graph=first_read)
+
+        read_graph.assert_called_once()
+        create.assert_awaited_once()
         queue_retry.assert_called_once_with(str(dag.id), dag.team_id)
 
     def test_reconcile_command_tries_every_organization_then_fails(self):
@@ -981,6 +1009,7 @@ class TestMaybeReconcileDag(BaseTest):
         delete.assert_awaited_once_with(temporal, schedule_id=emptied_tier)
         update.assert_awaited_once()
         self.assertEqual(update.call_args.kwargs["id"], kept_tier)
+        self.assertTrue(update.call_args.kwargs["keep_paused"])
         schedule = update.call_args.kwargs["schedule"]
         self.assertEqual(schedule.action.args[0]["node_ids"], [str(endpoint.id)])
         self.assertEqual(
