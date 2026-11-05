@@ -11,7 +11,10 @@ from posthog.hogql.property import apply_path_cleaning, property_to_expr
 from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
-from products.experiments.backend.hogql_queries.base_query_utils import event_or_action_to_filter
+from products.experiments.backend.hogql_queries.base_query_utils import (
+    event_or_action_to_filter,
+    precomputed_entity_id_sql,
+)
 from products.experiments.backend.hogql_queries.breakdown_injector import BreakdownInjector
 from products.experiments.backend.hogql_queries.experiment_query_context import ExperimentQueryContext, MaturityGate
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
@@ -281,9 +284,7 @@ class ExposureQueryBuilder:
         return query
 
     def _build_precomputed_entity_id_expr(self) -> ast.Expr:
-        return (
-            parse_expr("toUUID(t.entity_id)") if self.context.entity_key == "person_id" else parse_expr("t.entity_id")
-        )
+        return parse_expr(precomputed_entity_id_sql(self.context.entity_key))
 
     def _build_precomputed_variant_expr(self) -> ast.Expr:
         if self.context.multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
@@ -602,8 +603,6 @@ class ExposureQueryBuilder:
         A job can cover a wider time range than the experiment (so that it can be reused), so the
         query also filters on the experiment start and end dates.
         """
-        # The lazy-computed table stores entity_id as String, but person_id is UUID in events.
-        # Cast back to match the type expected by downstream JOINs.
         entity_id_expr = self._build_precomputed_entity_id_expr()
         variant_expr = self._build_precomputed_variant_expr()
 

@@ -142,7 +142,7 @@ The single-scan path ignores them and scans events. The funnel takes that path w
 ```sql
 metric_events AS (
     SELECT
-        toUUID(t.entity_id) AS entity_id,
+        t.person_id AS entity_id,
         t.timestamp AS timestamp,
         t.event_uuid AS uuid,
         t.session_id AS session_id,

@@ -19,6 +19,7 @@ from products.experiments.backend.hogql_queries.base_query_utils import (
     conversion_window_to_seconds,
     data_warehouse_node_to_filter,
     event_or_action_to_filter,
+    precomputed_entity_id_sql,
 )
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
 from products.experiments.backend.hogql_queries.experiment_metric_values import get_maturity_window_seconds
@@ -206,10 +207,10 @@ class RetentionQueryBuilder:
             # arithmetic, maturity, same-event exclusion) is read-time and stays unchanged.
             # No dedup of replayed build rows is needed: min/max/argMin/argMax and the
             # MAX(0/1) outcome are all idempotent under duplicated rows, unlike mean's sums.
-            entity_id_cast = "toUUID(t.entity_id)" if self._b.entity_key == "person_id" else "t.entity_id"
+            entity_id_sql = precomputed_entity_id_sql(self._b.entity_key)
             start_events_body = f"""FROM (
                     SELECT
-                        {entity_id_cast} AS entity_id,
+                        {entity_id_sql} AS entity_id,
                         t.timestamp AS timestamp,
                         t.event_uuid AS uuid
                     FROM experiment_metric_events_preaggregated AS t
@@ -222,7 +223,7 @@ class RetentionQueryBuilder:
                 INNER JOIN exposures ON events.entity_id = exposures.entity_id
                 WHERE {{start_after_exposure_predicate}}"""
             completion_events_body = f"""SELECT
-                    {entity_id_cast} AS entity_id,
+                    {entity_id_sql} AS entity_id,
                     t.event_uuid AS completion_uuid,
                     t.timestamp AS completion_timestamp
                 FROM experiment_metric_events_preaggregated AS t

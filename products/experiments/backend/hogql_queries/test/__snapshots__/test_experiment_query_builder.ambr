@@ -2,7 +2,7 @@
 # name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_daily_exposures_from_precomputed
   '''
   WITH deduplicated AS
-    (SELECT toUUID(t.entity_id) AS entity_id,
+    (SELECT t.person_id AS entity_id,
             if(greater(uniqExact(t.variant), 1), '$multiple', argMin(t.variant, t.first_exposure_time)) AS variant,
             min(t.first_exposure_time) AS first_exposure_time
      FROM experiment_exposures_preaggregated AS t
@@ -347,7 +347,7 @@
 # name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_funnel_precomputed
   '''
   WITH exposures AS
-    (SELECT toUUID(t.entity_id) AS entity_id,
+    (SELECT t.person_id AS entity_id,
             if(greater(uniqExact(t.variant), 1), '$multiple', argMin(t.variant, t.first_exposure_time)) AS variant,
             min(t.first_exposure_time) AS first_exposure_time,
             max(t.last_exposure_time) AS last_exposure_time,
@@ -357,7 +357,7 @@
      WHERE and(in(t.job_id, ['00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-0000000000e2']), equals(t.team_id, 99999), greaterOrEquals(t.first_exposure_time, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(t.first_exposure_time, assumeNotNull(toDateTime('2024-01-20 12:00:00'))))
      GROUP BY entity_id),
        metric_events AS
-    (SELECT toUUID(t.entity_id) AS entity_id,
+    (SELECT t.person_id AS entity_id,
             t.timestamp AS timestamp,
             t.event_uuid AS uuid,
             if(and(equals(arrayElement(t.steps, 1), 1), greaterOrEquals(t.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(t.timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00')))), 1, 0) AS step_0,
@@ -387,7 +387,7 @@
 # name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_funnel_precomputed_exposures
   '''
   WITH exposures AS
-    (SELECT toUUID(t.entity_id) AS entity_id,
+    (SELECT t.person_id AS entity_id,
             if(greater(uniqExact(t.variant), 1), '$multiple', argMin(t.variant, t.first_exposure_time)) AS variant,
             min(t.first_exposure_time) AS first_exposure_time,
             max(t.last_exposure_time) AS last_exposure_time,
@@ -759,7 +759,7 @@
 # name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_mean_maturity_precomputed_exposures
   '''
   WITH exposures AS
-    (SELECT toUUID(t.entity_id) AS entity_id,
+    (SELECT t.person_id AS entity_id,
             if(greater(uniqExact(t.variant), 1), '$multiple', argMin(t.variant, t.first_exposure_time)) AS variant,
             min(t.first_exposure_time) AS first_exposure_time,
             max(t.last_exposure_time) AS last_exposure_time,
@@ -809,7 +809,7 @@
 # name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_mean_precomputed
   '''
   WITH exposures AS
-    (SELECT toUUID(t.entity_id) AS entity_id,
+    (SELECT t.person_id AS entity_id,
             if(greater(uniqExact(t.variant), 1), '$multiple', argMin(t.variant, t.first_exposure_time)) AS variant,
             min(t.first_exposure_time) AS first_exposure_time,
             max(t.last_exposure_time) AS last_exposure_time,
@@ -819,12 +819,12 @@
      WHERE and(in(t.job_id, ['00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-0000000000e2']), equals(t.team_id, 99999), greaterOrEquals(t.first_exposure_time, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(t.first_exposure_time, assumeNotNull(toDateTime('2024-01-20 12:00:00'))))
      GROUP BY entity_id),
        metric_events AS
-    (SELECT toUUID(t.entity_id) AS entity_id,
+    (SELECT t.person_id AS entity_id,
             t.timestamp AS timestamp,
             any(t.numeric_value) AS value
      FROM experiment_metric_events_preaggregated AS t
      WHERE and(in(t.job_id, ['00000000-0000-0000-0000-0000000000a1']), equals(t.team_id, 99999), greaterOrEquals(t.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), less(t.timestamp, plus(assumeNotNull(toDateTime('2024-01-20 12:00:00')), toIntervalSecond(604800))))
-     GROUP BY t.entity_id,
+     GROUP BY t.person_id,
               t.timestamp,
               t.event_uuid),
        entity_metrics AS
@@ -1483,7 +1483,7 @@
 # name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_retention_precomputed
   '''
   WITH exposures AS
-    (SELECT toUUID(t.entity_id) AS entity_id,
+    (SELECT t.person_id AS entity_id,
             if(greater(uniqExact(t.variant), 1), '$multiple', argMin(t.variant, t.first_exposure_time)) AS variant,
             min(t.first_exposure_time) AS first_exposure_time,
             max(t.last_exposure_time) AS last_exposure_time,
@@ -1497,7 +1497,7 @@
             min(timestamp) AS start_timestamp,
             argMin(uuid, timestamp) AS start_uuid
      FROM
-       (SELECT toUUID(t.entity_id) AS entity_id,
+       (SELECT t.person_id AS entity_id,
                t.timestamp AS timestamp,
                t.event_uuid AS uuid
         FROM experiment_metric_events_preaggregated AS t
@@ -1506,7 +1506,7 @@
      WHERE and(greaterOrEquals(timestamp, exposures.first_exposure_time), lessOrEquals(timestamp, plus(exposures.first_exposure_time, toIntervalSecond(604800))))
      GROUP BY exposures.entity_id),
        completion_events AS
-    (SELECT toUUID(t.entity_id) AS entity_id,
+    (SELECT t.person_id AS entity_id,
             t.event_uuid AS completion_uuid,
             t.timestamp AS completion_timestamp
      FROM experiment_metric_events_preaggregated AS t
