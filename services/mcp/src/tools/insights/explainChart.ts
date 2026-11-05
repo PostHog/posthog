@@ -9,16 +9,22 @@ import { type Context, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, type ToolBase } f
 
 import type {
     ExplainChartData,
+    FunnelStepsExplainChartData,
     StoryChapter,
     StoryEvidenceChartData,
+    StoryFunnelsQuery,
     StorySeriesResult,
     StoryTrendsQuery,
+    TimeSeriesExplainChartData,
 } from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
 import { sqlEvidenceChart } from 'products/product_analytics/mcp/apps/explainChart/sqlEvidenceChart'
-import { insightPageShowsStory } from 'products/product_analytics/mcp/apps/explainChart/storyDisplays'
+import {
+    insightPageShowsFunnelStory,
+    insightPageShowsStory,
+} from 'products/product_analytics/mcp/apps/explainChart/storyDisplays'
 
 import { analyzeQuery } from '../shared'
-import { findStoryRange, lastBucketInProgress } from './storyRanges'
+import { findStepRange, findStoryRange, lastBucketInProgress } from './storyRanges'
 
 const schema = ExplainChartInputSchema
 
@@ -54,9 +60,12 @@ const TOTAL_DISPLAYS = new Set([
     'SlopeGraph',
 ])
 
-const NOT_TRENDS = 'This tool only explains trends charts. For other kinds, write the explanation in the chat instead.'
+const NOT_SUPPORTED =
+    'This tool explains trends charts and funnels that show steps. For other kinds, write the explanation in the chat instead.'
 const NOT_OVER_TIME =
     'This tool explains a trends chart that shows one value over time, and this chart does not. Write the explanation in the chat instead.'
+const NOT_FUNNEL_STEPS =
+    'This tool explains a funnel that shows steps, and this one shows conversion over time or time to convert. Write the explanation in the chat instead.'
 
 // The explanation redraws insight evidence through the query tool for its kind. A tool's schema is narrower than the
 // query's, so evidence the tool would refuse keeps its link and no chart.
@@ -138,18 +147,38 @@ function sqlProblems(chapters: Params['chapters'], sqlEvidence: Map<string, SqlE
     )
 }
 
+type StoryQuery = StoryTrendsQuery | StoryFunnelsQuery
+
 interface StoryChart {
-    query: StoryTrendsQuery
+    query: StoryQuery
     linkableInsightId: number | null
     insightName: string | null
     path: string
 }
 
-function asTrendsQuery(query: unknown): StoryTrendsQuery {
+function asStoryQuery(query: unknown): StoryQuery {
     const inner = analyzeQuery(query).innerQuery
-    if (inner?.kind !== 'TrendsQuery') {
-        throw new Error(NOT_TRENDS)
+    if (inner?.kind === 'TrendsQuery') {
+        return asTrendsQuery(inner)
     }
+    if (inner?.kind === 'FunnelsQuery') {
+        const funnel = { ...inner } as StoryFunnelsQuery
+        const vizType = funnel.funnelsFilter?.funnelVizType
+        if (vizType !== undefined && vizType !== null && vizType !== 'steps') {
+            throw new Error(NOT_FUNNEL_STEPS)
+        }
+        return funnel
+    }
+    throw new Error(NOT_SUPPORTED)
+}
+
+function pageShowsStory(query: StoryQuery): boolean {
+    return query.kind === 'FunnelsQuery'
+        ? insightPageShowsFunnelStory(query.funnelsFilter)
+        : insightPageShowsStory(query.trendsFilter?.display)
+}
+
+function asTrendsQuery(inner: object): StoryTrendsQuery {
     const trends = { ...inner } as StoryTrendsQuery
     const display = trends.trendsFilter?.display
     if (typeof display !== 'string' || TIME_SERIES_DISPLAYS.has(display)) {
@@ -175,7 +204,7 @@ function newInsightPath(query: Record<string, unknown>): string {
 
 async function loadChart(context: Context, projectId: string, params: Params): Promise<StoryChart> {
     if (params.insightId === undefined) {
-        const query = asTrendsQuery(params.query)
+        const query = asStoryQuery(params.query)
         await applyProjectTestAccountDefault(context, query)
         return { query, linkableInsightId: null, insightName: null, path: newInsightPath(query) }
     }
@@ -183,13 +212,10 @@ async function loadChart(context: Context, projectId: string, params: Params): P
     if (!insight.success) {
         throw wrapError(`Failed to get insight: ${insight.error.message}`, insight.error)
     }
+    const savedQuery = analyzeQuery(insight.data.query).innerQuery as StoryQuery | undefined
     return {
-        query: asTrendsQuery(insight.data.query),
-        linkableInsightId: insightPageShowsStory(
-            (analyzeQuery(insight.data.query).innerQuery as StoryTrendsQuery | undefined)?.trendsFilter?.display
-        )
-            ? insight.data.id
-            : null,
+        query: asStoryQuery(insight.data.query),
+        linkableInsightId: savedQuery && pageShowsStory(savedQuery) ? insight.data.id : null,
         insightName: insight.data.name || insight.data.derived_name || null,
         path: `/insights/${insight.data.short_id}`,
     }
@@ -245,7 +271,7 @@ async function saveExplanation(
 
 function describeResult(
     chart: StoryChart,
-    series: StorySeriesResult,
+    seriesLabel: string | undefined,
     chapters: Params['chapters'],
     missed: string[],
     warnings: unknown[],
@@ -253,7 +279,7 @@ function describeResult(
     saved: SavedExplanation,
     baseUrl: string
 ): string {
-    const name = chart.insightName ?? series.label ?? 'the chart'
+    const name = chart.insightName ?? seriesLabel ?? 'the chart'
     const lines = [`The explanation of "${name}" has ${chapters.length} chapters.`]
     if (saved && 'path' in saved) {
         lines.push(
@@ -270,14 +296,95 @@ function describeResult(
         lines.push(`The query came with warnings the person should hear about: ${warningMessages(warnings).join(' ')}`)
     }
     if (missed.length) {
+        const titles = missed.map((title) => `"${title}"`).join(', ')
+        const shows = missed.length === 1 ? 'that chapter shows' : 'those chapters show'
         lines.push(
-            `No point on the chart matches the dates of ${missed.map((title) => `"${title}"`).join(', ')}, so ${
-                missed.length === 1 ? 'that chapter shows' : 'those chapters show'
-            } without a highlight. Use dates from the chart's \`days\` and call this tool again.`
+            chart.query.kind === 'FunnelsQuery'
+                ? `No step on the funnel matches ${titles}, so ${shows} without a highlight. Use step numbers, where 1 is the first step, and call this tool again.`
+                : `No point on the chart matches the dates of ${titles}, so ${shows} without a highlight. Use dates from the chart's \`days\` and call this tool again.`
         )
     }
     lines.push(...evidenceProblems)
     return lines.join(' ')
+}
+
+type ChartBody =
+    | Pick<TimeSeriesExplainChartData, 'shape' | 'query' | 'results' | 'lastPointInProgress'>
+    | Pick<FunnelStepsExplainChartData, 'shape' | 'query' | 'steps' | 'breakdowns'>
+
+interface ShownChart {
+    body: ChartBody
+    seriesLabel: string | undefined
+    rangeOf: (start: string, end?: string) => [number, number] | null
+}
+
+function trendsChart(
+    query: StoryTrendsQuery,
+    results: StorySeriesResult[],
+    seriesIndex: number,
+    timezone: string | undefined
+): ShownChart {
+    const series = results[seriesIndex]
+    if (!series?.data?.length) {
+        throw new Error(
+            results.length
+                ? `The chart has ${results.length} series, so \`series\` must be below ${results.length}.`
+                : 'The chart has no data to explain.'
+        )
+    }
+    const interval = query.interval ?? 'day'
+    const days = series.days ?? []
+    return {
+        body: {
+            shape: 'time_series',
+            query,
+            results,
+            lastPointInProgress: lastBucketInProgress(days, interval, timezone),
+        },
+        seriesLabel: series.label,
+        rangeOf: (start, end) => findStoryRange(days, interval, start, end),
+    }
+}
+
+interface FunnelStepResult {
+    name?: string
+    custom_name?: string | null
+    count?: number
+    breakdown_value?: unknown
+}
+
+function breakdownLabel(steps: FunnelStepResult[], index: number): string {
+    const value = steps[0]?.breakdown_value
+    const text = Array.isArray(value) ? value.join(', ') : value === undefined || value === null ? '' : String(value)
+    return text || `breakdown value ${index + 1}`
+}
+
+function funnelChart(query: StoryFunnelsQuery, results: unknown[], seriesIndex: number): ShownChart {
+    // A funnel with a breakdown returns one list of steps per breakdown value.
+    const groups = (Array.isArray(results[0]) ? results : [results]) as FunnelStepResult[][]
+    const followed = groups[seriesIndex]
+    if (!followed?.length) {
+        throw new Error(
+            results.length
+                ? `The funnel has ${groups.length} breakdown values, so \`series\` must be below ${groups.length}.`
+                : 'The funnel has no data to explain.'
+        )
+    }
+    const steps = followed.map((step, index) => ({
+        name: step.custom_name || step.name || `Step ${index + 1}`,
+        count: step.count ?? 0,
+    }))
+    const breakdowns = groups.length > 1 ? groups.map(breakdownLabel) : []
+    return {
+        body: { shape: 'funnel_steps', query, steps, breakdowns },
+        seriesLabel: breakdowns[seriesIndex],
+        rangeOf: (start, end) =>
+            findStepRange(
+                steps.map((step) => step.name),
+                start,
+                end
+            ),
+    }
 }
 
 export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = async (
@@ -288,23 +395,18 @@ export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = a
     const chart = await loadChart(context, projectId, params)
 
     const response = await context.api.query({ projectId }).runQuery({ query: chart.query })
-    const results = (Array.isArray(response.results) ? response.results : []) as StorySeriesResult[]
-    const series = results[params.series]
-    if (!series?.data?.length) {
-        throw new Error(
-            results.length
-                ? `The chart has ${results.length} series, so \`series\` must be below ${results.length}.`
-                : 'The chart has no data to explain.'
-        )
-    }
+    const results = Array.isArray(response.results) ? (response.results as unknown[]) : []
+    const { timezone, warnings = [] } = response as { timezone?: string; warnings?: unknown[] | null }
+    const shown =
+        chart.query.kind === 'FunnelsQuery'
+            ? funnelChart(chart.query, results, params.series)
+            : trendsChart(chart.query, results as StorySeriesResult[], params.series, timezone)
 
     const sqlEvidence = await runSqlEvidence(context, projectId, params.chapters)
     const baseUrl = context.api.getProjectBaseUrl(projectId)
-    const interval = chart.query.interval ?? 'day'
-    const { timezone, warnings = [] } = response as { timezone?: string; warnings?: unknown[] | null }
     const missed: string[] = []
     const chapters: StoryChapter[] = params.chapters.map((chapter) => {
-        const range = findStoryRange(series.days ?? [], interval, chapter.start, chapter.end)
+        const range = shown.rangeOf(chapter.start, chapter.end)
         if (!range) {
             missed.push(chapter.title)
         }
@@ -335,12 +437,9 @@ export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = a
     })
 
     const data: ExplainChartData = {
-        shape: 'time_series',
-        query: chart.query,
-        results,
+        ...shown.body,
         seriesIndex: params.series,
         insightName: chart.insightName,
-        lastPointInProgress: lastBucketInProgress(series.days ?? [], interval, timezone),
         ...(warnings?.length ? { warnings } : {}),
         headline: params.headline,
         chapters,
@@ -353,7 +452,7 @@ export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = a
         _posthogUrl: explanationUrl ?? `${baseUrl}${chart.path}`,
         [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: describeResult(
             chart,
-            series,
+            shown.seriesLabel,
             params.chapters,
             missed,
             warnings ?? [],

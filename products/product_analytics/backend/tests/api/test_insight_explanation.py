@@ -48,6 +48,18 @@ def _explanation(**changes: Any) -> dict[str, Any]:
     return data
 
 
+def _funnel_explanation(**changes: Any) -> dict[str, Any]:
+    data = _explanation(
+        shape="funnel_steps",
+        query={"kind": "FunnelsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+        steps=[{"name": "$pageview", "count": 100}, {"name": "signed_up", "count": 12}],
+        breakdowns=[],
+    )
+    data["chapters"][0]["range"] = [1, 1]
+    data.update(changes)
+    return data
+
+
 def _with_evidence(**item: Any) -> dict[str, Any]:
     data = copy.deepcopy(EXPLANATION)
     data["chapters"][0]["evidence"] = [{"text": "Most views came from one referrer.", **item}]
@@ -58,7 +70,10 @@ class TestInsightExplanationCreateSerializer(SimpleTestCase):
     @parameterized.expand(
         [
             ("missing_series", _explanation(seriesIndex=2)),
-            ("unknown_shape", _explanation(shape="funnel_steps")),
+            ("unknown_shape", _explanation(shape="retention_grid")),
+            ("query_of_another_shape", _explanation(query={"kind": "FunnelsQuery"})),
+            ("funnel_without_steps", _explanation(shape="funnel_steps", query={"kind": "FunnelsQuery"})),
+            ("funnel_breakdown_out_of_range", _funnel_explanation(seriesIndex=1)),
             ("evidence_longer_than_a_sentence", _with_evidence(text="x" * 401)),
             ("evidence_link_off_github", _with_evidence(url="https://hackmycomputer.example/pull/1")),
             ("evidence_link_to_a_github_file", _with_evidence(url="https://github.com/example/app/raw/main/setup.exe")),
@@ -71,6 +86,14 @@ class TestInsightExplanationCreateSerializer(SimpleTestCase):
         serializer = InsightExplanationCreateSerializer(data={"data": data})
         assert not serializer.is_valid()
         assert "data" in serializer.errors
+
+    def test_keeps_a_funnel_explanation_without_trends_fields(self) -> None:
+        serializer = InsightExplanationCreateSerializer(data={"data": _funnel_explanation()})
+        assert serializer.is_valid(), serializer.errors
+        saved = serializer.validated_data["data"]
+        assert saved["steps"] == [{"name": "$pageview", "count": 100}, {"name": "signed_up", "count": 12}]
+        assert "results" not in saved
+        assert "lastPointInProgress" not in saved
 
     def test_keeps_only_what_the_page_reads(self) -> None:
         serializer = InsightExplanationCreateSerializer(data={"data": EXPLANATION})

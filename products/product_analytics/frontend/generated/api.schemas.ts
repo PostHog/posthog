@@ -9129,12 +9129,14 @@ export interface PaginatedInsightListApi {
 
 /**
  * * `time_series` - Time series
+ * * `funnel_steps` - Funnel steps
  */
 export type ChartExplanationShapeEnumApi =
     (typeof ChartExplanationShapeEnumApi)[keyof typeof ChartExplanationShapeEnumApi]
 
 export const ChartExplanationShapeEnumApi = {
     TimeSeries: 'time_series',
+    FunnelSteps: 'funnel_steps',
 } as const
 
 export interface StorySeriesResultApi {
@@ -9153,6 +9155,19 @@ export interface StorySeriesResultApi {
      * @maxItems 5000
      */
     days?: string[]
+}
+
+export interface StoryFunnelStepApi {
+    /**
+     * The step's name.
+     * @maxLength 400
+     */
+    name: string
+    /**
+     * How many reached the step.
+     * @minimum 0
+     */
+    count: number
 }
 
 /**
@@ -9320,21 +9335,30 @@ export interface StoryChapterApi {
 }
 
 /**
- * The insight query the explanation follows.
+ * The insight query the explanation follows: a TrendsQuery for a time series, a FunnelsQuery for funnel steps.
  */
 export type ExplainChartDataApiQuery = { [key: string]: unknown }
 
 export interface ExplainChartDataApi {
     /** What the explanation walks through, whichever insight drew the chart. A funnel over time is a time series too.
      *
-     * * `time_series` - Time series */
+     * * `time_series` - Time series
+     * * `funnel_steps` - Funnel steps */
     shape?: ChartExplanationShapeEnumApi
-    /** The insight query the explanation follows. */
+    /** The insight query the explanation follows: a TrendsQuery for a time series, a FunnelsQuery for funnel steps. */
     query: ExplainChartDataApiQuery
-    /** Every series on the chart when it was explained. */
-    results: StorySeriesResultApi[]
+    /** Every series on the chart when it was explained. Time series only. */
+    results?: StorySeriesResultApi[]
+    /** The followed breakdown value's steps when it was explained. Funnel steps only. */
+    steps?: StoryFunnelStepApi[]
     /**
-     * The index in `results` the explanation follows.
+     * Every breakdown value's label, empty when the funnel has no breakdown. Funnel steps only.
+     * @maxItems 1000
+     * @items.maxLength 400
+     */
+    breakdowns?: string[]
+    /**
+     * The index in `results` the explanation follows, or the index in `breakdowns` on a funnel.
      * @minimum 0
      */
     seriesIndex: number
@@ -9344,8 +9368,8 @@ export interface ExplainChartDataApi {
      * @nullable
      */
     insightName: string | null
-    /** Whether the last point's period had not ended yet. */
-    lastPointInProgress: boolean
+    /** Whether the last point's period had not ended yet. Time series only. */
+    lastPointInProgress?: boolean
     /**
      * One sentence a person could read in place of the whole explanation.
      * @maxLength 300

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { ExplainChartInputSchema } from '@/schema/tool-inputs'
 import { explainChartHandler } from '@/tools/insights/explainChart'
-import { findStoryRange, lastBucketInProgress } from '@/tools/insights/storyRanges'
+import { findStepRange, findStoryRange, lastBucketInProgress } from '@/tools/insights/storyRanges'
 import { type Context, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY } from '@/tools/types'
 
 const DAYS = ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04', '2026-10-05']
@@ -11,6 +11,16 @@ const WEEKS = ['2026-09-21', '2026-09-28', '2026-10-05']
 const MONTHS = ['2025-12-01', '2026-01-01', '2026-02-01']
 const QUARTERS = ['2025-10-01', '2026-01-01', '2026-04-01']
 const YEARS = ['2024-01-01', '2025-01-01', '2026-01-01']
+const FUNNEL_STEPS = [
+    { name: 'Pageview', count: 100, breakdown_value: ['Desktop'] },
+    { name: 'Signed up', count: 20, breakdown_value: ['Desktop'] },
+    { name: 'Paid', count: 5, breakdown_value: ['Desktop'] },
+]
+const FUNNEL_STEPS_MOBILE = [
+    { name: 'Pageview', count: 40, breakdown_value: ['Mobile'] },
+    { name: 'Signed up', count: 4, breakdown_value: ['Mobile'] },
+    { name: 'Paid', count: 1, breakdown_value: ['Mobile'] },
+]
 // The displays the insight page draws an explanation over, so only these get a link.
 const INSIGHT_PAGE_DISPLAYS: string[] = [
     'ActionsLineGraph',
@@ -163,6 +173,49 @@ describe('explain-chart', () => {
     })
 
     it.each([
+        ['a step number', '2', undefined, [1, 1]],
+        ['the drop between two steps', '1', 'step 3', [0, 2]],
+        ['a step name in another case', 'SIGNED UP', undefined, [1, 1]],
+        ['a step past the funnel', '4', undefined, null],
+        ['steps given backwards', '3', '1', null],
+    ] as const)('finds the funnel steps for %s', (_, start, end, expected) => {
+        expect(findStepRange(['Pageview', 'Signed up', 'Paid'], start, end)).toEqual(expected)
+    })
+
+    it.each([
+        ['without a breakdown', [FUNNEL_STEPS], 0, [], [100, 20, 5]],
+        [
+            'following its second breakdown value',
+            [FUNNEL_STEPS, FUNNEL_STEPS_MOBILE],
+            1,
+            ['Desktop', 'Mobile'],
+            [40, 4, 1],
+        ],
+    ])('explains a funnel %s', async (_, groups, series, breakdowns, counts) => {
+        const results = groups.length === 1 ? groups[0] : groups
+        const context = createContext(
+            { kind: 'InsightVizNode', source: { kind: 'FunnelsQuery', series: [] } },
+            { results }
+        )
+
+        const result = await explainChartHandler(context, {
+            insightId: 'abc12345',
+            series,
+            headline: 'Most people leave before **Signed up**.',
+            chapters: [
+                { title: 'The drop to signing up', start: '1', end: '2' },
+                { title: 'A step that does not exist', start: '9' },
+            ],
+        })
+
+        expect(result.shape).toBe('funnel_steps')
+        expect(result.shape === 'funnel_steps' && result.steps.map((step) => step.count)).toEqual(counts)
+        expect(result.shape === 'funnel_steps' && result.breakdowns).toEqual(breakdowns)
+        expect(result.chapters.map((chapter) => chapter.range)).toEqual([[0, 1], null])
+        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('Use step numbers')
+    })
+
+    it.each([
         ['a site other than GitHub', 'https://hackmycomputer.example/pull/1'],
         ['a GitHub file', 'https://github.com/example/app/raw/main/setup.exe'],
     ])('refuses evidence that links to %s', (_, url) => {
@@ -175,21 +228,25 @@ describe('explain-chart', () => {
         expect(parsed.success).toBe(false)
     })
 
-    it.each([['a funnel', { kind: 'FunnelsQuery', series: [] }, 'only explains trends charts']])(
-        'refuses %s',
-        async (_, source, message) => {
-            const context = createContext({ kind: 'InsightVizNode', source })
+    it.each([
+        ['a retention chart', { kind: 'RetentionQuery' }, 'trends charts and funnels that show steps'],
+        [
+            'a funnel over time',
+            { kind: 'FunnelsQuery', series: [], funnelsFilter: { funnelVizType: 'trends' } },
+            'conversion over time',
+        ],
+    ])('refuses %s', async (_, source, message) => {
+        const context = createContext({ kind: 'InsightVizNode', source })
 
-            await expect(
-                explainChartHandler(context, {
-                    insightId: 'abc12345',
-                    series: 0,
-                    headline: 'Conversion fell.',
-                    chapters: [{ title: 'A drop', start: '2026-10-02' }],
-                })
-            ).rejects.toThrow(message)
-        }
-    )
+        await expect(
+            explainChartHandler(context, {
+                insightId: 'abc12345',
+                series: 0,
+                headline: 'Conversion fell.',
+                chapters: [{ title: 'A drop', start: '2026-10-02' }],
+            })
+        ).rejects.toThrow(message)
+    })
 
     it.each([
         ...[
