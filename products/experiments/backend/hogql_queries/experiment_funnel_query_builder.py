@@ -12,7 +12,6 @@ from products.experiments.backend.hogql_queries.base_query_utils import (
     data_warehouse_node_to_filter,
     funnel_evaluation_expr,
     funnel_steps_to_filter,
-    precomputed_entity_id_sql,
 )
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
 from products.experiments.backend.hogql_queries.experiment_query_context import MaturityGate
@@ -114,7 +113,7 @@ class FunnelQueryBuilder:
             )
             later_step_extracts = [f"arrayElement(t.steps, {i + 1}) AS step_{i}" for i in range(1, num_steps)]
             step_extracts = ", ".join([step_0_extract, *later_step_extracts])
-            entity_id_sql = precomputed_entity_id_sql(self._b.entity_key)
+            entity_id_sql = self._b.context.precomputed_entity_id_sql()
 
             # Filter by experiment date range: jobs can cover broader time ranges
             # than the experiment for cache reusability, so we must filter on read.

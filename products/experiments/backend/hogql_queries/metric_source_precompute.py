@@ -16,10 +16,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 
-from products.experiments.backend.hogql_queries.base_query_utils import (
-    event_or_action_to_filter,
-    precomputed_entity_id_sql,
-)
+from products.experiments.backend.hogql_queries.base_query_utils import event_or_action_to_filter
 from products.experiments.backend.hogql_queries.experiment_metric_values import build_value_expr
 
 
@@ -95,7 +92,7 @@ def build_precomputed_metric_events_cte(
     *,
     cte_name: str,
     source: EventsNode | ActionsNode,
-    entity_key: str,
+    entity_id_sql: str,
     job_ids_placeholder: str,
 ) -> str:
     """
@@ -115,7 +112,6 @@ def build_precomputed_metric_events_cte(
     # dedups at merge time and this read doesn't use FINAL, so a re-applied build
     # INSERT would otherwise double-count sums. Same defense as the exposures read;
     # the funnel read skips it because funnel evaluation tolerates duplicate events.
-    entity_id_sql = precomputed_entity_id_sql(entity_key)
     # For ID-valued math the value is the ID itself: the entity
     # is the person (dau) and session_id is the unique_session value,
     # so the downstream count(distinct) matches the direct path.

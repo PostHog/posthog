@@ -19,7 +19,6 @@ from products.experiments.backend.hogql_queries.base_query_utils import (
     conversion_window_to_seconds,
     data_warehouse_node_to_filter,
     event_or_action_to_filter,
-    precomputed_entity_id_sql,
 )
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
 from products.experiments.backend.hogql_queries.experiment_metric_values import get_maturity_window_seconds
@@ -207,7 +206,7 @@ class RetentionQueryBuilder:
             # arithmetic, maturity, same-event exclusion) is read-time and stays unchanged.
             # No dedup of replayed build rows is needed: min/max/argMin/argMax and the
             # MAX(0/1) outcome are all idempotent under duplicated rows, unlike mean's sums.
-            entity_id_sql = precomputed_entity_id_sql(self._b.entity_key)
+            entity_id_sql = self._b.context.precomputed_entity_id_sql()
             start_events_body = f"""FROM (
                     SELECT
                         {entity_id_sql} AS entity_id,

@@ -215,19 +215,6 @@ def data_warehouse_node_to_filter(team: Team, node: ExperimentDataWarehouseNode)
     return property_to_expr(all_properties, team)
 
 
-def precomputed_entity_id_sql(entity_key: str) -> str:
-    """
-    The entity that a row of an experiment preaggregated table belongs to, for a read that aliases
-    the table as `t`.
-
-    A person-aggregated read uses the table's `person_id`, which follows a later identify or merge.
-    Two rows that were built for different persons and now belong to one person then count as one
-    entity, as they do on the events scan. The stored `entity_id` cannot do that, because it keeps
-    the person as of the build. A group-aggregated read uses `entity_id`, which holds the group key.
-    """
-    return "t.person_id" if entity_key == "person_id" else "t.entity_id"
-
-
 def conversion_window_to_seconds(conversion_window: int, conversion_window_unit: FunnelConversionWindowTimeUnit) -> int:
     multipliers = {
         FunnelConversionWindowTimeUnit.SECOND: 1,

@@ -1064,6 +1064,12 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         ]
     )
     def test_person_merged_after_the_build_counts_once(self, _name, metric):
+        self.enterContext(
+            patch(
+                "products.experiments.backend.hogql_queries.experiment_query_builder.precompute_person_resolution_enabled",
+                return_value=True,
+            )
+        )
         self.team.modifiers = {"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS}
         self.team.save()
 
