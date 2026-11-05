@@ -19,7 +19,6 @@ export interface RerunJobManagerConfig {
     depthLimit?: number
     /** Mirror of the Django serializer cap (HOG_INVOCATION_RERUN_MAX_COUNT env var). */
     maxCount: number
-    /** CDP_RERUN_RUN_START_PAGING_TEAMS: comma-separated team ids, or "*", whose new jobs page by run start. */
     runStartPagingTeams?: string
 }
 

@@ -71,7 +71,6 @@ const toClickhouseDateTime = (value: string): string => {
 }
 
 interface Paging {
-    /** Raw column the window and the cursor compare against. */
     keyColumn: 'first_scheduled_at' | 'scheduled_at'
     orderColumn: 'run_first_scheduled_at' | 'last_scheduled_at'
     cursorTime: (row: InvocationRow) => string

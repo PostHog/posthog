@@ -80,10 +80,8 @@ export interface RerunCursor {
 }
 
 /**
- * `run_start` pages on `first_scheduled_at`, which every lifecycle row of a run shares. `last_row` pages on
- * the run's last in-window `scheduled_at`, as the previous release does; a job without the field is one.
- * The mode is fixed when the job is created, because a worker on the previous release resuming a `run_start`
- * cursor would collapse only part of a run's rows.
+ * Fixed when the job is created, because a previous-release worker resuming a `run_start` cursor collapses
+ * only part of a run's rows. A job without the field pages as `last_row`, as the previous release does.
  */
 export type RerunPagingMode = 'run_start' | 'last_row'
 
