@@ -16,6 +16,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
 import type { TraceClusterApi } from '../../../generated/api.schemas'
+import { queryEvaluationRuns } from '../../../utils'
 import { traceReviewLogic } from '../traceReviewLogic'
 import { TraceScene } from '../TraceScene'
 import {
@@ -159,7 +160,7 @@ describe('TraceScene', () => {
             })
         })
 
-        it('opens on the default node without the legacy trace or neighbours queries', async () => {
+        it('opens on the default node without the legacy trace, neighbours or evaluation runs queries', async () => {
             const apiQuery = jest.spyOn(api, 'query').mockResolvedValue({ results: [] })
             const { findAllByText, findByText } = renderNewView({ [TRACE_NAVIGATION_FLAG]: true })
 
@@ -168,6 +169,7 @@ describe('TraceScene', () => {
             await expectLogic(aiObservabilityTraceLogic).toFinishAllListeners()
             expect(jest.mocked(performQuery).mock.calls.some(([query]) => query.kind === 'TraceQuery')).toBe(false)
             expect(apiQuery.mock.calls.some(([query]) => query.kind === 'TraceNeighborsQuery')).toBe(false)
+            expect(queryEvaluationRuns).not.toHaveBeenCalled()
             apiQuery.mockRestore()
         })
 

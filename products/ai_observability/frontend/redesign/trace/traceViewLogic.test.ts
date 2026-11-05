@@ -214,17 +214,23 @@ describe('traceViewLogic', () => {
     )
 
     it.each([
-        [404, 'not_found'],
-        [500, 'failed'],
-    ])('a node read answered with %s fails as %s', async (status, failure) => {
-        const logic = await mountedLogic()
-        nodeStatus = status
+        [404, 'not_found', false],
+        [500, 'failed', true],
+        [503, 'failed', false],
+    ])(
+        'a node read answered with %s fails as %s, reported to error tracking: %s',
+        async (status, failure, reported) => {
+            const report = jest.spyOn(posthog, 'captureException')
+            const logic = await mountedLogic()
+            nodeStatus = status
 
-        logic.actions.loadNode('span-1', 'selection')
-        await expectLogic(logic).toFinishAllListeners()
+            logic.actions.loadNode('span-1', 'selection')
+            await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.nodes['span-1']).toEqual({ status: 'error', failure })
-    })
+            expect(logic.values.nodes['span-1']).toEqual({ status: 'error', failure })
+            expect(report).toHaveBeenCalledTimes(reported ? 1 : 0)
+        }
+    )
 
     it.each(['selection', 'navigation'] as const)(
         'retries a failed node on a %s but not on a prefetch',
@@ -277,7 +283,7 @@ describe('traceViewLogic', () => {
 
         expect(capture).toHaveBeenCalledWith('llma trace view loaded', {
             trace_load_ms: expect.any(Number),
-            node_count: 0,
+            node_count: 1,
         })
         expect(capture).toHaveBeenCalledWith('llma trace node loaded', {
             load_ms: expect.any(Number),

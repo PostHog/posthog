@@ -1,6 +1,7 @@
 import json
 from collections.abc import Mapping
 from datetime import UTC, datetime
+from decimal import ROUND_HALF_UP, Context, Decimal
 from typing import Self
 
 from posthog.dataclasses import frozen
@@ -48,7 +49,12 @@ def _graded(passed: bool | None, label: str) -> _Display:
 
 
 def _format_score(score: float) -> str:
-    rounded = float(f"{score:.2f}") if abs(score) >= 1 else float(f"{score:.2g}")
+    # Ties round away from zero, like `toFixed` and `toPrecision` in the evaluation pages.
+    exact = Decimal(score)
+    if abs(score) >= 1:
+        rounded = float(exact.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+    else:
+        rounded = float(Context(prec=2, rounding=ROUND_HALF_UP).plus(exact))
     return str(int(rounded)) if rounded.is_integer() else repr(rounded)
 
 

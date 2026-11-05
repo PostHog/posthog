@@ -1,11 +1,11 @@
 import { ReactNode } from 'react'
 
-import { LemonSkeleton, LemonTabs } from '@posthog/lemon-ui'
+import { LemonTabs } from '@posthog/lemon-ui'
 
 import type { TraceNodeApi } from '../../../generated/api.schemas'
 import { EvalsState, MessagesOpening, NodeContent, NodeDetailTab, NodeProperties } from '../types'
-import { ErrorCallout } from './ErrorCallout'
 import { EvalResultList } from './EvalResultList'
+import { NodeContentGate } from './NodeContentGate'
 import { NodeDetailHeader } from './NodeDetailHeader'
 import { NodeMessagesTab } from './NodeMessagesTab'
 import { NodePropertyList } from './NodePropertyList'
@@ -63,7 +63,11 @@ export function NodeDetail(props: NodeDetailProps): JSX.Element {
                         key: 'details',
                         label: 'Details',
                         'data-attr': 'trace-view-detail-tab-details',
-                        content: <NodePropertyList node={props.node} properties={props.properties} />,
+                        content: (
+                            <NodeContentGate content={props.content}>
+                                {() => <NodePropertyList node={props.node} properties={props.properties} />}
+                            </NodeContentGate>
+                        ),
                     },
                     {
                         key: 'evals',
@@ -75,14 +79,11 @@ export function NodeDetail(props: NodeDetailProps): JSX.Element {
                         key: 'raw',
                         label: 'Raw',
                         'data-attr': 'trace-view-detail-tab-raw',
-                        content:
-                            props.content.kind === 'loading' ? (
-                                <LemonSkeleton repeat={3} className="h-16" />
-                            ) : props.content.kind === 'error' ? (
-                                <ErrorCallout message={props.content.message} />
-                            ) : (
-                                <NodeRawTab raw={props.raw} />
-                            ),
+                        content: (
+                            <NodeContentGate content={props.content}>
+                                {() => <NodeRawTab raw={props.raw} />}
+                            </NodeContentGate>
+                        ),
                     },
                 ]}
             />
