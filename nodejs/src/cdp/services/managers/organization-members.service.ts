@@ -26,7 +26,6 @@ export type RecipientCheck =
 
 const MAX_SNAPSHOT_AGE_MS = 60_000
 const REFRESH_AGE_MS = MAX_SNAPSHOT_AGE_MS - 1_000
-// The lookup is two indexed queries.
 const LOOKUP_TIMEOUT_MS = 3_000
 const MAX_OPEN_LOOKUPS = 5
 
@@ -60,17 +59,14 @@ export class OrganizationMembersService {
         })
     }
 
-    // `fresh` runs its own lookup, for the check right before delivery: a member removed or an
-    // organization blocked while the send was prepared must not receive it, so neither the cached
-    // snapshot nor a lookup another send started earlier may answer it.
     public async checkRecipients(
         teamId: number,
         recipients: string[],
         { fresh = false }: { fresh?: boolean } = {}
     ): Promise<RecipientCheck> {
         const snapshot = fresh
-            ? await this.loadOwnSnapshot(String(teamId))
-            : await this.getFreshSnapshot(String(teamId))
+            ? await this.loadUncachedSnapshot(String(teamId))
+            : await this.getUnexpiredCachedSnapshot(String(teamId))
         if (snapshot.sandboxSenderBlocked) {
             return { organizationBlocked: true }
         }
@@ -87,7 +83,7 @@ export class OrganizationMembersService {
         return { organizationBlocked: false, blocked, deliverTo }
     }
 
-    private async loadOwnSnapshot(teamId: string): Promise<OrganizationMemberSnapshot> {
+    private async loadUncachedSnapshot(teamId: string): Promise<OrganizationMemberSnapshot> {
         const snapshot = (await this.loadSnapshots([teamId]))[teamId]
         if (this.now() >= snapshot.expiresAt) {
             throw new Error('The organization member check expired')
@@ -126,7 +122,6 @@ export class OrganizationMembersService {
     private async lookupTeams(teamIds: number[]): Promise<TeamLookup> {
         const tag = 'fetch-sandbox-team-organization-members'
         return await this.lookup.run(tag, async (tx) => {
-            // Only an explicit false deactivates an organization, matching the web middleware.
             const members = await this.postgres.query<MemberRow>(
                 tx,
                 `SELECT team.id AS team_id, users.email, users.is_email_verified
@@ -156,9 +151,7 @@ export class OrganizationMembersService {
         })
     }
 
-    // A snapshot older than a minute never decides a send: it is reloaded once, and a reload that
-    // itself outlasts the minute fails the check rather than trusting stale membership.
-    private async getFreshSnapshot(teamId: string): Promise<OrganizationMemberSnapshot> {
+    private async getUnexpiredCachedSnapshot(teamId: string): Promise<OrganizationMemberSnapshot> {
         let snapshot = await this.snapshots.get(teamId)
         if (snapshot && this.now() >= snapshot.expiresAt) {
             this.snapshots.markForRefresh(teamId)

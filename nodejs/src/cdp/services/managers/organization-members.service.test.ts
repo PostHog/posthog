@@ -382,7 +382,6 @@ describe('OrganizationMembersService', () => {
                 .mockResolvedValue({ rows: [memberRow('new-member@example.com')] })
             const service = new OrganizationMembersService(routerFor(query), () => 0)
 
-            // Another send starts loading members, then the member is removed before the final check.
             const earlierCheck = service.checkRecipients(1, ['member@example.com'])
             while (query.mock.calls.length === 0) {
                 await new Promise((resolve) => setImmediate(resolve))

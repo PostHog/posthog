@@ -1286,10 +1286,6 @@ export class EmailService {
         result.invocation.state.vmState?.stack.push({ success: false })
     }
 
-    // Runs once before the send is prepared and again right before delivery, because a member can
-    // leave the organization, or staff can block it, while the send waits on suppression checks and
-    // rate limits. The check right before delivery passes `fresh`, so it reads membership and the block
-    // again instead of the cached snapshot.
     private async checkSandboxRecipients(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         recipients: string[],
