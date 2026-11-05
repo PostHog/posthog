@@ -271,6 +271,9 @@ describe('RerunPaginatorService integration', () => {
         await closeHub(hub)
     })
 
+    const enqueuedIds = (): string[] =>
+        hogQueue.queueInvocations.mock.calls.flatMap(([invocations]) => invocations.map((i) => i.id))
+
     const buildState = (overrides: Partial<RerunJobState> = {}): RerunJobState => ({
         function_kind: 'hog_function',
         function_id: hogFunction.id,
@@ -554,43 +557,33 @@ describe('RerunPaginatorService integration', () => {
             ])
 
             const state = buildState({
+                paging: 'run_start',
                 request: {
                     filter: { window_start: '2026-02-01T00:00:00Z', window_end: '2026-02-02T00:00:00Z' },
                 },
             })
 
             await paginator.processPage(team.id, state, { jobId: 'test-rerun-job', createdAt: DateTime.now() })
-            const enqueued = hogQueue.queueInvocations.mock.calls[0]?.[0] as
-                | CyclotronJobInvocationHogFunction[]
-                | undefined
-            expect(enqueued?.map((i) => i.id)).toEqual(['finishes-after-window'])
+            expect(enqueuedIds()).toEqual(['finishes-after-window'])
         })
 
         it.each([
             {
-                name: 'run-start cursor',
-                cursor: {
-                    scheduled_at: '2026-02-01 12:00:00.000000',
-                    first_scheduled_at: '2026-02-01 12:00:00.000000',
-                    invocation_id: 'later-start',
-                },
+                paging: 'run_start' as const,
+                cursor: { scheduled_at: '2026-02-01 12:00:00.000000', invocation_id: 'later-start' },
                 expectedIds: ['spans-days'],
-                expectedCursor: {
-                    scheduled_at: '2026-02-01 10:00:00.000000',
-                    first_scheduled_at: '2026-02-01 10:00:00.000000',
-                    invocation_id: 'spans-days',
-                },
+                expectedCursor: { scheduled_at: '2026-02-01 10:00:00.000000', invocation_id: 'spans-days' },
             },
             {
-                // A worker on the previous release wrote this cursor, keyed on the run's last row.
-                name: 'legacy last-row cursor',
+                // A job created before the switch carries no paging mode and keeps paging by last row.
+                paging: undefined,
                 cursor: { scheduled_at: '2026-02-02 09:00:00.000000', invocation_id: 'spans-days' },
                 expectedIds: ['later-start'],
                 expectedCursor: { scheduled_at: '2026-02-01 12:00:00.000000', invocation_id: 'later-start' },
             },
         ])(
-            'resumes from a $name without skipping or repeating a run',
-            async ({ cursor, expectedIds, expectedCursor }) => {
+            'resumes a $paging job from its cursor without skipping or repeating a run',
+            async ({ paging, cursor, expectedIds, expectedCursor }) => {
                 await seedRows([
                     {
                         invocation_id: 'spans-days',
@@ -615,6 +608,7 @@ describe('RerunPaginatorService integration', () => {
                 ])
 
                 const state = buildState({
+                    paging,
                     request: {
                         filter: { window_start: '2026-02-01T00:00:00Z', window_end: '2026-02-03T00:00:00Z' },
                     },
@@ -625,10 +619,7 @@ describe('RerunPaginatorService integration', () => {
                     jobId: 'test-rerun-job',
                     createdAt: DateTime.now(),
                 })
-                const enqueued = hogQueue.queueInvocations.mock.calls[0]?.[0] as
-                    | CyclotronJobInvocationHogFunction[]
-                    | undefined
-                expect(enqueued?.map((i) => i.id)).toEqual(expectedIds)
+                expect(enqueuedIds()).toEqual(expectedIds)
                 expect(next.progress.cursor).toEqual(expectedCursor)
             }
         )
