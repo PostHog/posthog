@@ -3,27 +3,14 @@ import type { Integration } from "./selectors";
 export const GIT_PROVIDER_KINDS = ["github", "gitlab"] as const;
 export type GitProviderKind = (typeof GIT_PROVIDER_KINDS)[number];
 
-/**
- * What PostHog Cloud can do for a provider today. The desktop reads these instead of checking
- * `provider === "github"` at each call site, so a backend endpoint added for GitLab turns one
- * capability on here and every surface follows.
- */
 export interface GitProviderCapabilities {
-  /** Repositories can be listed and searched page by page from the provider. */
   repositoryPicker: boolean;
-  /** Branches of a repository can be listed. */
   branches: boolean;
-  /** A connection owned by the signed-in user, not by the project. */
   personalConnections: boolean;
-  /** Cloud tasks can clone the repository and open a pull or merge request. */
   cloudTasks: boolean;
 }
 
-/**
- * GitLab connections are the project-level ones Error tracking creates: one GitLab project per
- * connection, authenticated with a project access token. There is no repository, branch, or task
- * endpoint for them yet, so every GitLab capability stays off until the backend adds one.
- */
+// GitLab task and picker capabilities require backend support before they can be enabled.
 export const GIT_PROVIDER_CAPABILITIES: Record<
   GitProviderKind,
   GitProviderCapabilities
@@ -57,7 +44,6 @@ export function enabledGitProviders(options: {
   return options.gitlabEnabled ? ["github", "gitlab"] : ["github"];
 }
 
-/** A project-level connection to one provider account, in a shape every provider shares. */
 export interface GitProviderConnection {
   provider: GitProviderKind;
   integrationId: number;
@@ -108,10 +94,6 @@ function gitlabHost(integration: Integration): string {
   return hostname.trim().replace(/\/+$/, "");
 }
 
-/**
- * The one repository a GitLab connection reaches. The backend stores the project path when the
- * connection is created, so no request is needed to list it.
- */
 export function gitlabRepository(
   integration: Integration,
 ): GitProviderRepository | null {

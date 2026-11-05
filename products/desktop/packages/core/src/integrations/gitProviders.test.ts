@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   enabledGitProviders,
-  gitProviderConnections,
   githubRepositories,
   gitlabRepository,
+  gitProviderConnections,
 } from "./gitProviders";
 import type { Integration } from "./selectors";
 
@@ -80,7 +80,9 @@ describe("gitProviders", () => {
   );
 
   it("normalizes github names the way the backend keys them", () => {
-    expect(githubRepositories(1, ["PostHog/PostHog", " ", "posthog/quill"])).toEqual([
+    expect(
+      githubRepositories(1, ["PostHog/PostHog", " ", "posthog/quill"]),
+    ).toEqual([
       {
         provider: "github",
         integrationId: 1,

@@ -3,9 +3,9 @@ import {
   type GitProviderConnection,
   type GitProviderKind,
   type GitProviderRepository,
-  gitProviderConnections,
   githubRepositories,
   gitlabRepository,
+  gitProviderConnections,
   sortGitProviderRepositories,
 } from "./gitProviders";
 import { GIT_PROVIDER_CLIENT, type GitProviderClient } from "./identifiers";
@@ -14,15 +14,9 @@ import type { Integration } from "./selectors";
 export interface GitProviderRepositoriesResult {
   connections: GitProviderConnection[];
   repositories: GitProviderRepository[];
-  /** Connections whose repository list could not be read. The other connections still answer. */
   failedConnections: GitProviderConnection[];
 }
 
-/**
- * One read path over every source control provider the project is connected to. The caller
- * decides which providers are enabled (the GitLab flag lives in the UI layer), and the service
- * answers in one repository shape so a picker does not branch on the provider.
- */
 @injectable()
 export class GitProviderService {
   constructor(

@@ -1,6 +1,6 @@
 import type {
-  GitProviderClient,
   GithubConnectClient,
+  GitProviderClient,
   RepositoriesClient,
   TeamFlowResult,
 } from "@posthog/core/integrations/identifiers";

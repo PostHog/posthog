@@ -9,11 +9,6 @@ import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFla
 import { useIntegrationStore } from "@posthog/ui/features/integrations/store";
 import { useQuery } from "@tanstack/react-query";
 
-/**
- * Every repository the project reaches through its connected source control providers, in one
- * list. GitLab joins the list only while the flag is on; the integrations list itself comes from
- * `useIntegrations()`, which the root route already keeps fresh.
- */
 export function useGitProviderRepositories() {
   const gitlabEnabled = useFeatureFlag(GITLAB_INTEGRATION_FLAG);
   const providers = enabledGitProviders({ gitlabEnabled });

@@ -87,8 +87,8 @@ import { GitProviderService } from "@posthog/core/integrations/gitProviderServic
 import {
   GIT_PROVIDER_CLIENT,
   GIT_PROVIDER_SERVICE,
-  GITHUB_CONNECT_CLIENT as INTEGRATIONS_GITHUB_CONNECT_CLIENT,
   type GitProviderClient,
+  GITHUB_CONNECT_CLIENT as INTEGRATIONS_GITHUB_CONNECT_CLIENT,
   type GithubConnectClient as IntegrationsGithubConnectClient,
   REPOSITORIES_CLIENT,
   REPOSITORIES_SERVICE,
@@ -251,8 +251,8 @@ import {
   gitWriteClient,
 } from "@posthog/ui/features/git-interaction/gitInteractionAdapter";
 import {
-  UiGitProviderClient,
   UiGithubConnectClient,
+  UiGitProviderClient,
   UiRepositoriesClient,
 } from "@posthog/ui/features/integrations/integrationsClientImpl";
 import { McpAppHost } from "@posthog/ui/features/mcp-apps/components/McpAppHost";

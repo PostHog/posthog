@@ -23,11 +23,6 @@ const PROVIDER_ICONS: Record<GitProviderKind, typeof GithubLogoIcon> = {
   gitlab: GitlabLogoIcon,
 };
 
-/**
- * Flag-gated read of the git provider service: every repository the project reaches, from every
- * provider, in one list. Exists so the shared read path can be exercised against a real project
- * before any picker moves onto it.
- */
 export function SourceControlRepositoriesSection() {
   const { data, isPending, isError, refetch, isRefetching } =
     useGitProviderRepositories();

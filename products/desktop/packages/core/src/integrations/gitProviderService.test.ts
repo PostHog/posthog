@@ -60,9 +60,7 @@ describe("GitProviderService", () => {
     const result = await service.listRepositories(integrations, ["github"]);
 
     expect(result.repositories.map((r) => r.provider)).toEqual(["github"]);
-    expect(result.connections.some((c) => c.provider === "gitlab")).toBe(
-      false,
-    );
+    expect(result.connections.some((c) => c.provider === "gitlab")).toBe(false);
     expect(client.listGithubRepositories).not.toHaveBeenCalledWith(3);
   });
 });

@@ -36,8 +36,8 @@ import { GitProviderService } from "@posthog/core/integrations/gitProviderServic
 import {
   GIT_PROVIDER_CLIENT,
   GIT_PROVIDER_SERVICE,
-  GITHUB_CONNECT_CLIENT as INTEGRATIONS_GITHUB_CONNECT_CLIENT,
   type GitProviderClient,
+  GITHUB_CONNECT_CLIENT as INTEGRATIONS_GITHUB_CONNECT_CLIENT,
   type GithubConnectClient as IntegrationsGithubConnectClient,
   REPOSITORIES_CLIENT,
   REPOSITORIES_SERVICE,
@@ -93,8 +93,8 @@ import {
 } from "@posthog/ui/features/file-watcher/identifiers";
 import { GIT_CACHE_KEY_PROVIDER } from "@posthog/ui/features/git-interaction/gitCacheProvider";
 import {
-  UiGitProviderClient,
   UiGithubConnectClient,
+  UiGitProviderClient,
   UiRepositoriesClient,
 } from "@posthog/ui/features/integrations/integrationsClientImpl";
 import { NAVIGATION_TASK_BINDER } from "@posthog/ui/features/navigation/taskBinder";

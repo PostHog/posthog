@@ -67,8 +67,8 @@ import type { GitProviderService } from "@posthog/core/integrations/gitProviderS
 import {
   GIT_PROVIDER_CLIENT,
   GIT_PROVIDER_SERVICE,
-  GITHUB_CONNECT_CLIENT as INTEGRATIONS_GITHUB_CONNECT_CLIENT,
   type GitProviderClient,
+  GITHUB_CONNECT_CLIENT as INTEGRATIONS_GITHUB_CONNECT_CLIENT,
   type GithubConnectClient as IntegrationsGithubConnectClient,
   REPOSITORIES_CLIENT,
   REPOSITORIES_SERVICE,
