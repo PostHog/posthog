@@ -248,7 +248,25 @@ _TAG_NAME = re.compile(r"</?\s*([a-z!][a-z0-9]*)")
 _SKIPPED_ELEMENT_ENDS = {"head": "</head>", "style": "</style>"}
 
 
+_CONDITIONAL_COMMENT_START = "<!--[if"
+_CONDITIONAL_COMMENT_MARKERS = ("<![endif]-->", "<!-->")
+
+
+# Outlook renders what a conditional comment holds, so the scan skips only its markers.
+def _position_after_conditional_marker(html: str, position: int) -> int | None:
+    if html.startswith(_CONDITIONAL_COMMENT_START, position):
+        end = html.find("]>", position + len(_CONDITIONAL_COMMENT_START))
+        return -1 if end == -1 else end + 2
+    for marker in _CONDITIONAL_COMMENT_MARKERS:
+        if html.startswith(marker, position):
+            return position + len(marker)
+    return None
+
+
 def _position_after_layout_markup(html: str, position: int) -> int:
+    after_marker = _position_after_conditional_marker(html, position)
+    if after_marker is not None:
+        return after_marker
     if html.startswith("<!--", position):
         end = html.find("-->", position + 4)
         return -1 if end == -1 else end + 3
