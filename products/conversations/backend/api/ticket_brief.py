@@ -81,11 +81,14 @@ class TicketBriefSerializer(serializers.Serializer):
         allow_null=True,
         help_text=("The error the customer reported, copied exactly. Omitted when the ticket reports no error."),
     )
-    affected_items = TicketBriefAffectedItemSerializer(
-        many=True,
-        required=False,
+    # A ListField rather than many=True, because the generated OpenAPI schema carries the cap
+    # from a ListField and silently drops it from a nested many=True. Without it an agent's tool
+    # schema permits six items the server then rejects.
+    affected_items = serializers.ListField(
+        child=TicketBriefAffectedItemSerializer(),
         max_length=MAX_AFFECTED_ITEMS,
-        help_text="The PostHog items the ticket is about, with a link to each one.",
+        required=False,
+        help_text="The items the ticket is about, with a link to each one.",
     )
     screenshot_urls = serializers.ListField(
         child=serializers.URLField(max_length=MAX_URL_LENGTH),
