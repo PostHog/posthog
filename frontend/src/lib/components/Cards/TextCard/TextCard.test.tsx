@@ -4,7 +4,8 @@ import { fireEvent, render } from '@testing-library/react'
 
 import { DashboardPlacement, DashboardTile } from '~/types'
 
-import { TextCard, TextContent } from './TextCard'
+import { TextCard } from './TextCard'
+import { TextContent } from './TextContent'
 
 const makeTextTile = (overrides: Partial<DashboardTile> = {}): DashboardTile =>
     ({

@@ -58,6 +58,8 @@ describe('aiObservabilityDatasetLogic', () => {
         updated_at: '2024-01-01T00:00:00Z',
         created_by: null,
         archived: false,
+        expires_at: null,
+        expiring_soon: false,
         current_revision: null,
         current_revision_id: null,
         user_access_level: 'editor',

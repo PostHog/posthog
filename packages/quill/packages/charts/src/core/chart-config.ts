@@ -2,7 +2,7 @@ import type { ChartConfig } from './types'
 
 /** The standard chrome the axis-based charts render: axis lines, grid, tick marks, hover crosshair,
  *  a monotone line curve, rounded bars, and a cursor-anchored tooltip. LineChart, BarChart,
- *  ComboChart, and their TimeSeries variants layer this under a chart's `config` via
+ *  ComboChart, their TimeSeries variants, and BoxPlot layer this under a chart's `config` via
  *  `applyChartDefaults`, so a consumer opts out field by field; ScatterChart renders the same chrome
  *  from its own inline defaults. Sparkline and MetricCard build their own config that opts out of the
  *  chrome, so they stay chromeless. Still exported for hosts that build a config object directly. */
@@ -15,6 +15,9 @@ export const DEFAULT_CHART_CONFIG = {
     barCornerRadius: 4,
     tooltip: { placement: 'cursor' },
 } as const satisfies ChartConfig & { barCornerRadius: number }
+
+/** Default y-tick formatter for percent layouts, whose values are 0..1 fractions. */
+export const PERCENT_TICK_FORMATTER = (v: number): string => `${Math.round(v * 100)}%`
 
 function definedFields(config: object): Record<string, unknown> {
     return Object.fromEntries(Object.entries(config).filter(([, value]) => value !== undefined))

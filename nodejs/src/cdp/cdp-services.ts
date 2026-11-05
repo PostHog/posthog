@@ -35,6 +35,10 @@ import { IntegrationManagerService } from './services/managers/integration-manag
 import { PersonsManagerService } from './services/managers/persons-manager.service'
 import { RecipientsManagerService } from './services/managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
+import {
+    EMAIL_ATTACHMENTS_MAX_CONNECTIONS,
+    EmailAttachmentsService,
+} from './services/messaging/email-attachments.service'
 import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
 import { EmailValidationService } from './services/messaging/email-validation.service'
@@ -124,6 +128,7 @@ export interface CdpCoreServices {
     messageAssetsService: MessageAssetsService
     /** Buffers transactional email status rows. `invocationResultsService.flush()` produces them. */
     emailStatusService: EmailStatusService
+    emailAttachmentsService: EmailAttachmentsService
 }
 
 export type CdpCoreServicesConfig = Pick<
@@ -176,6 +181,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'SES_TRACKED_CONFIGURATION_SET'
         | 'SES_UNTRACKED_CONFIGURATION_SET'
         | 'EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD'
+        | 'EMAIL_SUPPRESSION_GLOBAL_HARD_BOUNCE_ENFORCE'
         | 'EMAIL_TEAM_SENDING_CAP_MODE'
         | 'EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER'
         | 'EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER'
@@ -454,6 +460,7 @@ export function createCdpCoreServices(
     // choke point regardless of whether the invocation came from a workflow action or a hog function.
     const emailSuppressionService = new EmailSuppressionService(deps.postgres, {
         transientBounceThreshold: config.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD,
+        globalHardBounceEnforce: config.EMAIL_SUPPRESSION_GLOBAL_HARD_BOUNCE_ENFORCE,
     })
     const recipientsManager = new RecipientsManagerService(deps.postgres)
     const personsManager = new PersonsManagerService(deps.teamManager, deps.personRepository, config.SITE_URL)
@@ -469,6 +476,10 @@ export function createCdpCoreServices(
     const teamEmailRateLimiter = deps.emailValidationValkey
         ? new RateLimiterService(deps.emailValidationValkey, { name: 'team-email' })
         : null
+    const emailAttachmentsService = new EmailAttachmentsService(
+        config.CYCLOTRON_NODE_DATABASE_URL,
+        EMAIL_ATTACHMENTS_MAX_CONNECTIONS
+    )
     const emailService = new EmailService(
         {
             sesAccessKeyId: config.SES_ACCESS_KEY_ID,
@@ -493,7 +504,8 @@ export function createCdpCoreServices(
         workflowsActivationReporter,
         messageAssetsService,
         workflowEmailRateLimiter,
-        teamEmailRateLimiter
+        teamEmailRateLimiter,
+        emailAttachmentsService
     )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
     const hogInputsService = new HogInputsService(deps.integrationManager, recipientTokensService, deps.encryptedFields)
@@ -642,6 +654,7 @@ export function createCdpCoreServices(
         recipientTokensService,
         outputs,
         emailService,
+        emailAttachmentsService,
         messageAssetsService,
         emailStatusService,
     }

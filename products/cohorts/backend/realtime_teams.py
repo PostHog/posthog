@@ -228,16 +228,18 @@ def revoke_realtime_cohort_access(rows: QuerySet[RealtimeCohortTeamAccess]) -> l
     the row says, so an `off` row would tell every reader of the table the opposite of the truth.
     """
     with transaction.atomic():
-        revoked = sorted(
-            rows.exclude(level=RealtimeCohortLevel.OFF).select_for_update().values_list("team_id", flat=True)
-        )
+        revoked_rows = list(rows.exclude(level=RealtimeCohortLevel.OFF).select_for_update().order_by("team_id"))
+        revoked = [row.team_id for row in revoked_rows]
         _refuse(
             "On REALTIME_COHORT_TEAM_ALLOWLIST", [team_id for team_id in revoked if realtime_allowlist_matches(team_id)]
         )
         now = timezone.now()
-        RealtimeCohortTeamAccess.objects.filter(team_id__in=revoked).update(
-            level=RealtimeCohortLevel.OFF, off_since=now, changed_at=now
-        )
+        for row in revoked_rows:
+            row.level = RealtimeCohortLevel.OFF
+            row.off_since = now
+            # A save per row, not QuerySet.update(), because post_save refreshes the team metadata cache,
+            # and the flags service reads the level from that cache.
+            row.save(update_fields=["level", "off_since", "changed_at"])
     return revoked
 
 

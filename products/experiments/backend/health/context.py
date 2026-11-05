@@ -16,6 +16,7 @@ from posthog.schema import (
     CohortPropertyFilter,
     EventPropertyFilter,
     ExperimentEventExposureConfig,
+    ExperimentWarehouseNativeExposureConfig,
     MultipleVariantHandling,
     PersonPropertyFilter,
     PropertyOperator,
@@ -825,6 +826,9 @@ def _exposure_events(experiment: Experiment) -> ExposureEvents | None:
     try:
         criteria = normalize_to_exposure_criteria(experiment.exposure_criteria)
     except pydantic.ValidationError:
+        return None
+    if criteria is not None and isinstance(criteria.exposure_config, ExperimentWarehouseNativeExposureConfig):
+        # The exposures live in the customer's warehouse, so no event of this project describes them.
         return None
     # A deleted flag carries a tombstone in its key, and the exposure query reads the key without it.
     flag_key = experiment.feature_flag.key_without_tombstone() if experiment.feature_flag_id else None

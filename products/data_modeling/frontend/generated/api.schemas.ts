@@ -193,6 +193,11 @@ export interface NodeApi {
     readonly user_tag: string | null
     /** @nullable */
     readonly sync_interval: string | null
+    /**
+     * How often this node actually refreshes. A downstream view can make an unpinned view refresh more often than `sync_interval`, and a slow source can make it refresh less often. Null when the node is not scheduled.
+     * @nullable
+     */
+    readonly effective_sync_interval: string | null
     /** How often this view refreshes. 'never' clears the cadence, and with it the pin. Read the stored cadence back from `sync_interval`. Only views and endpoints the team owns accept it.
      *
      * * `never` - never
@@ -271,6 +276,11 @@ export interface PatchedNodeApi {
     readonly user_tag?: string | null
     /** @nullable */
     readonly sync_interval?: string | null
+    /**
+     * How often this node actually refreshes. A downstream view can make an unpinned view refresh more often than `sync_interval`, and a slow source can make it refresh less often. Null when the node is not scheduled.
+     * @nullable
+     */
+    readonly effective_sync_interval?: string | null
     /** How often this view refreshes. 'never' clears the cadence, and with it the pin. Read the stored cadence back from `sync_interval`. Only views and endpoints the team owns accept it.
      *
      * * `never` - never

@@ -150,7 +150,7 @@ Hand-off and decision actions resolve on failure and surface the error through
 | Push               | `POST /api/users/@me/push_tokens/`                                                                                               | unavailable on web and Expo Go                                                            |
 
 Details per domain: [DATA.md](DATA.md), [HANDOFF.md](HANDOFF.md), [CHAT.md](CHAT.md),
-[AUTH.md](AUTH.md), [PUSH.md](PUSH.md).
+[PUSH.md](PUSH.md).
 
 ## Hook surface
 
