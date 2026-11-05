@@ -1,6 +1,5 @@
 from posthog.test.base import APIBaseTest
 
-from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -42,18 +41,13 @@ class TestWorkflowSetupStatusAPI(APIBaseTest):
         )
 
     @parameterized.expand([("no sender", False), ("only the sandbox sender", True)])
-    @override_settings(
-        WORKFLOWS_SANDBOX_SENDER_DOMAIN="sandbox.example.com",
-        SES_SANDBOX_FROM_ADDRESS="sender@sandbox.example.com",
-        SES_SANDBOX_TENANT_NAME="sandbox-tenant",
-    )
-    def test_a_new_project_starts_at_the_channel(self, _name: str, has_sandbox_sender: bool) -> None:
-        if has_sandbox_sender:
+    def test_a_new_project_starts_at_the_channel(self, _name: str, with_sandbox_row: bool) -> None:
+        if with_sandbox_row:
             Integration.objects.create(
                 team=self.team,
                 kind="email",
                 integration_id=SANDBOX_EMAIL_INTEGRATION_ID,
-                config={"provider": SANDBOX_EMAIL_PROVIDER, "verified": True},
+                config={"provider": SANDBOX_EMAIL_PROVIDER, "email": "max@sandbox.example.com", "verified": True},
             )
 
         body = self._status()

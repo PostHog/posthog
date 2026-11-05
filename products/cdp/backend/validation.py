@@ -6,11 +6,13 @@ from collections.abc import Iterable
 from typing import Any, Optional
 
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import models
 
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
+from rest_framework.fields import get_error_detail
 
 from posthog.hogql import ast
 from posthog.hogql.compiler.bytecode import create_bytecode
@@ -129,10 +131,14 @@ def _sandbox_email_sender_ids(context: dict[str, Any]) -> frozenset[int]:
 
 
 def _stored_email_values(context: dict[str, Any]) -> list[object]:
-    # A workflow step passes its stored email values. A hog function passes them by input key,
-    # so only the value stored under the input being validated counts.
+    # A workflow step passes its stored email values. A hog function passes them by input key, and a
+    # mapping by its position, so only the value stored under the input being validated counts.
     stored = list(context.get("existing_email_values") or [])
     by_key = context.get("existing_email_values_by_key")
+    mapping_index = context.get("mapping_index")
+    if isinstance(mapping_index, int):
+        by_mapping = context.get("existing_email_values_by_mapping") or []
+        by_key = by_mapping[mapping_index] if mapping_index < len(by_mapping) else None
     schema = context.get("schema")
     if isinstance(by_key, dict) and isinstance(schema, dict) and str(schema.get("key")) in by_key:
         stored.append(by_key[str(schema.get("key"))])
@@ -159,7 +165,7 @@ def validate_sandbox_email_sender(email_value: object, context: dict[str, Any]) 
         raise serializers.ValidationError(
             {"input": "The sandbox sender cannot be used in broadcasts. Select a sender on your own verified domain."}
         )
-    if context.get("workflow_origin_product") == "transactional_emails":
+    if context.get("workflow_origin_product") in ("transactional_emails", "transactional_email_keys"):
         raise serializers.ValidationError(
             {
                 "input": "The sandbox sender cannot send transactional email. Select a sender on your own verified domain."
@@ -1561,6 +1567,26 @@ class MappingsSerializer(FunctionInputsSerializer):
                 )
             data = {**data, "inputs_schema": inputs_schema}
         return super().to_internal_value(data)
+
+
+class MappingsListField(serializers.ListField):
+    def run_child_validation(self, data: list[Any]) -> list[Any]:
+        result = []
+        errors: dict[int, Any] = {}
+        try:
+            for index, item in enumerate(data):
+                self.context["mapping_index"] = index
+                try:
+                    result.append(self.child.run_validation(item))
+                except ValidationError as error:
+                    errors[index] = error.detail
+                except DjangoValidationError as error:
+                    errors[index] = get_error_detail(error)
+        finally:
+            self.context.pop("mapping_index", None)
+        if errors:
+            raise ValidationError(errors)
+        return result
 
 
 def topological_sort(nodes: list[str], edges: dict[str, list[str]]) -> list[str]:
