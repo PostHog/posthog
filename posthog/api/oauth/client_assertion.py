@@ -82,6 +82,10 @@ class UnknownSigningKeyError(ClientAssertionError):
     """The assertion names a ``kid`` that the client's cached key set does not contain."""
 
 
+class JWKSUnavailableError(ClientAssertionError):
+    """The key set could not be fetched, so the assertion was never checked and a retry may succeed."""
+
+
 def _request_field(request: Any, name: str) -> str:
     """Read a field from the request body, where RFC 7523 section 2.2 sends it as a form parameter."""
     from_body = request.data.get(name) if hasattr(request, "data") else None
@@ -187,7 +191,7 @@ def load_jwks(jwks_uri: str, *, force_refresh: bool = False) -> PyJWKSet:
     cached = None if force_refresh else cache.get(cache_key)
     if cached is not None:
         if cached == "error":
-            raise ClientAssertionError("Client keys could not be retrieved")
+            raise JWKSUnavailableError("Client keys could not be retrieved")
         return PyJWKSet.from_dict(cached)
 
     try:
@@ -213,7 +217,7 @@ def _fetch_jwks_document(jwks_uri: str) -> dict:
         )
     except (CIMDFetchError, CIMDValidationError) as e:
         logger.warning("client_assertion_jwks_fetch_failed", jwks_uri=jwks_uri, error=str(e))
-        raise ClientAssertionError("Client keys could not be retrieved") from e
+        raise JWKSUnavailableError("Client keys could not be retrieved") from e
 
     # Capping the key count keeps a hostile JWKS from making each verification walk a huge
     # set. Everything else about the document's shape is PyJWKSet's own validation.
@@ -254,7 +258,7 @@ def _select_key(key_set: PyJWKSet, assertion: str) -> PyJWK:
     raise ClientAssertionError("Client assertion must carry a kid when the JWKS holds several keys")
 
 
-def _select_key_allowing_rotation(jwks_uri: str, assertion: str) -> PyJWK:
+def select_signing_key(jwks_uri: str, assertion: str) -> PyJWK:
     """Select the assertion's signing key, re-fetching the JWKS once when the key is unknown.
 
     A client that rotates keys signs with the new ``kid`` while our cached copy of its key
@@ -298,7 +302,7 @@ def verify_client_assertion(app: OAuthApplication, assertion: str, *, audiences:
     if not app.jwks_uri:
         raise ClientAssertionError("This client is not registered for private_key_jwt authentication")
 
-    key = _select_key_allowing_rotation(app.jwks_uri, assertion)
+    key = select_signing_key(app.jwks_uri, assertion)
     # The selected key's own algorithm is held to the list too, because PyJWT verifies with it.
     if key.algorithm_name not in ASYMMETRIC_SIGNING_ALGORITHMS or not isinstance(
         key.key, (RSAPublicKey, EllipticCurvePublicKey)

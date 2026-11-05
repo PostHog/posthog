@@ -383,6 +383,9 @@ class TestHogFlowAPI(APIBaseTest):
             ("tier_decision_respects_status_filter", "search=march&status=draft", {"Billing"}),
             ("tier_decision_respects_type_filter", "search=march&type=messaging", {"Billing"}),
             ("no_match", "search=nonexistent", set()),
+            ("name_filter_matches_inside_words", "name=ELCOME", {"Welcome email"}),
+            ("name_filter_skips_description_and_tags", "name=quarterly", set()),
+            ("name_filter_never_reads_step_content", "name=for march", set()),
         ]
     )
     def test_list_search_matches_name_description_and_step_content(self, _name, query, expected_names):

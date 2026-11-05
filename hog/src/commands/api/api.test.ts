@@ -187,7 +187,7 @@ describe('hog api', () => {
         })
         expect(result.error()).toMatchObject({
             code: 'missing_scopes',
-            message: `The personal API key needs ${scopes} to call insight-create.`,
+            message: `Your credentials need ${scopes} to call insight-create.`,
         })
     })
 
@@ -211,6 +211,57 @@ describe('hog api', () => {
                 { scope: 'insight:write', tools: 1, groups: ['insights-analytics'] },
                 { scope: 'query:read', tools: 1, groups: ['insights-analytics'] },
             ],
+        })
+    })
+
+    test('access answers for an OAuth login from its scopes, because the key lookup refuses OAuth tokens', async () => {
+        const EU = 'https://eu.posthog.com'
+        const record = {
+            store: 'keychain',
+            type: 'oauth',
+            projectId: '42',
+            host: EU,
+            expiresAt: Date.UTC(2026, 0, 8),
+            scopes: ['feature_flag:read', 'feature_flag:write'],
+            loginId: 'login-1',
+        }
+        const result = await runHog(['api', 'access'], {
+            env: { CLAUDECODE: '1' },
+            files: { '/home/test/.config/hog/settings.json': JSON.stringify({ logins: { [EU]: record }, host: EU }) },
+            keychain: { [EU]: JSON.stringify({ accessToken: 'pha_token', refreshToken: 'phr_token' }) },
+            apiTools: fakeLibrary([], { lookupFails: true }),
+        })
+
+        expect(result.json()).toMatchObject({ usable: 2, tools: 3, projectAllowed: true })
+    })
+
+    test('a refused call from an OAuth login names every scope the login lacks, from its own scopes', async () => {
+        const EU = 'https://eu.posthog.com'
+        const record = {
+            store: 'keychain',
+            type: 'oauth',
+            projectId: '42',
+            host: EU,
+            expiresAt: Date.UTC(2026, 0, 8),
+            scopes: ['feature_flag:read'],
+            loginId: 'login-1',
+        }
+        const result = await runHog(['api', 'call', 'insight-create', '{}'], {
+            env: { CLAUDECODE: '1' },
+            files: { '/home/test/.config/hog/settings.json': JSON.stringify({ logins: { [EU]: record }, host: EU }) },
+            keychain: { [EU]: JSON.stringify({ accessToken: 'pha_token', refreshToken: 'phr_token' }) },
+            apiTools: fakeLibrary([], {
+                lookupFails: true,
+                callResult: {
+                    ok: false,
+                    error: { code: 'permission_denied', message: 'denied', status: 403, missingScope: 'insight:write' },
+                },
+            }),
+        })
+
+        expect(result.error()).toMatchObject({
+            code: 'missing_scopes',
+            message: 'Your credentials need insight:write, query:read to call insight-create.',
         })
     })
 })
