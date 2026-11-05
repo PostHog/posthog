@@ -83,15 +83,29 @@ export interface PageCapture {
     height: number
 }
 
+// html-to-image cannot cancel a capture, so one that timed out keeps running. A new capture waits for it to end instead of piling up a second clone of the page.
+let runningCapture: Promise<Blob> | null = null
+
 /** Rejects after `maxMs`, because a stalled image load or a paused `requestAnimationFrame` would keep the comparison's overrides on the page. */
 export async function capturePage(maxMs: number = CAPTURE_MAX_MS): Promise<PageCapture> {
+    if (runningCapture) {
+        throw new Error('An earlier page capture is still running')
+    }
     const root = document.documentElement
     const width = root.clientWidth
     const height = root.scrollHeight
+    const capture = captureElementScreenshot(root, { pixelRatio: 1, width, height })
+    runningCapture = capture
+    const clearRunningCapture = (): void => {
+        if (runningCapture === capture) {
+            runningCapture = null
+        }
+    }
+    capture.then(clearRunningCapture, clearRunningCapture)
     let deadline: ReturnType<typeof setTimeout> | undefined
     try {
         const blob = await Promise.race([
-            captureElementScreenshot(root, { pixelRatio: 1, width, height }),
+            capture,
             new Promise<never>((_, reject) => {
                 deadline = setTimeout(() => reject(new Error(`The page capture took longer than ${maxMs} ms`)), maxMs)
             }),
