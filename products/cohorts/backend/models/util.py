@@ -1419,15 +1419,19 @@ def insert_cohort_filter_actors_into_ch(cohort: Cohort, *, team: Team) -> int:
     return insert_actors_into_cohort_by_query(cohort, query, params, context, team_id=team.id)
 
 
-def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int, min_rows: int = 0) -> None:
+def insert_cohort_people_into_pg(
+    cohort: Cohort, *, team_id: int, min_rows: int = 0, written_since: str | None = None
+) -> None:
     """Copy the cohort's ClickHouse rows to Postgres.
 
     `min_rows` is how many rows the caller just wrote to ClickHouse. Each query can land on a different replica, and
     a replica that has not received the write yet reads as a smaller cohort, so the copy repeats until it has seen them.
+    `written_since` is a `_timestamp` from before that write. Only rows at or after it count, because a cohort's
+    existing members can otherwise reach `min_rows` on a replica that has none of the new rows.
     """
     try:
         for wait_seconds in (*STATIC_COHORT_READ_BACK_WAITS_SECONDS, None):
-            rows_read = _copy_static_cohort_rows_to_pg(cohort, team_id=team_id)
+            rows_read = _copy_static_cohort_rows_to_pg(cohort, team_id=team_id, written_since=written_since)
             if rows_read >= min_rows:
                 return
             if wait_seconds is None:
@@ -1439,7 +1443,8 @@ def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int, min_rows: int 
         cohort._refresh_count(team_id=team_id)
 
 
-def _copy_static_cohort_rows_to_pg(cohort: Cohort, *, team_id: int) -> int:
+def _copy_static_cohort_rows_to_pg(cohort: Cohort, *, team_id: int, written_since: str | None) -> int:
+    """Return how many of the copied rows have a `_timestamp` at or after `written_since`."""
     from posthog.helpers.batch_iterators import CursorBatchIterator
 
     tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
@@ -1454,12 +1459,13 @@ def _copy_static_cohort_rows_to_pg(cohort: Cohort, *, team_id: int) -> int:
         nonlocal rows_read
         # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
         rows = sync_execute(
-            f"SELECT DISTINCT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id > %(cursor)s ORDER BY person_id LIMIT %(limit)s",
+            f"SELECT person_id, max(_timestamp) >= %(written_since)s FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id > %(cursor)s GROUP BY person_id ORDER BY person_id LIMIT %(limit)s",
             {
                 "cohort_id": cohort.pk,
                 "team_id": team_id,
                 "cursor": cursor,
                 "limit": batch_size,
+                "written_since": written_since or "1970-01-01 00:00:00",
             },
             workload=Workload.OFFLINE,
             ch_user=ClickHouseUser.COHORTS,
@@ -1467,7 +1473,7 @@ def _copy_static_cohort_rows_to_pg(cohort: Cohort, *, team_id: int) -> int:
         )
         if not rows:
             return [], cursor
-        rows_read += len(rows)
+        rows_read += sum(1 for _, is_written_since in rows if is_written_since)
         items = [str(r[0]) for r in rows]
         return items, items[-1]
 

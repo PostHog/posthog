@@ -54,6 +54,7 @@ from products.cohorts.backend.models.calculation_history import CohortCalculatio
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import (
     CohortErrorCode,
+    StaticCohortReadBackIncomplete,
     count_cohort_members,
     get_friendly_error_message,
     insert_static_cohort,
@@ -1539,6 +1540,13 @@ class TestCohortCalculationTasks(APIBaseTest):
                 PG_SYNC_PATH,
                 lambda: SoftTimeLimitExceeded(),
             ),
+            (
+                "query_read_back_incomplete",
+                insert_cohort_from_query,
+                QUERY_CH_INSERT_PATH,
+                PG_SYNC_PATH,
+                lambda: StaticCohortReadBackIncomplete("Read 0 of 1 rows"),
+            ),
         ]
     )
     def test_static_population_retries_a_transient_failure(
@@ -1691,6 +1699,8 @@ class TestCohortCalculationTasks(APIBaseTest):
         mock_insert_ch.assert_not_called()
         # The retry still has to wait for the rows the first attempt wrote, or a lagging replica reads as empty.
         self.assertEqual(mock_sync.call_args.kwargs["min_rows"], 7)
+        self.assertEqual(mock_sync.call_args.kwargs["written_since"], scheduled.exception.sig.kwargs["written_since"])
+        self.assertIsNotNone(mock_sync.call_args.kwargs["written_since"])
 
     @parameterized.expand(
         [
