@@ -166,9 +166,7 @@ where
             assert_data_type_impl(data, T::data_type())?;
             let payload = &data[v1_header_len()..];
             assert_within_limit(payload.len(), max_bytes)?;
-            let payload = payload.to_vec();
-            let byte_count = payload.len();
-            T::from_bytes(payload).map(|v| (v, byte_count))
+            T::from_bytes(payload.to_vec()).map(|v| (v, payload.len()))
         }
         VERSION => {
             assert_at_least_as_long_as(v2_header_len(), data.len())?;
@@ -181,6 +179,12 @@ where
                     payload.to_vec()
                 }
                 Compression::Zstd => {
+                    // A declared size is safe to reject on but not to trust: zstd fails a frame
+                    // whose content does not match its declared size, and a frame can declare
+                    // no size at all, so the read below keeps its own cap.
+                    if let Ok(Some(declared)) = known_zstd_decompressed_size(payload) {
+                        assert_within_limit(declared, max_bytes)?;
+                    }
                     let decoder = zstd::Decoder::new(Cursor::new(payload))
                         .map_err(|e| Error::CompressionError(e.to_string()))?;
                     let mut out = Vec::new();

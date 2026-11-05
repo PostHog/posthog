@@ -97,6 +97,10 @@ fn test_limited_read_stops_at_the_limit() {
         data: vec![0; limit + 1],
     })
     .unwrap();
+    let uncompressed_over_limit = write_symbol_data_uncompressed(ElfDebugInfo {
+        data: vec![0; limit + 1],
+    })
+    .unwrap();
 
     // A frame that declares no content size decodes until the frame ends.
     let mut encoder = zstd::Encoder::new(Vec::new(), 3).unwrap();
@@ -105,7 +109,7 @@ fn test_limited_read_stops_at_the_limit() {
     undeclared_size.truncate(COMPRESSION_OFFSET + 1);
     undeclared_size.extend(encoder.finish().unwrap());
 
-    for bytes in [over_limit, undeclared_size] {
+    for bytes in [over_limit, uncompressed_over_limit, undeclared_size] {
         assert_eq!(
             read_symbol_data_with_byte_count_limited::<ElfDebugInfo>(&bytes, limit).unwrap_err(),
             SymbolDataError::DecompressedTooLarge(limit as u64)
