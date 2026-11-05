@@ -3660,7 +3660,9 @@ class TestTaskAPI(BaseTaskAPITest):
 
     # A person and their agents count as one owner: their own agent's claim lets them start a task, a teammate's
     # agent claim does not.
-    @parameterized.expand([("own_agent", True, status.HTTP_201_CREATED), ("teammate_agent", False, status.HTTP_429_TOO_MANY_REQUESTS)])
+    @parameterized.expand(
+        [("own_agent", True, status.HTTP_201_CREATED), ("teammate_agent", False, status.HTTP_429_TOO_MANY_REQUESTS)]
+    )
     def test_implementation_creation_respects_an_external_claim(self, _name, own_agent, expected_status):
         from products.signals.backend.models import SignalReport, SignalReportAssignment
 
