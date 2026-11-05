@@ -16,6 +16,7 @@ check registry without running the check.
 """
 
 import re
+import ipaddress
 from collections.abc import Callable, Sequence
 from typing import Any
 
@@ -25,6 +26,7 @@ from django.core.checks import CheckMessage, Error, Warning, register
 from posthog.models.oauth import oidc_signing_key_configured
 from posthog.product_db_router import get_product_db_routes
 from posthog.storage.object_storage import is_usable_endpoint
+from posthog.utils import parse_crontab
 
 CHECK_ID_PATTERN = re.compile(r"^posthog\.[a-z][a-z0-9_]*\.[EW]\d{3}$")
 
@@ -137,3 +139,118 @@ def check_product_db_routes(app_configs: Any, **kwargs: Any) -> list[CheckMessag
         app_label_to_database[route.app_label] = route.database
 
     return errors
+
+
+# Network access
+
+ACCESS_ALLOWED_IP_BLOCK_INVALID = "posthog.access.W001"
+ACCESS_TRUSTED_PROXY_NOT_AN_IP = "posthog.access.W002"
+
+
+@register_check(ACCESS_ALLOWED_IP_BLOCK_INVALID)
+def check_allowed_ip_blocks(app_configs: Any, **kwargs: Any) -> list[CheckMessage]:
+    # AllowIPMiddleware parses each block on every request, so one bad entry turns every request
+    # outside the always-allowed paths into a 500 while startup succeeds.
+    invalid = []
+    for block in settings.ALLOWED_IP_BLOCKS:
+        try:
+            ipaddress.ip_network(block, strict=False)
+        except ValueError:
+            invalid.append(block)
+    if not invalid:
+        return []
+    return [
+        Warning(
+            f"ALLOWED_IP_BLOCKS has entries that are not IP networks: {', '.join(repr(b) for b in invalid)}. "
+            "Every request outside the always-allowed paths fails with a 500.",
+            hint="Use an IP address or CIDR block for each entry, for example 10.0.0.0/8.",
+            id=ACCESS_ALLOWED_IP_BLOCK_INVALID,
+        )
+    ]
+
+
+@register_check(ACCESS_TRUSTED_PROXY_NOT_AN_IP)
+def check_trusted_proxies(app_configs: Any, **kwargs: Any) -> list[CheckMessage]:
+    # get_trusted_client_ip compares each proxy's IP to these entries as exact strings, so an entry
+    # that is not a single IP (a CIDR block, a port, brackets) never matches and the client IP is lost.
+    if settings.TRUST_ALL_PROXIES or not settings.TRUSTED_PROXIES:
+        return []
+    invalid = []
+    for proxy in (p.strip() for p in settings.TRUSTED_PROXIES.split(",")):
+        if not proxy:
+            continue
+        try:
+            ipaddress.ip_address(proxy)
+        except ValueError:
+            invalid.append(proxy)
+    if not invalid:
+        return []
+    return [
+        Warning(
+            f"TRUSTED_PROXIES has entries that are not single IP addresses: {', '.join(repr(p) for p in invalid)}. "
+            "Requests through them get no client IP, so the IP allowlist rejects them and IP rate limits "
+            "share one bucket.",
+            hint="List each proxy's IP address. CIDR blocks and ports are not supported.",
+            id=ACCESS_TRUSTED_PROXY_NOT_AN_IP,
+        )
+    ]
+
+
+# Scheduled tasks
+
+SCHEDULES_CRON_UNPARSEABLE = "posthog.schedules.W001"
+
+CRON_SCHEDULE_SETTINGS = (
+    "CALCULATE_COHORTS_DAY_SCHEDULE",
+    "CALCULATE_COHORTS_NIGHT_SCHEDULE",
+    "CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON",
+    "CLEAR_CLICKHOUSE_DELETED_PERSON_SCHEDULE_CRON",
+    "MATERIALIZE_COLUMNS_SCHEDULE_CRON",
+)
+
+
+@register_check(SCHEDULES_CRON_UNPARSEABLE)
+def check_cron_schedules(app_configs: Any, **kwargs: Any) -> list[CheckMessage]:
+    # get_crontab swallows a parse failure and returns None, so the Celery beat job is never scheduled
+    # and nothing tells the operator. An empty value is a deliberate opt-out, so only non-empty values count.
+    warnings: list[CheckMessage] = []
+    for name in CRON_SCHEDULE_SETTINGS:
+        schedule = getattr(settings, name, None)
+        if not schedule:
+            continue
+        try:
+            parse_crontab(schedule)
+        except Exception:
+            warnings.append(
+                Warning(
+                    f"{name} is not a valid cron schedule: {schedule!r}. The scheduled task never runs.",
+                    hint="Use five fields separated by single spaces, for example '0 5 * * SAT'.",
+                    id=SCHEDULES_CRON_UNPARSEABLE,
+                )
+            )
+    return warnings
+
+
+# Temporal
+
+TEMPORAL_CLIENT_TLS_PAIR_INCOMPLETE = "posthog.temporal.W001"
+
+
+@register_check(TEMPORAL_CLIENT_TLS_PAIR_INCOMPLETE)
+def check_temporal_client_tls(app_configs: Any, **kwargs: Any) -> list[CheckMessage]:
+    # The Temporal client enables TLS only when both values are set. With one of them, it connects in
+    # plaintext, and a server that requires mutual TLS rejects the first workflow start at request time.
+    if bool(settings.TEMPORAL_CLIENT_CERT) == bool(settings.TEMPORAL_CLIENT_KEY):
+        return []
+    present, missing = (
+        ("TEMPORAL_CLIENT_CERT", "TEMPORAL_CLIENT_KEY")
+        if settings.TEMPORAL_CLIENT_CERT
+        else ("TEMPORAL_CLIENT_KEY", "TEMPORAL_CLIENT_CERT")
+    )
+    return [
+        Warning(
+            f"{present} is set but {missing} is not, so the Temporal client connects without TLS.",
+            hint=f"Set {missing} too, or unset {present} if the Temporal server does not use mutual TLS.",
+            id=TEMPORAL_CLIENT_TLS_PAIR_INCOMPLETE,
+        )
+    ]
