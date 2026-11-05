@@ -8,6 +8,8 @@ interface FakeExtensionConfig {
     tabUrl: string
     pageState: PageToolbarState
     storage: Record<string, unknown>
+    /** Sent after the page state, for the page messages a story needs, such as a flag comparison. */
+    messages?: PageToolbarMessage[]
 }
 
 let config: FakeExtensionConfig | null = null
@@ -31,6 +33,7 @@ function fakePort(): ExtensionPort {
             const request = message as { type?: string; tool?: string; command?: { type: string; mode?: string } }
             if (request.type === 'start' && config) {
                 send({ type: 'state', state: config.pageState })
+                config.messages?.forEach(send)
             } else if (request.tool === 'session' && request.command?.type === 'set-mode') {
                 send({ type: 'patch', patch: { mode: request.command.mode as PageToolbarState['mode'] } })
             }
