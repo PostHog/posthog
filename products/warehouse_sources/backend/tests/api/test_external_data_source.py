@@ -109,6 +109,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.int
     IntegrationAccount,
     IntegrationAccountListingError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_input_classification import (
+    stored_field_kinds,
+    stored_reference_options,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
     CredentialAccountsMixin,
@@ -408,6 +412,15 @@ class _PluginOnlySource(SimpleSource[_PluginOnlySourceConfig]):
 
 
 class TestExternalDataSource(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # Many tests here patch `SourceRegistry.get_source` for the whole process. The job input
+        # classification of a source is cached on first use, so build it from the real sources these
+        # tests store now. Otherwise the outcome depends on whether an earlier test filled the cache.
+        for source_type in (ExternalDataSourceType.STRIPE, ExternalDataSourceType.POSTGRES):
+            stored_field_kinds(source_type)
+            stored_reference_options(source_type)
+
     def _create_external_data_source(self, created_via: str = ExternalDataSource.CreatedVia.WEB) -> ExternalDataSource:
         return ExternalDataSource.objects.create(
             team_id=self.team.pk,
