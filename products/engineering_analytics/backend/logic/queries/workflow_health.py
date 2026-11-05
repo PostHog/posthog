@@ -31,6 +31,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     WorkflowHealthItem,
     WorkflowHealthRunScope,
 )
+from products.engineering_analytics.backend.logic._shared import _prior_window
 from products.engineering_analytics.backend.logic.queries._buckets import (
     Granularity,
     bucket_expr,
@@ -302,8 +303,7 @@ def query_workflow_health(
     run_scope_clause = run_scope_filter_clause(run_scope)
     workflow_clause = workflow_name_filter_clause(workflow_name, placeholders)
 
-    end = date_to or datetime.now(tz=date_from.tzinfo)
-    prev_from = date_from - (end - date_from)
+    prev_from = _prior_window(date_from, date_to).scan_from
     # One source serves the current and the previous window, so it must cover the earlier start.
     runs_source = curated.run_source(started_floor=True, since=prev_from)
 

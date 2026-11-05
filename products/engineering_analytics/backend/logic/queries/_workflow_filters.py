@@ -89,6 +89,9 @@ LATEST_COMPLETED_RUN_FAILED = (
     f"argMaxIf(conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL}), {LATEST_RUN_ORDER}, status = 'completed')"
 )
 
+# A date-only floor reaches back up to one day past the slack it subtracts.
+_DATE_FLOOR_SLACK = timedelta(days=1)
+
 
 def run_started_floor_constant(window_start: datetime) -> ast.Constant:
     """Raw-string scan floor for the runs builder's {run_started_floor} placeholder: a date-only
@@ -96,11 +99,8 @@ def run_started_floor_constant(window_start: datetime) -> ast.Constant:
     ISO timestamp ('2026-07-11' < '2026-07-11T...'), and the one-day slack absorbs any timezone
     offset between the window's zone and the UTC strings GitHub lands, so the coarse floor can
     never cut rows the precise parsed {date_from} filter would keep."""
-    return ast.Constant(value=(window_start - _DATE_FLOOR_SLACK).strftime("%Y-%m-%d"))
+    return _date_floor(window_start, _DATE_FLOOR_SLACK)
 
-
-# A date-only floor reaches back up to one day past the slack it subtracts.
-_DATE_FLOOR_SLACK = timedelta(days=1)
 
 # How far below a window start the jobs-scan floor sits, by what the window actually filters.
 #

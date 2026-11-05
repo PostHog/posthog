@@ -143,12 +143,11 @@ class TestMaterializedCI(BaseTest):
         _ready_views(self)
         with patch("posthoganalytics.feature_enabled", return_value=enabled):
             reader = self._reader()
-            runs = set(get_table_names(parse_select(reader.run_source(since=_covered_since()))))
-            jobs = set(get_table_names(parse_select(reader.jobs_source(since=_covered_since()) or "")))
-            costs = set(get_table_names(parse_select(reader.job_cost_source(since=_covered_since()) or "")))
-            detail = set(
-                get_table_names(parse_select(reader.jobs_source(since=_covered_since(), include_steps=True) or ""))
-            )
+            since = _covered_since()
+            runs = set(get_table_names(parse_select(reader.run_source(since=since))))
+            jobs = set(get_table_names(parse_select(reader.jobs_source(since=since) or "")))
+            costs = set(get_table_names(parse_select(reader.job_cost_source(since=since) or "")))
+            detail = set(get_table_names(parse_select(reader.jobs_source(since=since, include_steps=True) or "")))
             current = set(get_table_names(parse_select(reader.runs_cte().removeprefix("runs AS "))))
         if stored:
             assert runs == {ci_rows.RUNS_VIEW_NAME}
