@@ -3383,12 +3383,12 @@ export interface workflowLogicMeta {
         publishDisabledReason: (
             hasStagedDraft: boolean,
             hasUnsavedChanges: boolean,
-            draftActionPending: 'discard' | 'publish' | null
+            draftActionPending: WorkflowDraftAction | null
         ) => string | undefined
         discardDisabledReason: (
             hasStagedDraft: boolean,
             hasUnsavedChanges: boolean,
-            draftActionPending: 'discard' | 'publish' | null
+            draftActionPending: WorkflowDraftAction | null
         ) => string | undefined
         statusToggleDisabledReason: (workflow: HogFlow, hasUnsavedChanges: boolean) => string | undefined
         manualTriggerDisabledReason: (
