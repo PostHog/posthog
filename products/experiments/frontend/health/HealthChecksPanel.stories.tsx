@@ -6,7 +6,7 @@ import { type ExperimentExposureQueryResponse, NodeKind } from '~/queries/schema
 import { userEvent } from 'storybook/test'
 
 import type { ExperimentHealthCheckResultApi, ExperimentHealthCheckRuleApi } from '../generated/api.schemas'
-import { HealthChecksOverview } from './HealthChecksOverview'
+import { HealthChecksPanel } from './HealthChecksPanel'
 import type { HealthPanelCheck } from './healthPanelChecks'
 import type { HealthPanelFinding } from './healthPanelFindings'
 
@@ -56,9 +56,9 @@ const FLAG_SETUP_CHECKS = [
     passed('forced_variant_release_condition', 'Release conditions that force a variant'),
 ]
 
-const meta: Meta<typeof HealthChecksOverview> = {
-    title: 'Experiments/HealthChecksOverview',
-    component: HealthChecksOverview,
+const meta: Meta<typeof HealthChecksPanel> = {
+    title: 'Experiments/HealthChecksPanel',
+    component: HealthChecksPanel,
     parameters: {
         layout: 'centered',
         mockDate: '2026-11-03 12:00:00',
@@ -75,7 +75,7 @@ const meta: Meta<typeof HealthChecksOverview> = {
 }
 export default meta
 
-type Story = StoryObj<typeof HealthChecksOverview>
+type Story = StoryObj<typeof HealthChecksPanel>
 
 export const Draft: Story = {
     args: {
@@ -115,100 +115,6 @@ const found = (key: HealthPanelCheck['key'], name: string): ExperimentHealthChec
     values: {},
     rule: null,
 })
-
-export const DraftWithEventsNotReceived: Story = {
-    args: {
-        checks: [
-            ...FLAG_SETUP_CHECKS,
-            skipped('no_metric', 'Metrics not set up', 'not_applicable', 'Runs after launch'),
-            found('metric_event_not_ingested', 'Metric events not received yet'),
-            found('exposure_criteria_cannot_match', "Exposure criteria that can't match"),
-        ],
-        findings: [
-            {
-                code: 'metric_event_not_ingested',
-                subcode: null,
-                reason: null,
-                severity: 'info',
-                title: "A metric uses an event this project hasn't received",
-                detail: 'The primary metric "Revenue" uses the event "purchase_completed", which this project hasn\'t received yet. Until it arrives, the metric can\'t compare the variants. Launch the experiment after your code starts sending it.',
-                evidence: {
-                    metric_1: 'Revenue',
-                    metric_1_role: 'primary',
-                    metric_1_events: 'purchase_completed',
-                },
-                actions: [],
-            },
-            {
-                code: 'exposure_criteria_cannot_match',
-                subcode: 'exposure_event_not_ingested',
-                reason: null,
-                severity: 'info',
-                title: "This project hasn't received the exposure event",
-                detail: 'The experiment counts users as exposed when they send the event "checkout_viewed", which this project hasn\'t received yet. Until it arrives, nobody is counted as exposed. Launch the experiment after your code starts sending it.',
-                evidence: { event: 'checkout_viewed' },
-                actions: ['edit_exposure_criteria'],
-            },
-        ],
-        isDraft: true,
-        exposureChecksMissing: false,
-    },
-}
-
-export const RunningWithSignificanceOnASmallSample: Story = {
-    args: {
-        checks: [
-            ...FLAG_SETUP_CHECKS,
-            passed('no_metric', 'Metrics not set up'),
-            found('early_significance', 'Significance on a small sample'),
-        ],
-        findings: [
-            {
-                code: 'early_significance',
-                subcode: 'below_detectable_effect',
-                reason: null,
-                severity: 'info',
-                title: 'Significant result on a small sample',
-                detail: 'The variant "test" shows a +20% difference on the metric "Checkout", which is significant. With 2,000 users so far, the experiment can reliably detect differences of about 38% or more, so this difference may shrink or go away as more users arrive. The running time estimate needs about 3,201 users to detect a 30% difference. Wait for that sample before you decide.',
-                evidence: {
-                    variant: 'test',
-                    observed_effect: 20,
-                    detectable_effect: 37.9,
-                    minimum_detectable_effect: 30,
-                    samples: 2000,
-                    planned_samples: 3201,
-                },
-                actions: [],
-            },
-        ],
-        isDraft: false,
-        exposureChecksMissing: false,
-    },
-}
-
-export const RunningWithMetricWindowsNotComplete: Story = {
-    args: {
-        checks: [
-            ...FLAG_SETUP_CHECKS,
-            passed('no_metric', 'Metrics not set up'),
-            found('metrics_not_matured', 'Metric windows not complete yet'),
-        ],
-        findings: [
-            {
-                code: 'metrics_not_matured',
-                subcode: null,
-                reason: null,
-                severity: 'info',
-                title: "No results yet because the metric windows aren't complete",
-                detail: 'The Exposures panel counts users without waiting for these windows. A metric counts a user only after its conversion or retention window has passed, so no primary metric has results yet. The first users can count for "Checkout" on October 5, 2026 at 2:00 PM CEST and for "Return visits" on October 15, 2026 at 2:00 PM CEST. To see results sooner, turn off "Require completed conversion or retention window" in the experiment\'s Settings tab. Users whose window is still open then count too.',
-                evidence: { hours_since_launch: 72, first_users_count_at: '2026-10-05T12:00:00+00:00' },
-                actions: [],
-            },
-        ],
-        isDraft: false,
-        exposureChecksMissing: false,
-    },
-}
 
 export const ChecksThatCouldNotRun: Story = {
     args: {
@@ -343,46 +249,18 @@ export const RunningWithAnIssue: Story = {
     },
 }
 
-export const NothingToFix: Story = {
-    args: {
-        checks: READ_CHECKS,
-        findings: [],
-        exposures: UNEVEN_SPLIT_EXPOSURES,
-        isDraft: false,
-        exposureChecksMissing: false,
+export const IssueDetails: Story = {
+    args: RunningWithAnIssue.args,
+    play: async ({ canvasElement }) => {
+        await userEvent.click(
+            await within(canvasElement).findByRole('button', { name: /The uneven split may bias the results/ })
+        )
     },
 }
 
 export const CheckDetailsWithWhatItRead: Story = {
-    args: NothingToFix.args,
-    play: async ({ canvasElement }) => {
-        await userEvent.click(
-            await within(canvasElement).findByRole('button', { name: /Split of users across variants/ })
-        )
-    },
-}
-
-export const CheckDetailsOfACheckThatDoesNotApply: Story = {
-    args: NothingToFix.args,
-    play: async ({ canvasElement }) => {
-        await userEvent.click(
-            await within(canvasElement).findByRole('button', { name: /Metric windows not complete yet/ })
-        )
-    },
-}
-
-export const CheckDetailsFromAnAnswerCachedBeforeTheValues: Story = {
     args: {
-        checks: [
-            ...FLAG_SETUP_CHECKS,
-            {
-                key: 'srm',
-                name: 'Split of users across variants',
-                description: description('srm'),
-                status: 'passed',
-                reason: null,
-            },
-        ],
+        checks: READ_CHECKS,
         findings: [],
         exposures: UNEVEN_SPLIT_EXPOSURES,
         isDraft: false,

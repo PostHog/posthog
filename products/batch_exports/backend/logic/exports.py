@@ -388,6 +388,15 @@ def validate_destination(
             raise contracts.InvalidBatchExportDestinationError(str(e))
 
     if destination_type == BatchExportDestinationType.POSTGRES:
+        # Sticky integration: an explicit `integration: null` would make the export fall back to
+        # any inline credentials still left in its config, and nothing records that switch.
+        # TODO: remove this guard once inline credentials are gone.
+        if instance is not None and instance.destination.integration is not None and kept_integration is None:
+            raise contracts.InvalidBatchExportDestinationError(
+                "Cannot remove the integration from a Postgres batch export that uses one. "
+                "Omit `integration` to keep it, or send a different one to swap."
+            )
+
         # New Postgres exports must use an Integration for credentials. Exports created before
         # integrations existed keep their inline credentials, so only require it on create
         # (`instance is None`); existing inline-credential exports stay valid when edited.

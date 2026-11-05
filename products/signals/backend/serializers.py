@@ -27,7 +27,7 @@ from posthog.models.integration import SUPPORTED_EXTERNAL_ISSUE_PROVIDERS
 
 from products.signals.backend import contracts
 from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH, STEERING_FIELDS
-from products.signals.backend.anomaly_scores.config import covers_team, parse_config, read_payload
+from products.signals.backend.anomaly_scores.config import enrolls_team, parse_config, read_payload
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
 from products.signals.backend.contracts import (
     ALERT_ALLOW_PATTERNS_KEY,
@@ -224,15 +224,17 @@ _SOURCE_CONFIG_HELP_TEXT = (
     "pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. "
     "The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) "
     "accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the "
-    "investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts "
-    "without the investigation agent. "
+    "investigation agent confirmed into signals, `all_firing_alerts` also includes alerts "
+    "without the investigation agent, and `off` turns no alerts into signals. Alert checks, "
+    "notifications, and investigations still run with `off`. "
     "It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to "
     f"{ALERT_PATTERNS_MAX_COUNT} regex patterns, max {ALERT_PATTERN_MAX_LENGTH} characters each). "
     "A pattern matches when it finds a match anywhere in the alert name or the insight name, and "
     "matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, "
     "an alert must match one of them. An alert that matches a block pattern is dropped, also when it "
     "matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no "
-    "backreferences. Both keys apply to either `alert_scope`. Other sources reject these keys."
+    "backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. "
+    "Other sources reject these keys."
 )
 
 
@@ -584,16 +586,17 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
     anomaly_scoring_enabled = serializers.BooleanField(
         required=False,
         help_text=(
-            "Whether anomaly scoring scores this project's active trends insights every hour and writes "
-            "the results as $anomaly_score events, which are not billed. True by default. Set false to "
-            "stop new scores; events written before stay. Turning it on does not enroll a project that "
-            "anomaly_scoring_available reports as not covered."
+            "Legacy off switch for anomaly scoring. The Product analytics source (analytics / "
+            "anomaly_investigation) now controls scoring: when that source is on, anomaly scoring scores "
+            "this project's active trends insights and writes the results as $anomaly_score events, which "
+            "are not billed. True by default. False still stops new scores; events written before stay. "
+            "Turning it on does not enroll a project that anomaly_scoring_available reports as not covered."
         ),
     )
     anomaly_scoring_available = serializers.SerializerMethodField(
         help_text=(
-            "Whether anomaly scoring covers this project, so anomaly_scoring_enabled has an effect. "
-            "PostHog decides which projects anomaly scoring covers."
+            "Whether the anomaly scoring rollout covers this project. PostHog decides which projects it "
+            "covers. A covered project is scored only while its Product analytics source is on."
         )
     )
     reports_generated_today = serializers.SerializerMethodField(
@@ -657,7 +660,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.BooleanField())
     def get_anomaly_scoring_available(self, obj: SignalTeamConfig) -> bool:
-        return covers_team(parse_config(read_payload()), obj.team)
+        return enrolls_team(parse_config(read_payload()), obj.team)
 
     @extend_schema_field(serializers.BooleanField())
     def get_daily_report_limit_reached(self, obj: SignalTeamConfig) -> bool:
