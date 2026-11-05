@@ -134,7 +134,8 @@ const PresignedPost = z.looseObject({ url: z.string(), fields: z.record(z.string
 type PresignedPost = z.output<typeof PresignedPost>
 
 const StartEntry = z.looseObject({
-    presigned_url: PresignedPost,
+    // Null when PostHog couldn't sign a POST, in which case it sends a PUT URL.
+    presigned_url: PresignedPost.nullish(),
     fallback_presigned_url: PresignedPost.nullish(),
     presigned_put_url: z.string().nullish(),
     fallback_presigned_put_url: z.string().nullish(),
@@ -388,9 +389,18 @@ export class SymbolSetClient {
     // Sends one container to object storage. A target falls back to its alternate endpoint after two
     // transport errors in a row on the primary, like posthog-cli's endpoint router.
     private async store(data: Uint8Array, entry: StartEntry): Promise<void> {
-        const primary: Target = entry.presigned_put_url
+        const primary: Target | undefined = entry.presigned_put_url
             ? { kind: 'put', url: entry.presigned_put_url }
-            : { kind: 'post', form: entry.presigned_url }
+            : entry.presigned_url
+              ? { kind: 'post', form: entry.presigned_url }
+              : undefined
+        if (primary === undefined) {
+            throw new HogError(
+                'unexpected_response',
+                `PostHog sent no upload URL for symbol set ${entry.symbol_set_id}.`,
+                'Run the upload again.'
+            )
+        }
         const fallbackUrl = entry.presigned_put_url ? entry.fallback_presigned_put_url : entry.fallback_presigned_url
         const fallback: Target | undefined = !fallbackUrl
             ? undefined
