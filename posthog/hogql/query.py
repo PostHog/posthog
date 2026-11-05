@@ -78,6 +78,7 @@ from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.printer.access_control import build_access_control_warning
 from posthog.hogql.resolver import Resolver, ResolverFactory, resolve_types
 from posthog.hogql.resolver_utils import extract_base_table_types, extract_lazy_table_types, extract_select_queries
+from posthog.hogql.team_first_prewhere import should_check_team_first_in_prewhere
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
 from posthog.hogql.variables import replace_variables
@@ -677,6 +678,11 @@ class HogQLQueryExecutor:
             return {}
         return types
 
+    def _checks_team_first_in_prewhere(self) -> bool | None:
+        if self.clickhouse_settings is None:
+            return None
+        return self.clickhouse_settings.move_primary_key_columns_to_end_of_prewhere is False or None
+
     def _column_formats(self) -> list[str | None] | None:
         if self.send_raw_query and self.connection_id is not None:
             return None
@@ -803,6 +809,8 @@ class HogQLQueryExecutor:
             settings.format_csv_allow_double_quotes = self.query_modifiers.formatCsvAllowDoubleQuotes
         if self.query_modifiers.forceClickhouseDataSkippingIndexes:
             settings.force_data_skipping_indices = self.query_modifiers.forceClickhouseDataSkippingIndexes
+        if should_check_team_first_in_prewhere(self.team):
+            settings.move_primary_key_columns_to_end_of_prewhere = False
 
         try:
             self.clickhouse_context = dataclasses.replace(
@@ -1033,6 +1041,7 @@ class HogQLQueryExecutor:
                 hogql_features=hogql_features,
                 **self.context.read_tags(),
                 plan_fingerprint=plan_fingerprint,
+                team_first_prewhere=self._checks_team_first_in_prewhere(),
                 timings=timings_dict,
                 modifiers=(
                     {k: v for k, v in self.modifiers.model_dump().items() if v is not None} if self.modifiers else {}

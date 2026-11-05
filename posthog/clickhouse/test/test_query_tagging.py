@@ -5,8 +5,10 @@ from types import SimpleNamespace
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 from pydantic import ValidationError
@@ -40,6 +42,7 @@ from posthog.clickhouse.query_tagging import (
     tags_context,
     update_tags,
 )
+from posthog.models.team.team_event_volume import TeamEventVolume
 
 
 def test_create_base_tags():
@@ -445,6 +448,40 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
         comment = self._get_log_comment(marker)
 
         assert comment["plan_fingerprint"] == fingerprint_query(parse_select(sql))
+
+    @parameterized.expand(
+        [
+            ("small_team", True, 99_999_999, True),
+            ("team_at_the_boundary", True, 100_000_000, False),
+            ("team_without_a_volume_row", True, None, False),
+            ("flag_off", False, 1, False),
+            ("flag_error", RuntimeError("flag service error"), 1, False),
+        ]
+    )
+    def test_execute_hogql_query_checks_team_first_only_for_small_flagged_teams(
+        self, _name: str, flag: bool | Exception, events_last_year: int | None, expected: bool
+    ) -> None:
+        if events_last_year is not None:
+            TeamEventVolume.objects.unscoped().create(
+                team=self.team, events_last_year=events_last_year, computed_at=timezone.now()
+            )
+        marker = str(uuid.uuid4())
+        reset_query_tags()
+        tag_queries(kind="request", id="test")
+        with (
+            patch("posthog.hogql.team_first_prewhere.feature_enabled_or_false", side_effect=[flag]),
+            patch("posthog.hogql.team_first_prewhere.capture_exception"),
+        ):
+            response = execute_hogql_query(
+                f"SELECT count() FROM events WHERE event = '{marker}'",  # noqa: S608
+                team=self.team,
+                query_type="HogQLQuery",
+            )
+
+        assert response.results == [(0,)]
+        assert response.clickhouse is not None
+        assert ("move_primary_key_columns_to_end_of_prewhere=0" in response.clickhouse) is expected
+        assert self._get_log_comment(marker).get("team_first_prewhere") is (True if expected else None)
 
     @parameterized.expand([("approved", True), ("not_approved", False)])
     def test_sync_execute_preserves_ai_data_processing_approved_tag(self, _name, approved):
