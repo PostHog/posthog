@@ -317,6 +317,28 @@ describe('oauthAuthorizeLogic', () => {
         expect(logic.values.allTeams).toEqual([])
     })
 
+    it('creates an organization inline and selects its new project for a team-level grant', async () => {
+        const newOrganization = { id: 'new-org', name: 'New org' }
+        const newTeam = { id: 501, organization: newOrganization.id, name: 'Default project' }
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, organization: null, organizations: [], team: null })
+        logic.actions.setRequiredAccessLevel('team')
+        useMocks({
+            get: {
+                '/api/users/@me/': { ...MOCK_DEFAULT_USER, organizations: [newOrganization], team: newTeam },
+                '/api/organizations/new-org/projects/': { results: [newTeam], next: null },
+            },
+            post: {
+                '/api/organizations/': newOrganization,
+            },
+        })
+
+        await expectLogic(logic, () => logic.actions.createNewOrganization('New org')).toFinishAllListeners()
+
+        expect(logic.values.selectedOrganization).toBe(newOrganization.id)
+        expect(logic.values.oauthAuthorization.scoped_teams).toEqual([newTeam.id])
+        expect(logic.values.newOrganizationLoading).toBe(false)
+    })
+
     const HINT_TEAMS = [
         { id: 11, organization: 'org-a', name: 'A project' },
         { id: 22, organization: 'org-b', name: 'B project' },

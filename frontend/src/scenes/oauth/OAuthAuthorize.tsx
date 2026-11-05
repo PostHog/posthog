@@ -17,7 +17,6 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { organizationLogic } from 'scenes/organizationLogic'
 import ScopeAccessSelector from 'scenes/settings/user/scopes/ScopeAccessSelector'
-import { urls } from 'scenes/urls'
 
 import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
 import { AvailableFeature } from '~/types'
@@ -93,7 +92,7 @@ const InlineCreateForm = ({
     placeholder: string
     loading: boolean
     onSubmit: (name: string) => void
-    onCancel: () => void
+    onCancel?: () => void
 }): JSX.Element => {
     const [name, setName] = useState('')
 
@@ -113,7 +112,7 @@ const InlineCreateForm = ({
                             onSubmit(name.trim())
                         }
                         if (e.key === 'Escape') {
-                            onCancel()
+                            onCancel?.()
                         }
                     }}
                     disabled={loading}
@@ -127,9 +126,11 @@ const InlineCreateForm = ({
                 >
                     Create
                 </LemonButton>
-                <LemonButton type="secondary" size="small" onClick={onCancel} disabled={loading}>
-                    Cancel
-                </LemonButton>
+                {onCancel && (
+                    <LemonButton type="secondary" size="small" onClick={onCancel} disabled={loading}>
+                        Cancel
+                    </LemonButton>
+                )}
             </div>
         </div>
     )
@@ -162,6 +163,7 @@ export const OAuthAuthorize = (): JSX.Element => {
         accessControlsApply,
         showCreateProject,
         newProjectLoading,
+        newOrganizationLoading,
         selectedOrganization,
         user,
     } = useValues(oauthAuthorizeLogic)
@@ -169,6 +171,7 @@ export const OAuthAuthorize = (): JSX.Element => {
         cancel,
         submitOauthAuthorization,
         createNewProject,
+        createNewOrganization,
         setShowCreateProject,
         setSelectedOrganization,
         setOauthAuthorizationValue,
@@ -273,16 +276,17 @@ export const OAuthAuthorize = (): JSX.Element => {
         return (
             <OAuthAuthorizeLayout>
                 <OAuthAuthorizeError
-                    title="Your account has no organization"
-                    description={`To authorize ${appName}, your account needs to belong to an organization. Create one, or ask an admin to invite you to theirs. Then connect ${appName} again.`}
+                    title="Create an organization to continue"
+                    description={`${appName} needs access to a PostHog organization, and your account doesn't belong to one yet. Create one here and PostHog adds a project to it. If your team already uses PostHog, ask an admin to invite you instead.`}
                     action={
-                        <LemonButton
-                            type="primary"
-                            to={urls.organizationCreateFirst()}
-                            data-attr="oauth-authorize-create-organization"
-                        >
-                            Create an organization
-                        </LemonButton>
+                        <div className="w-full text-left" data-attr="oauth-authorize-create-organization">
+                            <InlineCreateForm
+                                label="Organization name"
+                                placeholder="e.g. Acme"
+                                loading={newOrganizationLoading}
+                                onSubmit={createNewOrganization}
+                            />
+                        </div>
                     }
                 />
             </OAuthAuthorizeLayout>
