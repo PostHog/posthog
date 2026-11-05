@@ -380,7 +380,7 @@ class TestRunCohortQueryFallback(unittest.TestCase):
         )
 
     @patch("products.logs.backend.temporal.activities.increment_cohort_query_fallback")
-    @patch("products.logs.backend.temporal.activities.classify_alert_error")
+    @patch("products.logs.backend.temporal.activities.classify_check_error")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.logs.backend.temporal.activities._run_batched_query")
     def test_falls_back_to_per_alert_on_non_transient_failure(
@@ -420,7 +420,7 @@ class TestRunCohortQueryFallback(unittest.TestCase):
         assert bad.error is not None and "alert-1 also bad" in str(bad.error)
 
     @patch("products.logs.backend.temporal.activities.increment_cohort_query_fallback")
-    @patch("products.logs.backend.temporal.activities.classify_alert_error")
+    @patch("products.logs.backend.temporal.activities.classify_check_error")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.logs.backend.temporal.activities._run_batched_query")
     def test_skips_fallback_on_transient_error(
@@ -486,7 +486,7 @@ class TestRunCohortQueryFallback(unittest.TestCase):
             assert prefetched.query_duration_ms == 42
 
     @patch("products.logs.backend.temporal.activities.increment_cohort_query_fallback")
-    @patch("products.logs.backend.temporal.activities.classify_alert_error")
+    @patch("products.logs.backend.temporal.activities.classify_check_error")
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.logs.backend.temporal.activities._run_batched_query")
     def test_one_cohorts_failure_isolated_from_others(
@@ -560,7 +560,7 @@ class TestRunCohortQueryFallbackEndToEnd(ClickhouseTestMixin, APIBaseTest):
         )
 
     @time_machine.travel("2026-01-01T10:05:00Z", tick=False)
-    @patch("products.logs.backend.temporal.activities.classify_alert_error")
+    @patch("products.logs.backend.temporal.activities.classify_check_error")
     @patch("products.logs.backend.temporal.activities.increment_cohort_query_fallback")
     @patch("products.logs.backend.temporal.activities._run_batched_query")
     def test_fallback_runs_per_alert_queries_against_real_clickhouse(self, mock_batched, _mock_counter, mock_classify):
@@ -596,7 +596,7 @@ class TestRunCohortQueryFallbackEndToEnd(ClickhouseTestMixin, APIBaseTest):
         assert prefetch_b.query_duration_ms is not None and prefetch_b.query_duration_ms >= 0
 
     @time_machine.travel("2026-01-01T10:05:00Z", tick=False)
-    @patch("products.logs.backend.temporal.activities.classify_alert_error")
+    @patch("products.logs.backend.temporal.activities.classify_check_error")
     @patch("products.logs.backend.temporal.activities.increment_cohort_query_fallback")
     @patch("products.logs.backend.temporal.activities._run_batched_query")
     def test_fallback_isolates_one_alerts_per_alert_failure(self, mock_batched, _mock_counter, mock_classify):
@@ -1882,7 +1882,7 @@ class TestCohortManifest(unittest.TestCase):
 
         with (
             patch("products.logs.backend.temporal.activities.is_projection_eligible", return_value=True),
-            patch("products.logs.backend.temporal.activities.resolve_alert_date_to", return_value=now),
+            patch("products.logs.backend.temporal.activities.resolve_check_end", return_value=now),
         ):
             manifests = _cohort_manifests_from_alerts(rows, now=now, checkpoint=None)
 
@@ -1911,7 +1911,7 @@ class TestCohortManifest(unittest.TestCase):
 
         with (
             patch("products.logs.backend.temporal.activities.is_projection_eligible", return_value=True),
-            patch("products.logs.backend.temporal.activities.resolve_alert_date_to", return_value=now),
+            patch("products.logs.backend.temporal.activities.resolve_check_end", return_value=now),
             patch("products.logs.backend.temporal.activities.MAX_ALERT_COHORT_SIZE", 2),
         ):
             manifests = _cohort_manifests_from_alerts(rows, now=now, checkpoint=None)
@@ -1950,7 +1950,7 @@ class TestCohortManifest(unittest.TestCase):
         now = datetime(2026, 5, 5, 10, 0, tzinfo=UTC)
 
         with (
-            patch("products.logs.backend.temporal.activities.resolve_alert_date_to", return_value=now),
+            patch("products.logs.backend.temporal.activities.resolve_check_end", return_value=now),
             patch("products.logs.backend.temporal.activities._mark_alert_broken_for_bad_config") as mark_broken,
         ):
             manifests = _cohort_manifests_from_alerts(rows, now=now, checkpoint=None)
@@ -1987,7 +1987,7 @@ class TestCohortManifest(unittest.TestCase):
         ]
         now = datetime(2026, 5, 5, 10, 0, tzinfo=UTC)
 
-        with patch("products.logs.backend.temporal.activities.resolve_alert_date_to", return_value=now):
+        with patch("products.logs.backend.temporal.activities.resolve_check_end", return_value=now):
             manifests = _cohort_manifests_from_alerts(rows, now=now, checkpoint=None)
 
         all_alert_ids = [aid for m in manifests for aid in m.alert_ids]

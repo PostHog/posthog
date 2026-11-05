@@ -325,7 +325,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         assert still_due == omitted
 
     def test_two_scheduled_checks_clamped_to_one_window_keep_distinct_keys(self) -> None:
-        # `resolve_alert_date_to` clamps the window end to the ingestion checkpoint, so a
+        # `resolve_check_end` clamps the window end to the ingestion checkpoint, so a
         # checkpoint that has not moved gives two consecutive checks the same window. Keyed on the
         # window alone they read as one evaluation, and a reader deduplicating on the key drops
         # the second.

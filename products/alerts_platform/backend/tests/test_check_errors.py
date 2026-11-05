@@ -7,7 +7,7 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError, QueryErrorCategory
 
-from products.alerts_platform.backend.facade.check_errors import TRANSIENT_ERROR_CODES, classify
+from products.alerts_platform.backend.facade.check_errors import TRANSIENT_ERROR_CODES, classify_check_error
 
 
 def _with_category(category: QueryErrorCategory):
@@ -25,7 +25,7 @@ class TestClassifyAlertError(TestCase):
     )
     def test_category_maps_to_expected_code(self, category: QueryErrorCategory, expected_code: str) -> None:
         with _with_category(category):
-            result = classify(Exception("whatever"))
+            result = classify_check_error(Exception("whatever"))
 
         assert result.code == expected_code
         assert result.user_message, "user_message must never be empty"
@@ -35,7 +35,7 @@ class TestClassifyAlertError(TestCase):
         # so the remaining text is safe to surface verbatim.
         exc = ExposedCHQueryError("DB::Exception: Unknown identifier 'foo'\nStack trace: internal", code=47)
         with _with_category(QueryErrorCategory.USER_ERROR):
-            result = classify(exc)
+            result = classify_check_error(exc)
 
         assert result.code == "invalid_query"
         assert "DB::Exception" not in result.user_message
@@ -45,7 +45,7 @@ class TestClassifyAlertError(TestCase):
     def test_user_error_from_exposed_hogql_error_surfaces_its_message(self) -> None:
         exc = ExposedHogQLError("Alert filter has an invalid property")
         with _with_category(QueryErrorCategory.USER_ERROR):
-            result = classify(exc)
+            result = classify_check_error(exc)
 
         assert result.code == "invalid_query"
         assert result.user_message == "Alert filter has an invalid property"
@@ -59,7 +59,7 @@ class TestClassifyAlertError(TestCase):
             code=62,
         )
         with _with_category(QueryErrorCategory.USER_ERROR):
-            result = classify(exc)
+            result = classify_check_error(exc)
 
         assert result.code == "unknown"
         assert "DB::Exception" not in result.user_message
@@ -69,13 +69,13 @@ class TestClassifyAlertError(TestCase):
     def test_user_error_message_is_truncated(self) -> None:
         exc = ExposedCHQueryError("x" * 5000, code=47)
         with _with_category(QueryErrorCategory.USER_ERROR):
-            result = classify(exc)
+            result = classify_check_error(exc)
 
         assert len(result.user_message) == 500
 
     def test_unknown_message_mentions_posthog(self) -> None:
         with _with_category(QueryErrorCategory.ERROR):
-            result = classify(RuntimeError("something unexpected"))
+            result = classify_check_error(RuntimeError("something unexpected"))
 
         assert "PostHog" in result.user_message
 
@@ -91,13 +91,13 @@ class TestIsTransient(TestCase):
     )
     def test_is_transient_matches_transient_error_codes(self, category: QueryErrorCategory, expected: bool) -> None:
         with _with_category(category):
-            result = classify(Exception("whatever"))
+            result = classify_check_error(Exception("whatever"))
         assert result.is_transient is expected
 
     def test_is_transient_false_for_invalid_query(self) -> None:
         exc = ExposedCHQueryError("Unknown identifier", code=47)
         with _with_category(QueryErrorCategory.USER_ERROR):
-            result = classify(exc)
+            result = classify_check_error(exc)
         assert result.code == "invalid_query"
         assert result.is_transient is False
 
@@ -105,5 +105,5 @@ class TestIsTransient(TestCase):
         transient_categories = {QueryErrorCategory.RATE_LIMITED, QueryErrorCategory.CANCELLED, QueryErrorCategory.ERROR}
         for category in transient_categories:
             with _with_category(category):
-                result = classify(Exception("x"))
+                result = classify_check_error(Exception("x"))
             assert result.code in TRANSIENT_ERROR_CODES, f"{category} should map to a transient code"

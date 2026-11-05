@@ -37,7 +37,7 @@ _UNKNOWN = ClassifiedAlertError(
 )
 
 
-def classify(exc: Exception) -> ClassifiedAlertError:
+def classify_check_error(exc: Exception) -> ClassifiedAlertError:
     category = classify_query_error(exc)
 
     if category == QueryErrorCategory.RATE_LIMITED:

@@ -41,7 +41,7 @@ from products.alerts_platform.backend.facade.api import (
     refresh_settings,
     slot_of,
 )
-from products.alerts_platform.backend.facade.check_errors import classify as classify_alert_error
+from products.alerts_platform.backend.facade.check_errors import classify_check_error
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
@@ -91,7 +91,7 @@ from products.alerts_platform.backend.facade.platform_metrics import (
 )
 from products.alerts_platform.backend.facade.rolling_checks import (
     derive_breaches,
-    resolve_alert_date_to,
+    resolve_check_end,
     rolling_check_lookback_minutes,
 )
 from products.alerts_platform.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
@@ -217,7 +217,7 @@ def _broken_condition(check: PlatformAlertCheckInput) -> str | None:
 def _evaluation_key(check: PlatformAlertCheckInput, window_end: datetime) -> str:
     """Names the scheduled check, and the window it answered for.
 
-    The slot is in the key because `resolve_alert_date_to` clamps the window end to the ingestion
+    The slot is in the key because `resolve_check_end` clamps the window end to the ingestion
     checkpoint. Two consecutive scheduled checks reach the same window end whenever the checkpoint
     has not moved, and a key built from the window alone would make them one evaluation to any
     reader deduplicating on it.
@@ -260,7 +260,7 @@ def _cohort_key(check: PlatformAlertCheckInput, checkpoint: datetime | None, now
         shape.evaluation_periods,
         check.check_interval_minutes,
         shape.projection_eligible,
-        resolve_alert_date_to(check.next_check_at or now, checkpoint),
+        resolve_check_end(check.next_check_at or now, checkpoint),
     )
 
 
@@ -555,7 +555,7 @@ def _failed(check: PlatformAlertCheckInput, error: Exception, *, now: datetime, 
     every check stops being evaluated instead of failing forever. A transient error is classified
     as one so the policy can hold the counter.
     """
-    classified = classify_alert_error(error)
+    classified = classify_check_error(error)
     return _verdict(
         check,
         CheckInput(
@@ -799,7 +799,7 @@ def _evaluate_grouped(
     count and can resolve.
     """
     condition = LogsAlertCondition.of(check)
-    date_to = resolve_alert_date_to(check.next_check_at or now, checkpoint)
+    date_to = resolve_check_end(check.next_check_at or now, checkpoint)
     lookback = rolling_check_lookback_minutes(
         condition.window_minutes, check.check_interval_minutes, check.evaluation_periods
     )

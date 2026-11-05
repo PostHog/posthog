@@ -32,14 +32,11 @@ from products.alerts.backend.facade.destinations import (
     flush_alert_internal_events,
     produce_alert_internal_event,
 )
-from products.alerts_platform.backend.facade.check_errors import (
-    AlertErrorCode,
-    classify as classify_alert_error,
-)
+from products.alerts_platform.backend.facade.check_errors import AlertErrorCode, classify_check_error
 from products.alerts_platform.backend.facade.delivery_slo import alert_delivery_slo
 from products.alerts_platform.backend.facade.rolling_checks import (
     derive_breaches,
-    resolve_alert_date_to,
+    resolve_check_end,
     rolling_check_lookback_minutes,
 )
 from products.logs.backend.alert_check_query import (
@@ -551,7 +548,7 @@ def _cohort_manifests_from_alerts(
                 _mark_alert_broken_for_bad_config(str(row["id"]), broken_reason)
                 continue
             nca = row["next_check_at"] if row["next_check_at"] is not None else now
-            date_to = resolve_alert_date_to(nca, checkpoint)
+            date_to = resolve_check_end(nca, checkpoint)
             projection_eligible = is_projection_eligible(row["filters"])
             key = (
                 row["team_id"],
@@ -954,7 +951,7 @@ def _run_cohort_query(cohort: _AlertCohort) -> _CohortQueryResult:
 
         alert_ids = [str(a.id) for a in cohort.alerts]
 
-        classified = classify_alert_error(e)
+        classified = classify_check_error(e)
         if classified.is_transient:
             logger.warning(
                 "Batched cohort query failed (transient); skipping per-alert fallback",
@@ -1467,7 +1464,7 @@ def _evaluate_single_alert(
     original_next_check_at = alert.next_check_at
 
     nca = alert.next_check_at if alert.next_check_at is not None else now
-    date_to = resolve_alert_date_to(nca, checkpoint)
+    date_to = resolve_check_end(nca, checkpoint)
     date_from = date_to - timedelta(
         minutes=rolling_check_lookback_minutes(
             alert.window_minutes, alert.check_interval_minutes, alert.evaluation_periods
@@ -1509,7 +1506,7 @@ def _evaluate_single_alert(
         )
         recent_breaches = breaches[1:]
     except Exception as e:
-        classified = classify_alert_error(e)
+        classified = classify_check_error(e)
         error_category = classified.code
         capture_exception(e, {"alert_id": str(alert.id), "classification": classified.code})
         logger.warning(

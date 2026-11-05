@@ -28,6 +28,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 
+from products.alerts_platform.backend.facade.rolling_checks import rolling_check_ranges
 from products.logs.backend.alert_group_columns import GROUP_COLUMNS
 from products.logs.backend.alert_utils import MAX_BYTES_TO_READ
 from products.logs.backend.logs_query_runner import LIVE_LOGS_CHECKPOINT_QUERY, LogsFilterBuilder
@@ -94,21 +95,6 @@ def _period_ranges(
         )
         for i in range(period_count)
     ]
-
-
-def _rolling_check_ranges(
-    nca: dt.datetime,
-    window_minutes: int,
-    cadence_minutes: int,
-    period_count: int,
-) -> list[tuple[dt.datetime, dt.datetime]]:
-    """M cadence-stepped rolling windows ending at NCA, oldest-first."""
-    ranges: list[tuple[dt.datetime, dt.datetime]] = []
-    for k in range(period_count - 1, -1, -1):
-        end = nca - dt.timedelta(minutes=k * cadence_minutes)
-        start = end - dt.timedelta(minutes=window_minutes)
-        ranges.append((start, end))
-    return ranges
 
 
 def _timestamp_in_range(start: dt.datetime, end: dt.datetime) -> ast.Expr:
@@ -337,7 +323,7 @@ class AlertCheckQuery:
     ) -> list[BucketedCount]:
         """Per-check counts for M cadence-stepped rolling windows ending at NCA, oldest-first."""
         self._tag()
-        ranges = _rolling_check_ranges(nca, window_minutes, cadence_minutes, period_count)
+        ranges = rolling_check_ranges(nca, window_minutes, cadence_minutes, period_count)
         return self._execute_count_per_range(ranges)
 
     def _execute_count_per_range(self, ranges: list[tuple[dt.datetime, dt.datetime]]) -> list[BucketedCount]:
@@ -504,7 +490,7 @@ class BatchedAlertCheckQuery:
     ) -> BatchedBucketedResult:
         """Per-alert per-check counts for M cadence-stepped rolling windows ending at NCA."""
         self._tag()
-        ranges = _rolling_check_ranges(nca, window_minutes, cadence_minutes, period_count)
+        ranges = rolling_check_ranges(nca, window_minutes, cadence_minutes, period_count)
         return self._execute_count_per_range(ranges)
 
     def _execute_count_per_range(self, ranges: list[tuple[dt.datetime, dt.datetime]]) -> BatchedBucketedResult:
@@ -661,7 +647,7 @@ class GroupedAlertCheckQuery:
         self, nca: dt.datetime, window_minutes: int, cadence_minutes: int, period_count: int
     ) -> GroupedRollingResult:
         _tag_alert_query(team=self.team, alert_config_id=str(self.alert.id), source="logs_alert_grouped")
-        ranges = _rolling_check_ranges(nca, window_minutes, cadence_minutes, period_count)
+        ranges = rolling_check_ranges(nca, window_minutes, cadence_minutes, period_count)
         query = self._build_query(ranges)
 
         start_ms = time.monotonic_ns() // 1_000_000
