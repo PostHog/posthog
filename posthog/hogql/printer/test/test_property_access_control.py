@@ -9,7 +9,6 @@ from parameterized import parameterized
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WebBouncesDimensionalPreAggregatedTable,
     WebStatsDimensionalPreAggregatedTable,
@@ -26,8 +25,20 @@ from posthog.models.event.util import create_event
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
 
-# Columns that hold no event or session data. Plain `DatabaseField`s are the aggregate states.
-_WEB_DIMENSIONAL_UNMIRRORED_COLUMNS = frozenset({"period_bucket", "team_id", "job_id"})
+# Columns that hold no event or session property value: keys and aggregate states.
+_WEB_DIMENSIONAL_UNMIRRORED_COLUMNS = frozenset(
+    {
+        "period_bucket",
+        "team_id",
+        "job_id",
+        "persons_uniq_state",
+        "pageviews_count_state",
+        "sessions_uniq_state",
+        "bounces_count_state",
+        "total_session_duration_state",
+        "total_session_count_state",
+    }
+)
 
 
 class TestWebDimensionalMirrorCoverage(SimpleTestCase):
@@ -38,11 +49,7 @@ class TestWebDimensionalMirrorCoverage(SimpleTestCase):
         ]
     )
     def test_every_dimension_column_is_mapped_or_listed_safe(self, _name: str, table_class: type) -> None:
-        dimension_columns = {
-            name
-            for name, field in table_class().fields.items()
-            if type(field) is not DatabaseField and name not in _WEB_DIMENSIONAL_UNMIRRORED_COLUMNS
-        }
+        dimension_columns = table_class().fields.keys() - _WEB_DIMENSIONAL_UNMIRRORED_COLUMNS
 
         assert dimension_columns - WEB_DIMENSIONAL_MIRRORED_COLUMNS.keys() == set()
 
