@@ -54,7 +54,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_github_login_to_users,
     resolve_org_users_by_uuid,
 )
-from products.signals.backend.report_urls import ReportLinkSource, build_report_url
+from products.signals.backend.report_urls import ReportLinkAction, ReportLinkSource, build_report_url
 from products.signals.backend.scout_authorship import report_is_hidden_from_inbox
 from products.signals.backend.slack_formatting import (
     first_sentence as _first_sentence,
@@ -154,22 +154,27 @@ def _latest_priority(report: SignalReport) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def _latest_actionability(report: SignalReport) -> str | None:
+def _latest_actionability_judgment(report: SignalReport) -> dict:
     art = (
         report.artefacts.filter(type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT)
         .order_by("-created_at")
         .first()
     )
     if art is None:
-        return None
+        return {}
     try:
         data = json.loads(art.content)
     except (json.JSONDecodeError, TypeError, ValueError):
-        return None
-    if not isinstance(data, dict):
-        return None
-    value = data.get("actionability")
-    return value if isinstance(value, str) else None
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _offers_implementation(judgment: dict) -> bool:
+    """Whether the message offers Implement: the research says the fix is ready and nobody has started it."""
+    return (
+        judgment.get("actionability") == ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value
+        and judgment.get("already_addressed") is not True
+    )
 
 
 def resolve_org_suggested_reviewer_user_ids(*, team_id: int, report_ids: Collection[str]) -> dict[str, set[int]]:
@@ -368,6 +373,7 @@ def _build_message_blocks(
     reviewer_mentions: list[str],
     use_section_blocks: bool = False,
     priority: str | None = None,
+    offer_implementation: bool = False,
 ) -> tuple[list[dict], str]:
     title_line = _display_title(report.title)
     header_text = (
@@ -412,13 +418,24 @@ def _build_message_blocks(
     if context_parts:
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": " · ".join(context_parts)}]})
 
-    action_elements: list[dict] = [
+    action_elements: list[dict] = []
+    # A link, not an interactive button: the inbox runs its own access, quota and repository checks.
+    if offer_implementation:
+        action_elements.append(
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Implement", "emoji": True},
+                "style": "primary",
+                "url": build_report_url(report.team_id, report.id, ReportLinkSource.SLACK, ReportLinkAction.IMPLEMENT),
+            }
+        )
+    action_elements.append(
         {
             "type": "button",
             "text": {"type": "plain_text", "text": "Review in PostHog", "emoji": True},
             "url": build_report_url(report.team_id, report.id, ReportLinkSource.SLACK),
         }
-    ]
+    )
     blocks.append({"type": "actions", "elements": action_elements})
 
     return blocks, _escape_mrkdwn(title_line)
@@ -547,6 +564,7 @@ def _deliver_route_notification(
     *,
     trigger: str,
     priority: str | None,
+    offer_implementation: bool,
 ) -> bool:
     """Post one report notification to a route's destination.
 
@@ -576,6 +594,7 @@ def _deliver_route_notification(
             reviewer_mentions=mentions,
             use_section_blocks=organization_inbox_slack_section_blocks_enabled(report.team.organization_id),
             priority=priority,
+            offer_implementation=offer_implementation,
         )
         # Added here rather than inside the block builder, which stays free of the integration so it
         # can be tested without one. Approval is read now, not assumed from generation time: a
@@ -613,11 +632,14 @@ def _deliver_to_routes(
     *,
     trigger: str,
     priority: str | None,
+    offer_implementation: bool,
 ) -> int:
     """Post the report to every route, returning how many top-level messages were sent."""
     sent = 0
     for route in routes:
-        if _deliver_route_notification(report, route, trigger=trigger, priority=priority):
+        if _deliver_route_notification(
+            report, route, trigger=trigger, priority=priority, offer_implementation=offer_implementation
+        ):
             sent += 1
     return sent
 
@@ -684,7 +706,8 @@ def dispatch_inbox_item_notifications(report_id: str, team_id: int) -> int:
     # Mirror the inbox Reports tab: notify only for actionable reports (READY is enforced upstream
     # in the notification activity). Priority is read below for min-priority routing, but
     # it's optional now — an actionable report notifies even without a priority.
-    if _latest_actionability(report) not in _ACTIONABLE_VALUES:
+    actionability = _latest_actionability_judgment(report)
+    if actionability.get("actionability") not in _ACTIONABLE_VALUES:
         logger.info(
             "dispatch_inbox_item_notifications: report not actionable, skipping",
             extra={"report_id": report_id, "team_id": team_id},
@@ -717,7 +740,13 @@ def dispatch_inbox_item_notifications(report_id: str, team_id: int) -> int:
         )
         return 0
 
-    sent = _deliver_to_routes(report, routes, trigger="report_ready", priority=priority)
+    sent = _deliver_to_routes(
+        report,
+        routes,
+        trigger="report_ready",
+        priority=priority,
+        offer_implementation=_offers_implementation(actionability),
+    )
     logger.info(
         "dispatch_inbox_item_notifications: complete",
         extra={"report_id": report_id, "team_id": team_id, "messages_sent": sent, "routes": len(routes)},
@@ -815,7 +844,8 @@ def dispatch_reviewer_added_notifications(
     # Mirror the initial notification's gate: only reports actually surfaced in the inbox
     # (READY and actionable) notify. Status is checked here because — unlike the generation
     # pipeline — this path has no upstream READY guarantee.
-    if report.status != SignalReport.Status.READY or _latest_actionability(report) not in _ACTIONABLE_VALUES:
+    actionability = _latest_actionability_judgment(report)
+    if report.status != SignalReport.Status.READY or actionability.get("actionability") not in _ACTIONABLE_VALUES:
         return 0
 
     user_ids = _resolve_added_reviewer_user_ids(
@@ -829,7 +859,13 @@ def dispatch_reviewer_added_notifications(
     if not routes:
         return 0
 
-    sent = _deliver_to_routes(report, routes, trigger="reviewer_added", priority=priority)
+    sent = _deliver_to_routes(
+        report,
+        routes,
+        trigger="reviewer_added",
+        priority=priority,
+        offer_implementation=_offers_implementation(actionability),
+    )
     logger.info(
         "dispatch_reviewer_added_notifications: complete",
         extra={"report_id": report_id, "team_id": team_id, "messages_sent": sent, "routes": len(routes)},

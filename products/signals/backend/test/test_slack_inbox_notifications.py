@@ -30,6 +30,7 @@ from products.signals.backend.report_generation.research import ActionabilityCho
 from products.signals.backend.slack_inbox_notifications import (
     _build_message_blocks,
     _meets_min_priority,
+    _offers_implementation,
     _resolve_reviewer_mentions,
     _summary_excerpt,
     dispatch_inbox_item_notifications,
@@ -63,6 +64,20 @@ from products.signals.backend.tasks import send_reviewer_added_slack_notificatio
 )
 def test_meets_min_priority(report_priority: str | None, min_priority: str | None, expected: bool) -> None:
     assert _meets_min_priority(report_priority, min_priority) is expected
+
+
+@pytest.mark.parametrize(
+    ("judgment", "expected"),
+    [
+        ({"actionability": ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value}, True),
+        ({"actionability": ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value, "already_addressed": False}, True),
+        ({"actionability": ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value, "already_addressed": True}, False),
+        ({"actionability": ActionabilityChoice.REQUIRES_HUMAN_INPUT.value}, False),
+        ({}, False),
+    ],
+)
+def test_offers_implementation_only_for_unstarted_ready_fixes(judgment: dict, expected: bool) -> None:
+    assert _offers_implementation(judgment) is expected
 
 
 @pytest.mark.parametrize(
@@ -121,7 +136,11 @@ def test_build_message_blocks_includes_recipient_and_open_in_posthog_button(use_
         signal_count=12,
     )
     blocks, text = _build_message_blocks(
-        report, reviewer_mentions=["<@U123>"], use_section_blocks=use_section_blocks, priority=AutonomyPriority.P1
+        report,
+        reviewer_mentions=["<@U123>"],
+        use_section_blocks=use_section_blocks,
+        priority=AutonomyPriority.P1,
+        offer_implementation=True,
     )
 
     assert blocks[0]["text"]["text"] == "Checkout errors spiked"
@@ -144,10 +163,11 @@ def test_build_message_blocks_includes_recipient_and_open_in_posthog_button(use_
     # A mention in plain_text would render as the raw token, never pinging anyone.
     assert all("<@" not in t for t in _plain_text_block_texts(blocks))
     assert blocks[2]["elements"][0]["text"] == "🟠 *P1* · 👤 Suggested owner: <@U123>"
-    buttons = blocks[3]["elements"]
-    assert len(buttons) == 1
-    assert buttons[0]["text"]["text"] == "Review in PostHog"
-    assert buttons[0]["url"] == f"{settings.SITE_URL}/project/42/inbox/reports/report-uuid?link_source=slack"
+    report_url = f"{settings.SITE_URL}/project/42/inbox/reports/report-uuid?link_source=slack"
+    assert [(button["text"]["text"], button.get("style"), button["url"]) for button in blocks[3]["elements"]] == [
+        ("Implement", "primary", f"{report_url}&link_action=implement"),
+        ("Review in PostHog", None, report_url),
+    ]
     assert text == "Checkout errors spiked"
 
 
@@ -428,9 +448,8 @@ def test_dispatch_sends_to_configured_reviewer(
         assert not any("Suggested owner" in text for text in context_texts)
     assert all("<@" not in t for t in _plain_text_block_texts(blocks))
     actions = next(block for block in blocks if block["type"] == "actions")
-    assert actions["elements"][0]["url"] == (
-        f"{settings.SITE_URL}/project/{team.id}/inbox/reports/{report.id}?link_source=slack"
-    )
+    report_url = f"{settings.SITE_URL}/project/{team.id}/inbox/reports/{report.id}?link_source=slack"
+    assert [element["url"] for element in actions["elements"]] == [f"{report_url}&link_action=implement", report_url]
 
 
 @pytest.mark.django_db
