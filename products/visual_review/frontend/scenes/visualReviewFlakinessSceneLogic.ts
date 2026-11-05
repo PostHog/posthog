@@ -234,10 +234,10 @@ export interface visualReviewFlakinessSceneLogicActions {
         errorObject?: any
     }
     loadOverviewSuccess: (
-        overview: FlakinessOverviewApi,
+        overview: FlakinessOverviewApi | null,
         payload?: any
     ) => {
-        overview: FlakinessOverviewApi
+        overview: FlakinessOverviewApi | null
         payload?: any
     }
     quarantineIdentifier: (

@@ -202,10 +202,10 @@ export interface visualReviewSnapshotOverviewSceneLogicActions {
         errorObject?: any
     }
     loadOverviewSuccess: (
-        overview: BaselineOverviewApi,
+        overview: BaselineOverviewApi | null,
         payload?: any
     ) => {
-        overview: BaselineOverviewApi
+        overview: BaselineOverviewApi | null
         payload?: any
     }
     setOverviewRepoId: (repoId: string) => {
