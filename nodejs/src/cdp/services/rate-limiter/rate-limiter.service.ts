@@ -464,6 +464,7 @@ export class RateLimiterService {
         const endTimer = claimLatency.startTimer({ limiter: this.config.name })
         const claimId = randomUUID()
         const issuedAt = Date.now()
+        const shortestTtlMs = Math.min(...buckets.map((bucket) => (bucket.ttlSeconds ?? 3600) * 1000))
         try {
             const result = await this.valkey.useClient(
                 { name: `rate-limiter:${this.config.name}:claimAllOrNothing`, timeout: 1000 },
@@ -487,7 +488,7 @@ export class RateLimiterService {
                 return {
                     granted: true,
                     claimId,
-                    returnBy: issuedAt + RETURN_WINDOW_MS,
+                    returnBy: issuedAt + Math.min(RETURN_WINDOW_MS, shortestTtlMs - CLAIM_ACCEPT_WINDOW_MS),
                     buckets: buckets.map(({ key, requested }) => ({ key, requested })),
                 }
             }
