@@ -24,7 +24,8 @@ The settings page flags these as inclusive filters, but they are allowed, becaus
 For example, to hide your own team, add `email does not contain @example.com`.
 Adding `email contains @example.com` instead shows nothing but your team.
 
-Three kinds of entry are supported:
+The filter picker supports event properties, person properties, feature flags, group properties, cohorts, and elements.
+Common choices include:
 
 | Kind            | Example                                 | Notes                                                           |
 | --------------- | --------------------------------------- | --------------------------------------------------------------- |
@@ -50,13 +51,16 @@ There are three controls, and they do different things.
 
 ### On a single insight
 
-Every insight has a **Filter out internal and test users** toggle in its filter panel.
+In a product analytics insight, use the **Filter out internal and test users** toggle in the filter panel.
 This is the setting the other two controls write to.
 
 ### As the default for new insights
 
-**Enable this filter on all new insights** in project settings sets the starting value for insights created from then on.
-It does not change insights that already exist.
+**Enable this filter on all new insights** in project settings sets the project default.
+It doesn't change existing insights.
+
+Changing an insight's toggle also saves your choice in this browser.
+That choice overrides the project default for new insights.
 
 ### On the insights you already have
 
