@@ -2982,56 +2982,38 @@ describe('LogsIngestionConsumer', () => {
             )
         })
 
+        const internalLogsConfig = {
+            LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: '*',
+            LOGS_INTERNAL_INGESTION_SIGNING_KEYS: 'internal-logs-test-key',
+        }
+
         it.each([
-            { name: 'verifies', signingKey: 'internal-logs-test-key' },
-            { name: 'fails to verify', signingKey: 'rotated-away-key' },
-        ])('does not run transformations on internal logs whose header $name', async ({ signingKey }) => {
+            { name: 'the team is not in the allowlist', config: { LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '' } },
+            {
+                name: 'the killswitch is on',
+                config: { LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '*', LOGS_TRANSFORMATIONS_KILLSWITCH: true },
+            },
+            {
+                name: 'the internal logs header verifies',
+                config: { LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '*', ...internalLogsConfig },
+                signingKey: 'internal-logs-test-key',
+            },
+            {
+                name: 'the internal logs header fails to verify',
+                config: { LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '*', ...internalLogsConfig },
+                signingKey: 'rotated-away-key',
+            },
+        ])('does not run transformations when $name', async ({ config, signingKey }) => {
             const logsTransformer = await buildTransformer(`return null`)
-            transformerConsumer = await createLogsIngestionConsumer(
-                hub,
-                {
-                    LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '*',
-                    LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: String(team.id),
-                    LOGS_INTERNAL_INGESTION_SIGNING_KEYS: 'internal-logs-test-key',
-                },
-                { logsTransformer }
-            )
+            transformerConsumer = await createLogsIngestionConsumer(hub, config, { logsTransformer })
 
             const [message] = await createKafkaMessages([createLogMessage()], { token: team.api_token })
-            message.headers!.push(
-                internalLogsHeaders(signInternalLogs(signingKey, 'hog_function', team.id, new Date(Date.now())))
-            )
+            if (signingKey) {
+                message.headers!.push(
+                    internalLogsHeaders(signInternalLogs(signingKey, 'hog_function', team.id, new Date(Date.now())))
+                )
+            }
             await waitForBackgroundTasks(transformerConsumer.processKafkaBatch([message]))
-
-            const logsMessages = getProducedKafkaMessages().filter((m) => m.topic === 'clickhouse_logs_test')
-            expect(logsMessages).toHaveLength(1)
-        })
-
-        it('does not run transformations when the team is not in the allowlist', async () => {
-            const logsTransformer = await buildTransformer(`return null`)
-            transformerConsumer = await createLogsIngestionConsumer(
-                hub,
-                { LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '' },
-                { logsTransformer }
-            )
-
-            const messages = await createKafkaMessages([createLogMessage()], { token: team.api_token })
-            await waitForBackgroundTasks(transformerConsumer.processKafkaBatch(messages))
-
-            const logsMessages = getProducedKafkaMessages().filter((m) => m.topic === 'clickhouse_logs_test')
-            expect(logsMessages).toHaveLength(1)
-        })
-
-        it('does not run transformations when the killswitch is on', async () => {
-            const logsTransformer = await buildTransformer(`return null`)
-            transformerConsumer = await createLogsIngestionConsumer(
-                hub,
-                { LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '*', LOGS_TRANSFORMATIONS_KILLSWITCH: true },
-                { logsTransformer }
-            )
-
-            const messages = await createKafkaMessages([createLogMessage()], { token: team.api_token })
-            await waitForBackgroundTasks(transformerConsumer.processKafkaBatch(messages))
 
             const logsMessages = getProducedKafkaMessages().filter((m) => m.topic === 'clickhouse_logs_test')
             expect(logsMessages).toHaveLength(1)

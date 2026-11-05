@@ -196,17 +196,21 @@ describe('LogsIngestionFrameworkConsumer', () => {
         }
         consumer = withoutKafka(
             new LogsIngestionFrameworkConsumer(
-                { ...hub, LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '*' },
+                {
+                    ...hub,
+                    LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '*',
+                    LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: '*',
+                    LOGS_INTERNAL_INGESTION_SIGNING_KEYS: 'current-key',
+                },
                 { ...consumerDeps(), logsTransformer }
             )
         )
         await consumer.start()
 
-        // No signing keys are configured, so the header fails to verify.
         await processAndWait(
             await createKafkaMessages(1, {
                 token: team.api_token,
-                [INTERNAL_LOGS_HEADER]: signInternalLogs('some-key', 'hog_function', team.id),
+                [INTERNAL_LOGS_HEADER]: signInternalLogs('rotated-away-key', 'hog_function', team.id),
             })
         )
 

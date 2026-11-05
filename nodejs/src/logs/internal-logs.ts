@@ -28,7 +28,7 @@ const SIGNATURE_WINDOW_SECONDS = 5 * 60
 export type InternalSourcePolicy = {
     /** Counts toward the team's logs usage, quota and rate limits. */
     billed: boolean
-    /** Runs the team's sampling, drop, transformation, metric and retention rules. */
+    /** Runs the team's sampling, drop, metric and retention rules. Transformations never run on internal logs. */
     teamRules: boolean
     /** The `service.name` a producer stamps on this source's logs. */
     serviceName: string
@@ -158,7 +158,7 @@ export class InternalLogsVerifier {
     }
 }
 
-/** Transformations write logs that come back here, so internal logs never run them, even when the header fails to verify. */
+/** Transformation logs return to logs ingestion as internal logs, so any batch with the header skips transformations, verified or not. */
 export function runsTransformations(message: LogsIngestionMessage): boolean {
-    return !message.sentAsInternalLogs && (message.verifiedAsInternalLogs?.teamRules ?? true)
+    return !message.sentAsInternalLogs
 }

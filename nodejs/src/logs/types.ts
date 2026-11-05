@@ -15,6 +15,6 @@ export type LogsIngestionMessage = {
     minTimestampMicros?: number
     backfillRequested?: boolean
     /** The posthog-internal header was present, whether or not it verified. */
-    sentAsInternalLogs?: boolean
+    sentAsInternalLogs: boolean
     verifiedAsInternalLogs?: InternalLogs
 }
