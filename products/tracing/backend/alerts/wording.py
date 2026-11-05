@@ -6,7 +6,7 @@ transition: the group's labels are its service and operation.
 Imported from `ready()`, so it stays light: no models, no query layer.
 """
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any, Final
 from uuid import UUID
 
@@ -18,9 +18,15 @@ from products.alerts_platform.backend.facade.contracts import (
     MessageLink,
     SourceDescription,
 )
+from products.tracing.backend.alerts.group_columns import GROUP_COLUMNS
 
-GROUP_LABELS: Final[dict[str, str]] = {"service_name": "Service", "name": "Operation"}
-_COUNT_MEASURES: Final[dict[str, str]] = {"request_count": "Requests", "error_count": "Errors"}
+# Each measure's name, and how a value in its unit reads: a count, a share, or milliseconds.
+_MEASURES: Final[dict[str, tuple[str, Callable[[float], str]]]] = {
+    "request_count": ("Requests", lambda value: f"{value:g}"),
+    "error_count": ("Errors", lambda value: f"{value:g}"),
+    "error_rate": ("Error rate", lambda value: f"{value * 100:g}%"),
+    "latency": ("latency", lambda value: f"{value:g} ms"),
+}
 
 
 def tracing_url(team_id: int) -> str:
@@ -34,21 +40,13 @@ def alert_url(team_id: int, _configuration_id: UUID) -> str:
 
 def measure_label(condition: Mapping[str, Any]) -> str:
     measure = str(condition.get("measure", ""))
-    if measure == "latency":
-        return f"p{condition.get('percentile')} latency"
-    if measure == "error_rate":
-        return "Error rate"
-    return _COUNT_MEASURES.get(measure, measure)
+    label = _MEASURES[measure][0] if measure in _MEASURES else measure
+    return f"p{condition.get('percentile')} {label}" if measure == "latency" else label
 
 
 def format_measured(condition: Mapping[str, Any], value: float) -> str:
-    """A value in the measure's own unit: milliseconds, a percentage, or a count."""
-    measure = condition.get("measure")
-    if measure == "latency":
-        return f"{value:g} ms"
-    if measure == "error_rate":
-        return f"{value * 100:g}%"
-    return f"{value:g}"
+    measure = str(condition.get("measure", ""))
+    return _MEASURES[measure][1](value) if measure in _MEASURES else f"{value:g}"
 
 
 def describe_transition(*, project_id: int, transition: AnnouncedTransition) -> SourceDescription:
@@ -65,7 +63,7 @@ def describe_transition(*, project_id: int, transition: AnnouncedTransition) -> 
         )
     if "window_minutes" in condition:
         details.append(MessageDetail(label="Window", value=f"{condition['window_minutes']} minutes"))
-    context = tuple(f"{GROUP_LABELS.get(key, key)}: {value}" for key, value in sorted(transition.labels.items()))
+    context = tuple(f"{GROUP_COLUMNS.get(key, key)}: {value}" for key, value in sorted(transition.labels.items()))
     return SourceDescription(
         details=tuple(details),
         context=context,

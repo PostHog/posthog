@@ -67,15 +67,16 @@ class TestTracesAlertCreate(APIBaseTest):
         [
             ("unknown_key", {"serviceNames": ["checkout"]}, _P95_ABOVE, ["status_code"]),
             ("below", {"serviceNames": ["checkout"]}, {**_P95_ABOVE, "threshold_operator": "below"}, ["service_name"]),
-            ("operation_without_a_service", {}, _P95_ABOVE, ["name"]),
+            ("operation_without_a_service", None, _P95_ABOVE, ["name"]),
         ]
     )
     def test_a_grouping_the_check_cannot_evaluate_is_refused(
-        self, _name: str, filters: dict[str, Any], condition: dict[str, Any], keys: list[str]
+        self, _name: str, filters: dict[str, Any] | None, condition: dict[str, Any], keys: list[str]
     ) -> None:
-        response = self._create(
-            {"filters": filters, "condition": condition}, grouping={"mode": "by_result_labels", "keys": keys}
-        )
+        source_config: dict[str, Any] = {"condition": condition}
+        if filters is not None:
+            source_config["filters"] = filters
+        response = self._create(source_config, grouping={"mode": "by_result_labels", "keys": keys})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "grouping"

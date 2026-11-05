@@ -20,7 +20,8 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceConfigSpec,
 )
 from products.tracing.backend.alerts.destinations import EVENT_IDS_BY_INCIDENT_ACTION
-from products.tracing.backend.alerts.wording import GROUP_LABELS, alert_url
+from products.tracing.backend.alerts.group_columns import GROUP_COLUMNS
+from products.tracing.backend.alerts.wording import alert_url
 
 CHECK_INTERVAL_MINUTES: Final = 1
 
@@ -79,10 +80,10 @@ class TracesPlatformAlertConfig(BaseModel):
 def validate_traces_edit(edit: PlatformAlertConfigurationEdit) -> None:
     if edit.grouping.mode == GroupingMode.SINGLE:
         return
-    if unknown := set(edit.grouping.keys) - GROUP_LABELS.keys():
+    if unknown := set(edit.grouping.keys) - GROUP_COLUMNS.keys():
         raise InvalidPlatformAlertEdit(
             "grouping",
-            f"A traces alert can only group by {', '.join(sorted(GROUP_LABELS))}, not {', '.join(sorted(unknown))}.",
+            f"A traces alert can only group by {', '.join(sorted(GROUP_COLUMNS))}, not {', '.join(sorted(unknown))}.",
         )
     # A group with no requests returns no row, so a service gone silent, the case a `below` alert
     # exists for, is never seen unless it was already open.
@@ -90,7 +91,7 @@ def validate_traces_edit(edit: PlatformAlertConfigurationEdit) -> None:
         raise InvalidPlatformAlertEdit("grouping", "A grouped traces alert can only alert above a threshold.")
     # Operation names are often unbounded (a route with ids in it), so a project-wide split by
     # operation overflows `max_instances` and holds a quantile state per operation in memory.
-    if "name" in edit.grouping.keys and not edit.source_config["filters"].get("serviceNames"):
+    if "name" in edit.grouping.keys and not edit.source_config.get("filters", {}).get("serviceNames"):
         raise InvalidPlatformAlertEdit("grouping", "Grouping by operation needs at least one service filter.")
 
 
