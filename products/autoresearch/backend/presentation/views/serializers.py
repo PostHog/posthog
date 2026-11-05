@@ -11,11 +11,13 @@ from rest_framework.request import Request
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.shared import UserBasicSerializer
+from posthog.models import User
 from posthog.models.integer_field_bounds import INTEGER_FIELD_MAX, INTEGER_FIELD_MIN
 from posthog.permissions import get_authenticator_scopes
 
 from products.autoresearch.backend.facade import api
 from products.autoresearch.backend.facade.contracts import (
+    ActionTarget,
     AgentModelOption,
     AgentModelOptions,
     AgentReasoningEffortOption,
@@ -111,12 +113,28 @@ def require_action_scope(request: Request | None) -> None:
         raise serializers.ValidationError({"target_definition": "An action target needs the action:read scope."})
 
 
+def _require_action_viewer_access(request: Request | None, action: ActionTarget) -> None:
+    view = (request.parser_context or {}).get("view") if request is not None else None
+    user_access_control = getattr(view, "user_access_control", None)
+    if request is None or not isinstance(request.user, User) or user_access_control is None:
+        return
+    if user_access_control.denied_object_ids(
+        "action", [(str(action.id), action.team_id, action.created_by_id)], "viewer"
+    ):
+        raise serializers.ValidationError(
+            {
+                "target_definition": "You need viewer access to this action to predict it. Ask for access or pick another action."
+            }
+        )
+
+
 def resolve_target(
     *,
     team: Any,
     target_event: str,
     target_definition: dict[str, Any] | None,
     request: Request | None = None,
+    stored_action_id: int | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """
     Validate and normalize a prediction target, returning (target_event, target_definition).
@@ -151,12 +169,14 @@ def resolve_target(
             )
         require_action_scope(request)
         try:
-            action_name, action_id = api.resolve_action_target(team.project_id, action_id)
+            action = api.resolve_action_target(team.project_id, action_id)
         except (api.PipelineNotFound, api.InvalidTarget) as exc:
             raise serializers.ValidationError({"target_definition": str(exc)}) from exc
-        resolved_event = target_event or action_name or f"action_{action_id}"
+        if action.id != stored_action_id:
+            _require_action_viewer_access(request, action)
+        resolved_event = target_event or action.name or f"action_{action.id}"
         _validate_target_event_value(resolved_event, error_key="target_event" if target_event else "target_definition")
-        return resolved_event, {"type": "action", "action_id": int(action_id)}
+        return resolved_event, {"type": "action", "action_id": action.id}
 
     if not target_event:
         raise serializers.ValidationError(
@@ -1140,11 +1160,17 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
         is_update = self._pipeline_id is not None
         target_supplied = self._supplied(data, "target_event") or self._supplied(data, "target_definition")
         if not is_update or target_supplied:
+            stored_target = (
+                api.get_pipeline_definition(team.pk, self._pipeline_id).target_definition
+                if self._pipeline_id is not None
+                else None
+            )
             target_event, target_definition = resolve_target(
                 team=team,
                 target_event=self._value(data, "target_event", ""),
                 target_definition=self._value(data, "target_definition"),
                 request=self.context.get("request"),
+                stored_action_id=(stored_target or {}).get("action_id"),
             )
             updates["target_event"] = target_event
             updates["target_definition"] = target_definition

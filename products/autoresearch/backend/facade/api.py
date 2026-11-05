@@ -84,6 +84,7 @@ from ..training.recipe_validation import RecipeValidationError, feature_sql_hint
 from ..training.schedule import ScheduleRun, research_schedule, schedule_runs_for
 from ..training.shadow_set import shadow_set_ids
 from .contracts import (
+    ActionTarget,
     AgentModelOption,
     AgentModelOptions,
     AgentReasoningEffortOption,
@@ -954,8 +955,8 @@ def output_person_property_taken(team_id: int, value: str, *, exclude_pipeline_i
     return qs.exists()
 
 
-def resolve_action_target(project_id: int, action_id: Any) -> tuple[str, int]:
-    """Resolve an action target to ``(action_name, action_id)``, scoped to the project.
+def resolve_action_target(project_id: int, action_id: Any) -> ActionTarget:
+    """Resolve an action target, scoped to the project.
 
     Actions live on the project's root team, so the lookup matches the labeler's
     (``team__project_id``) rather than the pipeline's own team, which would miss them from
@@ -977,7 +978,9 @@ def resolve_action_target(project_id: int, action_id: Any) -> tuple[str, int]:
             f"Action {action_id} has a step that can match '{PREDICTION_EVENT_NAME}'. "
             "Every step of a target action must name an event other than the prediction event."
         )
-    return action.name or "", int(action_id)
+    return ActionTarget(
+        id=action.id, name=action.name or "", team_id=action.team_id, created_by_id=action.created_by_id
+    )
 
 
 # ── Training agent model ───────────────────────────────────────────────────

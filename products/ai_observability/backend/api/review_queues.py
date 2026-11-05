@@ -10,6 +10,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse
 from rest_framework import serializers, status
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
@@ -22,6 +23,7 @@ from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 from posthog.permissions import AccessControlPermission
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.models.review_queues import ReviewQueue, ReviewQueueItem
@@ -175,6 +177,12 @@ class ReviewQueueItemSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+def can_edit_queue(user: Any, user_access_control: UserAccessControl, queue: ReviewQueue) -> bool:
+    return not isinstance(user, User) or not user_access_control.denied_object_ids(
+        "llm_analytics", [(str(queue.id), queue.team_id, queue.created_by_id)], "editor"
+    )
+
+
 class BaseReviewQueueItemWriteSerializer(serializers.Serializer):
     queue_id = serializers.UUIDField(help_text="Review queue ID that should own this pending trace.")
 
@@ -183,6 +191,23 @@ class BaseReviewQueueItemWriteSerializer(serializers.Serializer):
         queue = ReviewQueue.objects.filter(team=team, pk=queue_id, deleted=False).first()
         if not queue:
             raise serializers.ValidationError({"queue_id": "Review queue not found."})
+        instance = cast(ReviewQueueItem | None, self.instance)
+        if instance is None or instance.queue_id != queue.id:
+            user = self.context["request"].user
+            user_access_control = self.context["view"].user_access_control
+            if instance is not None and not can_edit_queue(user, user_access_control, instance.queue):
+                raise serializers.ValidationError(
+                    {
+                        "queue_id": "You need editor access to this trace's current review queue to move it. Ask for access."
+                    }
+                )
+            if not can_edit_queue(user, user_access_control, queue):
+                raise serializers.ValidationError(
+                    {
+                        "queue_id": "You need editor access to this review queue to add traces to it. "
+                        "Ask for access or pick another queue."
+                    }
+                )
         return queue
 
     def validate_queue_id(self, value: str) -> str:
@@ -432,8 +457,13 @@ class ReviewQueueItemViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, 
     def safely_get_queryset(
         self, queryset: QuerySet[ReviewQueueItem, ReviewQueueItem]
     ) -> QuerySet[ReviewQueueItem, ReviewQueueItem]:
+        viewable_queues = self.user_access_control.filter_queryset_by_access_level(
+            ReviewQueue.objects.filter(team_id=self.team_id, deleted=False),
+            include_all_if_admin=True,
+            resource="llm_analytics",
+        )
         return (
-            queryset.filter(team_id=self.team_id, deleted=False, queue__deleted=False)
+            queryset.filter(team_id=self.team_id, deleted=False, queue__in=viewable_queues)
             .select_related("queue", "created_by")
             .order_by("created_at", "id")
         )
@@ -547,6 +577,8 @@ class ReviewQueueItemViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, 
     @monitor(feature=None, endpoint="llma_review_queue_items_destroy", method="DELETE")
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         item = self.get_object()
+        if not can_edit_queue(request.user, self.user_access_control, item.queue):
+            raise PermissionDenied("You need editor access to this review queue to remove traces from it.")
 
         item.soft_delete()
 
