@@ -11,6 +11,7 @@ from parameterized import parameterized
 
 from posthog.schema import ChartDisplayType, EventsNode, IntervalType, TrendsFilter, TrendsQuery
 
+from posthog.models import Team
 from posthog.models.scoping import team_scope
 from posthog.schema_enums import AlertCalculationInterval
 
@@ -29,9 +30,10 @@ THRESHOLD = {"type": "absolute", "bounds": {"upper": 100.0}}
 
 
 class TestPlatformInsightAlertBackfill(APIBaseTest):
-    def _alert(self, **overrides: Any) -> AlertConfiguration:
+    def _alert(self, team: Team | None = None, **overrides: Any) -> AlertConfiguration:
+        team = team or self.team
         insight = Insight.objects.create(
-            team=self.team,
+            team=team,
             name="insight",
             query=TrendsQuery(
                 series=[EventsNode(event="$pageview")],
@@ -39,9 +41,9 @@ class TestPlatformInsightAlertBackfill(APIBaseTest):
                 trendsFilter=TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
             ).model_dump(),
         )
-        threshold = Threshold.objects.create(team=self.team, insight=insight, configuration=THRESHOLD)
+        threshold = Threshold.objects.create(team=team, insight=insight, configuration=THRESHOLD)
         fields: dict[str, Any] = {
-            "team": self.team,
+            "team": team,
             "insight": insight,
             "name": "alert",
             "calculation_interval": AlertCalculationInterval.DAILY.value,
@@ -129,22 +131,34 @@ class TestPlatformInsightAlertBackfill(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("a_team_on_the_platform", True, False, None, "renamed"),
-            ("a_team_off_the_platform", False, False, None, None),
-            ("an_ai_alert", True, False, {"type": "llm"}, None),
-            ("an_alert_switched_to_ai_after_its_copy", True, True, {"type": "llm"}, "alert"),
+            ("a_team_on_the_platform", "running", False, None, "renamed"),
+            ("insight_off_the_platform", "nowhere", False, None, None),
+            ("a_team_new_to_the_platform", "elsewhere", False, None, "renamed"),
+            ("a_team_with_only_disabled_copies", "disabled_copies", False, None, "renamed"),
+            ("a_team_an_operator_switched_off", "switched_off", False, None, None),
+            ("an_ai_alert", "running", False, {"type": "llm"}, None),
+            ("an_alert_switched_to_ai_after_its_copy", "running", True, {"type": "llm"}, "alert"),
         ]
     )
     def test_a_created_or_reenabled_alert_follows_its_team_onto_the_platform(
         self,
         _name: str,
-        running: bool,
+        team_state: str,
         copied_before: bool,
         detector: dict[str, str] | None,
         copy_name: str | None,
     ) -> None:
-        if running:
+        if team_state != "nowhere":
+            other_team = Team.objects.create(organization=self.organization, name="other")
+            self._alert(team=other_team)
+            backfill_platform_insight_alert_configurations(team_id=other_team.id)
+        if team_state in ("running", "switched_off"):
             self._alert()
+            backfill_platform_insight_alert_configurations(team_id=self.team.id)
+        if team_state == "switched_off":
+            disable_platform_insight_alert_configurations(team_id=self.team.id)
+        if team_state == "disabled_copies":
+            self._alert(enabled=False)
             backfill_platform_insight_alert_configurations(team_id=self.team.id)
         created = self._alert()
         if copied_before:
