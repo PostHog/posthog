@@ -526,10 +526,16 @@ export class CyclotronV2Janitor {
     async sweepEmailAttachments(): Promise<number> {
         try {
             const result = await this.pool.query(
+                // A scheduled send can wait past the max age, so the rows of a job that has not finished stay.
                 `DELETE FROM cyclotron_email_attachments
                  WHERE id IN (
-                     SELECT id FROM cyclotron_email_attachments WHERE created_at < $1 LIMIT $2
-                     FOR UPDATE SKIP LOCKED
+                     SELECT a.id FROM cyclotron_email_attachments a
+                     WHERE a.created_at < $1
+                       AND NOT EXISTS (
+                           SELECT 1 FROM cyclotron_jobs j WHERE j.id = a.job_id AND j.status IN ('available', 'running')
+                       )
+                     LIMIT $2
+                     FOR UPDATE OF a SKIP LOCKED
                  )`,
                 [new Date(Date.now() - EMAIL_ATTACHMENTS_MAX_AGE_MS), this.cleanupBatchSize]
             )

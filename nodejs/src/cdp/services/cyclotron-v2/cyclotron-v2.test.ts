@@ -3007,27 +3007,32 @@ describe('Cyclotron V2', () => {
         })
 
         it('sweeps email attachment rows past the max age and keeps rows of jobs that still wait', async () => {
-            const insertAttachment = async (id: string, createdAt: Date): Promise<void> => {
+            const insertAttachment = async (id: string, createdAt: Date, jobId = uuidv7()): Promise<void> => {
                 await assertPool.query(
                     `INSERT INTO cyclotron_email_attachments
                      (id, job_id, team_id, position, filename, content, size_bytes, sha256, created_at)
                      VALUES ($1, $2, 1, 0, 'report.pdf', 'bytes', 5, 'digest', $3)`,
-                    [id, uuidv7(), createdAt]
+                    [id, jobId, createdAt]
                 )
             }
+            const expiredAt = new Date(Date.now() - EMAIL_ATTACHMENTS_MAX_AGE_MS - 60_000)
+            const scheduledJob = uuidv7()
+            await insertRawJob({ id: scheduledJob, queue_name: 'email', scheduled: new Date(Date.now() + 86_400_000) })
             const abandoned = uuidv7()
-            const waiting = uuidv7()
-            await insertAttachment(abandoned, new Date(Date.now() - EMAIL_ATTACHMENTS_MAX_AGE_MS - 60_000))
-            await insertAttachment(waiting, new Date(Date.now() - EMAIL_ATTACHMENTS_MAX_AGE_MS + 3_600_000))
+            const recent = uuidv7()
+            const scheduled = uuidv7()
+            await insertAttachment(abandoned, expiredAt)
+            await insertAttachment(recent, new Date(Date.now() - EMAIL_ATTACHMENTS_MAX_AGE_MS + 3_600_000))
+            await insertAttachment(scheduled, expiredAt, scheduledJob)
 
             const janitor = createJanitor()
             await janitor.runOnce()
 
             const remaining = await assertPool.query(
                 `SELECT id FROM cyclotron_email_attachments WHERE id = ANY($1::uuid[])`,
-                [[abandoned, waiting]]
+                [[abandoned, recent, scheduled]]
             )
-            expect(remaining.rows.map((r) => r.id)).toEqual([waiting])
+            expect(remaining.rows.map((r) => r.id).sort()).toEqual([recent, scheduled].sort())
 
             await janitor.stop()
         })
