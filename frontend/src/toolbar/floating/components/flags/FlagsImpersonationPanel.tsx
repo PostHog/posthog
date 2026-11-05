@@ -13,6 +13,12 @@ export interface FlagsImpersonationPanelProps {
 export function FlagsImpersonationPanel({ disabledReason }: FlagsImpersonationPanelProps): JSX.Element {
     const { impersonatedDistinctId, draftDistinctId, impersonationOpen } = useValues(flagsToolbarLogic)
     const { loadFlagsForDistinctId, clearImpersonation, setDraftDistinctId } = useActions(flagsToolbarLogic)
+    const loadDraft = (): void => {
+        const distinctId = draftDistinctId.trim()
+        if (!disabledReason && distinctId) {
+            loadFlagsForDistinctId(distinctId)
+        }
+    }
 
     return (
         <AnimatedCollapsible collapsed={!impersonationOpen && !impersonatedDistinctId}>
@@ -39,21 +45,13 @@ export function FlagsImpersonationPanel({ disabledReason }: FlagsImpersonationPa
                             size="small"
                             value={draftDistinctId}
                             onChange={setDraftDistinctId}
-                            onPressEnter={() => {
-                                if (!disabledReason && draftDistinctId.trim()) {
-                                    loadFlagsForDistinctId(draftDistinctId.trim())
-                                }
-                            }}
+                            onPressEnter={loadDraft}
                         />
                         <LemonButton
                             type="secondary"
                             size="small"
                             className="flex-shrink-0"
-                            onClick={() => {
-                                if (draftDistinctId.trim()) {
-                                    loadFlagsForDistinctId(draftDistinctId.trim())
-                                }
-                            }}
+                            onClick={loadDraft}
                             disabledReason={
                                 disabledReason ?? (!draftDistinctId.trim() ? 'Enter a distinct ID' : undefined)
                             }

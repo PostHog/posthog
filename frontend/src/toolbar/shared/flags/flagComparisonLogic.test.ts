@@ -32,8 +32,17 @@ const flag: FlagInfo = {
 const userOverrides = { 'other-flag': 'test' }
 const userPayloads = { 'other-flag': { color: 'blue' } }
 
+const multivariateFlag: FlagInfo = {
+    ...flag,
+    variants: [
+        { key: 'control', name: null, rolloutPercentage: 50 },
+        { key: 'test', name: null, rolloutPercentage: 50 },
+    ],
+}
+
 describe('flagComparisonLogic', () => {
     let persisted: Record<string, unknown>
+    let flagWrites: unknown[]
     let logic: ReturnType<typeof flagComparisonLogic.build>
     let unmountMenu: () => void
 
@@ -42,11 +51,13 @@ describe('flagComparisonLogic', () => {
             $override_feature_flags: userOverrides,
             $override_feature_flag_payloads: userPayloads,
         }
+        flagWrites = []
         const posthog = {
             get_property: (key: string) => persisted[key],
             featureFlags: {
                 overrideFeatureFlags: (options: { flags?: unknown; payloads?: unknown }) => {
                     if ('flags' in options) {
+                        flagWrites.push(options.flags)
                         persisted.$override_feature_flags = options.flags === false ? undefined : options.flags
                     }
                     if ('payloads' in options) {
@@ -55,7 +66,8 @@ describe('flagComparisonLogic', () => {
                 },
             },
         } as unknown as PostHog
-        URL.createObjectURL = jest.fn(() => 'blob:capture')
+        let urlCount = 0
+        URL.createObjectURL = jest.fn(() => `blob:capture-${urlCount++}`)
         URL.revokeObjectURL = jest.fn()
 
         initKeaTests()
@@ -70,12 +82,16 @@ describe('flagComparisonLogic', () => {
             flagOverrides: userOverrides,
             secondCapture: () => Promise.reject(new Error('Cross-origin font')),
             expectedOverrides: userOverrides,
+            expectsComparison: false,
+            revokedUrls: ['blob:capture-0'],
         },
         {
             outcome: 'restores no overrides when there were none',
             flagOverrides: undefined,
             secondCapture: () => Promise.resolve(new Blob(['on page'])),
             expectedOverrides: undefined,
+            expectsComparison: true,
+            revokedUrls: [],
         },
         {
             outcome: 'keeps a logout that cleared the overrides during the capture',
@@ -85,8 +101,10 @@ describe('flagComparisonLogic', () => {
                 return Promise.resolve(new Blob(['on page']))
             },
             expectedOverrides: undefined,
+            expectsComparison: false,
+            revokedUrls: ['blob:capture-0'],
         },
-    ])('$outcome', async ({ flagOverrides, secondCapture, expectedOverrides }) => {
+    ])('$outcome', async ({ flagOverrides, secondCapture, expectedOverrides, expectsComparison, revokedUrls }) => {
         persisted.$override_feature_flags = flagOverrides
         jest.mocked(captureElementScreenshot)
             .mockResolvedValueOnce(new Blob(['off']))
@@ -98,6 +116,30 @@ describe('flagComparisonLogic', () => {
             $override_feature_flags: expectedOverrides,
             $override_feature_flag_payloads: userPayloads,
         })
+        expect(logic.values.comparison !== null).toBe(expectsComparison)
+        expect(jest.mocked(URL.revokeObjectURL).mock.calls.map(([url]) => url)).toEqual(revokedUrls)
+    })
+
+    test('captures each variant of a multivariate flag and compares each with off', async () => {
+        jest.mocked(captureElementScreenshot)
+            .mockResolvedValueOnce(new Blob(['aaa']))
+            .mockResolvedValueOnce(new Blob(['aaa']))
+            .mockResolvedValueOnce(new Blob(['bbb']))
+
+        await expectLogic(logic, () => logic.actions.compareFlag(multivariateFlag)).toFinishAllListeners()
+
+        expect(flagWrites).toEqual([
+            { ...userOverrides, [flag.key]: false },
+            { ...userOverrides, [flag.key]: 'control' },
+            { ...userOverrides, [flag.key]: 'test' },
+            userOverrides,
+        ])
+        expect(logic.values.comparison?.captures.map((capture) => capture.sameAsOff)).toEqual([true, true, false])
+        expect(logic.values.comparison?.identical).toBe(false)
+        expect(logic.values.afterCapture?.value).toEqual('control')
+
+        logic.actions.setAfterValue('test')
+        expect(logic.values.afterCapture?.value).toEqual('test')
     })
 
     test('restores the overrides when the page unloads during a capture', async () => {
@@ -131,9 +173,11 @@ describe('flagComparisonLogic', () => {
             expect(persisted.$override_feature_flags).toEqual(userOverrides)
             expect(logic.values.comparingFlagKey).toBeNull()
 
+            const writesBeforeRetry = flagWrites.length
             logic.actions.compareFlag(flag)
             await jest.advanceTimersByTimeAsync(0)
             expect(captureElementScreenshot).toHaveBeenCalledTimes(2)
+            expect(flagWrites).toHaveLength(writesBeforeRetry)
         } finally {
             releaseStalledCapture(new Blob(['late']))
             jest.useRealTimers()
@@ -148,7 +192,7 @@ describe('flagComparisonLogic', () => {
         unmountMenu()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.comparison?.flagKey).toEqual(flag.key)
+        expect(logic.values.comparison).toMatchObject({ flagKey: flag.key, identical: true })
         expect(toolbarLogic.values.visibleMenu).toEqual('flags')
     })
 })

@@ -8,17 +8,18 @@ import { objectsEqual } from 'lib/utils/objects'
 
 import { toolbarLogic } from '~/toolbar/shared/bar/toolbarLogic'
 import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
-import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
+import { toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
 
 import {
-    FlagOverridesChangedError,
     capturePage,
     comparisonStates,
     imagesMatch,
+    isCaptureRunning,
     readFlagOverrides,
     waitForPageToSettle,
     writeFlagOverrides,
 } from './flagComparison'
+import { CaptureStillRunningError, FlagOverridesChangedError } from './flagComparisonErrors'
 import type { FlagInfo } from './flagInfo'
 import { flagsToolbarLogic } from './flagsToolbarLogic'
 
@@ -117,7 +118,7 @@ export interface flagComparisonLogicMeta {
         beforeCapture: (comparison: FlagComparison | null) => FlagComparisonCapture | null
         onCaptures: (comparison: FlagComparison | null) => FlagComparisonCapture[]
         afterCapture: (
-            comparison: FlagComparison | null,
+            onCaptures: FlagComparisonCapture[],
             afterValue: boolean | string | null
         ) => FlagComparisonCapture | null
     }
@@ -149,6 +150,10 @@ export const flagComparisonLogic = kea<flagComparisonLogicType>([
                     const posthog = values.posthog
                     if (!posthog) {
                         throw new Error('The page has no PostHog client to override flags with')
+                    }
+                    // Checked before any override is written, so a refused run leaves the page as it is.
+                    if (isCaptureRunning()) {
+                        throw new CaptureStillRunningError()
                     }
                     revokeComparison(values.comparison)
 
@@ -188,6 +193,9 @@ export const flagComparisonLogic = kea<flagComparisonLogicType>([
                             writeFlagOverrides(posthog, lastWritten)
                             await waitForPageToSettle()
                             const { blob, width, height } = await capturePage()
+                            if (!ownsOverrides()) {
+                                throw new FlagOverridesChangedError()
+                            }
                             offBlob ??= blob
                             captures.push({
                                 ...state,
@@ -248,11 +256,9 @@ export const flagComparisonLogic = kea<flagComparisonLogicType>([
             (comparison: FlagComparison | null): FlagComparisonCapture[] => comparison?.captures.slice(1) ?? [],
         ],
         afterCapture: [
-            (s) => [s.comparison, s.afterValue],
-            (comparison: FlagComparison | null, afterValue: string | boolean | null): FlagComparisonCapture | null =>
-                comparison?.captures.find((capture, index) => index > 0 && capture.value === afterValue) ??
-                comparison?.captures[1] ??
-                null,
+            (s) => [s.onCaptures, s.afterValue],
+            (onCaptures: FlagComparisonCapture[], afterValue: string | boolean | null): FlagComparisonCapture | null =>
+                onCaptures.find((capture) => capture.value === afterValue) ?? onCaptures[0] ?? null,
         ],
     }),
     listeners(({ actions }) => ({
@@ -266,7 +272,10 @@ export const flagComparisonLogic = kea<flagComparisonLogicType>([
                 lemonToast.info('The comparison stopped because the flag overrides changed. Start it again to compare.')
                 return
             }
-            captureToolbarException(errorObject ?? error, 'flag_comparison')
+            if (errorObject instanceof CaptureStillRunningError) {
+                lemonToast.info('The last capture is still finishing. Try again in a few seconds.')
+                return
+            }
             lemonToast.error(
                 "Couldn't capture the page. Images or fonts from other sites can block the capture. Try again on a page without them."
             )
@@ -275,6 +284,8 @@ export const flagComparisonLogic = kea<flagComparisonLogicType>([
     beforeUnmount(({ values }) => {
         revokeComparison(values.comparison)
     }),
-    // A comparison writes overrides to the page for seconds, so its guard and cleanup must outlive the flags menu.
+    // A comparison writes overrides to the page for several seconds.
+    // The logic stays mounted when the flags menu closes, so the `pagehide` restore stays attached
+    // and `comparingFlagKey` keeps the override controls disabled until the comparison ends.
     permanentlyMount(),
 ])

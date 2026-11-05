@@ -1,8 +1,11 @@
 import type { PostHog } from 'posthog-js'
 
+import { withTimeout } from 'lib/utils/async'
+
 import { isInToolbarRoot } from '~/toolbar/shared/utils'
 import { captureElementScreenshot } from '~/toolbar/shared/utils/screenshot'
 
+import { CaptureStillRunningError } from './flagComparisonErrors'
 import type { FlagInfo } from './flagInfo'
 
 const SETTLE_QUIET_MS = 1000
@@ -24,13 +27,6 @@ export function comparisonStates(flag: FlagInfo): ComparisonState[] {
 }
 
 export type FlagOverrides = Record<string, string | boolean>
-
-export class FlagOverridesChangedError extends Error {
-    constructor() {
-        super('The flag overrides changed during the comparison')
-        this.name = 'FlagOverridesChangedError'
-    }
-}
 
 export function readFlagOverrides(posthog: PostHog): FlagOverrides | null {
     return posthog.get_property('$override_feature_flags') ?? null
@@ -83,13 +79,18 @@ export interface PageCapture {
     height: number
 }
 
-// html-to-image cannot cancel a capture, so one that timed out keeps running. A new capture waits for it to end instead of piling up a second clone of the page.
+// html-to-image cannot cancel a capture, so one that timed out keeps running.
+// A new capture throws until that one ends, so the page is never cloned twice at once.
 let runningCapture: Promise<Blob> | null = null
+
+export function isCaptureRunning(): boolean {
+    return runningCapture !== null
+}
 
 /** Rejects after `maxMs`, because a stalled image load or a paused `requestAnimationFrame` would keep the comparison's overrides on the page. */
 export async function capturePage(maxMs: number = CAPTURE_MAX_MS): Promise<PageCapture> {
     if (runningCapture) {
-        throw new Error('An earlier page capture is still running')
+        throw new CaptureStillRunningError()
     }
     const root = document.documentElement
     const width = root.clientWidth
@@ -102,18 +103,8 @@ export async function capturePage(maxMs: number = CAPTURE_MAX_MS): Promise<PageC
         }
     }
     capture.then(clearRunningCapture, clearRunningCapture)
-    let deadline: ReturnType<typeof setTimeout> | undefined
-    try {
-        const blob = await Promise.race([
-            capture,
-            new Promise<never>((_, reject) => {
-                deadline = setTimeout(() => reject(new Error(`The page capture took longer than ${maxMs} ms`)), maxMs)
-            }),
-        ])
-        return { blob, width, height }
-    } finally {
-        clearTimeout(deadline)
-    }
+    const blob = await withTimeout(capture, maxMs, `The page capture took longer than ${maxMs} ms`)
+    return { blob, width, height }
 }
 
 export async function imagesMatch(first: Blob, second: Blob): Promise<boolean> {
