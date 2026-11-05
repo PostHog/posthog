@@ -901,7 +901,8 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
         def rows(*values) -> list[tuple]:
             return [("$feature_flag_called", "flag_evaluations", *values), ("$pageview", "events", *values)]
 
-        # The flat key `a___b` reads the column name that the export of the nested path `a.b` uses.
+        # Lazy table resolution names a property read by joining its path with `___`. A rewritten read of the flat
+        # key `a___b` would get the same column name as the nested read `properties.a.b`.
         assert run(
             "events",
             "JSONExtractString(properties, 'probe'), toFloatOrZero(JSONExtractString(properties, 'amount')), "
