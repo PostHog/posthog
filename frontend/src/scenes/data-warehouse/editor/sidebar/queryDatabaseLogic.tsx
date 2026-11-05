@@ -1573,7 +1573,6 @@ const isRawTrinoViewNode = (node: TreeDataItem): boolean => {
     return engine?.target === 'managed_trino' && engine.dialect === 'raw'
 }
 
-// The ClickHouse tree must not offer a view that a query on ClickHouse cannot reference.
 const withoutViewsClickHouseCannotReference = (nodes: TreeDataItem[]): TreeDataItem[] =>
     nodes.flatMap((node): TreeDataItem[] => {
         if (viewEngineOf(node)?.capabilities.referenceable_from_clickhouse.available === false) {
