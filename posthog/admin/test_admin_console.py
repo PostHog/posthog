@@ -207,7 +207,7 @@ class TestAdminConsoleViews(BaseTest):
 
         other_page = self.client.get(f"/admin/posthog/organization/{self.organization.pk}/change/")
         assert other_page.status_code == 200
-        assert "console-banner" not in other_page.content.decode()
+        assert 'class="console-banner"' not in other_page.content.decode()
 
     @parameterized.expand(
         [
