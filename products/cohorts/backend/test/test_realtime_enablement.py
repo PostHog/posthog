@@ -6,6 +6,8 @@ from unittest import mock
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from products.cohorts.backend.backfill.flag_calls_table import FlagCallsTable
 from products.cohorts.backend.backfill.runs import create_team_backfill_run
 from products.cohorts.backend.backfill.sizing import BehavioralScanEstimate, PersonSeedEstimate
@@ -158,7 +160,6 @@ class TestEnableRealtimeCohorts(BaseTest):
                 reason="has a filter the realtime catalog drops (unsupported_state_variant)",
             ),
         )
-        assert enablement.unclassified_cohort_ids == ()
 
     def test_a_refused_run_keeps_the_team_processing_until_a_rerun_finds_both_runs(self) -> None:
         self._cohort(PERSON_LEAF, PAGEVIEW_LEAF)
@@ -188,11 +189,29 @@ class TestEnableRealtimeCohorts(BaseTest):
         assert self._level() == RealtimeCohortLevel.SERVING
         assert CohortBackfillRun.objects.for_team(self.team.id).count() == 2
 
-    @override_settings(BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED=False)
-    def test_missing_attestations_refuse_the_team_before_any_write(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "missing_attestation",
+                {"BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED": False},
+                None,
+                "Missing operator attestations: processor durability",
+            ),
+            (
+                "stamped_before_the_grant",
+                {},
+                datetime(2026, 1, 1, tzinfo=UTC),
+                "Cohorts stamped ready before the grant",
+            ),
+        ]
+    )
+    def test_refuses_the_team_before_any_write(
+        self, _name: str, overrides: dict[str, Any], stamped_at: datetime | None, message: str
+    ) -> None:
         cohort = self._cohort(PERSON_LEAF, PAGEVIEW_LEAF)
+        Cohort.objects.filter(id=cohort.id).update(last_backfill_events_at=stamped_at)
 
-        with self.assertRaisesMessage(ValueError, "Missing operator attestations: processor durability"):
+        with override_settings(**overrides), self.assertRaisesMessage(ValueError, message):
             enable_realtime_cohorts(self.team.id, purpose=RealtimeCohortAccessPurpose.BETA)
 
         assert not RealtimeCohortTeamAccess.objects.filter(team=self.team).exists()

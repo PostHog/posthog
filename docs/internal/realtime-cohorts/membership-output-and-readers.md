@@ -213,6 +213,7 @@ A cache entry without the level reads as `off`.
 
 `condition_type` is derived by Django on save.
 A cohort whose `condition_type` is empty is never routed, and resaving it fills the column.
+A behavioral run refuses such a cohort, so it never reads as ready.
 
 Every other non-static cohort is evaluated dynamically from the person's properties, where a behavioral condition can never match.
 

@@ -46,10 +46,15 @@ GRANT_LEVELS: dict[str, GrantLevel] = {
     RealtimeCohortLevel.SERVING.value: RealtimeCohortLevel.SERVING,
 }
 LIST_COLUMNS = ("team_id", "level", "purpose", "save_triggers_backfill", "processing_since", "off_since", "changed_at")
+# `enable` alone writes beta rows, so a grant cannot skip the preparation it does. A revoked team cannot be
+# granted again, so beta customer teams are revoked one id at a time.
+NON_BETA_PURPOSES = [
+    purpose for purpose in RealtimeCohortAccessPurpose.values if purpose != RealtimeCohortAccessPurpose.BETA
+]
 
 
 class Command(BaseCommand):
-    help = "Grant, revoke and list team access to the realtime cohort pipeline."
+    help = "Enable, grant, revoke and list team access to the realtime cohort pipeline."
 
     def add_arguments(self, parser: CommandParser) -> None:
         subparsers = parser.add_subparsers(dest="action", required=True)
@@ -62,7 +67,7 @@ class Command(BaseCommand):
 
         grant = subparsers.add_parser("grant", help="Write the teams' access rows, all or none.")
         grant.add_argument("--teams", type=int, nargs="+", required=True)
-        grant.add_argument("--purpose", choices=RealtimeCohortAccessPurpose.values, required=True)
+        grant.add_argument("--purpose", choices=NON_BETA_PURPOSES, required=True)
         # Required, so that re-running a grant cannot quietly move a serving team down to processing
         # or turn its triggers off.
         grant.add_argument(
@@ -81,13 +86,7 @@ class Command(BaseCommand):
         revoke = subparsers.add_parser("revoke", help="Set the selected rows to off, all or none.")
         selector = revoke.add_mutually_exclusive_group(required=True)
         selector.add_argument("--teams", type=int, nargs="+")
-        # A revoked team cannot be granted again, so beta customer teams are revoked one id at a time.
-        selector.add_argument(
-            "--purpose",
-            choices=[
-                purpose for purpose in RealtimeCohortAccessPurpose.values if purpose != RealtimeCohortAccessPurpose.BETA
-            ],
-        )
+        selector.add_argument("--purpose", choices=NON_BETA_PURPOSES)
 
         subparsers.add_parser("list", help="Print every access row.")
 
@@ -147,9 +146,6 @@ class Command(BaseCommand):
         if resave.rebuild_dispatch_failed:
             resave_line += ", flags cache rebuild not enqueued"
         self.stdout.write(resave_line)
-        if enablement.unclassified_cohort_ids:
-            ids = ", ".join(str(cohort_id) for cohort_id in enablement.unclassified_cohort_ids)
-            self.stdout.write(f"  Null condition_type: {ids}")
         for refusal in enablement.refused_cohorts:
             self.stdout.write(f"  Not backfilled: cohort {refusal.cohort_id}, {refusal.kind}, {refusal.reason}")
         self.stdout.write(f"  Behavioral run: {_run_outcome(enablement.behavioral)}")

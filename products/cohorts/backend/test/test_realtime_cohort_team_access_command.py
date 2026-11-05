@@ -143,15 +143,24 @@ class TestRealtimeCohortTeamAccessCommand(BaseTest):
 
         assert self._access(self.team.pk).level == RealtimeCohortLevel.SERVING
 
-    def test_revoke_cannot_select_beta_teams_by_purpose(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "grant",
+                ["grant", "--teams", "{team}", "--purpose", "beta", "--level", "serving", "--save-triggers-backfill"],
+            ),
+            ("revoke", ["revoke", "--purpose", "beta"]),
+        ]
+    )
+    def test_only_enable_writes_beta_rows(self, _name: str, args: list[str]) -> None:
         RealtimeCohortTeamAccess.objects.create(
-            team=self.team, level=RealtimeCohortLevel.SERVING, purpose=RealtimeCohortAccessPurpose.BETA
+            team=self.team, level=RealtimeCohortLevel.PROCESSING, purpose=RealtimeCohortAccessPurpose.BETA
         )
 
         with self.assertRaisesMessage(CommandError, "invalid choice: 'beta'"):
-            call_command("realtime_cohort_team_access", "revoke", "--purpose", "beta")
+            call_command("realtime_cohort_team_access", *(arg.format(team=self.team.pk) for arg in args))
 
-        assert self._access(self.team.pk).level == RealtimeCohortLevel.SERVING
+        assert self._access(self.team.pk).level == RealtimeCohortLevel.PROCESSING
 
     def test_revoke_by_purpose_leaves_other_purposes_on(self) -> None:
         pilot = Team.objects.create(organization=self.organization)

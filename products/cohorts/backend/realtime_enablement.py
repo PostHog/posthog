@@ -3,10 +3,11 @@ from datetime import datetime
 from uuid import UUID
 
 from django.conf import settings
+from django.db.models import Q
 
 import structlog
 
-from posthog.cohort_resave import CohortResaveStats, resave_team_cohorts, termination_unwinds, unclassified_cohort_ids
+from posthog.cohort_resave import CohortResaveStats, resave_team_cohorts, termination_unwinds
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
@@ -84,7 +85,6 @@ class CohortRefusal:
 @frozen
 class TeamEnablement:
     resave: CohortResaveStats
-    unclassified_cohort_ids: tuple[int, ...]
     refused_cohorts: tuple[CohortRefusal, ...]
     behavioral: RunOutcome
     person: RunOutcome
@@ -103,8 +103,9 @@ def enable_realtime_cohorts(team_id: int, *, purpose: RealtimeCohortAccessPurpos
     """Put the team at `processing` with its cohorts ready for the pipeline, create its two team
     backfill runs, and promote it to `serving` only when neither run was refused.
 
-    Raises ``ValueError`` before it writes anything for a team the grant refuses, or when an operator
-    attestation is missing. A call after a refusal keeps the runs earlier calls created.
+    Raises ``ValueError`` before it writes anything for a team the grant refuses, when an operator
+    attestation is missing, or when a first call finds readiness stamps. A call after a refusal keeps
+    the runs earlier calls created.
     """
     row = grantable_access_rows([team_id], purpose, RealtimeCohortTeamAccess.objects.all()).get(team_id)
     # The steps below go through `processing`, which would hide a serving team's realtime state.
@@ -114,6 +115,23 @@ def enable_realtime_cohorts(team_id: int, *, purpose: RealtimeCohortAccessPurpos
     _, missing = check_person_run_preconditions()
     if missing:
         raise ValueError(f"Missing operator attestations: {', '.join(missing)}")
+    if row is None:
+        # Only a run from a time the env list named the team stamps a team with no row. The pipeline has
+        # since stopped maintaining that membership, and `serving` would route flags to it before the new
+        # runs seed.
+        stamped = list(
+            Cohort.objects.filter(
+                Q(last_backfill_events_at__isnull=False) | Q(last_backfill_person_properties_at__isnull=False),
+                team_id=team_id,
+            )
+            .order_by("id")
+            .values_list("id", flat=True)
+        )
+        if stamped:
+            raise ValueError(
+                "Cohorts stamped ready before the grant, by a pipeline that stopped maintaining them: "
+                f"{', '.join(str(cohort_id) for cohort_id in stamped)}"
+            )
 
     team = Team.objects.get(id=team_id)
     with termination_unwinds() as coalesce_rebuilds:
@@ -139,7 +157,6 @@ def enable_realtime_cohorts(team_id: int, *, purpose: RealtimeCohortAccessPurpos
     )
     enablement = TeamEnablement(
         resave=resave,
-        unclassified_cohort_ids=tuple(unclassified_cohort_ids([team_id])),
         refused_cohorts=(*behavioral_refusals, *person_refusals),
         behavioral=_team_run(
             team_id,
@@ -240,7 +257,7 @@ def _create_behavioral_team_run(team: Team, eligible: list[Cohort]) -> CohortBac
     if estimate.over_limit:
         raise ValueError(
             f"The run would scan {estimate.peak_day_events} events on its busiest day ({estimate.peak_day}), "
-            f"above the limit of {estimate.max_events_per_day}. Narrow it with create_cohort_backfill_run "
-            "--cohort-ids, or accept the volume with its --max-scan-events-per-day, then run enable again."
+            f"above the limit of {estimate.max_events_per_day}. Accept the volume with create_cohort_backfill_run "
+            "--max-scan-events-per-day, then run enable again."
         )
     return create_team_backfill_run(team.id, CohortBackfillTrigger.TEAM_ENABLEMENT, scan_estimate=estimate)
