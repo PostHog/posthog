@@ -131432,6 +131432,10 @@ export namespace Schemas {
      * Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}]
      */
     properties?: string;
+    /**
+     * Compute the overview again instead of serving the cached result, at most once every 5 seconds. The fresh result replaces the cached one.
+     */
+    refresh?: boolean;
     };
 
     export type McpGatewayAuditListParams = {
@@ -137074,6 +137078,10 @@ export namespace Schemas {
      * Only return runs created after this timestamp.
      */
     created_after?: string;
+    /**
+     * Only return runs created by this user.
+     */
+    created_by_id?: number;
     /**
      * Number of results to return per page.
      * @maximum 100

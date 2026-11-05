@@ -637,6 +637,7 @@ _TASK_RUN_AGENT_STATE_KEYS = frozenset(
         "end_run_when_done",
         "initial_prompt_override",
         "store_skills",
+        "store_skills_bridge",
         "systemPrompt",
     }
 )
