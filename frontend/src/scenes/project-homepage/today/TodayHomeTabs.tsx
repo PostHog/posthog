@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Suspense } from 'react'
 
+import { IconDay, IconPalette, IconSparkles } from '@posthog/icons'
 import { Skeleton, Tabs, TabsContent, TabsList, TabsTrigger } from '@posthog/quill'
 
 import { lazyWithRetry } from 'lib/utils/retryImport'
@@ -12,6 +13,13 @@ const NewSessionStart = lazyWithRetry(() =>
     import('products/tasks/frontend/spaces/NewSessionStart').then((m) => ({ default: m.NewSessionStart }))
 )
 const TodayHomeCanvas = lazyWithRetry(() => import('./TodayHomeCanvas').then((m) => ({ default: m.TodayHomeCanvas })))
+
+// pinned: the `today-home-tab-*` data-attr values. Autocapture dashboards and Playwright select them.
+const HOME_TABS: { value: TodayHomeTab; label: string; Icon: typeof IconDay }[] = [
+    { value: 'today', label: 'Today', Icon: IconDay },
+    { value: 'ask', label: 'Ask', Icon: IconSparkles },
+    { value: 'canvas', label: 'Canvas', Icon: IconPalette },
+]
 
 function TodayHomeAskSkeleton(): JSX.Element {
     return (
@@ -35,16 +43,18 @@ export function TodayHomeTabs(): JSX.Element {
             data-quill
         >
             <div className="flex shrink-0 justify-center px-4 pt-6">
-                <TabsList aria-label="Home views">
-                    <TabsTrigger value="today" data-attr="today-home-tab-today">
-                        Today
-                    </TabsTrigger>
-                    <TabsTrigger value="ask" data-attr="today-home-tab-ask">
-                        Ask
-                    </TabsTrigger>
-                    <TabsTrigger value="canvas" data-attr="today-home-tab-canvas">
-                        Canvas
-                    </TabsTrigger>
+                <TabsList aria-label="Home views" className="h-auto rounded-full p-1 [--radius-sm:9999px]">
+                    {HOME_TABS.map(({ value, label, Icon }) => (
+                        <TabsTrigger
+                            key={value}
+                            value={value}
+                            className="h-8 gap-2 !rounded-full px-4 text-sm"
+                            data-attr={`today-home-tab-${value}`}
+                        >
+                            <Icon className="size-4" />
+                            <span>{label}</span>
+                        </TabsTrigger>
+                    ))}
                 </TabsList>
             </div>
             <TabsContent value="today">
