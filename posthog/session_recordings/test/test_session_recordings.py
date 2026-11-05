@@ -1232,6 +1232,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         assert deleted[0].kwargs["properties"]["recording_id"] == "1"
         assert deleted[0].kwargs["properties"]["source"] == expected_source
         activity = ActivityLog.objects.get(team_id=self.team.id, scope="Replay", activity="deleted")
+        assert activity.detail is not None
         assert (activity.user_id, activity.item_id, activity.detail["name"]) == (self.user.id, "1", "1")
         # Deleting again is idempotent (recording-api returns already_deleted)
         response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/1", **headers)
