@@ -11,6 +11,7 @@ concurrency:
 
 permissions:
     contents: read
+    actions: read
 
 jobs:
     ios:
@@ -34,6 +35,23 @@ jobs:
                   node-version-file: products/mobile/.node-version
             - run: pnpm install --frozen-lockfile
             - run: DO_NOT_TRACK=1 npm install --prefix /tmp/mobile-argent-tools --no-audit --no-fund @swmansion/argent@0.30.1
+            - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+              with:
+                  name: report-header-ios
+                  path: /tmp/previous-mobile-captures
+                  run-id: 42085721949
+                  github-token: ${{ github.token }}
+            - run: |
+                  mkdir -p /tmp/reused-mobile-app
+                  tar -xzf /tmp/previous-mobile-captures/PostHog-before.app.tar.gz -C /tmp/reused-mobile-app
+                  echo 'REPORT_HEADER_PREBUILT_APP=/tmp/reused-mobile-app/PostHog.app' >> "$GITHUB_ENV"
+                  python3 - <<'PY'
+                  from pathlib import Path
+                  path = Path('/tmp/mobile-argent-tools/node_modules/@swmansion/argent/dist/cli-cmds.mjs')
+                  text = path.read_text()
+                  assert 'var SPAWN_READY_TIMEOUT_MS = 15e3;' in text
+                  path.write_text(text.replace('var SPAWN_READY_TIMEOUT_MS = 15e3;', 'var SPAWN_READY_TIMEOUT_MS = 120e3;'))
+                  PY
             - run: sed -i '' 's/before_revision=.*/before_revision=e642e42745550be81a1ee5cec151076f6af7e646/' scripts/capture-report-header.sh
             - run: bash scripts/capture-report-header.sh ios
             - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f

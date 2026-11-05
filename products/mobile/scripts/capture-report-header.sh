@@ -75,8 +75,12 @@ runtimes = json.load(open(sys.argv[1]))['runtimes']
 print(sorted((r for r in runtimes if r.get('isAvailable') and 'iOS' in r['identifier']), key=lambda r: tuple(map(int, r['version'].split('.'))))[-1]['identifier'])
 PY
 )
-    bash scripts/ci-argent-build.sh /tmp/mobile-header-build "$capture_dir/build"
-    binary=/tmp/mobile-header-build/Build/Products/Release-iphonesimulator/PostHog.app
+    if [[ -n "${REPORT_HEADER_PREBUILT_APP:-}" ]]; then
+        binary=$REPORT_HEADER_PREBUILT_APP
+    else
+        bash scripts/ci-argent-build.sh /tmp/mobile-header-build "$capture_dir/build"
+        binary=/tmp/mobile-header-build/Build/Products/Release-iphonesimulator/PostHog.app
+    fi
     tar -czf "$capture_dir/PostHog-before.app.tar.gz" -C "$(dirname "$binary")" PostHog.app
     device=$(xcrun simctl create 'Report header comparison' com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro "$runtime")
     xcrun simctl boot "$device"
@@ -99,8 +103,9 @@ path.write_text(text)
 PY
 fi
 
-argent server start --port 0 --detach > /tmp/report-header-server.log
-connection=$(sed -n 's/.*argent link argent:\/\/\([^ ]*\).*/\1/p' /tmp/report-header-server.log | head -1)
+trap 'argent server logs > "$capture_dir/tools-server.log" 2>&1 || true' EXIT
+argent server start --port 0 --detach > "$capture_dir/server-start.log"
+connection=$(sed -n 's/.*argent link argent:\/\/\([^ ]*\).*/\1/p' "$capture_dir/server-start.log" | head -1)
 [[ "$connection" == *@127.0.0.1:* ]]
 export ARGENT_TOOLS_URL="http://${connection#*@}"
 export ARGENT_AUTH_TOKEN="${connection%@*}"
