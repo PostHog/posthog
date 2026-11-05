@@ -30,6 +30,7 @@ export interface channelCatalogLogicValues {
     integrationsLoadFailed: boolean
     sandboxProvisionError: string | null
     sandboxProvisionErrorLoading: boolean
+    sandboxRefreshPending: boolean
     sandboxSetupError: string | null
     sandboxSetupRequested: boolean
 }
@@ -140,6 +141,14 @@ export const channelCatalogLogic = kea<channelCatalogLogicType>([
             false,
             {
                 setUpSandboxSender: () => true,
+            },
+        ],
+        sandboxRefreshPending: [
+            false,
+            {
+                setUpSandboxSenderSuccess: (_, { sandboxProvisionError }) => sandboxProvisionError === null,
+                loadIntegrationsSuccess: () => false,
+                loadIntegrationsFailure: () => false,
             },
         ],
     }),

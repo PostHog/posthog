@@ -130,6 +130,10 @@ describe('sandbox setup in the channel catalog', () => {
     it('offers Try again when the refresh after setup fails over an earlier list', async () => {
         let loads = 0
         let refreshStatus = 500
+        let releaseRefresh = (): void => {}
+        const refreshGate = new Promise<void>((resolve) => {
+            releaseRefresh = resolve
+        })
         const sandbox = {
             id: 9,
             kind: 'email',
@@ -142,14 +146,16 @@ describe('sandbox setup in the channel catalog', () => {
         }
         useMocks({
             get: {
-                '/api/projects/:team_id/integrations/': () => {
+                '/api/projects/:team_id/integrations/': async () => {
                     loads++
                     if (loads === 1) {
                         return [200, { results: [] }]
                     }
-                    return refreshStatus === 200
-                        ? [200, { results: [sandbox] }]
-                        : [500, { detail: 'Could not load your channels.' }]
+                    if (refreshStatus !== 200) {
+                        return [500, { detail: 'Could not load your channels.' }]
+                    }
+                    await refreshGate
+                    return [200, { results: [sandbox] }]
                 },
             },
             post: { '/api/projects/:team_id/integrations/email_sandbox_sender/': [200, sandbox] },
@@ -169,6 +175,9 @@ describe('sandbox setup in the channel catalog', () => {
 
         refreshStatus = 200
         fireEvent.click(screen.getAllByText('Try again')[0])
+        await waitFor(() => expect(logic.values.sandboxRefreshPending).toBe(true))
+        expect(screen.getAllByText('Try again')[0].closest('button')).toHaveAttribute('aria-disabled', 'true')
+        releaseRefresh()
         expect(await screen.findByText('Acme via PostHog <hello@sandbox.example.com>')).toBeInTheDocument()
         expect(screen.queryByText('Could not load the sandbox sender.')).not.toBeInTheDocument()
     })
