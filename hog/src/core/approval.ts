@@ -1,19 +1,24 @@
+import { z } from 'zod'
+
 import type { Context } from './context'
 import { HogError } from './errors'
+import { parseJsonOrUndefined } from './json'
 import { escapeControls, type Output } from './output'
 import { hogFile } from './paths'
 import type { Spinner } from './prompts'
 import type { Runtime } from './runtime'
 
 // Something a person approves in a browser, saved in hog's folder while hog waits for them.
-export interface PendingApproval {
-    url: string
+export const PendingApprovalSchema = z.object({
+    url: z.string(),
     // The code the approval page shows, so the person can check it is the request they started.
-    userCode?: string
+    userCode: z.string().optional(),
     // Epoch milliseconds after which PostHog forgets the request.
-    expiresAt: number
-    intervalSeconds: number
-}
+    expiresAt: z.number(),
+    intervalSeconds: z.number(),
+})
+
+export type PendingApproval = z.output<typeof PendingApprovalSchema>
 
 export type PollOutcome<Value> =
     | { state: 'pending' }
@@ -32,6 +37,8 @@ export interface ApprovalFlow<Pending extends PendingApproval, Value> {
     command: string
     // What the person approves, in copy and in error codes, like `login`.
     noun: string
+    // Reads the pending item back from its file. An item hog can't read counts as none.
+    pending: z.ZodType<Pending>
     start: () => Promise<Pending>
     // Whether a pending item from an earlier run can stand in for a new one, so an agent that
     // retries hands the person the link it already shared.
@@ -43,7 +50,7 @@ export interface ApprovalFlow<Pending extends PendingApproval, Value> {
 // What resuming a pending item needs. It can't start a new one.
 export type ApprovalWait<Pending extends PendingApproval, Value> = Pick<
     ApprovalFlow<Pending, Value>,
-    'command' | 'noun' | 'poll'
+    'command' | 'noun' | 'pending' | 'poll'
 >
 
 export type ApprovalResult<Value> =
@@ -71,10 +78,10 @@ function pendingPath(runtime: Runtime, command: string): string {
 
 async function readPending<Pending extends PendingApproval>(
     runtime: Runtime,
-    command: string
+    flow: ApprovalWait<Pending, unknown>
 ): Promise<Pending | undefined> {
     try {
-        return JSON.parse(await runtime.readFile(pendingPath(runtime, command))) as Pending
+        return parseJsonOrUndefined(await runtime.readFile(pendingPath(runtime, flow.command)), flow.pending)
     } catch {
         return undefined
     }
@@ -89,7 +96,7 @@ async function startPending<Pending extends PendingApproval, Value>(
     runtime: Runtime,
     flow: ApprovalFlow<Pending, Value>
 ): Promise<Pending> {
-    const existing = await readPending<Pending>(runtime, flow.command)
+    const existing = await readPending(runtime, flow)
     if (existing && existing.expiresAt - runtime.now() > REUSE_MARGIN_MS && flow.reuse?.(existing)) {
         return existing
     }
@@ -229,7 +236,7 @@ export async function resumeApproval<Pending extends PendingApproval, Value>(
     ctx: Context,
     flow: ApprovalWait<Pending, Value>
 ): Promise<Value> {
-    const pending = await readPending<Pending>(ctx.runtime, flow.command)
+    const pending = await readPending(ctx.runtime, flow)
     if (!pending) {
         throw new HogError(
             `no_pending_${flow.noun}`,

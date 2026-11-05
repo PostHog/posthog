@@ -32,7 +32,8 @@ from posthog.paging import Page, PageRequest
 from posthog.queryset_paging import select_page
 from posthog.storage.object_storage import ObjectStorageError
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action, get_actions
+from products.actions.backend.facade.contracts import ActionNotFound
 from products.tasks.backend.facade.model_catalogue import REASONING_EFFORT_DISPLAY_NAMES, display_name_for_model
 
 from ..dataset import templates as templates_module
@@ -57,6 +58,7 @@ from ..evaluation.segment_thresholds import (
     training_base_rate,
 )
 from ..inference.failures import INFERENCE_WORKFLOW_TIMEOUT
+from ..limits import check_training_run_cap, limits_for_team
 from ..models import (
     RESEARCH_INTERVAL_DAYS_CHOICES as _RESEARCH_INTERVAL_DAYS_CHOICES,
     AutoresearchIteration,
@@ -119,6 +121,7 @@ from .contracts import (
     SuggestionNotFound as SuggestionNotFound,
     TemplateInfo,
     TrainingRun,
+    TrainingRunCapReached,
     TrainingRunHistory,
     TrainingRunHistoryEntry,
     TrainingRunNotFound,
@@ -968,8 +971,8 @@ def resolve_action_target(project_id: int, action_id: Any) -> tuple[str, int]:
     observed as an outcome.
     """
     try:
-        action = Action.objects.get(id=action_id, team__project_id=project_id, deleted=False)
-    except (Action.DoesNotExist, ValueError, TypeError, OverflowError):
+        action = get_action(action_id=action_id, project_id=project_id, include_deleted=False)
+    except (ActionNotFound, ValueError, TypeError, OverflowError):
         raise PipelineNotFound(f"Action {action_id} was not found in this project.")
     step_events = action.get_step_events()
     if any(event is None or event == PREDICTION_EVENT_NAME for event in step_events):
@@ -1169,7 +1172,10 @@ def _require_resolvable_target(pipeline: AutoresearchPipeline) -> None:
         return
     action_id = definition.get("action_id")
     action = (
-        Action.objects.filter(id=action_id, team__project_id=pipeline.team.project_id, deleted=False).first()
+        next(
+            iter(get_actions(action_ids=[action_id], project_id=pipeline.team.project_id, include_deleted=False)),
+            None,
+        )
         if isinstance(action_id, int)
         else None
     )
@@ -1315,7 +1321,7 @@ def validate_pipeline_online(
     _require_resolvable_target(pipeline)
     try:
         runs = run_online_validation_for_pipeline(pipeline=pipeline, user=user)
-    except Action.DoesNotExist:
+    except ActionNotFound:
         raise AutoresearchConflict("The pipeline's target action no longer exists.")
     return [_run_to_contract(run) for run in runs]
 
@@ -1471,6 +1477,9 @@ def start_training(
 
     ``allow_action_target=False`` refuses an action target with ``InvalidTarget``. The check
     reads the locked row, so a concurrent edit of the target cannot slip past it.
+
+    Raises ``TrainingRunCapReached`` when the project has used its sandbox training runs for the
+    last 24 hours, across all its pipelines.
     """
     # The runner and the sandbox import pandas and pyarrow, so the router path loads them only here.
     from ..inference.sandbox import SandboxInferenceError  # noqa: PLC0415
@@ -1480,10 +1489,14 @@ def start_training(
     # A run whose sandbox died would otherwise refuse this start for good.
     if (pipeline_uuid := _as_uuid(pipeline_id)) is not None:
         fail_stale_training_runs(team_id=team_id, pipeline_id=pipeline_uuid)
+    # The flag read can call out, so it runs before the row lock is taken.
+    limits = limits_for_team(team_id)
     with transaction.atomic():
         pipeline = _claim_pipeline_for_training(team_id, pipeline_id)
         if not allow_action_target and pipeline.target_definition.get("type") == "action":
             raise InvalidTarget("An action target needs the action:read scope.")
+        if cap := check_training_run_cap(team_id, limits):
+            raise TrainingRunCapReached(used=cap.used, limit=cap.limit, next_slot_at=cap.next_slot_at)
         budget = iteration_budget or pipeline.iterations_per_run
         try:
             training_run = run_training(
@@ -1491,8 +1504,9 @@ def start_training(
                 iteration_budget=budget,
                 user_id=user_id,
                 kickoff_reason=AutoresearchTrainingRun.KickoffReason.MANUAL,
+                limits=limits,
             )
-        except Action.DoesNotExist:
+        except ActionNotFound:
             raise AutoresearchConflict("The pipeline's target action no longer exists.")
         except (ValueError, SandboxInferenceError) as exc:
             # run_training refuses an unresolvable target or a departed creator before any write.

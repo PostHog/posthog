@@ -637,6 +637,7 @@ _TASK_RUN_AGENT_STATE_KEYS = frozenset(
         "end_run_when_done",
         "initial_prompt_override",
         "store_skills",
+        "store_skills_bridge",
         "systemPrompt",
     }
 )
@@ -2063,6 +2064,7 @@ def create_and_run_task(
     branch: str | None = None,
     signal_report_id: str | None = None,
     free_trial_enabled: bool | None = None,
+    continue_admitted_pipeline: bool = False,
     internal: bool | None = None,
     sandbox_environment_id: str | None = None,
     channel_id: str | UUID | None = None,
@@ -2083,6 +2085,10 @@ def create_and_run_task(
     that flag before it takes the report row lock, so handing the result over keeps the flag
     request out of the lock. Left NULL, the gate reads the flag itself.
 
+    ``continue_admitted_pipeline`` is for server-side report orchestration after admission.
+    It lets implementation finish an accepted report/scout pipeline when the spend cap changes.
+    New manual work leaves it false and checks the quota before creating a run.
+
     ``scheduled_at`` creates the run in NOT_STARTED and defers its workflow until the dispatcher
     materializes it at or after that time. The run still stores its complete execution settings.
 
@@ -2094,13 +2100,11 @@ def create_and_run_task(
     signal_report_id = columns.signal_report_id
     if columns.hog_flow_id is not None:
         extra["hog_flow_id"] = columns.hog_flow_id
-    # create_pr=False sessions (research, repo selection, custom agents) can never open the
-    # billable PR, so the quota gate must not block them.
+    # Research and repository selection continue an admitted pipeline; their caller owns
+    # admission. Direct implementation creation still needs its own quota check.
     if origin_product == Task.OriginProduct.SIGNAL_REPORT and create_pr:
-        # Distinct stage from create_task's `manual_create`: the main caller here is the
-        # auto-start pipeline, whose over-quota hits must not pollute the manual-path
-        # dark-launch bucket.
-        enforce_self_driving_pr_quota(team, report_id=signal_report_id, stage="task_create")
+        if not continue_admitted_pipeline:
+            enforce_self_driving_pr_quota(team, report_id=signal_report_id, stage="task_create")
         enforce_self_driving_free_trial(
             team, report_id=signal_report_id, stage="task_create", enabled=free_trial_enabled
         )
@@ -3683,6 +3687,7 @@ def enforce_self_driving_pr_quota(team: Team, *, report_id: str | None = None, s
 
     from products.signals.backend.facade.self_driving import (  # noqa: PLC0415 — cross-product read kept off the api import path
         capture_signal_report_quota_paused,
+        self_driving_limit_name,
         self_driving_quota_gate,
     )
 
@@ -3691,8 +3696,9 @@ def enforce_self_driving_pr_quota(team: Team, *, report_id: str | None = None, s
         capture_signal_report_quota_paused(team, report_id=report_id, stage=stage, enforced=gate.enforced)
     if gate.enforced:
         raise QuotaLimitExceeded(
-            "Your organization reached its self-driving pull request limit. "
-            "Increase the limit from the Inbox usage widget, or ask an org admin to do so."
+            f"Your organization reached its self-driving {self_driving_limit_name(team)}. "
+            "New work is paused; work already underway will finish. "
+            "Increase the limit in Settings > Billing, or ask an organization admin to do so."
         )
 
 

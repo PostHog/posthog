@@ -13,6 +13,7 @@
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
+        "kea-subscriptions": "catalog:",
         "posthog-js": "catalog:",
         "react-intersection-observer": "9.5.3"
     },

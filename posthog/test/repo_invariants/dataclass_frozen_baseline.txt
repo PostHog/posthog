@@ -328,7 +328,6 @@
 1 products/warehouse_sources/sources/scaleway/scaleway.py
 1 products/warehouse_sources/sources/scaleway/settings.py
 1 products/warehouse_sources/sources/semgrep/settings.py
-1 products/warehouse_sources/sources/sendowl/settings.py
 1 products/warehouse_sources/sources/sentry/sentry.py
 1 products/warehouse_sources/sources/sentry/settings.py
 1 products/warehouse_sources/sources/servicenow/settings.py
