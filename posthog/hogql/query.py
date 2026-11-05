@@ -813,8 +813,6 @@ class HogQLQueryExecutor:
             settings.format_csv_allow_double_quotes = self.query_modifiers.formatCsvAllowDoubleQuotes
         if self.query_modifiers.forceClickhouseDataSkippingIndexes:
             settings.force_data_skipping_indices = self.query_modifiers.forceClickhouseDataSkippingIndexes
-        if should_check_team_first_in_prewhere(self.team):
-            settings.move_primary_key_columns_to_end_of_prewhere = False
 
         try:
             self.clickhouse_context = dataclasses.replace(
@@ -844,6 +842,9 @@ class HogQLQueryExecutor:
                     )
                 if settings.read_overflow_mode is None:
                     settings.read_overflow_mode = "throw"
+
+            if should_check_team_first_in_prewhere(self.team, self.clickhouse_context.workload):
+                settings.move_primary_key_columns_to_end_of_prewhere = False
 
             with self.timings.measure("print_prepared_ast"):
                 if self.clickhouse_prepared_ast is None:

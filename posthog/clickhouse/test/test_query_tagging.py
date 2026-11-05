@@ -449,29 +449,13 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
 
         assert comment["plan_fingerprint"] == fingerprint_query(parse_select(sql))
 
-    @parameterized.expand(
-        [
-            ("small_team", True, 99_999_999, True),
-            ("team_at_the_boundary", True, 100_000_000, False),
-            ("team_without_a_volume_row", True, None, False),
-            ("flag_off", False, 1, False),
-            ("flag_error", RuntimeError("flag service error"), 1, False),
-        ]
-    )
-    def test_execute_hogql_query_checks_team_first_only_for_small_flagged_teams(
-        self, _name: str, flag: bool | Exception, events_last_year: int | None, expected: bool
-    ) -> None:
-        if events_last_year is not None:
-            TeamEventVolume.objects.unscoped().create(
-                team=self.team, events_last_year=events_last_year, computed_at=timezone.now()
-            )
+    @parameterized.expand([("flag_on", True), ("flag_off", False)])
+    def test_execute_hogql_query_tags_the_team_first_prewhere_setting(self, _name: str, expected: bool) -> None:
+        TeamEventVolume.objects.unscoped().create(team=self.team, events_last_year=1, computed_at=timezone.now())
         marker = str(uuid.uuid4())
         reset_query_tags()
         tag_queries(kind="request", id="test")
-        with (
-            patch("posthog.hogql.team_first_prewhere.feature_enabled_or_false", side_effect=[flag]),
-            patch("posthog.hogql.team_first_prewhere.capture_exception"),
-        ):
+        with patch("posthog.hogql.team_first_prewhere.feature_enabled_or_false", return_value=expected):
             response = execute_hogql_query(
                 f"SELECT count() FROM events WHERE event = '{marker}'",  # noqa: S608
                 team=self.team,
