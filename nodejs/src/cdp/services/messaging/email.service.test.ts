@@ -1294,13 +1294,19 @@ describe('EmailService', () => {
                     }
                 )
 
-                it('charges a repeated address once for the address and once per spelling for the project', async () => {
+                it('charges both daily caps once per delivered copy of a repeated address', async () => {
                     service = createSandboxService(true, {
-                        senderSettings: { dailyTeamCap: '3', dailyRecipientCap: '1' },
+                        senderSettings: { dailyTeamCap: '4', dailyRecipientCap: '2' },
                     })
 
-                    expectSent(await send(false, { cc: memberEmail().toUpperCase(), bcc: ` ${memberEmail()} ` }))
-                    expectSent(await send(false, { to: { email: memberEmail('cc') } }))
+                    expectCapSkip(
+                        await send(false, { cc: memberEmail().toUpperCase(), bcc: ` ${memberEmail()} ` }),
+                        false,
+                        recipientCapReached(memberEmail()),
+                        'recipient_cap_reached'
+                    )
+                    expectSent(await send(false, { cc: memberEmail().toUpperCase() }))
+                    expectSent(await send(false, { to: { email: memberEmail('cc') }, cc: memberEmail('bcc') }))
                     expectCapSkip(
                         await send(false, { to: { email: memberEmail('bcc') } }),
                         false,
