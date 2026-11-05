@@ -3511,15 +3511,6 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 return
             }
 
-            // Redirect away from bot analytics tab if the feature flag is disabled
-            if (
-                productTab === ProductTab.BOT_ANALYTICS &&
-                !values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]
-            ) {
-                router.actions.replace(urls.webAnalytics())
-                return
-            }
-
             if (
                 productTab === ProductTab.PAGE_PERFORMANCE &&
                 !values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]
@@ -3533,7 +3524,10 @@ export const webAnalyticsLogic: LogicWrapper<webAnalyticsLogicType> = kea<webAna
                 return
             }
 
-            if (productTab === ProductTab.CONTENT_AUTOPILOT && !isContentAutopilotEnabled(values.featureFlags)) {
+            if (
+                [ProductTab.CONTENT_AUTOPILOT, ProductTab.BOT_ANALYTICS].includes(productTab) &&
+                !isContentAutopilotEnabled(values.featureFlags)
+            ) {
                 router.actions.replace(urls.webAnalytics())
                 return
             }

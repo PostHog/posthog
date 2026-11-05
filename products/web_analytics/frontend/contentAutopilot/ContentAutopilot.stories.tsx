@@ -94,7 +94,7 @@ const meta: Meta<typeof ContentAutopilot> = {
     component: ContentAutopilot,
     parameters: {
         layout: 'fullscreen',
-        featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE, FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT],
+        featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT],
         // The fixtures carry fixed dates and the UI shows them relative to now, so the clock is pinned near them.
         mockDate: '2026-09-30',
     },
@@ -102,27 +102,20 @@ const meta: Meta<typeof ContentAutopilot> = {
 
 export default meta
 
-export const Onboarding: StoryFn<typeof ContentAutopilot> = () => (
-    <div className="p-6">
-        <ContentAutopilot />
-    </div>
-)
-Onboarding.decorators = [workspaceHandlers({ profiles: [] })]
-
 const WorkspaceTabStory = ({ tab }: { tab: ContentAutopilotWorkspaceTab }): JSX.Element => {
-    const { profileDataLoaded } = useValues(contentAutopilotLogic)
     const { setWorkspaceTab } = useActions(contentAutopilotLogic)
     useEffect(() => {
-        if (profileDataLoaded) {
-            setWorkspaceTab(tab)
-        }
-    }, [profileDataLoaded, setWorkspaceTab, tab])
+        setWorkspaceTab(tab)
+    }, [setWorkspaceTab, tab])
     return (
         <div className="p-6">
             <ContentAutopilot />
         </div>
     )
 }
+
+export const Onboarding: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="opportunities" />
+Onboarding.decorators = [workspaceHandlers({ profiles: [] })]
 
 export const MultipleSites: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="opportunities" />
 MultipleSites.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE, EXAMPLE_SECOND_PROFILE] })]
