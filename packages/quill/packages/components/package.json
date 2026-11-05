@@ -39,7 +39,7 @@
         "@posthog/quill-charts": "workspace:^",
         "@posthog/quill-primitives": "workspace:^",
         "@posthog/quill-tokens": "workspace:^",
-        "date-fns": "^4.0.0",
+        "date-fns": "^4.4.0",
         "lucide-react": "^0.577.0"
     },
     "devDependencies": {

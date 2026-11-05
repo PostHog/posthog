@@ -39,14 +39,14 @@
         "check:node-import": "node --input-type=module -e \"await import('./dist/index.js'); await import('./dist/testing.js')\" && node -e \"require('./dist/index.cjs'); require('./dist/testing.cjs')\""
     },
     "dependencies": {
-        "@floating-ui/react": "^0.27.19",
+        "@floating-ui/react": "^0.27.20",
         "@types/d3-shape": "^3.2.0",
         "d3-array": "^3.2.4",
         "d3-color": "^3.1.0",
         "d3-scale": "^4.0.2",
         "d3-shape": "^3.2.0",
         "dayjs": "1.11.11",
-        "simple-statistics": "^7.8.3"
+        "simple-statistics": "^7.12.1"
     },
     "devDependencies": {
         "@posthog/quill-tokens": "workspace:*",
