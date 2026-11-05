@@ -114,7 +114,12 @@ export function NodeMessagesTab({
                                 </div>
                             </>
                         ) : (
-                            <IOPanel input={loaded.input} output={loaded.output} />
+                            <IOPanel
+                                key={stepId}
+                                input={loaded.input}
+                                output={loaded.output}
+                                highlightQuery={highlightQuery}
+                            />
                         )}
                         {onViewInThread ? (
                             <LemonButton
