@@ -202,6 +202,17 @@ The request thread only appends to an in-process queue; a background thread writ
 When the payload also sets `mcp_render_enabled`, the activity summary build reads the buffer and renders one line per MCP session in the summary input.
 A failed read gives an empty section and sets `mcp_read_error` in the build's `inputs_used`; it never fails the build.
 
+### Workload writes
+
+A row written with a workload access token (credential type `oidc_workload`) records the workload on the row itself, so it renders after the token expires.
+When the product passes no trigger of its own, `log_activity` fills it with `Trigger(job_type="workload", job_id=<trust policy id>, payload=...)`.
+The payload holds the provider, the actor label, the subject name, the claims the provider's registry entry records (`claims`) with their labels (`claim_labels`), the run link, and the trust policy's id and name.
+The actor label and the run link come from the provider's templates, formatted with the recorded claims.
+A workload trigger comes before an agent trigger, because the server verified the workload and agent intent is a claim.
+The row also gets the server-derived client tag `workload:<subject name>`, and the API drops an `x-posthog-client` header that claims the `workload:` prefix.
+The activity log names the workload as the actor, using its provider's actor label, linked to its run and its trust policy, instead of the organization owner the token acts as.
+Filter these rows with the client filter, or with a detail filter on `trigger.payload.subject_name` or a recorded claim such as `trigger.payload.claims.run_id`.
+
 ### Client IP
 
 `ActivityLoggingMiddleware` stores the request's client IP, and `log_activity` writes it to `ActivityLog.ip_address`.

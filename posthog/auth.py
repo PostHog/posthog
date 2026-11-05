@@ -1,6 +1,7 @@
 import re
 import hmac
 import time
+import string
 import logging
 import functools
 from abc import abstractmethod
@@ -39,7 +40,10 @@ from posthog.helpers.verified_domain_enforcement import enforce_verified_domain
 from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
 from posthog.internal_api_secret import usable_internal_api_secrets
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt, get_oidc_verification_keys
+from posthog.models.activity_logging.activity_log import WORKLOAD_TRIGGER_JOB_TYPE, Trigger
 from posthog.models.activity_logging.utils import (
+    ACTIVITY_LOG_CLIENT_MAX_LENGTH,
+    WORKLOAD_CLIENT_PREFIX,
     ActivityCredentialMixin,
     DeclaredCredentialType,
     activity_storage,
@@ -822,6 +826,16 @@ class VerifiedWorkloadAccessToken:
     workload_claims: dict[str, str]
 
 
+def _template_fields(template: str) -> set[str]:
+    return {name for _, name, _, _ in string.Formatter().parse(template) if name}
+
+
+def _format_with_claims(template: str, claims: dict[str, str]) -> str:
+    """Fill a provider template's `{claim}` fields with the recorded claims. A missing claim formats as an
+    empty string. The registry refuses templates whose fields aren't recorded claims."""
+    return template.format_map({name: claims.get(name, "") for name in _template_fields(template)})
+
+
 class WorkloadAccessTokenAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """
     Authenticates API requests made with the short-lived token a workload gets by exchanging its
@@ -974,7 +988,53 @@ class WorkloadAccessTokenAuthentication(ActivityCredentialMixin, authentication.
                 user_id=verified.user.pk, team_id=verified.team_id, access_method=AccessMethod.OIDC_WORKLOAD
             )
             self.record_activity_actor(verified.user, verified.policy_id)
+            self._record_workload(verified)
             return verified.user, None
+
+    @staticmethod
+    def _record_workload(verified: VerifiedWorkloadAccessToken) -> None:
+        """Put the workload on every activity row this request writes, so the row names the workload as
+        the actor after the token is gone, and can be filtered by the client tag."""
+        if not activity_storage.is_request_scoped():
+            return
+        subject_name = verified.workload_subject_name
+        if subject_name:
+            activity_storage.set_client(f"{WORKLOAD_CLIENT_PREFIX}{subject_name}"[:ACTIVITY_LOG_CLIENT_MAX_LENGTH])
+
+        def workload_trigger() -> Trigger:
+            # Deferred because `posthog.api.oauth` imports its views, which import this module.
+            from posthog.workload_identity.providers import get_workload_provider_by_key  # noqa: PLC0415
+
+            provider = get_workload_provider_by_key(verified.workload_provider)
+            claims = verified.workload_claims
+            actor_label = (
+                _format_with_claims(provider.actor_label_template, claims).strip(" ·") if provider else ""
+            ) or subject_name
+            run_url_template = provider.run_url_template if provider else None
+            # A link with an empty path segment points nowhere useful, so it needs every claim it names.
+            run_url = (
+                _format_with_claims(run_url_template, claims)
+                if run_url_template and all(claims.get(name) for name in _template_fields(run_url_template))
+                else None
+            )
+            claim_labels = {claim.name: claim.label for claim in provider.recorded_claims} if provider else {}
+            return Trigger(
+                job_type=WORKLOAD_TRIGGER_JOB_TYPE,
+                job_id=verified.policy_id,
+                payload={
+                    "provider": verified.workload_provider,
+                    "provider_name": provider.name if provider else verified.workload_provider,
+                    "actor_label": actor_label,
+                    "subject_name": subject_name,
+                    "claims": claims,
+                    "claim_labels": {name: claim_labels.get(name, name) for name in claims},
+                    "run_url": run_url,
+                    "policy_id": verified.policy_id,
+                    "policy_name": verified.policy_name,
+                },
+            )
+
+        activity_storage.set_verified_trigger_resolver(workload_trigger)
 
     def authenticate_header(self, request) -> str:
         return self.keyword

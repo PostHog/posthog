@@ -140,6 +140,37 @@ class TestWorkloadTokenExchange(APIBaseTest):
         assert annotation.created_by_id == self.user.id != newer_owner.id
         entry = ActivityLog.objects.filter(scope="Annotation", item_id=str(annotation.pk)).get()
         assert (entry.credential_type, entry.credential_id) == ("oidc_workload", str(self.policy.pk))
+        assert entry.client == "workload:acme/web"
+        assert entry.detail is not None
+        assert entry.detail["trigger"] == {
+            "job_type": "workload",
+            "job_id": str(self.policy.pk),
+            "payload": {
+                "provider": "fake_ci",
+                "provider_name": "Fake CI",
+                "actor_label": "acme/web · deploy.yml run 987",
+                "subject_name": "acme/web",
+                "claims": {
+                    "repository": "acme/web",
+                    "workflow": "deploy.yml",
+                    "run_id": "987",
+                    "sha": "abc123",
+                    "ref": "refs/heads/main",
+                    "environment": "production",
+                },
+                "claim_labels": {
+                    "repository": "Repository",
+                    "workflow": "Workflow",
+                    "run_id": "Run",
+                    "sha": "Commit",
+                    "ref": "Branch or tag",
+                    "environment": "Environment",
+                },
+                "run_url": "https://ci.example.com/acme/web/runs/987",
+                "policy_id": str(self.policy.pk),
+                "policy_name": "Production deploys",
+            },
+        }
 
     @parameterized.expand(
         [
