@@ -733,29 +733,37 @@ class TestMaybeReconcileDag(BaseTest):
 
         list_schedules.assert_not_called()
 
-    def test_unreadable_plan_floor_retries_the_write_until_the_floor_reads(self):
+    @parameterized.expand(
+        [
+            ("withdrawal_succeeds", None),
+            ("withdrawal_fails", RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b"")),
+        ]
+    )
+    def test_unreadable_plan_floor_retries_the_write_until_the_floor_reads(self, _name, withdrawal_error):
         dag = self._dag_with_target()
         temporal = self._temporal_listing([])
 
         with (
             mock.patch(FLAG_RESULT, side_effect=RuntimeError("flags down")),
-            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
+            mock.patch(
+                f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal, side_effect=withdrawal_error)
+            ),
             mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
             mock.patch(f"{RECONCILE_TASKS}.reconcile_dag_schedules_with_retry.delay") as queue_retry,
         ):
             with self.captureOnCommitCallbacks(execute=True):
                 maybe_reconcile_dag(dag)
-            queue_retry.assert_called_once_with(str(dag.id))
+            queue_retry.assert_called_once_with(str(dag.id), dag.team_id)
 
             with self.assertRaises(PlanFloorUnavailableError):
-                reconcile_dag_or_raise(str(dag.id))
+                reconcile_dag_or_raise(str(dag.id), dag.team_id)
             create.assert_not_called()
 
         with (
             mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
             mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
         ):
-            reconcile_dag_or_raise(str(dag.id))
+            reconcile_dag_or_raise(str(dag.id), dag.team_id)
         self.assertEqual(create.call_args.kwargs["id"], tier_schedule_id(str(dag.id), M15))
 
     @parameterized.expand([("describe",), ("delete",), ("update",)])

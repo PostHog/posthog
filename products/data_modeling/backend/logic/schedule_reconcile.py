@@ -124,12 +124,12 @@ def _reconcile_dag_best_effort(dag: DAG) -> None:
         logger.exception("Freshness schedule reconcile failed", dag_id=str(dag.id), team_id=dag.team_id)
         capture_exception(error)
         if isinstance(error, PlanFloorUnavailableError):
-            schedule_dag_schedule_reconcile(str(dag.id))
+            schedule_dag_schedule_reconcile(str(dag.id), dag.team_id)
 
 
-def reconcile_dag_or_raise(dag_id: str) -> None:
+def reconcile_dag_or_raise(dag_id: str, team_id: int) -> None:
     """Reconcile the DAG, raising if the plan floor is unreadable or a stale schedule survives, so the caller can retry."""
-    dag = DAG.objects.filter(id=dag_id).select_related("team").first()
+    dag = DAG.objects.filter(id=dag_id, team_id=team_id).select_related("team").first()
     if dag is None:
         return
     if _reconcile_dag(dag):
@@ -394,21 +394,26 @@ def reconcile_dag_schedules(dag: DAG, *, graph: FrequencyGraph | None = None) ->
     schedules are torn down. Returns the ids of stale schedules that could not be deleted.
 
     While the plan floor is unreadable this only takes nodes with no cadence off their schedules, and
-    then raises, because any other change could speed up a schedule the floor holds back.
+    then raises, because any other change could speed up a schedule the floor holds back. It raises
+    the same error if taking those nodes off fails, so `_reconcile_dag_best_effort` still queues its retry.
     """
     team = dag.team
     if graph is None:
         graph = build_frequency_graph(dag)
     effective, _clamped = scheduled_cadences(graph)
     if not graph.plan_floor_evaluated:
-        _withdraw_unscheduled_nodes(
-            dag_id=str(dag.id),
-            team_id=team.pk,
-            organization_id=str(team.organization_id),
-            team_timezone=team.timezone,
-            scheduled={node_id for node_id, cadence in effective.items() if cadence is not None},
-        )
-        raise PlanFloorUnavailableError(f"Plan refresh floor unavailable for team {team.pk}")
+        floor_unavailable = PlanFloorUnavailableError(f"Plan refresh floor unavailable for team {team.pk}")
+        try:
+            _withdraw_unscheduled_nodes(
+                dag_id=str(dag.id),
+                team_id=team.pk,
+                organization_id=str(team.organization_id),
+                team_timezone=team.timezone,
+                scheduled={node_id for node_id, cadence in effective.items() if cadence is not None},
+            )
+        except Exception as error:
+            raise floor_unavailable from error
+        raise floor_unavailable
     desired_tiers = bucket_into_cadence_tiers(effective, graph.declared_anchors)
     return _apply_reconciliation(
         dag_id=str(dag.id),

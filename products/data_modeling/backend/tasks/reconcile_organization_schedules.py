@@ -23,10 +23,10 @@ def reconcile_organization_schedules(organization_id: str) -> None:
 
 @shared_task(ignore_result=True, **RECONCILE_RETRY_OPTIONS)
 @skip_team_scope_audit
-def reconcile_dag_schedules_with_retry(dag_id: str) -> None:
+def reconcile_dag_schedules_with_retry(dag_id: str, team_id: int) -> None:
     from products.data_modeling.backend.logic.schedule_reconcile import reconcile_dag_or_raise
 
-    reconcile_dag_or_raise(dag_id)
+    reconcile_dag_or_raise(dag_id, team_id)
 
 
 def schedule_organization_schedule_reconcile(organization_id: str) -> None:
@@ -34,6 +34,6 @@ def schedule_organization_schedule_reconcile(organization_id: str) -> None:
     transaction.on_commit(lambda: reconcile_organization_schedules.delay(organization_id), robust=True)
 
 
-def schedule_dag_schedule_reconcile(dag_id: str) -> None:
+def schedule_dag_schedule_reconcile(dag_id: str, team_id: int) -> None:
     """Apply a write to the DAG's schedules once the plan floor can be read again."""
-    transaction.on_commit(lambda: reconcile_dag_schedules_with_retry.delay(dag_id), robust=True)
+    transaction.on_commit(lambda: reconcile_dag_schedules_with_retry.delay(dag_id, team_id), robust=True)
