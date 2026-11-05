@@ -50,8 +50,8 @@ export interface messageTemplateTestSendLogicValues {
     recipientEmail: string
     recipientIsUnverifiedSelf: boolean
     recipientNotSuggested: boolean
-    recipientUncheckable: boolean
     recipientSuggestions: string[]
+    recipientUncheckable: boolean
     sendDisabledReason: string | undefined
     senderIntegrationId: number | null
     senderIntegrationIdOverride: number | null
