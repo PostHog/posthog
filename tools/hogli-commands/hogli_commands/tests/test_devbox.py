@@ -17,6 +17,7 @@ from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 from hogli.cli import cli
+from hogli_commands import worktrees
 from hogli_commands.devbox import (
     cli as devbox_cli,
     coder,
@@ -911,8 +912,9 @@ class TestWorktreeLabel:
             ("feat/session-replay", "feat-session-replay"),
             ("Fix_Cohort__Query", "fix-cohort-query"),
             ("worktree-agent-abc", "agent-abc"),
+            ("worktree/brave-river-1a2b", "brave-river-1a2b"),
         ],
-        ids=["slash", "case-and-underscores", "claude-worktree-prefix"],
+        ids=["slash", "case-and-underscores", "claude-worktree-prefix", "herdr-worktree-prefix"],
     )
     def test_short_branch_becomes_readable_label(self, branch: str, expected: str) -> None:
         assert devbox_worktree.derive_label(branch, 20) == expected
@@ -966,6 +968,139 @@ class TestWorktreeAutoProvision:
     ) -> None:
         root = Path("/work") / worktree_name
         assert devbox_worktree.should_auto_provision(root, source, frozenset(enabled)) is expected
+
+    @pytest.mark.parametrize(
+        "herdr_installed, listed_plugins, expected_link",
+        [
+            pytest.param(True, [], True, id="links-from-the-main-checkout"),
+            pytest.param(
+                True,
+                [{"plugin_id": "posthog.devbox", "plugin_root": "/elsewhere", "enabled": False}],
+                False,
+                id="keeps-an-existing-link-and-its-disabled-state",
+            ),
+            pytest.param(False, [], False, id="herdr-not-installed"),
+        ],
+    )
+    def test_auto_with_herdr_links_the_plugin_once(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        herdr_installed: bool,
+        listed_plugins: list[dict[str, object]],
+        expected_link: bool,
+    ) -> None:
+        main = tmp_path / "main"
+        (main / "tools" / "herdr-devbox-plugin").mkdir(parents=True)
+        (main / "tools" / "herdr-devbox-plugin" / "herdr-plugin.toml").write_text("")
+        monkeypatch.setattr(devbox_config, "get_config_path", lambda: tmp_path / "config.json")
+        monkeypatch.setattr(devbox_worktree, "_detect_local_posthog_checkout", lambda: tmp_path / "wt")
+        monkeypatch.setattr(
+            devbox_worktree.shutil, "which", lambda name: "/bin/herdr" if herdr_installed and name == "herdr" else None
+        )
+        herdr_calls: list[list[str]] = []
+
+        def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            if command[0] == "git":
+                return subprocess.CompletedProcess(command, 0, stdout=f"{main / '.git'}\n", stderr="")
+            herdr_calls.append(command)
+            listing = {"id": "cli", "result": {"type": "plugin_list", "plugins": listed_plugins}}
+            return subprocess.CompletedProcess(command, 0, stdout=json.dumps(listing), stderr="")
+
+        monkeypatch.setattr(devbox_worktree.subprocess, "run", fake_run)
+
+        result = runner.invoke(cli, ["devbox:worktree", "--auto", "claude,herdr"])
+
+        assert result.exit_code == 0, result.output
+        links = [call for call in herdr_calls if call[1:3] == ["plugin", "link"]]
+        assert links == (
+            [["/bin/herdr", "plugin", "link", str(main / "tools" / "herdr-devbox-plugin")]] if expected_link else []
+        )
+
+    @pytest.mark.parametrize(
+        "existing_settings, expected_settings",
+        [
+            pytest.param(None, devbox_worktree._CONDUCTOR_SCRIPTS, id="writes-the-local-settings"),
+            pytest.param(
+                '[scripts]\nsetup = "./my-setup.sh"\n',
+                '[scripts]\nsetup = "./my-setup.sh"\n',
+                id="keeps-the-users-own-scripts",
+            ),
+        ],
+    )
+    def test_auto_with_conductor_adds_scripts_only_to_uncommitted_settings(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        existing_settings: str | None,
+        expected_settings: str,
+    ) -> None:
+        main = tmp_path / "main"
+        settings_path = main / ".conductor" / "settings.local.toml"
+        main.mkdir()
+        if existing_settings is not None:
+            settings_path.parent.mkdir()
+            settings_path.write_text(existing_settings)
+        monkeypatch.setattr(devbox_config, "get_config_path", lambda: tmp_path / "config.json")
+        monkeypatch.setattr(devbox_worktree, "_detect_local_posthog_checkout", lambda: tmp_path / "wt")
+        monkeypatch.setattr(
+            devbox_worktree.subprocess,
+            "run",
+            lambda command, **kwargs: subprocess.CompletedProcess(command, 0, stdout=f"{main / '.git'}\n", stderr=""),
+        )
+
+        result = runner.invoke(cli, ["devbox:worktree", "--auto", "conductor"])
+
+        assert result.exit_code == 0, result.output
+        assert settings_path.read_text() == expected_settings
+
+    @pytest.mark.parametrize(
+        "source_arg, enabled, first_spawn_fails, expected_starts",
+        [
+            pytest.param("t3code", "t3code", False, 1, id="tool-hook-declares-an-enabled-source"),
+            pytest.param(None, "t3code", False, 0, id="husky-hook-sees-only-the-folder"),
+            pytest.param("t3code", "claude", False, 0, id="declared-source-not-enabled"),
+            pytest.param("t3code", "t3code", True, 1, id="failed-spawn-releases-the-claim"),
+        ],
+    )
+    def test_auto_starts_at_most_one_box_per_worktree(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        source_arg: str | None,
+        enabled: str,
+        first_spawn_fails: bool,
+        expected_starts: int,
+    ) -> None:
+        root = tmp_path / "wt"
+        (root / "admin").mkdir(parents=True)
+        (root / ".git").write_text("gitdir: elsewhere\n")
+        monkeypatch.setattr(devbox_config, "get_config_path", lambda: tmp_path / "config.json")
+        devbox_config.save_worktree_auto_sources([enabled])
+        monkeypatch.setattr(devbox_worktree, "_detect_local_posthog_checkout", lambda: root)
+        monkeypatch.setattr(devbox_worktree, "_git_dir", lambda root: root / "admin")
+        monkeypatch.setattr(devbox_worktree, "worktree_source", lambda root: "other")
+        starts: list[list[str]] = []
+        attempts: list[list[str]] = []
+        real_popen = subprocess.Popen
+
+        def fake_popen(command: list[str], *args: object, **kwargs: object) -> object:
+            if "devbox:worktree" not in command:
+                return real_popen(command, *args, **kwargs)
+            attempts.append(command)
+            if first_spawn_fails and len(attempts) == 1:
+                raise OSError("spawn failed")
+            starts.append(command)
+            return MagicMock()
+
+        monkeypatch.setattr(devbox_worktree.subprocess, "Popen", fake_popen)
+        args = ["devbox:worktree:auto", *(["--source", source_arg] if source_arg else [])]
+
+        for attempt in range(2):
+            result = runner.invoke(cli, args)
+            assert result.exit_code == (1 if first_spawn_fails and attempt == 0 else 0), result.output
+
+        assert len(starts) == expected_starts
 
 
 class TestDevboxWorktreeCommand:
@@ -1064,6 +1199,88 @@ class TestDevboxWorktreeCommand:
         expected_calls = [expected_box] if expected_exit == 0 else []
         assert (started, synced) == (expected_calls, expected_calls)
         assert devbox_config.load_worktree_boxes()[str(worktree_root)].workspace == expected_box
+
+    @pytest.mark.parametrize(
+        "live_id, expected_exit",
+        [
+            pytest.param("id-of-the-old-box", 0, id="adopts-the-box-it-replaces-and-resets-its-mirror"),
+            pytest.param("id-of-a-recreated-box", 1, id="refuses-a-same-name-box-it-did-not-set-up"),
+        ],
+    )
+    def test_worktree_recreated_at_the_same_path(
+        self, monkeypatch: pytest.MonkeyPatch, worktree_root: Path, live_id: str, expected_exit: int
+    ) -> None:
+        name = "devbox-test-user-wt"
+        workspaces = [{"name": name, "id": live_id, "latest_build": {"status": "stopped"}}]
+        monkeypatch.setattr(devbox_worktree, "fetch_user_workspaces", lambda: workspaces)
+        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: workspaces)
+        devbox_config.record_worktree_box(
+            worktree_root,
+            devbox_config.WorktreeBoxRecord(
+                workspace=name,
+                git_dir="admin",
+                workspace_id="id-of-the-old-box",
+                worktree_id="id-of-the-removed-worktree",
+            ),
+        )
+        started: list[str] = []
+        terminated: list[str] = []
+        monkeypatch.setattr(
+            devbox_worktree,
+            "devbox_start",
+            lambda workspace, region, verbose, start_app=None: started.append(workspace),
+        )
+        monkeypatch.setattr(devbox_worktree, "ensure_sync_session", lambda *a, **kw: None)
+        monkeypatch.setattr(devbox_worktree.mutagen, "sync_terminate", terminated.append)
+
+        result = runner.invoke(cli, ["devbox:worktree"])
+
+        assert result.exit_code == expected_exit, result.output
+        adopted = expected_exit == 0
+        assert started == (["wt"] if adopted else [])
+        assert terminated == ([devbox_worktree.mutagen.workspace_label_selector(name)] if adopted else [])
+        record = devbox_config.load_worktree_boxes()[str(worktree_root)]
+        assert (record.worktree_id != "id-of-the-removed-worktree") is adopted
+
+    def test_box_of_a_worktree_removed_during_setup_is_stopped_instead_of_synced(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, devbox_config_path: Path
+    ) -> None:
+        main = tmp_path / "main"
+        main.mkdir()
+        _git(main, "init", "-q", "-b", "master")
+        _git(main, "commit", "-q", "--allow-empty", "-m", "init")
+        root = tmp_path / "wt"
+        _git(main, "worktree", "add", "-q", "-b", "feat", str(root))
+        name = "devbox-test-user-feat"
+        workspaces: list[dict[str, Any]] = []
+        monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: tmp_path / "boxes.json")
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        monkeypatch.setattr(devbox_worktree, "get_username", lambda: "test-user")
+        monkeypatch.setattr(devbox_worktree, "get_coder_url", lambda: "https://coder.example.com")
+        monkeypatch.setattr(devbox_worktree, "_detect_local_posthog_checkout", lambda: root)
+        monkeypatch.setattr(devbox_worktree, "_preferred_region", lambda: "us-east-1")
+        monkeypatch.setattr(devbox_mutagen, "sync_list", lambda label_selector=None: [])
+        monkeypatch.setattr(devbox_mutagen, "sync_terminate", lambda selector: None)
+        for module in (devbox_worktree, worktrees):
+            monkeypatch.setattr(module, "ensure_runtime_ready", lambda: None)
+            monkeypatch.setattr(module, "fetch_user_workspaces", lambda: workspaces)
+        stopped: list[str] = []
+        synced: list[str] = []
+        monkeypatch.setattr(worktrees, "stop_workspace", stopped.append)
+        monkeypatch.setattr(devbox_worktree, "ensure_sync_session", lambda name, *a, **kw: synced.append(name))
+
+        def start_while_the_app_removes_the_worktree(
+            workspace: str, region: str, verbose: bool, start_app: bool | None = None
+        ) -> None:
+            workspaces.append({"name": name, "id": "id-new-box", "latest_build": {"status": "running"}})
+            _git(main, "worktree", "remove", "--force", str(root))
+
+        monkeypatch.setattr(devbox_worktree, "devbox_start", start_while_the_app_removes_the_worktree)
+
+        result = runner.invoke(cli, ["devbox:worktree"])
+
+        assert result.exit_code == 0, result.output
+        assert (stopped, synced) == ([name], [])
 
     @pytest.mark.parametrize("box_exists", [False, True], ids=["before-the-box-exists", "while-the-box-is-set-up"])
     def test_label_claimed_by_another_worktree_is_refused(

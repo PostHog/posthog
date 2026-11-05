@@ -60,6 +60,12 @@ from posthog.temporal.alerts.admission import (
     release_evaluation_slot,
     release_evaluation_slots,
 )
+from posthog.temporal.alerts.alert_firing_signal import (
+    AlertFiringSignal,
+    alert_firing_skip_reason,
+    dispatch_alert_firing_signal,
+    prepare_alert_firing_signal,
+)
 from posthog.temporal.alerts.investigation import (
     carried_verdict_suppresses,
     claim_investigation_slot,
@@ -71,6 +77,7 @@ from posthog.temporal.alerts.types import (
     AdmitEvaluationsInputs,
     AdmittedEvaluations,
     AlertInfo,
+    EmitAlertFiringSignalActivityInputs,
     EvaluateAlertActivityInputs,
     EvaluateAlertResult,
     NotifyAlertActivityInputs,
@@ -783,6 +790,9 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         # recorded on the check and can't affect the alert outcome.
         if should_run_metrics_investigation:
             run_metrics_alert_investigation(alert, alert_check)
+        signal_candidate = (
+            alert_firing_skip_reason(alert, previous_state=previous_state, new_state=alert_check.state) is None
+        )
 
         return EvaluateAlertResult(
             alert_check_id=str(alert_check.id),
@@ -792,6 +802,8 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             should_start_investigation=should_start_investigation,
             should_gate_notification=should_gate_notification,
             investigation_user_id=alert.created_by_id if should_start_investigation else None,
+            signal_candidate=signal_candidate,
+            previous_state=AlertState(previous_state),
         )
 
     team_id = inputs.team_id
@@ -862,6 +874,41 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         lease=timeouts.evaluation_slot_lease,
         stop_work=_stop_work,
     )
+
+
+def _prepare_firing_signal(inputs: EmitAlertFiringSignalActivityInputs) -> AlertFiringSignal | None:
+    alert_check = (
+        AlertCheck.objects.select_related("alert_configuration__insight", "alert_configuration__team")
+        .filter(
+            id=inputs.alert_check_id,
+            alert_configuration_id=inputs.alert_id,
+            alert_configuration__team_id=inputs.team_id,
+        )
+        .first()
+    )
+    if alert_check is None:
+        return None
+    alert = alert_check.alert_configuration
+    # The evaluation ruled out a platform-owned alert. This covers an owner change since then.
+    if not alert.enabled or alert.platform_owned:
+        return None
+    return prepare_alert_firing_signal(
+        alert, alert_check, previous_state=inputs.previous_state, breaches=inputs.breaches
+    )
+
+
+@temporalio.activity.defn
+async def emit_alert_firing_signal(inputs: EmitAlertFiringSignalActivityInputs) -> None:
+    """Send the inbox signal for a check that started a firing episode.
+
+    The workflow runs it after the notification, so a slow or stuck send never delays the
+    notification. It skips a deleted or disabled alert, and runs the gates again against the
+    current alert, so an edit since the evaluation can still stop the signal.
+    """
+    signal = await database_sync_to_async(_prepare_firing_signal, thread_sensitive=False)(inputs)
+    if signal is not None:
+        # On the event loop, not in the thread: emit_signal needs the default executor.
+        await dispatch_alert_firing_signal(signal)
 
 
 def _lock_evaluation_alert(*, alert_id: str, team_id: int, insight_id: int) -> AlertConfiguration | None:

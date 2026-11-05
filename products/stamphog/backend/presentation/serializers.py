@@ -16,10 +16,18 @@ from ..facade import contracts
 from ..facade.enums import (
     ChannelResolutionSource,
     DigestRunStatus,
+    LlmSkipReason,
+    OwnerKind,
+    OwnersFileStatus,
+    PinReason,
     ReviewMode,
     ReviewRunStatus,
     ReviewTrigger,
     ReviewVerdict,
+    RoutingMode,
+    RoutingOwnerOutcome,
+    RoutingOwnerReason,
+    RoutingScope,
 )
 
 
@@ -71,7 +79,7 @@ class StamphogRepoConfigSerializer(DataclassSerializer):
         help_text=(
             "The caller's access level on the stamphog resource, resolved for the team that owns this "
             "row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change "
-            "review_mode or trigger_label."
+            "review_mode, trigger_label or routing_mode."
         ),
     )
 
@@ -105,6 +113,16 @@ class StamphogRepoConfigSerializer(DataclassSerializer):
             "default), mirroring the Action's opt-in flow; 'all' reviews every pull request."
         ),
     )
+    routing_mode = serializers.ChoiceField(
+        choices=RoutingMode.choices,
+        read_only=True,
+        help_text=(
+            "When stamphog requests reviews from the code owners in the repository's owners.yaml: 'off' (the "
+            "default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' "
+            "only when stamphog does not approve, where an approval requests only the owners of sensitive and "
+            "new paths."
+        ),
+    )
 
     class Meta:
         dataclass = contracts.RepoConfigDTO
@@ -117,6 +135,7 @@ class StamphogRepoConfigSerializer(DataclassSerializer):
             "digest_enabled",
             "review_mode",
             "trigger_label",
+            "routing_mode",
             "user_access_level",
             "created_at",
             "updated_at",
@@ -750,6 +769,16 @@ class StamphogRepoConfigWriteSerializer(serializers.Serializer):
         required=False,
         help_text=("Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'."),
     )
+    routing_mode = serializers.ChoiceField(
+        choices=RoutingMode.choices,
+        required=False,
+        help_text=(
+            "When stamphog requests reviews from the code owners in the repository's owners.yaml: 'off' (the "
+            "default) never; 'always' when a pull request opens ready for review or is marked ready; 'fallback' "
+            "only when stamphog does not approve, where an approval requests only the owners of sensitive and "
+            "new paths."
+        ),
+    )
 
     def __init__(
         self,
@@ -791,3 +820,192 @@ class StamphogRepoConfigWriteSerializer(serializers.Serializer):
         # pairing the soft-delete tombstone applies, and the Enabled toggle sends only `enabled`.
         attrs["digest_enabled"] = False
         return attrs
+
+
+class StamphogOwnersFileSerializer(serializers.Serializer):
+    """Whether a repository can use reviewer requests, which read ownership from its owners.yaml."""
+
+    owners_file = serializers.ChoiceField(
+        choices=OwnersFileStatus.choices,
+        help_text=(
+            "Whether the default branch has a root owners.yaml: 'found', 'missing', or 'unavailable' when "
+            "the check could not ask GitHub (no installation, or GitHub answered with an error)."
+        ),
+    )
+
+
+class StamphogRoutingRunsQuerySerializer(serializers.Serializer):
+    """Query parameters for listing reviewer routing runs."""
+
+    repository = serializers.CharField(
+        required=False, help_text="Filter by repository full name, e.g. 'PostHog/posthog'."
+    )
+    pr_number = serializers.IntegerField(required=False, help_text="Filter by pull request number.")
+    owner = serializers.CharField(
+        required=False,
+        help_text=(
+            "Keep only runs that decided about this owner, spelled as in owners.yaml: a team slug such as "
+            "'team-devex', or a GitHub login such as '@octocat'."
+        ),
+    )
+
+
+@extend_schema_serializer(component_name="StamphogRoutingPin")
+class RoutingPinSerializer(DataclassSerializer):
+    reason = serializers.ChoiceField(
+        choices=PinReason.choices, read_only=True, help_text="Why the path pins its owner."
+    )
+
+    class Meta:
+        dataclass = contracts.RoutingPinDTO
+        extra_kwargs = {
+            "path": {"help_text": "The changed path, or the new directory, that pinned the owner."},
+        }
+
+
+@extend_schema_serializer(component_name="StamphogRoutingFile")
+class RoutingFileSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = contracts.RoutingFileDTO
+        extra_kwargs = {
+            "path": {"help_text": "The changed path."},
+            "previous_path": {"help_text": "The path before a rename. Null for any other change."},
+            "status": {"help_text": "GitHub's file status, such as 'added', 'modified', 'removed' or 'renamed'."},
+            "additions": {"help_text": "Added lines."},
+            "deletions": {"help_text": "Deleted lines."},
+        }
+
+
+@extend_schema_serializer(component_name="StamphogRoutingRunOwner")
+class RoutingRunOwnerSerializer(DataclassSerializer):
+    outcome = serializers.ChoiceField(
+        choices=RoutingOwnerOutcome.choices,
+        read_only=True,
+        help_text=(
+            "What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), "
+            "'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved and the owner "
+            "is not pinned) or 'already_requested' (an earlier run asked this pinned owner)."
+        ),
+    )
+    reason = serializers.ChoiceField(
+        choices=RoutingOwnerReason.choices,
+        read_only=True,
+        help_text=(
+            "Why: 'sensitive' or 'new_path' (pinned, never cut), 'largest_owner' (a pull request keeps "
+            "at least one reviewer), 'diff_not_seen' (the model did not see all of the owner's diff), "
+            "'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut' or "
+            "'stamphog_approved'."
+        ),
+    )
+    pins = RoutingPinSerializer(
+        many=True, read_only=True, help_text="The changed paths that pinned the owner, so no cut could remove them."
+    )
+    kind = serializers.ChoiceField(
+        choices=OwnerKind.choices, read_only=True, help_text="Whether the owner is a GitHub team or a person."
+    )
+
+    class Meta:
+        dataclass = contracts.RoutingRunOwnerDTO
+        exclude = ["files"]
+        extra_kwargs = {
+            "owner": {
+                "help_text": (
+                    "The owner as owners.yaml spells it: a team slug such as 'team-devex', or a GitHub login "
+                    "such as '@octocat'."
+                )
+            },
+            "model_reason": {
+                "help_text": (
+                    "The model's one-line reason to cut this owner. Also set when a guard kept the owner anyway. "
+                    "Blank when the model proposed no cut for them."
+                )
+            },
+            "lines": {"help_text": "Changed lines in the files this owner owns."},
+            "file_count": {"help_text": "Changed files this owner owns."},
+        }
+
+
+@extend_schema_serializer(component_name="StamphogRoutingRunOwnerDetail")
+class RoutingRunOwnerDetailSerializer(RoutingRunOwnerSerializer):
+    files = RoutingFileSerializer(
+        many=True,
+        read_only=True,
+        help_text="Every changed file this owner owns, which is what made them a candidate. Patches are not kept.",
+    )
+
+    class Meta:
+        dataclass = contracts.RoutingRunOwnerDTO
+        extra_kwargs = RoutingRunOwnerSerializer.Meta.extra_kwargs
+
+
+@extend_schema_serializer(component_name="StamphogRoutingRun")
+class RoutingRunSerializer(DataclassSerializer):
+    mode = serializers.ChoiceField(
+        choices=RoutingMode.choices,
+        read_only=True,
+        help_text="The repository's routing_mode when the run made its requests.",
+    )
+    owners = RoutingRunOwnerSerializer(
+        many=True, read_only=True, help_text="The run's decision for every owner of the changed code."
+    )
+    scope = serializers.ChoiceField(
+        choices=RoutingScope.choices,
+        read_only=True,
+        help_text="'full', or 'pinned' when a stamphog approval asked only the owners of sensitive and new paths.",
+    )
+    llm_skipped = serializers.ChoiceField(
+        choices=LlmSkipReason.choices,
+        read_only=True,
+        allow_null=True,
+        help_text="Why the cut step made no model call. Null when it made one.",
+    )
+
+    class Meta:
+        dataclass = contracts.RoutingRunDTO
+        fields = [
+            "id",
+            "repository",
+            "pr_number",
+            "head_sha",
+            "mode",
+            "trigger",
+            "scope",
+            "fork",
+            "llm_skipped",
+            "model",
+            "files_truncated",
+            "additions_resolved",
+            "owners_sha",
+            "owners",
+            "created_at",
+        ]
+        extra_kwargs = {
+            "id": {"help_text": "ID of the routing run."},
+            "repository": {"help_text": "Full name of the repository."},
+            "pr_number": {"help_text": "Pull request number."},
+            "head_sha": {"help_text": "The head commit the run routed."},
+            "trigger": {
+                "help_text": "What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>' or 'safety_net'."
+            },
+            "fork": {"help_text": "Whether the pull request came from a fork, which skips the model."},
+            "model": {"help_text": "The model the cut request reached. Blank when no request reached the gateway."},
+            "files_truncated": {
+                "help_text": "Whether GitHub listed fewer files than the pull request changes, so owners may be missing."
+            },
+            "additions_resolved": {
+                "help_text": "Whether the new-path lookup worked. When false, owners of new paths may not be pinned."
+            },
+            "owners_sha": {
+                "help_text": "The default-branch commit whose owners.yaml files decided the owners. Blank when unknown."
+            },
+            "created_at": {"help_text": "When the run made its requests."},
+        }
+
+
+@extend_schema_serializer(component_name="StamphogRoutingRunDetail")
+class RoutingRunDetailSerializer(RoutingRunSerializer):
+    owners = RoutingRunOwnerDetailSerializer(
+        many=True,
+        read_only=True,
+        help_text="The run's decision for every owner of the changed code, with the files each owner owns.",
+    )

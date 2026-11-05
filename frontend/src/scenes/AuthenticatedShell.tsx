@@ -15,7 +15,6 @@ import { runWhenIdle } from 'lib/utils/async'
 import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
-import { userLogic } from 'scenes/userLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { GlobalModals } from '~/layout/GlobalModals'
@@ -42,12 +41,6 @@ function preloadCommand(withCommandKSearch: boolean): void {
         void import('lib/components/CommandKSearch/CommandKSearch').catch(() => {})
     }
 }
-// Staff-only, so everyone else skips the chunk and the toolbar selector code it pulls in.
-const InternalFeedbackWidget = lazyWithRetry(() =>
-    import('~/layout/InternalFeedback/InternalFeedbackWidget').then(({ InternalFeedbackWidget }) => ({
-        default: InternalFeedbackWidget,
-    }))
-)
 
 export default function AuthenticatedShell({ children }: { children: React.ReactNode }): JSX.Element {
     useMountedLogic(apiStatusLogic)
@@ -63,15 +56,12 @@ export default function AuthenticatedShell({ children }: { children: React.React
     const { sceneConfig } = useValues(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { isDarkModeOn } = useValues(themeLogic)
-    const { user } = useValues(userLogic)
     const { hasOpenedCommand } = useValues(commandLogic)
     const newCommandKSearch = !!featureFlags[FEATURE_FLAGS.NEW_COMMAND_K_SEARCH]
     useEffect(
         () => (isEmbeddedPageFrame() ? undefined : runWhenIdle(() => preloadCommand(newCommandKSearch))),
         [newCommandKSearch]
     )
-    const showInternalFeedback =
-        !!featureFlags[FEATURE_FLAGS.INTERNAL_FEEDBACK_WIDGET] && !!user?.email?.toLowerCase().endsWith('@posthog.com')
 
     const toasts = (
         <ToastContainer
@@ -119,13 +109,6 @@ export default function AuthenticatedShell({ children }: { children: React.React
                     </ErrorBoundary>
                 )}
                 <ImpersonationNoticeSlot />
-                {showInternalFeedback && (
-                    <ErrorBoundary>
-                        <Suspense fallback={null}>
-                            <InternalFeedbackWidget />
-                        </Suspense>
-                    </ErrorBoundary>
-                )}
                 {featureFlags[FEATURE_FLAGS.EXPERIMENTS_FREEZE_EXPOSURE_AA_TEST] === 'test' && (
                     <div data-attr="experiments-freeze-exposure-aa-test-variant" className="hidden" />
                 )}

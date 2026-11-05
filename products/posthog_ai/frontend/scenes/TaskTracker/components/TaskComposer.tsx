@@ -45,6 +45,7 @@ import { ComposerModePicker } from '../../../components/composer/ComposerModePic
 import { ComposerModeShortcut } from '../../../components/composer/ComposerModeShortcut'
 import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
 import { OnboardingReplayButton } from '../../../components/onboarding/OnboardingReplayButton'
+import { QuillAttachedContextChips } from '../../../components/quill/QuillAttachedContextChips'
 import { QuillAttachedContextPicker } from '../../../components/quill/QuillAttachedContextPicker'
 import { QuillComposerLayout } from '../../../components/quill/QuillComposerLayout'
 import { QuillComposerSendButton } from '../../../components/quill/QuillComposerSendButton'
@@ -297,7 +298,7 @@ export function TaskComposer({
                                                     onToggleDefault={toggleDefaultRepository}
                                                 />
                                             )}
-                                            <AttachedContextChips />
+                                            <QuillAttachedContextChips />
                                             <ComposerAttachmentChips attachmentsKey={attachmentsKey} />
                                         </>
                                     }

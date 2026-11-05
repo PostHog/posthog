@@ -472,6 +472,17 @@ export const ReportCardStates: Story = {
             />
             <ReportCard
                 report={makeReport({
+                    title: 'Monitoring the outcome after implementation',
+                    priority: 'P2',
+                    status: SignalReportStatus.MONITORING,
+                    implementation_pr_url: 'https://github.com/example/repo/pull/42',
+                    implementation_pr_merged: true,
+                    source_products: ['error_tracking'],
+                    summary: 'Implementation is complete. Follow-up checks are verifying the outcome.',
+                })}
+            />
+            <ReportCard
+                report={makeReport({
                     title: 'Not actionable, low priority',
                     priority: 'P4',
                     actionability: 'not_actionable',

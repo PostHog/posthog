@@ -14,6 +14,7 @@ import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason, accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -25,6 +26,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
+import { conversationsTicketsAttachmentsCreate } from 'products/conversations/frontend/generated/api'
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
@@ -178,7 +180,11 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const simplifiedReplies = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIMPLIFIED_REPLIES]
-    const macrosEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_MACROS]
+    // Widget tickets stay images only until the widget can render file links.
+    const canAttachFiles =
+        !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_REPLY_FILE_ATTACHMENTS] &&
+        !!ticket &&
+        ticket.channel_source !== 'widget'
     const { currentTeam } = useValues(teamLogic)
     const aiSuggestionsEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
 
@@ -348,15 +354,21 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         composerPrefillAt={composerPrefillAt}
                         composerInsertAt={composerInsertAt}
                         composerInsertContent={pendingComposerInsert}
-                        enableMacros={macrosEnabled}
-                        onInsertMacro={macrosEnabled ? (macro) => insertMacro(macro, 'slash') : undefined}
+                        enableMacros
+                        onAttachFile={
+                            canAttachFiles
+                                ? (file) =>
+                                      conversationsTicketsAttachmentsCreate(String(getCurrentTeamId()), ticketId, {
+                                          file,
+                                      })
+                                : undefined
+                        }
+                        onInsertMacro={(macro) => insertMacro(macro, 'slash')}
                         macroPicker={
-                            macrosEnabled ? (
-                                <MacroPicker
-                                    disabledReason={sendDisabledReason}
-                                    onInsert={(macro) => insertMacro(macro, 'button')}
-                                />
-                            ) : undefined
+                            <MacroPicker
+                                disabledReason={sendDisabledReason}
+                                onInsert={(macro) => insertMacro(macro, 'button')}
+                            />
                         }
                         aiSources={ticket?.ai_triage?.sources}
                         aiDraftApplying={aiDraftApplying}
