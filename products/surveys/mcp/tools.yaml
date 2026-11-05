@@ -59,6 +59,7 @@ tools:
             - enable_iframe_embedding
             - linked_flag_id
             - targeting_flag_filters
+            - base_language
             - translations
             - form_content
         param_overrides:
@@ -84,7 +85,8 @@ tools:
                 description: >
                     Complete survey question list. Prefer 1-3 questions unless the user explicitly asks for a longer
                     survey. Use rating questions for NPS/CSAT, open for freeform feedback, and choice questions when the
-                    user wants structured answers. Questions can include inline translations on each question.
+                    user wants structured answers. Questions can include inline translations on each question, keyed
+                    by language codes other than base_language (default 'en').
             conditions:
                 description: >
                     Display conditions for in-app surveys, such as URL matching, event triggers, device filters, or
@@ -114,7 +116,8 @@ tools:
                 description: >
                     Optional survey-level translations keyed by language code. Use for translated survey name,
                     description, thank-you message, and intro screen fields. Question text translations belong inside
-                    each question's translations object.
+                    each question's translations object. Never add a key for the base language: when the untranslated
+                    text is not English, set base_language to its language code instead of adding an 'en' entry.
             form_content:
                 description: >
                     Optional hosted-form content configuration for external_survey forms. Only include this when the
@@ -239,6 +242,7 @@ tools:
             - targeting_flag_id
             - targeting_flag_filters
             - remove_targeting_flag
+            - base_language
             - translations
             - form_content
         param_overrides:

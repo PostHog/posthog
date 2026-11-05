@@ -263,42 +263,37 @@ class TestSurvey(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "translation" in response.json()["detail"].lower()
 
-    def test_translation_rejects_base_language_collision(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "survey_level",
+                {"translations": {"en": {"name": "Translated"}}},
+                "Survey translation: 'en'",
+            ),
+            (
+                "question_level",
+                {"questions": [{"type": "open", "question": "Question?", "translations": {"EN": {"question": "Hi"}}}]},
+                "Question 1 translation: 'EN'",
+            ),
+        ]
+    )
+    def test_translation_rejects_base_language_collision(self, _name: str, payload: dict, context: str) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
                 "name": "Survey",
                 "type": "popover",
-                "base_language": "en",
                 "questions": [{"type": "open", "question": "Question?"}],
-                "translations": {"en": {"name": "Translated"}},
+                **payload,
             },
             format="json",
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-        assert "base language" in response.json()["detail"].lower()
-
-    def test_translation_rejects_base_language_collision_in_question(self) -> None:
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/surveys/",
-            data={
-                "name": "Survey",
-                "type": "popover",
-                "base_language": "es",
-                "questions": [
-                    {
-                        "type": "open",
-                        "question": "¿Cómo estás?",
-                        "translations": {"ES": {"question": "Hola"}},
-                    }
-                ],
-            },
-            format="json",
+        assert response.json()["detail"] == (
+            f"{context} matches the survey's base language ('en'), so the untranslated text already covers it. "
+            "Remove this translation, or set base_language to the language the untranslated text is written in."
         )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-        assert "base language" in response.json()["detail"].lower()
 
     def test_survey_defaults_to_english_base_language(self) -> None:
         response = self.client.post(
@@ -447,15 +442,39 @@ class TestSurvey(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "collides" in response.json()["detail"].lower()
 
-    def test_base_language_change_rejects_collision_with_existing_translation(self) -> None:
-        """Changing base_language to a code already present in translations is rejected."""
+    @parameterized.expand(
+        [
+            (
+                "survey_level",
+                {
+                    "questions": [{"type": "open", "id": "q1", "question": "Question?"}],
+                    "translations": {"fr": {"name": "French"}},
+                },
+            ),
+            (
+                "question_level",
+                {
+                    "questions": [
+                        {
+                            "type": "open",
+                            "id": "q1",
+                            "question": "Question?",
+                            "translations": {"fr": {"question": "Q?"}},
+                        }
+                    ]
+                },
+            ),
+        ]
+    )
+    def test_base_language_change_rejects_collision_with_existing_translation(
+        self, _name: str, translated_fields: dict
+    ) -> None:
         survey = Survey.objects.create(
             team=self.team,
             name="Multi-language survey",
             type="popover",
             base_language="en",
-            questions=[{"type": "open", "id": "q1", "question": "Question?"}],
-            translations={"fr": {"name": "French"}},
+            **translated_fields,
         )
 
         response = self.client.patch(
@@ -1694,7 +1713,11 @@ class TestSurvey(APIBaseTest):
         assert survey_with_targeting.json() == {
             "type": "validation_error",
             "code": "behavioral_cohort_found",
-            "detail": "Cohort 'cohort2' has an event-based condition on '$pageview' (performed_event_first_time) and cannot be used in surveys.",
+            "detail": (
+                "Cohort 'cohort2' has an event-based condition on '$pageview' (performed_event_first_time) and cannot be used in surveys. "
+                "To show the survey after someone does an event, add an event trigger to the survey's display conditions. "
+                "To keep this audience, duplicate the cohort as a static cohort and target that."
+            ),
             "attr": None,
         }
 

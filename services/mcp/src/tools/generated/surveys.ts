@@ -23,7 +23,6 @@ const SurveyCreateSchema = () => {
         response_sampling_interval: true,
         response_sampling_limit: true,
         response_sampling_daily_limits: true,
-        base_language: true,
         _create_in_folder: true,
     }).extend({
         appearance: SurveysCreateBody.shape['appearance'].describe(
@@ -36,7 +35,7 @@ const SurveyCreateSchema = () => {
             'How often a person can see the survey. Omit this to use the default once behavior. Use recurring only when the user explicitly asks for a repeated schedule, and set iteration_count and iteration_frequency_days with it. Use always when the user wants the survey to show every time its display conditions are met, also after the person responds or dismisses it. The survey editor calls this "Every time the display conditions are met". An always popover without display conditions or a wait period shows again and again, so suggest a URL condition or seenSurveyWaitPeriodInDays.'
         ),
         questions: SurveysCreateBody.shape['questions'].describe(
-            'Complete survey question list. Prefer 1-3 questions unless the user explicitly asks for a longer survey. Use rating questions for NPS/CSAT, open for freeform feedback, and choice questions when the user wants structured answers. Questions can include inline translations on each question.'
+            "Complete survey question list. Prefer 1-3 questions unless the user explicitly asks for a longer survey. Use rating questions for NPS/CSAT, open for freeform feedback, and choice questions when the user wants structured answers. Questions can include inline translations on each question, keyed by language codes other than base_language (default 'en')."
         ),
         conditions: SurveysCreateBody.shape['conditions'].describe(
             'Display conditions for in-app surveys, such as URL matching, event triggers, device filters, or linked flag variants. To target people, groups, or cohorts by properties, use targeting_flag_filters instead. Do not use URL, selector, event, device, or linkedFlagVariant conditions for external_survey forms.'
@@ -54,7 +53,7 @@ const SurveyCreateSchema = () => {
             'Allows an external_survey form to be embedded in an iframe. Use only when the user explicitly asks for iframe embedding.'
         ),
         translations: SurveysCreateBody.shape['translations'].describe(
-            "Optional survey-level translations keyed by language code. Use for translated survey name, description, thank-you message, and intro screen fields. Question text translations belong inside each question's translations object."
+            "Optional survey-level translations keyed by language code. Use for translated survey name, description, thank-you message, and intro screen fields. Question text translations belong inside each question's translations object. Never add a key for the base language: when the untranslated text is not English, set base_language to its language code instead of adding an 'en' entry."
         ),
         form_content: SurveysCreateBody.shape['form_content'].describe(
             'Optional hosted-form content configuration for external_survey forms. Only include this when the user explicitly asks to customize the hosted form content beyond the standard question flow.'
@@ -116,6 +115,9 @@ const surveyCreate = (): ToolBase<
             }
             if (params.enable_iframe_embedding !== undefined) {
                 body['enable_iframe_embedding'] = params.enable_iframe_embedding
+            }
+            if (params.base_language !== undefined) {
+                body['base_language'] = params.base_language
             }
             if (params.translations !== undefined) {
                 body['translations'] = params.translations
@@ -248,7 +250,6 @@ const SurveyUpdateSchema = () => {
                 response_sampling_interval: true,
                 response_sampling_limit: true,
                 response_sampling_daily_limits: true,
-                base_language: true,
                 _create_in_folder: true,
             }).shape
         )
@@ -343,6 +344,9 @@ const surveyUpdate = (): ToolBase<
             }
             if (params.enable_iframe_embedding !== undefined) {
                 body['enable_iframe_embedding'] = params.enable_iframe_embedding
+            }
+            if (params.base_language !== undefined) {
+                body['base_language'] = params.base_language
             }
             if (params.translations !== undefined) {
                 body['translations'] = params.translations

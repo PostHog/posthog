@@ -1378,8 +1378,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             )
         if normalized == base_language:
             raise serializers.ValidationError(
-                f"{context}: '{raw_key}' matches the survey's base language ('{base_language}'). "
-                "The original text already covers this language — translate to a different language."
+                f"{context}: '{raw_key}' matches the survey's base language ('{base_language}'), so the untranslated "
+                "text already covers it. Remove this translation, or set base_language to the language the untranslated "
+                "text is written in."
             )
         return normalized
 
@@ -1875,10 +1876,14 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         # updates where only base_language is sent (otherwise get_survey_api_translations would silently
         # drop the matching translation from the SDK payload, making it unreachable with no warning).
         incoming_base_language = data.get("base_language")
-        if incoming_base_language and "translations" not in data and self.instance is not None:
+        if incoming_base_language and self.instance is not None:
             normalized_base = _normalize_language_code(incoming_base_language)
-            instance_translations = getattr(self.instance, "translations", None) or {}
-            for existing_key in instance_translations:
+            existing_keys = list(self.instance.translations or {}) if "translations" not in data else []
+            if "questions" not in data:
+                for question in self.instance.questions or []:
+                    if isinstance(question, dict) and isinstance(question.get("translations"), dict):
+                        existing_keys.extend(question["translations"])
+            for existing_key in existing_keys:
                 if isinstance(existing_key, str) and _normalize_language_code(existing_key) == normalized_base:
                     raise serializers.ValidationError(
                         {
@@ -4114,7 +4119,11 @@ def create_flag_with_survey_errors():
         if matching_errors:
             original_detail = str(matching_errors[0].get("message"))
             raise serializers.ValidationError(
-                detail=original_detail.replace("feature flags", "surveys"),
+                detail=(
+                    f"{original_detail.replace('feature flags', 'surveys')} To show the survey after someone does an "
+                    "event, add an event trigger to the survey's display conditions. To keep this audience, duplicate "
+                    "the cohort as a static cohort and target that."
+                ),
                 code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
             )
         raise
