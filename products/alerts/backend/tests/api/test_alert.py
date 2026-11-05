@@ -26,8 +26,8 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.alerts.backend.facade.api import LLMDetectorUnavailableError
-from products.alerts.backend.facade.contracts import INSIGHT_ALERT_EVENT_IDS
+from products.alerts.backend.facade.api import LLMDetectorPausedError, LLMDetectorUnavailableError
+from products.alerts.backend.facade.contracts import INSIGHT_ALERT_EVENT_IDS, INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION
 from products.alerts.backend.facade.destinations import MAX_DESTINATIONS_PER_ALERT, count_active_alert_destinations
 from products.alerts.backend.judge.verdict import LLMDetectionVerdict
 from products.alerts.backend.logic.insight_alert_destinations import SLACK_TEMPLATE_ID
@@ -1772,7 +1772,6 @@ class TestAlertSimulate(TrendsInsightAPITest):
                     "days": [f"2024-01-{i:02d}" for i in range(1, 36)],
                     "labels": [f"2024-01-{i:02d}" for i in range(1, 36)],
                     "label": "pageview",
-                    "action": {"name": "pageview"},
                     "actions": [],
                     "count": 35,
                     "breakdown_value": "",
@@ -1781,7 +1780,6 @@ class TestAlertSimulate(TrendsInsightAPITest):
                     "compare": False,
                     "persons_urls": [],
                     "persons": {},
-                    "filter": {},
                 }
             ]
         )
@@ -1941,7 +1939,6 @@ class TestAlertSimulate(TrendsInsightAPITest):
                     "days": [f"2024-01-{i:02d}" for i in range(1, 36)],
                     "labels": [f"2024-01-{i:02d}" for i in range(1, 36)],
                     "label": "pageview",
-                    "action": {"name": "pageview"},
                     "actions": [],
                     "count": 35,
                     "breakdown_value": "",
@@ -1950,7 +1947,6 @@ class TestAlertSimulate(TrendsInsightAPITest):
                     "compare": False,
                     "persons_urls": [],
                     "persons": {},
-                    "filter": {},
                 }
             ]
         )
@@ -2923,6 +2919,34 @@ class TestAlertDestinations(APIBaseTest):
         assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
         assert self._active_destination_count() == 0
 
+    def test_an_incident_destination_is_removed_through_the_insight_api(self) -> None:
+        hog_function_ids = [
+            str(
+                HogFunction.objects.create(
+                    team=self.team,
+                    type="internal_destination",
+                    name="PagerDuty",
+                    template_id="template-pagerduty",
+                    hog="return event",
+                    enabled=True,
+                    inputs={"routing_key": {"value": "a" * 32}},
+                    filters={
+                        "source": "internal-events",
+                        "events": [{"id": event_id, "type": "events"}],
+                        "properties": [
+                            {"key": "alert_id", "value": str(self.alert.id), "operator": "exact", "type": "event"}
+                        ],
+                    },
+                ).id
+            )
+            for event_id in INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION.values()
+        ]
+
+        response = self.client.post(f"{self.url}delete/", {"hog_function_ids": hog_function_ids}, format="json")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
+        assert not HogFunction.objects.filter(id__in=hog_function_ids, deleted=False).exists()
+
     def test_an_alert_stops_taking_destinations_at_the_cap(self) -> None:
         for index in range(MAX_DESTINATIONS_PER_ALERT):
             response = self.client.post(self.url, self._slack_payload(slack_channel_id=f"C{index}"), format="json")
@@ -3276,19 +3300,38 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "not enabled for your account" in response.json()["detail"]
 
-    @mock.patch(
-        "products.alerts.backend.presentation.views.alert.simulate_detector_on_insight",
-        side_effect=LLMDetectorUnavailableError("The AI detector could not reach the model: timeout"),
+    @parameterized.expand(
+        [
+            (
+                "model_outage",
+                LLMDetectorUnavailableError("The AI detector could not reach the model: timeout"),
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "llm_detector_unavailable",
+            ),
+            (
+                "out_of_ai_credits",
+                LLMDetectorPausedError("No AI credits left."),
+                status.HTTP_400_BAD_REQUEST,
+                "invalid_input",
+            ),
+        ]
     )
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_simulate_reports_a_model_outage_as_503_not_500(self, _flag, _simulate) -> None:
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/alerts/simulate",
-            {"insight": self.insight["id"], "detector_config": {"type": "llm"}},
-        )
+    def test_simulate_reports_a_judge_that_cannot_answer_without_a_500(
+        self, _name, error, expected_status, expected_code, _flag
+    ) -> None:
+        with mock.patch(
+            "products.alerts.backend.presentation.views.alert.simulate_detector_on_insight", side_effect=error
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/alerts/simulate",
+                {"insight": self.insight["id"], "detector_config": {"type": "llm"}},
+            )
 
-        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.content
-        assert response.json()["code"] == "llm_detector_unavailable"
+        assert response.status_code == expected_status, response.content
+        assert response.json()["code"] == expected_code
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert response.json()["detail"] == str(error)
 
     @parameterized.expand([("rolled_out", True), ("not_rolled_out", False)])
     def test_retrieve_reports_whether_the_creator_can_use_the_ai_detector(self, _name, rolled_out) -> None:
@@ -3329,7 +3372,6 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
                     "days": dates,
                     "labels": dates,
                     "label": "pageview",
-                    "action": {"name": "pageview"},
                     "actions": [],
                     "count": 7,
                 }

@@ -6,6 +6,7 @@ using framework-free DTOs, wrapping the existing ExperimentService.
 """
 
 import dataclasses
+from collections import defaultdict
 from collections.abc import Collection, Sequence
 from datetime import datetime
 from decimal import Decimal
@@ -21,6 +22,7 @@ from posthog.schema import ExperimentEventExposureConfig
 
 from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.models.user import User
 
 from products.experiments.backend.experiment_service import ExperimentService
@@ -38,12 +40,16 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     normalize_to_exposure_criteria,
     resolve_default_exposure_event,
 )
+from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.metric_calculation.config import (
     build_primary_calculation_configs,
     calculation_metric_name,
 )
 from products.experiments.backend.metric_calculation.results import MetricResultStore
-from products.experiments.backend.models.experiment import Experiment as ExperimentModel
+from products.experiments.backend.models.experiment import (
+    Experiment as ExperimentModel,
+    flag_has_live_experiment as _flag_has_live_experiment,
+)
 from products.experiments.backend.models.team_experiments_config import (
     TeamExperimentsConfig,
     validate_recalculation_times as _validate_stored_recalculation_times,
@@ -57,12 +63,15 @@ from .contracts import (
     DigestLaunchedExperiment,
     EndedExperiment,
     Experiment,
+    ExperimentAssistantContext,
     ExperimentDetectableEffectCheckpoint,
+    ExperimentFlagVariantSplit,
     ExperimentHealth,
     ExperimentHealthReaderAccess,
     ExperimentRunningTimeOutlook,
     ExperimentRunningTimeTarget,
     ExperimentValidationError,
+    LinkedExperiment,
     RunningExperiment,
     RunningTimeMode,
     StoredArmResult,
@@ -320,6 +329,60 @@ def count_enrolled_people(*, team: Team, user: User, flag_keys: list[str]) -> di
     return enrolled_people_by_flag(team, user, flag_keys)
 
 
+def _to_assistant_context(experiment: ExperimentModel) -> ExperimentAssistantContext:
+    flag = experiment.feature_flag
+    return ExperimentAssistantContext(
+        id=experiment.id,
+        team_id=experiment.team_id,
+        created_by_id=experiment.created_by_id,
+        name=experiment.name,
+        description=experiment.description,
+        type=experiment.type,
+        start_date=experiment.start_date,
+        end_date=experiment.end_date,
+        created_at=experiment.created_at,
+        conclusion=experiment.conclusion,
+        conclusion_comment=experiment.conclusion_comment,
+        stats_method=get_experiment_stats_method(experiment),
+        variant_names={key: variant.get("name", key) for key, variant in (experiment.variants or {}).items()},
+        feature_flag_key=flag.key,
+        feature_flag_variants=tuple(
+            ExperimentFlagVariantSplit(key=variant.get("key"), rollout_percentage=variant.get("rollout_percentage", 0))
+            for variant in flag.variants
+        ),
+    )
+
+
+async def aget_experiment_assistant_context(
+    team_id: int, *, experiment_id: int | None = None, feature_flag_key: str | None = None
+) -> ExperimentAssistantContext | None:
+    """The experiment with `experiment_id`, or else the experiment on the flag with `feature_flag_key`. None when
+    neither is given, or when no experiment of the team matches. Only rows whose `deleted` is false match, so a row
+    whose `deleted` is NULL does not."""
+    # `team=` matches the id exactly, so the result's `team_id` is always `team_id`, which an object access check of
+    # the caller's team requires. RootTeamQuerySet rewrites a `team_id=` filter to the project's root team.
+    experiments = ExperimentModel.objects.select_related("feature_flag").filter(team=team_id, deleted=False)
+    try:
+        if experiment_id is not None:
+            experiment = await experiments.aget(id=experiment_id)
+        elif feature_flag_key is not None:
+            experiment = await experiments.aget(feature_flag__key=feature_flag_key)
+        else:
+            return None
+    except ExperimentModel.DoesNotExist:
+        return None
+    return _to_assistant_context(experiment)
+
+
+def get_experiment_team_id(experiment_id: int) -> int | None:
+    """The team of the experiment with this id, deleted experiments included. None when no experiment has the id.
+
+    The lookup is not scoped to a team, so the caller must check that the user may see the returned team."""
+    # The Vercel SSO redirect has no team yet. It checks the user's membership in the returned team.
+    # nosemgrep: idor-lookup-without-team
+    return ExperimentModel.objects.filter(pk=experiment_id).values_list("team_id", flat=True).first()
+
+
 def team_has_launched_experiments(team_id: int) -> bool:
     """Whether the team has a running or stopped experiment, deleted and archived ones included. Experiments are saved
     on the project's root team, so pass that team's id."""
@@ -384,7 +447,18 @@ def list_precomputation_enabled_team_ids(team_ids: Collection[int] | None = None
 
 
 def _team_experiments_config(team_id: int) -> TeamExperimentsConfig:
-    return get_or_create_team_extension(Team.objects.get(id=team_id), TeamExperimentsConfig)
+    try:
+        # Join the team because the activity log on every save and the repository check read `config.team`.
+        # `select_related` builds the team columns from the model rather than through `TeamManager`, so re-apply
+        # its defer. Without it every settings read and update loads the deprecated taxonomy columns, which TOAST
+        # out to megabytes per team.
+        return (
+            TeamExperimentsConfig.objects.select_related("team")
+            .defer(*(f"team__{attr}" for attr in DEPRECATED_ATTRS))
+            .get(team_id=team_id)
+        )
+    except TeamExperimentsConfig.DoesNotExist:
+        return get_or_create_team_extension(Team.objects.get(id=team_id), TeamExperimentsConfig)
 
 
 def set_precomputation_enabled(*, team_id: int, enabled: bool) -> None:
@@ -505,3 +579,22 @@ def _experiment_model_to_dto(experiment: ExperimentModel) -> Experiment:
         created_at=experiment.created_at,
         updated_at=experiment.updated_at,
     )
+
+
+def flag_has_live_experiment(feature_flag_id: int) -> bool:
+    """Whether an experiment that is not deleted uses the flag. Flag ids are unique across teams, so the id scopes
+    the read."""
+    return _flag_has_live_experiment(feature_flag_id)
+
+
+def live_experiments_by_flag(feature_flag_ids: Collection[int]) -> dict[int, tuple[LinkedExperiment, ...]]:
+    """The experiments that are not deleted on each of the flags, archived ones included, keyed by flag id, in no set
+    order. A flag without one has no key. Flag ids are unique across teams, so pass ids from a team-scoped read."""
+    experiments: defaultdict[int, list[LinkedExperiment]] = defaultdict(list)
+    for experiment in ExperimentModel.objects.filter(deleted=False, feature_flag_id__in=feature_flag_ids).only(
+        "id", "name", "feature_flag_id", "start_date", "end_date"
+    ):
+        experiments[experiment.feature_flag_id].append(
+            LinkedExperiment(id=experiment.id, name=experiment.name, is_running=experiment.is_running)
+        )
+    return {flag_id: tuple(linked) for flag_id, linked in experiments.items()}

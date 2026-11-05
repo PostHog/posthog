@@ -1,17 +1,18 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { uuid } from 'lib/utils/dom'
 import { average, median } from 'lib/utils/numbers'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { isOtherBreakdown } from 'scenes/insights/utils'
-import { compareDataNodeQuery } from 'scenes/insights/utils/queryUtils'
 import { ResultSeriesRow, getResultOrder, hasFormulaResults } from 'scenes/insights/utils/resultSeries'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { cancelQueryOnServer, concurrencyController } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { compareDataNodeQuery } from '~/queries/nodes/InsightViz/queryUtils'
 import { performQuery } from '~/queries/query'
+import { hasBreakdownFilter } from '~/queries/schema/node-guards'
 import type {
     AnyDataWarehouseNode,
     AnyEntityNode,
@@ -32,7 +33,6 @@ import type {
     WebOverviewQuery,
     WebStatsTableQuery,
 } from '~/queries/schema/schema-general'
-import { hasBreakdownFilter } from '~/queries/utils'
 import { ChartDisplayType, CompareLabelType, InsightLogicProps, TrendResult } from '~/types'
 
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'

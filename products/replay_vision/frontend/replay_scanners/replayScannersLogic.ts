@@ -28,13 +28,13 @@ import {
     visionScannersDestroy,
     visionScannersDuplicateCreate,
     visionScannersList,
-    visionScannersPartialUpdate,
     visionScannersStatsRetrieve,
 } from '../generated/api'
 import type { ScannerStatsResponseApi, UserBasicApi, VisionScannersListParams } from '../generated/api.schemas'
 import type { ScannerTypeEnumApi } from '../generated/api.schemas'
 import { refreshVisionQuota, visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { csvParam, parseCsvParam, parseSortParam, serializeSortParam } from '../utils/urlParams'
+import { saveScannerEnabled } from './saveScannerEnabled'
 import {
     ENABLED_OPTIONS,
     EnabledFilter,
@@ -611,8 +611,17 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             const delta = enabled ? estimate : -estimate
             visionQuotaLogic.findMounted()?.actions.adjustProjectedMonthly(delta)
             try {
-                await visionScannersPartialUpdate(String(teamId), id, { enabled })
+                const saved = await saveScannerEnabled(String(teamId), id, enabled)
+                if (!saved) {
+                    visionQuotaLogic.findMounted()?.actions.adjustProjectedMonthly(-delta)
+                    actions.revertScannerEnabled(id)
+                    return
+                }
                 actions.toggleScannerEnabledDone(id)
+                if (enabled && (saved.created_by?.id ?? null) !== (scanner.created_by?.id ?? null)) {
+                    // A take-over moved the scanner to the current user, which the creator column shows.
+                    actions.loadScanners()
+                }
             } catch (error: any) {
                 const verb = enabled ? 'enable' : 'disable'
                 lemonToast.error(`Failed to ${verb} scanner${error.detail ? `: ${error.detail}` : ''}`)

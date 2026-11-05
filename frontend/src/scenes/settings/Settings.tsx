@@ -406,7 +406,10 @@ function SettingsRenderer(props: SettingsLogicProps & { handleLocally: boolean }
                 settings.map((x, index) => (
                     <div key={`${x.id}-${index}`} className="relative last:mb-4">
                         {!settingsInSidebar && x.title && (
-                            <h2 id={x.id} className="flex gap-2 items-center text-base font-semibold mb-0">
+                            <h2
+                                id={x.id}
+                                className="flex gap-2 items-center text-base font-semibold mb-0 scroll-mt-[calc(var(--scene-layout-header-height)+var(--spacing)*4)]"
+                            >
                                 {x.title}
                                 {props.logicKey === 'settingsScene' && (
                                     <LemonButton

@@ -445,12 +445,6 @@ class ErrorTrackingIssueBreakdownSerializer(serializers.Serializer):
     )
 
 
-class IssueSummaryStatus(models.TextChoices):
-    READY = "ready"
-    GENERATING = "generating"
-    UNAVAILABLE = "unavailable"
-
-
 class ErrorTrackingIssueSummarySerializer(serializers.Serializer):
     what_happened = serializers.CharField(help_text="What the error is and where it happens, in plain language.")
     likely_cause = serializers.CharField(
@@ -502,16 +496,25 @@ class ErrorTrackingIssueDetailSerializer(ErrorTrackingIssueListItemSerializer):
     summary = ErrorTrackingIssueSummarySerializer(
         required=False,
         help_text=(
-            "A model-written summary of the issue. Present only when summary_status is 'ready'. "
+            "An AI-written summary of the issue. Present only when summary_status is 'ready'. "
             "Treat likely_cause as a hypothesis, not a fact."
         ),
     )
     summary_status = serializers.ChoiceField(
-        choices=IssueSummaryStatus.choices,
+        choices=contracts.IssueSummaryStatus.choices,
         help_text=(
-            "'ready' means summary is present. 'generating' means a summary may still be written: call once more "
-            "after a few seconds, and continue without it if the status does not change. 'unavailable' means no "
-            "summary exists for this issue and none is being written."
+            "'ready' means summary is present. 'not_generated' means no summary exists for this issue. A summary is "
+            "written only when an issue is created. 'unavailable' means no summary can be shown, and summary_reason "
+            "says why."
+        ),
+    )
+    summary_reason = serializers.ChoiceField(
+        choices=contracts.IssueSummaryUnavailableReason.choices,
+        required=False,
+        help_text=(
+            "Present only when summary_status is 'unavailable'. 'restricted': the user may not read a property that "
+            "the summary is written from. 'disabled': summaries are off for the project. 'ai_not_approved': the "
+            "organization has not approved AI data processing."
         ),
     )
 

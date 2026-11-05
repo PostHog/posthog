@@ -2,11 +2,10 @@ import { memo, useMemo } from 'react'
 
 import { TimeSeriesLineChart } from '@posthog/quill-charts'
 
+import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
-
-import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import type { VisionQuotaApi } from '../../generated/api.schemas'
 import { formatCreditCount, formatCreditNumber } from '../../utils/credits'

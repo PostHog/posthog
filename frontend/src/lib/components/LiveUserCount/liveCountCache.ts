@@ -1,7 +1,7 @@
 import api from 'lib/api'
+import { HogQLQueryString } from 'lib/utils/hogql'
 
 import { QueryLogTags } from '~/queries/schema/schema-general'
-import { HogQLQueryString } from '~/queries/utils'
 
 export const LIVE_COUNT_REFRESH_MS = 30000
 // pinned: localStorage key prefix, renaming it drops every user's cached counts

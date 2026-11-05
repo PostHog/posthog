@@ -8,7 +8,8 @@ program corpus, diffed against committed Node output) and `tests/stl_parity.rs` 
 
 - **`sync_execute`** — synchronous, boolean/value-returning evaluation. This is what the production
   consumers use (`cymbal` error-tracking rule evaluation, `cohort-stream-processor`), and it is at
-  parity with the reference VM.
+  parity with the reference VM, except under `with_boolean_text_equality`, which the cohort
+  evaluator turns on to match ClickHouse.
 - **`execute_resumable` / `resume`** — the suspendable-coroutine model for CDP hog functions
   (destinations): on a registered async function (`fetch`, `sleep`, …) the VM suspends and returns a
   serializable `VmSnapshot`; the host performs the side effect and resumes.

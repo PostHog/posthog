@@ -1,5 +1,5 @@
 import { defineCommand } from '@/core/command'
-import { describeCommands, describeGlobalOptions } from '@/core/manifest'
+import { describeAliases, describeCommands, describeGlobalOptions } from '@/core/manifest'
 import { VERSION } from '@/version'
 
 export default defineCommand({
@@ -14,6 +14,7 @@ export default defineCommand({
         agentReason: ctx.mode.agentReason,
         globalOptions: describeGlobalOptions(),
         commands: describeCommands(ctx.tree),
+        aliases: describeAliases(ctx.tree),
     }),
 
     human({ result, out }) {

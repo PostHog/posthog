@@ -3,7 +3,7 @@ import * as React from 'react'
 
 import { IconCheck } from '@posthog/icons'
 
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 import { cn } from 'lib/utils/css-classes'
 
 import { Label } from '../Label/Label'

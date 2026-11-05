@@ -8,12 +8,12 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { hogql } from 'lib/utils/hogql'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { hogql } from '~/queries/utils'
 import { Breadcrumb } from '~/types'
 
 import { cohortsCreate } from 'products/cohorts/frontend/generated/api'

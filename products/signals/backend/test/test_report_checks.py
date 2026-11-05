@@ -28,7 +28,7 @@ from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.product_analytics.backend.facade.contracts import TrendsQueryRunResult
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import CheckResult, Dismissal
+from products.signals.backend.artefact_schemas import CheckResult, Dismissal, NoteArtefact
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import (
     SignalReport,
@@ -51,7 +51,7 @@ from products.signals.backend.report_check_authoring import (
     cancel_check,
     create_check,
     create_checks_from_specs,
-    replace_metric_check,
+    replace_check_with_metric,
 )
 from products.signals.backend.report_check_evaluation import CheckVerdict, evaluate_check_value
 from products.signals.backend.report_check_execution import (
@@ -1396,7 +1396,7 @@ class TestReportCheckAPI(APIBaseTest):
         force_authenticate(request, user=self.user)
 
         with self.assertRaisesRegex(CheckCreationError, "moved to another report"):
-            replace_metric_check(
+            replace_check_with_metric(
                 check=check,
                 title="Revised goal",
                 rationale="",
@@ -1418,6 +1418,8 @@ class TestReportCheckAPI(APIBaseTest):
             ("last_run_at_expiry", "-7d", 30 * 24 * 60, 3, False, 30 * 24 * 60),
             ("fits_near_horizon", "-7d", 30 * 24 * 60, 3, True, 29 * 24 * 60),
             ("pending_longer_query", "-40d", 30 * 24 * 60, 3, False, 1450, SignalReport.Status.READY),
+            ("agent_active", "-7d", MIN_CHECK_INTERVAL_MINUTES, 3, True, 1450, SignalReport.Status.RESOLVED, "agent"),
+            ("agent_pending", "-7d", MIN_CHECK_INTERVAL_MINUTES, 3, True, 0, SignalReport.Status.READY, "agent"),
         ]
     )
     def test_replacement_preserves_only_recurring_schedules_that_fit(
@@ -1429,13 +1431,19 @@ class TestReportCheckAPI(APIBaseTest):
         fits: bool,
         stored_soak: int = 1450,
         report_status: str = SignalReport.Status.RESOLVED,
+        kind: str = SignalReportCheck.Kind.METRIC_THRESHOLD,
     ) -> None:
         now = datetime(2026, 10, 2, 12, tzinfo=UTC)
         with time_machine.travel(now, tick=False):
             SignalReport.objects.filter(id=self.report.id).update(status=report_status)
             self.report.refresh_from_db()
+            if kind == SignalReportCheck.Kind.AGENT:
+                _seed_check_lane(self.team)
             check = self._create(
-                config=_threshold_config(
+                kind=kind,
+                config={"instructions": "Check whether checkout errors recovered."}
+                if kind == "agent"
+                else _threshold_config(
                     query=trends_metric_query(series=[{"kind": "EventsNode", "event": "$pageview"}], date_from="-7d")
                 ),
                 run_interval_minutes=interval,
@@ -1468,7 +1476,12 @@ class TestReportCheckAPI(APIBaseTest):
             assert replacement.runs_remaining == runs
             assert replacement.approved_at is None
             assert replacement.approved_by_id is None
-            assert replacement.status == SignalReportCheck.Status.ACTIVE
+            assert replacement.kind == SignalReportCheck.Kind.METRIC_THRESHOLD
+            assert replacement.status == (
+                SignalReportCheck.Status.PENDING
+                if report_status == SignalReport.Status.READY
+                else SignalReportCheck.Status.ACTIVE
+            )
             last_run_at = replacement.next_run_at + timedelta(minutes=interval * (runs - 1))
             assert last_run_at < replacement.expires_at <= now + MAX_CHECK_HORIZON
 
@@ -1665,7 +1678,7 @@ class TestReportCheckAPI(APIBaseTest):
         result = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.CHECK_RESULT)
         assert result.team_id == child.id
 
-    @parameterized.expand([("check_result",), ("check_observation",)])
+    @parameterized.expand([("check_result",), ("check_observation",), ("assessment",)])
     @patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True)
     def test_a_property_restricted_member_cannot_read_a_checks_query_or_measured_values(
         self, artefact_type: str, _flag: MagicMock
@@ -1699,6 +1712,18 @@ class TestReportCheckAPI(APIBaseTest):
         SignalReportCheck.objects.for_team(self.team.id).filter(id=check_id).update(
             next_run_at=timezone.now() - timedelta(minutes=1), measurement_start_at=timezone.now() - timedelta(days=32)
         )
+        if artefact_type == "assessment":
+            SignalReportArtefact.add_log(
+                team_id=self.team.id,
+                report_id=str(self.report.id),
+                content=NoteArtefact(
+                    note="The fixed-window result measured 4 enterprise pageviews.",
+                    analytics_query_context=[secret_pageviews],
+                    restricted_to_user_id=self.user.id,
+                    source_check_ids=[check_id],
+                ),
+                attribution=ArtefactAttribution.system(),
+            )
         with patch(
             _MEASURE
             if artefact_type == "check_result"
@@ -1707,7 +1732,7 @@ class TestReportCheckAPI(APIBaseTest):
         ):
             if artefact_type == "check_observation":
                 run_due_report_checks()
-            else:
+            elif artefact_type != "assessment":
                 check = SignalReportCheck.objects.for_team(self.team.id).get(id=check_id)
                 record_check_verdict(check, CheckVerdict(outcome="passed", explanation="Held.", observed_value=4.0))
         artefacts_url = f"/api/projects/{self.team.id}/signals/reports/{self.report.id}/artefacts/"
@@ -1716,10 +1741,19 @@ class TestReportCheckAPI(APIBaseTest):
             return next(
                 row["content"]
                 for row in self.client.get(artefacts_url).json()["results"]
-                if row["type"] == artefact_type
+                if row["type"] == ("note" if artefact_type == "assessment" else artefact_type)
             )
 
-        assert check_result()["observed_value"] == 4.0
+        if artefact_type == "assessment":
+            assert "4 enterprise pageviews" in check_result()["note"]
+            assert "analytics_query_context" not in check_result()
+            assert "restricted_to_user_id" not in check_result()
+            teammate = self.create_user_with_organization(self.organization)
+            self.client.force_login(teammate)
+            assert "4 enterprise pageviews" not in check_result()["note"]
+            self.client.force_login(self.user)
+        else:
+            assert check_result()["observed_value"] == 4.0
 
         self.organization.available_product_features = [
             {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
@@ -1740,6 +1774,10 @@ class TestReportCheckAPI(APIBaseTest):
         assert config["comparison"] == {"operator": "lte", "value": 10}
 
         hidden = check_result()
+        if artefact_type == "assessment":
+            assert "4 enterprise pageviews" not in hidden["note"]
+            assert hidden["source_check_ids"] == [check_id]
+            return
         if artefact_type == "check_result":
             assert hidden["outcome"] == "passed"
         else:
@@ -2960,22 +2998,38 @@ class TestResearchAuthoredChecks(APIBaseTest):
             assert existing.updated_at == version
             assert existing.approved_at is not None
 
-    @parameterized.expand([("no_lane", False), ("lane", True)])
-    def test_research_drops_an_agent_spec_with_no_lane_and_keeps_the_rest(self, _name: str, has_lane: bool) -> None:
+    @parameterized.expand([("no_lane", False, False), ("lane", True, False), ("only_agent_no_lane", False, True)])
+    def test_research_drops_an_agent_spec_with_no_lane_and_keeps_the_rest(
+        self, _name: str, has_lane: bool, only_agent: bool
+    ) -> None:
         if has_lane:
             _seed_check_lane(self.team)
         agent_spec = self._spec(title="The exception stops", kind="agent", config={"instructions": "Re-read it."})
+        original = None
+        if only_agent:
+            original = create_checks_from_specs(
+                report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
+            ).created[0]
 
         with patch(_CAPTURE) as capture:
-            written = create_checks_from_specs(
-                report=self.report, specs=[self._spec(), agent_spec], attribution=ArtefactAttribution.system()
-            ).created
+            result = create_checks_from_specs(
+                report=self.report,
+                specs=[agent_spec] if only_agent else [self._spec(), agent_spec],
+                attribution=ArtefactAttribution.system(),
+            )
+            written = result.created
 
         kinds = sorted(check.kind for check in written)
         skipped = [c for c in capture.call_args_list if c.kwargs["event"] == "signals_report_check_skipped"]
         if has_lane:
             assert kinds == ["agent", "metric_threshold"]
             assert skipped == []
+        elif only_agent:
+            assert not result.applied
+            assert written == []
+            assert original is not None
+            original.refresh_from_db()
+            assert original.status == SignalReportCheck.Status.PENDING
         else:
             assert kinds == ["metric_threshold"]
             assert len(skipped) == 1

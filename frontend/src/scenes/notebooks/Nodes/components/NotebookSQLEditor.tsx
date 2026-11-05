@@ -9,8 +9,9 @@ import { SQLEditor, SQLEditorPanel } from 'scenes/data-warehouse/editor/SQLEdito
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 
+import { isDataVisualizationNode, isHogQLQuery } from '~/queries/schema/node-guards'
 import { DataVisualizationNode, HogQLQuery, NodeKind, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
-import { convertDataTableNodeToDataVisualizationNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
+import { convertDataTableNodeToDataVisualizationNode } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import { notebookKernelInfoLogic } from '../../Notebook/notebookKernelInfoLogic'

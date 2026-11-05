@@ -3,6 +3,8 @@ import { memo } from 'react'
 
 import { Link } from '@posthog/lemon-ui'
 
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { cn } from 'lib/utils/css-classes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -11,10 +13,10 @@ import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { nextRunAt, SCOUT_GROUP_LABEL, ScoutRosterRow, scoutSubtitle } from '../../../utils/scoutGroups'
 import { runStripEmptyLabel, scoutDisplayName } from '../../../utils/scoutRunsWindow'
 import { inboxCardRowClassName } from '../../cards/inboxCardRowClassName'
+import { ScoutSpendLabel } from '../../spend/ScoutSpendLabel'
 import { ScoutDeprecationBadge, ScoutExemptionBadge, ScoutLifecycleBadge } from './ScoutBadges'
 import { ScoutCadenceLabel } from './ScoutCadenceLabel'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
-import { ScoutCostLine } from './ScoutCostLine'
 import { ScoutNextRunLabel } from './ScoutNextRunLabel'
 import { ScoutRosterRunBoxes } from './ScoutRosterRunBoxes'
 import { ScoutStatusDot } from './ScoutStatusDot'
@@ -42,13 +44,11 @@ function MetaSeparator(): JSX.Element {
  */
 export const ScoutRosterCard = memo(function ScoutRosterCard({ row }: { row: ScoutRosterRow }): JSX.Element {
     const { config, group } = row
-    const { rollups, updatingScoutIds, scoutRunsLoadedOnce, scoutRunsCoverFleet, scoutCostRollups } =
-        useValues(scoutFleetLogic)
+    const { rollups, updatingScoutIds, scoutRunsLoadedOnce, scoutRunsCoverFleet } = useValues(scoutFleetLogic)
     const { updateScoutConfig } = useActions(scoutFleetLogic)
     const { currentTeam } = useValues(teamLogic)
     const now = new Date()
     const rollup = rollups.get(config.skill_name)
-    const costRollup = scoutCostRollups.get(config.skill_name)
     const runs = rollup?.runs ?? []
     const subtitle = scoutSubtitle(config, rollup, now)
     // Only enabled scouts have a next run; a paused one would otherwise carry an empty dash.
@@ -95,18 +95,16 @@ export const ScoutRosterCard = memo(function ScoutRosterCard({ row }: { row: Sco
                             </>
                         )}
                     </div>
-                    {costRollup && (
-                        <div className="flex flex-wrap items-center text-xs leading-none text-tertiary select-none">
-                            <ScoutCostLine rollup={costRollup} />
-                        </div>
-                    )}
+                    <FlaggedFeature flag={FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY}>
+                        <ScoutSpendLabel skillName={config.skill_name} average />
+                    </FlaggedFeature>
                 </div>
             </Link>
             <div className="flex shrink-0 items-center justify-between gap-4 @lg:justify-end @lg:self-stretch @lg:border-l @lg:border-primary @lg:pl-3">
                 {/* A fixed strip width on wide rows keeps every row's newest run on one vertical line. */}
                 <div className="flex min-w-0 justify-end @lg:w-52">
                     {runs.length > 0 ? (
-                        <ScoutRosterRunBoxes skillName={config.skill_name} runs={runs} />
+                        <ScoutRosterRunBoxes runs={runs} />
                     ) : (
                         // Until the runs request has landed once, an empty rollup means "not
                         // loaded", not "never ran"; the poll retries a failed load on its own. Past

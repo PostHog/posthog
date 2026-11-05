@@ -4,6 +4,7 @@ from typing import Any, cast
 
 from django.conf import settings
 from django.db.models import QuerySet
+from django.db.models.manager import BaseManager
 
 import boto3
 import posthoganalytics
@@ -53,6 +54,7 @@ from products.warehouse_sources.backend.facade.api import (
     build_file_upload_url_pattern,
     denied_table_ids,
     hosted_upload_s3_path,
+    pending_source_ids_for_tables,
 )
 from products.warehouse_sources.backend.facade.contracts import (
     FileUploadSourceError,
@@ -63,7 +65,6 @@ from products.warehouse_sources.backend.facade.file_upload_sources import (
     can_replace_file,
     create_file_upload_source,
     discard_unused_upload,
-    file_upload_sources_enabled,
     has_file_upload_source,
     hosted_upload_in_use,
     is_legacy_upload_url,
@@ -117,6 +118,12 @@ _EVENT_SOURCE_TO_CREATED_VIA = {
     EventSource.POSTHOG_AI: DataWarehouseTableCreatedVia.MCP,
     EventSource.WEBMCP: DataWarehouseTableCreatedVia.MCP,
 }
+
+
+SELF_MANAGED_CREATE_BLOCKED_MESSAGE = (
+    "PostHog no longer links tables that read your bucket directly. "
+    "Add an Amazon S3, Google Cloud Storage, Azure Blob or Cloudflare R2 source instead."
+)
 
 
 def resolve_created_via(request: request.Request) -> str:
@@ -256,6 +263,22 @@ class CredentialSerializer(serializers.ModelSerializer):
         }
 
 
+class TableListSerializer(serializers.ListSerializer):
+    """Resolves the pending source of every table in the page with one query."""
+
+    def to_representation(self, data):
+        tables = list(data.all() if isinstance(data, BaseManager) else data)
+        unsourced = [table for table in tables if table.external_data_source_id is None]
+        if unsourced:
+            team_ids = {table.team_id for table in unsourced}
+            cache = self.context.setdefault("pending_source_ids", {})
+            for team_id in team_ids:
+                ids = [table.id for table in unsourced if table.team_id == team_id]
+                found = pending_source_ids_for_tables(team_id, ids)
+                cache.update({table_id: found.get(table_id) for table_id in ids})
+        return super().to_representation(tables)
+
+
 class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     credential = CredentialSerializer()
@@ -267,6 +290,10 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
     )
     external_data_source = SimpleExternalDataSourceSerializers(read_only=True)
     external_schema = serializers.SerializerMethodField(read_only=True)
+    pending_source_id = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="The managed source that will import this self-managed table on its first sync, if one is linked.",
+    )
     options = serializers.DictField(
         required=False,
         default=dict,
@@ -303,9 +330,11 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             "columns",
             "external_data_source",
             "external_schema",
+            "pending_source_id",
             "options",
             "user_access_level",
         ]
+        list_serializer_class = TableListSerializer
         read_only_fields = [
             "id",
             "created_by",
@@ -315,6 +344,7 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             "columns",
             "external_data_source",
             "external_schema",
+            "pending_source_id",
             "user_access_level",
         ]
         extra_kwargs = {
@@ -379,6 +409,15 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             for field in serializes_fields
         ]
 
+    @extend_schema_field(serializers.UUIDField(allow_null=True))
+    def get_pending_source_id(self, table: DataWarehouseTable) -> uuid.UUID | None:
+        if table.external_data_source_id is not None:
+            return None
+        cache = self.context.get("pending_source_ids")
+        if cache is not None and table.id in cache:
+            return cache[table.id]
+        return pending_source_ids_for_tables(table.team_id, [table.id]).get(table.id)
+
     @extend_schema_field(serializers.DictField(allow_null=True))
     def get_external_schema(self, instance: DataWarehouseTable):
         from products.warehouse_sources.backend.presentation.views.external_data_schema import (
@@ -392,52 +431,6 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             # object for every unsynced table, which callers read as "this table has a schema".
             return None
         return SimpleExternalDataSchemaSerializer(schema, read_only=True).data
-
-    def create(self, validated_data):
-        team_id = self.context["team_id"]
-
-        validated_data["team_id"] = team_id
-        validated_data["created_by"] = cast(User, self.context["request"].user)
-        validated_data["created_via"] = resolve_created_via(self.context["request"])
-        credential = validated_data.get("credential")
-
-        if not credential:
-            raise serializers.ValidationError("Credentials are required")
-
-        access_key: str | None = credential.get("access_key")
-        access_secret: str | None = credential.get("access_secret")
-
-        # CRITICAL: users MUST provide an access key and secret, otherwise we'll fall back to using the EC2 node's internal role.
-        # this would allow an external user to then access one of PostHog's internal S3 buckets
-        if not access_key or not access_secret:
-            raise serializers.ValidationError("Access key and secret are required")
-        if len(access_key.strip()) == 0 or len(access_secret.strip()) == 0:
-            raise serializers.ValidationError("Access key and secret can't be blank")
-
-        validated_data["credential"] = DataWarehouseCredential.objects.create(
-            team_id=team_id,
-            access_key=access_key,
-            access_secret=access_secret,
-        )
-        table = DataWarehouseTable(**validated_data)
-        if table._is_csv_format() and table.csv_allow_double_quotes is not None:
-            try:
-                table._validate_csv_double_quotes_setting()
-            except Exception as err:
-                raise serializers.ValidationError(str(err))
-        try:
-            table.columns = table.get_columns()
-        except Exception as err:
-            raise serializers.ValidationError(str(err))
-        try:
-            table.save()
-        except Exception as err:
-            raise serializers.ValidationError(str(err))
-        log_table_activity(table, "created")
-
-        validate_data_warehouse_table_columns.delay(self.context["team_id"], str(table.id))
-
-        return table
 
     def validate_url_pattern(self, url_pattern):
         # A credential-less table reads from PostHog's own storage by design - PostHog built the URL
@@ -595,7 +588,13 @@ class CreateTableFromUploadSerializer(UploadedFileSerializer):
                 bool,
                 description="Include table columns. Disable for lightweight table existence or name lookups.",
                 default=True,
-            )
+            ),
+            OpenApiParameter(
+                "pending_source",
+                bool,
+                description="Only return self-managed tables that a managed source will import on its first sync.",
+                default=False,
+            ),
         ]
     )
 )
@@ -623,13 +622,18 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         return context
 
     def safely_get_queryset(self, queryset):
-        return (
+        queryset = (
             queryset.filter(team_id=self.team_id)
             .exclude(deleted=True)
             .exclude(external_data_source__access_method=ExternalDataSourceAccessMethod.DIRECT)
             .prefetch_related("created_by", "externaldataschema_set")
             .order_by(self.ordering)
         )
+        if self.action == "list" and self.request.query_params.get("pending_source", "").lower() == "true":
+            queryset = queryset.filter(id__in=list(pending_source_ids_for_tables(self.team_id))).select_related(
+                "credential"
+            )
+        return queryset
 
     def _filter_queryset_by_access_level(self, queryset: QuerySet) -> QuerySet:
         queryset = super()._filter_queryset_by_access_level(queryset)
@@ -642,6 +646,10 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         # The generic filter reads rules on tables only. A table also resolves through its source,
         # so a rule that denies the source must hide its tables from the list too.
         return queryset.exclude(id__in=denied_table_ids(self.team_id, self.user_access_control))
+
+    def create(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        # Uploads go through `create_from_upload` and the file upload source, never this endpoint.
+        raise serializers.ValidationError(SELF_MANAGED_CREATE_BLOCKED_MESSAGE)
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: DataWarehouseTable = self.get_object()
@@ -970,9 +978,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
         table.save()
         log_table_activity(table, "created")
-        if file_upload_sources_enabled(self.team_id):
-            # The table reads the file in place until the source's first sync imports it.
-            create_file_upload_source(self.team_id, table.pk, upload, read_settings)
+        # The table reads the file in place until the source's first sync imports it.
+        create_file_upload_source(self.team_id, table.pk, upload, read_settings)
 
         validate_data_warehouse_table_columns.delay(self.team_id, str(table.id))
 
