@@ -120,7 +120,6 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                             // can be captured rather than setting a fixed frame rate.
                                             // Lower values can make playback smoother, at the cost of more
                                             // capture work on the device.
-                                            // Note: called \`debouncerDelay\` before version 3.21.0
                                             config.sessionReplayConfig.throttleDelay = 1.0
 
                                             // Sample rate for session recordings. A value between 0.0 and 1.0.
