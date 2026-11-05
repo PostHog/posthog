@@ -230,7 +230,8 @@ def hand_off_task_claims(*, team_id: int, task_id: str, previous_user_id: int, t
     """Move the report claims a task works under from its previous owner to the person it was handed to.
 
     The task's runs work under its creator's claim, so a claim left with the previous owner would refuse
-    every later run of the task. Call inside the handoff transaction.
+    every later run of the task. Call after the handoff commits: each report is locked here, and holding
+    the task's lock at the same time would invert the lock order a rerun takes.
     """
     report_ids = (
         SignalReportArtefact.objects.filter(team_id=team_id, type="task_run", task_id=task_id, claim__isnull=False)
@@ -238,20 +239,24 @@ def hand_off_task_claims(*, team_id: int, task_id: str, previous_user_id: int, t
         .distinct()
     )
     target = ArtefactAttribution.from_user(target_user_id)
-    for report_id in report_ids:
-        report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
-        claim = get_active_claim(team_id=team_id, report_id=str(report_id)) if report is not None else None
-        if (
-            report is None
-            or claim is None
-            or not is_user_claim_of(claim, previous_user_id)
-            or not SignalReportArtefact.objects.filter(
-                team_id=team_id, type="task_run", task_id=task_id, claim_id=claim.claim_id
-            ).exists()
-        ):
-            continue
-        release_claim(claim, target, takeover=True)
-        create_claim(report, target, task_id=task_id)
+    for report_id in list(report_ids):
+        with transaction.atomic():
+            report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
+            claim = get_active_claim(team_id=team_id, report_id=str(report_id)) if report is not None else None
+            if report is None or claim is None or not is_user_claim_of(claim, previous_user_id):
+                continue
+            tasks_under_claim = {
+                str(other)
+                for other in SignalReportArtefact.objects.filter(
+                    team_id=team_id, type="task_run", claim_id=claim.claim_id
+                ).values_list("task_id", flat=True)
+            }
+            # Another task of the previous owner, such as a replacement implementation, works under the same
+            # claim and still needs it.
+            if tasks_under_claim != {task_id}:
+                continue
+            release_claim(claim, target, takeover=True)
+            create_claim(report, target, task_id=task_id)
 
 
 def _pull_request_details(team_id: int, pr_url: str, *, raise_on_error: bool = False) -> PullRequestDetails:

@@ -77,7 +77,7 @@ def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, tas
 
 
 def hand_off_task_claims(*, team_id: int, task_id: str, previous_user_id: int, target_user_id: int) -> None:
-    """Move the report claims a handed-off task works under to its new owner. Call inside the handoff transaction."""
+    """Move the report claims a handed-off task works under to its new owner. Call after the handoff commits."""
     report_assignments.hand_off_task_claims(
         team_id=team_id, task_id=task_id, previous_user_id=previous_user_id, target_user_id=target_user_id
     )
