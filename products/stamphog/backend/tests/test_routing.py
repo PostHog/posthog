@@ -5,12 +5,11 @@ import pytest
 from owners_yaml import Addition, Resolution
 from parameterized import parameterized
 
+from products.stamphog.backend.facade.enums import LlmSkipReason, OwnerKind, PinReason, RoutingOwnerReason
 from products.stamphog.backend.logic.routing.candidates import (
     ChangedFile,
     OwnerCandidate,
-    OwnerKind,
     Pin,
-    PinReason,
     find_candidates,
     paths_to_resolve,
 )
@@ -20,7 +19,6 @@ from products.stamphog.backend.logic.routing.cut import (
     CUT_SYSTEM_PROMPT,
     DIFF_MAX_CHARS,
     CutOwner,
-    LlmSkipReason,
     RoutingDecision,
     apply_cut_guards,
     build_cut_prompt,
@@ -210,15 +208,28 @@ class TestApplyCutGuards:
                 "cuts_a_small_owner",
                 {"cuts": [{"owner": "team-small", "reason": "Only an import moved."}]},
                 ["team-small"],
+                {"team-small": "Only an import moved."},
             ),
-            ("never_cuts_a_pin", {"cuts": [{"owner": "team-pinned", "reason": "x"}]}, []),
-            ("never_cuts_an_unseen_diff", {"cuts": [{"owner": "team-unseen", "reason": "x"}]}, []),
-            ("ignores_unknown_owner", {"cuts": [{"owner": "team-nobody", "reason": "x"}]}, []),
-            ("none_cuts_nobody", None, []),
-            ("malformed_cuts_nobody", {"cuts": "team-small"}, []),
+            # A cut a guard blocks keeps the model's reason, which is what an evaluation of the cut step reads.
+            ("never_cuts_a_pin", {"cuts": [{"owner": "team-pinned", "reason": "x"}]}, [], {"team-pinned": "x"}),
+            (
+                "never_cuts_an_unseen_diff",
+                {"cuts": [{"owner": "team-unseen", "reason": "x"}]},
+                [],
+                {"team-unseen": "x"},
+            ),
+            ("ignores_unknown_owner", {"cuts": [{"owner": "team-nobody", "reason": "x"}]}, [], {}),
+            ("none_cuts_nobody", None, [], {}),
+            ("malformed_cuts_nobody", {"cuts": "team-small"}, [], {}),
         ]
     )
-    def test_guards(self, _name: str, model_output: Mapping[str, object] | None, expected_cut: list[str]) -> None:
+    def test_guards(
+        self,
+        _name: str,
+        model_output: Mapping[str, object] | None,
+        expected_cut: list[str],
+        expected_model_reasons: dict[str, str],
+    ) -> None:
         candidates = [
             _candidate("team-big", lines=50),
             _candidate("team-small", lines=2),
@@ -232,6 +243,17 @@ class TestApplyCutGuards:
 
         assert [cut.candidate.owner for cut in decision.cut] == expected_cut
         assert len(decision.kept) + len(decision.cut) == len(candidates)
+        uncut_reasons = {
+            "team-big": RoutingOwnerReason.MODEL_KEPT,
+            "team-small": RoutingOwnerReason.MODEL_KEPT,
+            "team-pinned": RoutingOwnerReason.SENSITIVE,
+            "team-unseen": RoutingOwnerReason.DIFF_NOT_SEEN,
+        }
+        assert decision.reasons == {
+            **uncut_reasons,
+            **dict.fromkeys(expected_cut, RoutingOwnerReason.MODEL_CUT),
+        }
+        assert decision.model_reasons == expected_model_reasons
 
     def test_cutting_everyone_keeps_the_largest(self) -> None:
         candidates = [_candidate("team-small", lines=2), _candidate("team-big", lines=50)]
@@ -241,23 +263,46 @@ class TestApplyCutGuards:
 
         assert [candidate.owner for candidate in decision.kept] == ["team-big"]
         assert [cut.candidate.owner for cut in decision.cut] == ["team-small"]
+        assert decision.reasons == {
+            "team-small": RoutingOwnerReason.MODEL_CUT,
+            "team-big": RoutingOwnerReason.LARGEST_OWNER,
+        }
+        assert decision.model_reasons == {"team-small": "x", "team-big": "y"}
 
 
 class TestDecideCuts:
     @parameterized.expand(
         [
-            ("single_candidate", [_candidate("team-a")], False, LlmSkipReason.SINGLE_CANDIDATE),
-            ("fork", [_candidate("team-a"), _candidate("team-b")], True, LlmSkipReason.FORK),
+            (
+                "single_candidate",
+                [_candidate("team-a")],
+                False,
+                LlmSkipReason.SINGLE_CANDIDATE,
+                RoutingOwnerReason.CUT_SKIPPED,
+            ),
+            (
+                "fork",
+                [_candidate("team-a"), _candidate("team-b")],
+                True,
+                LlmSkipReason.FORK,
+                RoutingOwnerReason.CUT_SKIPPED,
+            ),
             (
                 "all_pinned",
                 [_candidate("team-a", pins=_SENSITIVE_PIN), _candidate("team-b", pins=_SENSITIVE_PIN)],
                 False,
                 LlmSkipReason.NOTHING_CUTTABLE,
+                RoutingOwnerReason.SENSITIVE,
             ),
         ]
     )
     def test_skips_the_model(
-        self, _name: str, candidates: list[OwnerCandidate], is_fork: bool, reason: LlmSkipReason
+        self,
+        _name: str,
+        candidates: list[OwnerCandidate],
+        is_fork: bool,
+        reason: LlmSkipReason,
+        keep_reason: RoutingOwnerReason,
     ) -> None:
         def call_model(system: str, user: str, schema: Mapping[str, object]) -> Mapping[str, object] | None:
             pytest.fail("the model must not be called")
@@ -266,7 +311,12 @@ class TestDecideCuts:
             candidates=candidates, title="t", description="d", is_fork=is_fork, call_model=call_model
         )
 
-        assert decision == RoutingDecision(kept=tuple(candidates), cut=(), llm_skipped=reason)
+        assert decision == RoutingDecision(
+            kept=tuple(candidates),
+            cut=(),
+            llm_skipped=reason,
+            reasons={candidate.owner: keep_reason for candidate in candidates},
+        )
 
     @parameterized.expand(
         [

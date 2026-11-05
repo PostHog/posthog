@@ -795,6 +795,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "resolved_symbol_sets_count": 0,
                     "decide_requests_count_in_period": 0,
                     "local_evaluation_requests_count_in_period": 0,
+                    "local_evaluation_not_modified_requests_count_in_period": 0,
                     "billable_feature_flag_requests_count_in_period": 0,
                     "survey_count": 0,
                     "survey_responses_count_in_period": 1,
@@ -901,6 +902,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "resolved_symbol_sets_count": 0,
                             "decide_requests_count_in_period": 0,
                             "local_evaluation_requests_count_in_period": 0,
+                            "local_evaluation_not_modified_requests_count_in_period": 0,
                             "billable_feature_flag_requests_count_in_period": 0,
                             "survey_count": 0,
                             "survey_responses_count_in_period": 1,
@@ -1001,6 +1003,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "resolved_symbol_sets_count": 0,
                             "decide_requests_count_in_period": 0,
                             "local_evaluation_requests_count_in_period": 0,
+                            "local_evaluation_not_modified_requests_count_in_period": 0,
                             "billable_feature_flag_requests_count_in_period": 0,
                             "survey_count": 0,
                             "survey_responses_count_in_period": 0,
@@ -1124,6 +1127,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "resolved_symbol_sets_count": 0,
                     "decide_requests_count_in_period": 0,
                     "local_evaluation_requests_count_in_period": 0,
+                    "local_evaluation_not_modified_requests_count_in_period": 0,
                     "billable_feature_flag_requests_count_in_period": 0,
                     "survey_count": 0,
                     "survey_responses_count_in_period": 0,
@@ -1230,6 +1234,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "resolved_symbol_sets_count": 0,
                             "decide_requests_count_in_period": 0,
                             "local_evaluation_requests_count_in_period": 0,
+                            "local_evaluation_not_modified_requests_count_in_period": 0,
                             "billable_feature_flag_requests_count_in_period": 0,
                             "survey_count": 0,
                             "survey_responses_count_in_period": 0,
@@ -2147,6 +2152,14 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
                 team=self.analytics_team,
             )
 
+        _create_event(
+            distinct_id="3",
+            event="local evaluation not modified usage",
+            properties={"count": 5, "token": "correct"},
+            timestamp=now(),
+            team=self.analytics_team,
+        )
+
         for i in range(5):
             _create_event(
                 distinct_id="4",
@@ -2198,11 +2211,13 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
 
         assert org_1_report["organization_name"] == "Org 1"
         assert org_1_report["local_evaluation_requests_count_in_period"] == 11
+        assert org_1_report["local_evaluation_not_modified_requests_count_in_period"] == 5
         assert org_1_report["decide_requests_count_in_period"] == 0
-        assert org_1_report["billable_feature_flag_requests_count_in_period"] == 110
+        assert org_1_report["billable_feature_flag_requests_count_in_period"] == 115
         assert org_1_report["teams"]["3"]["local_evaluation_requests_count_in_period"] == 10
+        assert org_1_report["teams"]["3"]["local_evaluation_not_modified_requests_count_in_period"] == 5
         assert org_1_report["teams"]["4"]["local_evaluation_requests_count_in_period"] == 1
-        assert org_1_report["teams"]["3"]["billable_feature_flag_requests_count_in_period"] == 100
+        assert org_1_report["teams"]["3"]["billable_feature_flag_requests_count_in_period"] == 105
         assert org_1_report["teams"]["4"]["billable_feature_flag_requests_count_in_period"] == 10
 
         # because of wrong token, Org 2 has no decide counts.
@@ -2526,6 +2541,7 @@ class TestHasNonZeroUsage(SimpleTestCase):
             ("empty", None),
             ("events", "event_count_in_period"),
             ("mcp_events", "mcp_event_count_in_period"),
+            ("local_evaluation_not_modified", "local_evaluation_not_modified_requests_count_in_period"),
             ("business_knowledge_chunks", "business_knowledge_chunks_in_period"),
             ("business_knowledge_queries", "business_knowledge_queries_in_period"),
             ("logs_bytes", "logs_bytes_in_period"),
