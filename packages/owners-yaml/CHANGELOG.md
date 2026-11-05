@@ -15,7 +15,8 @@ the GitHub Release body, so add the entry here before you cut the tag.
 - An optional `sensitive` field, at file level and in rules, marks paths where a small change can change behavior far outside the change. The nearest value wins, as for `status`. The format only states the fact; a consumer decides what to do with it, for example a review assigner that requests the owners for each change. It never makes a review required. An alias file such as `product.yaml` can set it too, so a manifest that already used a `sensitive` key for another purpose now marks its paths as sensitive. `SPEC.md` section 3.7 defines it.
 - The resolver response carries a `sensitive` member, and `Resolution` a `sensitive` field. A consumer treats a missing member as `false`.
 - `lint` warns about a sensitive path that has no owners, because a consumer has no owner to request a review from.
-- `unowned_test_directories(resolver)` returns the directories that hold a tracked test file no team owns.
+- `unowned_test_directories(resolver, paths)` returns the directories that hold a test file no team owns.
+- `GitRefSource` reads ownership files as a git ref holds them, so a check can read what a push carries.
 
 ### Changed
 
