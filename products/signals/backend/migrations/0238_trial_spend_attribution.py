@@ -12,6 +12,11 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="signalspend",
+            name="accounting_pending",
+            field=models.BooleanField(default=False, db_default=False),
+        ),
+        migrations.AddField(
+            model_name="signalspend",
             name="pending_requests",
             field=models.JSONField(db_default={}, default=dict),
         ),

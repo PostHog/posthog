@@ -16,11 +16,11 @@ from products.signals.backend.spend import (
     record_llm_spend,
     record_task_spend,
 )
-from products.signals.backend.spend_billing import spend_billing_credits_by_team
+from products.signals.backend.spend_billing import get_signals_spend_billing_credits_by_team
 from products.signals.backend.trial.limits import TrialLimits
 from products.signals.backend.trial.models import SignalTrialGrant
 from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
-from products.tasks.backend.facade.billing import locked_task_run_spend
+from products.tasks.backend.facade.billing import TaskTokenUsageUnavailable, locked_task_run_spend
 from products.tasks.backend.facade.testing import create_completed_task_sandbox_session
 from products.tasks.backend.models import Task, TaskRun
 
@@ -32,6 +32,8 @@ class TestTrialAccounting(BaseTest):
         self.flag_mock = self.flag.start()
         self.addCleanup(self.flag.stop)
         self.policy = TrialPolicy(self.team)
+        self.organization.usage = {"signals_spend_credits": {"billing_start_date": "2026-01-01"}}
+        self.organization.save(update_fields=["usage"])
 
     def claim(self) -> SignalTrialGrant:
         return self.policy.claim(user_id=self.user.pk)
@@ -74,6 +76,9 @@ class TestTrialAccounting(BaseTest):
             trial_grant_id=str(grant.id),
             strict=True,
         )
+        pending = SignalSpend.objects.for_team(self.team.id).get(signal_id=signal_id)
+        assert pending.accounting_pending
+        assert not pending.accounting_failed
         if finalized:
             complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id)
         self.flag_mock.return_value = False
@@ -142,11 +147,10 @@ class TestTrialAccounting(BaseTest):
                     trial_grant_id=str(grant.id) if trial else None,
                 )
             complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id)
-        assert spend_billing_credits_by_team(
+        assert get_signals_spend_billing_credits_by_team(
             timezone.now() - timedelta(days=1),
             timezone.now() + timedelta(days=1),
-            cutoffs={self.team.organization_id: timezone.now() - timedelta(days=1)},
-        ) == {self.team.id: 20}
+        ) == [(self.team.id, 20)]
 
     def test_existing_generation_cost_cannot_be_reassigned_to_new_trial(self) -> None:
         signal_id = str(uuid4())
@@ -198,3 +202,70 @@ class TestTrialAccounting(BaseTest):
         assert spend.spend == Decimal(expected) / 10_000
         assert spend.billing_exempt
         assert spend.finalized_at is not None
+
+    def test_accepted_pipeline_keeps_trial_funding_and_exempts_spillover(self) -> None:
+        grant = self.claim()
+        funding = self.policy.admit(paid_authorized=False)
+        for amount in (grant.allowance_microusd, 200_000):
+            signal_id = str(uuid4())
+            record_llm_spend(
+                team_id=self.team.id,
+                signal_id=signal_id,
+                stage="research",
+                token_cost_microusd=amount,
+                trial_grant_id=str(grant.id),
+            )
+            complete_signal_pipeline(team_id=self.team.id, signal_id=signal_id)
+            assert self.policy.admit(paid_authorized=True, parent=funding) == funding
+        with self.assertRaisesMessage(TrialRefused, "cost_limit"):
+            self.policy.admit(paid_authorized=False)
+        grant.refresh_from_db()
+        assert grant.settled_microusd == grant.allowance_microusd + 200_000
+        assert not SignalSpend.objects.for_team(self.team.id).filter(billing_exempt=False).exists()
+        assert (
+            get_signals_spend_billing_credits_by_team(
+                timezone.now() - timedelta(days=1), timezone.now() + timedelta(days=1)
+            )
+            == []
+        )
+
+    def test_pending_task_accounting_retries_and_releases_trial_admission(self) -> None:
+        grant = self.claim()
+        task = Task.objects.create(team=self.team, title="Trial research", origin_product="signal_report")
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            environment=TaskRun.Environment.CLOUD,
+            state={
+                "self_driving_funding": {"funding": "trial", "grant_id": str(grant.id)},
+                "token_cost": {},
+                "unprocessed_request_ids": ["late-request"],
+            },
+        )
+        record_task_spend(team_id=self.team.id, run_id=str(run.id), stage="research", signal_id=str(uuid4()))
+        spend = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
+        assert spend.accounting_pending
+        assert not spend.accounting_failed
+        grant.refresh_from_db()
+        assert grant.incomplete_sources == 1
+        with patch("products.tasks.backend.facade.billing.process_pending_gateway_usage"):
+            with self.assertRaises(TaskTokenUsageUnavailable):
+                complete_task_spend(team_id=self.team.id, run_id=str(run.id))
+        run.state["unprocessed_request_ids"] = []
+        run.state["token_cost"] = {"model": {"provider": {"cost_microusd": 100_000}}}
+        run.save(update_fields=["state"])
+        with (
+            patch("products.tasks.backend.facade.billing.process_pending_gateway_usage"),
+            patch("products.signals.backend.spend.submit_signal_metadata_updates", new_callable=AsyncMock),
+        ):
+            complete_task_spend(team_id=self.team.id, run_id=str(run.id))
+            complete_task_spend(team_id=self.team.id, run_id=str(run.id))
+        spend = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
+        grant = SignalTrialGrant.objects.for_team(self.team.id, canonical=True).get(id=grant.id)
+        assert spend.finalized_at is not None
+        assert not spend.accounting_failed
+        assert not spend.accounting_pending
+        assert grant.incomplete_sources == 0
+        assert grant.settled_microusd == 140_000
+        assert self.policy.admit(paid_authorized=False).grant_id == grant.id

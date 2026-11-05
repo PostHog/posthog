@@ -154,10 +154,11 @@ def begin_signal_spend(*, team_id: int, signal_id: str) -> None:
 def _save_ad_hoc_spend(spend: SignalSpend, *, finalize: bool = False) -> None:
     if spend.finalized_at is not None:
         return
-    spend.accounting_failed = bool(spend.llm_failed_stages or spend.pending_requests)
+    spend.accounting_failed = bool(spend.llm_failed_stages)
+    spend.accounting_pending = bool(spend.pending_requests)
     if finalize:
         spend.finalization_requested_at = spend.finalization_requested_at or timezone.now()
-    if spend.finalization_requested_at and not spend.accounting_failed:
+    if spend.finalization_requested_at and not (spend.accounting_failed or spend.accounting_pending):
         spend.finalized_at = timezone.now()
     save_trial_spend(spend)
 
@@ -318,6 +319,7 @@ def record_task_spend(
             run.cost_microusd or 0, compute_cost_microusd=run.compute_cost_microusd, task_count=1
         )
         spend.accounting_failed = spend.accounting_failed or run.accounting_failed
+        spend.accounting_pending = not run.complete
         save_trial_spend(spend)
         _save_scout_total(spend)
 
@@ -454,6 +456,7 @@ def complete_task_spend(
                     run.cost_microusd or 0, compute_cost_microusd=run.compute_cost_microusd, task_count=1
                 )
                 spend.accounting_failed = run.accounting_failed or (final_attempt and not run.complete)
+                spend.accounting_pending = not run.complete
                 if run.is_terminal and run.complete:
                     spend.finalized_at = timezone.now()
                 save_trial_spend(spend)
@@ -477,7 +480,8 @@ def refresh_task_spend(*, team_id: int, run_id: str, strict: bool = False) -> st
             spend.spend = cost_to_spend(
                 run.cost_microusd or 0, compute_cost_microusd=run.compute_cost_microusd, task_count=1
             )
-            spend.accounting_failed = not run.complete
+            spend.accounting_failed = spend.accounting_failed or run.accounting_failed
+            spend.accounting_pending = not run.complete
             save_trial_spend(spend)
             _save_scout_total(spend)
         return str(spend.id)

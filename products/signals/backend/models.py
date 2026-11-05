@@ -4184,6 +4184,7 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
         max_digits=20, decimal_places=4, default=0, db_default=0, help_text="Customer spend in USD cents"
     )
     accounting_failed = models.BooleanField(default=False)
+    accounting_pending = models.BooleanField(default=False, db_default=False)
     finalized_at = models.DateTimeField(null=True, blank=True, db_index=True)
     billing_exempt = models.BooleanField(default=False, db_default=False)
     # Freeze the meter at admission: a later plan change must not bill the same work twice.
