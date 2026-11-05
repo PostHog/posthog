@@ -18,6 +18,7 @@ from click.testing import CliRunner
 from hogli import telemetry
 from hogli_commands import worktrees
 from hogli_commands.cargo_targets import (
+    cargo_target_locked,
     shared_cargo_targets,
     unused_cargo_target,
     unused_cargo_units,
@@ -608,6 +609,21 @@ class TestCargoTargets:
         expected["symlinked_target"] = expected["graph"]
         assert (set(unused) if unused is not None else None) == expected[case]
 
+    def test_target_lock_waits_for_a_build_and_blocks_one_while_held(self, tmp_path) -> None:
+        target = _write_cargo_target(tmp_path / "target", time.time())
+        cargo_lock = target / "debug" / ".cargo-lock"
+        cargo_lock.write_text("")
+
+        with cargo_lock.open("a") as build:
+            fcntl.flock(build, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with cargo_target_locked(target) as locked:
+                assert not locked
+
+        with cargo_target_locked(target) as locked, cargo_lock.open("a") as build:
+            assert locked
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(build, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
     @pytest.mark.parametrize("broken_git_metadata", [False, True], ids=["checkout", "checkout_git_cannot_read"])
     def test_cargo_target_dir_inside_a_checkout_is_not_treated_as_shared(
         self, tmp_path, monkeypatch, broken_git_metadata: bool
@@ -1035,17 +1051,28 @@ class TestExecute:
         assert second.exists()
         assert [call.args[0].path for call in before_remove.call_args_list] == [first]
 
-    def test_artifact_with_a_repo_anywhere_inside_is_kept(self, tmp_path) -> None:
-        worktree = tmp_path / "wt"
-        nested_repo = worktree / "node_modules" / ".pnpm" / "pkg@1.0.0" / "node_modules" / "pkg" / "src"
-        (nested_repo / ".git").mkdir(parents=True)
+    @pytest.mark.parametrize(
+        ("case", "expected_removed_failed"),
+        [("removable", (1, 0)), ("repo_deep_inside", (0, 1)), ("tracked_during_prompt", (0, 0))],
+    )
+    def test_artifact_is_checked_again_just_before_removal(
+        self, tmp_path, case: str, expected_removed_failed: tuple[int, int]
+    ) -> None:
+        worktree = _git_worktree(
+            tmp_path / "wt", {".gitignore": "node_modules/\n", "node_modules/pkg/index.js": ""}, tracked=(".gitignore",)
+        )
+        node_modules = (worktree / "node_modules").resolve()
+        if case == "repo_deep_inside":
+            (node_modules / ".pnpm" / "pkg@1.0.0" / "node_modules" / "pkg" / "src" / ".git").mkdir(parents=True)
         wt = Worktree(source="claude", path=worktree, registered=True, locked=False, branch="", last_activity=0.0)
-        wt.artifact_items = [worktree / "node_modules"]
+        wt.artifact_items = [node_modules]
+        if case == "tracked_during_prompt":
+            subprocess.run(["git", "add", "-f", "node_modules/pkg/index.js"], cwd=worktree, check=True)
 
         reap = _execute([wt], "deps", tmp_path)
 
-        assert (reap.removed, reap.failed) == (0, 1)
-        assert (nested_repo / ".git").is_dir()
+        assert (reap.removed, reap.failed) == expected_removed_failed
+        assert node_modules.exists() == (case != "removable")
 
     @pytest.mark.parametrize("read_only_go_module_cache", [True, False], ids=["read_only_tree", "already_removed"])
     def test_full_mode_counts_worktree_as_removed(self, tmp_path, read_only_go_module_cache) -> None:

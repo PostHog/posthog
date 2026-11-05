@@ -28,6 +28,8 @@ from hogli.manifest import REPO_ROOT, get_manifest
 
 from . import hints
 from .cargo_targets import (
+    cargo_target_locked,
+    configured_cargo_targets,
     idle_cargo_target,
     looks_like_cargo_target,
     shared_cargo_targets,
@@ -1453,9 +1455,13 @@ def _collect_rust_target_dirs(repo_root: Path) -> list[CleanupItem]:
 
 
 def _sweepable_cargo_targets(repo_root: Path) -> list[Path]:
-    """Resolved shared Cargo targets, then the target dirs beside this checkout's tracked Cargo.toml files."""
+    """Resolved Cargo targets outside every checkout, plus configured and local targets that their checkout's git ignores."""
 
-    candidates = [shared.path for shared in shared_cargo_targets()]
+    outside_checkouts = {shared.path for shared in shared_cargo_targets()}
+    candidates = list(outside_checkouts)
+    candidates += [
+        configured.path for configured in configured_cargo_targets() if configured.path not in outside_checkouts
+    ]
     try:
         listed = subprocess.run(
             ["git", "ls-files", "-z", "--", "Cargo.toml", ":(glob)**/Cargo.toml"],
@@ -1477,9 +1483,25 @@ def _sweepable_cargo_targets(repo_root: Path) -> list[Path]:
             resolved = target.resolve(strict=True)
         except (OSError, RuntimeError):
             continue
-        if looks_like_cargo_target(resolved):
+        if not looks_like_cargo_target(resolved):
+            continue
+        if target in outside_checkouts or _ignored_by_its_checkout(resolved):
             targets.setdefault(resolved, None)
     return list(targets)
+
+
+def _ignored_by_its_checkout(path: Path) -> bool:
+    try:
+        result = subprocess.run(
+            ["git", "check-ignore", "-q", "--", path.name],
+            cwd=path.parent,
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
 
 
 def _unused_units_by_target(repo_root: Path) -> tuple[dict[Path, list[Path]], list[str]]:
@@ -1516,15 +1538,17 @@ def _estimate_unused_cargo_units(repo_root: Path) -> CleanupEstimate:
 
 
 def _cleanup_unused_cargo_units(estimate: CleanupEstimate, repo_root: Path) -> CleanupStats:
-    # A build can run while the prompt waits, so only paths that a fresh pass still finds unused go.
-    unused_by_target, _ = _unused_units_by_target(repo_root)
-    still_unused = {path for unused in unused_by_target.values() for path in unused}
-    kept = [item for item in estimate.items if item.path in still_unused]
-    if len(kept) < len(estimate.items):
-        click.echo(
-            f"   {len(estimate.items) - len(kept)} path(s) are in use again or could not be checked, so they stay."
-        )
-    freed = _delete_items(kept)
+    # Holding Cargo's build lock makes a build that starts now wait, and the rescan under it drops units a build used during the prompt.
+    estimated = {item.path: item for item in estimate.items}
+    built_before_epoch = time.time() - STALE_RUST_TARGET_DAYS * 24 * 60 * 60
+    freed = 0.0
+    for target in _sweepable_cargo_targets(repo_root):
+        with cargo_target_locked(target) as locked:
+            if not locked or not idle_cargo_target(target):
+                click.echo(f"   {target}: a build is running, so it is kept.")
+                continue
+            unused = unused_cargo_units(target, built_before_epoch) or []
+            freed += _delete_items([estimated[path] for path in unused if path in estimated])
     return CleanupStats(freed=freed, deleted_anything=freed > 0)
 
 

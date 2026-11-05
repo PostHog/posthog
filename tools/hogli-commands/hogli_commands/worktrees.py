@@ -1639,9 +1639,12 @@ def _execute(
             continue
         before_remove(wt)
         if mode != "full":
-            if not wt.artifact_items:
+            # Git can start tracking a path while the prompt waits, so only paths that git still approves now go.
+            still_approved = set(_git_approved_artifacts(wt.path, _collect_artifacts(wt.path, _artifact_kinds(mode))))
+            items = [item for item in wt.artifact_items if item in still_approved]
+            if not items:
                 continue
-            if _delete_paths(wt.artifact_items):
+            if _delete_paths(items):
                 failed += 1
             else:
                 removed += 1

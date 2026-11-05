@@ -3,11 +3,14 @@ from __future__ import annotations
 import os
 import re
 import json
+import fcntl
 import tomllib
+import contextlib
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import IO
 
 from .processes import process_cwds
 
@@ -115,6 +118,13 @@ class SharedCargoTarget:
 def shared_cargo_targets() -> list[SharedCargoTarget]:
     """Cargo target dirs that live outside any checkout, so builds from every repo and worktree go into them."""
 
+    # A target inside a checkout is that checkout's own, and only a caller that checks git may remove it.
+    return [shared for shared in configured_cargo_targets() if not _inside_git_work_tree(shared.path)]
+
+
+def configured_cargo_targets() -> list[SharedCargoTarget]:
+    """The target dirs that CARGO_TARGET_DIR, build.target-dir in the Cargo config, or the old Flox env point Cargo at."""
+
     cargo_home = Path(os.environ.get("CARGO_HOME") or Path.home() / ".cargo")
     candidates: list[SharedCargoTarget] = []
     if env_target := os.environ.get("CARGO_TARGET_DIR"):
@@ -138,8 +148,7 @@ def shared_cargo_targets() -> list[SharedCargoTarget]:
     for candidate in candidates:
         if candidate.path.is_absolute() and (key := inode_key(candidate.path)) is not None:
             unique.setdefault(key, candidate)
-    # A target inside a checkout is that checkout's own, and only the worktree walk, with its git checks, may remove it.
-    return [shared for shared in unique.values() if not _inside_git_work_tree(shared.path)]
+    return list(unique.values())
 
 
 def _inside_git_work_tree(path: Path) -> bool:
@@ -212,12 +221,7 @@ def unused_cargo_units(target: Path, built_before_epoch: float) -> list[Path] | 
         return None
     units: dict[Path, _CargoUnit] = {}
     unit_by_fingerprint: dict[str, Path] = {}
-    # Tools such as rust-analyzer and cargo-llvm-cov build into <target>/<tool>/<triple>/<profile>.
-    profiles = [
-        fingerprints.parent
-        for pattern in ("*/.fingerprint", "*/*/.fingerprint", "*/*/*/.fingerprint")
-        for fingerprints in target.glob(pattern)
-    ]
+    profiles = _cargo_profiles(target)
     unit_dirs_by_profile: dict[Path, list[Path]] = {}
     try:
         for profile in profiles:
@@ -274,6 +278,41 @@ def unused_cargo_units(target: Path, built_before_epoch: float) -> list[Path] | 
     return [
         path for path in unused if os.path.realpath(path.parent) == str(path.parent) and path.is_relative_to(target)
     ]
+
+
+def _cargo_profiles(target: Path) -> list[Path]:
+    # Tools such as rust-analyzer and cargo-llvm-cov build into <target>/<tool>/<triple>/<profile>.
+    return [
+        fingerprints.parent
+        for pattern in ("*/.fingerprint", "*/*/.fingerprint", "*/*/*/.fingerprint")
+        for fingerprints in target.glob(pattern)
+    ]
+
+
+@contextlib.contextmanager
+def cargo_target_locked(target: Path) -> Iterator[bool]:
+    """Hold Cargo's own build lock on every profile of *target* until the block ends, or yield False when a build holds one.
+
+    Cargo takes an exclusive flock on <profile>/.cargo-lock for every build,
+    so while this holds them, a build that starts waits instead of reading
+    files that the caller is removing.
+    """
+
+    held: list[IO[str]] = []
+    try:
+        for profile in _cargo_profiles(target):
+            lock = (profile / ".cargo-lock").open("a")
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                lock.close()
+                yield False
+                return
+            held.append(lock)
+        yield True
+    finally:
+        for held_lock in held:
+            held_lock.close()
 
 
 def _mtime(path: Path) -> float:
