@@ -264,7 +264,11 @@ class TestTickPair(_TickTest):
         self, _name: str, malformed_answers: int, first: str, second: str, model_calls: int
     ) -> None:
         self.malformed_answers = malformed_answers
-        assert self._run() == PersonalRankingPairResult(status=first, model_called=True)  # type: ignore[arg-type]
+        assert self._run() == PersonalRankingPairResult(
+            status=first,  # type: ignore[arg-type]
+            model_called=True,
+            changed_parts=["no_previous_list"],
+        )
         assert self.capture.call_args.kwargs["properties"]["trigger"] == "tick"
         self._rows().update(created_at=timezone.now() - datetime.timedelta(hours=2))
         assert len(select_pairs(self._config(), timezone.now(), 10, [self.team.id]).pairs) == 1
@@ -273,6 +277,9 @@ class TestTickPair(_TickTest):
             status=second,  # type: ignore[arg-type]
             model_called=second == "built",
         )
+        if second == "built":
+            # The retried build has the inputs of the failed one, so it reads the stored parts and finds no change.
+            assert self.capture.call_args.kwargs["properties"]["changed_parts"] == []
 
         assert self.create.call_count == model_calls
         assert select_pairs(self._config(), timezone.now(), 10, [self.team.id]).pairs == []
@@ -332,6 +339,7 @@ async def _run_tick(
         return PersonalRankingPairResult(
             status=pair_status,  # type: ignore[arg-type]
             model_called=pair_status in ("built", "failed"),
+            changed_parts=["scores", "needs_you"] if pair_status == "built" else [],
         )
 
     @activity.defn(name="capture_personal_ranking_tick_activity")
@@ -381,6 +389,9 @@ async def test_the_tick_bounds_concurrency_and_stops_at_each_limit(
         stop_reason,
     )
     assert (result.due_pairs, result.enrolled_teams) == (plan.due_pairs, plan.enrolled_teams)
+    assert result.changed_parts == (
+        {"scores": picked, "needs_you": picked} if pair_status == "built" and picked else {}
+    )
     assert captured == [result]
 
 

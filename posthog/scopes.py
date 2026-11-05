@@ -82,6 +82,7 @@ APIScopeObject = Literal[
     "integration",
     "interactive_run",
     "internal_run",
+    "knowledge_writer",
     "legal_document",
     "link",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "live_debugger",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
@@ -155,6 +156,7 @@ APIScopeObject = Literal[
     "wizard_session",
     "wizard_run",
     "workload_trust_policy",
+    "workload_trust_policy_request",
 ]
 
 
@@ -738,7 +740,8 @@ def narrow_scopes_to_ceiling(original: Iterable[str], app_scopes: Iterable[str])
     if "*" in original_set:
         return original_list
 
-    narrowed = (original_set & ceiling) | (original_set & ALWAYS_ALLOWED_SCOPES)
+    # A `:write` in the ceiling covers its `:read`, as at issue time in `clamp_scopes_to_ceiling`.
+    narrowed = (original_set & _with_read_halves(ceiling)) | (original_set & ALWAYS_ALLOWED_SCOPES)
     if not narrowed and original_set:
         return None
     return sorted(narrowed)

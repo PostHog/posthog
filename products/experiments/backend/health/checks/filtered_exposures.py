@@ -3,12 +3,17 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthMeasurement,
+    ExperimentHealthMeasurementSide,
+    ExperimentHealthMeasurementUnit,
 )
 from products.experiments.backend.health.context import ExposureTotals, HealthContext
 from products.experiments.backend.health.delays import ZERO_EXPOSURES_GRACE_HOURS
 from products.experiments.backend.health.skips import (
+    NEEDS_EXPOSURES,
     RUNS_AFTER_LAUNCH,
     CheckOutcome,
+    CheckPassed,
     CheckSkip,
     not_applicable,
     not_checked,
@@ -17,7 +22,7 @@ from products.experiments.backend.health.skips import (
 # The count without the filter scans the exposure events, so the check runs only on results that look starved.
 FEW_EXPOSURES_LIMIT = 1_000
 # A filter that leaves out the project's own team and testers removes a small share of a live experiment's users.
-# Keeping this share or less means that the filter matches only some users and leaves out everyone else.
+# Keeping less than this share means that the filter matches only some users and leaves out everyone else.
 KEPT_SHARE_THRESHOLD = 10.0  # on the 0-100 scale (10.0 = 10%)
 # While few users are exposed, the project's own team can be most of them, so a small kept share is expected.
 MINIMUM_EXPOSED_WITHOUT_FILTER = 100
@@ -43,8 +48,17 @@ def exposures_removed_by_test_account_filter(ctx: HealthContext) -> CheckOutcome
             f"Couldn't check because the {unit}s exposed without the test account filter weren't counted"
         )
     counted = exposures.total
-    if exposed < MINIMUM_EXPOSED_WITHOUT_FILTER or counted * 100 > exposed * KEPT_SHARE_THRESHOLD:
-        return None
+    if exposed < MINIMUM_EXPOSED_WITHOUT_FILTER:
+        return not_applicable(NEEDS_EXPOSURES)
+    if counted * 100 >= exposed * KEPT_SHARE_THRESHOLD:
+        return CheckPassed(
+            measurement=ExperimentHealthMeasurement(
+                value=counted / exposed * 100,
+                threshold=KEPT_SHARE_THRESHOLD,
+                unit=ExperimentHealthMeasurementUnit.PERCENTAGE,
+                warns=ExperimentHealthMeasurementSide.BELOW,
+            )
+        )
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES,
         subcode=None,
