@@ -799,12 +799,36 @@ describe('taskTrackerSceneLogic', () => {
             expect(attachedContextLogic().values.sentContextKeysByTask).toEqual({
                 'new-task': source === 'both' ? ['insight:scene-sig', 'insight:sig'] : ['insight:sig'],
             })
+            expect(attachedContextLogic().values.chatChipsByTask['new-task'].map((chip) => chip.id)).toEqual(
+                source === 'both' ? ['insight:scene-sig', 'insight:sig', 'text:Text'] : ['insight:sig', 'text:Text']
+            )
             expect(logic.values.newTaskData.seedContextItems).toBeUndefined()
             expect(attachedContextLogic().values.contextItems).toHaveLength(
                 source === 'seed' ? 0 : source === 'both' ? 1 : 2
             )
         }
     )
+
+    // A pinned surface replaces the page's context, but the user's own pick must still reach the first message.
+    it('sends a new chat pick alongside pinned context and clears the draft', async () => {
+        const pinned = taskTrackerSceneLogic({
+            panelId: 'pinned-context',
+            contextItems: [{ type: 'insight', key: 'pinned', label: 'Pinned' }],
+        })
+        pinned.mount()
+        attachedContextLogic().actions.registerContext('scene', [{ type: 'insight', key: 'page', label: 'Page' }])
+        attachedContextLogic().actions.pickItem({ type: 'dashboard', key: 7, label: 'Weekly' })
+
+        pinned.actions.setNewTaskData({ description: 'why the drop?' })
+        pinned.actions.submitNewTask()
+        await expectLogic(pinned).toFinishAllListeners()
+
+        expect(runBody?.pending_user_message).toContain('- insight pinned ("Pinned")')
+        expect(runBody?.pending_user_message).toContain('- dashboard 7 ("Weekly")')
+        expect(runBody?.pending_user_message).not.toContain('- insight page')
+        expect(attachedContextLogic().values.pickedByChat['']).toEqual([])
+        pinned.unmount()
+    })
 
     // The tasks backend has no server-side consent check (unlike the conversations coordinator), so a
     // send must be blocked client-side before it ever reaches `api.tasks.create` — otherwise a sandbox

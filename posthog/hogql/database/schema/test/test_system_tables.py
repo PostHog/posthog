@@ -45,7 +45,7 @@ from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.models.role import Role
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.aeo.backend.facade.testing import create_citation_check
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
@@ -396,8 +396,8 @@ def _create_feature_request_history(team: Team, label: str):
     return create_feature_request_history(team_id=team.pk, feature_request=feature_request, changed_at=timezone.now())
 
 
-def _create_action(team: Team, label: str) -> Action:
-    return Action.objects.create(team=team, name=f"action_{label}")
+def _create_action(team: Team, label: str) -> int:
+    return create_action(team=team, name=f"action_{label}").id
 
 
 def _create_cohort(team: Team, label: str) -> Cohort:
