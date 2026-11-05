@@ -226,8 +226,8 @@ def claim_report_for_task(*, team_id: int, report_id: str, task_id: str, for_tas
         return create_claim(report, ArtefactAttribution.from_user(creator_id), task_id=task_id)
 
 
-def hand_off_task_claims(*, team_id: int, task_id: str, previous_user_id: int, target_user_id: int) -> None:
-    """Move the report claims a task works under from its previous owner to the person it was handed to.
+def hand_off_task_claims(*, team_id: int, task_id: str, previous_user_id: int) -> None:
+    """Move the report claims a task works under from its previous owner to the person who owns it now.
 
     The task's runs work under its creator's claim, so a claim left with the previous owner would refuse
     every later run of the task. Call after the handoff commits: each report is locked here, and holding
@@ -238,7 +238,11 @@ def hand_off_task_claims(*, team_id: int, task_id: str, previous_user_id: int, t
         .values_list("report_id", flat=True)
         .distinct()
     )
-    target = ArtefactAttribution.from_user(target_user_id)
+    # A later handoff can commit before this runs, so the claim goes to whoever owns the task now.
+    current_owner_id = tasks_facade.get_task_creator_ids([task_id], [team_id]).get(task_id)
+    if current_owner_id is None or current_owner_id == previous_user_id:
+        return
+    target = ArtefactAttribution.from_user(current_owner_id)
     for report_id in list(report_ids):
         with transaction.atomic():
             report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()

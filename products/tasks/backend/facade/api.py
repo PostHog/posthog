@@ -8705,7 +8705,6 @@ def handoff_task(
                 team_id=team_id,
                 task_id=str(locked.id),
                 previous_user_id=user_id,
-                target_user_id=target.id,
             )
         )
         message = TaskThreadMessage.objects.for_team(team_id).create(

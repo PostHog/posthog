@@ -76,11 +76,9 @@ def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, tas
     task_run_artefacts.enforce_report_implementation_rerun_cap(team_id=team_id, report_id=report_id, task_id=task_id)
 
 
-def hand_off_task_claims(*, team_id: int, task_id: str, previous_user_id: int, target_user_id: int) -> None:
-    """Move the report claims a handed-off task works under to its new owner. Call after the handoff commits."""
-    report_assignments.hand_off_task_claims(
-        team_id=team_id, task_id=task_id, previous_user_id=previous_user_id, target_user_id=target_user_id
-    )
+def hand_off_task_claims(*, team_id: int, task_id: str, previous_user_id: int) -> None:
+    """Move the report claims a handed-off task works under to its owner. Call after the handoff commits."""
+    report_assignments.hand_off_task_claims(team_id=team_id, task_id=task_id, previous_user_id=previous_user_id)
 
 
 def release_quota_cancelled_implementation(*, team_id: int, task_id: str) -> list[str]:
