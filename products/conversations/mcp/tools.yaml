@@ -215,7 +215,8 @@ tools:
         title: Get support ticket
         description: >
             Get a specific support ticket by ID or ticket number. Returns full ticket details including status,
-            priority, assignee, message count, channel info, person data, and session context.
+            priority, assignee, message count, channel info, person data, session context, and the AI triage outcome
+            (ai_triage: status, result, ticket_type, confidence, human_outcome).
         agent_note:
             The PostHog Assistant may have investigated this ticket and written self-driving reports into the Inbox. To
             surface them, call inbox-reports-list with source_id set to this ticket's `id` and
@@ -234,6 +235,11 @@ tools:
                 - message_count
                 - unread_team_count
                 - tags
+                - ai_triage.status
+                - ai_triage.result
+                - ai_triage.ticket_type
+                - ai_triage.confidence
+                - ai_triage.human_outcome
                 - sla_due_at
                 - anonymous_traits
                 - session_context

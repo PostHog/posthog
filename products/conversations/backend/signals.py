@@ -209,11 +209,12 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
                 invalidate_tickets_cache(team_id, ticket.widget_session_id)
             invalidate_messages_cache(team_id, item_id)
 
+            ai_draft_outcome = None
             if is_team_message and created_by_id:
                 try:
                     if author_type != "AI":
                         _clear_awaiting_clarification(team_id=team_id, ticket_id=item_id)
-                    maybe_record_human_outcome(
+                    ai_draft_outcome = maybe_record_human_outcome(
                         team_id=team_id,
                         ticket_id=item_id,
                         comment_id=comment_id,
@@ -225,7 +226,9 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
             # Customer-facing analytics (to customer's project)
             if is_team_message and author_type != WORKFLOW_AUTHOR_TYPE:
                 author = User.objects.filter(id=created_by_id).first() if created_by_id else None
-                capture_message_sent(ticket, comment_id, content or "", author=author)
+                capture_message_sent(
+                    ticket, comment_id, content or "", author=author, ai_draft_outcome=ai_draft_outcome
+                )
             elif not is_team_message:
                 author = None
                 capture_message_received(

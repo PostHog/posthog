@@ -186,6 +186,7 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["customer_name"] == "Test Customer"
         assert call_kwargs["properties"]["customer_email"] == "test@example.com"
         assert call_kwargs["properties"]["customer_distinct_id"] == self.ticket.distinct_id
+        assert "ai_draft_outcome" not in call_kwargs["properties"]
 
         mock_produce_internal_event.assert_called_once()
         team_id, internal_event = mock_produce_internal_event.call_args.args
@@ -194,6 +195,17 @@ class TestConversationEvents(BaseTest):
         assert internal_event.properties["message_id"] == "msg-123"
         assert internal_event.properties["customer_email"] == "test@example.com"
         assert "message_content" not in internal_event.properties
+
+    @patch("products.conversations.backend.events.produce_internal_event")
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_capture_message_sent_stamps_ai_draft_outcome(self, mock_capture, mock_produce_internal_event):
+        capture_message_sent(self.ticket, "msg-123", "Hello customer", author=self.user, ai_draft_outcome="used")
+
+        properties = mock_capture.call_args.kwargs["properties"]
+        assert properties["ai_draft_outcome"] == "used"
+        # The internal event payload stays as before: workflows don't need the outcome.
+        _, internal_event = mock_produce_internal_event.call_args.args
+        assert "ai_draft_outcome" not in internal_event.properties
 
     @patch("products.conversations.backend.events.produce_internal_event")
     @patch("products.conversations.backend.events.capture_internal")

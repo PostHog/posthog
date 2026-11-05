@@ -150,6 +150,57 @@ class TestTicketMessageSignals(BaseTest):
         self.ticket.refresh_from_db()
         assert self.ticket.ai_triage["human_outcome"] == "used"
 
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_reply_after_ai_draft_stamps_ai_draft_outcome_on_event(self, mock_capture, mock_on_commit):
+        draft = "Add the snippet to the head of every page."
+        self._create_ai_message(draft)
+        self._create_team_message(draft)
+
+        sent = [c for c in mock_capture.call_args_list if c.kwargs.get("event_name") == "$conversation_message_sent"]
+        assert len(sent) == 1
+        assert sent[0].kwargs["properties"]["ai_draft_outcome"] == "used"
+
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_reply_without_ai_draft_omits_ai_draft_outcome_on_event(self, mock_capture, mock_on_commit):
+        self._create_team_message("Thanks for the report")
+
+        sent = [c for c in mock_capture.call_args_list if c.kwargs.get("event_name") == "$conversation_message_sent"]
+        assert len(sent) == 1
+        assert "ai_draft_outcome" not in sent[0].kwargs["properties"]
+
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_reply_after_applied_draft_stamps_ai_draft_outcome_on_event(self, mock_capture, mock_on_commit):
+        # The composer records "used" before the reply is sent, so this reply takes the
+        # no-write return in maybe_record_human_outcome yet must still stamp the event.
+        draft = "Add the snippet to the head of every page."
+        ai_draft = self._create_ai_message(draft)
+        record_human_outcome(
+            team_id=self.team.id,
+            ticket_id=str(self.ticket.id),
+            draft_message_id=str(ai_draft.id),
+            outcome="used",
+        )
+        self._create_team_message(draft)
+
+        sent = [c for c in mock_capture.call_args_list if c.kwargs.get("event_name") == "$conversation_message_sent"]
+        assert len(sent) == 1
+        assert sent[0].kwargs["properties"]["ai_draft_outcome"] == "used"
+
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_reply_to_later_draft_stamps_its_own_outcome_without_overwriting(self, mock_capture, mock_on_commit):
+        # A stored non-"used" outcome is kept, but each cycle's first reply still gets
+        # its own classification on the event.
+        self._create_ai_message("Add the snippet to the head of every page.")
+        self._create_team_message("We migrated this org to a new plan yesterday.")
+        second_draft = "Clear your browser cache and reload the dashboard."
+        self._create_ai_message(second_draft)
+        self._create_team_message(second_draft)
+
+        sent = [c for c in mock_capture.call_args_list if c.kwargs.get("event_name") == "$conversation_message_sent"]
+        assert [c.kwargs["properties"].get("ai_draft_outcome") for c in sent] == ["ignored", "used"]
+        self.ticket.refresh_from_db()
+        assert self.ticket.ai_triage["human_outcome"] == "ignored"
+
     def test_automated_update_does_not_replace_draft_for_human_outcome(self, mock_on_commit):
         draft = "Add the snippet to the head of every page."
         self._create_ai_message(draft)
