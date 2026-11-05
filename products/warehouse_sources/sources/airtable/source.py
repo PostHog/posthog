@@ -97,8 +97,15 @@ Create a personal access token at [airtable.com/create/tokens](https://airtable.
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_airtable_credentials(config.personal_access_token):
+        is_valid, status_code = validate_airtable_credentials(config.personal_access_token)
+        if is_valid:
             return True, None
+
+        if status_code == 403:
+            return (
+                False,
+                "Your Airtable token is missing a required scope. Add the data.records:read and schema.bases:read scopes to the token in Airtable, then try again.",
+            )
 
         return (
             False,

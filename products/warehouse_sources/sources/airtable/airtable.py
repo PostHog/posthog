@@ -47,14 +47,13 @@ def _rename_record_parents(record: dict[str, Any]) -> dict[str, Any]:
     return {**record, "_base_id": base_id, "_table_id": table_id}
 
 
-def validate_credentials(personal_access_token: str) -> bool:
-    """Confirm the PAT is valid with a cheap one-base meta probe."""
-    ok, _status = validate_via_probe(
+def validate_credentials(personal_access_token: str) -> tuple[bool, int | None]:
+    """Probe the PAT against the bases list, which needs the `schema.bases:read` scope."""
+    return validate_via_probe(
         lambda: make_tracked_session(redact_values=(personal_access_token,)),
         f"{AIRTABLE_BASE_URL}/meta/bases",
         headers={"Authorization": f"Bearer {personal_access_token}"},
     )
-    return ok
 
 
 def _bases_resource() -> dict[str, Any]:

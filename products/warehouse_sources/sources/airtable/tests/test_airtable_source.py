@@ -14,11 +14,21 @@ class TestAirtableSource:
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [
-            (True, True, None),
+            ((True, 200), True, None),
             (
-                False,
+                (False, 401),
                 False,
                 "Invalid Airtable personal access token. Check that the token is correct and has access to the bases you want to sync, then try again.",
+            ),
+            (
+                (False, None),
+                False,
+                "Invalid Airtable personal access token. Check that the token is correct and has access to the bases you want to sync, then try again.",
+            ),
+            (
+                (False, 403),
+                False,
+                "Your Airtable token is missing a required scope. Add the data.records:read and schema.bases:read scopes to the token in Airtable, then try again.",
             ),
         ],
     )

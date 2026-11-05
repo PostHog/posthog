@@ -31,12 +31,15 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected",
         [
-            (200, True),
+            (200, (True, 200)),
+            (401, (False, 401)),
+            (403, (False, 403)),
+            (500, (False, 500)),
         ],
     )
-    def test_validate_credentials_status_mapping(self, status_code: int, expected: bool) -> None:
+    def test_validate_credentials_status_mapping(self, status_code: int, expected: tuple[bool, int]) -> None:
         with scripted_network(always(ScriptedResponse(status=status_code))) as network:
-            assert validate_credentials("pat") is expected
+            assert validate_credentials("pat") == expected
 
         assert network.requests_log[0].path == "/v0/meta/bases"
         assert network.requests_log[0].headers["authorization"] == "Bearer pat"
