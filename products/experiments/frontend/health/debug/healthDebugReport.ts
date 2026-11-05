@@ -9,6 +9,7 @@ import type {
     HealthExposureInputsStatusEnumApi,
 } from '../../generated/api.schemas'
 import { FLAG_STATE_FINDING_CODES, experimentWarningFromHealth } from '../experimentHealthFindingEvents'
+import { exposureAnswerComputedAt } from '../exposureHealth'
 import type { HealthPanelFinding } from '../healthPanelFindings'
 
 export type HealthDebugDomain = 'experiment' | 'flag' | 'exposures' | 'metrics' | 'project' | 'raw'
@@ -267,27 +268,18 @@ function exposureCriteriaNote({ subcode, evidence }: ExperimentHealthFindingApi)
     return `Not received: ${evidence.event}.`
 }
 
-const EXPOSURE_FILTERS_FINDING_CODES: ReadonlySet<ExperimentHealthFindingApi['code']> = new Set([
-    'exposure_filter_on_dynamic_cohort',
-    'exposure_filter_excludes_events',
-])
-
 function exposureFiltersCheck(input: HealthDebugInput): HealthDebugCheck {
-    const finding = input.health?.findings.find(({ code }) => EXPOSURE_FILTERS_FINDING_CODES.has(code)) ?? null
+    const finding = findingOf(input, 'exposure_filter_on_dynamic_cohort')
     return {
         check: 'exposure_filters',
         source: 'health endpoint',
         reads: ['experiment', 'flag', 'project'],
-        ...serverResult('exposure_filters', input.health, (code) => EXPOSURE_FILTERS_FINDING_CODES.has(code)),
+        ...serverResult('exposure_filters', input.health, (code) => code === 'exposure_filter_on_dynamic_cohort'),
         browser: null,
         browserLabel: BROWSER_RULES,
         ...NO_TIMES,
         difference: null,
-        note: !finding
-            ? null
-            : finding.code === 'exposure_filter_on_dynamic_cohort'
-              ? `Dynamic cohorts: ${finding.evidence.cohort_ids}.`
-              : `Leaves out events by: ${finding.evidence.properties}.`,
+        note: finding ? `Dynamic cohorts: ${finding.evidence.cohort_ids}.` : null,
     }
 }
 
@@ -330,13 +322,6 @@ function pageExposureResult(input: HealthDebugInput, code: HealthPanelFinding['c
     return finding ? describeFinding(code, finding) : NO_FINDING
 }
 
-// The page's answer comes from the cache, but its type does not declare the cache fields.
-function pageComputedAt(exposures: HealthDebugInput['exposures']): string | null {
-    return exposures && 'last_refresh' in exposures && typeof exposures.last_refresh === 'string'
-        ? exposures.last_refresh
-        : null
-}
-
 function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
     const exposureCheck = (
         check: HealthPanelFinding['code'],
@@ -354,7 +339,7 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
             browser: page,
             browserLabel: "Page's exposure answer",
             computedAt: serverAnswered ? (input.serverExposures?.computed_at ?? null) : null,
-            browserComputedAt: page !== null ? pageComputedAt(input.exposures) : null,
+            browserComputedAt: page !== null ? exposureAnswerComputedAt(input.exposures) : null,
             difference: serverAnswered && page !== null && page !== server.result ? 'drift' : null,
             note,
         }
@@ -385,6 +370,7 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
 export function buildHealthDebugChecks(input: HealthDebugInput): HealthDebugCheck[] {
     return [
         flagStateCheck(input),
+        serverOnlyCheck(input, 'flag_shared', null),
         serverOnlyCheck(input, 'split_changed_mid_run', splitChangedNote),
         serverOnlyCheck(input, 'bucketing_changed_mid_run', bucketingChangedNote),
         serverOnlyCheck(input, 'release_conditions_changed_mid_run', conditionsChangedNote),

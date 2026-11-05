@@ -23,6 +23,8 @@ from posthog.models.integration import (
     SnowflakeIntegration,
     SnowflakeIntegrationError,
 )
+from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 from posthog.security.url_validation import (
     INVALID_HOST_MESSAGE,
     UNREACHABLE_HOST_MESSAGE,
@@ -386,6 +388,15 @@ def validate_destination(
             raise contracts.InvalidBatchExportDestinationError(str(e))
 
     if destination_type == BatchExportDestinationType.POSTGRES:
+        # Sticky integration: an explicit `integration: null` would make the export fall back to
+        # any inline credentials still left in its config, and nothing records that switch.
+        # TODO: remove this guard once inline credentials are gone.
+        if instance is not None and instance.destination.integration is not None and kept_integration is None:
+            raise contracts.InvalidBatchExportDestinationError(
+                "Cannot remove the integration from a Postgres batch export that uses one. "
+                "Omit `integration` to keep it, or send a different one to swap."
+            )
+
         # New Postgres exports must use an Integration for credentials. Exports created before
         # integrations existed keep their inline credentials, so only require it on create
         # (`instance is None`); existing inline-credential exports stay valid when edited.
@@ -629,9 +640,7 @@ def get_batch_export(team_id: int, export_id: UUID, *, include_latest_runs: bool
     return _to_configuration(batch_export, include_latest_runs=include_latest_runs)
 
 
-def list_batch_exports(
-    team_id: int, *, offset: int, limit: int
-) -> tuple[list[contracts.BatchExportConfiguration], int]:
+def list_batch_exports(team_id: int, *, page: PageRequest) -> Page[contracts.BatchExportConfiguration]:
     batch_exports = (
         BatchExport.objects.exclude(deleted=True)
         .filter(team_id=team_id)
@@ -640,8 +649,9 @@ def list_batch_exports(
         .order_by("-created_at", "-id")
         .select_related("destination", "source")
     )
-    page = batch_exports[offset : offset + limit]
-    return [_to_configuration(batch_export, include_latest_runs=True) for batch_export in page], batch_exports.count()
+    return select_page(batch_exports, page).map(
+        lambda batch_export: _to_configuration(batch_export, include_latest_runs=True)
+    )
 
 
 def schedule_and_save(batch_export: BatchExport) -> None:

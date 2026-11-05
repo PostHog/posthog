@@ -5,7 +5,7 @@ import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifi
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import React, { useEffect, useMemo } from 'react'
+import React, { useEffect } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
 
@@ -15,20 +15,17 @@ import {
     TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopoverProps } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { DISPLAY_TYPES_TO_CATEGORIES as DISPLAY_TYPES_TO_CATEGORY } from 'lib/constants'
-import { isTrendsFilter } from 'lib/insights/sharedUtils'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { verticalSortableListCollisionDetection } from 'lib/sortable'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { RenameModal } from 'scenes/insights/filters/ActionFilter/RenameModal'
 
-import { ChartDisplayCategory, ChartDisplayType, FilterType, InsightType, PropertyOperator } from '~/types'
+import { ChartDisplayCategory, InsightType, PropertyOperator } from '~/types'
 
 import { ActionFilterGroup } from './ActionFilterGroup/ActionFilterGroup'
 import { ActionFilterRow } from './ActionFilterRow/ActionFilterRow'
 import { MathAvailability } from './ActionFilterRow/types'
 import { LocalSeries, entityFilterLogic } from './entityFilterLogic'
-import { legacyFilterToSeriesDefaults, legacyFiltersToSeries, seriesToLegacyFilters } from './legacyFilters'
 import { SeriesNode, WarehouseSeriesNodeKind, isGroupSeriesNode } from './seriesNode'
 
 export interface SeriesActionFilterProps {
@@ -354,48 +351,5 @@ export const SeriesActionFilter = React.forwardRef<HTMLDivElement, SeriesActionF
                 </div>
             )}
         </div>
-    )
-})
-
-export interface ActionFilterProps extends Omit<
-    SeriesActionFilterProps,
-    'series' | 'onChange' | 'insightType' | 'hasBreakdown' | 'trendsDisplayCategory' | 'newSeriesDefaults'
-> {
-    setFilters: (filters: FilterType) => void
-    filters: FilterType
-    addFilterDefaultOptions?: Record<string, any>
-}
-
-/**
- * The legacy entity filter shape, for the surfaces that persist it on a backend or schema
- * contract. Everything else renders `SeriesActionFilter` and keeps its query nodes.
- */
-export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(function ActionFilter(
-    { setFilters, filters, addFilterDefaultOptions, dataWarehouseNodeKind, ...rest },
-    ref
-): JSX.Element {
-    const series = useMemo(
-        () => legacyFiltersToSeries(filters, dataWarehouseNodeKind),
-        [filters, dataWarehouseNodeKind]
-    )
-
-    return (
-        <SeriesActionFilter
-            {...rest}
-            ref={ref}
-            series={series}
-            onChange={(nextSeries) => setFilters(seriesToLegacyFilters(nextSeries))}
-            dataWarehouseNodeKind={dataWarehouseNodeKind}
-            newSeriesDefaults={
-                addFilterDefaultOptions && legacyFilterToSeriesDefaults(addFilterDefaultOptions, dataWarehouseNodeKind)
-            }
-            insightType={filters.insight}
-            hasBreakdown={!!filters.breakdown}
-            trendsDisplayCategory={
-                isTrendsFilter(filters)
-                    ? DISPLAY_TYPES_TO_CATEGORY[filters.display || ChartDisplayType.ActionsLineGraph]
-                    : null
-            }
-        />
     )
 })

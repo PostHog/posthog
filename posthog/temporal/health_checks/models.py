@@ -3,6 +3,7 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 from posthog.dataclasses import frozen
@@ -59,6 +60,8 @@ class BatchResult:
 BatchDetectFn = Callable[[list[int]], dict[int, list[HealthCheckResult]]]
 
 DEFAULT_ACTIVE_SINCE_DAYS: int = 90
+# Shorter than a day, so a broken run of a daily check closes before the next scheduled start.
+DEFAULT_EXECUTION_TIMEOUT: timedelta = timedelta(hours=12)
 
 
 @frozen

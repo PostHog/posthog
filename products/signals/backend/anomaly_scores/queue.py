@@ -66,13 +66,15 @@ from products.signals.backend.anomaly_scores.selection import (
     InsightUsage,
     ScoreCandidate,
     SelectionConfig,
+    _unit_interval,
     insight_usage,
     pick_order,
     score_order,
 )
 from products.signals.backend.anomaly_scores.spend import CpuSpendReport, cpu_gate
 from products.signals.backend.anomaly_scores.state import RunPlan, load_states, plan_run, score_ready_by_insight
-from products.signals.backend.models import AnomalyScoringDueInsight, SignalTeamConfig
+from products.signals.backend.contracts import ALERT_SCOPE_SOURCE
+from products.signals.backend.models import AnomalyScoringDueInsight, SignalSourceConfig, SignalTeamConfig
 from products.subscriptions.backend.facade.api import insight_ids_with_active_subscriptions
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
@@ -86,8 +88,18 @@ _MAX_SCORED_SERIES = 50_000
 # An insight is not picked again in this time after an attempt. Events take a moment to reach
 # ClickHouse, and an insight that writes nothing would otherwise stay at the head of the queue.
 ATTEMPT_COOLDOWN = datetime.timedelta(hours=1)
-# For a failure that the next hour does not fix: an unsupported shape, a query that is too expensive, or no access.
+# For a failure that the next hour does not fix: an unsupported shape, a broken query, or no access. It is also the
+# first step of the too-expensive cooldowns.
 SKIP_COOLDOWN = datetime.timedelta(days=1)
+# Each consecutive too-expensive visit of an insight takes the next step. The last step repeats.
+TOO_EXPENSIVE_COOLDOWNS = (
+    SKIP_COOLDOWN,
+    datetime.timedelta(days=3),
+    datetime.timedelta(days=7),
+    datetime.timedelta(days=30),
+)
+# The count outlives the longest step, so the visit after it still knows the count.
+_TOO_EXPENSIVE_COUNT_TTL = TOO_EXPENSIVE_COOLDOWNS[-1] + datetime.timedelta(days=7)
 # A query counter lives a little longer than its clock hour, so a tick at the end of the hour still reads it.
 # A lost counter lets the scorer spend at most one more hour of budget.
 _BUDGET_TTL = datetime.timedelta(minutes=70)
@@ -164,6 +176,8 @@ class InsightPick:
     query_cost: int = 1
     # None when the train and score split is off.
     run: ScoringRun | None = None
+    # Consecutive too-expensive visits before this pick.
+    too_expensive: int = 0
 
 
 @frozen
@@ -202,6 +216,8 @@ class Selection:
     # Eligible teams, and their organizations.
     enrolled_teams: int = 0
     enrolled_organizations: int = 0
+    # Insights in a cooldown after two or more consecutive too-expensive visits.
+    long_cooldown: int = 0
     # Due rows of the stored due list, the time since the oldest of them became due, and the time since the
     # oldest refresh of a row. None when the tick does not plan from the due list.
     due_insights: int | None = None
@@ -245,8 +261,13 @@ def eligible_teams(config: AnomalyScoringConfig) -> list[Team]:
     """The teams that `config.covers_team` enrolls, in a fixed number of queries, less the teams over their event quota."""
     if not config.enabled:
         return []
+    source_product, source_type = ALERT_SCOPE_SOURCE
+    with_source = SignalSourceConfig.objects.filter(
+        source_product=source_product, source_type=source_type, enabled=True
+    ).values("team_id")
     teams = (
-        Team.objects.exclude(id__in=config.skip_team_ids)
+        Team.objects.filter(id__in=with_source)
+        .exclude(id__in=config.skip_team_ids)
         .exclude(organization_id__in=config.deny_organization_ids)
         .exclude(id__in=SignalTeamConfig.objects.filter(anomaly_scoring_enabled=False).values("team_id"))
     )
@@ -257,12 +278,11 @@ def eligible_teams(config: AnomalyScoringConfig) -> list[Team]:
             listed = listed.filter(id__in=config.allow_team_ids)
         enrolled.update(listed.values_list("id", flat=True))
     if config.self_driving_organization_percentage > 0:
-        from products.signals.backend.facade.api import (
-            team_ids_with_enabled_source,  # noqa: PLC0415 — the facade imports this module through `search`
+        enrolled.update(
+            team_id
+            for team_id, organization_id in teams.values_list("id", "organization_id")
+            if in_rollout(config, organization_id)
         )
-
-        with_source = teams.filter(id__in=team_ids_with_enabled_source()).values_list("id", "organization_id")
-        enrolled.update(team_id for team_id, organization_id in with_source if in_rollout(config, organization_id))
     if not enrolled:
         return []
     # Capture drops every event of a project over its event quota, so scoring it wastes the query.
@@ -468,6 +488,42 @@ def _cooling_down(insight_ids: list[int]) -> set[int]:
     return {insight_id for insight_id in insight_ids if _cooldown_key(insight_id) in found}
 
 
+def _too_expensive_key(insight_id: int) -> str:
+    return f"signals:anomaly_scores:too_expensive:{insight_id}"
+
+
+def too_expensive_counts(insight_ids: list[int]) -> dict[int, int]:
+    """Consecutive too-expensive visits of each insight. An insight with no such visit is not in the result."""
+    if not insight_ids:
+        return {}
+    found = cache.get_many([_too_expensive_key(insight_id) for insight_id in insight_ids])
+    return {
+        insight_id: int(found[_too_expensive_key(insight_id)])
+        for insight_id in insight_ids
+        if _too_expensive_key(insight_id) in found
+    }
+
+
+def too_expensive_cooldown(count: int) -> datetime.timedelta:
+    return TOO_EXPENSIVE_COOLDOWNS[min(count, len(TOO_EXPENSIVE_COOLDOWNS)) - 1]
+
+
+def mark_too_expensive(insight_id: int, previous: int) -> int:
+    """Count one more too-expensive visit, and start the cooldown of the new count. Returns the new count.
+
+    ``previous`` comes from the plan. The cooldown lets one visit of an insight run at a time, so no other visit
+    changes the count in between.
+    """
+    count = previous + 1
+    cache.set(_too_expensive_key(insight_id), count, timeout=int(_TOO_EXPENSIVE_COUNT_TTL.total_seconds()))
+    mark_attempted(insight_id, too_expensive_cooldown(count))
+    return count
+
+
+def reset_too_expensive(insight_id: int) -> None:
+    cache.delete(_too_expensive_key(insight_id))
+
+
 def _team_loaded_key(team_id: int) -> str:
     return f"signals:anomaly_scores:team_loaded:{team_id}"
 
@@ -622,9 +678,12 @@ def _run_plans(
     return {insight_id: plans.get(insight_id, missing) for insight_id in insight_ids}
 
 
-def _take_turns(team_orders: list[list[int]]) -> list[int]:
-    # Projects take turns, so one large project cannot take every slot of the tick budget.
-    return [insight_id for turn in itertools.zip_longest(*team_orders) for insight_id in turn if insight_id is not None]
+def _take_turns(team_orders: Mapping[int, list[int]], tick_start: datetime.datetime) -> list[int]:
+    # Projects take turns, so one large project cannot take every slot of the tick budget. A hashed team
+    # order for each tick, so the pick cap does not always cut off the same projects.
+    team_ids = sorted(team_orders, key=lambda team_id: _unit_interval("team", team_id, tick_start.isoformat()))
+    turns = itertools.zip_longest(*(team_orders[team_id] for team_id in team_ids))
+    return [insight_id for turn in turns for insight_id in turn if insight_id is not None]
 
 
 def load_scored_state(
@@ -714,6 +773,7 @@ def select_insights(
         insight.insight_id: max(state.get(insight.insight_id, {}).values(), default=None) for insight in insights
     }
     cooling = _cooling_down([insight.insight_id for insight in insights])
+    too_expensive = too_expensive_counts([insight.insight_id for insight in insights])
     active_by_id = {insight.insight_id: insight for insight in insights if insight.insight_id not in cooling}
     team_ids = {insight_id: insight.team_id for insight_id, insight in active_by_id.items()}
 
@@ -799,15 +859,16 @@ def select_insights(
             )
         )
     train_order = _take_turns(
-        [
-            pick_order(
-                candidates_by_team[team_id],
+        {
+            team_id: pick_order(
+                candidates,
                 config=selection_config,
                 tick_start=now,
                 max_staleness=config.limits.max_backfill_buckets,
             )
-            for team_id in sorted(candidates_by_team)
-        ]
+            for team_id, candidates in candidates_by_team.items()
+        },
+        now,
     )
     if config.train_score_split:
         train_cap = config.max_train_insights_per_tick * shards
@@ -840,6 +901,7 @@ def select_insights(
             interval=active_by_id[insight_id].interval,
             query_cost=plan.queries,
             run=plan.run,
+            too_expensive=too_expensive.get(insight_id, 0),
         )
         for insight_id, plan in [*score_picked.items(), *train_picked.items()]
     ]
@@ -859,6 +921,7 @@ def select_insights(
         teams_skipped=len(teams_with_insights) - len(loaded_teams),
         enrolled_teams=len(teams),
         enrolled_organizations=len({team.organization_id for team in teams.values()}),
+        long_cooldown=sum(too_expensive.get(insight_id, 0) > 1 for insight_id in cooling),
         due_insights=None if due_list is None else len(due_list.insights),
         oldest_due_seconds=None if due_list is None else due_list.oldest_due_seconds,
         oldest_refresh_seconds=None if due_list is None else due_list.oldest_refresh_seconds,
@@ -889,8 +952,8 @@ def _score_order(
     A stale model is in `stale_order` only, because the train pass gets it first. `ready` leaves out the
     stale models, so they reach the train pass.
     """
-    team_orders: list[list[int]] = []
-    stale_orders: list[list[int]] = []
+    team_orders: dict[int, list[int]] = {}
+    stale_orders: dict[int, list[int]] = {}
     ready: set[int] = set()
     for team_id in sorted({insight.team_id for insight in active_by_id.values()}):
         team = teams[team_id]
@@ -911,11 +974,9 @@ def _score_order(
             and is_due(insight, scored[insight.insight_id].scored_through, team.timezone_info, now)
         ]
         for stale, orders in ((False, team_orders), (True, stale_orders)):
-            orders.append(
-                score_order(
-                    [candidate for is_stale, candidate in candidates if is_stale == stale],
-                    now=now,
-                    max_staleness=config.limits.max_backfill_buckets,
-                )
+            orders[team_id] = score_order(
+                [candidate for is_stale, candidate in candidates if is_stale == stale],
+                now=now,
+                max_staleness=config.limits.max_backfill_buckets,
             )
-    return ScorePassOrder(order=_take_turns(team_orders), stale_order=_take_turns(stale_orders), ready=ready)
+    return ScorePassOrder(order=_take_turns(team_orders, now), stale_order=_take_turns(stale_orders, now), ready=ready)

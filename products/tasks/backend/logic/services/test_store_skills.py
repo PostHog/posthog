@@ -16,10 +16,12 @@ class TestRefreshStoreSkillsState(BaseTest):
             (None, None, "unchanged"),
             (False, True, "empty"),
             (False, None, "empty"),
+            (None, True, "empty", True),
+            (None, None, "empty", True),
         ]
     )
     def test_refresh_respects_live_context_setting(
-        self, include_live_context: bool | None, flag_value: bool | None, expected: str
+        self, include_live_context: bool | None, flag_value: bool | None, expected: str, disable_skills: bool = False
     ) -> None:
         LLMSkill.objects.create(
             team=self.team,
@@ -32,6 +34,7 @@ class TestRefreshStoreSkillsState(BaseTest):
         )
         task = Task.objects.create(team=self.team, title="Review evidence", created_by=self.user)
         state: dict[str, object] = {STORE_SKILLS_STATE_KEY: [{"name": "stale-live-skill"}]}
+        state["disable_skills"] = disable_skills
         if include_live_context is not None:
             state["include_live_context"] = include_live_context
         run = TaskRun.objects.create(task=task, team=self.team, state=state)

@@ -14,6 +14,7 @@ import { EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { getExperimentStatus } from '../experimentStatus'
 import type { ExperimentHealthApi, ExperimentHealthFindingApi } from '../generated/api.schemas'
 import { getTotalExposures, hasSampleRatioMismatch } from './exposureHealth'
+import { healthCheckShowsDecidingValue } from './healthCheckValues'
 import { type HealthPanelCheck, countHealthChecks } from './healthPanelChecks'
 
 // pinned: `finding_code` property values. Insights group and filter on them, so a rename breaks those insights.
@@ -34,7 +35,6 @@ export type ExperimentHealthFindingCode =
     | 'metric_all_zero'
     | 'exposure_criteria_cannot_match'
     | 'exposure_filter_on_dynamic_cohort'
-    | 'exposure_filter_excludes_events'
     | 'forced_variant_release_condition'
     | 'flag_variants_mismatch'
     | 'split_changed_mid_run'
@@ -43,6 +43,7 @@ export type ExperimentHealthFindingCode =
     | 'new_flag_no_traffic'
     | 'early_significance'
     | 'metrics_not_matured'
+    | 'flag_shared'
 
 export interface ExperimentHealthFinding {
     code: ExperimentHealthFindingCode
@@ -81,11 +82,11 @@ export const FLAG_STATE_FINDING_CODES: ReadonlySet<ExperimentHealthFindingCode> 
 )
 
 // pinned: `opened_from` property values of `experiment health checks opened`.
-export type ExperimentHealthChecksOpenedFrom = 'meta_bar'
+export type ExperimentHealthChecksOpenedFrom = 'meta_bar' | 'tab'
 
 // pinned: `health_ui` property values. Insights compare the server's findings with the separate warnings on them.
-// 'panel' means the page shows the server's findings: in the health panel when one is an issue, otherwise in the
-// health chip next to the experiment's status.
+// 'panel' means the page shows the server's findings: in the health tab, with a count of the issues in the chip
+// next to the experiment's status.
 export type ExperimentHealthUi = 'panel' | 'warnings'
 
 export function experimentHealthUi(experiment: Experiment, showsServerHealth: boolean): ExperimentHealthUi {
@@ -206,6 +207,42 @@ export function captureExperimentHealthChecksOpened(
         checks_not_applicable: countHealthChecks(checks, 'not_applicable'),
         checks_not_checked: countHealthChecks(checks, 'not_checked'),
         opened_from: openedFrom,
+        surface: 'experiment_page',
+    })
+}
+
+export function captureExperimentHealthCheckExpanded(
+    experiment: Experiment,
+    check: HealthPanelCheck,
+    healthUi: ExperimentHealthUi
+): void {
+    // pinned: analytics event name, so renaming it breaks insights
+    posthog.capture('experiment health check expanded', {
+        experiment_id: experiment.id,
+        experiment_status: getExperimentStatus(experiment),
+        health_ui: healthUi,
+        check_key: check.key,
+        check_status: check.status,
+        // pinned: property name. It means that the check shows the value that decided its status.
+        check_has_measurement: healthCheckShowsDecidingValue(check),
+        surface: 'experiment_page',
+    })
+}
+
+export function captureExperimentHealthOverviewOpened(
+    experiment: Experiment,
+    checks: HealthPanelCheck[],
+    findingCount: number,
+    healthUi: ExperimentHealthUi
+): void {
+    // pinned: analytics event name, so renaming it breaks insights
+    posthog.capture('experiment health summary opened', {
+        experiment_id: experiment.id,
+        experiment_status: getExperimentStatus(experiment),
+        health_ui: healthUi,
+        health_finding_count: findingCount,
+        checks_passed: countHealthChecks(checks, 'passed'),
+        checks_finding: countHealthChecks(checks, 'finding'),
         surface: 'experiment_page',
     })
 }

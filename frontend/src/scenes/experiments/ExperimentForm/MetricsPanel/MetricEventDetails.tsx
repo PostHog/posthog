@@ -18,11 +18,14 @@ import {
     isExperimentRatioMetric,
 } from '~/queries/schema/schema-general'
 
+import { isWarehouseNativeSource } from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
+
 const getSourceName = (source: ExperimentMetricSource): string =>
     match(source)
         .when(isEventsNode, (node) => node.name || node.event || 'Unknown event')
         .when(isActionsNode, (node) => node.name || `Action ${node.id}`)
         .when(isDataWarehouseNode, (node) => node.name || node.table_name)
+        .when(isWarehouseNativeSource, (node) => node.custom_name || 'Warehouse-native query')
         .otherwise(() => 'Unknown')
 
 const getMathLabel = (math: string | undefined): string => {

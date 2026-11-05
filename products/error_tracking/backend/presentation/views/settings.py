@@ -9,6 +9,10 @@ from products.error_tracking.backend.facade import api as error_tracking_api
 
 
 class ErrorTrackingSettingsSerializer(serializers.Serializer):
+    adaptive_ingestion_enabled = serializers.BooleanField(
+        required=False,
+        help_text="Project preference for adaptive ingestion. Turning this on does not currently change ingestion.",
+    )
     project_rate_limit_value = serializers.IntegerField(
         min_value=1,
         allow_null=True,
@@ -38,14 +42,6 @@ class ErrorTrackingSettingsSerializer(serializers.Serializer):
         help_text=(
             "Whether the project ingests exception events. When false, ingestion drops every $exception event "
             "for this project before it is stored or billed, and the events cannot be recovered."
-        ),
-    )
-    linear_status_sync_enabled = serializers.BooleanField(
-        required=False,
-        help_text=(
-            "Whether status changes on linked Linear tickets update the issue. When true, an issue resolves once "
-            "every linked Linear ticket is closed and at least one is done, and a resolved issue becomes active "
-            "again when a linked ticket reopens."
         ),
     )
 
