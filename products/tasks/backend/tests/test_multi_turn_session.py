@@ -51,6 +51,10 @@ from products.tasks.backend.tests.agent_log_fixtures import (
     _console_line,
     _cost_less_usage_update_line,
     _end_turn_line,
+    _pi_compaction_lines,
+    _pi_event_line,
+    _pi_text_line,
+    _pi_turn_completed_line,
     _progress_line,
     _structured_output_line,
     _tool_call_line,
@@ -87,6 +91,7 @@ class TestPollForTurnEmptyEndTurn:
         turn_2_empty = [_user_message_line("prompt"), _end_turn_line()]
         log = "\n".join(turn_1 + turn_2_empty)
         skip = len(turn_1)
+        fake_task_run = FakeTaskRun()
 
         with (
             patch("posthog.storage.object_storage.read", return_value=log),
@@ -95,9 +100,10 @@ class TestPollForTurnEmptyEndTurn:
                 "products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS",
                 0,
             ),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
         ):
             with pytest.raises(EmptyAgentTurnError) as exc_info:
-                await poll_for_turn(FakeTaskRun(), skip_lines=skip)
+                await poll_for_turn(fake_task_run, skip_lines=skip)
 
         # Carries log offsets so the caller can resume from the tail on retry
         # instead of re-streaming already-printed lines.
@@ -109,15 +115,38 @@ class TestPollForTurnEmptyEndTurn:
         turn_1 = [_structured_output_line({"word": "alpha"}), _end_turn_line()]
         turn_2 = [_user_message_line("next"), _structured_output_line({"word": "beta", "count": 2}), _end_turn_line()]
         log = "\n".join(turn_1 + turn_2)
+        fake_task_run = FakeTaskRun()
 
         with (
             patch("posthog.storage.object_storage.read", return_value=log),
             patch("asyncio.sleep", new=AsyncMock()),
             patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
         ):
-            turn = await poll_for_turn(FakeTaskRun(), skip_lines=len(turn_1))
+            turn = await poll_for_turn(fake_task_run, skip_lines=len(turn_1))
 
         assert json.loads(turn.last_message) == {"word": "beta", "count": 2}
+
+    @parameterized.expand(
+        [
+            ("commentary_then_end_turn", [_agent_message_line("Checking the repo"), _end_turn_line()]),
+            ("empty_end_turn", [_usage_update_line(0), _end_turn_line()]),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_end_turn_returns_a_saved_finish_report(self, _name: str, turn_lines: list[str]) -> None:
+        log = "\n".join([_user_message_line("initial prompt"), *turn_lines])
+        fake_task_run = FakeTaskRun(status="completed", finish_report="Weekly report")
+
+        with (
+            patch("posthog.storage.object_storage.read", return_value=log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
+        ):
+            turn = await poll_for_turn(fake_task_run, skip_lines=0)
+
+        assert turn.last_message == "Weekly report"
 
     @pytest.mark.asyncio
     async def test_text_before_end_turn_across_polls_is_not_empty(self):
@@ -932,6 +961,12 @@ class TestPollForTurnTimeoutDiagnosis:
             # mid-run stall.
             ("prompt_echo_only", lambda: _user_message_line("prompt"), "no_turn_output"),
             ("worked_then_silent", lambda: _agent_message_line("still working"), "stalled_after_output"),
+            # Only Pi's "stop" ends a turn normally, so a failed turn must not return its partial text as the answer.
+            (
+                "pi_turn_ended_with_error",
+                lambda: "\n".join([_pi_text_line("partial"), _pi_turn_completed_line("error")]),
+                "stalled_after_output",
+            ),
         ]
     )
     @pytest.mark.asyncio
@@ -975,6 +1010,133 @@ class TestPollForTurnTimeoutDiagnosis:
 
         assert exc_info.value.stage == "active_at_budget"
         assert exc_info.value.turn_relevant_lines == 3
+
+
+class TestPollForTurnPiLog:
+    _FIRST_TURN = [_pi_text_line("first answer"), _pi_turn_completed_line()]
+    _TOOL_CALL = [
+        _pi_event_line({"type": "tool_call_started", "toolCall": {"id": "call-1"}}),
+        _pi_event_line({"type": "tool_call_updated", "toolCall": {"id": "call-1", "status": "completed"}}),
+    ]
+
+    @staticmethod
+    async def _poll(polls: list[list[str]], skip_lines: int = 0) -> TurnPollResult:
+        logs = iter("\n".join(lines) for lines in polls)
+        fake_task_run = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=lambda *_args, **_kwargs: next(logs)),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
+        ):
+            return await poll_for_turn(fake_task_run, skip_lines=skip_lines)
+
+    @parameterized.expand(
+        [
+            (
+                "keeps_whitespace_between_deltas",
+                [[_pi_text_line("two"), _pi_text_line(" words"), _pi_text_line("\n"), _pi_turn_completed_line()]],
+                0,
+                "two words",
+            ),
+            (
+                "text_spans_polls",
+                [
+                    [_pi_text_line("start of")],
+                    [_pi_text_line("start of"), _pi_text_line(" the answer"), _pi_turn_completed_line()],
+                ],
+                0,
+                "start of the answer",
+            ),
+            (
+                "turn_end_arrives_alone",
+                [[_pi_text_line("the answer")], [_pi_text_line("the answer"), _pi_turn_completed_line()]],
+                0,
+                "the answer",
+            ),
+            (
+                "side_channel_lines_after_turn_end",
+                [[_pi_text_line("the answer"), _pi_turn_completed_line(), _console_line("agentsh network events")]],
+                0,
+                "the answer",
+            ),
+            (
+                "text_before_a_tool_call_is_not_the_answer",
+                [[_pi_text_line("checking"), *_TOOL_CALL, _pi_text_line("the answer"), _pi_turn_completed_line()]],
+                0,
+                "the answer",
+            ),
+            (
+                "compaction_summary_after_the_answer_is_not_the_answer",
+                [[_pi_text_line("the answer"), *_pi_compaction_lines("internal summary"), _pi_turn_completed_line()]],
+                0,
+                "the answer",
+            ),
+            (
+                "compaction_summary_before_the_answer_is_not_part_of_it",
+                [
+                    [
+                        _pi_text_line("earlier text"),
+                        *_pi_compaction_lines("internal summary"),
+                        _pi_text_line("the answer", timestamp=9),
+                        _pi_turn_completed_line(),
+                    ]
+                ],
+                0,
+                "the answer",
+            ),
+            (
+                "compaction_without_a_summary_keeps_the_whole_answer",
+                [
+                    [
+                        *_pi_compaction_lines(None),
+                        _pi_text_line("the", timestamp=9),
+                        _pi_text_line(" answer", timestamp=9),
+                        _pi_turn_completed_line(),
+                    ]
+                ],
+                0,
+                "the answer",
+            ),
+            (
+                "earlier_turn_is_not_the_answer",
+                [
+                    [
+                        *_FIRST_TURN,
+                        _pi_event_line({"type": "user_message"}),
+                        _pi_text_line("the answer"),
+                        _pi_turn_completed_line(),
+                    ]
+                ],
+                len(_FIRST_TURN),
+                "the answer",
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_stop_returns_the_final_message(
+        self, _name: str, polls: list[list[str]], skip_lines: int, expected: str
+    ):
+        turn = await self._poll(polls, skip_lines=skip_lines)
+
+        assert turn.last_message == expected
+        assert turn.total_lines == len(polls[-1])
+
+    @parameterized.expand(
+        [
+            ("after_prompt_echo", [_pi_event_line({"type": "user_message"}), _pi_turn_completed_line()]),
+            ("without_prompt_echo", [_pi_turn_completed_line()]),
+            ("only_a_compaction_summary", [*_pi_compaction_lines("internal summary"), _pi_turn_completed_line()]),
+            (
+                "after_tool_call_only",
+                [_pi_event_line({"type": "user_message"}), *_TOOL_CALL, _pi_turn_completed_line()],
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_turn_without_text_is_empty_and_does_not_reuse_earlier_text(self, _name: str, turn: list[str]):
+        with pytest.raises(EmptyAgentTurnError):
+            await self._poll([[*self._FIRST_TURN, *turn]], skip_lines=len(self._FIRST_TURN))
 
 
 class TestPollForTurnTerminalDrain:
@@ -1072,6 +1234,23 @@ class TestPollForTurnTerminalDrain:
             turn = await poll_for_turn(fake_task_run, skip_lines=0)
 
         assert turn.last_message == "partial-before-death"
+
+    @pytest.mark.asyncio
+    async def test_terminal_status_returns_the_finish_report_over_earlier_commentary(self):
+        log = "\n".join(
+            [_user_message_line("initial prompt"), _agent_message_line("Checking the repo"), _usage_update_line(0)]
+        )
+        fake_task_run = FakeTaskRun(status="completed", finish_report='{"title": "Weekly report"}')
+
+        with (
+            patch("posthog.storage.object_storage.read", return_value=log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
+        ):
+            turn = await poll_for_turn(fake_task_run, skip_lines=0)
+
+        assert turn.last_message == '{"title": "Weekly report"}'
 
 
 class TestExtractAgentError:
@@ -1577,6 +1756,7 @@ class TestMultiTurnSessionRetry:
             patch("posthog.storage.object_storage.read", side_effect=current_log),
             patch("asyncio.sleep", new=AsyncMock()),
             patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=FakeTaskRun()),
         ):
             result = await session.send_followup("please respond", _Resp, label="priority")
 
@@ -1964,11 +2144,11 @@ class TestCreateTaskAndTriggerForwardsContext:
         assert [written[entry["storage_path"]] for entry in manifest.values()] == [b"Review the PR.", "Ü".encode()]
 
     @pytest.mark.asyncio
-    async def test_codex_options_reach_the_state_the_agent_server_reads(self) -> None:
+    async def test_caller_options_reach_the_state_the_agent_server_reads(self) -> None:
         # The agent server sees only allowlisted state keys, so a dropped key silently keeps the Codex default.
         team, user = await sync_to_async(self._setup_team_and_user)()
         context = CustomPromptSandboxContext(
-            team_id=team.id, user_id=user.id, codex_max_subagents=9, codex_shared_prompt_cache=True
+            team_id=team.id, user_id=user.id, codex_max_subagents=9, codex_shared_prompt_cache=True, disable_skills=True
         )
 
         with patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"):
@@ -1978,6 +2158,7 @@ class TestCreateTaskAndTriggerForwardsContext:
         public_state = _public_task_run_state(persisted.state)
         assert public_state["codex_max_subagents"] == 9
         assert public_state["codex_shared_prompt_cache"] is True
+        assert public_state["disable_skills"] is True
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(("output_schema", "expected_flag"), [({"type": "object"}, True), (None, None)])
@@ -2064,11 +2245,13 @@ class TestMultiTurnSessionStartFallback:
         return session
 
     @pytest.mark.asyncio
-    async def test_salvages_unparseable_text_with_fallback(self):
+    @pytest.mark.parametrize("retry_reply", [None, "Updated conclusion from the second turn."])
+    async def test_salvages_unparseable_text_with_fallback(self, retry_reply: str | None):
         # _Resp requires a JSON object with `value`; prose can't validate, so the fallback
         # builds the model from the raw close-out text instead of failing the run.
         session = self._fake_session()
         prose = "No anomalies this run. Scanned 12 commits, remembered the scan marker."
+        session.send_followup_raw = AsyncMock(return_value=retry_reply)  # type: ignore[method-assign]
 
         with patch.object(MultiTurnSession, "start_raw", new=AsyncMock(return_value=(session, prose))):
             returned_session, parsed = await MultiTurnSession.start(
@@ -2076,10 +2259,11 @@ class TestMultiTurnSessionStartFallback:
                 context=MagicMock(),
                 model=_Resp,
                 fallback_from_text=lambda text: _Resp(value=text),
+                json_retry_prompt="Return JSON" if retry_reply is not None else None,
             )
 
         assert returned_session is session
-        assert parsed == _Resp(value=prose)
+        assert parsed == _Resp(value=retry_reply if retry_reply is not None else prose)
         # A salvaged run is NOT ended as failed — the caller persists the result and ends normally.
         session.end.assert_not_awaited()  # type: ignore[attr-defined]
 

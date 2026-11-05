@@ -1,8 +1,8 @@
 import { measureLabelWidth } from '../utils/text-measure'
-import { GUTTER_GAP, Y_AXIS_TITLE_MARGIN } from './hooks/useChartMargins'
+import { GUTTER_GAP, Y_AXIS_TITLE_MARGIN, Y_LABEL_LEFT_GUTTER } from './hooks/useChartMargins'
 import { autoFormatterFor } from './scales'
 import { DEFAULT_Y_AXIS_ID } from './types'
-import type { ChartScales } from './types'
+import type { ChartDimensions, ChartMargins, ChartScales } from './types'
 
 /** One stacked value-axis gutter. `offset` is its outward pixel distance from the plot edge; the
  *  next gutter out clears this one's `width` + {@link GUTTER_GAP}, plus a title band when titled. */
@@ -92,4 +92,38 @@ export function computeYAxisGutters(
         }
     }
     return gutters
+}
+
+/** Widens the plot so the gutters' measured labels and titles fit inside the chart. Sides set in
+ *  `fixedMargins` stay put, and the same object comes back when nothing overflows. */
+export function widenToFitGutters(
+    dimensions: ChartDimensions,
+    gutters: Gutter[],
+    fixedMargins: Partial<ChartMargins> = {}
+): ChartDimensions {
+    const rightMargin = dimensions.width - dimensions.plotLeft - dimensions.plotWidth
+    let left = 0
+    let right = 0
+    for (const { side, offset, width, title } of gutters) {
+        const extent = Math.ceil(TICK_GAP + offset + width + (title ? Y_AXIS_TITLE_MARGIN : 0)) + Y_LABEL_LEFT_GUTTER
+        if (side === 'left') {
+            left = Math.max(left, extent - dimensions.plotLeft)
+        } else {
+            right = Math.max(right, extent - rightMargin)
+        }
+    }
+    if (fixedMargins.left !== undefined) {
+        left = 0
+    }
+    if (fixedMargins.right !== undefined) {
+        right = 0
+    }
+    if (left === 0 && right === 0) {
+        return dimensions
+    }
+    return {
+        ...dimensions,
+        plotLeft: dimensions.plotLeft + left,
+        plotWidth: Math.max(0, dimensions.plotWidth - left - right),
+    }
 }

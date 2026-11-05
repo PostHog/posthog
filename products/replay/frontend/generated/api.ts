@@ -9,7 +9,6 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
-    PaginatedSessionRecordingListApi,
     PaginatedSessionRecordingPlaylistListApi,
     PatchedSessionRecordingApi,
     PatchedSessionRecordingPlaylistApi,
@@ -17,6 +16,7 @@ import type {
     SessionRecordingBulkDeleteRequestApi,
     SessionRecordingBulkDeleteResponseApi,
     SessionRecordingConsoleLogsResponseApi,
+    SessionRecordingListResponseApi,
     SessionRecordingPlaylistApi,
     SessionRecordingPlaylistsListParams,
     SessionRecordingsConsoleLogsRetrieveParams,
@@ -246,8 +246,8 @@ export const sessionRecordingsList = async (
     projectId: string,
     params?: SessionRecordingsListParams,
     options?: RequestInit
-): Promise<PaginatedSessionRecordingListApi> => {
-    return apiMutator<PaginatedSessionRecordingListApi>(getSessionRecordingsListUrl(projectId, params), {
+): Promise<SessionRecordingListResponseApi> => {
+    return apiMutator<SessionRecordingListResponseApi>(getSessionRecordingsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

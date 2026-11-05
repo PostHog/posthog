@@ -766,8 +766,8 @@ class TestResolveIntentThemes(SimpleTestCase):
 class TestLLMConsentGate(APIBaseTest):
     @parameterized.expand(
         [
-            ("session_summary", intent_generation.summarize_intents, "OpenAI"),
-            ("project_digest", intent_generation.summarize_project_intents, "genai"),
+            ("session_summary", intent_generation.summarize_intents, "build_openai_client"),
+            ("project_digest", intent_generation.summarize_project_intents, "build_gemini_client"),
         ]
     )
     def test_refuses_without_ai_data_processing_consent(self, _name, summarize, client_attr: str) -> None:
@@ -775,12 +775,12 @@ class TestLLMConsentGate(APIBaseTest):
         self.organization.save()
 
         with (
-            self.settings(OPENAI_API_KEY="sk-test", GEMINI_API_KEY="gem-test"),
+            self.settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="phs_test"),
             patch.object(intent_generation, client_attr) as mock_client,
             self.assertRaises(contracts.IntentGenerationUnavailable),
         ):
             summarize([("find the signups funnel", "query_run")], self.team)
-        mock_client.assert_not_called()
+        assert mock_client.return_value.mock_calls == []
 
 
 class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):

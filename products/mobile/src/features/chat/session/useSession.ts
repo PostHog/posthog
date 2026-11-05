@@ -52,6 +52,7 @@ import type { PermissionRecord, RunStreamState } from '@/features/handoff/types'
 import { IDLE_TIMEOUT_MS, isAbort, isFatal, useAppActive } from '@/features/handoff/useTaskRun'
 import { abortError } from '@/lib/abort'
 import { track } from '@/lib/analytics'
+import { useConnectivity } from '@/lib/connectivity'
 import { asRecord } from '@/lib/records'
 import { sleep } from '@/lib/sleep'
 import type { DecisionAnswerInput } from '@/model/types'
@@ -97,12 +98,19 @@ const NOT_STARTED = "The agent hasn't started yet."
 const STOP_FAILED = "Couldn't stop this run. Try again."
 const ANSWERED_ELSEWHERE = 'Someone else answered this already.'
 const ANSWER_RUN_ENDED = "Your answer wasn't sent. The run ended."
-const CONNECTION_LOST = 'The connection to the agent dropped. Close this chat and open it again.'
+const CONNECTION_LOST = 'The connection to the agent dropped. Reconnect to continue.'
 const CONFIG_NOT_APPLIED = "Your model or mode change didn't reach the agent. Try again."
 const UPLOAD_FAILED = "Your files didn't upload. Try again."
 
 const LOADING: SessionHistory = { status: 'loading', error: null }
 const IDLE: SessionHistory = { status: 'idle', error: null }
+const OFFLINE: SessionHistory = {
+    status: 'error',
+    error: {
+        kind: 'network',
+        message: "You're offline. This chat will reconnect when your connection returns.",
+    },
+}
 
 const UNKNOWN_RUN_CONFIG: TrackedRunConfig = {
     runtimeAdapter: null,
@@ -564,6 +572,7 @@ export function useSession(options: SessionOptions): Session {
     const scopeIsCurrent = useCallback((): boolean => sessionScope() === openedScope.current, [])
     const demo = useDemoMode((state) => state.enabled)
     const active = useAppActive()
+    const online = useConnectivity((state) => state.status !== 'offline')
     const [thread, dispatchThread] = useReducer(sessionThreadReducer, false, initialSessionThread)
     const [live, setLiveState] = useState<RunStreamState | null>(null)
     const [title, setTitle] = useState<string | null>(null)
@@ -575,6 +584,8 @@ export function useSession(options: SessionOptions): Session {
     const [partial, setPartialState] = useState<PartialAnswer | null>(null)
     const [follow, setFollow] = useState<Follow | null>(null)
     const [followEnded, setFollowEnded] = useState(false)
+    const lastFollow = useRef<{ follow: Follow | null; outcome: FollowOutcome | null }>({ follow: null, outcome: null })
+    const bootstrapRetryable = useRef(false)
     const [demoPlaying, setDemoPlaying] = useState(false)
     const [createdTaskId, setCreatedTaskId] = useState<string | null>(null)
     const [unsentText, setUnsentText] = useState<string | undefined>(undefined)
@@ -764,6 +775,8 @@ export function useSession(options: SessionOptions): Session {
         endStopping()
         setFollow(null)
         setFollowEnded(false)
+        lastFollow.current = { follow: null, outcome: null }
+        bootstrapRetryable.current = false
         setReconnecting(false)
         setDemoPlaying(false)
         setSending(false)
@@ -807,6 +820,11 @@ export function useSession(options: SessionOptions): Session {
             setLive(state)
             setHistory(IDLE)
             track('mobile_session_resumed', { status: log.status })
+            return
+        }
+        if (useConnectivity.getState().status === 'offline') {
+            bootstrapRetryable.current = true
+            setHistory(OFFLINE)
             return
         }
         const controller = new AbortController()
@@ -859,6 +877,7 @@ export function useSession(options: SessionOptions): Session {
             if (epoch.current !== mine || !scopeIsCurrent() || isAbort(error, signal)) {
                 return
             }
+            bootstrapRetryable.current = !isFatal(error)
             setHistory({ status: 'error', error: toChatError(error) })
         } finally {
             if (bootController.current === controller) {
@@ -899,10 +918,52 @@ export function useSession(options: SessionOptions): Session {
         track('mobile_decision_shown', { kind: pendingKind, surface: 'chat', replayed: pendingReplayed })
     }, [pendingRequestId, pendingKind, pendingReplayed])
 
+    const wasAvailable = useRef(active && online)
     useEffect(() => {
-        if (!follow || !activeTaskId || !active || demo) {
+        const available = active && online
+        const recovered = available && !wasAvailable.current
+        wasAvailable.current = available
+        if (!online && !demo && scopeIsCurrent()) {
+            setHistory((current) => (current.status === 'loading' ? OFFLINE : current))
+        }
+        if (!available && !demo && !follow && bootController.current) {
+            bootstrapRetryable.current = true
+            bootController.current.abort()
+        }
+        if (recovered && !demo && scopeIsCurrent() && !follow && bootstrapRetryable.current) {
+            void reloadHistory()
+        }
+    }, [active, online, demo, follow, reloadHistory, scopeIsCurrent])
+
+    const reconnect = useCallback((): void => {
+        if (!scopeIsCurrent() || !active || !online || demo || lastFollow.current.outcome !== 'gave_up') {
             return
         }
+        lastFollow.current.outcome = 'aborted'
+        setFollow((current) => (current ? { ...current, key: current.key + 1 } : current))
+    }, [active, online, demo, scopeIsCurrent])
+
+    useEffect(() => {
+        if (lastFollow.current.follow !== follow) {
+            lastFollow.current = { follow, outcome: null }
+        }
+        if (!active || !online) {
+            if (lastFollow.current.outcome === 'gave_up') lastFollow.current.outcome = null
+            return
+        }
+        if (
+            !follow ||
+            !activeTaskId ||
+            demo ||
+            lastFollow.current.outcome === 'gave_up' ||
+            lastFollow.current.outcome === 'ended' ||
+            (typeof lastFollow.current.outcome === 'object' && lastFollow.current.outcome !== null)
+        ) {
+            return
+        }
+        lastFollow.current.outcome = null
+        setHistory((current) => (current.status === 'error' ? LOADING : current))
+        setNotice((current) => (current === CONNECTION_LOST ? undefined : current))
         const controller = new AbortController()
         const { signal } = controller
         const { runId } = follow
@@ -914,13 +975,15 @@ export function useSession(options: SessionOptions): Session {
         if (entry.followed && entry.cursor.cursor === undefined) {
             dispatchThread({ type: 'resuming' })
         }
+        setReconnecting(entry.followed)
         entry.followed = true
         setFollowEnded(false)
         const handlers: FollowHandlers = {
             onOpen: () => {
-                setReconnecting(false)
+                if (!entry.hydrate) setReconnecting(false)
             },
             onHistory: (frames) => {
+                setReconnecting(false)
                 dispatchThread({ type: 'frames', frames })
                 const current = liveRef.current
                 if (current?.runId === runId) {
@@ -947,6 +1010,7 @@ export function useSession(options: SessionOptions): Session {
             if (outcome === 'aborted' || signal.aborted) {
                 return
             }
+            lastFollow.current.outcome = outcome
             setReconnecting(false)
             setFollowEnded(true)
             if (outcome === 'gave_up') {
@@ -963,7 +1027,7 @@ export function useSession(options: SessionOptions): Session {
             }
         })
         return () => controller.abort()
-    }, [active, activeTaskId, applyFrame, applySnapshot, demo, follow, setLive])
+    }, [active, online, activeTaskId, applyFrame, applySnapshot, demo, follow, setLive])
 
     const liveStatus = live?.status
     const liveTurnEnded = live?.turnEnded
@@ -1598,7 +1662,7 @@ export function useSession(options: SessionOptions): Session {
     const terminal = live ? isTerminalRunStatus(live.status) : true
     const following = follow !== null && !followEnded
     let phase: SessionPhase = 'idle'
-    if (reconnecting) {
+    if (reconnecting || (!demo && follow && !followEnded && !online)) {
         phase = 'reconnecting'
     } else if (demoPlaying || (active && live?.phase === 'working' && !terminal && !live.turnEnded && following)) {
         phase = 'working'
@@ -1649,6 +1713,7 @@ export function useSession(options: SessionOptions): Session {
         answer,
         stop,
         reloadHistory,
+        ...(lastFollow.current.outcome === 'gave_up' && active && online && !isSending ? { reconnect } : {}),
         reset,
         dismissNotice,
     }

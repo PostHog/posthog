@@ -18,6 +18,27 @@ export const SUPPORTED_IMAGE_MEDIA_TYPES = [
 
 export type SupportedImageMediaType = (typeof SUPPORTED_IMAGE_MEDIA_TYPES)[number]
 
+/** Many servers label a font with a legacy or generic binary type, so the bytes decide what a font is. */
+export const FONT_MEDIA_TYPES = [
+    'font/woff2',
+    'font/woff',
+    'font/ttf',
+    'font/otf',
+    'font/sfnt',
+    'font/collection',
+    'application/font-woff2',
+    'application/font-woff',
+    'application/x-font-woff',
+    'application/font-sfnt',
+    'application/x-font-ttf',
+    'application/x-font-truetype',
+    'application/x-font-otf',
+    'application/x-font-opentype',
+    'application/vnd.ms-opentype',
+    'application/octet-stream',
+    'binary/octet-stream',
+] as const
+
 export type ImageTransportRejectionReason =
     | 'content_encoding_too_deep'
     | 'malformed_content_encoding'
@@ -235,6 +256,46 @@ function isSvgDocument(bytes: Buffer): boolean {
     return new RegExp(`\\sxmlns:${prefix}\\s*=\\s*["']http://www\\.w3\\.org/2000/svg["']`).test(tag)
 }
 
+/** WOFF2, WOFF, OpenType with CFF outlines, TrueType (two signatures) and a TrueType or OpenType collection. */
+const FONT_SIGNATURES = ['wOF2', 'wOFF', 'OTTO', '\x00\x01\x00\x00', 'true', 'ttcf']
+
+function isFontFile(bytes: Buffer): boolean {
+    return FONT_SIGNATURES.includes(bytes.toString('latin1', 0, 4))
+}
+
+async function decodeBody(bytes: Buffer, contentEncoding: string | undefined): Promise<Buffer> {
+    if (bytes.length > MAX_UNCOMPRESSED_IMAGE_BYTES) {
+        throw new InvalidImageTransportError(
+            'decoded_too_large',
+            `decoded image exceeds ${MAX_UNCOMPRESSED_IMAGE_BYTES} bytes`
+        )
+    }
+    let decoded = bytes
+    const encodings = parseContentEncodings(contentEncoding)
+    for (const encoding of encodings.reverse()) {
+        decoded = await decodeWithLimit(decoded, encoding)
+    }
+    return decoded
+}
+
+export async function prepareFetchedFont(
+    bytes: Buffer,
+    contentType: string | undefined,
+    contentEncoding: string | undefined
+): Promise<Buffer> {
+    if (!contentType) {
+        throw new InvalidImageTransportError('missing_content_type', 'unsupported content-type: missing')
+    }
+    if (!(FONT_MEDIA_TYPES as readonly string[]).includes(contentType)) {
+        throw new InvalidImageTransportError('unsupported_content_type', `unsupported content-type: ${contentType}`)
+    }
+    const decoded = await decodeBody(bytes, contentEncoding)
+    if (!isFontFile(decoded)) {
+        throw new InvalidImageTransportError('content_type_mismatch', 'font bytes have no font signature')
+    }
+    return decoded
+}
+
 export async function prepareFetchedImage(
     bytes: Buffer,
     contentType: string | undefined,
@@ -246,18 +307,7 @@ export async function prepareFetchedImage(
     if (!isSupportedImageMediaType(contentType)) {
         throw new InvalidImageTransportError('unsupported_content_type', `unsupported content-type: ${contentType}`)
     }
-    if (bytes.length > MAX_UNCOMPRESSED_IMAGE_BYTES) {
-        throw new InvalidImageTransportError(
-            'decoded_too_large',
-            `decoded image exceeds ${MAX_UNCOMPRESSED_IMAGE_BYTES} bytes`
-        )
-    }
-
-    let decoded = bytes
-    const encodings = parseContentEncodings(contentEncoding)
-    for (const encoding of encodings.reverse()) {
-        decoded = await decodeWithLimit(decoded, encoding)
-    }
+    const decoded = await decodeBody(bytes, contentEncoding)
     if (!imageBytesMatchMediaType(decoded, contentType)) {
         throw new InvalidImageTransportError(
             'content_type_mismatch',

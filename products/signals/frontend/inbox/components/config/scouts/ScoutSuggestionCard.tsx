@@ -133,7 +133,7 @@ function SuggestionTags({ item }: { item: ScoutSuggestionItemApi }): JSX.Element
 
 /** The row's primary action, which depends on its kind, the chat that refines it, and dismiss. */
 function SuggestionActions({ item, surface, isBusy }: ScoutSuggestionCardProps & { isBusy: boolean }): JSX.Element {
-    const { aiConsentDisabledReason, runningChatType } = useValues(scoutSuggestionsLogic)
+    const { scoutChatDisabledReason, runningChatType } = useValues(scoutSuggestionsLogic)
     const { refineSuggestionWithAi, openCreateFromSuggestion, dismissSuggestion } = useActions(scoutSuggestionsLogic)
     // A canonical pick opens the same form on the scout that already exists, so the person reads it
     // before it runs, and submitting only writes the config. Creating a draft and refining with AI
@@ -143,7 +143,7 @@ function SuggestionActions({ item, surface, isBusy }: ScoutSuggestionCardProps &
         ? 'Starting a task…'
         : runningChatType !== null
           ? 'Starting another task…'
-          : (creationDisabledReason ?? aiConsentDisabledReason ?? undefined)
+          : (creationDisabledReason ?? scoutChatDisabledReason ?? undefined)
     const isCanonical = item.kind === 'canonical'
 
     return (

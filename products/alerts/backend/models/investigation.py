@@ -1,3 +1,6 @@
+from datetime import UTC, datetime, timedelta
+from typing import ClassVar
+
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
@@ -13,6 +16,9 @@ class InsightAlertInvestigation(TeamScopedRootMixin, UUIDModel):
     investigations here. A row exists for every evaluation that asked for one, including one the
     claim refused, which is recorded as SKIPPED and spends no budget.
     """
+
+    # As long as the platform's check history the rows annotate (`PLATFORM_ALERT_EVENTS_TTL_DAYS`).
+    RETENTION: ClassVar[timedelta] = timedelta(days=90)
 
     class Kind(models.TextChoices):
         AGENT = "agent", "Agent"
@@ -66,4 +72,13 @@ class InsightAlertInvestigation(TeamScopedRootMixin, UUIDModel):
             ),
             # The claim's in-flight and cooldown checks.
             models.Index(fields=["configuration_id", "created_at"], name="insight_alert_inv_recent_idx"),
+            # The daily retention prune, which reads every team's rows by age.
+            models.Index(fields=["created_at"], name="insight_alert_inv_age_idx"),
         ]
+
+    @classmethod
+    def clean_up_old_investigations(cls) -> int:
+        oldest_allowed_date = datetime.now(UTC) - cls.RETENTION
+        # nosemgrep: idor-lookup-without-team — fleet-wide retention prune by age; no request or team input reaches it
+        rows_count, _ = cls.objects.unscoped().filter(created_at__lt=oldest_allowed_date).delete()
+        return rows_count

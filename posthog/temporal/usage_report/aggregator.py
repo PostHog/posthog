@@ -53,6 +53,7 @@ from posthog.usage_counters import UsageCounterReport
 from products.ai_observability.backend.offline_evaluation_billing import get_offline_evaluation_usage
 
 _SANDBOX_COMPUTE_QUERY_NAME = "sandbox_compute_usage"
+_LOCAL_EVALUATION_NOT_MODIFIED_QUERY_NAME = "teams_with_local_evaluation_not_modified_requests_count_in_period"
 _SANDBOX_COMPUTE_DESTINATION_KEYS = (
     "teams_with_sandbox_compute_credits_used_in_period",
     "teams_with_sandbox_compute_cpu_millicore_seconds_in_period",
@@ -65,6 +66,11 @@ _REPLAY_VISION_SPEND_PROJECTION_QUERY_NAME = "replay_vision_spend_projection"
 _REPLAY_VISION_SPEND_PROJECTION_DESTINATION_KEYS = (
     "teams_with_replay_vision_scanner_projected_credits",
     "teams_with_replay_vision_backfill_committed_credits",
+)
+_BUSINESS_KNOWLEDGE_USAGE_QUERY_NAME = "business_knowledge_usage"
+_BUSINESS_KNOWLEDGE_USAGE_DESTINATION_KEYS = (
+    "teams_with_business_knowledge_chunks_in_period",
+    "teams_with_business_knowledge_queries_in_period",
 )
 
 
@@ -132,6 +138,21 @@ def add_pre_replay_vision_spend_projection_patch_defaults(
     if not any(result.query_name == _REPLAY_VISION_SPEND_PROJECTION_QUERY_NAME for result in query_results):
         for key in _REPLAY_VISION_SPEND_PROJECTION_DESTINATION_KEYS:
             all_data[key] = {}
+
+
+def add_pre_business_knowledge_usage_patch_defaults(
+    all_data: dict[str, dict[int, int]], query_results: list[RunQueryToS3Result]
+) -> None:
+    if not any(result.query_name == _BUSINESS_KNOWLEDGE_USAGE_QUERY_NAME for result in query_results):
+        for key in _BUSINESS_KNOWLEDGE_USAGE_DESTINATION_KEYS:
+            all_data[key] = {}
+
+
+def add_pre_local_evaluation_not_modified_patch_defaults(
+    all_data: dict[str, dict[int, int]], query_results: list[RunQueryToS3Result]
+) -> None:
+    if not any(result.query_name == _LOCAL_EVALUATION_NOT_MODIFIED_QUERY_NAME for result in query_results):
+        all_data[_LOCAL_EVALUATION_NOT_MODIFIED_QUERY_NAME] = {}
 
 
 def iter_chunk_lines(

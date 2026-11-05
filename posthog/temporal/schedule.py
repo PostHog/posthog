@@ -139,14 +139,13 @@ from products.replay_vision.backend.temporal.reconciler import create_replay_vis
 from products.replay_vision.backend.temporal.vision_alerts.schedule import create_vision_alert_check_schedule
 from products.review_hog.backend.facade.temporal import create_review_hog_finding_outcomes_schedule
 from products.security.backend.facade.temporal import create_sync_access_rules_schedule
-from products.signals.backend.activity_summary.schedule import create_activity_summary_tick_schedule
-from products.signals.backend.anomaly_scores.schedule import (
+from products.signals.backend.facade.temporal import (
+    create_activity_summary_tick_schedule,
     create_anomaly_scoring_due_list_refresh_schedule,
     create_anomaly_scoring_tick_schedule,
-)
-from products.signals.backend.emission.conversations_schedule import create_conversations_signals_coordinator_schedule
-from products.signals.backend.ranking.schedule import create_inbox_ranking_scoring_schedule
-from products.signals.backend.temporal.agentic.schedule import (
+    create_conversations_signals_coordinator_schedule,
+    create_inbox_ranking_scoring_schedule,
+    create_personal_inbox_ranking_tick_schedule,
     create_scout_suggestions_coordinator_schedule,
     create_signals_scout_coordinator_schedule,
 )
@@ -1023,6 +1022,7 @@ schedules = [
     create_signals_scout_coordinator_schedule,
     create_inbox_ranking_scoring_schedule,
     create_activity_summary_tick_schedule,
+    create_personal_inbox_ranking_tick_schedule,
     create_anomaly_scoring_tick_schedule,
     create_anomaly_scoring_due_list_refresh_schedule,
     create_scout_suggestions_coordinator_schedule,

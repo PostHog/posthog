@@ -3,6 +3,7 @@ import uuid
 import datetime as dt
 import tempfile
 import threading
+import dataclasses
 from decimal import Decimal
 from typing import Any
 
@@ -79,6 +80,37 @@ class TestAggregateAddActionStats:
         assert stats["amount"].null_count == 3
         assert stats["amount"].min_value == "3"
 
+    def test_mixed_type_columns_aggregate_independently(self) -> None:
+        utc = dt.UTC
+        add_actions = pa.table(
+            {
+                "path": ["a.parquet", "b.parquet", "c.parquet"],
+                "size_bytes": [100, 200, 300],
+                "num_records": [10, None, 5],
+                "null_count.id": [0, 0, 0],
+                "min.id": [7, 1, 4],
+                "max.id": [9, 30, 4],
+                "null_count.name": [1, None, 2],
+                "min.name": ["éclair", "apple", None],
+                "max.name": ["zebra", "émile", None],
+                "null_count.created_at": [None, None, None],
+                "min.created_at": [dt.datetime(2024, 3, 1, tzinfo=utc), None, dt.datetime(2024, 1, 1, tzinfo=utc)],
+                "max.created_at": [dt.datetime(2024, 3, 2, tzinfo=utc), None, dt.datetime(2025, 1, 1, tzinfo=utc)],
+                "min.unregistered": [1, 2, 3],
+            }
+        )
+        columns = {"id": "Int64", "name": "String", "created_at": "DateTime64", "payload": "String"}
+
+        row_count, stats = _aggregate_add_action_stats(add_actions, columns)
+
+        assert row_count == 15
+        assert {name: dataclasses.astuple(stat) for name, stat in stats.items()} == {
+            "id": ("Int64", 0, "1", "30", True),
+            "name": ("String", 3, "apple", "émile", True),
+            "created_at": ("DateTime64", None, "2024-01-01 00:00:00+00:00", "2025-01-01 00:00:00+00:00", True),
+            "payload": ("String", None, None, None, False),
+        }
+
     def test_column_without_log_stats_marks_has_min_max_false(self) -> None:
         # A column present in the table but with no min/max/null in the Delta log (e.g. nested type).
         add_actions = pa.table({"num_records": [5]})
@@ -135,6 +167,7 @@ class TestAggregateAddActionStats:
             # text column, which rejects it outright (DataError: "PostgreSQL text fields cannot
             # contain NUL (0x00) bytes"). It must be stripped here, before the DB write.
             ("ab\x00c", "z\x00", "abc", "z"),
+            ([1, 2], [3], "[1, 2]", "[3]"),
         ],
     )
     def test_min_max_coerced_to_string(self, min_val, max_val, expected_min, expected_max) -> None:
@@ -740,6 +773,71 @@ class TestComputeTableStatisticsSync:
         assert stat.computed_for_delta_version == 12
         assert stat.column_type == "Int64"
 
+    def test_truncates_a_column_name_too_long_for_the_db(self) -> None:
+        # A deeply nested source schema can produce a column name longer than the 400-char limit
+        # on WarehouseColumnStatistics.column_name; the whole table's stats write must not fail for it.
+        long_name = "deeply_nested_field_" * 25
+        team = self._team()
+        schema, table, _ = self._schema_table_job(team, columns={long_name: {"clickhouse": "Nullable(Int64)"}})
+        add_actions = pa.table(
+            {
+                "num_records": [10],
+                f"null_count.{long_name}": [1],
+                f"min.{long_name}": [2],
+                f"max.{long_name}": [9],
+            }
+        )
+        with patch(DELTA_HELPER_PATH, return_value=self._mock_delta(add_actions)):
+            result = compute_table_statistics_sync(team.id, schema.id)
+
+        assert result["status"] == "done"
+        stat = WarehouseColumnStatistics.objects.for_team(team.id).get(table_id=table.id)
+        assert len(stat.column_name) == comp.COLUMN_NAME_DB_MAX_LENGTH
+        assert stat.min_value == "2"
+
+    @pytest.mark.parametrize(
+        "saved_during",
+        [
+            pytest.param("_aggregate_add_action_stats", id="mask_saved_during_the_read"),
+            pytest.param("_upsert_statistics", id="mask_saved_during_the_writes"),
+        ],
+    )
+    def test_a_masked_column_keeps_its_counts_but_stores_no_bounds(self, saved_during: str) -> None:
+        team = self._team()
+        schema, table, _ = self._schema_table_job(
+            team, columns={"amount": {"clickhouse": "Nullable(Int64)"}, "email": {"clickhouse": "Nullable(String)"}}
+        )
+        add_actions = pa.table(
+            {
+                "num_records": [10],
+                "null_count.amount": [0],
+                "min.amount": [2],
+                "max.amount": [9],
+                "null_count.email": [1],
+                "min.email": ["a@example.com"],
+                "max.email": ["z@example.com"],
+            }
+        )
+        original = getattr(comp, saved_during)
+
+        def save_mask_then_continue(*args: Any) -> Any:
+            # The profiler loaded the schema before this save, so it must read the masks again.
+            ExternalDataSchema.objects.filter(id=schema.id).update(masked_columns=["Email"])
+            return original(*args)
+
+        with (
+            patch(DELTA_HELPER_PATH, return_value=self._mock_delta(add_actions)),
+            patch.object(comp, saved_during, save_mask_then_continue),
+        ):
+            compute_table_statistics_sync(team.id, schema.id)
+
+        stats = {
+            s.column_name: s for s in WarehouseColumnStatistics.objects.for_team(team.id).filter(table_id=table.id)
+        }
+        assert (stats["email"].null_count, stats["email"].min_value, stats["email"].max_value) == (1, None, None)
+        assert stats["email"].has_min_max is False
+        assert (stats["amount"].min_value, stats["amount"].max_value) == ("2", "9")
+
     def test_recovers_from_stale_connection_during_write(self) -> None:
         # The Delta-log read can run long enough for the pooled connection opened by the earlier
         # metadata queries to go stale before the write loop runs, raising OperationalError on the
@@ -1077,6 +1175,23 @@ class TestComputeTableStatisticsSync:
         ):
             result = compute_table_statistics_sync(team.id, schema.id)
         assert result == {"status": "skipped", "reason": "no_files"}
+
+    @parameterized.expand([("at_the_cap", 2, "done"), ("over_the_cap", 3, "skipped")])
+    def test_add_action_scan_is_capped_by_files_times_columns(
+        self, _name: str, file_count: int, expected_status: str
+    ) -> None:
+        team = self._team()
+        schema, table, _ = self._schema_table_job(team, columns={"amount": "Int64", "currency": "String"})
+        helper = self._mock_delta(pa.table({"num_records": [1] * file_count}))
+        helper.get_delta_table.return_value.file_uris.return_value = [f"f{i}.parquet" for i in range(file_count)]
+        with patch(DELTA_HELPER_PATH, return_value=helper), patch.object(comp, "MAX_ADD_ACTION_CELLS", 4):
+            result = compute_table_statistics_sync(team.id, schema.id)
+
+        assert result["status"] == expected_status
+        if expected_status == "skipped":
+            assert result == {"status": "skipped", "reason": "too_many_files"}
+            helper.get_delta_table.return_value.get_add_actions.assert_not_called()
+            assert not WarehouseColumnStatistics.objects.for_team(team.id).filter(table_id=table.id).exists()
 
 
 @pytest.mark.django_db(transaction=True)

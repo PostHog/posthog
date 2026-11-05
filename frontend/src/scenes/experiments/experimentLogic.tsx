@@ -36,6 +36,7 @@ import {
     featureFlagLogic as sceneFeatureFlagLogic,
 } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { insightsApi } from 'scenes/insights/utils/api'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -82,6 +83,8 @@ import {
     type ExperimentHealthFindingOpenKind,
     type ExperimentHealthUi,
     captureExperimentHealthChecked,
+    captureExperimentHealthCheckExpanded,
+    captureExperimentHealthOverviewOpened,
     captureExperimentHealthChecksOpened,
     captureExperimentHealthFindingActedOn,
     captureExperimentHealthFindingOpened,
@@ -102,11 +105,15 @@ import {
     getShippedVariantKey,
     isSingleVariantShipped,
 } from 'products/experiments/frontend/scenes/experimentsLogic'
+import {
+    alignMetricsWithExposure,
+    getWarehouseNativeExposure,
+} from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
 
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
 import type { ExperimentHoldoutType, ExperimentIdType } from '../../types'
 import { experimentMetricsLogic } from './experimentMetricsLogic'
-import { featureFlagVariantProperty, resolvedExposureEvent } from './exposureContract'
+import { featureFlagVariantProperty, getActivationConfig, resolvedExposureEvent } from './exposureContract'
 import { holdoutsLogic } from './holdoutsLogic'
 import {
     addExposureToMetric,
@@ -758,8 +765,11 @@ export interface experimentLogicActions {
         experiment: Experiment
         forceRefresh: boolean
     }
+    reportHealthCheckExpanded: (check: HealthPanelCheck) => {
+        check: HealthPanelCheck
+    }
     reportHealthChecksOpened: (openedFrom: ExperimentHealthChecksOpenedFrom) => {
-        openedFrom: 'meta_bar'
+        openedFrom: ExperimentHealthChecksOpenedFrom
     }
     reportHealthFindingActedOn: (
         finding: ExperimentHealthFinding,
@@ -777,6 +787,9 @@ export interface experimentLogicActions {
     }
     reportHealthFindingShown: (finding: ExperimentHealthFinding) => {
         finding: ExperimentHealthFinding
+    }
+    reportHealthOverviewOpened: () => {
+        value: true
     }
     resetRunningExperiment: () => {
         value: true
@@ -1088,6 +1101,8 @@ export const experimentLogic = kea<experimentLogicType>([
             actionKind: ExperimentHealthFindingActionKind
         ) => ({ finding, actionKind }),
         reportHealthChecksOpened: (openedFrom: ExperimentHealthChecksOpenedFrom) => ({ openedFrom }),
+        reportHealthCheckExpanded: (check: HealthPanelCheck) => ({ check }),
+        reportHealthOverviewOpened: true,
         setExperimentMissing: true,
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
         setLaunchExperimentLoading: (loading: boolean) => ({ loading }),
@@ -1573,6 +1588,17 @@ export const experimentLogic = kea<experimentLogicType>([
         reportHealthFindingActedOn: ({ finding, actionKind }) => {
             captureExperimentHealthFindingActedOn(values.experiment, finding, values.healthUi, actionKind)
         },
+        reportHealthCheckExpanded: ({ check }) => {
+            captureExperimentHealthCheckExpanded(values.experiment, check, values.healthUi)
+        },
+        reportHealthOverviewOpened: () => {
+            captureExperimentHealthOverviewOpened(
+                values.experiment,
+                values.healthChecks ?? [],
+                values.healthFindings?.length ?? 0,
+                values.healthUi
+            )
+        },
         reportHealthChecksOpened: ({ openedFrom }) => {
             captureExperimentHealthChecksOpened(
                 values.experiment,
@@ -1917,10 +1943,22 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.refreshExperimentResults(outcome === 'saved', 'metric_config_change')
         },
         updateExposureCriteria: async () => {
+            const exposureCriteria = values.experiment.exposure_criteria
+            const warehouseExposure = getWarehouseNativeExposure(exposureCriteria)
+            const metrics = values.experiment.metrics ?? []
+            const secondaryMetrics = values.experiment.metrics_secondary ?? []
+            const alignedMetrics = warehouseExposure ? alignMetricsWithExposure(metrics, warehouseExposure) : metrics
+            const alignedSecondaryMetrics = warehouseExposure
+                ? alignMetricsWithExposure(secondaryMetrics, warehouseExposure)
+                : secondaryMetrics
             actions.updateExperiment({
                 exposure_criteria: {
-                    ...values.experiment.exposure_criteria,
+                    ...exposureCriteria,
                 },
+                ...(alignedMetrics.some((metric, index) => metric !== metrics[index]) && { metrics: alignedMetrics }),
+                ...(alignedSecondaryMetrics.some((metric, index) => metric !== secondaryMetrics[index]) && {
+                    metrics_secondary: alignedSecondaryMetrics,
+                }),
                 update_feature_flag_params: false,
             })
             const outcome = await inflightUpdateOutcome(cache)
@@ -1930,6 +1968,17 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
                 return
             }
+            // pinned: analytics event name and property values. A rename breaks dashboards.
+            posthog.capture('experiment exposure criteria updated', {
+                experiment_id: values.experimentId,
+                exposure_source: warehouseExposure
+                    ? 'warehouse_native'
+                    : getActivationConfig(exposureCriteria)
+                      ? 'activation'
+                      : exposureCriteria?.exposure_config
+                        ? 'custom'
+                        : 'default',
+            })
             actions.refreshExperimentResults(true, 'experiment_config_change')
         },
         updateExperimentSettings: async ({ update, fromModal }) => {
@@ -2311,12 +2360,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     for (const query of metrics) {
                         const insightQuery = queryBuilder(query)
 
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use insightsCreate() from 'products/product_analytics/frontend/generated/api' instead.
-                        await api.create(`api/projects/${projectLogic.values.currentProjectId}/insights`, {
-                            name: query.name || undefined,
-                            query: insightQuery,
-                            dashboards: [dashboard.id],
-                        })
+                        await insightsApi.create({ name: query.name || undefined, query: insightQuery }, [dashboard.id])
                     }
                 }
 

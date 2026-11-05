@@ -41,6 +41,7 @@ from rest_framework.response import Response
 from posthog.schema import ProductKey
 
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer
+from posthog.api.pagination import PageLinksSerializer, offset_page_links
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action
@@ -70,8 +71,8 @@ from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
-from products.actions.backend.api.action import ActionSerializer, ActionStepJSONSerializer
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import existing_action_ids, get_actions
+from products.actions.backend.presentation.views.action import ActionSerializer, ActionStepJSONSerializer
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.approvals.backend.transactions import gated_atomic
@@ -85,6 +86,7 @@ from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.ownership import FLAG_OWNER_SURVEY, assert_flag_available_for
 from products.product_analytics.backend.facade.models import Insight
+from products.surveys.backend.llm import gemini_configured
 from products.surveys.backend.models import (
     MAX_ITERATION_COUNT,
     MAX_ITERATION_FREQUENCY_DAYS,
@@ -1007,7 +1009,7 @@ class SurveyResponsesQuerySerializer(serializers.Serializer):
     )
 
 
-class SurveyResponsesListSerializer(serializers.Serializer):
+class SurveyResponsesListSerializer(PageLinksSerializer):
     results = SurveyResponseRowSerializer(many=True, help_text="Survey response rows for the requested page.")
     has_more = serializers.BooleanField(
         help_text="True if more rows exist beyond the current page — fetch the next page with offset + limit."
@@ -1316,9 +1318,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if action_ids is None or not all(0 < action_id < 2**63 for action_id in action_ids):
             raise serializers.ValidationError("Each action in the survey conditions needs a valid id.")
 
-        added_actions = Action.objects.filter(team__project_id=self.context["project_id"], id__in=action_ids)
         if self.instance is not None:
-            added_actions = added_actions.exclude(id__in=self.instance.actions.values("id"))
+            action_ids -= set(self.instance.actions.values_list("id", flat=True))
+        added_actions = get_actions(project_id=self.context["project_id"], action_ids=action_ids)
         denied_ids = self.context["view"].user_access_control.denied_object_ids(
             "action", [(str(action.id), action.team_id, action.created_by_id) for action in added_actions], "viewer"
         )
@@ -2092,7 +2094,8 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 instance.targeting_flag.save()
 
             self._add_user_survey_interacted_filters(instance)
-            self._associate_actions(instance, validated_data.get("conditions"))
+            if "conditions" in validated_data:
+                self._associate_actions(instance, validated_data["conditions"])
             self._add_internal_response_sampling_filters(instance)
 
         log_activity(
@@ -2181,7 +2184,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         action_ids = (value.get("id") for value in values)
 
-        instance.actions.set(Action.objects.filter(team__project_id=self.context["project_id"], id__in=action_ids))
+        instance.actions.set(existing_action_ids(project_id=self.context["project_id"], action_ids=action_ids))
         instance.save()
 
     def _should_survey_flags_be_active(self, instance: Survey) -> bool:
@@ -2946,6 +2949,8 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
         if cleaned.get("exclude_archived"):
             exclude_uuids = get_archived_response_uuids(str(survey.id), self.team_id)
 
+        limit = cleaned.get("limit", 100)
+        offset = cleaned.get("offset", 0)
         rows, has_more = fetch_response_rows(
             survey=survey,
             team=self.team,
@@ -2954,8 +2959,8 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
             question_id=cleaned.get("question_id"),
             score_lte=cleaned.get("score_lte"),
             score_gte=cleaned.get("score_gte"),
-            limit=cleaned.get("limit", 100),
-            offset=cleaned.get("offset", 0),
+            limit=limit,
+            offset=offset,
             exclude_uuids=exclude_uuids,
         )
 
@@ -2984,11 +2989,14 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
                     for row in rows
                 ],
                 "has_more": has_more,
-                "limit": cleaned.get("limit", 100),
-                "offset": cleaned.get("offset", 0),
+                "limit": limit,
+                "offset": offset,
             }
         )
-        return Response(serialized.data)
+        data = serialized.data
+        next_offset = offset + limit if has_more else None
+        data.update(offset_page_links(request, offset=offset, limit=limit, next_offset=next_offset))
+        return Response(data)
 
     @extend_schema(
         operation_id="surveys_question_labels",
@@ -3206,8 +3214,7 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
             return Response(cached_response)
 
         environment_is_allowed = settings.DEBUG or is_cloud()
-        has_gemini_api_key = bool(settings.GEMINI_API_KEY)
-        if not environment_is_allowed or not has_gemini_api_key:
+        if not environment_is_allowed or not gemini_configured():
             raise exceptions.ValidationError("survey summary is only supported in PostHog Cloud")
 
         # Same AI-processing gate that summary_headline uses — applies to per-question summaries too.
@@ -3417,8 +3424,10 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
                 "survey translation generation is only supported in PostHog Cloud or DEBUG mode"
             )
 
-        if not settings.GEMINI_API_KEY:
-            raise exceptions.ValidationError("GEMINI_API_KEY must be configured to generate translations")
+        if not gemini_configured():
+            raise exceptions.ValidationError(
+                "GEMINI_API_KEY or the AI gateway must be configured to generate translations"
+            )
 
         if not self.team.organization.is_ai_data_processing_approved:
             return Response(
@@ -3706,11 +3715,16 @@ class _SurveyAPIActionStepSerializer(ActionStepJSONSerializer):
         return fields
 
 
-class SurveyAPIActionSerializer(serializers.ModelSerializer):
-    steps = _SurveyAPIActionStepSerializer(many=True, required=False)
+class SurveyAPIActionSerializer(serializers.Serializer):
+    id = serializers.IntegerField(read_only=True, help_text="ID of the action.")
+    name = serializers.CharField(read_only=True, allow_null=True, help_text="Name of the action, or null if unnamed.")
+    steps = _SurveyAPIActionStepSerializer(
+        many=True, read_only=True, help_text="Steps an event must match one of to match the action."
+    )
 
+    # Not read by DRF on a plain Serializer: get_survey_conditions_with_actions projects a stale stored
+    # actions blob down to these fields, so the public payload never carries more than the serializer would.
     class Meta:
-        model = Action
         fields = [
             "id",
             "name",

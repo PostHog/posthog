@@ -3890,6 +3890,103 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('release to everyone confirmation', () => {
+        const withRollout = (rollout_percentage: number): FeatureFlagType =>
+            ({
+                ...MOCK_FEATURE_FLAG,
+                filters: {
+                    ...MOCK_FEATURE_FLAG.filters,
+                    groups: [{ properties: [], rollout_percentage, variant: null }],
+                },
+            }) as FeatureFlagType
+
+        it('confirms a save that releases the flag to all users, even with team confirmation off', async () => {
+            const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            logic.actions.setOriginalFeatureFlag(withRollout(50))
+            logic.actions.setFeatureFlag(withRollout(100))
+
+            await expectLogic(logic, () => logic.actions.submitFeatureFlagWithValidation(logic.values.featureFlag))
+                .toNotHaveDispatchedActions(['saveFeatureFlag'])
+                .toFinishAllListeners()
+
+            expect(dialogOpenSpy).toHaveBeenCalledTimes(1)
+            expect(dialogOpenSpy.mock.calls[0][0].primaryButton?.children).toBe('Release to all users')
+            expect(capturesOf('feature flag release to everyone confirmation shown')).toHaveLength(1)
+            dialogOpenSpy.mockRestore()
+        })
+
+        it('confirms turning on a disabled flag that is already at 100% of all users', async () => {
+            const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            const disabledForEveryone = { ...withRollout(100), active: false }
+            logic.actions.setOriginalFeatureFlag(disabledForEveryone)
+            logic.actions.setFeatureFlag(disabledForEveryone)
+
+            await expectLogic(logic, () => logic.actions.toggleFeatureFlagActive(true)).toFinishAllListeners()
+
+            expect(dialogOpenSpy).toHaveBeenCalledTimes(1)
+            expect(dialogOpenSpy.mock.calls[0][0].primaryButton?.children).toBe('Release to all users')
+            expect(capturesOf('feature flag release to everyone confirmation shown')).toHaveLength(1)
+            dialogOpenSpy.mockRestore()
+        })
+
+        it('keeps the usual save confirmation for a partial rollout when the team requires confirmation', async () => {
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, feature_flag_confirmation_enabled: true })
+            const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            logic.actions.setOriginalFeatureFlag(withRollout(50))
+            logic.actions.setFeatureFlag(withRollout(60))
+
+            await expectLogic(logic, () => logic.actions.submitFeatureFlagWithValidation(logic.values.featureFlag))
+                .toNotHaveDispatchedActions(['saveFeatureFlag'])
+                .toFinishAllListeners()
+
+            const dialogProps = dialogOpenSpy.mock.calls[0][0]
+            expect(dialogProps.primaryButton?.children).toBe('Save changes')
+            dialogProps.onAfterClose?.()
+            expect(capturesOf('feature flag release to everyone confirmation shown')).toHaveLength(0)
+            expect(capturesOf('feature flag release to everyone confirmation canceled')).toHaveLength(0)
+            dialogOpenSpy.mockRestore()
+        })
+
+        it.each([
+            { scenario: 'dismissed with Escape, the close icon or the overlay', confirm: false, canceled: 1 },
+            { scenario: 'confirmed', confirm: true, canceled: 0 },
+        ])('counts a cancellation only when the warning is $scenario', async ({ confirm, canceled }) => {
+            const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            const update = jest.spyOn(api, 'update').mockResolvedValue(withRollout(100))
+            logic.actions.setOriginalFeatureFlag(withRollout(50))
+            logic.actions.setFeatureFlag(withRollout(100))
+            await expectLogic(logic, () =>
+                logic.actions.submitFeatureFlagWithValidation(logic.values.featureFlag)
+            ).toFinishAllListeners()
+
+            const dialogProps = dialogOpenSpy.mock.calls[0][0]
+            if (confirm) {
+                dialogProps.primaryButton?.onClick?.(undefined as any)
+            }
+            dialogProps.onAfterClose?.()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(capturesOf('feature flag release to everyone confirmation canceled')).toHaveLength(canceled)
+            expect(update).toHaveBeenCalledTimes(confirm ? 1 : 0)
+            dialogOpenSpy.mockRestore()
+            update.mockRestore()
+        })
+
+        it('saves a partial rollout change without asking', async () => {
+            const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            jest.spyOn(api, 'update').mockResolvedValueOnce(withRollout(60))
+            logic.actions.setOriginalFeatureFlag(withRollout(50))
+            logic.actions.setFeatureFlag(withRollout(60))
+
+            await expectLogic(logic, () => logic.actions.submitFeatureFlagWithValidation(logic.values.featureFlag))
+                .toDispatchActions(['saveFeatureFlag'])
+                .toFinishAllListeners()
+
+            expect(dialogOpenSpy).not.toHaveBeenCalled()
+            dialogOpenSpy.mockRestore()
+        })
+    })
+
     describe('rollback reason question', () => {
         const rollbackReasonRequired = (): ApiError =>
             new ApiError(undefined, 409, undefined, {
@@ -5725,6 +5822,113 @@ describe('a flag in config version 2', () => {
         expect(newLogic.values.featureFlag.filters.groups).toEqual([
             { properties, rollout_percentage: 100, variant: null },
         ])
+        newLogic.unmount()
+    })
+
+    it.each([
+        [
+            'splits prefilled variants evenly',
+            urls.featureFlagNew({
+                key: 'checkout-layout',
+                type: 'multivariate',
+                variants: ['control', 'compact', 'wide'],
+            }),
+            'checkout-layout',
+            [
+                { key: 'control', name: '', rollout_percentage: 34 },
+                { key: 'compact', name: '', rollout_percentage: 33 },
+                { key: 'wide', name: '', rollout_percentage: 33 },
+            ],
+        ],
+        [
+            'trims and dedupes hand-written variants',
+            '/feature-flags/new?type=multivariate&variants=control,%20wide,control',
+            '',
+            [
+                { key: 'control', name: '', rollout_percentage: 50 },
+                { key: 'wide', name: '', rollout_percentage: 50 },
+            ],
+        ],
+        [
+            'keeps only as many variants as a flag allows',
+            urls.featureFlagNew({
+                key: 'checkout-layout',
+                type: 'multivariate',
+                variants: Array.from({ length: 25 }, (_, i) => `v${i}`),
+            }),
+            'checkout-layout',
+            Array.from({ length: 20 }, (_, i) => ({ key: `v${i}`, name: '', rollout_percentage: 5 })),
+        ],
+        [
+            'ignores a key and variants the router decodes into objects',
+            '/feature-flags/new?type=multivariate&key={"toString":null}&variants=[{"toString":null},"wide"]',
+            '',
+            [{ key: 'wide', name: '', rollout_percentage: 100 }],
+        ],
+        [
+            'keeps the default variants without a variants param',
+            urls.featureFlagNew({ key: 'checkout-layout', type: 'multivariate' }),
+            'checkout-layout',
+            [
+                { key: 'control', name: '', rollout_percentage: 50 },
+                { key: 'test', name: '', rollout_percentage: 50 },
+            ],
+        ],
+        [
+            'ignores variants on a boolean flag',
+            urls.featureFlagNew({ key: 'checkout-layout', variants: ['control', 'compact'] }),
+            'checkout-layout',
+            null,
+        ],
+        [
+            'drops a key and variants that fail validation',
+            urls.featureFlagNew({
+                key: "x' + (globalThis.injected = true) + '",
+                type: 'multivariate',
+                variants: ['control', "a'b"],
+            }),
+            '',
+            [{ key: 'control', name: '', rollout_percentage: 100 }],
+        ],
+    ])('prefills from the link and %s', async (_label, link, expectedKey, expectedVariants) => {
+        defaultReleaseConditionsLogic.actions.loadDefaultReleaseConditionsSuccess({
+            enabled: false,
+            default_groups: [],
+        })
+        router.actions.push(link)
+        const newLogic = featureFlagLogic({ id: 'new' })
+        newLogic.mount()
+        await expectLogic(newLogic).toFinishAllListeners()
+
+        expect(newLogic.values.featureFlag.key).toBe(expectedKey)
+        expect(newLogic.values.featureFlag.filters.multivariate?.variants ?? null).toEqual(expectedVariants)
+        newLogic.unmount()
+    })
+
+    it('warns on load when the prefilled key is already taken', async () => {
+        defaultReleaseConditionsLogic.actions.loadDefaultReleaseConditionsSuccess({
+            enabled: false,
+            default_groups: [],
+        })
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/`]: () => [
+                    200,
+                    { results: [{ ...NEW_FLAG, id: 42, key: 'taken-key' }], count: 1 },
+                ],
+            },
+        })
+        router.actions.push(urls.featureFlagNew({ key: 'taken-key' }))
+        const newLogic = featureFlagLogic({ id: 'new' })
+        newLogic.mount()
+        await expectLogic(newLogic).toDispatchActions(['checkKeyConflictSuccess']).toFinishAllListeners()
+
+        expect(newLogic.values.currentKeyConflict).toEqual({
+            key: 'taken-key',
+            existingFlagId: 42,
+            existingFlagKey: 'taken-key',
+            exact: true,
+        })
         newLogic.unmount()
     })
 })

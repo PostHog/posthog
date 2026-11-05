@@ -49,6 +49,7 @@ import { hasSensitiveMessageStep } from './hogflow-sensitivity'
 import {
     WorkflowChangedError,
     actionIdForLogging,
+    aiTaskLogToken,
     ensureCurrentAction,
     findContinueAction,
     shouldSkipAction,
@@ -74,6 +75,19 @@ const TRIGGER_MISMATCH_EXITS: ReadonlySet<string> = new Set([
     'exit_on_trigger_not_matched',
     'exit_on_trigger_not_matched_or_conversion',
 ])
+
+// The email service sets teamCapped when the team sending cap delays one send, and that send reads it from the
+// job's stored metadata. The actions after it in the same dequeue start from this executor's result, so the
+// flag stays off them. Otherwise their queue waits would also count as cap delays.
+function withoutTeamCapped(
+    metadata: CyclotronJobInvocationHogFlow['queueMetadata']
+): CyclotronJobInvocationHogFlow['queueMetadata'] {
+    if (!metadata || !('teamCapped' in metadata)) {
+        return metadata
+    }
+    const { teamCapped: _teamCapped, ...rest } = metadata
+    return rest
+}
 
 export function createHogFlowInvocation(
     globals: HogFunctionInvocationGlobals,
@@ -685,6 +699,7 @@ export class HogFlowExecutorService {
         // run whose email action isn't the first action executed.
         const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
             queuePriority: invocation.queuePriority,
+            queueMetadata: invocation.queue === 'email' ? withoutTeamCapped(invocation.queueMetadata) : undefined,
         })
         result.finished = false // Typically we are never finished unless we error or exit
 
@@ -1108,22 +1123,8 @@ export class HogFlowExecutorService {
         this.log(result, 'debug', `Stored action result in variable(s): ${storedSummary}`)
     }
 
-    // The create-ai-task destination's result variable is what lets a workflow author jump from a
-    // run's logs to the task it kicked off. Everything else stays plain JSON.
     private describeStoredVariable(action: HogFlowAction, value: unknown): string {
-        const isCreateAiTaskAction =
-            action.type === 'function' && action.config.template_id === 'template-posthog-create-task'
-        if (
-            isCreateAiTaskAction &&
-            value &&
-            typeof value === 'object' &&
-            typeof (value as Record<string, unknown>).id === 'string' &&
-            (value as Record<string, unknown>).id !== ''
-        ) {
-            const runId = (value as Record<string, unknown>).run_id
-            return `[Task:${(value as Record<string, unknown>).id}|${typeof runId === 'string' ? runId : ''}]`
-        }
-        return JSON.stringify(value)
+        return aiTaskLogToken(action, value) ?? JSON.stringify(value)
     }
 
     private logExecutionTriggerInfo(invocation: CyclotronJobInvocationHogFlow): MinimalLogEntry {

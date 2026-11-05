@@ -1,8 +1,8 @@
-import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -777,6 +777,47 @@ describe('supportSettingsLogic', () => {
                 featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: true })
             }).toDispatchActions(['loadAccountPropertyOptions', 'loadAccountPropertyOptionsSuccess'])
             expect(logic.values.accountPropertyOptions).toEqual(OPTIONS)
+        })
+    })
+
+    describe('admin-only picker lists on mount', () => {
+        it.each([
+            {
+                level: OrganizationMembershipLevel.Admin,
+                expectedRequests: ['github/repos', 'teams/channels', 'teams/teams'],
+            },
+            { level: OrganizationMembershipLevel.Member, expectedRequests: [] },
+        ])('membership level $level requests $expectedRequests', async ({ level, expectedRequests }) => {
+            const requests: string[] = []
+            const record = (name: string, body: Record<string, unknown>) => () => {
+                requests.push(name)
+                return [200, body]
+            }
+            useMocks({
+                get: {
+                    '/api/conversations/v1/email/status': { configs: [] },
+                    '/api/projects/:team_id/conversations/ai_reply_playbook/': PLAYBOOK_GET,
+                },
+                post: {
+                    '/api/conversations/v1/github/repos': record('github/repos', { repos: [] }),
+                    '/api/conversations/v1/teams/teams': record('teams/teams', { teams: [] }),
+                    '/api/conversations/v1/teams/channels': record('teams/channels', { channels: [] }),
+                },
+            })
+            initKeaTests(
+                true,
+                {
+                    ...MOCK_DEFAULT_TEAM,
+                    conversations_settings: { github_enabled: true, teams_enabled: true, teams_team_id: 't1' },
+                } as unknown as TeamType,
+                MOCK_DEFAULT_PROJECT,
+                { ...MOCK_DEFAULT_ORGANIZATION, membership_level: level }
+            )
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(requests.sort()).toEqual(expectedRequests)
         })
     })
 })

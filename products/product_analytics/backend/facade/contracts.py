@@ -73,6 +73,12 @@ class SavedInsightDefinition:
     query: dict[str, Any]
 
 
+class InsightSeriesNotReady(Exception):
+    def __init__(self, query_id: str | None = None) -> None:
+        super().__init__(query_id)
+        self.query_id = query_id
+
+
 @dataclass(frozen=True)
 class InsightDataCheckFilter:
     """A rule in the shape the project's internal and test users filter stores it."""
@@ -192,3 +198,28 @@ class OrganizationEventsRetention:
     plan_months: int
     min_months: int
     max_months: int
+
+
+@dataclass(frozen=True)
+class ChartExplanationAuthor:
+    """The person who saved a chart explanation, directly or through an agent."""
+
+    id: int
+    first_name: str
+    last_name: str
+    email: str
+
+
+@dataclass(frozen=True)
+class ChartExplanation:
+    """A saved walkthrough of one saved trends insight, which a link opens beside the chart.
+
+    ``data`` is the explanation document the insight page draws. The API validates its shape on
+    the way in, and the backend stores it without reading it.
+    """
+
+    id: UUID
+    insight_id: int
+    data: dict[str, Any]
+    created_by: ChartExplanationAuthor | None
+    created_at: datetime

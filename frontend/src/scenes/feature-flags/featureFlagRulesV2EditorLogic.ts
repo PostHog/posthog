@@ -51,6 +51,7 @@ import { confirmFeatureFlagKeyChange } from './featureFlagKeyChangeDialog'
 import {
     FeatureFlagLogicProps,
     featureFlagLogic,
+    prefilledFlagKey,
     validateFeatureFlagKey,
     variantKeyToIndexFeatureFlagPayloads,
 } from './featureFlagLogic'
@@ -587,6 +588,11 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
     afterMount(({ actions, values, props }) => {
         if (typeof props.id === 'number') {
             actions.loadDraft(rulesV2DraftFromFlag(values.featureFlag))
+        } else if (props.id === 'new') {
+            const key = prefilledFlagKey(router.values.searchParams.key)
+            if (key) {
+                actions.loadDraft({ ...NEW_RULES_V2_DRAFT, key })
+            }
         }
     }),
 ])
