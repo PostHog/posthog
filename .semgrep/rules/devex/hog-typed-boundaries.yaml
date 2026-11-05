@@ -35,11 +35,9 @@ rules:
               - '/hog/**'
           exclude:
               - '/hog/src/posthog/host.ts'
-      patterns:
-          - pattern: $X as $T
-          - metavariable-regex:
-                metavariable: $T
-                regex: (?<![\w.])(Host|HostKey)(?!\w)
+      # A regex over the line, because semgrep binds only `Array` in `x as Array<Host>`. It skips
+      # comment lines and import renames.
+      pattern-regex: ^(?!\s*(?://|/?\*|import\b|export\s*\{)).*?[\w$)\]'"`]\s+as\s+[\w$.<>,|&\[\]\s()]*?(?<![\w.$])(Host|HostKey)(?![\w$])
       metadata:
           category: best-practice
 
@@ -58,11 +56,9 @@ rules:
               - '/hog/**'
           exclude:
               - '/hog/src/posthog/ids.ts'
-      patterns:
-          - pattern: $X as $T
-          - metavariable-regex:
-                metavariable: $T
-                regex: (?<![\w.])(ProjectId|OrganizationId)(?!\w)
+      # A regex over the line, because semgrep binds only `Array` in `x as Array<Host>`. It skips
+      # comment lines and import renames.
+      pattern-regex: ^(?!\s*(?://|/?\*|import\b|export\s*\{)).*?[\w$)\]'"`]\s+as\s+[\w$.<>,|&\[\]\s()]*?(?<![\w.$])(ProjectId|OrganizationId)(?![\w$])
       metadata:
           category: best-practice
 
@@ -81,10 +77,8 @@ rules:
               - '/hog/**'
           exclude:
               - '/hog/src/posthog/tokens.ts'
-      patterns:
-          - pattern: $X as $T
-          - metavariable-regex:
-                metavariable: $T
-                regex: (?<![\w.])(PersonalApiKey|ProjectToken|ProjectSecretApiKey|TeamSecretToken|OAuthAccessToken|OAuthRefreshToken|WorkloadToken|BearerToken)(?!\w)
+      # A regex over the line, because semgrep binds only `Array` in `x as Array<Host>`. It skips
+      # comment lines and import renames.
+      pattern-regex: ^(?!\s*(?://|/?\*|import\b|export\s*\{)).*?[\w$)\]'"`]\s+as\s+[\w$.<>,|&\[\]\s()]*?(?<![\w.$])(PersonalApiKey|ProjectToken|ProjectSecretApiKey|TeamSecretToken|OAuthAccessToken|OAuthRefreshToken|WorkloadToken|BearerToken)(?![\w$])
       metadata:
           category: best-practice

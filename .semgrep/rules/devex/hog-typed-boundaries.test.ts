@@ -35,6 +35,15 @@ const maybeProjectId = value as ProjectId | undefined
 // ruleid: hog-host-cast-outside-host-module
 const hosts = values as Host[]
 
+// ruleid: hog-host-cast-outside-host-module
+const hostList = values as Array<Host>
+
+// ruleid: hog-id-cast-outside-ids-module
+const optionalProjectId = value as undefined | ProjectId
+
+// ruleid: hog-token-cast-outside-tokens-module
+const keys = value as Record<string, PersonalApiKey>
+
 // ruleid: hog-token-cast-outside-tokens-module
 const apiKey = value as PersonalApiKey
 
@@ -50,3 +59,7 @@ const schema = value as typeof HostSchema
 
 // ok: hog-host-cast-outside-host-module
 const text2 = value as string
+
+// A comment that says to treat a value as Host is not a cast.
+// ok: hog-host-cast-outside-host-module
+const text3 = value
