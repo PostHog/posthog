@@ -19,6 +19,7 @@ from posthog.uuidt import UUIDT
 from products.access_control.backend.facade.testing import create_access_control
 from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_EVENTS_DATA_TABLE
 from products.messaging.backend.models.message_template import MessageTemplate
+from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.workflows.backend.facade.testing import create_workflow_for_test
 from products.workflows.backend.facade.writes import destroy_workflow
 
@@ -371,6 +372,19 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert results.status_code == status.HTTP_404_NOT_FOUND
         assert {row["label"] for row in stats} == {"mail.example.com", "old.example.com"}
         assert self.client.get(self._url(f"{deleted_id}/")).json()["recipient"] == "old@example.com"
+
+    def test_names_a_send_from_code_by_its_template_key(self, _flag):
+        workflow_id = create_workflow_for_test(team_id=self.team.id, name="order-shipped").id
+        TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).create(
+            team_id=self.team.id, key="order-shipped", hog_flow_id=workflow_id
+        )
+        self._send(5, "jane@example.com", [("sent", 1, "")], workflow_id=workflow_id)
+
+        listed = self.client.get(self._url()).json()["results"]
+        stats = self.client.get(self._url("stats/"), {"group_by": "template"}).json()["results"]
+
+        assert [r["template_name"] for r in listed] == ["order-shipped"]
+        assert [r["label"] for r in stats] == ["order-shipped"]
 
     def test_no_access_to_workflows_also_hides_the_sends_of_deleted_ones(self, _flag):
         deleted_workflow = create_workflow_for_test(team_id=self.team.id, name="Old").id
