@@ -39,7 +39,7 @@ describe('stored session identity', () => {
         expect(await loadTokens()).toBeNull()
     })
 
-    test('restores the secure identity after a stalled refresh and allows a later refresh to recover', async () => {
+    test('restores a valid session before a stalled refresh and allows a later refresh to recover', async () => {
         jest.useFakeTimers()
         const previousState = AppState.currentState
         AppState.currentState = 'active'
@@ -102,12 +102,15 @@ describe('stored session identity', () => {
             setSessionTokens(null)
             installAuthProvider()
             const restoring = useAuthStore.getState().restore()
-            await jest.advanceTimersByTimeAsync(20_000)
+            await jest.advanceTimersByTimeAsync(0)
             await restoring
+            expect(useAuthStore.getState().status).toBe('signed_in')
+            expect(stalledSignal?.aborted).toBe(false)
+            await jest.advanceTimersByTimeAsync(20_000)
             expect(stalledSignal?.aborted).toBe(true)
             expect(useAuthStore.getState()).toMatchObject({ status: 'signed_in', signedIn: true })
             expect(await loadTokens()).toMatchObject({ accessToken: 'example-access', refreshToken: 'example-refresh' })
-            expect(requests).toEqual([`${host}/oauth/token`, `${host}/api/users/@me/`])
+            expect(requests).toEqual([`${host}/api/users/@me/`, `${host}/oauth/token`])
             expect(useAuthStore.getState()).toMatchObject({
                 host,
                 clientId: 'example-client',

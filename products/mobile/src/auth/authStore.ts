@@ -65,6 +65,8 @@ export interface AuthState {
     signOut: () => Promise<void>
 }
 
+const RESTORE_REFRESH_MARGIN_MS = 60_000
+
 /** Refresh at launch or on foreground when the access token has less than this left, so the home screen widget's copy stays valid. */
 const FOREGROUND_REFRESH_MARGIN_MS = 24 * 60 * 60_000
 
@@ -311,11 +313,13 @@ export const useAuthStore = create<AuthState>()(
                             method: owner.method,
                             region: regionForHost(owner.host),
                         })
+                        let refreshedDuringRestore = false
                         if (
                             tokens.kind === 'oauth' &&
                             tokens.expiresAt !== null &&
-                            tokens.expiresAt - Date.now() < FOREGROUND_REFRESH_MARGIN_MS
+                            tokens.expiresAt - Date.now() < RESTORE_REFRESH_MARGIN_MS
                         ) {
+                            refreshedDuringRestore = true
                             try {
                                 if ((await refreshAccessToken()) === null) {
                                     return
@@ -329,6 +333,9 @@ export const useAuthStore = create<AuthState>()(
                             await get().reloadAccount()
                         }
                         set({ status: 'signed_in', signedIn: true })
+                        if (!refreshedDuringRestore && AppState.currentState === 'active') {
+                            refreshBeforeForegroundMargin()
+                        }
                         const restored = get().user
                         if (restored) {
                             identify(restored.distinctId)
