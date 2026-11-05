@@ -15,7 +15,6 @@ from posthog.models.activity_logging.activity_log import Trigger
 from products.workflows.backend.facade.contracts import TierDecision
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.services.email_sending_tier_audit import log_email_sending_tier_change
-from products.workflows.backend.services.sandbox_sender import sandbox_sender_configured
 from products.workflows.backend.utils.email_sending_tiers import (
     MIN_EMAIL_SENDING_TIER,
     get_email_sending_tier_limits,
@@ -31,6 +30,7 @@ SENT_METRIC = "email_sent"
 # Recorded alongside `email_sent` for sends from the shared sandbox sender. Those reach only the
 # team's own members, so they count toward neither the tier volume nor the rate denominators.
 SANDBOX_SENT_METRIC = "email_sandbox_sent"
+SENT_METRICS = [SENT_METRIC, SANDBOX_SENT_METRIC]
 HARD_BOUNCE_METRIC = "email_bounced_hard"
 # SES complaint events are recorded under this name (see the SES webhook handler in the email
 # worker), so a complaint rate reads `email_blocked`, not a metric called "complaint".
@@ -336,7 +336,7 @@ def _fetch_daily_metrics(
     workload: Workload = Workload.DEFAULT,
 ) -> dict[int, dict[str, dict[str, int]]]:
     auto_pause_metrics = [name for name in settings.WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES if name]
-    metric_names = [*sent_metric_names(), HARD_BOUNCE_METRIC, COMPLAINT_METRIC, *auto_pause_metrics]
+    metric_names = [*SENT_METRICS, HARD_BOUNCE_METRIC, COMPLAINT_METRIC, *auto_pause_metrics]
     # Tag the query so it is attributable in query-cost analysis and does not trip the untagged-query
     # guard in local dev. Celery adds only task identity, not a product or feature. This derives tier
     # state in the background, so it is enrichment, not a customer-facing query. One context here
@@ -366,13 +366,12 @@ def _history_from_daily(team_id: int, days: dict[str, dict[str, int]]) -> TeamSe
     )
 
 
-def sent_metric_names() -> list[str]:
-    # A deployment without the sandbox sender has no sandbox sends, so it queries only `email_sent`.
-    return [SENT_METRIC, SANDBOX_SENT_METRIC] if sandbox_sender_configured() else [SENT_METRIC]
-
-
 def own_sends(counts: dict[str, int]) -> int:
-    """Sends from the team's own senders. Floored at zero, so a sandbox count without its `email_sent` never subtracts."""
+    """Sends from the team's own senders.
+
+    The worker records each sandbox send's `email_sandbox_sent` in the same batch as its `email_sent`, so the two
+    always share a source and a day. The floor at zero only guards against a lost metric write.
+    """
     return max(0, counts.get(SENT_METRIC, 0) - counts.get(SANDBOX_SENT_METRIC, 0))
 
 

@@ -12,7 +12,6 @@ from products.workflows.backend.models import HogFlow
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.services.data_suggestions.team_context import has_verified_email_sender
 from products.workflows.backend.services.hog_flow_reads import workflow_type_q
-from products.workflows.backend.services.sandbox_sender import sandbox_sender_configured
 
 
 def _frequency_cap_set(team: Team) -> bool:
@@ -33,17 +32,11 @@ def email_sending_paused(team: Team) -> bool:
     )
 
 
-def _has_own_email_sender(team: Team) -> bool:
-    senders = IntegrationManager.email.credentials
-    if not sandbox_sender_configured():
-        return senders.exists(team.id)
-    # The managed sandbox sender is not a channel the project set up.
-    return any(not is_sandbox_email_sender(sender.config) for sender in senders.list(team.id))
-
-
 def get_setup_steps(team: Team) -> tuple[SetupStep, ...]:
     done = {
-        SetupStepKey.CHANNEL: _has_own_email_sender(team),
+        SetupStepKey.CHANNEL: any(
+            not is_sandbox_email_sender(sender.config) for sender in IntegrationManager.email.credentials.list(team.id)
+        ),
         SetupStepKey.DOMAIN: has_verified_email_sender(team),
         SetupStepKey.OPT_OUTS: len(list_categories(team.id)) > 0,
         SetupStepKey.SENDING_RULES: _frequency_cap_set(team),
