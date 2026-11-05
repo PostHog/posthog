@@ -2,7 +2,7 @@ import type { AccessControlLevel } from '~/types'
 
 import { MAX_ASSIGNEE_FILTER_ENTRIES } from './components/Assignee'
 import type { AssigneeFilterEntry, TicketAssignee } from './components/Assignee'
-import type { AiTriageResultEnumApi, TicketViewFiltersApi } from './generated/api.schemas'
+import type { AiTriageResultEnumApi, TicketBriefApi, TicketViewFiltersApi } from './generated/api.schemas'
 
 export type { AssigneeFilterEntry }
 
@@ -184,6 +184,8 @@ export interface Ticket {
     person?: TicketPerson | null
     tags?: string[]
     ai_triage?: AITriage
+    /** Null until support triage routes the ticket and writes the brief. */
+    ticket_brief?: TicketBriefApi | null
     /** The effective access level the current user has for this ticket. */
     user_access_level?: AccessControlLevel
 }
