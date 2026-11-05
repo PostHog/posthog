@@ -297,7 +297,13 @@ export function Settings({
                                                 key={`${result.sectionId}-${result.settingId}`}
                                                 value={result}
                                                 data-attr={`settings-search-result-${result.settingId}`}
-                                                render={<Button left>{result.settingTitle}</Button>}
+                                                render={
+                                                    <Button left className="w-full font-normal text-[13px]">
+                                                        <span className="flex-1 truncate text-left">
+                                                            {result.settingTitle}
+                                                        </span>
+                                                    </Button>
+                                                }
                                             />
                                         )}
                                     </ComboboxCollection>
