@@ -165,8 +165,12 @@ async function send(fetcher: Fetcher, path: string, init: ApiInit, accept: strin
         }
         const options = buildInit(init, token, accept)
         return transport(() =>
-            instrumentApiRequest(path, method, (traceparent) =>
-                fetcher(url, traceparent ? { ...options, headers: { ...options.headers, traceparent } } : options)
+            instrumentApiRequest(
+                path,
+                method,
+                (traceparent) =>
+                    fetcher(url, traceparent ? { ...options, headers: { ...options.headers, traceparent } } : options),
+                options.signal
             )
         )
     }

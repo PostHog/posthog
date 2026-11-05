@@ -142,10 +142,15 @@ function isCancelled(error: unknown): boolean {
     return error instanceof Error && error.name === 'AbortError'
 }
 
+function isDeadlineTimeout(signal: AbortSignal | null | undefined): boolean {
+    return signal?.reason instanceof Error && signal.reason.name === 'RequestTimeoutError'
+}
+
 export async function instrumentApiRequest(
     path: string,
     method: string,
-    request: (traceparent?: string) => Promise<Response>
+    request: (traceparent?: string) => Promise<Response>,
+    signal?: AbortSignal | null
 ): Promise<Response> {
     if (!isFeatureFlagEnabled(FEATURE_FLAGS.networkObservability) || !ensureTelemetry()) return request()
 
@@ -166,20 +171,30 @@ export async function instrumentApiRequest(
             if (failed) span.setStatus({ code: SpanStatusCode.ERROR })
             requestDuration?.record(durationMs / 1000, { ...attributes, 'http.response.status_code': status })
             if (failed || durationMs >= SLOW_REQUEST_MS) {
-                log?.(failed ? 'error' : 'warn', failed ? 'Mobile API request failed' : 'Mobile API request completed', {
-                    ...attributes,
-                    'http.response.status_code': status,
-                    duration_ms: durationMs,
-                    ...traceIds,
-                })
+                log?.(
+                    failed ? 'error' : 'warn',
+                    failed ? 'Mobile API request failed' : 'Mobile API request completed',
+                    {
+                        ...attributes,
+                        'http.response.status_code': status,
+                        duration_ms: durationMs,
+                        ...traceIds,
+                    }
+                )
             }
         })
         return result
     } catch (error) {
-        if (!isCancelled(error)) {
+        if (!isCancelled(error) || isDeadlineTimeout(signal)) {
             recordSafely(() => {
                 const durationMs = Date.now() - startedAt
-                const candidateErrorType = error instanceof Error ? error.name : ''
+                const candidateErrorType = isDeadlineTimeout(signal)
+                    ? signal?.reason instanceof Error
+                        ? signal.reason.name
+                        : ''
+                    : error instanceof Error
+                      ? error.name
+                      : ''
                 const errorType = /^[A-Za-z][A-Za-z0-9]{0,39}$/.test(candidateErrorType)
                     ? candidateErrorType
                     : 'NetworkError'

@@ -67,4 +67,24 @@ describe('mobileTelemetry', () => {
         )
         expect(log).not.toHaveBeenCalled()
     })
+
+    test('reports a deadline timeout as a failed request', async () => {
+        const log = jest.fn()
+        const { instrumentApiRequest } = loadEnabledTelemetry('https://us.i.posthog.com', log)
+        const controller = new AbortController()
+        const timeout = Object.assign(new Error('The request took too long. Try again.'), {
+            name: 'RequestTimeoutError',
+        })
+        controller.abort(timeout)
+        const aborted = Object.assign(new Error('The operation was aborted'), { name: 'AbortError' })
+
+        await expect(
+            instrumentApiRequest('/api/users/@me/', 'GET', () => Promise.reject(aborted), controller.signal)
+        ).rejects.toBe(aborted)
+        expect(log).toHaveBeenCalledWith(
+            'error',
+            'Mobile API request failed',
+            expect.objectContaining({ 'error.type': 'RequestTimeoutError' })
+        )
+    })
 })
