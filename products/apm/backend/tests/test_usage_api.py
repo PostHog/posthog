@@ -6,7 +6,9 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.limit import get_logs_api_team_rate_limiter
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
 
@@ -226,6 +228,30 @@ class TestServiceUsageAPI(ClickhouseTestMixin, APIBaseTest):
                 HTTP_AUTHORIZATION=f"Bearer {key}",
             )
         self.assertEqual(response.status_code, expected, response.content)
+
+    def test_api_key_is_refused_while_the_team_logs_api_slots_are_full(self) -> None:
+        key = self.create_personal_api_key_with_scopes(["tracing:read", "logs:read", "metrics:read"])
+        limiter = get_logs_api_team_rate_limiter()
+        held_slots = [limiter.use(team_id=self.team.id) for _ in range(limiter.max_concurrency)]
+        try:
+            with patch.object(limiter, "retry_timeout", 0):
+                session_data = self._get()
+                self.client.logout()
+                with patch(FLAG_PATCH, return_value=True):
+                    response = self.client.get(
+                        f"/api/projects/{self.team.id}/apm/usage/",
+                        {"date_from": DATE_FROM, "date_to": DATE_TO},
+                        HTTP_AUTHORIZATION=f"Bearer {key}",
+                    )
+        finally:
+            for slot in held_slots:
+                if slot is not None:
+                    limiter.release(slot)
+
+        self.assertEqual(session_data["unavailable_signals"], [])
+        self.assertEqual(response.status_code, 429, response.content)
+        self.assertTrue(response.json()["detail"].startswith(CONCURRENCY_LIMIT_USER_MESSAGE))
+        self.assertEqual(limiter.redis_client.zcard(f"logs_api:query:per-team:{self.team.id}"), 0)
 
     @parameterized.expand([("logs", "none", 403), ("metrics", "none", 403), ("logs", "viewer", 200)])
     def test_member_needs_viewer_access_to_logs_and_metrics(self, resource: str, level: str, expected: int) -> None:

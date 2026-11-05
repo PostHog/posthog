@@ -7,19 +7,25 @@ return serialized responses. No business logic here.
 
 from dataclasses import asdict
 from datetime import datetime, timedelta
-from typing import cast
+from typing import Any, cast
 
+from django.http import HttpRequest, HttpResponseBase
 from django.utils import timezone
 
+import structlog
 from drf_spectacular.utils import extend_schema
+from redis.exceptions import RedisError
 from rest_framework import status, viewsets
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import PermissionDenied, Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.schema import ProductKey
 
+from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, get_logs_api_team_rate_limiter
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.models import Team
@@ -41,6 +47,8 @@ from products.apm.backend.presentation.serializers import (
     ServiceUsageResponseSerializer,
     WindowRequestSerializer,
 )
+
+logger = structlog.get_logger(__name__)
 
 DEFAULT_WINDOW = timedelta(hours=1)
 MAX_WINDOW = timedelta(days=7)
@@ -168,6 +176,32 @@ class ServiceUsageViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "tracing"
     # The response carries logs and metrics data too. Scopes gate tokens; access control gates members.
     required_scopes = ["tracing:read", "logs:read", "metrics:read"]
+    _logs_api_slot: ConcurrencySlot | None = None
+
+    def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
+        # The usage scan reads the logs table, so an API key takes a slot from the same per-team cap as the logs API.
+        super().initial(request, *args, **kwargs)
+        if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+            return
+        try:
+            self._logs_api_slot = get_logs_api_team_rate_limiter().use(team_id=self.team_id)
+        except ConcurrencyLimitExceeded as error:
+            logger.warning("apm_usage_concurrency_limit_exceeded", team_id=self.team_id, detail=str(error))
+            raise Throttled(wait=1, detail=CONCURRENCY_LIMIT_USER_MESSAGE) from error
+        except RedisError:
+            logger.exception("apm_usage_concurrency_limiter_unavailable", team_id=self.team_id)
+
+    def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponseBase:
+        # DRF skips finalize_response when the exception handler re-raises, so only a finally block always releases.
+        try:
+            return super().dispatch(request, *args, **kwargs)
+        finally:
+            if self._logs_api_slot is not None:
+                try:
+                    get_logs_api_team_rate_limiter().release(self._logs_api_slot)
+                except RedisError:
+                    logger.exception("apm_usage_concurrency_slot_release_failed", team_id=self.team_id)
+                self._logs_api_slot = None
 
     @extend_schema(parameters=[WindowRequestSerializer], responses={200: ServiceUsageResponseSerializer})
     def list(self, request: Request, *args, **kwargs) -> Response:
