@@ -1,17 +1,22 @@
 import { useActions, useValues } from 'kea'
+import { Suspense, lazy } from 'react'
 
-import { LemonBanner, LemonSegmentedButton } from '@posthog/lemon-ui'
-
-import { VisualImageDiffViewer } from 'lib/components/VisualImageDiffViewer'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { retryImport } from 'lib/utils/retryImport'
 
 import { flagComparisonLogic } from '~/toolbar/shared/flags/flagComparisonLogic'
 
-export function FlagComparisonModal(): JSX.Element {
-    const { comparison, beforeCapture, afterCapture } = useValues(flagComparisonLogic)
-    const { closeComparison, setAfterValue } = useActions(flagComparisonLogic)
+// VisualImageDiffViewer is most of the comparison code, so the flags menu chunk loads it only when a comparison opens.
+const FlagComparisonDiff = lazy(() =>
+    retryImport(() => import('~/toolbar/floating/components/flags/FlagComparisonDiff')).then((m) => ({
+        default: m.FlagComparisonDiff,
+    }))
+)
 
-    const onCaptures = comparison?.captures.slice(1) ?? []
+export function FlagComparisonModal(): JSX.Element {
+    const { comparison, onCaptures, afterCapture } = useValues(flagComparisonLogic)
+    const { closeComparison } = useActions(flagComparisonLogic)
 
     return (
         <LemonModal
@@ -28,39 +33,16 @@ export function FlagComparisonModal(): JSX.Element {
                     : undefined
             }
         >
-            {comparison && beforeCapture && afterCapture ? (
-                <div className="flex flex-col gap-2">
-                    {onCaptures.length > 1 ? (
-                        <LemonSegmentedButton
-                            size="small"
-                            value={String(afterCapture.value)}
-                            onChange={setAfterValue}
-                            options={onCaptures.map((capture) => ({
-                                value: String(capture.value),
-                                label: capture.label,
-                                'data-attr': 'toolbar-flag-comparison-variant',
-                            }))}
-                        />
-                    ) : null}
-                    {comparison.identical ? (
-                        <LemonBanner type="info">
-                            The page didn't change. It may only read flags when it loads.
-                        </LemonBanner>
-                    ) : null}
-                    <VisualImageDiffViewer
-                        baselineUrl={beforeCapture.url}
-                        currentUrl={afterCapture.url}
-                        diffUrl={null}
-                        diffPercentage={null}
-                        result={afterCapture.sameAsOff ? 'unchanged' : 'changed'}
-                        baselineWidth={beforeCapture.width}
-                        baselineHeight={beforeCapture.height}
-                        currentWidth={afterCapture.width}
-                        currentHeight={afterCapture.height}
-                        imageWidth={afterCapture.width}
-                        imageHeight={afterCapture.height}
-                    />
-                </div>
+            {comparison ? (
+                <Suspense
+                    fallback={
+                        <div className="flex justify-center p-4">
+                            <Spinner className="text-2xl" />
+                        </div>
+                    }
+                >
+                    <FlagComparisonDiff />
+                </Suspense>
             ) : null}
         </LemonModal>
     )
