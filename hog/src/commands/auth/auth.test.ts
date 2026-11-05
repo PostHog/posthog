@@ -3,7 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import type { Secrets } from '@/core/runtime'
 import { LOGIN_SCOPES } from '@/posthog/device-auth'
 import { HOG_CLIENT_ID } from '@/posthog/oauth'
-import { runHog } from '@/testing'
+import { readJson, runHog } from '@/testing'
 
 const EU = 'https://eu.posthog.com'
 const LEGACY_CLI_FILE = '/home/test/.posthog/credentials.json'
@@ -76,7 +76,7 @@ describe('hog auth login', () => {
             next: 'hog auth login --wait',
         })
         expect(result.stdout).not.toContain(DEVICE_CODE)
-        expect(JSON.parse(result.files[PENDING_FILE] ?? '{}')).toMatchObject({ deviceCode: DEVICE_CODE })
+        expect(readJson(result.files[PENDING_FILE] ?? '{}')).toMatchObject({ deviceCode: DEVICE_CODE })
         expect(result.opened).toEqual([])
         expect(result.requests).toEqual([
             {
@@ -176,7 +176,9 @@ describe('hog auth login', () => {
         })
 
         expect(result.json()).toMatchObject({ status: 'logged_in', scopes: ['openid', 'insight:read'] })
-        expect(JSON.parse(result.files[SETTINGS_FILE] ?? '{}').logins[EU].scopes).toEqual(['openid', 'insight:read'])
+        expect(readJson(result.files[SETTINGS_FILE] ?? '{}')).toMatchObject({
+            logins: { [EU]: { scopes: ['openid', 'insight:read'] } },
+        })
     })
 
     test('--wait stores the token for the approved project in the keychain', async () => {
@@ -196,13 +198,13 @@ describe('hog auth login', () => {
         })
         expect(result.stdout).not.toContain(ACCESS_TOKEN)
         // The keychain keeps only the tokens. What isn't secret is in settings.json.
-        expect(JSON.parse(result.keychain[EU] ?? '{}')).toEqual({
+        expect(readJson(result.keychain[EU] ?? '{}')).toEqual({
             accessToken: ACCESS_TOKEN,
             refreshToken: REFRESH_TOKEN,
         })
         // Windows Credential Manager refuses an item over 2,560 bytes, and Bun stores it as UTF-8.
         expect(Buffer.byteLength(result.keychain[EU] ?? '')).toBeLessThanOrEqual(2560)
-        expect(JSON.parse(result.files[SETTINGS_FILE] ?? '{}')).toEqual({
+        expect(readJson(result.files[SETTINGS_FILE] ?? '{}')).toEqual({
             logins: {
                 [EU]: {
                     store: 'keychain',
@@ -267,10 +269,10 @@ describe('hog auth login', () => {
                 credentialsPath: HOG_CREDENTIALS_FILE,
                 keychainError: expect.stringContaining('keychain'),
             })
-            expect(JSON.parse(result.files[HOG_CREDENTIALS_FILE] ?? '{}')).toEqual({
+            expect(readJson(result.files[HOG_CREDENTIALS_FILE] ?? '{}')).toEqual({
                 [EU]: { accessToken: ACCESS_TOKEN, refreshToken: REFRESH_TOKEN },
             })
-            expect(JSON.parse(result.files[SETTINGS_FILE] ?? '{}')).toMatchObject({
+            expect(readJson(result.files[SETTINGS_FILE] ?? '{}')).toMatchObject({
                 logins: { 'https://eu.posthog.com': { store: 'file', projectId: '42' } },
             })
         }
@@ -338,7 +340,7 @@ describe('hog auth login', () => {
         expect(result.stdout).toContain(`Logged in to ${host}, project 42.`)
         expect(result.opened).toHaveLength(opensBrowser ? 1 : 0)
         expect(result.files[PENDING_FILE]).toBeUndefined()
-        expect(JSON.parse(result.keychain[host] ?? '{}')).toMatchObject(secret)
+        expect(readJson(result.keychain[host] ?? '{}')).toMatchObject(secret)
         expect(result.stdout).toContain('Try it: hog query run')
     })
 
@@ -556,6 +558,27 @@ describe('hog auth login', () => {
     )
 
     test.each([
+        ['a personal API key without the phx_ prefix', KEYCHAIN_LOGIN.files, { apiKey: 'unprefixedkey123' }, null],
+        [
+            'an OAuth login without token prefixes, which it says it could not revoke',
+            OAUTH_LOGIN.files,
+            { accessToken: 'legacyaccess', refreshToken: 'legacyrefresh' },
+            false,
+        ],
+    ])('logout removes a stored key hog can no longer read: %s', async (_name, files, secret, revoked) => {
+        const result = await runHog(['auth', 'logout'], {
+            env: { CLAUDECODE: '1' },
+            files,
+            keychain: { [EU]: JSON.stringify(secret) },
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.json()).toMatchObject({ status: 'logged_out', revoked })
+        expect(result.requests).toEqual([])
+        expect(result.keychain).toEqual({})
+    })
+
+    test.each([
         ['revokes an OAuth login in PostHog before it removes it', 200, true],
         ['says when PostHog could not revoke the login, and still removes it', 503, false],
     ])('logout %s', async (_name, status, revoked) => {
@@ -647,6 +670,8 @@ describe('hog auth login', () => {
                 [HOG_CREDENTIALS_FILE]: JSON.stringify({
                     'https://us.posthog.com': { apiKey: 'phx_us' },
                     'https://posthog.example.com': { apiKey: 'phx_orphan' },
+                    // An older hog keyed `localhost:8000` by its origin, which is "null".
+                    null: { apiKey: 'phx_unreadable' },
                 }),
                 [PENDING_FILE]: PENDING,
             },
@@ -668,7 +693,7 @@ describe('hog auth login', () => {
         })
         expect(result.keychain).toEqual({})
         expect(result.files[HOG_CREDENTIALS_FILE]).toBeUndefined()
-        expect(JSON.parse(result.files[SETTINGS_FILE] ?? '{}')).toEqual({ logins: {} })
+        expect(readJson(result.files[SETTINGS_FILE] ?? '{}')).toEqual({ logins: {} })
         expect(result.files[PENDING_FILE]).toBeUndefined()
     })
 
