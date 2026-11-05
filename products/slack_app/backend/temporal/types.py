@@ -20,6 +20,13 @@ class PostHogSlackInboxOnboardingInputs:
     integration_id: int
 
 
+@dataclass(frozen=True)
+class SlackDmSetupInputs:
+    integration_id: int
+    slack_team_id: str
+    slack_user_id: str
+
+
 def insight_render_key(insight_id: int) -> str:
     return f"insight:{insight_id}"
 

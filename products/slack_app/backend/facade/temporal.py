@@ -12,6 +12,7 @@ from products.slack_app.backend.temporal.slack_app_fork import SlackAppForkThrea
 from products.slack_app.backend.temporal.slack_app_mention import SlackAppMentionWorkflow
 from products.slack_app.backend.temporal.slack_app_mention_processing import SlackAppMentionProcessingWorkflow
 from products.slack_app.backend.temporal.slack_app_unfurl_charts import SlackAppUnfurlChartsWorkflow
+from products.slack_app.backend.temporal.slack_dm_setup import SlackDmSetupWorkflow
 
 WORKFLOWS = [
     SlackAppMentionProcessingWorkflow,
@@ -20,6 +21,7 @@ WORKFLOWS = [
     SlackAppForkThreadWorkflow,
     PostHogSlackInboxOnboardingWorkflow,
     SlackAppUnfurlChartsWorkflow,
+    SlackDmSetupWorkflow,
 ]
 
 ACTIVITIES = [*SLACK_APP_ACTIVITIES]

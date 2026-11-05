@@ -176,7 +176,7 @@ class TestCallbackView:
             patch("products.slack_app.backend.views.slack_user_link.exchange_code", return_value=self._identity()),
             patch("posthog.models.integration.slack.WebClient"),
             patch("products.slack_app.backend.analytics.ph_background_capture") as mock_ph,
-            patch("products.slack_app.backend.views.slack_user_link.refresh_dm_setup_card") as mock_refresh_card,
+            patch("products.slack_app.backend.views.slack_user_link.request_dm_setup_card_render") as mock_refresh_card,
         ):
             response = client.get(f"/complete/slack-link/?code=abc&state={state}")
 

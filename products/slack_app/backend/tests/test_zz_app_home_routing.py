@@ -68,7 +68,7 @@ class TestAppHomeOpenedRegionRouting(TestCase):
     @patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=False)
     @patch("products.slack_app.backend.api.get_instance_region", return_value="EU")
     @patch("products.slack_app.backend.api._proxy_event_to_region")
-    @patch("products.slack_app.backend.api.show_dm_setup_card")
+    @patch("products.slack_app.backend.api.request_dm_setup_card_render")
     @patch("products.slack_app.backend.api._handle_app_home_opened")
     def test_publishes_locally_when_workspace_is_local(
         self,

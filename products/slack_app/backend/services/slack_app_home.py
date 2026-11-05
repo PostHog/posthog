@@ -2188,6 +2188,31 @@ def _apply_personal_preferences(
     )
 
 
+def set_personal_model(integration: WorkspaceIntegration, slack_user_id: str, model: str) -> None:
+    """Save one model as the person's personal default, with that model's default effort.
+
+    Raises ``ValidationError`` with a message for the person, the same as the Home tab editor."""
+    _apply_personal_preferences(
+        integration,
+        slack_user_id,
+        runtime_adapter=runtime_adapter_for(model),
+        model=model,
+        reasoning_effort=None,
+    )
+
+
+def has_personal_model(integration: WorkspaceIntegration, slack_user_id: str) -> bool:
+    from products.tasks.backend.facade import (  # noqa: PLC0415 — keep tasks deps off the slack_app import path
+        ai_run_defaults,
+    )
+
+    try:
+        user, target = _personal_preference_target(integration, slack_user_id)
+    except ValidationError:
+        return False
+    return bool(ai_run_defaults.get_user_ai_run_preferences(target.team_id, user.id))
+
+
 def _reset_personal_preferences(integration: WorkspaceIntegration, slack_user_id: str) -> None:
     """Clear the viewer's central per-(user, project) preference, which resets
     them to the project default. The reset button only renders for viewers with

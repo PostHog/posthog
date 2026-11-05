@@ -52,7 +52,9 @@ def _render(ctx: DmSetupContext) -> list[dict]:
 
 LINK_ACCOUNT_STEP = DmSetupStep(
     key=DmSetupStepKey.LINK_ACCOUNT,
+    title="Link your PostHog account",
     done_text="PostHog account linked",
+    skippable=False,
     applies=_applies,
     is_done=_is_done,
     render=_render,

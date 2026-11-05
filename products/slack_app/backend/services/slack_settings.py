@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TypeVar
 
-from django.db import models
+from django.db import models, transaction
 
 from posthog.dataclasses import frozen
 
@@ -192,11 +192,12 @@ def set_auto_model_choice(slack_workspace_id: str, slack_user_id: str, enabled: 
 
 @frozen
 class DmSetupCardState:
-    """The DM message that holds a person's setup card, and whether its steps are all done."""
+    """A person's DM setup card. ``ts`` is None when PostHog found nothing to set up and posted no card."""
 
-    channel: str
-    ts: str
+    channel: str | None
+    ts: str | None
     completed: bool
+    skipped: tuple[str, ...]
 
 
 def resolve_dm_setup_card(slack_workspace_id: str, slack_user_id: str) -> DmSetupCardState | None:
@@ -207,21 +208,52 @@ def resolve_dm_setup_card(slack_workspace_id: str, slack_user_id: str) -> DmSetu
         .values_list("dm_setup_card", flat=True)
         .first()
     )
-    if not isinstance(stored, dict) or not stored.get("channel") or not stored.get("ts"):
+    if not isinstance(stored, dict):
         return None
+    skipped = stored.get("skipped")
     return DmSetupCardState(
-        channel=str(stored["channel"]), ts=str(stored["ts"]), completed=bool(stored.get("completed"))
+        channel=stored.get("channel") or None,
+        ts=stored.get("ts") or None,
+        completed=bool(stored.get("completed")),
+        skipped=tuple(str(key) for key in skipped) if isinstance(skipped, list) else (),
     )
 
 
-def set_dm_setup_card(slack_workspace_id: str, slack_user_id: str, state: DmSetupCardState) -> None:
+def update_dm_setup_card(
+    slack_workspace_id: str,
+    slack_user_id: str,
+    *,
+    channel: str | None = None,
+    ts: str | None = None,
+    completed: bool | None = None,
+    skip_step: str | None = None,
+) -> None:
+    """Change only the given parts. The row lock keeps a skip click and a render from losing each other's write."""
     from products.slack_app.backend.models import SlackSettings
 
-    SlackSettings.objects.update_or_create(
-        slack_workspace_id=slack_workspace_id,
-        slack_user_id=slack_user_id,
-        defaults={"dm_setup_card": {"channel": state.channel, "ts": state.ts, "completed": state.completed}},
-    )
+    with transaction.atomic():
+        row, _ = SlackSettings.objects.select_for_update().get_or_create(
+            slack_workspace_id=slack_workspace_id, slack_user_id=slack_user_id
+        )
+        card = dict(row.dm_setup_card) if isinstance(row.dm_setup_card, dict) else {}
+        if channel is not None and ts is not None:
+            card["channel"], card["ts"] = channel, ts
+        if completed is not None:
+            card["completed"] = completed
+        if skip_step is not None:
+            skipped = [key for key in card.get("skipped") or [] if key != skip_step]
+            card["skipped"] = [*skipped, skip_step]
+        row.dm_setup_card = card
+        row.save(update_fields=["dm_setup_card", "updated_at"])
+
+
+def has_chosen_untagged_followup_mode(slack_workspace_id: str, slack_user_id: str) -> bool:
+    """Whether this person picked a mode, as opposed to getting the ``ASK`` default."""
+    from products.slack_app.backend.models import SlackSettings
+
+    return SlackSettings.objects.filter(
+        slack_workspace_id=slack_workspace_id, slack_user_id=slack_user_id, untagged_followup_mode__isnull=False
+    ).exists()
 
 
 def resolve_workspace_default_integration_id(slack_workspace_id: str) -> int | None:
@@ -250,8 +282,9 @@ def set_workspace_default_integration(slack_workspace_id: str, integration_id: i
 
 __all__ = [
     "DmSetupCardState",
+    "has_chosen_untagged_followup_mode",
     "resolve_dm_setup_card",
-    "set_dm_setup_card",
+    "update_dm_setup_card",
     "AIPreferences",
     "resolve_auto_model_choice",
     "resolve_channel_welcome_mode",
