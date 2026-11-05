@@ -844,9 +844,10 @@ def _require_recent_authentication_for_variable_edits(
     baseline = draft if context.get("credential_baseline_is_draft") else {}
     stored_variables = baseline.get("variables", instance.variables)
     stored_actions = baseline.get("actions", instance.actions)
-    if variable_writes(data.get("variables", stored_variables), data.get("actions", stored_actions)) == (
-        variable_writes(stored_variables, stored_actions)
-    ):
+    stored_edges = baseline.get("edges", instance.edges)
+    if variable_writes(
+        data.get("variables", stored_variables), data.get("actions", stored_actions), data.get("edges", stored_edges)
+    ) == variable_writes(stored_variables, stored_actions, stored_edges):
         return
     template_cache = context.setdefault("_hogflow_template_cache", {})
     holds_credentials = any(
@@ -3769,6 +3770,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             # revision restore staged had no recent-login check.
             baseline_is_draft = (
                 instance.status == HogFlowState.ACTIVE
+                # A nested `configuration` on a test run reads `stage_draft` from the outer body,
+                # which writes nothing, so it must not pick the draft baseline.
+                and self.instance is not None
                 and self._stages_draft()
                 and not self.context.get("publishing_draft")
                 and not self.context.get("live_secrets_only")
@@ -3926,7 +3930,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             for stored_steps in (instance.actions, draft_actions):
                 _require_replay_vision_editor_access(self.context.get("request"), self.context, stored_steps)
 
-        if stored and ("variables" in data or "actions" in data):
+        if stored and ("variables" in data or "actions" in data or "edges" in data):
             _require_recent_authentication_for_variable_edits(self.context, stored, data)
 
         # When activating a draft, re-validate actions from the instance with full (non-draft) checks
@@ -6738,8 +6742,10 @@ class HogFlowViewSet(
         draft = hog_flow.draft or {}
         template_cache: TemplateCache = {}
         variables_changed = variable_writes(
-            draft.get("variables", hog_flow.variables), draft.get("actions", hog_flow.actions)
-        ) != variable_writes(hog_flow.variables, hog_flow.actions)
+            draft.get("variables", hog_flow.variables),
+            draft.get("actions", hog_flow.actions),
+            draft.get("edges", hog_flow.edges),
+        ) != variable_writes(hog_flow.variables, hog_flow.actions, hog_flow.edges)
         moves = draft_test_moves_live_credentials(
             hog_flow.actions,
             draft.get("actions"),

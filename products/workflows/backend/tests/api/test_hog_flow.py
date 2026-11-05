@@ -7448,15 +7448,68 @@ class TestHogFlowSecretInputs(APIBaseTest):
             for surface in ("workflow_step", "workflow_variables", "workflow_draft_test")
         )
 
-    @parameterized.expand([("no_staged_draft", False), ("staged_draft", True)])
-    def test_a_variables_only_edit_needs_recent_authentication(self, _name: str, staged_draft: bool) -> None:
+    def _flow_with_variable_producer(self) -> dict:
+        # A credential-free step writes `host` before the step that keeps the credential.
         payload = self._linked_flow_payload()
-        flow_id = self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload).json()["id"]
+        producer = {
+            "id": "fetch_host",
+            "name": "fetch_host",
+            "type": "function",
+            "config": {"template_id": _SECRET_TEMPLATE_ID, "inputs": {"url": {"value": "https://hosts.example.com"}}},
+            "output_variable": {"key": "host", "result_path": "body.host"},
+        }
+        payload["actions"] = [payload["actions"][0], producer, payload["actions"][1]]
+        payload["edges"] = [
+            {"from": "trigger_node", "to": "fetch_host", "type": "continue"},
+            {"from": "fetch_host", "to": "action_1", "type": "continue"},
+        ]
+        return payload
+
+    @parameterized.expand(
+        [
+            ("variable_default", False, 403),
+            ("variable_default_with_staged_draft", True, 403),
+            ("producer_inputs", False, 403),
+            ("edges_only", False, 403),
+            ("producer_rename", False, 200),
+        ]
+    )
+    def test_a_flow_wide_edit_needs_recent_authentication(
+        self, name: str, staged_draft: bool, expected_status: int
+    ) -> None:
+        payload = self._flow_with_variable_producer()
+        flow_id = self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload, format="json").json()["id"]
         if staged_draft:
             flow = HogFlow.objects.get(id=flow_id)
             flow.status = HogFlow.State.ACTIVE
             flow.draft = {"actions": flow.actions, "variables": flow.variables}
             flow.save()
+        self._make_session_stale()
+        self._function_inputs({"actions": payload["actions"][2:]})["api_key"] = {"secret": True}
+        producer = payload["actions"][1]
+        if name.startswith("variable_default"):
+            body: dict = {"variables": [{**payload["variables"][0], "default": "attacker.example.com"}]}
+        elif name == "producer_inputs":
+            producer["config"]["inputs"]["url"] = {"value": "https://attacker.example.com"}
+            body = {"actions": payload["actions"]}
+        elif name == "edges_only":
+            body = {"edges": [{"from": "trigger_node", "to": "action_1", "type": "continue"}]}
+        else:
+            producer["name"] = "Look up the host"
+            body = {"actions": payload["actions"]}
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", body, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == 403:
+            assert response.json()["code"] == "sensitive_action_required_reauth"
+
+    def test_a_variables_only_edit_counts_a_legacy_plaintext_secret(self) -> None:
+        payload = self._flow_payload()
+        payload["variables"] = [{"key": "host", "type": "string", "label": "Host", "default": "example.com"}]
+        flow_id = self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload, format="json").json()["id"]
+        # A row written before encryption shipped keeps the secret inside its actions.
+        HogFlow.objects.filter(id=flow_id).update(actions=payload["actions"], encrypted_inputs=None)
         self._make_session_stale()
 
         response = self.client.patch(
@@ -7467,6 +7520,41 @@ class TestHogFlowSecretInputs(APIBaseTest):
 
         assert response.status_code == 403, response.json()
         assert response.json()["code"] == "sensitive_action_required_reauth"
+
+    def test_a_test_run_cannot_claim_the_staged_draft_as_its_baseline(self) -> None:
+        # A proposal stages a draft without a login check, so a test run of it compares with live.
+        payload = self._linked_flow_payload()
+        flow_id = self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload, format="json").json()["id"]
+        staged_variables = [{**payload["variables"][0], "default": "attacker.example.com"}]
+        flow = HogFlow.objects.get(id=flow_id)
+        flow.status = HogFlow.State.ACTIVE
+        flow.draft = {"actions": flow.actions, "variables": staged_variables}
+        flow.save()
+        self._make_session_stale()
+        self._function_inputs(payload)["api_key"] = {"secret": True}
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
+        ) as mock_invoke:
+            mock_invoke.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/invocations/",
+                data={
+                    "globals": {"event": {"event": "$pageview", "distinct_id": "d"}},
+                    "configuration": {
+                        "name": payload["name"],
+                        "actions": payload["actions"],
+                        "variables": staged_variables,
+                    },
+                    "mock_async_functions": False,
+                    "stage_draft": True,
+                },
+                format="json",
+            )
+
+        assert response.status_code == 403, response.json()
+        assert response.json()["code"] == "sensitive_action_required_reauth"
+        mock_invoke.assert_not_called()
 
     def test_a_test_run_of_a_step_only_in_the_draft_keeps_its_own_secret_without_a_prompt(self) -> None:
         # The builder tests the staged draft by sending it as `configuration`. A secret saved only in the

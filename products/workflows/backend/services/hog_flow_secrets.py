@@ -152,18 +152,22 @@ def flow_holds_credentials(
     # Whether any step keeps a stored secret or links an integration, so a flow-wide edit can move it.
     if any(secrets_by_action.values() if isinstance(secrets_by_action, dict) else []):
         return True
+    # Rows written before encryption shipped still keep their secrets inside the actions.
+    if any(plaintext_secret_map(actions, template_cache).values()):
+        return True
     return any(linked_integration_input_keys(binding) for binding in action_bindings(actions, template_cache).values())
 
 
 _SET_VARIABLE_TEMPLATE_ID = "template-posthog-set-variable"
 
 
-def variable_writes(variables: Any, actions: Any) -> str:
+def variable_writes(variables: Any, actions: Any, edges: Any = None) -> str:
     """What decides a flow's variables, in a form two configs compare by.
 
-    That is the variable defaults, every step's `output_variable`, and the inputs of every
-    set-variable step. A step input can template in a variable, so a change to any of these can
-    move a credential that another step keeps.
+    That is the variable defaults, the template and inputs of every step that writes a variable,
+    and the edges whenever a step writes one, because the order of the writes picks the value. A
+    step input can template in a variable, so a change to any of these can move a credential that
+    another step keeps.
     """
     writers: dict[str, Any] = {}
     for action in actions if isinstance(actions, list) else []:
@@ -172,20 +176,31 @@ def variable_writes(variables: Any, actions: Any) -> str:
         config = action.get("config")
         if not isinstance(config, dict):
             config = {}
-        inputs = config.get("inputs") if config.get("template_id") == _SET_VARIABLE_TEMPLATE_ID else None
-        set_values = {
-            key: [item.get("value"), item.get("templating")] if isinstance(item, dict) else item
-            for key, item in (inputs if isinstance(inputs, dict) else {}).items()
-        }
-        if action.get("output_variable") or set_values:
-            writers[str(action.get("id"))] = [action.get("output_variable"), set_values]
+        template_id = config.get("template_id")
+        if not action.get("output_variable") and template_id != _SET_VARIABLE_TEMPLATE_ID:
+            continue
+        inputs = config.get("inputs")
+        writers[str(action.get("id"))] = [
+            action.get("output_variable"),
+            template_id,
+            {
+                key: [item.get("value"), item.get("templating")] if isinstance(item, dict) else item
+                for key, item in (inputs if isinstance(inputs, dict) else {}).items()
+            },
+        ]
     values = [
         {field: value for field, value in variable.items() if field not in ("label", "description")}
         if isinstance(variable, dict)
         else variable
         for variable in (variables if isinstance(variables, list) else [])
     ]
-    return json.dumps([values, writers], sort_keys=True, default=str)
+    # The list order of the edges carries no meaning, so a resave that reorders them changes nothing.
+    order = (
+        sorted(json.dumps(edge, sort_keys=True, default=str) for edge in edges)
+        if writers and isinstance(edges, list)
+        else []
+    )
+    return json.dumps([values, writers, order], sort_keys=True, default=str)
 
 
 def draft_test_moves_live_credentials(
