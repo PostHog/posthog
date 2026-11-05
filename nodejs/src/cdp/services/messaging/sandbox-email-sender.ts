@@ -74,7 +74,6 @@ function parseDailyCap(value: string): number | null {
     return cap !== null && Number.isSafeInteger(cap) && cap > 0 ? cap : null
 }
 
-// The organization hash tag keeps the project and recipient buckets in one Valkey cluster slot.
 function dailyCapKeyPrefix(organizationId: string): string {
     return `@posthog/workflows-sandbox-daily/{${organizationId}}`
 }

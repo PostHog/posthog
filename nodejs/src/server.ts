@@ -139,8 +139,7 @@ export class PluginServer implements NodeServer {
         // are null in the shared deps and set only by the cyclotron workers that run the hogflow
         // email action (see `withEmailActionValkeys` at their loaders below) — no
         // other consumer touches the SES or frequency cap Valkey, except cdp-api, which reads
-        // the MX-verdict cache to check a transactional email's recipient. Sandbox-enabled cdp-api
-        // and email workers open a separate, bounded SES pool for the sandbox daily caps only.
+        // the MX-verdict cache to check a transactional email's recipient.
         const cdpDeps: CdpConsumerBaseDeps | undefined = needsCdp
             ? {
                   postgres: this.postgres!,
