@@ -177,12 +177,13 @@ def generate_suggestions(
     messages: list[dict[str, Any]] = [
         {"role": "user", "content": build_suggestion_instructions(request, context_prompts)}
     ]
+    trace_id = str(uuid.uuid4())
     headers = {
         "Authorization": f"Bearer {gateway.api_key}",
         "anthropic-version": "2023-06-01",
         **(
             ai_gateway_headers(
-                trace_id=str(uuid.uuid4()),
+                trace_id=trace_id,
                 properties={"team_id": str(team_id), "aeo_feature": "prompt_suggestions"},
             )
             or {}
@@ -219,13 +220,24 @@ def generate_suggestions(
                 response.raise_for_status()
                 body = response.json()
                 if body.get("stop_reason") != "pause_turn":
-                    return parse_suggestions(_answer_text(body), count=count, existing_keys=existing_keys)
+                    try:
+                        return parse_suggestions(_answer_text(body), count=count, existing_keys=existing_keys)
+                    except PromptSuggestionError:
+                        # The gateway logs this call as a success, so an unreadable answer is only visible here.
+                        logger.warning(
+                            "aeo_prompt_suggestions_unreadable",
+                            team_id=team_id,
+                            trace_id=trace_id,
+                            stop_reason=body.get("stop_reason"),
+                        )
+                        raise
                 # A paused turn resumes when all of the assistant's content so far is sent back as is.
                 assistant_content = [*assistant_content, *(body.get("content") or [])]
                 messages = [messages[0], {"role": "assistant", "content": assistant_content}]
     except (requests.RequestException, ValueError) as error:
-        logger.warning("aeo_prompt_suggestions_failed", team_id=team_id, error=type(error).__name__)
+        logger.warning("aeo_prompt_suggestions_failed", team_id=team_id, trace_id=trace_id, error=type(error).__name__)
         raise PromptSuggestionError("Prompt suggestions failed. Try again in a minute.") from error
+    logger.warning("aeo_prompt_suggestions_timed_out", team_id=team_id, trace_id=trace_id)
     raise PromptSuggestionError("Prompt suggestions took too long. Try again with fewer prompts.")
 
 
