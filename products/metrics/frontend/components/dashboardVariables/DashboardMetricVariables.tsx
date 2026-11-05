@@ -67,12 +67,10 @@ export function DashboardMetricVariables({ editable = true }: { editable?: boole
                     size="small"
                     type="tertiary"
                     icon={<IconGear />}
-                    tooltip={shown.length ? 'Edit variables' : undefined}
+                    tooltip="Edit variables"
                     onClick={() => setEditorOpen(true)}
                     data-attr="dashboard-metric-variables-edit"
-                >
-                    {shown.length ? null : 'Add variable'}
-                </LemonButton>
+                />
             )}
             {editorOpen && (
                 <MetricVariablesModal

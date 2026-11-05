@@ -1,7 +1,7 @@
 const GIB = 1024 ** 3
 const UNTUNED_MIN_HEADROOM_GIB = 24
 const MIN_GOMEMLIMIT_GIB = 6
-const HEADROOM_AT_MIN_GOMEMLIMIT_GIB = 9
+const HEADROOM_AT_MIN_GOMEMLIMIT_GIB = 12
 
 export function tsgoPlan(headroom) {
     if (headroom === null || headroom >= UNTUNED_MIN_HEADROOM_GIB * GIB) {

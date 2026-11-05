@@ -19,6 +19,7 @@ from products.signals.backend.activity_summary.logic import (
     MAX_VERSIONS,
     MIN_UNITS,
     MIN_UPDATE_INTERVAL,
+    VIEW_UPDATE_INTERVAL,
 )
 from products.signals.backend.activity_summary.render import DEFAULT_LIMITS, RenderLimits
 from products.signals.backend.scout_harness.team_limits import read_flag_payload
@@ -28,6 +29,27 @@ logger = structlog.get_logger(__name__)
 ACTIVITY_SUMMARY_FLAG = "activity-summary"
 # Not a person: the flag must serve its payload to this id.
 ACTIVITY_SUMMARY_FLAG_DISTINCT_ID = "signals_activity_summary"
+# One unit of a source never adds more than this to the pending score.
+MAX_SOURCE_WEIGHT = 10.0
+MAX_MCP_CALLS_PER_DAY = 500
+MAX_MCP_BUFFER_DAYS = 30
+
+
+@frozen
+class SourceWeights:
+    """The pending score that one unit of each queue source adds."""
+
+    # An activity log row that passes the filters of `inputs.user_activity`.
+    activity: float = 1.0
+    tasks: float = 1.0
+    # An object first opened after the pair's watermark: it has no view day on or before the watermark day.
+    new_views: float = 0.5
+    # A new day of opening an object that the pair also opened on or before the watermark day.
+    repeat_view_days: float = 0.0
+    # A new day of opening a product scene.
+    scene_views: float = 0.0
+    # A distinct MCP session after the pair's watermark, without plumbing routes.
+    mcp: float = 1.0
 
 
 @frozen
@@ -36,6 +58,11 @@ class ActivitySummaryConfig:
     # Enrolls every organization with AI data processing approval. Otherwise only `organization_ids`.
     enroll_all_approved: bool = False
     organization_ids: tuple[str, ...] = ()
+    # Generates for this percentage of the organizations with a project that has an enabled signal source.
+    # Only those projects get summaries. A higher percentage keeps the organizations of a lower one.
+    self_driving_organization_percentage: float = 0.0
+    # The tick never generates for these organizations, even when another field enrolls them.
+    deny_organization_ids: tuple[str, ...] = ()
     skip_team_ids: tuple[int, ...] = ()
     max_pairs_per_tick: int = 50
     # Rolling 24 hours, counted from the stored rows, so the caps hold across ticks and workers.
@@ -46,9 +73,18 @@ class ActivitySummaryConfig:
     min_update_interval_hours: float = MIN_UPDATE_INTERVAL.total_seconds() / 3600
     max_versions: int = MAX_VERSIONS
     emit_embeddings: bool = True
+    # Also emits the vector of `summary_profile_text`. `emit_embeddings: false` stops both vectors.
+    emit_profile_embeddings: bool = False
     capture_events: bool = True
-    # Count viewed objects in the queue. Turn it on only when the update reads views as an input.
+    # Count viewed objects in the queue. When off, the view weights and the view cold start do not apply.
     count_views: bool = False
+    source_weights: SourceWeights = SourceWeights()
+    # A pair with a current summary is due when its pending score reaches this.
+    min_score: float = 3.0
+    # The wait after an update that views led, in place of `min_update_interval_hours`.
+    view_update_interval_hours: float = VIEW_UPDATE_INTERVAL.total_seconds() / 3600
+    # A pair with no summary is due when it opened objects or scenes on this many days in the window.
+    cold_start_min_active_days: int = 3
     # The summary age each tier aims for. A pair's staleness is its summary age over this interval.
     target_interval_days_paying: float = 3.0
     target_interval_days_free: float = 5.0
@@ -68,6 +104,20 @@ class ActivitySummaryConfig:
     rebuild_before: datetime.datetime | None = None
     # The largest share of a tick that rebuilds of stale summaries can take. Other updates get the rest.
     rebuild_budget_share: float = 0.3
+    mcp_buffer_enabled: bool = False
+    # The buffer keeps the enrolled teams of these organizations and of the `mcp_buffer_percentage` rollout.
+    # Use `mcp_buffer_percentage: 100` for every enrolled team.
+    mcp_buffer_organization_ids: tuple[str, ...] = ()
+    # Uses the rollout buckets of `self_driving_organization_percentage`, so a higher percentage keeps the lower ones.
+    mcp_buffer_percentage: float = 0.0
+    # The buffer keeps the latest calls of each user, team and day. A separate counter keeps the full count.
+    mcp_calls_per_day: int = 50
+    # Must cover the longest gap between two updates of one summary.
+    mcp_buffer_days: int = 10
+    # Renders the buffer in the input. Apart from `mcp_buffer_enabled`, so the buffer can fill before the prompt uses it.
+    mcp_render_enabled: bool = False
+    # Drains the buffer's dirty set into the queue, so a pair with only MCP calls can come due. Needs `mcp_render_enabled`.
+    mcp_queue_enabled: bool = False
 
 
 DISABLED = ActivitySummaryConfig()
@@ -89,8 +139,33 @@ def _fraction(value: Any, default: float) -> float:
     return number if number <= 1 else default
 
 
+def _percentage(value: Any, default: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float) or not 0 <= value <= 100:
+        return default
+    return float(value)
+
+
 def _bool(value: Any, default: bool) -> bool:
     return value if isinstance(value, bool) else default
+
+
+def _weight(value: Any, default: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float) or not 0 <= value <= MAX_SOURCE_WEIGHT:
+        return default
+    return float(value)
+
+
+def parse_source_weights(payload: Any) -> SourceWeights:
+    """The `source_weights` object of the payload. A weight can be zero, so that source adds nothing."""
+    defaults = SourceWeights()
+    if not isinstance(payload, dict):
+        return defaults
+    return SourceWeights(
+        **{
+            field.name: _weight(payload.get(field.name), getattr(defaults, field.name))
+            for field in dataclasses.fields(SourceWeights)
+        }
+    )
 
 
 def _team_ids(value: Any) -> tuple[int, ...]:
@@ -138,6 +213,10 @@ def parse_config(payload: Any) -> ActivitySummaryConfig:
         enabled=True,
         enroll_all_approved=_bool(payload.get("enroll_all_approved"), defaults.enroll_all_approved),
         organization_ids=_organization_ids(payload.get("organization_ids")),
+        self_driving_organization_percentage=_percentage(
+            payload.get("self_driving_organization_percentage"), defaults.self_driving_organization_percentage
+        ),
+        deny_organization_ids=_organization_ids(payload.get("deny_organization_ids")),
         skip_team_ids=_team_ids(payload.get("skip_team_ids")),
         max_pairs_per_tick=_positive_int(payload.get("max_pairs_per_tick"), defaults.max_pairs_per_tick),
         max_pairs_per_day=_positive_int(payload.get("max_pairs_per_day"), defaults.max_pairs_per_day),
@@ -149,8 +228,17 @@ def parse_config(payload: Any) -> ActivitySummaryConfig:
         ),
         max_versions=_positive_int(payload.get("max_versions"), defaults.max_versions),
         emit_embeddings=_bool(payload.get("emit_embeddings"), defaults.emit_embeddings),
+        emit_profile_embeddings=_bool(payload.get("emit_profile_embeddings"), defaults.emit_profile_embeddings),
         capture_events=_bool(payload.get("capture_events"), defaults.capture_events),
         count_views=_bool(payload.get("count_views"), defaults.count_views),
+        source_weights=parse_source_weights(payload.get("source_weights")),
+        min_score=_positive_number(payload.get("min_score"), defaults.min_score),
+        view_update_interval_hours=_positive_number(
+            payload.get("view_update_interval_hours"), defaults.view_update_interval_hours
+        ),
+        cold_start_min_active_days=_positive_int(
+            payload.get("cold_start_min_active_days"), defaults.cold_start_min_active_days
+        ),
         target_interval_days_paying=_positive_number(
             payload.get("target_interval_days_paying"), defaults.target_interval_days_paying
         ),
@@ -166,6 +254,17 @@ def parse_config(payload: Any) -> ActivitySummaryConfig:
         limits=parse_limits(payload.get("limits")),
         rebuild_before=_timestamp(payload.get("rebuild_before")),
         rebuild_budget_share=_fraction(payload.get("rebuild_budget_share"), defaults.rebuild_budget_share),
+        mcp_buffer_enabled=_bool(payload.get("mcp_buffer_enabled"), defaults.mcp_buffer_enabled),
+        mcp_buffer_organization_ids=_organization_ids(payload.get("mcp_buffer_organization_ids")),
+        mcp_buffer_percentage=_percentage(payload.get("mcp_buffer_percentage"), defaults.mcp_buffer_percentage),
+        mcp_calls_per_day=min(
+            _positive_int(payload.get("mcp_calls_per_day"), defaults.mcp_calls_per_day), MAX_MCP_CALLS_PER_DAY
+        ),
+        mcp_buffer_days=min(
+            _positive_int(payload.get("mcp_buffer_days"), defaults.mcp_buffer_days), MAX_MCP_BUFFER_DAYS
+        ),
+        mcp_render_enabled=_bool(payload.get("mcp_render_enabled"), defaults.mcp_render_enabled),
+        mcp_queue_enabled=_bool(payload.get("mcp_queue_enabled"), defaults.mcp_queue_enabled),
     )
 
 
@@ -176,5 +275,7 @@ def read_config() -> ActivitySummaryConfig:
         enabled=config.enabled,
         enroll_all_approved=config.enroll_all_approved,
         organizations=len(config.organization_ids),
+        self_driving_organization_percentage=config.self_driving_organization_percentage,
+        denied_organizations=len(config.deny_organization_ids),
     )
     return config

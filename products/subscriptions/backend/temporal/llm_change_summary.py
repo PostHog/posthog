@@ -1,25 +1,21 @@
 from __future__ import annotations
 
-import os
 import re
 import base64
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
-
-from django.conf import settings
+from typing import TYPE_CHECKING, cast
 
 import structlog
-import posthoganalytics
+from openai import OpenAI
 from openai.lib._pydantic import to_strict_json_schema
-from posthoganalytics.ai.openai import OpenAI
+from openai.types.chat import ChatCompletionMessageParam
 from prometheus_client import Counter
-from pydantic import BaseModel, ConfigDict
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
 
-from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
+from posthog.llm.gateway_client import GatewayNotConfiguredError, build_openai_client, resolve_ai_gateway_config
 from posthog.llm_prompt import normalize_prompt_to_string
 from posthog.security.llm_prompt_sanitization import (
     INSIGHT_DESCRIPTION_MAX_LEN,
@@ -33,7 +29,7 @@ from posthog.utils import get_instance_region
 
 from products.ai_observability.backend.prompt_references import resolve_prompt_references
 from products.product_analytics.backend.facade.api import get_query_specific_instructions
-from products.subscriptions.backend.logic.report_text import REPORT_TEXT_INSTRUCTIONS, ReportText
+from products.subscriptions.backend.logic.report_text import REPORT_TEXT_INSTRUCTIONS, ReportSummary
 
 logger = structlog.get_logger(__name__)
 
@@ -122,7 +118,22 @@ If all metrics changed less than 5% and no trends reversed, state that no signif
 Keep it brief and actionable."""
 
 
-PLAIN_SUMMARY_FORMATTING = "Use - as the bullet character. Each bullet should be a single sentence. Do not use markdown formatting such as bold, italic, or headers. If there are no significant changes, use one plain sentence."
+SUMMARY_CONTENT_INSTRUCTIONS = """Write up to four concise findings. Each finding must be one complete sentence.
+Put the main result first, with its key evidence and any necessary caveat.
+For event lists, the first finding must state the query window and any limits on coverage.
+Do not use the subscription schedule or title as the data window.
+Keep each event type's time range separate. Never apply the overall returned time span to every event type.
+An event-table image can show only the newest rows. Its missing older rows do not contradict full-result event counts or time ranges.
+Use structured items to identify event and metric names, measured values, time windows, links, and connecting text.
+Each destination applies its own visual styles. Do not put formatting markers or bullet characters inside the items.
+Use sentence case and direct language. Remove repetition, generic introductions, sign-offs, and concluding recaps.
+State uncertainty once, beside the affected fact. Do not infer causes, business impact, or tracking failures from missing evidence.
+Before returning the findings, remove filler, stock phrases, inflated claims, and duplicate observations.
+Each finding must add a distinct fact, supported interpretation, or concrete action. Do not fill all four findings if fewer are useful.
+Replace vague judgments with measured facts. Remove generic advice and unsupported explanations introduced by words such as "indicating" or "highlighting".
+Keep event and metric names consistent. Do not add decorative headings, emojis, or a bold label that repeats the sentence.
+Review the final findings for repetitive structure, excessive hedging, and generic conclusions. Preserve every supported value, caveat, and time window.
+When nothing changed, state that once. Do not add stable-metric bullets that repeat it."""
 
 SUMMARY_INTERPRETATION_INSTRUCTIONS = """Interpret performance against an appropriate baseline:
 - Order findings by importance to the reader, not by input order. The first bullet must state the main result, its key evidence, and any necessary action or caveat. Later bullets add supporting observations in decreasing order of importance without repeating the first.
@@ -131,29 +142,6 @@ SUMMARY_INTERPRETATION_INSTRUCTIONS = """Interpret performance against an approp
 - Compare like periods when the supplied data permits it. Account for weekdays versus weekends, elapsed time since publication, and complete versus partial periods. Do not invent a comparison that is absent from the data.
 - If the supplied evidence explains a change, put that explanation beside the value. Distinguish a known event from a proven cause; timing alone does not establish causation.
 - If context is absent, describe the observed change without guessing its cause. Do not list speculative explanations or call routine variation surprising, strong, exceptional, or alarming without evidence."""
-
-SLACK_SUMMARY_FORMATTING = """Format this delivery for Slack. These formatting rules replace plain-text formatting instructions in the user message.
-- Use up to four concise bullet points. Start each bullet with •. Separate findings with a blank line.
-- Bold event names, metric names, numeric values, and their units with *bold*. Italicize dates, times, and time windows with _italics_.
-- Keep these styles separate: a date or time uses italics even though it contains numbers. Bold measured values, counts, percentages, and amounts, not dates or times.
-- Style only the item itself. Leave connecting words and explanations unstyled. Never style a whole sentence or line.
-- Do not apply every style to every bullet. Use formatting only when it gives specific information more prominence.
-- For several distinct topics, group bullets under short *bold section labels*. Do not add a duplicate AI summary heading.
-- Use *bold*, _italic_, and <u>underline</u>. Do not use double asterisks, other HTML tags, Markdown heading markers, or code blocks.
-- Omit generic statements that there are no significant changes, reversals, or segment drivers. Do not add a concluding recap. When metrics are stable, report their current values in one bullet without a separate no-change statement.
-- Before returning the summary, edit it for repetition and filler. Each bullet must add a distinct fact, supported interpretation, or action. Delete any bullet that only repeats another finding.
-- Use direct sentences and sentence case. Remove stock phrases, inflated claims, generic introductions, and sign-offs. Do not turn every bullet into a bold label followed by an explanation.
-- State uncertainty once, next to the affected value. Do not infer causes, business impact, or tracking failures that the data does not establish.
-- Keep all numeric accuracy, uncertainty, and untrusted-data rules above."""
-
-
-class SlackSummaryContent(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    findings: list[ReportText]
-
-    def render(self) -> str:
-        return "\n\n".join(finding.render_bullet("•", "*") for finding in self.findings)
 
 
 def _compile_template(template: str, variables: dict[str, str]) -> str:
@@ -294,7 +282,6 @@ def build_prompt_messages(
     team: Team | None = None,
     core_memory_text: str = "",
     annotations_section: str = "",
-    slack_formatting: bool = False,
 ) -> list[dict]:
     previous_section_parts, current_section_parts = _build_sections(previous_states, current_states)
 
@@ -310,13 +297,11 @@ def build_prompt_messages(
             "current_timestamp": current_timestamp,
             "current_section": _wrap_insight_data("\n\n".join(current_section_parts) or "No current data"),
             "annotations_section": annotations_section,
-            "formatting_instructions": "" if slack_formatting else PLAIN_SUMMARY_FORMATTING,
+            "formatting_instructions": SUMMARY_CONTENT_INSTRUCTIONS,
         },
     )
 
     user_content = _append_extras(user_content, prompt_guide, subscription_title, core_memory_text)
-    if slack_formatting:
-        user_content += f"\n\n{SLACK_SUMMARY_FORMATTING}"
 
     system_prompt = _get_managed_prompt(team, PROMPT_CHANGE_SYSTEM, CHANGE_SYSTEM_PROMPT)
 
@@ -333,7 +318,6 @@ def build_initial_prompt_messages(
     team: Team | None = None,
     core_memory_text: str = "",
     annotations_section: str = "",
-    slack_formatting: bool = False,
 ) -> list[dict]:
     current_section_parts = _build_current_sections(current_states)
     current_timestamp = current_states[0].get("timestamp", "unknown") if current_states else "unknown"
@@ -345,13 +329,11 @@ def build_initial_prompt_messages(
             "current_timestamp": current_timestamp,
             "current_section": _wrap_insight_data("\n\n".join(current_section_parts) or "No data"),
             "annotations_section": annotations_section,
-            "formatting_instructions": "" if slack_formatting else PLAIN_SUMMARY_FORMATTING,
+            "formatting_instructions": SUMMARY_CONTENT_INSTRUCTIONS,
         },
     )
 
     user_content = _append_extras(user_content, prompt_guide, subscription_title, core_memory_text)
-    if slack_formatting:
-        user_content += f"\n\n{SLACK_SUMMARY_FORMATTING}"
 
     system_prompt = _get_managed_prompt(team, PROMPT_INITIAL_SYSTEM, INITIAL_SYSTEM_PROMPT)
 
@@ -406,10 +388,21 @@ def _attach_images_to_user_message(
     return AttachedImageSummary(len(ordered_ids), bytes_total, len(user_text))
 
 
-def _get_openai_client() -> OpenAI:
-    if not os.environ.get("OPENAI_API_KEY"):
-        raise ValueError("OPENAI_API_KEY environment variable not set")
-    return OpenAI(posthog_client=posthoganalytics.setup(), base_url=settings.OPENAI_BASE_URL, max_retries=3)
+def _get_openai_client(*, team: Team | None, delivery_id: str | None, user_tag: str) -> OpenAI:
+    if resolve_ai_gateway_config() is None:
+        raise GatewayNotConfiguredError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured")
+    properties: dict[str, str] = {}
+    if delivery_id:
+        properties["delivery_id"] = delivery_id
+    headers: dict[str, str] = {}
+    if team is not None:
+        properties["team_id"] = str(team.id)
+    else:
+        headers["X-PostHog-Billable"] = "false"
+    client = build_openai_client(
+        "subscriptions", ai_product="subscriptions", properties=properties, distinct_id=user_tag
+    )
+    return client.with_options(max_retries=1, default_headers=headers)
 
 
 def _previous_states_rendered_in_current_delivery(
@@ -449,7 +442,6 @@ def generate_change_summary(
             team=team,
             core_memory_text=core_memory_text,
             annotations_section=annotations_section,
-            slack_formatting=slack_formatting,
         )
     else:
         messages = build_initial_prompt_messages(
@@ -459,15 +451,12 @@ def generate_change_summary(
             team=team,
             core_memory_text=core_memory_text,
             annotations_section=annotations_section,
-            slack_formatting=slack_formatting,
         )
 
-    messages[0]["content"] += f"\n\n{SUMMARY_INTERPRETATION_INSTRUCTIONS}"
-    if slack_formatting:
-        messages[0]["content"] += f"\n\n{SLACK_SUMMARY_FORMATTING}"
-        messages[0]["content"] += (
-            f"\n\n{REPORT_TEXT_INSTRUCTIONS}\nReturn one finding per bullet. Include the time window when describing a trend."
-        )
+    messages[0]["content"] += f"\n\n{SUMMARY_CONTENT_INSTRUCTIONS}\n\n{SUMMARY_INTERPRETATION_INSTRUCTIONS}"
+    messages[0]["content"] += (
+        f"\n\n{REPORT_TEXT_INSTRUCTIONS}\nReturn one finding per bullet. Include the time window when describing a trend."
+    )
 
     attached = _attach_images_to_user_message(messages, current_states, insight_images)
 
@@ -482,59 +471,43 @@ def generate_change_summary(
         user_message_length=attached.user_text_length,
     )
 
-    client = _get_openai_client()
-    if slack_formatting:
-        client = client.with_options(max_retries=1)
-
     instance_region = get_instance_region() or "HOBBY"
     user_tag = f"{instance_region}/subscription-summary-team-{team_id}"
     if delivery_id:
         user_tag = f"{user_tag}-delivery-{delivery_id}"
 
-    posthog_properties: dict[str, object] = {"ai_product": "subscriptions"}
-    if delivery_id:
-        posthog_properties["delivery_id"] = delivery_id
-
-    extra_capture_kwargs: dict[str, object] = {}
-    if team is not None:
-        posthog_properties["$ai_billable"] = True
-        posthog_properties["team_id"] = team.id
-        extra_capture_kwargs["posthog_groups"] = {"project": str(team.id), **groups()}
+    client = _get_openai_client(team=team, delivery_id=delivery_id, user_tag=user_tag)
 
     prompt_tokens, completion_tokens = 0, 0
-    for max_tokens in (1500, 4500) if slack_formatting else (500,):
-        result = client.chat.completions.create(
-            model="gpt-4.1-mini",
-            temperature=0.3,
-            max_tokens=max_tokens,
-            response_format={
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "subscription_summary",
-                    "strict": True,
-                    "schema": to_strict_json_schema(SlackSummaryContent),
+    with client:
+        for max_tokens in (1500, 4500):
+            result = client.chat.completions.create(
+                model="gpt-4.1-mini",
+                temperature=0.3,
+                max_tokens=max_tokens,
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "subscription_summary",
+                        "strict": True,
+                        "schema": to_strict_json_schema(ReportSummary),
+                    },
                 },
-            }
-            if slack_formatting
-            else {"type": "text"},
-            timeout=60,
-            messages=messages,
-            user=user_tag,
-            posthog_distinct_id=user_tag,
-            posthog_properties=posthog_properties,
-            **extra_capture_kwargs,
-        )
-        if result.usage:
-            prompt_tokens += result.usage.prompt_tokens
-            completion_tokens += result.usage.completion_tokens
-        if not result.choices or result.choices[0].finish_reason != "length":
-            break
+                timeout=20,
+                messages=cast(list[ChatCompletionMessageParam], messages),
+                user=user_tag,
+            )
+            if result.usage:
+                prompt_tokens += result.usage.prompt_tokens
+                completion_tokens += result.usage.completion_tokens
+            if not result.choices or result.choices[0].finish_reason != "length":
+                break
 
     content: str = ""
     if result.choices and result.choices[0].message.content:
         content = result.choices[0].message.content
-    if slack_formatting and content:
-        content = SlackSummaryContent.model_validate_json(content).render()
+    if content:
+        content = ReportSummary.model_validate_json(content).render(slack_formatting=slack_formatting)
 
     logger.info(
         "change_summary_generated",

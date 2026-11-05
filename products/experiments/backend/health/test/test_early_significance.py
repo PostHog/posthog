@@ -13,16 +13,14 @@ from products.experiments.backend.facade.api import get_experiment_health
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthCheckKey,
     ExperimentHealthCheckStatus,
+    ExperimentHealthFinding,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
     ExperimentHealthReaderAccess,
 )
-from products.experiments.backend.health.checks.early_significance import (
-    BELOW_DETECTABLE_EFFECT,
-    early_significance,
-    early_significance_skip,
-)
+from products.experiments.backend.health.checks.early_significance import BELOW_DETECTABLE_EFFECT, early_significance
 from products.experiments.backend.health.context import HealthContext, PrimaryMetric
+from products.experiments.backend.health.skips import CheckSkip
 from products.experiments.backend.health.test.factories import ENDED, RUNNING_CONTEXT
 from products.experiments.backend.logic.result_stats import BaselineStats, Interval, MetricResultStats, VariantStats
 from products.experiments.backend.metric_calculation.config import build_primary_calculation_configs
@@ -33,6 +31,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.running_time_target import ComparisonVariance, RunningTimeTarget
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 Status = ExperimentHealthCheckStatus
@@ -46,7 +45,9 @@ def _context(
     variants: list[tuple[str, int, float, bool | None]],
     *,
     baseline: tuple[int, int] = (1000, 100),
-    manual_running_time: bool = False,
+    planned_samples: int | None = 3201,
+    current_samples: int | None = None,
+    variances: dict[str, ComparisonVariance] | None = None,
     **changes: Any,
 ) -> HealthContext:
     control_samples, control_conversions = baseline
@@ -71,8 +72,12 @@ def _context(
     metric = PrimaryMetric(
         name="Checkout",
         is_funnel=True,
-        minimum_detectable_effect=30,
-        manual_running_time=manual_running_time,
+        target=RunningTimeTarget(
+            minimum_detectable_effect=30,
+            recommended_sample_size=planned_samples,
+            current_sample_size=current_samples,
+            variances=variances or {},
+        ),
         result=result,
     )
     return replace(RUNNING_CONTEXT, primary_metric=metric, **changes)
@@ -89,10 +94,20 @@ class TestEarlySignificance(TestCase):
             ("significant_and_larger_than_detectable", _context([("test", 1000, -0.5, True)]), None),
             ("not_significant", _context([("test", 1000, 0.2, False)]), None),
             ("analysis_stopped", _context([("test", 1000, 0.2, None)]), None),
-            ("sample_reached_the_plan", _context([("test", 20000, 0.06, True)], baseline=(20000, 2000)), None),
+            ("sample_reached_the_plan", _context([("test", 1000, 0.2, True)], planned_samples=2000), None),
+            ("no_planned_sample", _context([("test", 1000, 0.2, True)], planned_samples=None), None),
             (
-                "uneven_split_past_the_planned_total",
-                _context([("test", 500, 0.34, True)], baseline=(9000, 900)),
+                "a_paused_variant_counts_toward_nothing",
+                _context(
+                    [("test", 1000, 0.2, True), ("paused", 500, 0.0, None)], planned_samples=2400, current_samples=2000
+                ),
+                "test",
+            ),
+            (
+                "detectable_with_the_targets_variances",
+                _context(
+                    [("test", 1000, 0.2, True)], variances={"test": ComparisonVariance(control=0.02, variant=0.02)}
+                ),
                 None,
             ),
             (
@@ -107,12 +122,14 @@ class TestEarlySignificance(TestCase):
     ) -> None:
         finding = early_significance(ctx)
 
-        self.assertEqual(finding.evidence["variant"] if finding else None, expected_variant)
+        self.assertEqual(
+            finding.evidence["variant"] if isinstance(finding, ExperimentHealthFinding) else finding, expected_variant
+        )
 
     def test_states_the_analysis_difference_and_the_planned_sizes(self) -> None:
         finding = early_significance(SMALL_SIGNIFICANT_LIFT)
 
-        assert finding is not None
+        assert isinstance(finding, ExperimentHealthFinding)
         self.assertEqual(
             (finding.code, finding.subcode, finding.severity),
             (
@@ -144,16 +161,10 @@ class TestEarlySignificance(TestCase):
                     primary_metric=PrimaryMetric(
                         name="Revenue",
                         is_funnel=False,
-                        minimum_detectable_effect=30,
-                        manual_running_time=False,
+                        target=RunningTimeTarget(minimum_detectable_effect=30, recommended_sample_size=5000),
                         result=None,
                     ),
                 ),
-                Status.NOT_APPLICABLE,
-            ),
-            (
-                "manual_running_time",
-                _context([("test", 1000, 0.2, True)], manual_running_time=True),
                 Status.NOT_APPLICABLE,
             ),
             ("under_50_users", _context([("test", 20, 0.2, True)], baseline=(20, 2)), Status.NOT_APPLICABLE),
@@ -165,10 +176,9 @@ class TestEarlySignificance(TestCase):
         ]
     )
     def test_says_why_it_did_not_look(self, _name: str, ctx: HealthContext, expected: Status) -> None:
-        skip = early_significance_skip(ctx)
+        outcome = early_significance(ctx)
 
-        self.assertEqual(skip.status if skip else None, expected)
-        self.assertIsNone(early_significance(ctx))
+        self.assertEqual(outcome.status if isinstance(outcome, CheckSkip) else outcome, expected)
 
 
 class TestEarlySignificanceFromStoredResults(BaseTest):
@@ -181,20 +191,20 @@ class TestEarlySignificanceFromStoredResults(BaseTest):
                 {"minimum_detectable_effect": 20},
                 15,
                 Status.FINDING,
-                20,
+                (20, 7824),
             ),
-            ("inline_metric_and_the_teams_default_effect", False, True, {}, 15, Status.FINDING, 15),
-            ("inline_metric_and_the_product_default_effect", False, True, {}, None, Status.FINDING, 30),
-            ("shared_metric", True, True, {}, None, Status.FINDING, 30),
+            ("inline_metric_and_the_teams_default_effect", False, True, {}, 15, Status.FINDING, (15, 13910)),
+            ("inline_metric_and_the_product_default_effect", False, True, {}, None, Status.FINDING, (30, 3478)),
+            ("shared_metric", True, True, {}, None, Status.FINDING, (30, 3478)),
             ("result_of_an_earlier_configuration", False, False, {}, None, Status.NOT_APPLICABLE, None),
             (
-                "manual_running_time",
+                "manual_running_time_reads_the_saved_target",
                 False,
                 True,
-                {"exposure_estimate_config": {"conversionRateInputType": "manual"}},
+                {"exposure_estimate_config": {"conversionRateInputType": "manual"}, "recommended_sample_size": 5000},
                 None,
-                Status.NOT_APPLICABLE,
-                None,
+                Status.FINDING,
+                (30, 5000),
             ),
         ]
     )
@@ -206,7 +216,7 @@ class TestEarlySignificanceFromStoredResults(BaseTest):
         running_time_calculation: dict[str, Any],
         team_effect: int | None,
         expected: Status,
-        expected_effect: int | None,
+        expected_plan: tuple[int, int] | None,
     ) -> None:
         if team_effect is not None:
             TeamExperimentsConfig.objects.create(team=self.team, default_minimum_detectable_effect=team_effect)
@@ -266,7 +276,9 @@ class TestEarlySignificanceFromStoredResults(BaseTest):
             },
         )
 
-        health = get_experiment_health(team_id=self.team.id, experiment_id=experiment.id, reader_access=NO_QUERIES)
+        health = get_experiment_health(
+            team_id=self.team.id, experiment_id=experiment.id, reader_access=NO_QUERIES, user=self.user
+        )
 
         check = next(check for check in health.checks if check.key == ExperimentHealthCheckKey.EARLY_SIGNIFICANCE)
         finding = next(
@@ -274,8 +286,13 @@ class TestEarlySignificanceFromStoredResults(BaseTest):
             None,
         )
         self.assertEqual(
-            (check.status, finding.evidence["minimum_detectable_effect"] if finding else None),
-            (expected, expected_effect),
+            (
+                check.status,
+                (finding.evidence["minimum_detectable_effect"], finding.evidence["planned_samples"])
+                if finding
+                else None,
+            ),
+            (expected, expected_plan),
         )
         if finding:
             self.assertIn('"Checkout funnel"' if shared else '"purchase conversion"', finding.detail)

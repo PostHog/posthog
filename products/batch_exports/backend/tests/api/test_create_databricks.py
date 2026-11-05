@@ -221,7 +221,7 @@ def test_creating_databricks_batch_export_fails_if_integration_is_not_the_correc
 
     integration = Integration.objects.create(
         team=team,
-        kind=Integration.IntegrationKind.SLACK,
+        kind=Integration.IntegrationKind.S3_COMPATIBLE,
         integration_id="my-server-hostname",
         config={"server_hostname": "my-server-hostname"},
         sensitive_config={"client_id": "my-client-id"},

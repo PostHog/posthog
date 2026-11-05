@@ -221,13 +221,43 @@ class TestDesktopAccessPolicy(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
         self.assertEqual(response.data["code"], "desktop_access_unavailable")
 
-    @parameterized.expand([(None,), ("control",), ("false",)])
-    @override_settings(DESKTOP_SIGNUP_CUTOFF="2000-01-01T00:00:00+00:00")
-    def test_indeterminate_flags_fail_closed(self, flag_value) -> None:
-        for flag_values in ([flag_value], [False, flag_value]):
-            self.mock_feature_flag.side_effect = flag_values
-            with self.assertRaises(DesktopAccessResolutionError):
-                get_desktop_access_decision(self.user, self.organization)
+    @parameterized.expand(
+        [
+            ("override_none", None, False, None, False),
+            ("override_control", "control", False, None, False),
+            ("override_false_string", "false", False, None, False),
+            ("override_none_funding_fails", None, False, DesktopAccessResolutionError("unavailable"), True),
+            ("gate_none_after_cutoff", False, True, None, True),
+        ]
+    )
+    @patch("products.tasks.backend.access._get_funding_status")
+    def test_indeterminate_flags(
+        self,
+        _name: str,
+        override_value: object,
+        signed_up_after_cutoff: bool,
+        funding_error: DesktopAccessResolutionError | None,
+        expected_raise: bool,
+        mock_funding,
+    ) -> None:
+        if funding_error is not None:
+            mock_funding.side_effect = funding_error
+        else:
+            mock_funding.return_value = OrganizationFundingStatus(
+                startup_program_label=None, prepaid_credit_state=PrepaidCreditState.NONE
+            )
+        self.mock_feature_flag.side_effect = [override_value, None]
+        cutoff = "2000-01-01T00:00:00+00:00" if signed_up_after_cutoff else ""
+
+        with override_settings(DESKTOP_SIGNUP_CUTOFF=cutoff):
+            if expected_raise:
+                with self.assertRaises(DesktopAccessResolutionError):
+                    get_desktop_access_decision(self.user, self.organization)
+                return
+            decision = get_desktop_access_decision(self.user, self.organization)
+
+        self.assertTrue(decision.allowed)
+        mock_funding.assert_called_once()
 
     @patch(
         "products.tasks.backend.access._get_funding_status",

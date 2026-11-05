@@ -7,7 +7,13 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LogsAlertConfigurationThresholdOperatorEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { logsAlertFormLogic } from './logsAlertFormLogic'
-import { GROUP_BY_LABELS, GROUPING_NEEDS_ABOVE, LogsAlertGroupBy, MAX_INSTANCES_LIMIT } from './logsAlertGrouping'
+import {
+    GROUP_BY_LABELS,
+    GROUP_BY_NOT_AVAILABLE,
+    GROUPING_NEEDS_ABOVE,
+    LogsAlertGroupBy,
+    MAX_INSTANCES_LIMIT,
+} from './logsAlertGrouping'
 
 const GROUP_BY_HELP: Record<LogsAlertGroupBy, string> = {
     none: 'Split the count by service or severity to alert on each one separately.',
@@ -20,7 +26,7 @@ const GROUP_BY_HELP: Record<LogsAlertGroupBy, string> = {
 }
 
 export function LogsAlertGroupByField(): JSX.Element | null {
-    const { alertForm, alertFormValidationErrors, canGroup } = useValues(logsAlertFormLogic)
+    const { alertForm, alertFormValidationErrors, canGroup, lockedGroupBy } = useValues(logsAlertFormLogic)
     const { setGroupBy, setAlertFormValue } = useActions(logsAlertFormLogic)
 
     if (!canGroup) {
@@ -32,6 +38,15 @@ export function LogsAlertGroupByField(): JSX.Element | null {
             ? undefined
             : GROUPING_NEEDS_ABOVE
     const isGrouped = alertForm.groupBy !== 'none'
+    const disabledReasonFor = (groupBy: LogsAlertGroupBy): string | undefined => {
+        if (groupBy === 'none') {
+            return undefined
+        }
+        if (lockedGroupBy !== null && groupBy !== lockedGroupBy) {
+            return GROUP_BY_NOT_AVAILABLE
+        }
+        return groupingDisabledReason
+    }
 
     return (
         <LemonField.Pure
@@ -46,7 +61,7 @@ export function LogsAlertGroupByField(): JSX.Element | null {
                     options={(Object.keys(GROUP_BY_LABELS) as LogsAlertGroupBy[]).map((groupBy) => ({
                         value: groupBy,
                         label: GROUP_BY_LABELS[groupBy],
-                        disabledReason: groupBy === 'none' ? undefined : groupingDisabledReason,
+                        disabledReason: disabledReasonFor(groupBy),
                     }))}
                     size="small"
                     data-attr="logs-alert-group-by"

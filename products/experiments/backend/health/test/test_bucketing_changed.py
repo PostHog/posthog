@@ -7,6 +7,7 @@ from unittest import TestCase
 from parameterized import parameterized
 
 from products.experiments.backend.facade.contracts import (
+    ExperimentHealthFinding,
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
@@ -14,6 +15,13 @@ from products.experiments.backend.facade.contracts import (
 )
 from products.experiments.backend.health.checks.bucketing_changed import bucketing_changed_mid_run
 from products.experiments.backend.health.context import FlagHistoryNotCheckedReason, HealthContext, parse_flag_state
+from products.experiments.backend.health.skips import (
+    NEEDS_VARIANTS,
+    NOT_AFTER_END,
+    CheckSkip,
+    not_applicable,
+    not_checked,
+)
 from products.experiments.backend.health.test.factories import RUNNING_CONTEXT, flag_history
 from products.feature_flags.backend.facade.edits import BucketingChange, BucketingSetting
 
@@ -215,7 +223,7 @@ class TestBucketingChangedMidRun(TestCase):
     ) -> None:
         finding = bucketing_changed_mid_run(ctx)
 
-        assert finding is not None
+        assert isinstance(finding, ExperimentHealthFinding)
         self.assertEqual(finding.code, ExperimentHealthFindingCode.BUCKETING_CHANGED_MID_RUN)
         self.assertEqual((finding.subcode, finding.severity, finding.title), expected)
         self.assertEqual(finding.detail, expected_detail)
@@ -223,12 +231,20 @@ class TestBucketingChangedMidRun(TestCase):
 
     @parameterized.expand(
         [
-            ("no_change", _context()),
-            ("ended", _context((KEY, "old-key", "new-key"), is_running=False)),
-            ("flag_without_variants", _context((KEY, "old-key", "new-key"), variants=[])),
+            ("no_change", _context(), None),
+            ("ended", _context((KEY, "old-key", "new-key"), is_running=False), not_applicable(NOT_AFTER_END)),
+            (
+                "flag_without_variants",
+                _context((KEY, "old-key", "new-key"), variants=[]),
+                not_applicable(NEEDS_VARIANTS),
+            ),
             # The split check reports a history the reader can't view.
-            ("no_history_access", _context(not_checked=FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS)),
+            (
+                "no_history_access",
+                _context(not_checked=FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS),
+                not_checked("Couldn't check because you can't view the linked feature flag's history"),
+            ),
         ]
     )
-    def test_reports_nothing(self, _name: str, ctx: HealthContext) -> None:
-        self.assertIsNone(bucketing_changed_mid_run(ctx))
+    def test_reports_nothing(self, _name: str, ctx: HealthContext, expected: CheckSkip | None) -> None:
+        self.assertEqual(bucketing_changed_mid_run(ctx), expected)

@@ -11,6 +11,7 @@ from rest_framework.request import Request
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.shared import UserBasicSerializer
+from posthog.models.integer_field_bounds import INTEGER_FIELD_MAX, INTEGER_FIELD_MIN
 from posthog.permissions import get_authenticator_scopes
 
 from products.autoresearch.backend.facade import api
@@ -641,14 +642,14 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
         help_text='Resolved target definition: {"type": "event"} or {"type": "action", "action_id": N}.'
     )
     horizon_days = serializers.IntegerField(
-        min_value=-2147483648,
-        max_value=2147483647,
+        min_value=INTEGER_FIELD_MIN,
+        max_value=INTEGER_FIELD_MAX,
         required=False,
         help_text="Prediction horizon in days. The model predicts whether the target event occurs within this window.",
     )
     training_lookback_days = serializers.IntegerField(
-        min_value=-2147483648,
-        max_value=2147483647,
+        min_value=INTEGER_FIELD_MIN,
+        max_value=INTEGER_FIELD_MAX,
         required=False,
         help_text="How far back to look for training examples. Larger windows give more data but may include stale behavior.",
     )
@@ -659,14 +660,14 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
         help_text="Population scored daily. Typically broader than the training population."
     )
     cadence_days = serializers.IntegerField(
-        min_value=-2147483648,
-        max_value=2147483647,
+        min_value=INTEGER_FIELD_MIN,
+        max_value=INTEGER_FIELD_MAX,
         required=False,
         help_text="Re-score the inference population every N days.",
     )
     iteration_budget = serializers.IntegerField(
-        min_value=-2147483648,
-        max_value=2147483647,
+        min_value=INTEGER_FIELD_MIN,
+        max_value=INTEGER_FIELD_MAX,
         required=False,
         help_text="Deprecated: scheduled training no longer reads it. Use iterations_per_run.",
     )
@@ -734,8 +735,8 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
         help_text="Target AUC threshold. Training stops early if this score is reached.",
     )
     plateau_iterations = serializers.IntegerField(
-        min_value=-2147483648,
-        max_value=2147483647,
+        min_value=INTEGER_FIELD_MIN,
+        max_value=INTEGER_FIELD_MAX,
         required=False,
         help_text="Stop training if no AUC improvement is seen in this many consecutive iterations.",
     )
@@ -997,7 +998,7 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
     plateau_iterations = serializers.IntegerField(
         required=False,
         min_value=1,
-        max_value=2147483647,
+        max_value=INTEGER_FIELD_MAX,
         help_text="Stop training if no improvement in this many consecutive iterations (at least 1). Default: 10.",
     )
     output_person_property = serializers.CharField(
@@ -1338,7 +1339,9 @@ class IterationTrailSerializer(DataclassSerializer):
     """Compact, read-only view of one iteration for the cross-run history feed and the Training tab."""
 
     iteration_number = serializers.IntegerField(
-        min_value=-2147483648, max_value=2147483647, help_text="Order of this attempt within its run (0-based)."
+        min_value=INTEGER_FIELD_MIN,
+        max_value=INTEGER_FIELD_MAX,
+        help_text="Order of this attempt within its run (0-based).",
     )
     status = serializers.ChoiceField(
         choices=ITERATION_STATUS_CHOICES,
@@ -1447,8 +1450,8 @@ class AutoresearchTrainingRunSerializer(DataclassSerializer):
         help_text="Reasoning effort the training agent ran at. Null for older runs, runs with no task, and models with no effort setting.",
     )
     iteration_budget = serializers.IntegerField(
-        min_value=-2147483648,
-        max_value=2147483647,
+        min_value=INTEGER_FIELD_MIN,
+        max_value=INTEGER_FIELD_MAX,
         required=False,
         help_text="Maximum iterations allowed for this run.",
     )
@@ -1529,8 +1532,8 @@ class AutoresearchIterationSerializer(DataclassSerializer):
     pipeline = serializers.UUIDField()
     training_run = serializers.UUIDField()
     iteration_number = serializers.IntegerField(
-        min_value=-2147483648,
-        max_value=2147483647,
+        min_value=INTEGER_FIELD_MIN,
+        max_value=INTEGER_FIELD_MAX,
     )
     recipe_hash = serializers.CharField(max_length=64)
     recipe_snapshot = IterationRecipeField(
@@ -1861,8 +1864,8 @@ class AutoresearchRunSerializer(DataclassSerializer):
         help_text="Run status: pending, running, completed, or failed.",
     )
     rows_scored = serializers.IntegerField(
-        min_value=-2147483648,
-        max_value=2147483647,
+        min_value=INTEGER_FIELD_MIN,
+        max_value=INTEGER_FIELD_MAX,
         required=False,
         allow_null=True,
         help_text="Number of users scored in this inference run.",
@@ -2041,7 +2044,7 @@ class RecordIterationSerializer(serializers.Serializer):
 
     iteration_number = serializers.IntegerField(
         min_value=0,
-        max_value=2147483647,
+        max_value=INTEGER_FIELD_MAX,
         help_text="Zero-based index of this iteration within the run. Re-sending the same number updates that iteration (idempotent).",
     )
     recipe_snapshot = IterationRecipeField(

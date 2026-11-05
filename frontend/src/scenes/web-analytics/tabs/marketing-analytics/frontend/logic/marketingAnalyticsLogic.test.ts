@@ -23,15 +23,14 @@ import {
     TrendsQuery,
     DataTableNode,
     MarketingAnalyticsAggregatedQuery,
-    MarketingAnalyticsAttributionBreakdown,
     MarketingAnalyticsTableQuery,
     MarketingAnalyticsSearchRow,
     MarketingAnalyticsOrderBy,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsColumnsSchemaNames,
+    MarketingAnalyticsDrillDownLevel,
     NodeKind,
     SourceMap,
-    WebAnalyticsPropertyFilters,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
@@ -40,8 +39,6 @@ import {
     ExternalDataSchemaStatus,
     ExternalDataSource,
     ExternalDataSourceSchema,
-    PropertyFilterType,
-    PropertyOperator,
 } from '~/types'
 
 import { SEARCH_PERFORMANCE_QUERY_KEY } from 'products/marketing_analytics/frontend/search/searchPerformance'
@@ -50,7 +47,6 @@ import { searchPerformanceLogic } from 'products/marketing_analytics/frontend/se
 import {
     MarketingAnalyticsTab,
     MarketingSourceStatus,
-    MarketingDashboardView,
     SetupSection,
     marketingAnalyticsLogic,
 } from './marketingAnalyticsLogic'
@@ -60,6 +56,7 @@ import {
     MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
     marketingAnalyticsTilesLogic,
 } from './marketingAnalyticsTilesLogic'
+import { activeColumnView, columnsForView, marketingTableDimensionColumns } from './marketingTableColumnViews'
 
 jest.mock('posthog-js')
 
@@ -360,10 +357,66 @@ describe('marketingAnalyticsLogic', () => {
         tiles.mount()
         try {
             await expectLogic(logic).toFinishAllListeners()
+            const select = columnsForView('default', marketingAnalyticsTableLogic.values.defaultColumns)
             expect(tiles.values.campaignCostsBreakdown).toMatchObject({
-                pinnedColumns: [],
-                source: { select: marketingAnalyticsTableLogic.values.defaultColumns, orderBy: [] },
+                pinnedColumns: marketingTableDimensionColumns(select),
+                source: {
+                    select,
+                    orderBy: [],
+                },
             })
+        } finally {
+            tiles.unmount()
+        }
+    })
+
+    it.each([
+        ['at the ad level', 'clicks', MarketingAnalyticsDrillDownLevel.Ad, false],
+        ['with conversion goals hidden', 'conversions', MarketingAnalyticsDrillDownLevel.Campaign, true],
+    ] as const)('keeps the chosen column view %s', async (_, view, level, hideGoals) => {
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+        const tiles = marketingAnalyticsTilesLogic()
+        tiles.mount()
+        try {
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic, () =>
+                teamLogic.actions.loadCurrentTeamSuccess({
+                    ...teamLogic.values.currentTeam!,
+                    marketing_analytics_config: {
+                        conversion_goals: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                event: 'purchase',
+                                conversion_goal_id: 'purchase-goal',
+                                conversion_goal_name: 'Purchases',
+                                schema_map: {},
+                            },
+                        ],
+                    },
+                })
+            ).toFinishAllListeners()
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]: true,
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN]: true,
+            })
+            if (hideGoals) {
+                logic.actions.setActiveTab(MarketingAnalyticsTab.AD_PERFORMANCE)
+                logic.actions.setAdPerformanceConversionGoals(false)
+            }
+            logic.actions.setDrillDownLevel(level)
+            expect(logic.values.drillDownLevel).toBe(level)
+            const breakdown = tiles.values.campaignCostsBreakdown!
+            marketingAnalyticsTableLogic.actions.setQuery({
+                ...breakdown,
+                source: {
+                    ...(breakdown.source as MarketingAnalyticsTableQuery),
+                    select: columnsForView(view, tiles.values.tableColumns),
+                },
+            })
+            await expectLogic(logic).toFinishAllListeners()
+            const select = (tiles.values.campaignCostsBreakdown!.source as MarketingAnalyticsTableQuery).select
+            expect(activeColumnView(select, tiles.values.tableColumns)).toBe(view)
         } finally {
             tiles.unmount()
         }
@@ -393,7 +446,7 @@ describe('marketingAnalyticsLogic', () => {
             ).toFinishAllListeners()
             featureFlagLogic.actions.setFeatureFlags([], {
                 [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
-                [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]: true,
             })
             logic.actions.setActiveTab(MarketingAnalyticsTab.AD_PERFORMANCE)
             expect(logic.values.includeConversionGoals).toBe(true)
@@ -440,13 +493,13 @@ describe('marketingAnalyticsLogic', () => {
                 ).toFinishAllListeners()
                 expect(search.values.query.includePostHogConversions).toBe(true)
                 featureFlagLogic.actions.setFeatureFlags([], {
-                    [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]: true,
                     [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: false,
                 })
                 expect(search.values.query.includePostHogConversions).toBe(false)
                 expect(search.values.displayMetrics).toBe('conversions')
                 featureFlagLogic.actions.setFeatureFlags([], {
-                    [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]: true,
                     [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
                 })
                 expect(search.values.query.includePostHogConversions).toBe(true)
@@ -457,14 +510,14 @@ describe('marketingAnalyticsLogic', () => {
             search.actions.setBreakdown('page')
             expect(search.values.query.includePostHogConversions).toBe(true)
             featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]: true,
                 [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: false,
             })
             expect(logic.values.includeConversionGoals).toBe(true)
             expect(search.values.query.includePostHogConversions).toBe(false)
             expect(search.values.displayMetrics).toBe('traffic')
             featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]: true,
                 [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
             })
             expect(search.values.query.includePostHogConversions).toBe(true)
@@ -567,7 +620,7 @@ describe('marketingAnalyticsLogic', () => {
             for (const precomputed of [false, true]) {
                 featureFlagLogic.actions.setFeatureFlags([], {
                     [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
-                    [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]: true,
                     [FEATURE_FLAGS.MARKETING_ANALYTICS_COSTS_PRECOMPUTATION]: precomputed,
                 })
                 logic.actions.setAdPerformanceConversionGoals(true)
@@ -631,7 +684,7 @@ describe('marketingAnalyticsLogic', () => {
                 )
                 featureFlagLogic.actions.setFeatureFlags([], {
                     [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
-                    [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: legacyState !== 'flag-off',
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]: legacyState !== 'flag-off',
                 })
                 expect(logic.values.includeConversionGoals).toBe(true)
                 expect((tiles.values.overviewTile.query as MarketingAnalyticsAggregatedQuery).select).toBeUndefined()
@@ -652,7 +705,7 @@ describe('marketingAnalyticsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         featureFlagLogic.actions.setFeatureFlags([], {
             [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
-            [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
+            [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]: true,
         })
         logic.actions.setActiveTab(MarketingAnalyticsTab.AD_PERFORMANCE)
         expect(logic.values.includeConversionGoals).toBe(false)
@@ -1125,112 +1178,6 @@ describe('marketingAnalyticsLogic', () => {
             unmountSettings()
         }
     )
-    it('carries dashboard view, breakdown and filters in the URL', async () => {
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD], {
-            [FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_CONVERSIONS]: true,
-            [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
-        })
-        logic = marketingAnalyticsLogic()
-        logic.mount()
-
-        await expectLogic(logic, () => logic.actions.setDates('-30d', null)).toFinishAllListeners()
-        expect(router.values.searchParams).not.toHaveProperty('view')
-        expect(router.values.searchParams).not.toHaveProperty('breakdown')
-        expect(new URLSearchParams(router.values.location.search).get('date_to')).toBe('')
-
-        const filters: WebAnalyticsPropertyFilters = [
-            {
-                type: PropertyFilterType.Session,
-                key: '$channel_type',
-                operator: PropertyOperator.Exact,
-                value: 'Direct',
-            },
-        ]
-        logic.actions.setDashboardView(MarketingDashboardView.ENGAGEMENT)
-        logic.actions.setDashboardBreakdown(MarketingAnalyticsAttributionBreakdown.Campaign)
-        logic.actions.setDashboardProperties(filters)
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(router.values.searchParams).toMatchObject({
-            view: 'engagement',
-            breakdown: 'campaign',
-            filters,
-        })
-
-        await expectLogic(logic, () => logic.actions.setDates('-7d', null)).toFinishAllListeners()
-        expect(router.values.searchParams).toMatchObject({ view: 'engagement', breakdown: 'campaign', filters })
-
-        logic.actions.setDashboardView(MarketingDashboardView.OVERVIEW)
-        logic.actions.setDashboardBreakdown(MarketingAnalyticsAttributionBreakdown.Channel)
-        await expectLogic(logic).toFinishAllListeners()
-        expect(router.values.searchParams).toMatchObject({ view: 'overview', breakdown: 'channel' })
-        expect(new URLSearchParams(router.values.location.search).get('date_to')).toBe('')
-
-        await expectLogic(logic, () =>
-            router.actions.push(urls.marketingAnalyticsApp(), { view: 'retention', breakdown: 'source' })
-        ).toMatchValues({
-            dashboardView: MarketingDashboardView.RETENTION,
-            dashboardBreakdown: MarketingAnalyticsAttributionBreakdown.Source,
-            dashboardProperties: [],
-        })
-
-        await expectLogic(logic, () => router.actions.push(urls.marketingAnalyticsApp())).toMatchValues({
-            dashboardView: MarketingDashboardView.OVERVIEW,
-            dashboardBreakdown: MarketingAnalyticsAttributionBreakdown.Channel,
-            dashboardProperties: [],
-        })
-    })
-
-    it.each([
-        {
-            search: { view: 'retention' },
-            savedBreakdown: 'campaign',
-            expectedView: MarketingDashboardView.RETENTION,
-            expectedBreakdown: MarketingAnalyticsAttributionBreakdown.Channel,
-        },
-        {
-            search: { breakdown: 'source' },
-            savedBreakdown: 'campaign',
-            expectedView: MarketingDashboardView.OVERVIEW,
-            expectedBreakdown: MarketingAnalyticsAttributionBreakdown.Source,
-        },
-        {
-            search: {},
-            savedBreakdown: 'campaign',
-            expectedView: MarketingDashboardView.ENGAGEMENT,
-            expectedBreakdown: MarketingAnalyticsAttributionBreakdown.Campaign,
-        },
-        {
-            search: { view: 'retention' },
-            savedBreakdown: 'retired_dimension',
-            expectedView: MarketingDashboardView.RETENTION,
-            expectedBreakdown: MarketingAnalyticsAttributionBreakdown.Channel,
-        },
-    ])(
-        'hydrates $search with persisted breakdown $savedBreakdown',
-        async ({ search, savedBreakdown, expectedView, expectedBreakdown }) => {
-            localStorage.setItem(
-                `${MOCK_TEAM_ID}__.scenes.webAnalytics.marketingAnalyticsLogic._dashboardView`,
-                JSON.stringify(MarketingDashboardView.ENGAGEMENT)
-            )
-            localStorage.setItem(
-                `${MOCK_TEAM_ID}__.scenes.webAnalytics.marketingAnalyticsLogic._dashboardBreakdown`,
-                JSON.stringify(savedBreakdown)
-            )
-            router.actions.push(urls.marketingAnalyticsApp(), search)
-
-            logic = marketingAnalyticsLogic()
-            logic.mount()
-
-            await expectLogic(logic).toMatchValues({
-                dashboardView: expectedView,
-                dashboardBreakdown: expectedBreakdown,
-                dashboardProperties: [],
-            })
-        }
-    )
-
     it.each([
         ['?date_from=-7d&date_to=', { dateFrom: '-7d', dateTo: null }],
         ['?date_from=-7d&date_to=&tab=setup&section=sources', { dateFrom: '-7d', dateTo: null }],

@@ -55,6 +55,22 @@ class TestDescribeInsightTransition(SimpleTestCase):
                     slack_elements=(snooze_select("01900000-0000-0000-0000-000000000001"),),
                 ),
             ),
+            (
+                "a_detector_firing_names_its_anomaly",
+                AlertEventKind.FIRING,
+                {**DETAIL, "breaches": ["Anomaly detected in Signups: value 50.00 using AI detector"]},
+                SourceDescription(
+                    details=(
+                        MessageDetail(
+                            label="Anomaly detected", value="Anomaly detected in Signups: value 50.00 using AI detector"
+                        ),
+                    ),
+                    context=("Insight: Signups",),
+                    data_link=LINK,
+                    slack_elements=(snooze_select("01900000-0000-0000-0000-000000000001"),),
+                ),
+                {"condition": {"threshold": None, "comparison": {}, "detector": {"type": "llm"}}},
+            ),
             # The platform states a failure in its own words, so only the insight's name and link are added.
             (
                 "an_error_keeps_the_platform_failure_details",
@@ -67,7 +83,12 @@ class TestDescribeInsightTransition(SimpleTestCase):
         ]
     )
     def test_the_insight_words_a_native_message(
-        self, _name: str, kind: AlertEventKind, detail: dict[str, Any], expected: SourceDescription
+        self,
+        _name: str,
+        kind: AlertEventKind,
+        detail: dict[str, Any],
+        expected: SourceDescription,
+        source_config: dict[str, Any] | None = None,
     ) -> None:
         transition = AnnouncedTransition(
             grouping_key="",
@@ -76,7 +97,7 @@ class TestDescribeInsightTransition(SimpleTestCase):
             value=50.0,
             labels={},
             condition={},
-            source_config={},
+            source_config=source_config or {},
             error_message=None,
             occurred_at=datetime(2026, 10, 20, 9, 0, tzinfo=UTC),
             source_detail=detail,

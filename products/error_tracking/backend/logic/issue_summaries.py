@@ -1,16 +1,18 @@
 """Generate, store and read the model-written summary of an issue.
 
-Every trigger calls `get_or_generate_issue_summary`, directly or through the Celery task. It returns
-the stored summary when no new one is due, so callers need no freshness logic of their own.
+The issue-created workflow calls `generate_issue_summary_from_event`, which writes the only summary an issue gets.
+A read calls `read_issue_summary`, which returns what is stored and never starts generation.
 """
 
 import re
 import json
 import time
 import hashlib
-from datetime import datetime, timedelta
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
+from datetime import datetime
 from enum import StrEnum
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from django.db import IntegrityError
 from django.utils import timezone
@@ -19,57 +21,47 @@ import structlog
 from openai import OpenAI
 from openai.types.chat import ChatCompletionMessageParam
 from openai.types.shared_params import ResponseFormatJSONSchema
-from prometheus_client import Counter
+from prometheus_client import Counter, Histogram
 from pydantic import ValidationError
 from redis.exceptions import RedisError
 
-from posthog.schema import DateRange, ErrorTrackingQuery
-
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
-
-from posthog.clickhouse.client.connection import ClickHouseUser, Workload
-from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import build_openai_client, resolve_ai_gateway_config, team_distinct_id
 from posthog.llm.semantic_enrichment import extract_json_object
-from posthog.models import Team
+from posthog.models import Team, User
+from posthog.ph_client import ph_background_capture
 from posthog.redis import get_client
 from posthog.token_bucket import BucketDecision, BucketUnavailable, consume, peek, refund
+from posthog.utils import get_instance_region
 
-from products.error_tracking.backend.facade.contracts import IssueSummaryCategory
-from products.error_tracking.backend.facade.queries import run_error_tracking_query
-from products.error_tracking.backend.facade.query_utils import (
-    TREND_VOLUME_RESOLUTION,
-    as_record,
-    build_impact,
-    build_trend,
-    extract_release,
-    first_event_window,
-    parse_jsonish,
-    to_number,
-    truncate_text,
+from products.access_control.backend.facade.api import (
+    get_restricted_properties_with_group_type_index_for_team,
+    split_restricted_property_names,
 )
+from products.access_control.backend.facade.contracts import UserNotOrganizationMemberError
+from products.error_tracking.backend.facade.contracts import (
+    IssueSummaryCategory,
+    IssueSummaryStatus,
+    IssueSummaryUnavailableReason,
+)
+from products.error_tracking.backend.facade.query_utils import as_record, extract_release, to_number, truncate_text
 from products.error_tracking.backend.logic.issue_summary_config import (
-    ISSUE_SUMMARY_BUDGET,
     ISSUE_SUMMARY_CATEGORY_MODEL,
-    ISSUE_SUMMARY_FACTS_DATE_FROM,
     ISSUE_SUMMARY_FLAG,
-    ISSUE_SUMMARY_HOLD_SECONDS,
-    ISSUE_SUMMARY_LATEST_EVENT_LOOKBACK_DAYS,
     ISSUE_SUMMARY_LLM_TIMEOUT_SECONDS,
     ISSUE_SUMMARY_LOCK_TTL_SECONDS,
     ISSUE_SUMMARY_MAX_OUTPUT_TOKENS,
-    ISSUE_SUMMARY_MIN_REGENERATE_INTERVAL,
     ISSUE_SUMMARY_MODEL,
-    ISSUE_SUMMARY_RECENT_EVENT_LOOKBACK_DAYS,
+    ISSUE_SUMMARY_ON_WRITE_FLAG,
     ISSUE_SUMMARY_STACKTRACE_MAX_TOKENS,
+    ISSUE_SUMMARY_WRITE_BUDGET,
 )
 from products.error_tracking.backend.logic.issue_summary_prompt import (
     ISSUE_SUMMARY_CATEGORY_QUESTION,
     ISSUE_SUMMARY_CATEGORY_QUESTION_ID,
+    ISSUE_SUMMARY_IMPACT_LINE,
+    ISSUE_SUMMARY_IMPACT_NOT_KNOWN_YET,
     ISSUE_SUMMARY_INPUT_TEMPLATE,
     ISSUE_SUMMARY_PROMPT_VERSION,
     ISSUE_SUMMARY_SYSTEM_PROMPT,
@@ -86,33 +78,58 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingIssueSummary,
 )
-from products.error_tracking.backend.tasks.tasks import generate_error_tracking_issue_summary
 from products.error_tracking.backend.temporal.lifecycle.rendering import render_stacktrace
 from products.ml_inference.backend.facade import api as ml_inference
 from products.ml_inference.backend.facade.contracts import ChoiceAnswer, DecisionRequest
 
 logger = structlog.get_logger(__name__)
 
-ISSUE_SUMMARY_BUDGET_KEY_PREFIX = "error_tracking_issue_summary"
+ISSUE_SUMMARY_WRITE_BUDGET_KEY_PREFIX = "error_tracking_issue_summary_write"
 ISSUE_SUMMARY_LOCK_KEY_PREFIX = "error_tracking_issue_summary_lock"
 ISSUE_SUMMARY_AI_PRODUCT = "error_tracking"
+ISSUE_SUMMARY_TASK_EVENT = "error_tracking_issue_summary_generation"
 # The Go gateway keeps the prompt and the reply out of the AI observability project when this is set.
 PRIVACY_MODE_HEADER = "X-PostHog-Privacy-Mode"
 
 UNKNOWN = "unknown"
 IN_APP_FRAME_MARKER = "[in-app]"
-WAIT_POLL_INTERVAL_SECONDS = 0.25
-# Event values must not open or close the <issue> block that fences them in the prompt.
-ISSUE_FENCE_TAG = re.compile(r"</?\s*issue\s*>", re.IGNORECASE)
-LOCK_HELD_FOR_GENERATION = "1"
+# Event values must not open or close the <issue> block that fences them in the prompt. Every angle bracket
+# becomes a look-alike, so no "<" from event text reaches the prompt and no nesting can rebuild a fence tag.
+FENCE_ESCAPES = str.maketrans({"<": "\u2039", ">": "\u203a"})
+# A summary holds no URL and no shell command, even one the prompt holds, because the event text is attacker-controlled.
+SUMMARY_URL = re.compile(r"\b(?:[a-z][a-z0-9+.-]*://|www\.)\S", re.IGNORECASE)
+SUMMARY_SHELL_COMMAND = re.compile(
+    r"\|\s*(?:sudo\s+)?(?:(?:ba|z|da|k)?sh|iex|python[\d.]*|node|perl|ruby)\b"
+    r"|\b(?:curl|wget)\s+(?:-|\S+://|\S+\.\S)"
+    r"|\b(?:ba|z|da|k)?sh\s+-[a-z]*c\b"
+    r"|\b(?:python[\d.]*|node|perl|ruby)\s+-[a-z]*[ce]\b"
+    r"|\bbase64\s+(?:-d|--decode)\b"
+    r"|\bsudo\s+\S"
+    r"|\brm\s+-[a-z]*[rf]"
+    r"|\bchmod\s+\+?[0-7x]"
+    r"|\b(?:powershell|pwsh)(?:\.exe)?\s+-"
+    r"|\bInvoke-Expression\b",
+    re.IGNORECASE,
+)
+# A worker claims with its own token, so only that worker can release the claim.
+LOCK_CLAIM_PREFIX = "claim:"
+# Deletes the key only while it holds ARGV[1], so a claim another worker took after this one expired survives.
+RELEASE_LUA = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+    return redis.call('DEL', KEYS[1])
+end
+return 0
+"""
+
+
+class IssueSummaryTrigger(StrEnum):
+    WRITE = "write"
 
 
 class IssueSummaryOutcome(StrEnum):
     GENERATED = "generated"
-    # A stored summary is younger than the regenerate interval.
+    # A summary is already stored.
     FRESH = "fresh"
-    # A stored summary is older than the interval, but its inputs did not change.
-    UNCHANGED = "unchanged"
     DISABLED = "disabled"
     AI_NOT_APPROVED = "ai_not_approved"
     IN_PROGRESS = "in_progress"
@@ -123,13 +140,43 @@ class IssueSummaryOutcome(StrEnum):
     GATEWAY_UNCONFIGURED = "gateway_unconfigured"
     MODEL_ERROR = "model_error"
     INVALID_OUTPUT = "invalid_output"
+    UNEXPECTED_ERROR = "unexpected_error"
 
 
 ISSUE_SUMMARY_OUTCOMES = Counter(
     "error_tracking_issue_summary_total",
-    "Issue summary requests by outcome",
-    labelnames=("outcome",),
+    "Issue summary requests by outcome and trigger",
+    labelnames=("outcome", "trigger"),
 )
+
+ISSUE_SUMMARY_STAGE_SECONDS = Histogram(
+    "error_tracking_issue_summary_stage_seconds",
+    "Time spent in each issue summary generation stage",
+    labelnames=("stage",),
+    buckets=(0.05, 0.1, 0.25, 0.5, 1, 2, 4, 6, 8, 12, 20, 30, 60, 120),
+)
+
+
+class IssueSummaryTimings:
+    """Milliseconds per generation stage, keyed `<stage>_ms`. A stage that did not run has no entry.
+
+    Stages nest, so do not add them up: `total` contains every other stage.
+    """
+
+    def __init__(self) -> None:
+        self.ms: dict[str, int] = {}
+
+    @contextmanager
+    def stage(self, name: str) -> Iterator[None]:
+        started = time.monotonic()
+        try:
+            yield
+        finally:
+            self.record(name, time.monotonic() - started)
+
+    def record(self, name: str, seconds: float) -> None:
+        self.ms[f"{name}_ms"] = round(seconds * 1000)
+        ISSUE_SUMMARY_STAGE_SECONDS.labels(stage=name).observe(seconds)
 
 
 @frozen
@@ -145,8 +192,38 @@ class IssueSummaryInputs:
     input_hash: str
 
 
+@frozen
+class IssueSummaryState:
+    status: IssueSummaryStatus
+    summary: ErrorTrackingIssueSummary | None = None
+    reason: IssueSummaryUnavailableReason | None = None
+
+
+class WorkflowEventUnavailable(Exception):
+    """The workflow's event did not load, often because ClickHouse has not ingested it yet.
+
+    It is not an inputs error, so the activity raises and Temporal retries it.
+    """
+
+
 def issue_summaries_enabled(team_id: int) -> bool:
     return team_flag_enabled(ISSUE_SUMMARY_FLAG, team_id)
+
+
+def issue_summaries_on_write_enabled(team_id: int) -> bool:
+    return team_flag_enabled(ISSUE_SUMMARY_ON_WRITE_FLAG, team_id)
+
+
+def summary_sources_readable(team_id: int, user: User) -> bool:
+    """False when the user may not read an event property the summary is written from.
+
+    One summary serves the whole team, so a user with a property restriction could otherwise read it through the summary.
+    """
+    try:
+        restrictions = get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
+    except UserNotOrganizationMemberError:
+        return False
+    return ISSUE_SUMMARY_SOURCE_PROPERTIES.isdisjoint(split_restricted_property_names(restrictions).event)
 
 
 def is_ai_data_processing_approved(team_id: int) -> bool:
@@ -160,14 +237,26 @@ def get_issue_summary(team_id: int, issue_id: UUID | str) -> ErrorTrackingIssueS
     return ErrorTrackingIssueSummary.objects.for_team(team_id).filter(issue_id=issue_id).first()
 
 
-def regeneration_due(summary: ErrorTrackingIssueSummary | None, now: datetime) -> bool:
-    return summary is None or now - summary.checked_at >= ISSUE_SUMMARY_MIN_REGENERATE_INTERVAL
+def read_issue_summary(team_id: int, issue_id: UUID | str, user: User) -> IssueSummaryState:
+    """The stored summary, or the reason none is shown. Never starts generation."""
+    if not issue_summaries_enabled(team_id):
+        return IssueSummaryState(status=IssueSummaryStatus.UNAVAILABLE, reason=IssueSummaryUnavailableReason.DISABLED)
+    if not summary_sources_readable(team_id, user):
+        return IssueSummaryState(status=IssueSummaryStatus.UNAVAILABLE, reason=IssueSummaryUnavailableReason.RESTRICTED)
+    if not is_ai_data_processing_approved(team_id):
+        return IssueSummaryState(
+            status=IssueSummaryStatus.UNAVAILABLE, reason=IssueSummaryUnavailableReason.AI_NOT_APPROVED
+        )
+    stored = get_issue_summary(team_id, issue_id)
+    if stored is not None:
+        return IssueSummaryState(status=IssueSummaryStatus.READY, summary=stored)
+    return IssueSummaryState(status=IssueSummaryStatus.NOT_GENERATED)
 
 
 def generation_blocked(team_id: int, stored: ErrorTrackingIssueSummary | None) -> IssueSummaryOutcome | None:
     """The reason no generation can start now, or None when one can."""
-    # Checked first because it needs no network call or query, and most reads find a fresh summary.
-    if not regeneration_due(stored, timezone.now()):
+    # Generation sees only the first event, so any stored summary already covers it.
+    if stored is not None:
         return IssueSummaryOutcome.FRESH
     if not issue_summaries_enabled(team_id):
         return IssueSummaryOutcome.DISABLED
@@ -176,115 +265,169 @@ def generation_blocked(team_id: int, stored: ErrorTrackingIssueSummary | None) -
     return None
 
 
-def start_issue_summary_generation(team_id: int, issue_id: UUID | str) -> bool:
-    """Queue generation in the background when a summary may be due. Returns whether it queued a task.
+def generate_issue_summary_from_event(
+    team_id: int, issue_id: UUID | str, load_event_properties: Callable[[Team], dict[str, object]]
+) -> IssueSummaryResult:
+    """Generate the summary of a new issue from its first event, with no ClickHouse query.
 
-    False means nothing will change soon, so the caller should not wait.
+    Does nothing when a summary is already stored.
+    `load_event_properties` runs only after every check passes, so a blocked attempt reads no event.
     """
-    if generation_blocked(team_id, get_issue_summary(team_id, issue_id)) is not None:
-        return False
-    generate_error_tracking_issue_summary.delay(team_id, str(issue_id))
-    return True
-
-
-def wait_for_issue_summary(
-    team_id: int, issue_id: UUID | str, *, checked_after: datetime | None, timeout_seconds: float
-) -> ErrorTrackingIssueSummary | None:
-    """Poll for a summary generated or confirmed unchanged after `checked_after`, or any summary when it is None.
-
-    Pass the time taken just before `start_issue_summary_generation`. Returns None at the timeout.
-    The background task keeps running.
-    """
-    deadline = time.monotonic() + timeout_seconds
-    while True:
-        summary = get_issue_summary(team_id, issue_id)
-        if summary is not None and (checked_after is None or summary.checked_at > checked_after):
-            return summary
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            return None
-        time.sleep(min(WAIT_POLL_INTERVAL_SECONDS, remaining))
-
-
-def get_or_generate_issue_summary(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
-    """Return a stored summary, or generate one when none is stored or a stale one is due.
-
-    Generation runs at most once at a time per issue. A failure keeps the stored summary.
-    """
-    result = _get_or_generate(team_id, issue_id)
-    ISSUE_SUMMARY_OUTCOMES.labels(outcome=result.outcome.value).inc()
+    trigger = IssueSummaryTrigger.WRITE
+    timings = IssueSummaryTimings()
+    try:
+        with timings.stage("total"):
+            result = _get_or_generate(team_id, issue_id, load_event_properties, timings)
+    except Exception:
+        ISSUE_SUMMARY_OUTCOMES.labels(outcome=IssueSummaryOutcome.UNEXPECTED_ERROR.value, trigger=trigger.value).inc()
+        _report_task(
+            team_id, issue_id, trigger, IssueSummaryOutcome.UNEXPECTED_ERROR, has_summary=False, timings=timings
+        )
+        raise
+    ISSUE_SUMMARY_OUTCOMES.labels(outcome=result.outcome.value, trigger=trigger.value).inc()
     logger.info(
         "error_tracking_issue_summary",
         team_id=team_id,
         issue_id=str(issue_id),
         outcome=result.outcome.value,
+        trigger=trigger.value,
         has_summary=result.summary is not None,
+        **timings.ms,
     )
+    _report_task(team_id, issue_id, trigger, result.outcome, has_summary=result.summary is not None, timings=timings)
     return result
 
 
-def _get_or_generate(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
+def _load_workflow_event(load_event_properties: Callable[[Team], dict[str, object]], team: Team) -> dict[str, object]:
+    try:
+        return load_event_properties(team)
+    except Exception as error:
+        raise WorkflowEventUnavailable from error
+
+
+def report_worker_busy(team_id: int, issue_id: UUID | str, trigger: IssueSummaryTrigger) -> None:
+    """Count and report a lifecycle attempt skipped because every worker summary slot was busy."""
+    ISSUE_SUMMARY_OUTCOMES.labels(outcome=IssueSummaryOutcome.RATE_LIMITED.value, trigger=trigger.value).inc()
+    _report_task(
+        team_id, issue_id, trigger, IssueSummaryOutcome.RATE_LIMITED, has_summary=False, timings=IssueSummaryTimings()
+    )
+
+
+def _report_task(
+    team_id: int,
+    issue_id: UUID | str,
+    trigger: IssueSummaryTrigger,
+    outcome: IssueSummaryOutcome,
+    *,
+    has_summary: bool,
+    timings: IssueSummaryTimings,
+) -> None:
+    # The background client sends from its own thread, so the worker takes the next task without waiting for a flush.
+    try:
+        ph_background_capture()(
+            distinct_id=team_distinct_id(team_id),
+            event=ISSUE_SUMMARY_TASK_EVENT,
+            properties={
+                "team_id": team_id,
+                "issue_id": str(issue_id),
+                # The client's `region` super property names the destination project and overwrites an event `region`.
+                "instance_region": get_instance_region(),
+                "trigger": trigger.value,
+                "outcome": outcome.value,
+                "has_summary": has_summary,
+                **timings.ms,
+            },
+        )
+    except Exception:
+        logger.warning("error_tracking_issue_summary_capture_failed", team_id=team_id, exc_info=True)
+
+
+def _get_or_generate(
+    team_id: int,
+    issue_id: UUID | str,
+    load_event_properties: Callable[[Team], dict[str, object]],
+    timings: IssueSummaryTimings,
+) -> IssueSummaryResult:
     stored = get_issue_summary(team_id, issue_id)
     if (blocked := generation_blocked(team_id, stored)) is not None:
         return IssueSummaryResult(outcome=blocked, summary=stored)
-    if (held := _claim_generation(team_id, issue_id)) is not None:
+    claim = f"{LOCK_CLAIM_PREFIX}{uuid4().hex}"
+    if (held := _claim_generation(team_id, issue_id, claim)) is not None:
         return IssueSummaryResult(outcome=held, summary=stored)
+    try:
+        return _generate_claimed(team_id, issue_id, load_event_properties, timings)
+    finally:
+        _release_claim(team_id, issue_id, claim)
 
+
+def _generate_claimed(
+    team_id: int,
+    issue_id: UUID | str,
+    load_event_properties: Callable[[Team], dict[str, object]],
+    timings: IssueSummaryTimings,
+) -> IssueSummaryResult:
     # Another worker can finish between the first read and the claim.
-    stored = get_issue_summary(team_id, issue_id)
-    if not regeneration_due(stored, timezone.now()):
+    if (stored := get_issue_summary(team_id, issue_id)) is not None:
         return IssueSummaryResult(outcome=IssueSummaryOutcome.FRESH, summary=stored)
 
-    budget_key = f"{ISSUE_SUMMARY_BUDGET_KEY_PREFIX}:{team_id}"
-    # The input queries run before `consume`, so an unchanged issue spends no token. This read keeps a team
-    # with no tokens left from running them for every issue it opens. `consume` still makes the decision.
-    if _budget_exhausted(budget_key):
-        _hold_generation(team_id, issue_id, IssueSummaryOutcome.RATE_LIMITED)
-        return IssueSummaryResult(outcome=IssueSummaryOutcome.RATE_LIMITED, summary=stored)
+    budget_key = f"{ISSUE_SUMMARY_WRITE_BUDGET_KEY_PREFIX}:{team_id}"
+    budget = ISSUE_SUMMARY_WRITE_BUDGET
+    # This read keeps a team with no tokens left from loading the event for every new issue. `consume` still makes
+    # the decision. An unavailable bucket fails closed.
+    peeked = peek(budget_key, budget)
+    if isinstance(peeked, BucketUnavailable) or not peeked.allowed:
+        return IssueSummaryResult(outcome=IssueSummaryOutcome.RATE_LIMITED, summary=None)
 
     team = Team.objects.get(id=team_id)
     try:
-        inputs = build_issue_summary_inputs(team, issue_id)
+        with timings.stage("inputs"):
+            inputs = build_issue_summary_inputs_from_event(
+                team, issue_id, _load_workflow_event(load_event_properties, team)
+            )
+    except WorkflowEventUnavailable:
+        raise
     except Exception as error:
         capture_exception(error, {"team_id": team_id, "issue_id": str(issue_id)})
         logger.warning("error_tracking_issue_summary_inputs_failed", team_id=team_id, issue_id=str(issue_id))
-        return IssueSummaryResult(outcome=IssueSummaryOutcome.INPUTS_ERROR, summary=stored)
+        return IssueSummaryResult(outcome=IssueSummaryOutcome.INPUTS_ERROR, summary=None)
     if isinstance(inputs, IssueSummaryOutcome):
-        if inputs == IssueSummaryOutcome.NO_EXCEPTION:
-            _hold_generation(team_id, issue_id, inputs)
-        return IssueSummaryResult(outcome=inputs, summary=stored)
-    if stored is not None and stored.input_hash == inputs.input_hash:
-        stored.checked_at = timezone.now()
-        ErrorTrackingIssueSummary.objects.for_team(team_id).filter(id=stored.id).update(checked_at=stored.checked_at)
-        return IssueSummaryResult(outcome=IssueSummaryOutcome.UNCHANGED, summary=stored)
+        return IssueSummaryResult(outcome=inputs, summary=None)
 
-    decision = consume(budget_key, ISSUE_SUMMARY_BUDGET)
-    match decision:
+    match consume(budget_key, budget):
         case BucketDecision(allowed=False):
-            _hold_generation(team_id, issue_id, IssueSummaryOutcome.RATE_LIMITED)
-            return IssueSummaryResult(outcome=IssueSummaryOutcome.RATE_LIMITED, summary=stored)
+            return IssueSummaryResult(outcome=IssueSummaryOutcome.RATE_LIMITED, summary=None)
         case BucketUnavailable(error=bucket_error):
-            # Fail open: the per-issue lock and the regenerate interval still bound the spend.
             logger.warning("error_tracking_issue_summary_budget_unavailable", team_id=team_id, error=bucket_error)
+            return IssueSummaryResult(outcome=IssueSummaryOutcome.RATE_LIMITED, summary=None)
 
     # Only the Go gateway honours privacy mode, so the Python gateway fallback is never used.
     if resolve_ai_gateway_config() is None:
-        refund(budget_key, ISSUE_SUMMARY_BUDGET)
-        return IssueSummaryResult(outcome=IssueSummaryOutcome.GATEWAY_UNCONFIGURED, summary=stored)
+        refund(budget_key, budget)
+        return IssueSummaryResult(outcome=IssueSummaryOutcome.GATEWAY_UNCONFIGURED, summary=None)
 
     try:
-        raw = _call_model(team_id, inputs.prompt)
+        with timings.stage("model"):
+            raw = _call_model(team_id, issue_id, inputs.prompt)
     except Exception as error:
         capture_exception(error, {"team_id": team_id, "issue_id": str(issue_id)})
         logger.warning("error_tracking_issue_summary_model_failed", team_id=team_id, issue_id=str(issue_id))
-        return IssueSummaryResult(outcome=IssueSummaryOutcome.MODEL_ERROR, summary=stored)
+        return IssueSummaryResult(outcome=IssueSummaryOutcome.MODEL_ERROR, summary=None)
 
     response = parse_summary_response(raw)
     if response is None:
         logger.warning("error_tracking_issue_summary_invalid_output", team_id=team_id, issue_id=str(issue_id))
-        return IssueSummaryResult(outcome=IssueSummaryOutcome.INVALID_OUTPUT, summary=stored)
+        return IssueSummaryResult(outcome=IssueSummaryOutcome.INVALID_OUTPUT, summary=None)
+    if unsafe_fields := unsafe_summary_fields(response.model_dump()):
+        logger.warning(
+            "error_tracking_issue_summary_unsafe_output",
+            team_id=team_id,
+            issue_id=str(issue_id),
+            fields=unsafe_fields,
+        )
+        return IssueSummaryResult(outcome=IssueSummaryOutcome.INVALID_OUTPUT, summary=None)
 
-    category = infer_issue_category(team_id, inputs.prompt)
+    with timings.stage("category"):
+        category = infer_issue_category(team_id, inputs.prompt)
     generated_at = timezone.now()
     try:
         summary, _ = ErrorTrackingIssueSummary.objects.for_team(team_id).update_or_create(
@@ -304,39 +447,25 @@ def _get_or_generate(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
     return IssueSummaryResult(outcome=IssueSummaryOutcome.GENERATED, summary=summary)
 
 
-def _budget_exhausted(budget_key: str) -> bool:
-    decision = peek(budget_key, ISSUE_SUMMARY_BUDGET)
-    return isinstance(decision, BucketDecision) and not decision.allowed
-
-
 def _lock_key(team_id: int, issue_id: UUID | str) -> str:
     return f"{ISSUE_SUMMARY_LOCK_KEY_PREFIX}:{team_id}:{issue_id}"
 
 
-def _claim_generation(team_id: int, issue_id: UUID | str) -> IssueSummaryOutcome | None:
-    """None when this worker now holds the issue, else the outcome that holds it."""
+def _claim_generation(team_id: int, issue_id: UUID | str, claim: str) -> IssueSummaryOutcome | None:
+    """None when this worker now holds the issue under `claim`, else the outcome that stops it."""
     try:
-        client = get_client()
-        key = _lock_key(team_id, issue_id)
-        if client.set(key, LOCK_HELD_FOR_GENERATION, nx=True, ex=ISSUE_SUMMARY_LOCK_TTL_SECONDS):
-            return None
-        held = client.get(key)
+        claimed = get_client().set(_lock_key(team_id, issue_id), claim, nx=True, ex=ISSUE_SUMMARY_LOCK_TTL_SECONDS)
     except RedisError:
-        # Fail open, as the budget does: a Redis outage can let two concurrent reads both pay.
         logger.warning("error_tracking_issue_summary_lock_unavailable", team_id=team_id, exc_info=True)
-        return None
-    value = held.decode() if isinstance(held, bytes) else held
-    if value in (IssueSummaryOutcome.NO_EXCEPTION, IssueSummaryOutcome.RATE_LIMITED):
-        return IssueSummaryOutcome(value)
-    return IssueSummaryOutcome.IN_PROGRESS
+        return IssueSummaryOutcome.RATE_LIMITED
+    return None if claimed else IssueSummaryOutcome.IN_PROGRESS
 
 
-def _hold_generation(team_id: int, issue_id: UUID | str, outcome: IssueSummaryOutcome) -> None:
-    """Keep the issue claimed past the lock TTL, so reads return `outcome` without running the queries again."""
+def _release_claim(team_id: int, issue_id: UUID | str, claim: str) -> None:
     try:
-        get_client().set(_lock_key(team_id, issue_id), outcome.value, ex=ISSUE_SUMMARY_HOLD_SECONDS)
+        get_client().register_script(RELEASE_LUA)(keys=[_lock_key(team_id, issue_id)], args=[claim])
     except RedisError:
-        logger.warning("error_tracking_issue_summary_hold_unavailable", team_id=team_id, exc_info=True)
+        logger.warning("error_tracking_issue_summary_lock_unavailable", team_id=team_id, exc_info=True)
 
 
 def compute_input_hash(*, fingerprints: list[str], latest_release: str | None, occurrences: int) -> str:
@@ -350,42 +479,57 @@ def compute_input_hash(*, fingerprints: list[str], latest_release: str | None, o
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
 
-def build_issue_summary_inputs(team: Team, issue_id: UUID | str) -> IssueSummaryInputs | IssueSummaryOutcome:
-    """Build the prompt and the input hash, or say why the issue cannot be summarised."""
-    issue = ErrorTrackingIssue.objects.with_first_seen().filter(team_id=team.id, id=issue_id).first()
+# The only event properties the prompt builder sees, and the ones `summary_sources_readable` checks.
+# `_source_properties` drops every other key, so a property left out is missing from the prompt, not leaked.
+ISSUE_SUMMARY_SOURCE_PROPERTIES = frozenset(
+    {"$exception_list", "$exception_level", "$lib", "$current_url", "$exception_release"}
+)
+
+
+def build_issue_summary_inputs_from_event(
+    team: Team, issue_id: UUID | str, event_properties: dict[str, object]
+) -> IssueSummaryInputs | IssueSummaryOutcome:
+    """Build the inputs of a new issue from its only event, which is both its first and its latest."""
+    issue = _issue_with_first_seen(team, issue_id)
     if issue is None:
         return IssueSummaryOutcome.ISSUE_MISSING
-    first_seen: datetime | None = getattr(issue, "first_seen", None)
-
-    now = timezone.now()
-    event_properties: dict[str, object] = {}
-    for lookback_days in (ISSUE_SUMMARY_RECENT_EVENT_LOOKBACK_DAYS, ISSUE_SUMMARY_LATEST_EVENT_LOOKBACK_DAYS):
-        event_properties = _exception_event_properties(
-            team, issue_id, after=now - timedelta(days=lookback_days), before=now, latest=True
-        )
-        if event_properties:
-            break
-    stack_trace = (
-        render_stacktrace(mark_in_app_frames(event_properties), ISSUE_SUMMARY_STACKTRACE_MAX_TOKENS)
-        if event_properties
-        else ""
-    )
+    source_properties = _source_properties(event_properties)
+    stack_trace = _summary_stack_trace(source_properties)
     if not stack_trace:
         return IssueSummaryOutcome.NO_EXCEPTION
+    return _summary_inputs(
+        team,
+        issue_id,
+        first_seen=getattr(issue, "first_seen", None),
+        event_properties=source_properties,
+        first_event_properties=source_properties,
+        stack_trace=stack_trace,
+        impact=None,
+        trend={},
+    )
 
-    first_event_properties: dict[str, object] = {}
-    if (window := first_event_window(first_seen)) is not None:
-        first_event_properties = _exception_event_properties(
-            team,
-            issue_id,
-            after=datetime.fromisoformat(window.after),
-            before=datetime.fromisoformat(window.before),
-            latest=False,
-        )
 
-    aggregated_issue = _aggregated_issue(team, issue_id)
-    impact = build_impact(aggregated_issue)
-    trend = build_trend(aggregated_issue, first_seen) or {}
+def _issue_with_first_seen(team: Team, issue_id: UUID | str) -> ErrorTrackingIssue | None:
+    return ErrorTrackingIssue.objects.with_first_seen().filter(team_id=team.id, id=issue_id).first()
+
+
+def _summary_stack_trace(event_properties: dict[str, object]) -> str:
+    if not event_properties:
+        return ""
+    return render_stacktrace(mark_in_app_frames(event_properties), ISSUE_SUMMARY_STACKTRACE_MAX_TOKENS)
+
+
+def _summary_inputs(
+    team: Team,
+    issue_id: UUID | str,
+    *,
+    first_seen: datetime | None,
+    event_properties: dict[str, object],
+    first_event_properties: dict[str, object],
+    stack_trace: str,
+    impact: dict[str, object] | None,
+    trend: dict[str, object],
+) -> IssueSummaryInputs:
     latest_release = extract_release(event_properties).get("version")
     first_release = extract_release(first_event_properties).get("version")
     exception = first_exception(event_properties)
@@ -405,19 +549,18 @@ def build_issue_summary_inputs(team: Team, issue_id: UUID | str) -> IssueSummary
         "trend_direction": _text(trend.get("direction")),
         "previous_occurrences": _count(trend.get("previous_occurrences")),
         "current_occurrences": _count(trend.get("current_occurrences")),
-        "occurrences": _count(impact.get("occurrences")),
-        "users": _count(impact.get("users")),
-        "sessions": _count(impact.get("sessions")),
+        "impact": _impact_line(impact),
     }
     prompt = ISSUE_SUMMARY_INPUT_TEMPLATE.format(
-        **{name: ISSUE_FENCE_TAG.sub("", value) for name, value in fields.items()}
+        **{name: value.translate(FENCE_ESCAPES) for name, value in fields.items()}
     )
     fingerprints = list(
         ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team.id, issue_id=issue_id).values_list(
             "fingerprint", flat=True
         )
     )
-    occurrences = to_number(impact.get("occurrences"))
+    # A new issue holds only its first event, so it hashes as one occurrence.
+    occurrences = to_number(impact.get("occurrences")) if impact is not None else 1
     return IssueSummaryInputs(
         prompt=prompt,
         input_hash=compute_input_hash(
@@ -466,57 +609,18 @@ def _count(value: object) -> str:
     return str(int(number)) if number is not None else UNKNOWN
 
 
-def _exception_event_properties(
-    team: Team, issue_id: UUID | str, *, after: datetime, before: datetime, latest: bool
-) -> dict[str, object]:
-    query = parse_select(
-        f"""
-        SELECT properties
-        FROM events
-        WHERE event = '$exception'
-          AND issue_id = {{issue_id}}
-          AND timestamp >= {{after}}
-          AND timestamp < {{before}}
-        ORDER BY timestamp {"DESC" if latest else "ASC"}
-        LIMIT 1
-        """,
-        placeholders={
-            "issue_id": ast.Constant(value=str(issue_id)),
-            "after": ast.Constant(value=after),
-            "before": ast.Constant(value=before),
-        },
+def _impact_line(impact: dict[str, object] | None) -> str:
+    if impact is None:
+        return ISSUE_SUMMARY_IMPACT_NOT_KNOWN_YET
+    return ISSUE_SUMMARY_IMPACT_LINE.format(
+        occurrences=_count(impact.get("occurrences")),
+        users=_count(impact.get("users")),
+        sessions=_count(impact.get("sessions")),
     )
-    with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
-        response = execute_hogql_query(
-            query=query,
-            team=team,
-            query_type="ErrorTrackingIssueSummaryEventProperties",
-            workload=Workload.OFFLINE,
-            ch_user=ClickHouseUser.ERROR_TRACKING,
-        )
-    if not response.results:
-        return {}
-    return as_record(parse_jsonish(response.results[0][0])) or {}
 
 
-def _aggregated_issue(team: Team, issue_id: UUID | str) -> dict[str, object]:
-    query = ErrorTrackingQuery(
-        kind="ErrorTrackingQuery",
-        issueId=str(issue_id),
-        dateRange=DateRange(date_from=ISSUE_SUMMARY_FACTS_DATE_FROM),
-        filterTestAccounts=True,
-        volumeResolution=TREND_VOLUME_RESOLUTION,
-        limit=1,
-        orderBy="last_seen",
-        orderDirection="DESC",
-        withAggregations=True,
-        withFirstEvent=False,
-        withLastEvent=False,
-        tags={"productKey": "error_tracking"},
-    )
-    data = run_error_tracking_query(team, query)
-    results = data.get("results")
-    return (as_record(results[0]) or {}) if isinstance(results, list) and results else {}
+def _source_properties(properties: dict[str, object]) -> dict[str, object]:
+    return {key: value for key, value in properties.items() if key in ISSUE_SUMMARY_SOURCE_PROPERTIES}
 
 
 ISSUE_SUMMARY_RESPONSE_FORMAT: ResponseFormatJSONSchema = {
@@ -529,11 +633,11 @@ ISSUE_SUMMARY_RESPONSE_FORMAT: ResponseFormatJSONSchema = {
 }
 
 
-def _call_model(team_id: int, prompt: str) -> str:
+def _call_model(team_id: int, issue_id: UUID | str, prompt: str) -> str:
     client: OpenAI = build_openai_client(
         "django",
         ai_product=ISSUE_SUMMARY_AI_PRODUCT,
-        properties={"team_id": str(team_id)},
+        properties={"team_id": str(team_id), "issue_id": str(issue_id)},
         distinct_id=team_distinct_id(team_id),
     )
     messages: list[ChatCompletionMessageParam] = [
@@ -565,6 +669,19 @@ def parse_summary_response(raw: str) -> IssueSummaryResponse | None:
         return IssueSummaryResponse.model_validate(parsed)
     except ValidationError:
         return None
+
+
+def unsafe_summary_fields(content: Mapping[str, object]) -> list[str]:
+    """Return the text fields that hold a URL or a shell command.
+
+    The whole summary is dropped when any field fails: a model that copied one injected instruction may have
+    followed others, such as one that calls a real error benign.
+    """
+    return [
+        name
+        for name, value in content.items()
+        if isinstance(value, str) and (SUMMARY_URL.search(value) or SUMMARY_SHELL_COMMAND.search(value))
+    ]
 
 
 def infer_issue_category(team_id: int, prompt: str) -> IssueSummaryCategory | None:

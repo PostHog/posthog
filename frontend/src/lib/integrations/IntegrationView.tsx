@@ -13,6 +13,7 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { GitHubRepoSummary } from 'lib/integrations/GitHubRepoSummary'
 import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
+import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -20,16 +21,21 @@ import { urls } from 'scenes/urls'
 import { IntegrationType } from '~/types'
 
 import { integrationAuthorizeUrl, integrationsLogic, reconnectReturnUrl } from './integrationsLogic'
-import { DARK_MODE_INVERT_ICON_KINDS, getIntegrationNameFromKind } from './utils'
+import { DARK_MODE_INVERT_ICON_KINDS, IntegrationConnectSurface, getIntegrationNameFromKind } from './utils'
 
 export function IntegrationView({
     integration,
     suffix,
+    actions,
     schema,
+    hideWebhookReconnect,
 }: {
     integration: IntegrationType
     suffix?: JSX.Element
+    /** Shown before the default Disconnect button. Ignored when `suffix` is set. */
+    actions?: JSX.Element | null
     schema?: { requiredScopes?: string }
+    hideWebhookReconnect?: boolean
 }): JSX.Element {
     const { deleteIntegration } = useActions(integrationsLogic)
     const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
@@ -37,6 +43,17 @@ export function IntegrationView({
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
+
+    const reconnectAction = (surface: IntegrationConnectSurface): LemonBannerAction => ({
+        children: 'Reconnect',
+        disableClientSideRouting: true,
+        to: integrationAuthorizeUrl({
+            kind: integration.kind,
+            next: reconnectReturnUrl(window.location.pathname, window.location.search),
+        }),
+        onClick: () => reportIntegrationConnectClicked(integration.kind, integration.kind, surface),
+        disabledReason: restrictedReason,
     })
 
     const errors = (integration.errors && integration.errors?.split(',')) || []
@@ -61,6 +78,7 @@ export function IntegrationView({
 
     suffix = suffix || (
         <div className="flex flex-row gap-2">
+            {actions}
             <LemonButton
                 type="secondary"
                 status="danger"
@@ -195,27 +213,19 @@ export function IntegrationView({
                 </div>
             ) : errors.length > 0 ? (
                 <div className="p-2">
-                    <LemonBanner
-                        type="error"
-                        action={{
-                            children: 'Reconnect',
-                            disableClientSideRouting: true,
-                            to: integrationAuthorizeUrl({
-                                kind: integration.kind,
-                                next: reconnectReturnUrl(window.location.pathname, window.location.search),
-                            }),
-                            onClick: () =>
-                                reportIntegrationConnectClicked(
-                                    integration.kind,
-                                    integration.kind,
-                                    'error_banner_reconnect'
-                                ),
-                            disabledReason: restrictedReason,
-                        }}
-                    >
+                    <LemonBanner type="error" action={reconnectAction('error_banner_reconnect')}>
                         {errors[0] === 'TOKEN_REFRESH_FAILED'
                             ? 'Authentication token could not be refreshed. You can reconnect this account or disconnect it and connect a different one.'
                             : `There was an error with this integration: ${errors[0]}`}
+                    </LemonBanner>
+                </div>
+            ) : integration.needs_webhook_reconnect && !hideWebhookReconnect ? (
+                <div className="p-2">
+                    <LemonBanner type="info" action={reconnectAction('webhook_banner_reconnect')}>
+                        <span>
+                            Error tracking issues can now sync their status with linked Linear tickets. To turn this on,
+                            switch to <strong>{integration.display_name}</strong> in Linear and reconnect.
+                        </span>
                     </LemonBanner>
                 </div>
             ) : (

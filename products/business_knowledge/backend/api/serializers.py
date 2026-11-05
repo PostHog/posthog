@@ -26,6 +26,7 @@ from ..models import (
     EmbeddingStatus,
     KnowledgeLibrarySource,
     KnowledgeSource,
+    LearningBackfillStatus,
     RefreshInterval,
     SafetyVerdict,
     SourceType,
@@ -492,6 +493,15 @@ class KnowledgeSourceDocumentSerializer(serializers.Serializer):
     )
 
 
+class KnowledgeAvailabilitySerializer(serializers.Serializer):
+    has_sources = serializers.BooleanField(
+        read_only=True, help_text="True when the project has at least one business knowledge source."
+    )
+    has_repositories = serializers.BooleanField(
+        read_only=True, help_text="True when this environment has at least one GitHub repository selected."
+    )
+
+
 class KnowledgeDocumentWindowSerializer(serializers.Serializer):
     """
     One chunk in a drill-down window over a single knowledge document.
@@ -670,6 +680,24 @@ class GapTopicActionResultSerializer(serializers.Serializer):
 # ---------------------------------------------------------------------------
 
 
+class LearningBackfillProgressSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=LearningBackfillStatus.choices,
+        help_text="`running` while PostHog reads past tickets. `completed` once every ticket in the window is read.",
+    )
+    started_at = serializers.DateTimeField(help_text="When someone started learning from past tickets.")
+    finished_at = serializers.DateTimeField(
+        allow_null=True, help_text="When every past ticket was read. Null while the run continues."
+    )
+    tickets_read = serializers.IntegerField(
+        help_text="Tickets analyzed since the run started, including tickets from the regular 7-day pass."
+    )
+    tickets_in_progress = serializers.IntegerField(help_text="Tickets that are being analyzed now.")
+    knowledge_created = serializers.IntegerField(
+        help_text="Analyzed tickets that added a learned source to business knowledge."
+    )
+
+
 @extend_schema_serializer(component_name="BusinessKnowledgeSettings")
 class BusinessKnowledgeSettingsSerializer(serializers.Serializer):
     learn_from_support_enabled = serializers.BooleanField(
@@ -681,6 +709,11 @@ class BusinessKnowledgeSettingsSerializer(serializers.Serializer):
     support_enabled = serializers.BooleanField(
         read_only=True,
         help_text="Whether Support is enabled for this environment. Learning cannot be turned on while this is false.",
+    )
+    learning_backfill = LearningBackfillProgressSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="The last run of learning from past tickets. Null when none ran since learning was turned on.",
     )
 
 

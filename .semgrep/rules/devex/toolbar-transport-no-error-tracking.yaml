@@ -14,8 +14,8 @@ rules:
       languages: [typescript]
       paths:
           include:
-              - frontend/src/toolbar/toolbarApi.ts
-              - frontend/src/toolbar/toolbarFetch.ts
+              - frontend/src/toolbar/shared/toolbarApi.ts
+              - frontend/src/toolbar/shared/toolbarFetch.ts
       pattern-either:
           - pattern: captureToolbarException(...)
           - pattern: $X.captureException(...)

@@ -26,8 +26,18 @@ from enum import Enum
 from typing import Annotated, Any, Literal, cast
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    RootModel,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
+from products.signals.backend.credential_redaction import redact_credentials
 from products.signals.backend.enums import ReportLinkKind, ReportPriority, SuggestedSourceProduct
 from products.signals.backend.report_checks import CheckComparison, CheckInconclusiveReason, CheckOutcome
 from products.signals.backend.report_metrics import MAX_METRIC_UNIT_LENGTH, ReportMetricValueFormat
@@ -254,6 +264,14 @@ class SuggestedReviewerEntry(BaseModel):
         default=False,
         description="Research selected this reviewer. Autostart requires independent ownership or commit confirmation.",
     )
+    is_default_owner: bool = Field(
+        default=False,
+        description=(
+            "True when no evidence selected anyone and the report fell back to the project's default owner. "
+            "The entry routes the report, but it is not ownership evidence: removing it is not a routing "
+            "correction, and it never selects the autostart task identity."
+        ),
+    )
     source_skill: str | None = Field(
         default=None,
         description=(
@@ -306,6 +324,34 @@ class ReviewerState(BaseModel):
     corrections_id: UUID | None = None
 
 
+class PROwnerIdentityProof(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    source: Literal["github_user_integration", "github_oauth"]
+    user_uuid: UUID
+    github_user_id: int
+    verified_at: datetime
+    expires_at: datetime
+
+
+class PROwnerIdentity(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    login: str = Field(pattern=r"^[a-z0-9](?:-?[a-z0-9]){0,38}$")
+    proof: PROwnerIdentityProof | None = None
+
+
+class PROwnerAssignment(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    repository: str
+    pr_number: int = Field(gt=0)
+    owners: tuple[PROwnerIdentity, ...]
+    origin: Literal["report", "claim", "legacy"]
+    assigned_at: datetime
+    replaced_logins: tuple[str, ...] = ()
+
+
 class ReviewerCorrections(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -322,6 +368,8 @@ class ReviewerProposal(BaseModel):
     source: str = "automatic"
     outcome: Literal["selected", "no_suitable_owner", "lookup_failed"] = "selected"
     retry_reason: str | None = Field(default=None, max_length=500)
+    # Why a scout edit found no suitable owner. Required before that outcome may clear a non-empty list.
+    outcome_reason: str | None = Field(default=None, max_length=500)
 
     @model_validator(mode="after")
     def validate_outcome(self) -> ReviewerProposal:
@@ -509,13 +557,14 @@ class RankingScore(BaseModel):
         return self
 
 
-# Reason code shared by the dismissal writer (the state API) and the corrections reader
-# (`repo_corrections`), defined here so the two cannot drift apart.
+# Reason-only routing feedback still needs to reach the authoring scout.
+DISMISSAL_REASON_WRONG_ASSIGNEE = "wrong_assignee"
+# Shared by the dismissal writer and repository-corrections reader so they cannot drift apart.
 DISMISSAL_REASON_WRONG_REPO = "wrong_repo"
 # Reason codes that claim the issue is fixed, rather than stating a preference about the report.
 # A later matching signal contradicts the claim, so the grouping stage treats these dismissals the
 # way it treats a resolved report: the recurrence gets a fresh report (see `recurrence.py`). The
-# `wontfix_*` codes and the rest stay sinks, because they say "I do not want this".
+# `wrong_repo` can also start a fresh report, but does not claim a previous fix.
 FIXED_DISMISSAL_REASONS = frozenset({"already_fixed", "fixed_outside_posthog", "pr_merged"})
 # Bounds shared by the state API and this schema, so the generic artefact endpoint cannot store a
 # dismissal the state API would reject. Readers scan these rows in bulk (`repo_corrections`), so an
@@ -758,6 +807,21 @@ class NoteArtefact(BaseModel):
 
     note: str = Field(description="The note text (markdown allowed).")
     author: str | None = Field(default=None, description="Optional label for who authored the note.")
+    analytics_query_context: list[dict[str, JsonValue]] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description="Frozen source queries that gate access to the note's evidence.",
+    )
+    restricted_to_user_id: int | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description="Acting user allowed to read assessment evidence from additional sources.",
+    )
+    source_check_ids: list[str] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description="Follow-up checks whose evidence informed this note.",
+    )
 
     @field_validator("note")
     @classmethod
@@ -765,6 +829,25 @@ class NoteArtefact(BaseModel):
         if not v.strip():
             raise ValueError("must not be empty or whitespace-only")
         return v
+
+
+class CheckAuthoringStatus(BaseModel):
+    status: Literal["succeeded", "failed"]
+    reason: str = Field(min_length=1)
+
+
+class ScoutNoteLeft(BaseModel):
+    """Content schema for a `scout_note_left` artefact: a person left a scout note from this report.
+
+    Appended by the notes API in the same transaction as the note, so the report keeps a record of
+    the steering after the note itself is retired. Never written through the generic artefact API.
+    """
+
+    note: str = Field(description="The note text as its author wrote it, without the report reference.")
+    skill_name: str = Field(
+        default="", description="The scout the note was addressed to, or blank for every scout on the project."
+    )
+    scout_note_id: str = Field(description="The id of the scout note this entry records.")
 
 
 class TitleChange(BaseModel):
@@ -788,6 +871,12 @@ class TitleChange(BaseModel):
             raise ValueError("must not be empty or whitespace-only")
         return v
 
+    # The edit history outlives the edit, so a token pasted and then edited out must not stay here.
+    @field_validator("old_title", "new_title")
+    @classmethod
+    def redact_title_credentials(cls, v: str | None) -> str | None:
+        return None if v is None else redact_credentials(v)
+
 
 class SummaryChange(BaseModel):
     """Content schema for a `summary_change` artefact: a record of an edit to the report's summary
@@ -809,6 +898,12 @@ class SummaryChange(BaseModel):
         if not v.strip():
             raise ValueError("must not be empty or whitespace-only")
         return v
+
+    # The edit history outlives the edit, so a token pasted and then edited out must not stay here.
+    @field_validator("old_summary", "new_summary")
+    @classmethod
+    def redact_summary_credentials(cls, v: str | None) -> str | None:
+        return None if v is None else redact_credentials(v)
 
 
 class RelatedTo(BaseModel):
@@ -1158,7 +1253,12 @@ class CheckCancelled(CheckLifecycleEntry):
     """
 
     reason: Literal[
-        "stopped_by_person", "stopped_by_scout", "replaced_by_research", "replaced_by_request", "no_check_lane"
+        "stopped_by_person",
+        "stopped_by_scout",
+        "replaced_by_research",
+        "replaced_by_request",
+        "no_check_lane",
+        "monitoring_completed",
     ] = Field(description="Which path stopped the check.")
 
 
@@ -1219,7 +1319,8 @@ class ImpactMeasurementPlan(BaseModel):
 
 
 StatusArtefactContent = (
-    SafetyJudgment
+    CheckAuthoringStatus
+    | SafetyJudgment
     | ActionabilityAssessment
     | PriorityAssessment
     | RepoSelectionResult
@@ -1233,9 +1334,11 @@ StatusArtefactContent = (
 )
 LogArtefactContent = (
     CodeReference
+    | PROwnerAssignment
     | Commit
     | TaskRunArtefact
     | NoteArtefact
+    | ScoutNoteLeft
     | TitleChange
     | SummaryChange
     | CodeReview
@@ -1267,6 +1370,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "repo_selection": RepoSelectionResult,
     "suggested_reviewers": SuggestedReviewers,
     "reviewer_corrections": ReviewerCorrections,
+    "pr_owner_assignment": PROwnerAssignment,
     "channel_assignment": ChannelAssignment,
     "ranking_score": RankingScore,
     "dismissal": Dismissal,
@@ -1274,6 +1378,8 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "commit": Commit,
     "task_run": TaskRunArtefact,
     "note": NoteArtefact,
+    "check_authoring": CheckAuthoringStatus,
+    "scout_note_left": ScoutNoteLeft,
     "title_change": TitleChange,
     "summary_change": SummaryChange,
     "code_review": CodeReview,
@@ -1322,10 +1428,12 @@ _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model 
 NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
     {
         "reviewer_corrections",
+        "pr_owner_assignment",
         "task_run",
         "video_segment",
         "title_change",
         "summary_change",
+        "scout_note_left",
         "code_review",
         "work_claim",
         "work_release",
@@ -1333,6 +1441,7 @@ NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
         "check_result",
         "check_observation",
         "check_scheduled",
+        "check_authoring",
         "check_expired",
         "check_cancelled",
         "report_link",

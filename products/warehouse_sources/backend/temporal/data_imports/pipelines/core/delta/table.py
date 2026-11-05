@@ -458,7 +458,14 @@ class DeltaTableRef:
 
     async def _open_delta_table(self) -> deltalake.DeltaTable | None:
         delta_uri = await self._get_delta_table_uri()
-        storage_options = self._get_credentials()
+        try:
+            storage_options = self._get_credentials()
+        except Exception as e:
+            # Unlike the open attempts below, this call isn't delta-rs's own object_store client, so
+            # an unreachable/bootstrapping bucket (ensure_bucket_exists's EndpointConnectionError under
+            # USE_LOCAL_SETUP) would otherwise escape uncaught here and reach the caller unclassified.
+            await self._capture_unless_transient(e)
+            raise
 
         table = await self._open_directly(delta_uri, storage_options)
         if table is not None:

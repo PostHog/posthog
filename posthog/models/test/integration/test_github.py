@@ -1193,7 +1193,7 @@ class TestGitHubIntegrationModel(BaseTest):
         assert mock_post.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/issues/123/comments"
         assert mock_post.call_args.kwargs["json_body"] == {"body": "hello"}
 
-    def test_get_pull_request_includes_requested_reviewers(self):
+    def test_get_pull_request_includes_requested_reviewers_and_teams(self):
         integration = self.create_integration(
             config={"account": {"name": "PostHog"}}, sensitive_config={"access_token": "ACCESS_TOKEN"}
         )
@@ -1203,6 +1203,7 @@ class TestGitHubIntegrationModel(BaseTest):
             "number": 123,
             "assignees": [{"login": "alice"}],
             "requested_reviewers": [{"login": "bob"}],
+            "requested_teams": [{"slug": "team-signals"}],
         }
 
         with patch.object(github, "_installation_authenticated_get", return_value=mock_response):
@@ -1210,6 +1211,36 @@ class TestGitHubIntegrationModel(BaseTest):
 
         assert result["assignees"] == ["alice"]
         assert result["requested_reviewers"] == ["bob"]
+        assert result["requested_teams"] == ["team-signals"]
+
+    @parameterized.expand(
+        [
+            (
+                "removed_on_later_page",
+                True,
+                [{"event": "review_request_removed", "requested_reviewer": {"login": "Alice"}}],
+                {"alice"},
+            ),
+            ("team_removal", True, [{"event": "review_request_removed", "requested_team": {"slug": "owners"}}], set()),
+            ("incomplete_history", False, [], None),
+            ("invalid_history", True, {"message": "Moved"}, None),
+        ]
+    )
+    def test_removed_reviewers_require_complete_history(
+        self, _name: str, complete: bool, last_page: object, expected: set[str] | None
+    ) -> None:
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
+        first = MagicMock(status_code=200)
+        first.links = {"next": {"url": "https://api.github.com/repos/PostHog/posthog/issues/123/timeline?page=2"}}
+        first.json.return_value = [{"event": "review_requested", "requested_reviewer": {"login": "bob"}}]
+        second = MagicMock(status_code=200) if complete else None
+        if second is not None:
+            second.links = {}
+            second.json.return_value = last_page
+        with patch.object(github, "_installation_authenticated_get", side_effect=[first, second]) as mock_get:
+            assert github.get_removed_pull_request_reviewers("PostHog/posthog", 123) == expected
+        assert mock_get.call_args_list[0].args[0] == "https://api.github.com/repos/PostHog/posthog/issues/123/timeline"
 
     def test_list_submitted_pull_request_reviewers_reads_every_page(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
@@ -1266,6 +1297,19 @@ class TestGitHubIntegrationModel(BaseTest):
         # Assignees go through the issues endpoint, not /pulls.
         assert mock_post.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/issues/123/assignees"
         assert mock_post.call_args.kwargs["json_body"] == {"assignees": ["alice", "outsider"]}
+
+    def test_remove_pull_request_assignees_deletes_from_issues_endpoint(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
+        response = MagicMock(status_code=200)
+        response.json.return_value = {"assignees": [{"login": "bob"}]}
+
+        with patch.object(github, "_installation_authenticated_delete", return_value=response) as mock_delete:
+            result = github.remove_pull_request_assignees("PostHog/posthog", 123, ["alice"])
+
+        assert result == {"success": True, "assignees": ["bob"]}
+        assert mock_delete.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/issues/123/assignees"
+        assert mock_delete.call_args.kwargs["json_body"] == {"assignees": ["alice"]}
 
     @parameterized.expand(
         [

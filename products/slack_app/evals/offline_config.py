@@ -5,10 +5,18 @@ from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.posthog_ai.eval_harness.offline_results import OfflineEvalSuite, OfflineScorer
 
 _SCORERS: dict[str, dict[str, OfflineScorer]] = {
+    "feature_tip_picker": {
+        "feature_tip": OfflineScorer(kind="boolean", version=UUID("01a1692e-3104-7138-a33c-ab37d915ac6e")),
+        "no_forced_tip": OfflineScorer(kind="boolean", version=UUID("01a1692e-3589-7893-a06a-e0f1893d8a19")),
+    },
     "followup_classifier": {
         "exit_code_zero": OfflineScorer(kind="boolean", version=UUID("01a1557c-9b63-776a-91f3-113ab57c025a")),
         "followup_routing": OfflineScorer(kind="boolean", version=UUID("01a1557c-d1ca-7c68-96eb-5406fd8dde02")),
         "no_unasked_wake": OfflineScorer(kind="boolean", version=UUID("01a1557c-dd52-78d0-a1f1-1854076c09ac")),
+    },
+    "interview_sentiment": {
+        "interview_sentiment": OfflineScorer(kind="boolean", version=UUID("01a1783a-9ee4-73a5-bbdf-fe91e943eb96")),
+        "no_unasked_invite": OfflineScorer(kind="boolean", version=UUID("01a1783a-9ee4-73a5-bbdf-fe92235d3e9c")),
     },
     "model_classifier": {
         "exit_code_zero": OfflineScorer(kind="boolean", version=UUID("01a1557c-e620-710d-82d2-de63990000f1")),
@@ -29,6 +37,13 @@ _SCORERS: dict[str, dict[str, OfflineScorer]] = {
             kind="boolean", version=UUID("01a1557d-415e-78ff-8bcb-1e6cc67b77ac")
         ),
         "project_route_match": OfflineScorer(kind="boolean", version=UUID("01a1557d-37df-756c-a5fb-73edde0b1561")),
+    },
+    "repo_selection_routing": {
+        "exit_code_zero": OfflineScorer(kind="boolean", version=UUID("01a1a29b-30cf-7fef-907b-69efc56159bb")),
+        "routing_stage_correct": OfflineScorer(kind="boolean", version=UUID("01a1a29b-32a3-7dfc-b5b7-33931ddc73ac")),
+        "routing_repository_correct": OfflineScorer(
+            kind="boolean", version=UUID("01a1a29b-3447-794a-afcb-83778635c273")
+        ),
     },
     "reply_suggestions": {
         "exit_code_zero": OfflineScorer(kind="boolean", version=UUID("01a1557d-49a7-7417-aa9f-4dbe00ec7b47")),

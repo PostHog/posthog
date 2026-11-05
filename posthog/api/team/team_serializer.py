@@ -8,9 +8,12 @@ from django.utils import timezone
 from drf_spectacular.utils import extend_schema_field
 from opentelemetry import trace
 from rest_framework import exceptions, serializers
+from rest_framework.request import Request
 
+from posthog import cloud_utils
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.utils import validate_authorized_url_wildcards
+from posthog.auth import WorkloadAccessTokenAuthentication
 from posthog.constants import AvailableFeature
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import is_impersonated
@@ -60,6 +63,26 @@ from . import (
 tracer = trace.get_tracer(__name__)
 
 
+# Credentials a project response carries that outlive a workload token: the project secret token and its backup,
+# the heatmaps screenshot secret, and the 7-day live events token. A workload token acts as the organization owner,
+# so without this a workload could read one and keep access after its token expires. The public project token
+# (`api_token`) stays.
+TEAM_SECRET_FIELDS_HIDDEN_FROM_WORKLOAD_TOKENS = (
+    "secret_api_token",
+    "secret_api_token_backup",
+    "heatmaps_screenshot_secret",
+    "live_events_token",
+)
+
+
+def hide_team_secrets_from_workload_tokens(representation: dict[str, Any], request: Request | None) -> dict[str, Any]:
+    # The page-load path passes a plain Django request, which has no authenticator.
+    if isinstance(getattr(request, "successful_authenticator", None), WorkloadAccessTokenAuthentication):
+        for field in TEAM_SECRET_FIELDS_HIDDEN_FROM_WORKLOAD_TOKENS:
+            representation.pop(field, None)
+    return representation
+
+
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Team | None
     _group_types_cache: list[dict[str, Any]] | None = None
@@ -77,6 +100,13 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         )
     )
     available_setup_task_ids = serializers.SerializerMethodField()
+    api_host = serializers.SerializerMethodField(
+        help_text=(
+            "Host the PostHog SDKs send events to, set as their `api_host` option. It is "
+            "`https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, "
+            "and the instance URL when self-hosted."
+        )
+    )
     heatmaps_screenshot_secret = serializers.SerializerMethodField(
         help_text=(
             "Value this project's heatmap screenshots send as a cookie scoped to your domain, "
@@ -135,6 +165,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "managed_viewsets",
             "flag_evaluations_mode",
             "available_setup_task_ids",
+            "api_host",
         )
 
         read_only_fields = (
@@ -159,6 +190,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "managed_viewsets",
             "flag_evaluations_mode",
             "available_setup_task_ids",
+            "api_host",
         )
 
     def get_fields(self) -> dict[str, serializers.Field]:
@@ -173,8 +205,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
             with tracer.start_as_current_span("team_serializer.default_data_theme_fallback"):
                 representation["default_data_theme"] = live_events._default_data_color_theme_id()
+        settings_validation.hide_secret_api_tokens_from_unscoped_caller(representation, self.context.get("request"))
 
-        return representation
+        return hide_team_secrets_from_workload_tokens(representation, self.context.get("request"))
 
     @tracer.start_as_current_span("team_serializer.effective_membership_level")
     def get_effective_membership_level(self, team: Team) -> OrganizationMembership.Level | None:
@@ -199,6 +232,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     @tracer.start_as_current_span("team_serializer.live_events_token")
     def get_live_events_token(self, team: Team) -> str | None:
         return live_events.live_events_token_for_request(team, self.context.get("request"))
+
+    def get_api_host(self, team: Team) -> str:
+        return cloud_utils.get_api_host()
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_heatmaps_screenshot_secret(self, team: Team) -> str | None:

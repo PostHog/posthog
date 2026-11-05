@@ -528,7 +528,6 @@ export type AssistantTool =
     | 'estimate_replay_vision_scanner'
     | 'label_replay_vision_observation'
     | 'analyze_replay_vision_impact'
-    | 'suggest_replay_vision_tags'
     | 'upsert_account'
     | 'upsert_account_notebook'
     | 'open_account'

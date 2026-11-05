@@ -27,7 +27,7 @@ poisoning and no access-control bypass.
 
 The audience is `MARKETING_PRECOMPUTE_TEAM_IDS`: comma-separated team IDs, empty to disable warming, or
 `auto` to warm every team that has a conversion goal AND has opened marketing analytics recently
-(query_log). Unset, it warms the teams whose reads are precompute-only, on PostHog Cloud only: teams
+(query_log_archive). Unset, it warms the teams whose reads are precompute-only, on PostHog Cloud only: teams
 with a conversion goal and the conversion read flag on, and recently active teams with a warehouse table
 and the cost read flag on. `MARKETING_PRECOMPUTE_ACTIVE_DAYS` tunes the `auto` activity window.
 """
@@ -40,6 +40,7 @@ from datetime import UTC, datetime, timedelta
 from functools import partial
 from itertools import islice
 from typing import NamedTuple
+from zoneinfo import ZoneInfo
 
 from django.db import connections
 
@@ -116,8 +117,7 @@ AUTO_AUDIENCE = "auto"
 # Only keep teams warm while they are actually using marketing analytics. A team that has not opened it
 # within this window drops out of the rolling warm set; its next visit reads not-ready and triggers a
 # one-off background warm. This bounds the fleet to the active population instead of every team that ever
-# set a goal. query_log retention caps the effective lookback (~14 days), which is the low end of the range
-# we want anyway.
+# set a goal.
 ACTIVE_DAYS_ENV_VAR = "MARKETING_PRECOMPUTE_ACTIVE_DAYS"
 DEFAULT_ACTIVE_DAYS = 30
 ACTIVE_TEAMS_QUERY_TIMEOUT_SECONDS = 60
@@ -155,21 +155,24 @@ MARKETING_PRECOMPUTE_TEAM_FAILED = Counter(
 
 
 def _recently_active_team_ids(days: int) -> set[int] | None:
-    """Teams that ran a marketing-analytics query within `days`, from query_log. None on failure.
+    """Teams that ran a marketing-analytics query within `days`, from query_log_archive. None on failure.
 
-    None means "couldn't tell" (query_log unavailable / errored) and the caller skips the run. Warming
-    every goal team instead would turn one transient failure into a fleet-wide backfill.
+    None means "couldn't tell" (query_log_archive unavailable / errored) and the caller skips the run.
+    Warming every goal team instead would turn one transient failure into a fleet-wide backfill.
     """
     try:
         # Match on the query_type tag in log_comment (the intended API, as the web warmer does), not a
         # substring of the SQL text — the tag is stable, the annotation format is not.
+        # Read query_log_archive, not system.query_log: the archive stores the log_comment tags as typed
+        # lc_* columns and sorts by query start hour, so the window prunes by time. A scan of
+        # system.query_log on every replica parses log_comment per row and exceeds the timeout.
         rows = sync_execute(
             """
-            SELECT DISTINCT JSONExtractInt(log_comment, 'team_id') AS team_id
-            FROM clusterAllReplicas(posthog, system, query_log)
+            SELECT DISTINCT team_id
+            FROM query_log_archive
             WHERE type != 'QueryStart'
-              AND event_time > now() - toIntervalDay(%(days)s)
-              AND JSONExtractString(log_comment, 'query_type') IN (
+              AND initial_query_start_time > now() - toIntervalDay(%(days)s)
+              AND lc_query_type IN (
                 'marketing_analytics_table_query',
                 'marketing_analytics_aggregated_query'
               )
@@ -210,7 +213,7 @@ def _costs_flag_team_ids() -> set[int]:
     Cost reads never write, so the warmer is the only producer of cost rows. The two read flags roll out
     independently, so a team with only the cost flag on must be in the audience too. Otherwise its cost
     windows expire and every source falls back to the live union. Like `_read_flag_team_ids`, this records
-    no exposure. When query_log is unavailable this returns no teams, so the conversion audience still warms.
+    no exposure. When query_log_archive is unavailable this returns no teams, so the conversion audience still warms.
     """
     active_days = int(os.getenv(ACTIVE_DAYS_ENV_VAR, str(DEFAULT_ACTIVE_DAYS)))
     active_team_ids = _recently_active_team_ids(active_days)
@@ -235,7 +238,7 @@ def get_selected_team_ids() -> list[int]:
     kill switch): a comma-separated list with blank or invalid entries skipped.
 
     `auto` warms every team that both has a conversion goal (`TeamMarketingAnalyticsConfig`) and has
-    opened marketing analytics recently (query_log), which keeps the rolling warm set to the active
+    opened marketing analytics recently (query_log_archive), which keeps the rolling warm set to the active
     population. Cold teams are warmed on-demand on their next visit instead.
     """
     raw = os.getenv(SELECTED_TEAM_IDS_ENV_VAR)
@@ -488,6 +491,7 @@ class _TeamWarmPlan(NamedTuple):
     attribution_window_days: int
     filter_test_accounts: bool
     warm_costs: bool
+    timezone: ZoneInfo
     database: Database | None = None
 
     @property
@@ -531,6 +535,7 @@ def _plan_team(team: Team) -> _TeamWarmPlan | None:
             attribution_window_days=ma_config.attribution_window_days or DEFAULT_ATTRIBUTION_WINDOW_DAYS,
             filter_test_accounts=bool(ma_config.filter_test_accounts),
             warm_costs=bool(config.costs_precomputation_enabled and _team_has_cost_sources(team)),
+            timezone=team.timezone_info,
         )
     except Exception:
         MARKETING_PRECOMPUTE_TEAM_FAILED.labels(stage="setup").inc()
@@ -550,6 +555,16 @@ def _warm_team(context: dagster.OpExecutionContext, plan: _TeamWarmPlan, end: da
     # and schema introspection would be un-attributable in query_log.
     tag_queries(product=Product.MARKETING_ANALYTICS, feature=Feature.CACHE_WARMUP)
     team = plan.team
+    # Reads span whole team-local days and step back in local wall-clock days, so warm the same bounds. A
+    # UTC-based range misses the UTC day that a local day crosses into, and precompute-only reads then report
+    # not-ready or fall back to live costs.
+    local_now = end.astimezone(plan.timezone)
+    local_midnight = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    local_day_end = local_now.replace(hour=23, minute=59, second=59, microsecond=999999).astimezone(UTC)
+
+    def days_before_today(days: int) -> datetime:
+        return (local_midnight - timedelta(days=days)).astimezone(UTC)
+
     conversion_teams = 0
     costs_teams = 0
     failures = 0
@@ -561,14 +576,20 @@ def _warm_team(context: dagster.OpExecutionContext, plan: _TeamWarmPlan, end: da
             try:
                 # Reach back far enough that a read with up to PRECOMPUTE_WINDOW_DAYS of lookback is fully
                 # covered including its touchpoints attribution backfill ([date_from - attribution_window, date_to]).
-                tp_start = end - timedelta(days=PRECOMPUTE_WINDOW_DAYS + plan.attribution_window_days)
+                tp_start = days_before_today(PRECOMPUTE_WINDOW_DAYS + plan.attribution_window_days)
                 failures += _ensure_touchpoints_for_team(
-                    context, team, plan.filter_test_accounts, tp_start, end, PRECOMPUTE_CHUNK_DAYS, plan.database
+                    context,
+                    team,
+                    plan.filter_test_accounts,
+                    tp_start,
+                    local_day_end,
+                    PRECOMPUTE_CHUNK_DAYS,
+                    plan.database,
                 )
                 # Conversions need no attribution backfill — the conversion event must fall in the query range.
                 # Goals that aren't precomputable (non-Events/Actions, schema remaps, person/cohort filters) are
                 # skipped inside; a team can warm touchpoints but no conversions if no goal qualifies.
-                conv_start = end - timedelta(days=PRECOMPUTE_WINDOW_DAYS)
+                conv_start = days_before_today(PRECOMPUTE_WINDOW_DAYS)
                 _goals_warmed, conv_failures = _ensure_conversions_for_team(
                     context,
                     team,
@@ -576,7 +597,7 @@ def _warm_team(context: dagster.OpExecutionContext, plan: _TeamWarmPlan, end: da
                     plan.conversion_goals,
                     plan.filter_test_accounts,
                     conv_start,
-                    end,
+                    local_day_end,
                     PRECOMPUTE_CHUNK_DAYS,
                     plan.database,
                 )
@@ -589,9 +610,9 @@ def _warm_team(context: dagster.OpExecutionContext, plan: _TeamWarmPlan, end: da
 
         if plan.warm_costs:
             try:
-                costs_start = end - timedelta(days=PRECOMPUTE_WINDOW_DAYS)
+                costs_start = days_before_today(PRECOMPUTE_WINDOW_DAYS)
                 _sources_warmed, costs_failures = _ensure_costs_for_team(
-                    context, team, costs_start, end, PRECOMPUTE_CHUNK_DAYS, plan.database
+                    context, team, costs_start, local_day_end, PRECOMPUTE_CHUNK_DAYS, plan.database
                 )
                 failures += costs_failures
                 costs_teams += 1  # after the block, mirroring conversion_teams: not counted if it raised

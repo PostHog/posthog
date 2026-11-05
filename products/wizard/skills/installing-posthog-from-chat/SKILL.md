@@ -2,10 +2,12 @@
 name: installing-posthog-from-chat
 description: >-
   Set up PostHog in a user's GitHub repository from a chat, without a terminal. Wizard, PostHog's
-  setup agent, runs in the cloud, adds the SDK and first events, and opens a pull request. Use when
-  a user in ChatGPT, Claude, or another chat client asks to install, add, or set up PostHog in
-  their app or repository, or asks for a pull request that adds PostHog. Covers connecting GitHub,
-  picking the repository, starting the run, polling it, and sharing the pull request.
+  setup agent, runs in the cloud, adds the SDK and first events, and opens a pull request. Use only
+  when you can't read or edit the user's code, which is common in web chat apps such as ChatGPT on the
+  web or Claude on the web. Typical requests: install, add, or set up PostHog in their app or
+  repository, or open a pull request that adds PostHog. When you're working in the user's repository, use
+  installing-posthog-in-a-codebase instead. Covers connecting GitHub, picking the repository, starting
+  the run, polling it, and sharing the pull request.
 ---
 
 # Installing PostHog from chat

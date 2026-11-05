@@ -57,6 +57,9 @@ test('the ALL sentinel still reports no targets but is flagged', () => {
 test('tripwire domains are counted alongside the files', () => {
     const props = buildProperties(['tsconfig.json', 'mypy.ini', 'hogli.yaml'], UNIVERSE, UNIVERSE)
     assert.deepEqual(props.tripwire_domains, { javascript: 1, python: 1, universal: 1 })
+    const rule = '.semgrep/rules/python/example.yml'
+    const shared = buildProperties([rule], UNIVERSE, UNIVERSE, null, new Map([[rule, 'python']]))
+    assert.deepEqual(shared.tripwire_domains, { python: 1 })
 })
 
 test('file paths are summarized rather than sent', () => {

@@ -42,7 +42,14 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingIssueSummary,
     sync_issues_to_clickhouse,
+)
+from products.error_tracking.backend.tests.api.issue_summary_states import (
+    STORED_CONTENT,
+    SUMMARY_STATES,
+    lock_held,
+    summary_state,
 )
 
 
@@ -349,6 +356,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 200
         assert [row["id"] for row in response.json()["results"]] == [self.issue_id]
+        assert "summary" not in response.json()["results"][0]
 
         project_response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/query/issues",
@@ -362,6 +370,66 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert project_response.status_code == 200
         assert project_response.json()["results"] == []
+
+    @parameterized.expand(
+        [
+            ("relative", {"firstSeenAfter": "-1d"}, {"new"}),
+            ("relative_minutes", {"firstSeenAfter": "-180M"}, {"new"}),
+            ("absolute", {"firstSeenAfter": "2026-04-23T12:00:00Z"}, {"new"}),
+            ("milliseconds", {"firstSeenAfter": "2026-04-24T10:00:00.500Z"}, set()),
+            ("before_both", {"firstSeenAfter": "-3d"}, {"new", "old"}),
+            (
+                "filter_group_before",
+                {
+                    "filterGroup": [
+                        {
+                            "key": "first_seen",
+                            "type": "error_tracking_issue",
+                            "operator": "lt",
+                            "value": "2026-04-23T12:00:00Z",
+                        }
+                    ]
+                },
+                {"old"},
+            ),
+        ]
+    )
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_issues_list_filters_by_merged_issue_first_seen(
+        self, _name: str, request_fields: dict[str, object], expected: set[str]
+    ) -> None:
+        old_issue_id = "01936e7f-d7ff-7314-b2d4-7627981e34f1"
+        self.create_issue()
+        self.create_issue(issue_id=old_issue_id, fingerprint="old-fingerprint")
+        for issue_id, first_seen in [
+            (self.issue_id, (now() - timedelta(hours=2)).replace(microsecond=200000)),
+            (old_issue_id, now() - timedelta(days=2)),
+        ]:
+            ErrorTrackingIssueFingerprintV2.objects.filter(team=self.team, issue_id=issue_id).update(
+                first_seen=first_seen
+            )
+        ErrorTrackingIssueFingerprintV2.objects.create(
+            team=self.team, issue_id=old_issue_id, fingerprint="new-fingerprint-on-old-issue"
+        )
+        with time_machine.travel("2026-04-24T12:00:01Z", tick=False):
+            sync_issues_to_clickhouse(issue_ids=[self.issue_id, old_issue_id], team_id=self.team.pk)
+        self.create_exception_event()
+        self.create_exception_event(issue_id=old_issue_id, fingerprint="new-fingerprint-on-old-issue")
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issues",
+            data={
+                "status": "all",
+                "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"},
+                **request_fields,
+            },
+            format="json",
+        )
+
+        assert response.status_code == 200
+        ids_by_name = {"new": self.issue_id, "old": old_issue_id}
+        assert {row["id"] for row in response.json()["results"]} == {ids_by_name[name] for name in expected}
 
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_queries_return_severity(self) -> None:
@@ -385,15 +453,42 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert detail_response.status_code == 200
         assert detail_response.json()["severity"] == "high"
 
-    def test_rejects_hogql_property_filters(self) -> None:
+    @parameterized.expand(
+        [
+            ({"filterGroup": [{"key": "1 = 1", "type": "hogql", "value": "1"}]}, "HogQL property filters"),
+            *(
+                (
+                    {
+                        "filterGroup": [
+                            {"key": "first_seen", "type": "error_tracking_issue", "operator": op, "value": v}
+                        ]
+                    },
+                    "firstSeenAfter",
+                )
+                for op, v in [
+                    ("gt", "-24h"),
+                    ("gte", "-24h"),
+                    ("lt", "-24h"),
+                    ("lte", "-24h"),
+                    ("is_date_after", "-24h"),
+                    ("is_date_before", "-24h"),
+                    ("gt", "-24H"),
+                    ("gt", "yesterday"),
+                ]
+            ),
+            ({"firstSeenAfter": "yesterday"}, "firstSeenAfter"),
+            ({"firstSeenAfter": "-100000y"}, "firstSeenAfter"),
+        ]
+    )
+    def test_rejects_unsupported_filters(self, request_fields: dict[str, object], message: str) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/query/issues",
-            data={"filterGroup": [{"key": "1 = 1", "type": "hogql", "value": "1"}]},
+            data=request_fields,
             format="json",
         )
 
         assert response.status_code == 400
-        assert "HogQL property filters are not supported here" in str(response.json())
+        assert message in str(response.json())
 
     def test_rejects_invalid_person_id(self) -> None:
         response = self.client.post(
@@ -761,14 +856,23 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert data["trend"]["current_occurrences"] == 2
         assert data["trend"]["current_from"] == "2026-04-22T12:00:00+00:00"
 
+    @parameterized.expand(
+        [
+            ("context_query", "EventsQueryRunner", "top_in_app_frame"),
+            ("summary_read", "summaries_facade.read_issue_summary", "summary"),
+        ]
+    )
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
-    def test_issue_detail_returns_without_context_when_context_query_fails(self) -> None:
+    def test_issue_detail_returns_the_issue_when_an_optional_lookup_fails(
+        self, _name: str, failing: str, missing_key: str
+    ) -> None:
         self.create_issue()
         self.create_exception_event()
         flush_persons_and_events()
 
-        with patch("products.error_tracking.backend.presentation.views.query.EventsQueryRunner") as events_query_runner:
-            events_query_runner.side_effect = RuntimeError("boom")
+        with patch(
+            f"products.error_tracking.backend.presentation.views.query.{failing}", side_effect=RuntimeError("boom")
+        ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/error_tracking/query/issue",
                 data={"issueId": self.issue_id, "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"}},
@@ -777,7 +881,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 200
         assert response.json()["id"] == self.issue_id
-        assert "top_in_app_frame" not in response.json()
+        assert missing_key not in response.json()
 
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_detail_distinguishes_missing_issue_from_empty_date_range(self) -> None:
@@ -818,9 +922,39 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("issue", True, {"includeSparkline": True}, {"include_breakdown": False, "include_sparkline": True}),
-            ("issue", False, {"includeSparkline": True}, {"include_breakdown": False, "include_sparkline": True}),
-            ("issue_events", True, {}, {}),
+            (
+                "issue",
+                True,
+                ErrorTrackingIssue.Severity.HIGH,
+                {"includeSparkline": True},
+                {
+                    "include_breakdown": False,
+                    "include_sparkline": True,
+                    "summary_status": "unavailable",
+                    "issue_created_at": "2026-04-01T00:00:00+00:00",
+                    "issue_severity": "high",
+                },
+            ),
+            (
+                "issue",
+                False,
+                None,
+                {"includeSparkline": True},
+                {
+                    "include_breakdown": False,
+                    "include_sparkline": True,
+                    "summary_status": "unavailable",
+                    "issue_created_at": "2026-04-01T00:00:00+00:00",
+                    "issue_severity": None,
+                },
+            ),
+            (
+                "issue_events",
+                True,
+                ErrorTrackingIssue.Severity.HIGH,
+                {},
+                {"issue_created_at": "2026-04-01T00:00:00+00:00", "issue_severity": "high"},
+            ),
         ]
     )
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
@@ -828,10 +962,12 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         self,
         endpoint: str,
         has_exceptions: bool,
+        severity: str | None,
         extra_body: dict[str, object],
         expected_properties: dict[str, object],
     ) -> None:
-        self.create_issue()
+        self.create_issue(severity=severity)
+        ErrorTrackingIssue.objects.filter(id=self.issue_id).update(created_at=datetime(2026, 4, 1, tzinfo=UTC))
         if has_exceptions:
             self.create_exception_event()
             flush_persons_and_events()
@@ -867,6 +1003,70 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
                 **expected_properties,
             }
         ]
+        if endpoint == "issue":
+            assert isinstance(read_events[0]["facts_ms"], int)
+            assert isinstance(read_events[0]["summary_wait_ms"], int)
+
+    @parameterized.expand(
+        [
+            *SUMMARY_STATES,
+            ("ready_without_category", True, True, True, True, "ready", None),
+        ]
+    )
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_issue_detail_returns_the_summary(
+        self,
+        name: str,
+        flag: bool,
+        readable: bool,
+        approved: bool,
+        stored: bool,
+        expected_status: str,
+        expected_reason: str | None,
+    ) -> None:
+        self.create_issue()
+        self.create_exception_event()
+        flush_persons_and_events()
+
+        with (
+            summary_state(
+                self, self.issue_id, flag=flag, readable=readable, approved=approved, stored=stored
+            ) as publish,
+            patch("posthog.event_usage.posthoganalytics.capture") as mock_capture,
+        ):
+            if name == "ready_without_category":
+                ErrorTrackingIssueSummary.objects.for_team(self.team.id).filter(issue_id=self.issue_id).update(
+                    content={**STORED_CONTENT, "category": None}
+                )
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/query/issue",
+                data={"issueId": self.issue_id},
+                format="json",
+            )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["impact"]["occurrences"] == 1
+        assert body["summary_status"] == expected_status
+        assert body.get("summary_reason") == expected_reason
+        expected_summary = (
+            {
+                key: value
+                for key, value in {**STORED_CONTENT, "generated_at": "2026-10-20T12:00:00+00:00"}.items()
+                if not (key == "category" and name == "ready_without_category")
+            }
+            if expected_status == "ready"
+            else None
+        )
+        assert body.get("summary") == expected_summary
+        publish.assert_not_called()
+        assert not lock_held(self.team.id, self.issue_id)
+        [read_event] = [
+            call.kwargs["properties"]
+            for call in mock_capture.call_args_list
+            if call.kwargs.get("event") == "error_tracking_issue_read"
+        ]
+        assert (read_event["summary_status"], read_event["summary_reason"]) == (expected_status, expected_reason)
 
     def test_issue_read_succeeds_when_capture_fails(self) -> None:
         self.create_issue()

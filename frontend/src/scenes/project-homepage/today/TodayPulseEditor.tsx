@@ -57,6 +57,7 @@ function PulsePinRow({
 export function TodayPulseEditor(): JSX.Element {
     const {
         pulsePins,
+        pulseSlots,
         pulseTiles,
         pulseInsightResults,
         pulseInsightResultsLoading,
@@ -84,7 +85,16 @@ export function TodayPulseEditor(): JSX.Element {
                 setOpen(next)
                 if (next) {
                     pulseEditorOpened()
-                    setShownOnOpen(pulseTiles.map(({ key, name, dashboard_id }) => ({ key, name, dashboard_id })))
+                    setShownOnOpen(
+                        pulseSlots.map(({ key, name }) => ({
+                            key,
+                            name,
+                            dashboard_id:
+                                pulseTiles.find((metric) => metric.key === key)?.dashboard_id ??
+                                pulsePins.find((pin) => pin.key === key)?.dashboard_id ??
+                                null,
+                        }))
+                    )
                 } else {
                     setSearch('')
                 }
@@ -94,7 +104,7 @@ export function TodayPulseEditor(): JSX.Element {
                 render={
                     <Button
                         size="sm"
-                        className={cn('TodayPulse__edit', pulseTiles.length === 0 && 'TodayPulse__edit--shown')}
+                        className={cn('TodayPulse__edit', pulseSlots.length === 0 && 'TodayPulse__edit--shown')}
                         aria-label="Edit numbers"
                         data-attr="today-pulse-edit"
                     >

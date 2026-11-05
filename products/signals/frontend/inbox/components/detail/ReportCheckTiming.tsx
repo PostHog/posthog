@@ -1,11 +1,28 @@
 import { TZLabel } from 'lib/components/TZLabel'
 
-import type { SignalReportCheckApi } from 'products/signals/frontend/generated/api.schemas'
+import type { SignalReportCheckApi, SignalReportStatusEnumApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { monitoringPeriodLabel } from './reportCheckPresentation'
 
-export function ReportCheckTiming({ check, detail }: { check: SignalReportCheckApi; detail: string }): JSX.Element {
-    const timing = check.monitoring_timing
+function observationWindowEndLabel(state: string): string {
+    return state === 'monitoring'
+        ? 'Final verification scheduled for: '
+        : ['window_ended', 'verifying', 'assessment_required', 'verification_complete'].includes(state)
+          ? 'Window ended: '
+          : 'Window end: '
+}
+
+export function ReportCheckTiming({
+    check,
+    reportStatus,
+    detail,
+}: {
+    check: SignalReportCheckApi
+    reportStatus: SignalReportStatusEnumApi
+    detail: string
+}): JSX.Element {
+    const timing = reportStatus === 'monitoring' ? check.monitoring_timing : null
+    const state = timing?.final_verification_state ?? timing?.state ?? ''
     return (
         <span className="flex min-w-0 flex-col gap-1">
             <span>{detail}</span>
@@ -14,13 +31,13 @@ export function ReportCheckTiming({ check, detail }: { check: SignalReportCheckA
             )}
             {timing?.next_measurement_at && (
                 <span>
-                    <span>{timing.state === 'due' ? 'Measurement due since: ' : 'Next measurement: '}</span>
+                    <span>{state === 'due' ? 'Measurement due since: ' : 'Next measurement: '}</span>
                     <TZLabel time={timing.next_measurement_at} timestampStyle="absolute" formatDate="MMM D" />
                 </span>
             )}
             {timing?.ends_at && (
                 <span>
-                    <span>{timing.state === 'window_ended' ? 'Window ended: ' : 'Window end: '}</span>
+                    <span>{observationWindowEndLabel(state)}</span>
                     <TZLabel time={timing.ends_at} timestampStyle="absolute" formatDate="MMM D" />
                 </span>
             )}

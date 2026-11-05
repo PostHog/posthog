@@ -266,6 +266,7 @@ def _model_override_input(inputs: PostHogCodeSlackMentionWorkflowInputs, thread_
         slack_team_id=inputs.slack_team_id,
         event_text=inputs.event.get("text", ""),
         thread_ts=thread_ts,
+        slack_user_id=inputs.event.get("user") or None,
     )
 
 

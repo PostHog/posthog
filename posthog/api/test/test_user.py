@@ -1225,14 +1225,20 @@ class TestUserAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         mock_report.assert_called_once_with(self.user, field="email", reason="stale_reauth")
 
-    def test_email_change_rejected_when_new_email_is_plus_addressed(self):
+    @parameterized.expand(
+        [
+            ("plus_addressed", "alpha+alias@example.com", "plus_addressing_not_allowed"),
+            ("lookalike_dot", "alpha@ph\uff0eexample.com", "lookalike_characters_not_allowed"),
+        ]
+    )
+    def test_email_change_rejected_when_new_email_is_unsupported(self, _name, new_email, code):
         self.user.email = "alpha@example.com"
         self.user.save()
 
-        response = self.client.patch("/api/users/@me/", {"email": "alpha+alias@example.com"})
+        response = self.client.patch("/api/users/@me/", {"email": new_email})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["code"] == "plus_addressing_not_allowed"
+        assert response.json()["code"] == code
         self.user.refresh_from_db()
         assert self.user.email == "alpha@example.com"
         assert self.user.pending_email is None
@@ -2524,6 +2530,7 @@ class TestUserAPI(APIBaseTest):
             {
                 "notification_settings": {
                     "plugin_disabled": False,
+                    "mobile_push_tasks_enabled": False,
                     "discussions_mentioned": False,
                     "error_tracking_issue_assigned": False,
                     "project_weekly_digest_disabled": {123: True},
@@ -2542,6 +2549,10 @@ class TestUserAPI(APIBaseTest):
                 "plugin_disabled": False,
                 "discussions_mentioned": False,
                 "task_comments_slack_dm": True,
+                "mobile_push_enabled": True,
+                "mobile_push_tasks_enabled": False,
+                "mobile_push_reports_enabled": True,
+                "mobile_push_report_updates_enabled": True,
                 "project_weekly_digest_disabled": {"123": True},  # Note: JSON converts int keys to strings
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
@@ -2570,6 +2581,10 @@ class TestUserAPI(APIBaseTest):
                 "plugin_disabled": False,
                 "discussions_mentioned": False,
                 "task_comments_slack_dm": True,
+                "mobile_push_enabled": True,
+                "mobile_push_tasks_enabled": False,
+                "mobile_push_reports_enabled": True,
+                "mobile_push_report_updates_enabled": True,
                 "project_weekly_digest_disabled": {"123": True},
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
@@ -2845,7 +2860,11 @@ class TestUserAPI(APIBaseTest):
             {
                 "plugin_disabled": True,  # Default value
                 "discussions_mentioned": True,  # Default value
-                "task_comments_slack_dm": True,  # Default value
+                "task_comments_slack_dm": True,
+                "mobile_push_enabled": True,
+                "mobile_push_tasks_enabled": True,
+                "mobile_push_reports_enabled": True,
+                "mobile_push_report_updates_enabled": True,
                 "project_weekly_digest_disabled": {},  # Default value
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": True,  # Default value
@@ -2876,6 +2895,9 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
             ("non_boolean_vim_mode", {"version": 1, "sql_editor": {"vim_mode_enabled": "nope"}}),
             ("non_string_vimrc", {"version": 1, "sql_editor": {"vimrc": ["imap jj <Esc>"]}}),
             ("vimrc_too_long", {"version": 1, "sql_editor": {"vimrc": "x" * 10001}}),
+            ("unknown_analytics_list_sort", {"version": 1, "analytics_list": {"default_sort": "name"}}),
+            ("unknown_analytics_list_key", {"version": 1, "analytics_list": {"columns": ["owner"]}}),
+            ("non_boolean_hide_insights", {"version": 1, "analytics_list": {"hide_insights": "nope"}}),
         ]
     )
     def test_invalid_ui_configuration_is_rejected(self, _name, value):
@@ -2889,6 +2911,10 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
             ("null", None),
             ("minimal", {"version": 1}),
             ("unknown_top_level_key", {"version": 1, "surprise": True}),
+            (
+                "analytics_list",
+                {"version": 1, "analytics_list": {"hide_insights": True, "default_sort": "-created_at"}},
+            ),
             (
                 # Sidebar settings an older client stored. Rejecting them would block every later save.
                 "stored_sidebar_settings",
@@ -3348,7 +3374,7 @@ class TestEmailVerificationAPI(APIBaseTest):
         self.assertEqual(mail.outbox[0].subject, "Verify your email address")
         self.assertEqual(mail.outbox[0].body, "")  # no plain-text version support yet
 
-        html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
+        html_message = cast(str, mail.outbox[0].alternatives[0][0])  # type: ignore
         code = re.search(r"(\d{6}) is your code\.", html_message).group(1)  # type: ignore[union-attr]
         self.validate_basic_html(html_message, "https://my.posthog.net", preheader=f"{code} is your code.")
 
@@ -3623,6 +3649,21 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
 
         response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": "000000"})
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    @parameterized.expand([("not_a_uuid", "notauuid"), ("truncated", "0199a1b2-3c4d-7e8f")])
+    def test_malformed_uuid_answers_like_an_unknown_user(self, _name, bad_uuid):
+        response = self.client.post("/api/users/verify_email/", {"uuid": bad_uuid, "code": "123456"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "invalid_code")
+
+        response = self.client.post("/api/users/request_email_verification/", {"uuid": bad_uuid})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
+
+    def test_request_email_verification_without_uuid_is_not_an_error(self):
+        response = self.client.post("/api/users/request_email_verification/", {})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
 
     def test_numeric_json_code_is_a_normal_guess(self):
         # A client that sends the six digits as a JSON number must get a 400, not a 500, and the

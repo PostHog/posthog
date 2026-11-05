@@ -1,0 +1,31 @@
+from unittest import mock
+
+from products.warehouse_sources.sources.todoist import source as source_module
+from products.warehouse_sources.sources.todoist._config import TodoistSourceConfig
+from products.warehouse_sources.sources.todoist.settings import ENDPOINTS
+from products.warehouse_sources.sources.todoist.source import TodoistSource
+
+
+class TestTodoistSource:
+    def setup_method(self) -> None:
+        self.source = TodoistSource()
+        self.team_id = 123
+        self.config = TodoistSourceConfig(api_token="tok-test")
+
+    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
+        # Each declared endpoint should ship a curated description so it isn't sent to the LLM.
+        described = set(self.source.get_canonical_descriptions().keys())
+        assert set(ENDPOINTS).issubset(described)
+
+    def test_validate_credentials_success(self) -> None:
+        with mock.patch.object(source_module, "validate_todoist_credentials", return_value=True) as probe:
+            ok, error = self.source.validate_credentials(self.config, self.team_id)
+        assert ok is True
+        assert error is None
+        probe.assert_called_once_with("tok-test")
+
+    def test_validate_credentials_failure(self) -> None:
+        with mock.patch.object(source_module, "validate_todoist_credentials", return_value=False):
+            ok, error = self.source.validate_credentials(self.config, self.team_id)
+        assert ok is False
+        assert error == "Invalid Todoist API token"

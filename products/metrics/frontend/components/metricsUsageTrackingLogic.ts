@@ -71,11 +71,11 @@ export interface metricsUsageTrackingLogicActions {
         dashboardId: number
     } // metricsDashboardImportLogic
     loadSamplesSuccess: (
-        samples: _MetricEventSampleApi[],
+        samples: import('./metricsSamplesMerge').MetricsSampleRow[],
         payload?: any
     ) => {
         payload?: any
-        samples: _MetricEventSampleApi[]
+        samples: import('./metricsSamplesMerge').MetricsSampleRow[]
     } // metricsSamplesLogic
     samplesPanelTabChanged: (activeTab: MetricsPanelTab) => {
         activeTab: MetricsPanelTab
@@ -365,6 +365,7 @@ export const metricsUsageTrackingLogic = kea<metricsUsageTrackingLogicType>([
             // and each intent call is an API request (the backend counts repeats itself).
             if (!cache.viewerQueryIntentFired) {
                 cache.viewerQueryIntentFired = true
+                posthog.setPersonProperties(undefined, { first_used_metrics_at: new Date().toISOString() })
                 actions.addProductIntent({
                     product_type: ProductKey.METRICS,
                     intent_context: ProductIntentContext.METRICS_VIEWER_QUERY_RUN,

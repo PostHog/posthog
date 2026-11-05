@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Pod management functions."""
 
+import os
 import sys
 import json
 import time
@@ -8,6 +9,10 @@ import subprocess
 from datetime import datetime, timedelta
 
 from toolbox.kubernetes import kubectl_cmd
+
+# Labels a claim keeps. The WarpStream agents accept Kafka traffic only from pods with
+# posthog.com/warpstream-client, so a claimed pod without it cannot produce to Kafka.
+KEPT_LABELS = frozenset({"app.kubernetes.io/name", "posthog.com/warpstream-client"})
 
 
 class ClaimRaceError(Exception):
@@ -158,7 +163,7 @@ def claim_pod(
     successful write; once the first mutation has won, no other writer can
     sneak in mid-claim.
 
-    Strips every label except app.kubernetes.io/name (which orphans the pod from
+    Strips every label except those in ``KEPT_LABELS`` (which orphans the pod from
     its ReplicaSet by removing pod-template-hash), annotates karpenter to skip
     disruption, then applies user_labels + a terminate-after timestamp.
     """
@@ -174,7 +179,7 @@ def claim_pod(
 
         current_labels = json.loads(result.stdout)
 
-        labels_to_remove = [name for name in current_labels.keys() if name != "app.kubernetes.io/name"]
+        labels_to_remove = [name for name in current_labels.keys() if name not in KEPT_LABELS]
         # Attach the optimistic-concurrency guard to whichever kubectl invocation is the first
         # actual write; once it succeeds, the resourceVersion advances and subsequent calls
         # don't need (and can't pass) the same value.
@@ -246,7 +251,7 @@ def claim_pod(
         sys.exit(1)
 
 
-def connect_to_pod(pod_name: str, *, namespace: str, context: str | None = None) -> int:
+def connect_to_pod(pod_name: str, *, namespace: str, context: str | None = None, kubectl_debug: bool = False) -> int:
     """Connect to the specified pod using kubectl exec, returning the exec exit code.
 
     The caller is responsible for surfacing a non-zero return as a non-zero
@@ -254,7 +259,14 @@ def connect_to_pod(pod_name: str, *, namespace: str, context: str | None = None)
     as success and trigger downstream cleanup of a session that never opened.
     """
     _safe_print(f"🚀 Connecting to pod {pod_name}...")
-    result = subprocess.run(kubectl_cmd("exec", "-it", "-n", namespace, pod_name, "--", "bash", context=context))
+    env = os.environ.copy()
+    # The streaming library enables debug logs for any nonempty DEBUG value, including Flox's Django setting.
+    env.pop("DEBUG", None)
+    if kubectl_debug:
+        env["DEBUG"] = "1"
+    result = subprocess.run(
+        kubectl_cmd("exec", "-it", "-n", namespace, pod_name, "--", "bash", context=context), env=env
+    )
     return result.returncode
 
 

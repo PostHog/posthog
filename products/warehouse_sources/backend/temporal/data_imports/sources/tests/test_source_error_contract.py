@@ -20,7 +20,6 @@ import pytest
 
 from posthog.dataclasses import frozen
 
-import products.warehouse_sources.backend.temporal.data_imports.sources._load_all  # noqa: F401
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     _BaseSource,
@@ -166,6 +165,7 @@ ONE_AUTH_STATUS_CLASSIFIED: dict[str, str] = {
     "AmazonAds": "401",
     "AssemblyAI": "401",
     "BlandAI": "401",
+    "Bluesky": "403",
     "Braintree": "401",
     "Bugherd": "401",
     "CdcOpenData": "403",
@@ -475,6 +475,14 @@ def test_allowlists_name_only_extracting_sources(allowlist: dict[str, Any]) -> N
         ("Marketo", "Marketo authentication failed: status=401, body={}"),
         ("Marketo", "Marketo authentication failed: status=401, path=/rest/v1/leads.json, body={}"),
         ("Marketo", "Marketo authentication failed: no access token in response ({})"),
+        # Zoho (and some other vendors, over HTTP/2) send no reason phrase on some responses, so
+        # `requests.raise_for_status()` renders a blank one instead of "Unauthorized"/"Forbidden".
+        ("ZohoCRM", "401 Client Error:  for url: https://www.zohoapis.com/crm/v8/Leads?page=1"),
+        ("ZohoCRM", "403 Client Error:  for url: https://www.zohoapis.com/crm/v8/Notes?page=1"),
+        (
+            "Persona",
+            "Persona API not enabled for this account: Workflows API is not enabled, url=https://api.withpersona.com/api/v1/workflow-runs",
+        ),
     ],
 )
 def test_narrowed_keys_still_match_permanent_errors(name: str, message: str) -> None:

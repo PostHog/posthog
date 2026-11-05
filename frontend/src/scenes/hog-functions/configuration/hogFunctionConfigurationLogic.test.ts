@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -14,7 +15,9 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     CyclotronJobFilterEvents,
+    CyclotronJobInputType,
     CyclotronJobFiltersType,
+    FilterLogicalOperator,
     HogFunctionTemplateType,
     HogFunctionType,
     PropertyFilterType,
@@ -319,6 +322,336 @@ describe('hogFunctionConfigurationLogic', () => {
         })
     })
 
+    describe('duplicating a function', () => {
+        const TEMPLATE_WITH_SECRETS: HogFunctionTemplateType = {
+            ...HOG_TEMPLATE,
+            inputs_schema: [
+                ...(HOG_TEMPLATE.inputs_schema ?? []),
+                { key: 'api_key', type: 'string', label: 'API key', secret: true, required: false },
+                { key: 'secret_headers', type: 'dictionary', label: 'Secret headers', secret: true, required: false },
+            ],
+        }
+
+        beforeEach(() => {
+            initKeaTests()
+            mockApi.getTemplate.mockResolvedValue(TEMPLATE_WITH_SECRETS)
+            mockApi.create.mockResolvedValue(HOG_FUNCTION)
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        const MASKED_HEADERS = { secret_headers: { secret: true, value: { Authorization: '********' } } }
+        const NOTHING_KEPT = { api_key: undefined, secret_headers: undefined, headers: undefined }
+
+        it.each<
+            [
+                string,
+                Record<string, CyclotronJobInputType>,
+                CyclotronJobInputType | null,
+                Record<string, unknown>,
+                boolean,
+            ]
+        >([
+            ['drops a masked string secret', { api_key: { value: undefined, secret: true } }, null, NOTHING_KEPT, true],
+            ['drops a dictionary secret with masked entries', MASKED_HEADERS, null, NOTHING_KEPT, true],
+            [
+                'drops a secret dictionary the user typed a new row into',
+                MASKED_HEADERS,
+                { secret: false, value: { Authorization: '********', 'x-new': 'typed' } },
+                NOTHING_KEPT,
+                true,
+            ],
+            [
+                'drops a secret the user typed and did not save',
+                { api_key: { value: 'typed-key' } },
+                null,
+                NOTHING_KEPT,
+                true,
+            ],
+            [
+                'keeps the copy enabled when a secret was never set',
+                { api_key: { value: '' } },
+                null,
+                NOTHING_KEPT,
+                false,
+            ],
+            [
+                'drops an edited secret dictionary that has only masked rows left',
+                MASKED_HEADERS,
+                { secret: false, value: { Authorization: '********' } },
+                NOTHING_KEPT,
+                true,
+            ],
+            [
+                'keeps a plain header whose value looks like a mask',
+                { headers: { value: { 'x-literal': '********' } } },
+                null,
+                { ...NOTHING_KEPT, headers: { 'x-literal': '********' } },
+                false,
+            ],
+        ])('%s', async (_name, sourceInputs, editedSecretHeaders, expectedKept, dropsSecrets) => {
+            mockApi.get.mockResolvedValue({
+                ...HOG_FUNCTION,
+                inputs_schema: TEMPLATE_WITH_SECRETS.inputs_schema,
+                inputs: { url: { value: 'https://example.com' }, ...sourceInputs },
+                template: TEMPLATE_WITH_SECRETS,
+            })
+            logic = hogFunctionConfigurationLogic({ id: HOG_FUNCTION.id })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadHogFunctionSuccess'])
+            if (editedSecretHeaders) {
+                logic.actions.setConfigurationValue('inputs.secret_headers', editedSecretHeaders)
+                jest.spyOn(window, 'confirm').mockReturnValue(true)
+            }
+            const toast = jest.spyOn(lemonToast, 'info')
+            logic.actions.duplicate()
+            expect(toast).toHaveBeenCalledTimes(dropsSecrets ? 1 : 0)
+
+            const copyLogic = hogFunctionConfigurationLogic({ templateId: TEMPLATE_WITH_SECRETS.id })
+            copyLogic.mount()
+            await expectLogic(copyLogic).toDispatchActions(['loadTemplateSuccess'])
+            await expectLogic(copyLogic, () => {
+                copyLogic.actions.submitConfiguration()
+            }).toDispatchActions(['submitConfigurationSuccess'])
+
+            const sent = mockApi.create.mock.calls[0][0]
+            expect(sent.enabled).toEqual(!dropsSecrets)
+            const sentInputs = sent.inputs ?? {}
+            expect(Object.entries(sentInputs).filter(([, input]) => input?.secret)).toEqual([])
+            expect({
+                api_key: sentInputs.api_key?.value,
+                secret_headers: sentInputs.secret_headers?.value,
+                headers: sentInputs.headers?.value,
+            }).toEqual(expectedKept)
+            expect(sentInputs.url).toMatchObject({ value: 'https://example.com' })
+        })
+
+        it('starts the copy disabled when only a mapping loses its secret', async () => {
+            mockApi.get.mockResolvedValue({
+                ...HOG_FUNCTION,
+                inputs: { url: { value: 'https://example.com' } },
+                mappings: [
+                    {
+                        name: 'Mapping with a secret',
+                        inputs_schema: [
+                            { key: 'token', type: 'string', label: 'Token', secret: true, required: false },
+                            { key: 'channel', type: 'string', label: 'Channel', required: false },
+                        ],
+                        inputs: { token: { value: undefined, secret: true }, channel: { value: 'alerts' } },
+                    },
+                ],
+                template: TEMPLATE_WITH_SECRETS,
+            })
+            logic = hogFunctionConfigurationLogic({ id: HOG_FUNCTION.id })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadHogFunctionSuccess'])
+            const toast = jest.spyOn(lemonToast, 'info')
+            logic.actions.duplicate()
+            expect(toast).toHaveBeenCalledTimes(1)
+
+            const copyLogic = hogFunctionConfigurationLogic({ templateId: TEMPLATE_WITH_SECRETS.id })
+            copyLogic.mount()
+            await expectLogic(copyLogic).toDispatchActions(['loadTemplateSuccess'])
+            await expectLogic(copyLogic, () => {
+                copyLogic.actions.submitConfiguration()
+            }).toDispatchActions(['submitConfigurationSuccess'])
+
+            const sent = mockApi.create.mock.calls[0][0]
+            expect(sent.enabled).toEqual(false)
+            const mappingInputs = sent.mappings?.[0].inputs ?? {}
+            expect(Object.entries(mappingInputs).filter(([, input]) => input?.secret)).toEqual([])
+            expect(mappingInputs.token?.value).toBeUndefined()
+            expect(mappingInputs.channel).toMatchObject({ value: 'alerts' })
+        })
+
+        it('keeps the user on their edited function without a toast when they cancel leaving it', async () => {
+            mockApi.get.mockResolvedValue({
+                ...HOG_FUNCTION,
+                inputs_schema: TEMPLATE_WITH_SECRETS.inputs_schema,
+                inputs: { api_key: { value: undefined, secret: true } },
+                template: TEMPLATE_WITH_SECRETS,
+            })
+            logic = hogFunctionConfigurationLogic({ id: HOG_FUNCTION.id })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadHogFunctionSuccess'])
+            logic.actions.setConfigurationValue('name', 'Edited name')
+            jest.spyOn(window, 'confirm').mockReturnValue(false)
+            const toast = jest.spyOn(lemonToast, 'info')
+            const { pathname } = router.values.location
+
+            logic.actions.duplicate()
+
+            expect(router.values.location.pathname).toEqual(pathname)
+            expect(toast).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('mapping preview filters', () => {
+        beforeEach(() => {
+            initKeaTests()
+        })
+
+        it('combines mapping matchers with global properties and ignores unsupported global matchers', async () => {
+            const globalFilters: CyclotronJobFiltersType = {
+                events: [{ id: '$pageview', name: '$pageview', type: 'events' }],
+                actions: [{ id: '99', name: 'Globally configured action', type: 'actions' }],
+                properties: [{ type: PropertyFilterType.HogQL, key: "properties.plan = 'paid'" }],
+            }
+            mockApi.getTemplate.mockResolvedValue({
+                ...HOG_TEMPLATE,
+                filters: globalFilters,
+                mapping_templates: [
+                    {
+                        name: 'Purchase',
+                        include_by_default: true,
+                        filters: { actions: [{ id: '42', name: 'Purchased', type: 'actions' }] },
+                    },
+                    {
+                        name: 'Signup',
+                        include_by_default: true,
+                        filters: { events: [{ id: 'signed up', name: 'signed up', type: 'events' }] },
+                    },
+                ],
+            })
+            logic = hogFunctionConfigurationLogic({ templateId: 'test' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+
+            expect(logic.values.matchingFilters).toEqual({
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.Or,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ type: PropertyFilterType.HogQL, key: "event = 'signed up'" }],
+                            },
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ type: PropertyFilterType.HogQL, key: 'matchesAction(42)' }],
+                            },
+                        ],
+                    },
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: [{ type: PropertyFilterType.HogQL, key: "properties.plan = 'paid'" }],
+                    },
+                ],
+            })
+            expect(logic.values.configuration.filters).toEqual(globalFilters)
+        })
+
+        it('matches every event for an all-events mapping', async () => {
+            mockApi.getTemplate.mockResolvedValue({
+                ...HOG_TEMPLATE,
+                mapping_templates: [
+                    {
+                        name: 'All events',
+                        include_by_default: true,
+                        use_all_events_by_default: true,
+                    },
+                ],
+            })
+            logic = hogFunctionConfigurationLogic({ templateId: 'all-events' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+
+            expect(logic.values.matchingFilters).toEqual({
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.Or,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ type: PropertyFilterType.HogQL, key: 'true' }],
+                            },
+                        ],
+                    },
+                ],
+            })
+        })
+
+        it('matches every event when a mapping has no event or action matchers', async () => {
+            mockApi.getTemplate.mockResolvedValue({
+                ...HOG_TEMPLATE,
+                mapping_templates: [
+                    {
+                        name: 'Mapping with removed matchers',
+                        include_by_default: true,
+                        filters: {},
+                    },
+                ],
+            })
+            logic = hogFunctionConfigurationLogic({ templateId: 'removed-matchers' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+
+            expect(logic.values.matchingFilters).toEqual({
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.Or,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ type: PropertyFilterType.HogQL, key: 'true' }],
+                            },
+                        ],
+                    },
+                ],
+            })
+        })
+
+        it('matches every event across mixed mappings while preserving global properties', async () => {
+            const globalProperties: NonNullable<CyclotronJobFiltersType['properties']> = [
+                { type: PropertyFilterType.HogQL, key: "properties.plan = 'paid'" },
+            ]
+            mockApi.getTemplate.mockResolvedValue({
+                ...HOG_TEMPLATE,
+                filters: { properties: globalProperties },
+                mapping_templates: [
+                    {
+                        name: 'Signup',
+                        include_by_default: true,
+                        filters: { events: [{ id: 'signed up', name: 'signed up', type: 'events' }] },
+                    },
+                    {
+                        name: 'All events',
+                        include_by_default: true,
+                        use_all_events_by_default: true,
+                    },
+                ],
+            })
+            logic = hogFunctionConfigurationLogic({ templateId: 'mixed-mappings' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+
+            expect(logic.values.matchingFilters).toEqual({
+                type: FilterLogicalOperator.And,
+                values: [
+                    {
+                        type: FilterLogicalOperator.Or,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ type: PropertyFilterType.HogQL, key: 'true' }],
+                            },
+                        ],
+                    },
+                    {
+                        type: FilterLogicalOperator.And,
+                        values: globalProperties,
+                    },
+                ],
+            })
+            expect(logic.values.baseEventsQuery?.fixedProperties).toEqual([logic.values.matchingFilters])
+        })
+    })
+
     describe('loading a missing function', () => {
         beforeEach(() => {
             initKeaTests()
@@ -432,16 +765,31 @@ describe('hogFunctionConfigurationLogic', () => {
 
         // Mode 1 still writes flag calls to events, so only mode 2 adds the flag_evaluations count.
         it.each([
-            ['events', FlagEvaluationsModeEnumApi.Number0, 500, [0, 0, 0]],
-            ['read flag evaluations', FlagEvaluationsModeEnumApi.Number1, 500, [0, 0, 0]],
-            ['flag evaluations only', FlagEvaluationsModeEnumApi.Number2, 1203, [0, 200, 0]],
-        ])('estimates the calls it would receive on the %s mode', async (_name, mode, count, highVolume) => {
-            mountOnMode(mode)
-            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess', 'sparklineQueryChangedSuccess'])
+            ['events', FlagEvaluationsModeEnumApi.Number0, 500, [0, 0, 0], undefined],
+            ['read flag evaluations', FlagEvaluationsModeEnumApi.Number1, 500, [0, 0, 0], undefined],
+            [
+                'flag evaluations only',
+                FlagEvaluationsModeEnumApi.Number2,
+                1203,
+                [0, 200, 0],
+                'person_id_no_override_properties_on_events',
+            ],
+        ])(
+            'estimates the calls it would receive on the %s mode',
+            async (_name, mode, count, highVolume, flagCallsPersonsMode) => {
+                mountOnMode(mode)
+                await expectLogic(logic).toDispatchActions(['loadTemplateSuccess', 'sparklineQueryChangedSuccess'])
 
-            expect(logic.values.sparkline?.count).toEqual(count)
-            expect(logic.values.sparkline?.data.find(({ name }) => name === 'High volume')?.values).toEqual(highVolume)
-        })
+                expect(logic.values.sparkline?.count).toEqual(count)
+                expect(logic.values.sparkline?.data.find(({ name }) => name === 'High volume')?.values).toEqual(
+                    highVolume
+                )
+                const flagCallsQuery = (performQuery as jest.Mock).mock.calls
+                    .map(([query]) => query)
+                    .find((query) => query.kind === NodeKind.EventsQuery)
+                expect(flagCallsQuery?.modifiers?.personsOnEventsMode).toBe(flagCallsPersonsMode)
+            }
+        )
 
         it.each([
             [

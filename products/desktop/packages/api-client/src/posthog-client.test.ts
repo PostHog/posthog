@@ -3011,16 +3011,21 @@ describe("PostHogAPIClient", () => {
 
     it.each([
       {
-        name: "PUTs the full-replacement content and returns the parsed artefact",
+        name: "adds only the target and keeps the full list for older servers",
+        edit: { action: "add" as const, targets: [{ user_uuid: "uuid-1" }] },
         input: [{ github_login: "octocat" }, { user_uuid: "uuid-1" }],
         responseContent: [OCTOCAT_REVIEWER],
       },
       {
-        name: "sends an empty content array when clearing reviewers",
+        name: "removes only the target with an empty legacy fallback",
+        edit: {
+          action: "remove" as const,
+          targets: [{ github_login: "octocat" }],
+        },
         input: [],
         responseContent: [],
       },
-    ])("$name", async ({ input, responseContent }) => {
+    ])("$name", async ({ input, responseContent, edit }) => {
       const fetch = vi.fn().mockResolvedValue({
         ok: true,
         json: async () => ({
@@ -3036,6 +3041,7 @@ describe("PostHogAPIClient", () => {
         "report-1",
         "art-1",
         input,
+        edit,
       );
 
       expect(result.type).toBe("suggested_reviewers");
@@ -3044,7 +3050,7 @@ describe("PostHogAPIClient", () => {
         expect.objectContaining({
           method: "put",
           path: ARTEFACT_PATH,
-          overrides: { body: JSON.stringify({ content: input }) },
+          overrides: { body: JSON.stringify({ content: input, ...edit }) },
         }),
       );
     });
@@ -3058,7 +3064,10 @@ describe("PostHogAPIClient", () => {
       const client = makeClient(fetch);
 
       await expect(
-        client.updateSignalReportArtefact("report-1", "art-1", []),
+        client.updateSignalReportArtefact("report-1", "art-1", [], {
+          action: "remove",
+          targets: [{ github_login: "octocat" }],
+        }),
       ).rejects.toThrow("Only suggested_reviewers");
     });
 
@@ -3075,7 +3084,10 @@ describe("PostHogAPIClient", () => {
       const client = makeClient(fetch);
 
       await expect(
-        client.updateSignalReportArtefact("report-1", "art-1", []),
+        client.updateSignalReportArtefact("report-1", "art-1", [], {
+          action: "remove",
+          targets: [{ github_login: "octocat" }],
+        }),
       ).rejects.toThrow("Unexpected response");
     });
 
@@ -3092,13 +3104,18 @@ describe("PostHogAPIClient", () => {
       });
       const client = makeClient(fetch);
 
-      await client.setSignalReportReviewers("report-1", content);
+      await client.setSignalReportReviewers("report-1", content, {
+        action: "add",
+        targets: content,
+      });
 
       expect(fetch).toHaveBeenCalledWith(
         expect.objectContaining({
           method: "put",
           path: "/api/projects/123/signals/reports/report-1/reviewers/",
-          overrides: { body: JSON.stringify({ content }) },
+          overrides: {
+            body: JSON.stringify({ content, action: "add", targets: content }),
+          },
         }),
       );
     });

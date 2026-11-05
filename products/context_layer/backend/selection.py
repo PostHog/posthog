@@ -1,5 +1,6 @@
 import json
 import time
+import hashlib
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, wait
 from contextvars import copy_context
@@ -14,8 +15,10 @@ from django.db import connections
 
 import httpx
 import structlog
+import posthoganalytics
 
 from posthog.dataclasses import frozen
+from posthog.event_usage import groups
 from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH, normalize_search_term
 from posthog.llm.system_one import NoulAnswer, NoulQuestion
 from posthog.llm.system_one_client import build_system_one_client
@@ -25,6 +28,8 @@ from posthog.ph_client import get_feature_flag_or_none
 
 from products.tasks.backend.facade.api import is_current_task_run_actor
 from products.tasks.backend.models import Task, TaskRun
+
+from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
 
 if TYPE_CHECKING:
     from posthog.llm.system_one_client import SystemOneClient
@@ -322,17 +327,57 @@ class ContextSelector:
         return scored
 
     def select(self, deadline: float) -> PreparedContext:
-        if self.gate(deadline) <= 0.3:
+        gate = self.gate(deadline)
+        if gate <= 0.3:
+            self.capture_outcome("gate_skipped", gate, [])
             return PreparedContext(selection_id=self.selection_id, mode=self.mode, reason="gate_skipped")
         remaining = time_remaining(deadline)
         candidates = self.retrieve(deadline - remaining / 2)
-        context = self.render(self.rerank(candidates, deadline))
+        scored = self.rerank(candidates, deadline)
+        context = self.render(scored)
+        reason = "selected" if context else "empty"
+        self.capture_outcome(reason, gate, scored)
         return PreparedContext(
             selection_id=self.selection_id,
             mode=self.mode,
             context=context if self.mode == "treatment" else "",
-            reason="selected" if context else "empty",
+            reason=reason,
         )
+
+    def capture_outcome(self, reason: str, gate: float, scored: list[tuple[Candidate, float]]) -> None:
+        # The gateway drops System One inputs and answers from its events, so this is the only record of decisions.
+        # The event goes to PostHog's own analytics, so it carries no customer-written names.
+        privacy_mode = is_privacy_mode_enabled(self.run.team)
+        candidates: list[dict[str, object]] = []
+        for candidate, score in sorted(scored, key=lambda pair: -pair[1]):
+            entry: dict[str, object] = {"kind": candidate.kind, "score": round(score, 4)}
+            if not privacy_mode:
+                entry["ref"] = self.candidate_ref(candidate)
+            candidates.append(entry)
+        posthoganalytics.capture(
+            distinct_id=str(self.actor.distinct_id),
+            event="context selection outcome",
+            properties={
+                **self.properties,
+                "selection_id": self.selection_id,
+                "mode": self.mode,
+                "config_version": CONFIG_VERSION,
+                "runtime_version": self.selection.runtime_version,
+                "reason": reason,
+                "gate_probability": round(gate, 4),
+                "candidate_count": len(scored),
+                "privacy_mode": privacy_mode,
+                "candidates": candidates,
+            },
+            groups=groups(self.run.team.organization, self.run.team),
+        )
+
+    def candidate_ref(self, candidate: Candidate) -> str:
+        if candidate.kind != "skill":
+            return candidate.id
+        # A skill's id is its customer-written name, so only a team-scoped digest leaves the process.
+        digest = hashlib.sha256(f"{self.run.team_id}:{candidate.id}".encode()).hexdigest()
+        return f"sha256:{digest[:16]}"
 
     def render(self, scored: list[tuple[Candidate, float]]) -> str:
         header = (

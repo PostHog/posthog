@@ -231,9 +231,12 @@ const HISTOGRAM_METRIC_TYPES: readonly OtelMetricTypeEnumApi[] = [
     OtelMetricTypeEnumApi.Summary,
 ]
 // Ingest keeps these types' bucket distribution apart from the scalar value, which holds the running
-// sum of observations. Exponential histograms are left out: ingest stores each bucket's lower edge,
-// and the backend quantile reads every bound as an upper edge.
-const HISTOGRAM_QUANTILE_METRIC_TYPES: readonly OtelMetricTypeEnumApi[] = [OtelMetricTypeEnumApi.Histogram]
+// sum of observations. The backend quantile turns the stored lower edges of exponential buckets into
+// upper edges.
+const HISTOGRAM_QUANTILE_METRIC_TYPES: readonly OtelMetricTypeEnumApi[] = [
+    OtelMetricTypeEnumApi.Histogram,
+    OtelMetricTypeEnumApi.ExponentialHistogram,
+]
 
 export const supportsHistogramQuantile = (metricType: OtelMetricTypeEnumApi | null): boolean =>
     !!metricType && HISTOGRAM_QUANTILE_METRIC_TYPES.includes(metricType)
@@ -565,6 +568,7 @@ export interface metricsViewerLogicValues {
     histogramQueryNode: MetricsHistogramQuery | null
     interval: string | null
     isAddToDashboardModalOpen: boolean
+    isHeatmap: boolean
     language: MetricsQueryLanguage
     lastSavedQueryNode: MetricsHistogramQuery | MetricsQuery | null
     liveRefresh: boolean
@@ -572,6 +576,7 @@ export interface metricsViewerLogicValues {
     metricsDisplay: MetricsDisplaySettings | undefined
     metricsQueryNode: MetricsQuery | null
     namedClauses: MetricsViewerClause[]
+    noQueryReason: string | undefined
     pendingAddToDashboard: boolean
     pendingAlert: boolean
     queryAbortController: AbortController | null
@@ -588,6 +593,7 @@ export interface metricsViewerLogicValues {
     queryTextChanged: boolean
     rangeFunction: MetricRangeFunction | null
     reduce: MetricsReducer
+    refreshCount: number
     savedInsight: InsightModel | null
     savedInsightLoading: boolean
     savedQueryNode: MetricsHistogramQuery | MetricsQuery | null
@@ -728,6 +734,9 @@ export interface metricsViewerLogicActions {
     openAddToDashboardModal: () => {
         value: true
     }
+    refresh: () => {
+        value: true
+    }
     removeClause: (index: number) => {
         index: number
     }
@@ -857,6 +866,7 @@ export interface metricsViewerLogicMeta {
         namedClauses: (viewerClauses: MetricsViewerClause[]) => MetricsViewerClause[]
         hasMetricName: (namedClauses: MetricsViewerClause[]) => boolean
         hasQuery: (language: MetricsQueryLanguage, hasMetricName: boolean, queryText: string) => boolean
+        noQueryReason: (hasQuery: boolean, language: MetricsQueryLanguage) => string | undefined
         queryPayload: (
             namedClauses: MetricsViewerClause[],
             formula: string,
@@ -887,6 +897,7 @@ export interface metricsViewerLogicMeta {
             queryText: string
         ) => MetricsQuery | null
         queryTextChanged: (queryDraft: string, queryText: string) => boolean
+        isHeatmap: (displayType: MetricsDisplayType, histogramQueryNode: MetricsHistogramQuery | null) => boolean
         heatmapEligible: (
             language: MetricsQueryLanguage,
             namedClauses: MetricsViewerClause[],
@@ -967,6 +978,8 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         setLiveRefresh: (liveRefresh: boolean) => ({ liveRefresh }),
         // One auto-refresh cycle. The chart and the facet rail both reload on it.
         liveRefreshTick: true,
+        // Reloads everything the chart area shows: the series, the anomaly badge and the heatmap.
+        refresh: true,
         setGroupBySearch: (groupBySearch: string) => ({ groupBySearch }),
         // Narrows the chart to one label value, from the anomaly panel's ranked movers.
         addAttributeFilter: (key: string, value: string) => ({ key, value }),
@@ -1184,6 +1197,8 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             { setInterval: (_, { interval }) => interval },
         ],
         liveRefresh: [false, { setLiveRefresh: (_, { liveRefresh }) => liveRefresh }],
+        // The heatmap loads through its own query node, which remounts when this changes.
+        refreshCount: [0, { refresh: (count) => count + 1 }],
         // Free-text search backing the group-by attribute-key autocomplete.
         groupBySearch: ['' as string, { setGroupBySearch: (_, { groupBySearch }) => groupBySearch }],
         queryAbortController: [
@@ -1472,6 +1487,9 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 }, LIVE_REFRESH_KEY)
             },
             liveRefreshTick: () => {
+                actions.refresh()
+            },
+            refresh: () => {
                 actions.fetchQueryResults({})
                 actions.fetchAnomaly({})
             },
@@ -1532,6 +1550,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                             metric_name: series.metricName ?? null,
                             clause: series.clause ?? null,
                             unit: series.unit ?? null,
+                            histogram_bounds: series.histogramBounds ?? null,
                         }))
                     }
                     const queryPayload = values.queryPayload
@@ -1692,6 +1711,11 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             (language: MetricsQueryLanguage, hasMetricName: boolean, queryText: string): boolean =>
                 language === 'builder' ? hasMetricName : queryText.trim() !== '',
         ],
+        noQueryReason: [
+            (s) => [s.hasQuery, s.language],
+            (hasQuery: boolean, language: MetricsQueryLanguage): string | undefined =>
+                hasQuery ? undefined : language === 'builder' ? 'Pick a metric first' : 'Write a query first',
+        ],
         // The chart request minus the date range (resolved at fetch time). The fetch
         // loader sends this object verbatim, so the fingerprint below can't drift from
         // the real payload. Null when nothing queries anything yet.
@@ -1829,6 +1853,12 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         // The heatmap renders one distribution, so it needs exactly one non-formula builder clause
         // on a distribution metric. The OTel type is latched at pick time (backfilled from the picker
         // list), so this doesn't flicker as the live picker search results change.
+        // The heatmap draws a separate histogram query, so the time-series result does not feed it.
+        isHeatmap: [
+            (s) => [s.displayType, s.histogramQueryNode],
+            (displayType: MetricsDisplayType, histogramQueryNode: MetricsHistogramQuery | null): boolean =>
+                displayType === 'heatmap' && histogramQueryNode !== null,
+        ],
         heatmapEligible: [
             (s) => [s.language, s.namedClauses, s.formula],
             (language: MetricsQueryLanguage, namedClauses: MetricsViewerClause[], formula: string): boolean =>

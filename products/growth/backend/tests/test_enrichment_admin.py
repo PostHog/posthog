@@ -241,9 +241,9 @@ class TestEnrichmentLabelResultAdminFilters(_GrowthAdminTestCase):
         self._result(self._config(name="other_label", version="v1-other"), fetch)
         request = RequestFactory().get("/admin/growth/enrichmentlabelresult/", {"label_name": "ai_pilled"})
 
-        queryset = EnrichmentLabelNameFilter(request, request.GET.copy(), EnrichmentLabelResult, self.admin).queryset(
-            request, EnrichmentLabelResult.objects.all()
-        )
+        queryset = EnrichmentLabelNameFilter(
+            request, dict(request.GET.lists()), EnrichmentLabelResult, self.admin
+        ).queryset(request, EnrichmentLabelResult.objects.all())
 
         assert list(queryset) == [matching]
 

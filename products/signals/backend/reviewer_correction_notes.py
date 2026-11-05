@@ -1,40 +1,12 @@
-"""Forwarding of reviewer corrections on inbox reports into the scout steering channel.
+"""Send scoped reviewer edits and claims to the scouts that produced the report or hold its routing memory.
 
-A human adding or removing a suggested reviewer is the strongest routing evidence the fleet ever
-gets: someone who knows the surface saying who owns it. Scouts are told to treat it as authoritative
-precedent, and they cache it — a project's fleet holds a `reviewer:` scratchpad entry per surface it
-has routed. Until now nothing told them a correction had happened. The only path was the project
-profile's `recent_reviewer_corrections` (`scout_harness/profile/builders.py`), whose window covers
-about two days of edits on a busy project, and whose bare before/after login pair does not read as
-"the memory you are routing on is wrong". So a login someone removes by hand keeps being suggested,
-by every scout holding it, and the correction has to be made again on the next report.
+Notes use the same GitHub logins or PostHog user UUIDs as the correction activity log.
+They are searchable by other scouts and research through the existing notes tools.
+Forwarding is best effort after commit, with the editor's steering permissions. A note
+asks agents to check the source report; it does not establish a standing ownership rule.
 
-This module closes that gap the way `dismissal_notes.py`, `discussion_notes.py`, and
-`feedback_notes.py` do: the edit also becomes a `SignalScoutNote`, which every run reads by name at
-cold start (`scout-notes-list`). The note is the trigger, never the record: it asks the scout to
-revisit its own memory, and the scout decides what to keep. Nothing here writes to the scratchpad,
-because a mechanical entry would overwrite ownership evidence a scout verified for itself.
-
-Targets are whoever was involved in the routing, which is why this is the only derived kind
-addressed to more than one scout. Every live scout that emitted or edited the report hears about it:
-an edit is how a scout puts reviewers on a report it did not file, so an editor is as much a router
-as the author. On top of that, every scout whose `reviewer:` memory names a removed login hears about
-the removal, because those are the scouts still routing on it — a fleet-wide note would reach them
-only if it survived the newest-first window a run reads. A report no live scout touched falls back to
-the fleet-wide target, but only when no holder resolved: a run reads the fleet-wide notes alongside
-its own, so pairing the two would tell a holder the same thing twice.
-
-Authorization is the editor's, and mirrors `dismissal_notes` rather than `feedback_notes`: the logins
-already reach scouts through the report's reviewers artefact and the project profile, so the note
-opens no channel a `task:write` caller lacks and the API-key scopes aren't demanded on top of the
-RBAC and team-scope legs. Best-effort by contract: the edit, its activity-log row, and its analytics
-event are already committed, so nothing here may fail a reviewer edit.
-
-A login itself is untrusted input, whichever path stored it, so it is shape-checked before it reaches
-a note and dropped when it is not a GitHub login: these values land inside a backtick span in a
-prompt every scout reads while holding privileged tools. The editor's own name goes in for the same
-reason the logins do — a scout weighs a correction by who made it — rendered and sanitized by
-`scout_note_actor` the way every derived note names its actor.
+A removal is negative routing evidence. A claim is the positive counterpart: a person, or their
+agent, took the work, so the scouts can suggest that person for similar reports.
 """
 
 from __future__ import annotations
@@ -42,9 +14,12 @@ from __future__ import annotations
 import re
 import logging
 from collections.abc import Sequence
-from datetime import timedelta
+from datetime import datetime, timedelta
+from uuid import UUID
 
 from django.utils import timezone
+
+import posthoganalytics
 
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
@@ -78,17 +53,15 @@ _MEMORY_SEARCH_LIMIT = 200
 # stored is bounded too: without it one oversized row makes the next human edit search on hundreds of
 # thousands of terms and write a note no scout could read. The fleet fan-out is capped separately by
 # `MAX_NOTE_TARGETS`.
-MAX_CORRECTION_LOGINS = 20
+MAX_CORRECTION_REVIEWERS = 20
 
-# One person trimming the same login off a morning's worth of reports is one piece of evidence, not
-# ten. Inside this window a login already named in a note to a target is left out of the next one, so
-# each scout is told once and the notes channel stays readable.
+# Coalesce repeat delivery on one report, while preserving feedback from other reports.
 SUPPRESSION_WINDOW = timedelta(hours=24)
 
 # Report titles are unbounded TextFields; a note references them for recognition only.
 _MAX_TITLE_CHARS = 200
 
-# GitHub logins are alphanumerics with single interior hyphens, 39 characters at most. Both write
+# Canonical UUIDs also fit GitHub's login character and length bounds. Both write
 # paths into the reviewers artefact accept any non-empty string, so a login can carry a backtick or a
 # newline that closes the span it is rendered in and fakes a section of a note every scout reads.
 # The shape gate sits at that render boundary, the way `repo_corrections.sanitized_repository` does.
@@ -100,21 +73,48 @@ _MAX_LOGIN_CHARS = 39
 # added login never suppresses a later removal of the same login (a reversal the scout needs to hear).
 _ADDED_SECTION_PREFIX = "Added: "
 _REMOVED_SECTION_PREFIX = "Removed: "
+_CLAIMED_SECTION_PREFIX = "Claimed: "
+
+# Org-keyed kill switch for claim notes. Teams outside the rollout are the comparison group for
+# `signals_report_claimed.claimant_was_suggested`.
+CLAIM_SCOUT_NOTES_FLAG = "signals-claim-scout-notes"
+
+# The agent name on a claim is caller-supplied text, so it is bounded and kept to one line.
+_MAX_AGENT_CHARS = 60
 
 
 @frozen
 class ReviewerCorrection:
     """One human reviewer edit that changed the set, in the terms the scouts need to hear it.
 
+    Reviewers use the activity log's GitHub login or PostHog user UUID labels.
     `scoped_team_ids` is the editing token's `scoped_teams` (None for session auth), read off the
     request by the caller so this stays independent of HTTP.
     """
 
     report_id: str
-    added_logins: tuple[str, ...]
-    removed_logins: tuple[str, ...]
+    added_reviewers: tuple[str, ...]
+    removed_reviewers: tuple[str, ...]
     actor_user_id: int
     scoped_team_ids: tuple[int, ...] | None
+    # Why the editor removed reviewers, when they said. Both apply to the removals only.
+    removal_reason: str | None = None
+    removal_note: str | None = None
+
+
+@frozen
+class ReviewerClaim:
+    """One new claim on a report by a person or by their agent.
+
+    `actor_user_id` is the person in both cases. `via_agent` names the agent when the agent made the
+    claim for them. Task and system claims are never a `ReviewerClaim`, because no person chose the work.
+    """
+
+    report_id: str
+    actor_user_id: int
+    scoped_team_ids: tuple[int, ...] | None
+    claimant_was_suggested: bool
+    via_agent: str | None = None
 
 
 @frozen
@@ -130,11 +130,33 @@ class ForwardedCorrectionNotes:
 
 
 @frozen
-class _LoginsAlreadyTold:
-    """The logins a target was already told about inside the window, split by direction."""
+class _ReviewersAlreadyTold:
+    """The reviewer identities a target was already told about inside the window, split by direction."""
 
     added: set[str]
     removed: set[str]
+    claimed: set[str]
+
+
+@frozen
+class _NoteAuthor:
+    """The person a note is attributed to, after the steering gate passed, and the report it names."""
+
+    canonical_team: Team
+    actor: User
+    actor_login: str | None
+    report: SignalReport
+
+    @property
+    def rendered(self) -> str:
+        return render_actor(self.actor, github_login=self.actor_login)
+
+    @property
+    def identities(self) -> set[str]:
+        identities = {str(self.actor.uuid)}
+        if self.actor_login:
+            identities.add(self.actor_login)
+        return identities
 
 
 _NOTHING_FORWARDED = ForwardedCorrectionNotes(note_ids=(), targets_resolved=0)
@@ -148,7 +170,7 @@ def forward_reviewer_correction_note(*, team: Team, correction: ReviewerCorrecti
     happens here. Every step past this point runs inside one failure boundary, because authorization,
     target resolution, and suppression all read the database.
     """
-    if not correction.added_logins and not correction.removed_logins:
+    if not correction.added_reviewers and not correction.removed_reviewers:
         return _NOTHING_FORWARDED
     try:
         return _forward(team=team, correction=correction)
@@ -160,84 +182,188 @@ def forward_reviewer_correction_note(*, team: Team, correction: ReviewerCorrecti
         return _NOTHING_FORWARDED
 
 
-def _forward(*, team: Team, correction: ReviewerCorrection) -> ForwardedCorrectionNotes:
+def forward_reviewer_claim_note(*, team: Team, claim: ReviewerClaim) -> ForwardedCorrectionNotes:
+    """Leave a claim as a scout note, one per scout that touched the report or holds the claimant's memory.
+
+    Best-effort by the same contract as `forward_reviewer_correction_note`: the claim already stands.
+    """
+    try:
+        return _forward_claim(team=team, claim=claim)
+    except Exception:
+        logger.exception(
+            "Failed to forward a report claim to a scout note",
+            extra={"team_id": team.id, "report_id": claim.report_id},
+        )
+        return _NOTHING_FORWARDED
+
+
+def claim_scout_notes_enabled(team: Team) -> bool:
+    """Whether claims on this team's reports reach the scouts. Fails closed on a flag-read error."""
+    try:
+        org_id = str(team.organization_id)
+        return (
+            posthoganalytics.feature_enabled(
+                CLAIM_SCOUT_NOTES_FLAG,
+                org_id,
+                groups={"organization": org_id},
+                group_properties={"organization": {"id": org_id}},
+                send_feature_flag_events=False,
+            )
+            is True
+        )
+    except Exception:
+        logger.warning("Failed to read the claim scout notes flag", exc_info=True)
+        return False
+
+
+def _note_author(
+    *, team: Team, actor_user_id: int, scoped_team_ids: tuple[int, ...] | None, report_id: str
+) -> _NoteAuthor | None:
     # Scout rows and their notes live under the canonical parent team, and a note is readable by
     # everyone with access to that project. Forwarding a child environment's correction would hand
     # its report id and title to an audience that may have no access to that environment, so those
     # corrections stay on the report and the activity log only.
     canonical_team = team.parent_team or team
     if team.id != canonical_team.id:
-        return _NOTHING_FORWARDED
+        return None
 
-    actor = User.objects.filter(pk=correction.actor_user_id).first()
+    actor = User.objects.filter(pk=actor_user_id).first()
     if actor is None:
-        return _NOTHING_FORWARDED
+        return None
     if not principal_may_steer_scouts(
         user=actor,
-        scoped_team_ids=correction.scoped_team_ids,
+        scoped_team_ids=scoped_team_ids,
         canonical_team=canonical_team,
     ):
-        return _NOTHING_FORWARDED
+        return None
 
-    added_logins = _renderable(correction.added_logins)
-    removed_logins = _renderable(correction.removed_logins)
-    if not added_logins and not removed_logins:
-        return _NOTHING_FORWARDED
-
-    report = SignalReport.objects.filter(team_id=canonical_team.id, id=correction.report_id).first()
+    report = SignalReport.objects.filter(team_id=canonical_team.id, id=report_id).first()
     if report is None:
+        return None
+    return _NoteAuthor(
+        canonical_team=canonical_team,
+        actor=actor,
+        actor_login=actor_github_login(canonical_team.id, actor),
+        report=report,
+    )
+
+
+def _forward(*, team: Team, correction: ReviewerCorrection) -> ForwardedCorrectionNotes:
+    added_reviewers = _renderable(correction.added_reviewers)
+    removed_reviewers = _renderable(correction.removed_reviewers)
+    if not added_reviewers and not removed_reviewers:
         return _NOTHING_FORWARDED
 
-    targets = _resolve_targets(canonical_team.id, correction.report_id, removed_logins)
+    author = _note_author(
+        team=team,
+        actor_user_id=correction.actor_user_id,
+        scoped_team_ids=correction.scoped_team_ids,
+        report_id=correction.report_id,
+    )
+    if author is None:
+        return _NOTHING_FORWARDED
+
+    team_id = author.canonical_team.id
+    targets = _resolve_targets(team_id, correction.report_id, removed_reviewers)
     # One lookup serves the editor's name in every note and the self-removal split below, which keeps
     # an editor taking their own login off from reading as a teammate's verdict.
-    actor_login = actor_github_login(canonical_team.id, actor)
-    editor = render_actor(actor, github_login=actor_login)
+    editor = author.rendered
+    actor_identities = author.identities
     expires_at = timezone.now() + DERIVED_NOTE_TTL
     note_ids: list[str] = []
     for skill_name in targets:
-        already_told = _logins_already_told(canonical_team.id, skill_name)
-        added = tuple(login for login in added_logins if login not in already_told.added)
-        removed = tuple(login for login in removed_logins if login not in already_told.removed)
+        already_told = _reviewers_already_told(team_id, skill_name, correction.report_id)
+        added = tuple(login for login in added_reviewers if login not in already_told.added)
+        removed = tuple(login for login in removed_reviewers if login not in already_told.removed)
         if not added and not removed:
             continue
         content = _build_note_content(
-            report=report,
+            report=author.report,
             editor=editor,
-            added_logins=added,
+            added_reviewers=added,
             # Split per note rather than per edit: the caveat belongs to the logins this scout is
             # actually being told about, and the suppression filter above can leave a batch holding
             # only the teammate half of a removal, or only the editor's own login.
-            self_removed=tuple(login for login in removed if login == actor_login),
-            teammate_removed=tuple(login for login in removed if login != actor_login),
+            self_removed=tuple(login for login in removed if login in actor_identities),
+            teammate_removed=tuple(login for login in removed if login not in actor_identities),
+            removal_reason=correction.removal_reason,
+            removal_note=correction.removal_note,
         )
-        try:
-            created = leave_note(
-                team_id=canonical_team.id,
-                content=content,
-                skill_name=skill_name,
-                created_by_id=actor.id,
-                expires_at=expires_at,
-                origin=SignalScoutNote.Origin.REPORT_REVIEWER_CORRECTION,
-            )
-        except Exception:
-            # Per-note guard on top of the outer boundary, so one unwritable target (a skill deleted
-            # mid-request, say) doesn't cost the other scouts their notes.
-            logger.exception(
-                "Failed to forward a reviewer correction to one scout",
-                extra={"team_id": canonical_team.id, "skill_name": skill_name},
-            )
-            continue
-        note_ids.append(created.id)
+        note_id = _leave_note(author=author, skill_name=skill_name, content=content, expires_at=expires_at)
+        if note_id is not None:
+            note_ids.append(note_id)
     return ForwardedCorrectionNotes(note_ids=tuple(note_ids), targets_resolved=len(targets))
 
 
+def _forward_claim(*, team: Team, claim: ReviewerClaim) -> ForwardedCorrectionNotes:
+    author = _note_author(
+        team=team,
+        actor_user_id=claim.actor_user_id,
+        scoped_team_ids=claim.scoped_team_ids,
+        report_id=claim.report_id,
+    )
+    if author is None:
+        return _NOTHING_FORWARDED
+    # The login is what scouts route on, so the note names it first. A memory can still name the
+    # PostHog user UUID, from before the login was linked, so holders are searched on both.
+    claimant = _renderable([identity for identity in (author.actor_login, str(author.actor.uuid)) if identity])
+    if not claimant:
+        return _NOTHING_FORWARDED
+
+    team_id = author.canonical_team.id
+    targets = _resolve_targets(team_id, claim.report_id, claimant)
+    content = _build_claim_note_content(
+        report=author.report,
+        claimant=author.rendered,
+        identity=claimant[0],
+        via_agent=claim.via_agent,
+        claimant_was_suggested=claim.claimant_was_suggested,
+    )
+    expires_at = timezone.now() + DERIVED_NOTE_TTL
+    note_ids: list[str] = []
+    for skill_name in targets:
+        # A claim, a release, and a claim again on one report is one piece of evidence.
+        if _reviewers_already_told(team_id, skill_name, claim.report_id).claimed.intersection(claimant):
+            continue
+        note_id = _leave_note(author=author, skill_name=skill_name, content=content, expires_at=expires_at)
+        if note_id is not None:
+            note_ids.append(note_id)
+    return ForwardedCorrectionNotes(note_ids=tuple(note_ids), targets_resolved=len(targets))
+
+
+def _leave_note(*, author: _NoteAuthor, skill_name: str, content: str, expires_at: datetime) -> str | None:
+    try:
+        created = leave_note(
+            team_id=author.canonical_team.id,
+            content=content,
+            skill_name=skill_name,
+            created_by_id=author.actor.id,
+            expires_at=expires_at,
+            origin=SignalScoutNote.Origin.REPORT_REVIEWER_CORRECTION,
+        )
+    except Exception:
+        # Per-note guard on top of the outer boundary, so one unwritable target (a skill deleted
+        # mid-request, say) doesn't cost the other scouts their notes.
+        logger.exception(
+            "Failed to forward a reviewer note to one scout",
+            extra={"team_id": author.canonical_team.id, "skill_name": skill_name},
+        )
+        return None
+    return created.id
+
+
 def _renderable(logins: Sequence[str]) -> tuple[str, ...]:
-    """The logins of one edit that may be rendered into a note: well-shaped, deduped, and capped."""
+    """Bound and sanitize GitHub logins or canonical user UUIDs before prompt rendering."""
     kept: list[str] = []
     malformed = 0
     for login in logins:
         cleaned = login.strip().lower()
+        if cleaned.startswith("user:"):
+            try:
+                cleaned = str(UUID(cleaned.removeprefix("user:")))
+            except ValueError:
+                malformed += 1
+                continue
         if not cleaned or len(cleaned) > _MAX_LOGIN_CHARS or not _LOGIN_SHAPE_RE.match(cleaned):
             malformed += 1
             continue
@@ -247,14 +373,16 @@ def _renderable(logins: Sequence[str]) -> tuple[str, ...]:
         # A count, never the value: a malformed login is untrusted input, and this line is read by
         # people.
         logger.warning(
-            "Dropped reviewer logins that are not a GitHub login before forwarding a correction",
+            "Dropped malformed reviewer identities before forwarding a correction",
             extra={"dropped": malformed},
         )
-    return tuple(kept[:MAX_CORRECTION_LOGINS])
+    return tuple(kept[:MAX_CORRECTION_REVIEWERS])
 
 
-def _resolve_targets(team_id: int, report_id: str, removed_logins: Sequence[str]) -> list[str]:
-    """Who to tell: every scout that touched the report, plus every holder of the removed logins.
+def _resolve_targets(team_id: int, report_id: str, holder_identities: Sequence[str]) -> list[str]:
+    """Who to tell: every scout that touched the report, plus every holder of the given identities.
+
+    The identities are the removed logins for a correction, and the claimant for a claim.
 
     Touching means emitted or edited, because a scout that set the reviewers through an edit did the
     routing a human has just corrected, and it is better to tell it once too often than to leave it
@@ -266,13 +394,13 @@ def _resolve_targets(team_id: int, report_id: str, removed_logins: Sequence[str]
     reads the fleet-wide notes alongside its own and a holder would hear the same edit twice.
     """
     touching = _live_skills(team_id, resolve_touching_scout_skills(team_id, report_id))
-    holders = _memory_holders(team_id, removed_logins)
+    holders = _memory_holders(team_id, holder_identities)
     targets = [*touching, *(name for name in holders if name not in touching)]
     return targets[:MAX_NOTE_TARGETS] if targets else [""]
 
 
-def _memory_holders(team_id: int, removed_logins: Sequence[str]) -> list[str]:
-    """The live scouts whose `reviewer:` memory names one of these logins.
+def _memory_holders(team_id: int, identities: Sequence[str]) -> list[str]:
+    """The live scouts whose `reviewer:` memory names one of these identities.
 
     One query for the whole login list, matching each as a whole token. A substring search would
     both amplify (one unindexed scan per login) and mis-target: `ai` sits inside `email`, so a short
@@ -283,14 +411,14 @@ def _memory_holders(team_id: int, removed_logins: Sequence[str]) -> list[str]:
     audience. So is one written by a scout whose skill is gone, because a note addressed to a name
     that no longer exists steers no one (and `leave_note` rejects the target).
     """
-    if not removed_logins:
+    if not identities:
         return []
     named = {
         entry.created_by_skill
         for entry in search_scratchpad_naming(
             team_id=team_id,
             key_prefix=REVIEWER_MEMORY_KEY_PREFIX,
-            terms=removed_logins,
+            terms=identities,
             limit=_MEMORY_SEARCH_LIMIT,
         )
         if entry.created_by_skill
@@ -309,38 +437,46 @@ def _live_skills(team_id: int, names: Sequence[str]) -> list[str]:
     return [name for name in names if name in live]
 
 
-def _logins_already_told(team_id: int, skill_name: str) -> _LoginsAlreadyTold:
-    """The logins this target was already told about inside the window, split by direction.
+def _reviewers_already_told(team_id: int, skill_name: str, report_id: str) -> _ReviewersAlreadyTold:
+    """The reviewer identities this target was already told about inside the window, split by direction.
 
     Suppression is per action, not per login: an added login must not suppress a later removal of the
-    same login, since a reversal is exactly the stale-routing correction this channel exists to carry.
-    Added and removed logins are therefore read back from their own note sections. Coalescing across
-    reports stays intentional — the same login removed off another report inside the window is still
-    one note, because it is the same direction.
+    same reviewer, and a claim must not suppress a later removal. Only notes about the same report can suppress a repeat: another report can
+    concern a different area or provide independent evidence of a repeated mistake.
     """
-    contents = SignalScoutNote.objects.filter(
-        team_id=team_id,
-        skill_name=skill_name,
-        origin=SignalScoutNote.Origin.REPORT_REVIEWER_CORRECTION,
-        created_at__gte=timezone.now() - SUPPRESSION_WINDOW,
-    ).values_list("content", flat=True)
+    contents = (
+        SignalScoutNote.objects.filter(
+            team_id=team_id,
+            skill_name=skill_name,
+            origin=SignalScoutNote.Origin.REPORT_REVIEWER_CORRECTION,
+            created_at__gte=timezone.now() - SUPPRESSION_WINDOW,
+            # The first quoted value is the report id; names cannot contain backticks.
+            content__regex=rf"^Inbox routing correction: [^`]* on report `{re.escape(report_id)}`",
+        )
+        .order_by("-created_at", "-id")
+        .values_list("content", flat=True)
+    )
     # Logins ride the note content in backticks under a literal `Added:` / `Removed:` section, which is
     # enough to recognize direction without a second table to track what was sent.
     added_told: set[str] = set()
     removed_told: set[str] = set()
+    claimed_told: set[str] = set()
     for content in contents:
+        already_seen = added_told | removed_told | claimed_told
         for paragraph in content.split("\n\n"):
             if paragraph.startswith(_ADDED_SECTION_PREFIX):
-                added_told |= _quoted_logins(paragraph)
+                added_told |= _quoted_reviewers(paragraph) - already_seen
             elif paragraph.startswith(_REMOVED_SECTION_PREFIX):
-                removed_told |= _quoted_logins(paragraph)
-    return _LoginsAlreadyTold(added=added_told, removed=removed_told)
+                removed_told |= _quoted_reviewers(paragraph) - already_seen
+            elif paragraph.startswith(_CLAIMED_SECTION_PREFIX):
+                # Only the first sentence names the claimant. Identities cannot contain a period.
+                # No reviewer edit reverses a claim, so a newer edit does not unsuppress an older claim.
+                claimed_told |= _quoted_reviewers(paragraph.split(".", 1)[0])
+    return _ReviewersAlreadyTold(added=added_told, removed=removed_told, claimed=claimed_told)
 
 
-def _quoted_logins(content: str) -> set[str]:
+def _quoted_reviewers(content: str) -> set[str]:
     parts = content.split("`")
-    # Odd positions are the backtick-delimited spans; report ids sit in them too and never collide
-    # with a login, since a login can't contain a hyphen-delimited UUID.
     return {parts[index] for index in range(1, len(parts), 2)}
 
 
@@ -348,45 +484,117 @@ def _build_note_content(
     *,
     report: SignalReport,
     editor: str,
-    added_logins: Sequence[str],
+    added_reviewers: Sequence[str],
     self_removed: Sequence[str],
     teammate_removed: Sequence[str],
+    removal_reason: str | None = None,
+    removal_note: str | None = None,
 ) -> str:
     sections = [f"Inbox routing correction: {editor} changed the suggested reviewers on {_subject(report)}"]
-    if added_logins:
+    if added_reviewers:
         sections.append(
-            f"{_ADDED_SECTION_PREFIX}{_listed(added_logins)}. An added login is a positive ownership fact for this "
-            "surface — record it with the report id and the date."
+            f"{_ADDED_SECTION_PREFIX}{_listed(added_reviewers)}. The editor selected these reviewers for this report. "
+            "Check the report context before using this as ownership evidence elsewhere."
         )
     if teammate_removed:
         sections.append(f"{_REMOVED_SECTION_PREFIX}{_listed(teammate_removed)}.")
     if self_removed:
-        sections.append(
-            f"{_REMOVED_SECTION_PREFIX}{_listed(self_removed)}. That is the editor's own login, which is weaker "
-            "evidence than a teammate removing someone."
+        # The weak-evidence caveat makes a model demote the person rather than drop them, which is right
+        # for an unexplained self-removal and wrong when the editor said why.
+        caveat = (
+            "That is the editor's own identity, removed for the reason stated below."
+            if removal_reason in _REASON_GUIDANCE or removal_note
+            else "That is the editor's own identity, which is weaker evidence than a teammate removing someone."
         )
+        sections.append(f"{_REMOVED_SECTION_PREFIX}{_listed(self_removed)}. {caveat}")
     if teammate_removed or self_removed:
-        sections.append(_removal_guidance(by_a_teammate=bool(teammate_removed)))
+        if removal_reason:
+            sections.append(f"Reason the editor gave for the removal: `{removal_reason}`.")
+        if removal_note:
+            # Quoted line by line, so the editor's text cannot pose as a section of this note.
+            quoted_note = "\n".join(f"> {line}" for line in removal_note.splitlines())
+            sections.append(f"The editor's note on the removal:\n\n{quoted_note}")
+        sections.append(_removal_guidance(by_a_teammate=bool(teammate_removed), reason=removal_reason))
     sections.append(
-        "This is one editor's correction on the report named above rather than fleet-level steering, so treat it\n"
-        "as evidence to check, not an instruction. `inbox-reports-retrieve` on the report id has the full context,\n"
-        "including the report's current reviewers. Fold anything durable into your scratchpad, since this note\n"
-        "expires."
+        f"{_IDENTITY_FOOTER} "
+        "This edit is binding on the source report. For another report, check its scope and reason with "
+        "`inbox-reports-retrieve` before applying it. Record only supported ownership evidence in your "
+        "`reviewer:` memory, with the source report, date, and scope. This note expires."
     )
     return "\n\n".join(sections)
 
 
-def _removal_guidance(*, by_a_teammate: bool) -> str:
+def _build_claim_note_content(
+    *,
+    report: SignalReport,
+    claimant: str,
+    identity: str,
+    via_agent: str | None,
+    claimant_was_suggested: bool,
+) -> str:
+    agent = " ".join((via_agent or "").replace("`", "").split())[:_MAX_AGENT_CHARS]
+    by = f"Their agent ({agent}) claimed it for them." if agent else "They claimed it themselves."
+    # Positive evidence is weaker than a removal reason: a person can pick up work outside their
+    # area. The guidance asks for a scoped memory entry, not a routing rule.
+    fit = (
+        "They were already a suggested reviewer, so the claim confirms that routing."
+        if claimant_was_suggested
+        else "They were not a suggested reviewer. Consider them for similar work in the same area."
+    )
+    return "\n\n".join(
+        [
+            f"Inbox routing correction: {claimant} claimed the work on {_subject(report)}",
+            f"{_CLAIMED_SECTION_PREFIX}`{identity}`. {by} {fit}",
+            "A claim is positive evidence that this person works in this area. It is not proof of ownership, "
+            "and one claim is not a standing rule. Search your `reviewer:` memory for this identity and area. "
+            "Record that they claimed the work, with the source report and date. Several claims in one area "
+            "are stronger evidence than one. Do not extend this to unrelated areas.",
+            f"{_IDENTITY_FOOTER} For another report, check its scope with `inbox-reports-retrieve` before "
+            "applying this. This note expires.",
+        ]
+    )
+
+
+_IDENTITY_FOOTER = (
+    "Reviewers are identified by GitHub login or PostHog user UUID. Check current project membership "
+    "with `scout-members-list`; a GitHub account is not required for Inbox assignment."
+)
+
+
+# A stated reason replaces the generic caution: it tells the scout which of the meanings a removal
+# can have applies, and each leads to a different memory update.
+_REASON_GUIDANCE = {
+    "wrong_area": (
+        "The removed identity is not the right reviewer for this work, because it is outside their area, they moved "
+        "off it, or someone else owns it. Responsibility for it and similar work moves away from them, and their "
+        "older commits and ownership entries here are stale evidence. Do not select them for that work on the "
+        "strength of that history. Look for the current owner, and keep routing unrelated areas to them."
+    ),
+    "already_covered": (
+        "Another reviewer already covers this report. This is not ownership evidence against the removed identity, "
+        "so do not record an exclusion. Avoid adding them as an extra reviewer when others already cover the work."
+    ),
+    "unavailable": (
+        "The removed identity does not have bandwidth right now, for example because they are away or have too "
+        "many reports. This is not ownership evidence, so do not record an exclusion or an ownership change."
+    ),
+}
+_GENERIC_GUIDANCE = (
+    "A removal can mean absence, duplicate coverage, or an unsuitable assignment. Self-removal alone "
+    "does not establish an ownership change or a standing exclusion."
+)
+
+
+def _removal_guidance(*, by_a_teammate: bool, reason: str | None = None) -> str:
     # What the scout should record has to match the removal it was just told about: an editor taking
     # their own login off is not a teammate's verdict on who owns the surface.
-    recorded = "a teammate removed the login" if by_a_teammate else "the login's owner took themselves off"
+    recorded = "a teammate removed the reviewer" if by_a_teammate else "the reviewer took themselves off"
+    meaning = _REASON_GUIDANCE.get(reason or "", _GENERIC_GUIDANCE)
     return (
-        "One removal is weak evidence on its own: someone may be away, a duplicate reviewer, or noise the\n"
-        "editor trimmed. Repeated removals of the same login on the same surface are strong evidence that the\n"
-        "memory you route on is stale. Search your scratchpad for the login and for your `reviewer:` keys on\n"
-        f"this surface, then condense rather than delete: fold in that {recorded}, on how many\n"
-        "recent reports and when, and keep the ownership evidence that still stands. Do not put a removed login\n"
-        "back on a report about the same topic unless you find new evidence for it."
+        f"{meaning} Search your `reviewer:` memory "
+        f"for this identity and area. Record that {recorded}, with the source report and date, "
+        "and retain ownership evidence that still applies. Check repeated mistakes on related reports, "
+        "but do not extend this correction to unrelated areas."
     )
 
 

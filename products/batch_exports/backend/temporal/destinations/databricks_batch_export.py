@@ -5,7 +5,6 @@ import socket
 import typing as t
 import asyncio
 import datetime as dt
-import ipaddress
 import contextlib
 import dataclasses
 import collections.abc
@@ -25,15 +24,9 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.cloud_utils import is_cloud
-from posthog.models.integration import DatabricksIntegration, Integration
-from posthog.security.oob_domains import matched_oob_domain
-from posthog.security.url_validation import (
-    INVALID_HOST_MESSAGE,
-    UNREACHABLE_HOST_MESSAGE,
-    ShapeError,
-    validate_external_host,
-)
+from posthog.integrations import IntegrationManager, IntegrationNotFound
+from posthog.models.integration import DatabricksIntegration
+from posthog.models.integration.databricks import NOT_A_DATABRICKS_HOST_MESSAGE, is_databricks_workspace_host
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -54,6 +47,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     is_over_billing_limit_error,
     start_batch_export_run,
 )
+from products.batch_exports.backend.temporal.errors import ColumnTypeMappingError
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -65,6 +59,7 @@ from products.batch_exports.backend.temporal.pipeline.types import BatchExportRe
 from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
+    handle_column_type_mapping_errors,
     handle_non_retryable_errors,
     make_retryable_with_exponential_backoff,
 )
@@ -74,6 +69,7 @@ EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 
 NON_RETRYABLE_ERROR_TYPES: list[str] = [
+    "UnsupportedColumnTypeError",
     # Our own exception when we can't connect to Databricks, usually due to invalid parameters.
     "DatabricksConnectionError",
     # Raised when we don't have sufficient permissions to perform an operation.
@@ -329,41 +325,16 @@ class DatabricksClient:
         leaves no stranded thread — the socket terminates on its own timeout and the SDK call is never
         started.
 
-        We also resolve and validate the hostname again here, and connect only to the validated
-        addresses, to prevent SSRF through DNS rebinding.
+        We also refuse a host outside the Databricks workspace DNS zones, because the SDK and connector
+        send requests to URLs the server returns. Checking here as well as at creation also covers
+        integrations that are already stored.
         """
+        if not is_databricks_workspace_host(self.server_hostname):
+            raise DatabricksConnectionError(NOT_A_DATABRICKS_HOST_MESSAGE, retryable=False)
 
         def probe() -> None:
-            if is_cloud() and (oob_domain := matched_oob_domain(self.server_hostname)) is not None:
-                # Detection only, so a match is logged and never refused. See posthog/security/crosslang/README.md.
-                self.logger.info("security.oob_domain_seen", domain=oob_domain, guard="databricks_probe")
-
-            addresses = [
-                str(sockaddr[0])
-                for *_, sockaddr in socket.getaddrinfo(self.server_hostname, 443, type=socket.SOCK_STREAM)
-            ]
-            try:
-                validate_external_host(
-                    self.server_hostname, resolved_ips={ipaddress.ip_address(address) for address in addresses}
-                )
-            except ShapeError as err:
-                raise DatabricksConnectionError(INVALID_HOST_MESSAGE, retryable=False) from err
-            except ValueError as err:
-                self.logger.warning(
-                    "Refused to connect to a Databricks host that failed the SSRF check",
-                    reason=str(err),
-                    addresses=addresses,
-                )
-                raise DatabricksConnectionError(UNREACHABLE_HOST_MESSAGE, retryable=False) from err
-
-            errors: list[OSError] = []
-            for address in addresses:
-                try:
-                    with socket.create_connection((address, 443), timeout=self.connect_timeout_seconds):
-                        return
-                except OSError as err:
-                    errors.append(err)
-            raise errors[-1]
+            with socket.create_connection((self.server_hostname, 443), timeout=self.connect_timeout_seconds):
+                pass
 
         try:
             await asyncio.to_thread(probe)
@@ -1014,6 +985,9 @@ def databricks_default_fields() -> list[BatchExportField]:
     return batch_export_fields
 
 
+DATABRICKS_MAX_DECIMAL_PRECISION = 38
+
+
 def _get_databricks_field_type(pa_type: pa.DataType, is_variant: bool) -> str | None:
     """Get the Databricks type for a PyArrow field."""
     if pa.types.is_string(pa_type) or isinstance(pa_type, JsonType):
@@ -1043,9 +1017,17 @@ def _get_databricks_field_type(pa_type: pa.DataType, is_variant: bool) -> str | 
     elif pa.types.is_timestamp(pa_type):
         return "TIMESTAMP"
 
+    elif pa.types.is_date(pa_type):
+        return "DATE"
+
+    elif pa.types.is_decimal(pa_type) and pa_type.precision <= DATABRICKS_MAX_DECIMAL_PRECISION:
+        return f"DECIMAL({pa_type.precision}, {pa_type.scale})"
+
     elif pa.types.is_list(pa_type):
         assert isinstance(pa_type, pa.ListType)
         list_type = _get_databricks_field_type(pa_type.value_type, False)
+        if list_type is None:
+            return None
         return f"ARRAY<{list_type}>"
 
     return None
@@ -1069,7 +1051,7 @@ def _get_databricks_fields_from_record_schema(
         is_variant = pa_field.name in known_variant_columns
         databricks_type = _get_databricks_field_type(pa_field.type, is_variant)
         if databricks_type is None:
-            raise TypeError(f"Unsupported type in field '{name}': '{databricks_type}'")
+            raise ColumnTypeMappingError("Databricks", name, pa_field.type)
         databricks_schema.append((name, databricks_type))
 
     return databricks_schema
@@ -1142,10 +1124,11 @@ def _get_databricks_table_settings(
             if staged_fields:
                 table_fields = staged_fields
     else:
-        table_fields = _get_databricks_fields_from_record_schema(
-            record_batch_schema,
-            known_variant_columns=known_variant_columns,
-        )
+        with handle_column_type_mapping_errors(model):
+            table_fields = _get_databricks_fields_from_record_schema(
+                record_batch_schema,
+                known_variant_columns=known_variant_columns,
+            )
 
     return TableSettings(table_fields, record_batch_schema, known_variant_columns)
 
@@ -1158,8 +1141,8 @@ async def _get_databricks_integration(inputs: DatabricksInsertInputs) -> Databri
         DatabricksIntegrationError: If the Databricks integration is not valid.
     """
     try:
-        integration = await Integration.objects.aget(id=inputs.integration_id, team_id=inputs.team_id)
-    except Integration.DoesNotExist:
+        integration = await IntegrationManager.databricks.credentials.aget(inputs.team_id, inputs.integration_id)
+    except IntegrationNotFound:
         raise DatabricksIntegrationNotFoundError(f"Databricks integration with id '{inputs.integration_id}' not found")
     return DatabricksIntegration(integration)
 
@@ -1348,7 +1331,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
         inputs.table_name,
     )
 
-    async with Heartbeater():
+    async with Heartbeater(), contextlib.AsyncExitStack() as cleanup:
         model = migrate_batch_export_model(inputs.batch_export_model)
 
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_DATABRICKS_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
@@ -1362,6 +1345,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
             max_record_batch_size_bytes=1024 * 1024 * 10,  # 10MB
             stage_folder=inputs.stage_folder,
         )
+        cleanup.push_async_callback(producer.stop)
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:

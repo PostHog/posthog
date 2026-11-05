@@ -5,7 +5,7 @@ import { GeoIPService } from '~/common/utils/geoip'
 import { logger } from '~/common/utils/logger'
 
 import type { CommonConfig } from '../../common/config'
-import { HealthCheckResult, PluginServerService, TeamId } from '../../types'
+import { HealthCheckResult, PluginServerService, Team, TeamId } from '../../types'
 import {
     CdpCoreServicesConfig,
     CdpCoreServicesDeps,
@@ -26,14 +26,17 @@ import { HogFunctionManagerService } from '../services/managers/hog-function-man
 import { HogFunctionTemplateManagerService } from '../services/managers/hog-function-template-manager.service'
 import { PersonsManagerService } from '../services/managers/persons-manager.service'
 import { RecipientsManagerService } from '../services/managers/recipients-manager.service'
+import { EmailAttachmentsService } from '../services/messaging/email-attachments.service'
 import { EmailService } from '../services/messaging/email.service'
 import { RecipientPreferencesService } from '../services/messaging/recipient-preferences.service'
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from '../services/monitoring/hog-masker.service'
 import { HogWatcherService } from '../services/monitoring/hog-watcher.service'
+import { WorkflowsActivationReporter } from '../services/monitoring/workflows-activation-reporter'
 import { NativeDestinationExecutorService } from '../services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from '../services/segment-destination-executor.service'
 import { CdpUsageReporterService } from '../services/usage/cdp-usage-reporter.service'
+import { HogFunctionTypeType } from '../types'
 
 export type CdpConsumerBaseConfig = CdpCoreServicesConfig &
     Pick<CommonConfig, 'KAFKA_CLIENT_RACK'> &
@@ -71,7 +74,9 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
     recipientsManager: RecipientsManagerService
 
     emailService: EmailService
+    emailAttachmentsService: EmailAttachmentsService
     hogFunctionMonitoringService: HogFunctionMonitoringService
+    workflowsActivationReporter: WorkflowsActivationReporter
     cdpUsageReporter: CdpUsageReporterService
     invocationResultsService: InvocationResultsService
     nativeDestinationExecutorService: NativeDestinationExecutorService
@@ -103,7 +108,9 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         this.recipientPreferencesService = services.recipientPreferencesService
         this.hogFlowExecutor = services.hogFlowExecutor
         this.emailService = services.emailService
+        this.emailAttachmentsService = services.emailAttachmentsService
         this.hogFunctionMonitoringService = services.hogFunctionMonitoringService
+        this.workflowsActivationReporter = services.workflowsActivationReporter
         this.cdpUsageReporter = services.cdpUsageReporter
         this.invocationResultsService = services.invocationResultsService
         this.nativeDestinationExecutorService = services.nativeDestinationExecutorService
@@ -124,6 +131,19 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         }
     }
 
+    /** The team, or null when it has no hog function of these types and no hog flow. */
+    protected async loadTeamWithHogFunctionsOrFlows(
+        teamId: TeamId,
+        hogTypes: HogFunctionTypeType[]
+    ): Promise<Team | null> {
+        const [teamHogFunctions, teamHogFlows, team] = await Promise.all([
+            this.hogFunctionManager.getHogFunctionsForTeam(teamId, hogTypes),
+            this.hogFlowManager.getHogFlowsForTeam(teamId),
+            this.deps.teamManager.getTeam(teamId),
+        ])
+        return teamHogFunctions.length || teamHogFlows.length ? team : null
+    }
+
     public async start(): Promise<void> {
         // Outputs are resolved in the constructor via `createCdpCoreServices` — no
         // per-consumer producer lifecycle. The outer server owns producer shutdown
@@ -138,6 +158,7 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
         // Release the per-consumer conversion-watcher pool created in createCdpCoreServices, so
         // graceful shutdown frees its cyclotron connections like the other cyclotron pools do.
         await this.invocationResultsService.stop()
+        await this.emailAttachmentsService.stop()
         logger.info('👍', `${this.name} - stopped!`)
     }
 

@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react'
+import React, { useState } from 'react'
 
 import { Sparkline } from '../../charts/Sparkline/Sparkline'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
+import { useAnimatedNumber } from '../../core/hooks/useAnimatedNumber'
 import type { ChartTheme } from '../../core/types'
 import {
     type ChangeColor,
@@ -13,7 +14,6 @@ import {
     DEFAULT_POSITIVE_COLOR,
 } from './internals'
 import { type MetricChange, resolveDelta } from './resolveDelta'
-import { useAnimatedNumber } from './useAnimatedNumber'
 import { useHoverIntent } from './useHoverIntent'
 
 export type { MetricChange }
@@ -32,7 +32,7 @@ export interface MetricCardProps {
     /** Formats a label for the default subtitle, e.g. an ISO time as a short date. The sparkline
      *  keeps the raw `labels`, which must stay unique. */
     formatLabel?: (label: string) => React.ReactNode
-    /** Required when `data` is present. */
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
     theme?: ChartTheme
     /** Sparkline line + fill color. Falls back to `theme.colors[0]`. */
     color?: string
@@ -81,10 +81,9 @@ export interface MetricCardProps {
 }
 
 export function MetricCard(props: MetricCardProps): React.ReactElement | null {
-    const { onError, ...rest } = props
     return (
-        <ChartErrorBoundary onError={onError}>
-            <MetricCardInner {...rest} />
+        <ChartErrorBoundary onError={props.onError}>
+            <MetricCardInner {...props} />
         </ChartErrorBoundary>
     )
 }
@@ -120,8 +119,9 @@ function MetricCardInner({
     hoverIntentMs = 60,
     className,
     dataAttr,
-}: Omit<MetricCardProps, 'onError'>): React.ReactElement | null {
-    const sparklineData = data != null && data.length > 0 && theme != null ? data : null
+    onError,
+}: MetricCardProps): React.ReactElement | null {
+    const sparklineData = data != null && data.length > 0 ? data : null
     const lastIndex = sparklineData ? sparklineData.length - 1 : -1
 
     const [hoverIndex, setHoverIndex] = useState(-1)
@@ -132,7 +132,7 @@ function MetricCardInner({
     const animationTarget = sparklineData && intentIndex >= 0 ? (sparklineData[intentIndex] ?? 0) : (restingValue ?? 0)
     const animatedValue = useAnimatedNumber(animationTarget, animationMs)
 
-    const baselineValue = useMemo(() => sparklineData?.find((v) => v !== 0 && Number.isFinite(v)), [sparklineData])
+    const baselineValue = sparklineData?.find((v) => v !== 0 && Number.isFinite(v))
 
     if (restingValue == null) {
         return null
@@ -215,7 +215,7 @@ function MetricCardInner({
                 </div>
             )}
 
-            {sparklineData && theme && (
+            {sparklineData && (
                 <Sparkline
                     data={sparklineData}
                     labels={labels}
@@ -228,6 +228,7 @@ function MetricCardInner({
                     onHoverIndexChange={setHoverIndex}
                     className={sparklineClassName}
                     dataAttr="metric-card-sparkline"
+                    onError={onError}
                 />
             )}
         </div>

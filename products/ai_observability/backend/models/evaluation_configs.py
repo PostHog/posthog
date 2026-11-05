@@ -1,5 +1,5 @@
 import math
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Any, Literal, Self, cast
 
 from django.db import models
 
@@ -29,6 +29,12 @@ class LLMJudgeConfig(BaseModel):
     prompt: str = Field(..., min_length=1, description="Evaluation criteria prompt")
     judge_method: Literal["llm", "decision"] | None = Field(
         default=None, description="Judge method. Omit to keep the saved method; null restores automatic routing."
+    )
+    include_media: bool | None = Field(default=None, description="Set to false to judge text only.")
+    # Matches llm.types.ReasoningLevel; importing the llm package here would load provider SDKs at startup.
+    reasoning_level: Literal["minimal", "low", "medium", "high"] | None = Field(
+        default=None,
+        description="How much the judge model reasons before it answers. Null uses the model's default.",
     )
 
     @field_validator("prompt")
@@ -292,7 +298,9 @@ class InactivitySettleConfig(BaseModel):
 
 SettleConfig = Annotated[FixedWindowSettleConfig | InactivitySettleConfig, Field(discriminator="strategy")]
 
-_SETTLE_CONFIG_ADAPTER: TypeAdapter[FixedWindowSettleConfig | InactivitySettleConfig] = TypeAdapter(SettleConfig)
+_SETTLE_CONFIG_ADAPTER: TypeAdapter[FixedWindowSettleConfig | InactivitySettleConfig] = TypeAdapter(
+    cast(Any, SettleConfig)
+)
 
 
 class SessionFixedWindowSettleConfig(BaseModel):
@@ -340,7 +348,7 @@ SessionSettleConfig = Annotated[
 ]
 
 _SESSION_SETTLE_CONFIG_ADAPTER: TypeAdapter[SessionFixedWindowSettleConfig | SessionInactivitySettleConfig] = (
-    TypeAdapter(SessionSettleConfig)
+    TypeAdapter(cast(Any, SessionSettleConfig))
 )
 
 # Membership here is what makes a target an aggregate target. `validate_target_config` looks the

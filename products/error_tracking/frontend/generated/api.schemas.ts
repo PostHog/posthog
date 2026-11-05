@@ -645,6 +645,44 @@ export interface PatchedErrorTrackingAssignmentRuleReorderRequestApi {
     orders?: PatchedErrorTrackingAssignmentRuleReorderRequestApiOrders
 }
 
+/**
+ * * `client` - Client
+ * * `server` - Server
+ */
+export type BuiltInFilterEvaluationEnumApi =
+    (typeof BuiltInFilterEvaluationEnumApi)[keyof typeof BuiltInFilterEvaluationEnumApi]
+
+export const BuiltInFilterEvaluationEnumApi = {
+    Client: 'client',
+    Server: 'server',
+} as const
+
+export interface ErrorTrackingBuiltInFilterApi {
+    /** Stable identifier of the built-in filter, for example `web_crawlers`. */
+    readonly key: string
+    /** Display name of the built-in filter. */
+    readonly name: string
+    /** One sentence on which exceptions the filter drops. */
+    readonly description: string
+    /** Where the filter runs. `client` filters also run in the web SDK, which drops matching exceptions before it sends them. `server` filters run only during ingestion.
+     *
+     * * `client` - Client
+     * * `server` - Server */
+    readonly evaluation: BuiltInFilterEvaluationEnumApi
+    /** Whether the filter drops exceptions for this project. */
+    readonly enabled: boolean
+    /**
+     * Set when ingestion turned the filter off because it failed on an event. Turning the filter on again resets it.
+     * @nullable
+     */
+    readonly disabled_reason: string | null
+}
+
+export interface PatchedErrorTrackingBuiltInFilterUpdateRequestApi {
+    /** `true` drops matching exceptions for this project. `false` stops dropping them. */
+    enabled?: boolean
+}
+
 export interface ErrorTrackingBypassRuleApi {
     /** Unique identifier of the bypass rule. */
     readonly id: string
@@ -1070,6 +1108,95 @@ export interface ErrorTrackingIssueSplitResponseApi {
 }
 
 /**
+ * * `ready` - Ready
+ * * `not_generated` - Not Generated
+ * * `unavailable` - Unavailable
+ */
+export type IssueSummaryStatusEnumApi = (typeof IssueSummaryStatusEnumApi)[keyof typeof IssueSummaryStatusEnumApi]
+
+export const IssueSummaryStatusEnumApi = {
+    Ready: 'ready',
+    NotGenerated: 'not_generated',
+    Unavailable: 'unavailable',
+} as const
+
+/**
+ * * `own_code` - Own Code
+ * * `third_party` - Third Party
+ * * `network` - Network
+ * * `bots` - Bots
+ * * `expected` - Expected
+ * * `unclear` - Unclear
+ */
+export type IssueSummaryCategoryEnumApi = (typeof IssueSummaryCategoryEnumApi)[keyof typeof IssueSummaryCategoryEnumApi]
+
+export const IssueSummaryCategoryEnumApi = {
+    OwnCode: 'own_code',
+    ThirdParty: 'third_party',
+    Network: 'network',
+    Bots: 'bots',
+    Expected: 'expected',
+    Unclear: 'unclear',
+} as const
+
+export interface ErrorTrackingStoredIssueSummaryApi {
+    /** What the exception is and where it happens. */
+    what_happened: string
+    /** The model's hypothesis about the cause. Not a confirmed finding. Can be empty. */
+    likely_cause: string
+    /** Which users, sessions or environments see the issue. */
+    who_is_affected: string
+    /** One concrete step to investigate or fix the issue. */
+    suggested_next_step: string
+    /** Broad source of the issue, or null when the category model did not answer.
+     *
+     * * `own_code` - Own Code
+     * * `third_party` - Third Party
+     * * `network` - Network
+     * * `bots` - Bots
+     * * `expected` - Expected
+     * * `unclear` - Unclear */
+    category: IssueSummaryCategoryEnumApi | null
+    /** Model that wrote the summary. */
+    model: string
+    /** When the summary was written. */
+    generated_at: string
+    /** When generation last wrote the summary. */
+    checked_at: string
+}
+
+/**
+ * * `restricted` - Restricted
+ * * `disabled` - Disabled
+ * * `ai_not_approved` - Ai Not Approved
+ */
+export type IssueSummaryUnavailableReasonEnumApi =
+    (typeof IssueSummaryUnavailableReasonEnumApi)[keyof typeof IssueSummaryUnavailableReasonEnumApi]
+
+export const IssueSummaryUnavailableReasonEnumApi = {
+    Restricted: 'restricted',
+    Disabled: 'disabled',
+    AiNotApproved: 'ai_not_approved',
+} as const
+
+export interface ErrorTrackingIssueSummaryResponseApi {
+    /** ready: `summary` holds the stored summary. not_generated: no summary is stored for this issue. A summary is written only when an issue is created. unavailable: no summary can be shown. `reason` says why.
+     *
+     * * `ready` - Ready
+     * * `not_generated` - Not Generated
+     * * `unavailable` - Unavailable */
+    status: IssueSummaryStatusEnumApi
+    /** The stored summary, or null when the status is not ready. */
+    summary: ErrorTrackingStoredIssueSummaryApi | null
+    /** Why the status is unavailable, else null. restricted: the user may not read a property that the summary is written from. disabled: summaries are off for the project. ai_not_approved: the organization has not approved AI data processing.
+     *
+     * * `restricted` - Restricted
+     * * `disabled` - Disabled
+     * * `ai_not_approved` - Ai Not Approved */
+    reason: IssueSummaryUnavailableReasonEnumApi | null
+}
+
+/**
  * * `set_status` - set_status
  * * `assign` - assign
  */
@@ -1293,6 +1420,28 @@ export interface ErrorTrackingIssueBreakdownApi {
     top_values: ErrorTrackingBreakdownTopValuesApi
 }
 
+export interface ErrorTrackingIssueSummaryApi {
+    /** What the error is and where it happens, in plain language. */
+    what_happened: string
+    /** The model's best guess at the cause. A hypothesis to check against the code, never a finding. */
+    likely_cause: string
+    /** Which users, sessions or platforms the error reaches. */
+    who_is_affected: string
+    /** One concrete step to investigate or fix the error. */
+    suggested_next_step: string
+    /** Where the error most likely comes from. 'own_code' is a bug in the application's code, 'third_party' a third-party script, browser extension or dependency, 'network' a network or connectivity failure, 'bots' automated traffic, 'expected' handled behavior that needs no fix, and 'unclear' means the stack trace does not tell. Absent when no category was inferred.
+     *
+     * * `own_code` - Own Code
+     * * `third_party` - Third Party
+     * * `network` - Network
+     * * `bots` - Bots
+     * * `expected` - Expected
+     * * `unclear` - Unclear */
+    category?: IssueSummaryCategoryEnumApi
+    /** When the summary was written. */
+    generated_at: string
+}
+
 export interface ErrorTrackingIssueDetailApi {
     /** Error tracking issue ID. */
     id: string
@@ -1353,6 +1502,20 @@ export interface ErrorTrackingIssueDetailApi {
     sparkline?: number[]
     /** Aggregate over matching events. Returned only when includeBreakdown is true. */
     breakdown?: ErrorTrackingIssueBreakdownApi
+    /** An AI-written summary of the issue. Present only when summary_status is 'ready'. Treat likely_cause as a hypothesis, not a fact. */
+    summary?: ErrorTrackingIssueSummaryApi
+    /** 'ready' means summary is present. 'not_generated' means no summary exists for this issue. A summary is written only when an issue is created. 'unavailable' means no summary can be shown, and summary_reason says why.
+     *
+     * * `ready` - Ready
+     * * `not_generated` - Not Generated
+     * * `unavailable` - Unavailable */
+    summary_status: IssueSummaryStatusEnumApi
+    /** Present only when summary_status is 'unavailable'. 'restricted': the user may not read a property that the summary is written from. 'disabled': summaries are off for the project. 'ai_not_approved': the organization has not approved AI data processing.
+     *
+     * * `restricted` - Restricted
+     * * `disabled` - Disabled
+     * * `ai_not_approved` - Ai Not Approved */
+    summary_reason?: IssueSummaryUnavailableReasonEnumApi
 }
 
 /**
@@ -1637,6 +1800,8 @@ export const ErrorTrackingIssueOrderByEnumApi = {
 } as const
 
 export interface ErrorTrackingIssuesListQueryRequestApi {
+    /** Only include issues first seen strictly after this ISO timestamp or relative date, such as -24h or -7d. Independent of dateRange, which filters occurrences. */
+    firstSeenAfter?: string
     /** Date range for issue aggregates. Defaults to the last 7 days. */
     dateRange?: ErrorTrackingDateRangeApi
     /** Filter by issue status. Defaults to active.
@@ -2081,6 +2246,8 @@ export interface PatchedErrorTrackingReleaseUpdateRequestApi {
 }
 
 export interface ErrorTrackingSettingsApi {
+    /** Project preference for adaptive ingestion. Turning this on does not currently change ingestion. */
+    adaptive_ingestion_enabled?: boolean
     /**
      * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
      * @minimum 1
@@ -2105,9 +2272,13 @@ export interface ErrorTrackingSettingsApi {
      * @nullable
      */
     per_issue_rate_limit_bucket_size_minutes?: number | null
+    /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
+    ingestion_enabled?: boolean
 }
 
 export interface PatchedErrorTrackingSettingsApi {
+    /** Project preference for adaptive ingestion. Turning this on does not currently change ingestion. */
+    adaptive_ingestion_enabled?: boolean
     /**
      * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
      * @minimum 1
@@ -2132,6 +2303,8 @@ export interface PatchedErrorTrackingSettingsApi {
      * @nullable
      */
     per_issue_rate_limit_bucket_size_minutes?: number | null
+    /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
+    ingestion_enabled?: boolean
 }
 
 /**
@@ -2614,6 +2787,7 @@ export type ErrorTrackingFingerprintsListParams = {
     issue_id?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2678,6 +2852,7 @@ export type ErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams = {
 export type ErrorTrackingIssuesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2750,6 +2925,7 @@ export const ErrorTrackingRecommendationsSourceMapsExamplesRetrievePlatform = {
 export type ErrorTrackingReleasesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2773,6 +2949,7 @@ export type ErrorTrackingSpikeEventsListParams = {
     issue_ids?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2788,6 +2965,7 @@ export type ErrorTrackingSpikeEventsListParams = {
 export type ErrorTrackingStackFramesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2810,6 +2988,7 @@ export type ErrorTrackingSuppressionRulesListParams = {
 export type ErrorTrackingSymbolSetsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**

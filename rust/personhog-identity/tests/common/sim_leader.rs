@@ -457,6 +457,7 @@ impl LifecycleLeader for SimLeader {
                 outcome,
                 sealed_version: person.sealed_version,
                 created_at: person.created_at,
+                tombstone_version: person.tombstone_version,
             })
             .await?;
         }
@@ -499,6 +500,14 @@ impl LifecycleLeader for SimLeader {
                 if Uuid::parse_str(&request.person_uuid).is_err() {
                     return Err(Status::invalid_argument(
                         "person_uuid must be a valid UUID for a committed release",
+                    ));
+                }
+                if request
+                    .tombstone_version
+                    .is_some_and(|version| version <= sealed_version)
+                {
+                    return Err(Status::invalid_argument(
+                        "tombstone_version must be above sealed_version for a committed release",
                     ));
                 }
                 let mark_status = self
@@ -551,7 +560,7 @@ impl LifecycleLeader for SimLeader {
                     DeathDocument {
                         person_id: request.person_id,
                         person_uuid: request.person_uuid.clone(),
-                        version: base_version + 1,
+                        version: (base_version + 1).max(request.tombstone_version.unwrap_or(0)),
                         created_at: request.created_at,
                     },
                 );

@@ -16,6 +16,7 @@ import {
     ScheduleState,
     scheduleToText,
     stateToRRule,
+    summarizeSchedule,
 } from './rrule-helpers'
 
 describe('rrule-helpers', () => {
@@ -430,6 +431,22 @@ describe('rrule-helpers', () => {
             ],
         ])('converts state to "%s"', (_label, state, expected) => {
             expect(scheduleToText(state, null)).toBe(expected)
+        })
+    })
+
+    describe('summarizeSchedule', () => {
+        const STARTS = '2026-11-02T09:00:00.000Z'
+
+        it('names the date of a one-time schedule so two of them can be told apart', () => {
+            expect(summarizeSchedule(ONE_TIME_RRULE, STARTS, 'UTC')).toBe('Runs once on 2 Nov 2026, 09:00')
+        })
+
+        it('shows a rule the picker cannot model as written rather than describing it wrongly', () => {
+            expect(summarizeSchedule('FREQ=HOURLY;INTERVAL=1', STARTS, 'UTC')).toBe('FREQ=HOURLY;INTERVAL=1')
+        })
+
+        it('describes a rule the picker does model', () => {
+            expect(summarizeSchedule('FREQ=DAILY;INTERVAL=3', STARTS, 'UTC')).toContain('every 3 days')
         })
     })
 })

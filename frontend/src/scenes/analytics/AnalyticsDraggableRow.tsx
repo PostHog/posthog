@@ -49,7 +49,7 @@ export function AnalyticsDraggableRow({
                     event.stopPropagation()
                 }
             }}
-            className={cn('flex min-w-0 flex-1 items-center gap-2 overflow-hidden', isDragging && 'opacity-50')}
+            className={cn('flex min-w-0 flex-1 items-center', isDragging && 'opacity-50')}
         >
             {children}
         </span>

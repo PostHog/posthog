@@ -11,7 +11,7 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched.json'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { Experiment } from '~/types'
+import { Experiment, ExperimentStatus } from '~/types'
 
 import type { ExperimentMetricsRecalculationRunApi } from 'products/experiments/frontend/generated/api.schemas'
 
@@ -34,6 +34,9 @@ const SLOW_LOAD_MESSAGE = 'Loading results is taking longer than expected. Refre
 const neverSettles = (): Promise<never> => new Promise(() => {})
 
 const EXPERIMENT = experimentJson as unknown as Experiment
+const hoursAgo = (hours: number): string => new Date(Date.now() - hours * 60 * 60 * 1000).toISOString()
+// Relative, not a fixed date: a running experiment refreshes results older than the logic's staleness threshold.
+const ONE_HOUR_AGO = hoursAgo(1)
 const PRIMARY_METRIC_UUID = '434cb6ba-7fa6-4ca1-b7a0-8970b2d9a47d'
 const SECONDARY_METRIC_UUID = 'cbdd02f8-4a27-4017-a8d8-5f989b304ada'
 
@@ -65,7 +68,7 @@ const completedRecalculation = {
     completed_metrics: 2,
     started_at: new Date().toISOString(),
     completed_at: new Date().toISOString(),
-    query_to: '2026-06-10T00:05:00Z',
+    query_to: ONE_HOUR_AGO,
     results: [
         { metric_uuid: PRIMARY_METRIC_UUID, status: 'completed', result: primaryResult, error_message: null },
         { metric_uuid: SECONDARY_METRIC_UUID, status: 'completed', result: secondaryResult, error_message: null },
@@ -139,8 +142,8 @@ const timeseriesFallbackRecalculation = {
     status: 'completed',
     trigger: 'cold_run',
     completed_metrics: 1,
-    completed_at: '2026-06-10T00:05:00Z',
-    query_to: '2026-06-10T00:05:00Z',
+    completed_at: ONE_HOUR_AGO,
+    query_to: ONE_HOUR_AGO,
     result_source: 'timeseries_fallback',
     results: [{ metric_uuid: PRIMARY_METRIC_UUID, status: 'completed', result: primaryResult, error_message: null }],
 }
@@ -586,9 +589,9 @@ describe('experimentMetricsLogic', () => {
             jest.useRealTimers()
         })
 
-        it('stops polling a run older than the staleness window instead of polling it forever', async () => {
+        it('stops polling a run older than the queued-run ceiling instead of polling it forever', async () => {
             // A worker that dies mid-run leaves the row in_progress permanently; the poll loop must give up
-            // once the run passes the backend's staleness threshold rather than hitting the by-id endpoint
+            // once the run passes the backend's 1-hour ceiling rather than hitting the by-id endpoint
             // (and its live-progress query) every tick until the tab closes.
             const retrieveMock = jest.fn(() => [200, { ...pendingRecalculation, status: 'in_progress' }])
             useMocks({
@@ -607,7 +610,7 @@ describe('experimentMetricsLogic', () => {
             expect(retrieveMock).toHaveBeenCalled()
 
             // Age the run past the cap: polling must stop and the in-flight tags must clear.
-            logic.cache.recalcStartMs = Date.now() - 31 * 60 * 1000
+            logic.cache.recalcStartMs = Date.now() - 61 * 60 * 1000
             await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
             retrieveMock.mockClear()
             await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 5)
@@ -616,6 +619,47 @@ describe('experimentMetricsLogic', () => {
             // The run's status is still in_progress, but the page must not keep showing it as loading.
             expect(logic.values.isRecalculating).toBe(false)
             expect(logic.values.recalculationDisplayState).toBe('resting')
+            jest.useRealTimers()
+        })
+
+        it.each([
+            // A page reload while the run waits in a queue: the server still reports it as the active run.
+            ['reloaded while queued', 40],
+            // A tab that stays open while the run crosses the backend's 30-minute staleness threshold.
+            ['open across the staleness threshold', 29],
+        ])('keeps polling a run that waits past 30 minutes until it completes (%s)', async (_, ageMinutes) => {
+            jest.useFakeTimers()
+            const startedAt = new Date(Date.now() - ageMinutes * 60 * 1000).toISOString()
+            const queuedRun = { ...inProgressRecalculation, created_at: startedAt, started_at: startedAt }
+            let completed = false
+            const retrieveMock = jest.fn(() => [200, completed ? completedRecalculation2 : queuedRun])
+            const createMock = jest.fn(() => [201, { ...manualPending, id: 'recalc-3' }])
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                        200,
+                        { ...completedRecalculation, active_run: { id: 'recalc-2', status: 'in_progress' } },
+                    ],
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/:recalc_id/': retrieveMock,
+                },
+                post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': createMock },
+            })
+            mountLogic()
+            await expectLogic(logic).toDispatchActions(['loadLatestRecalculation', 'pollRecalculation'])
+            logic.actions.setQueuedRerun('manual')
+
+            // Wait 20 minutes in the queue: the run passes 30 minutes, polling backs off and does not give up.
+            await jest.advanceTimersByTimeAsync(20 * 60 * 1000)
+            expect(logic.values.currentRecalculation?.status).toBe('in_progress')
+            expect(logic.values.isRecalculating).toBe(true)
+            expect(logic.values.queuedRerun).toBe('manual')
+            expect(retrieveMock.mock.calls.length).toBeLessThan(120)
+
+            completed = true
+            await jest.advanceTimersByTimeAsync(60 * 1000)
+            expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
+            // The rerun queued during the wait fires once the run ends.
+            expect(createMock).toHaveBeenCalledTimes(1)
             jest.useRealTimers()
         })
 
@@ -635,6 +679,123 @@ describe('experimentMetricsLogic', () => {
             await expectLogic(logic)
                 .toDispatchActions(['setCurrentRecalculation'])
                 .toNotHaveDispatchedActions(['triggerRecalculation'])
+        })
+
+        const staleCompletedRecalculation = { ...completedRecalculation, query_to: hoursAgo(13) }
+
+        it.each([
+            {
+                name: 'refreshes a running experiment whose latest results are stale',
+                experiment: EXPERIMENT,
+                latest: staleCompletedRecalculation,
+                loads: 1,
+                expectedTriggers: ['stale_refresh'],
+            },
+            {
+                // A stale refresh advances the window over every metric, so a separate heal would only add a run.
+                name: 'fills a gap in stale results with the stale refresh alone',
+                experiment: experimentWithExtraMetric,
+                latest: staleCompletedRecalculation,
+                loads: 1,
+                expectedTriggers: ['stale_refresh'],
+            },
+            {
+                name: 'refreshes stale results only once per page load',
+                experiment: EXPERIMENT,
+                latest: staleCompletedRecalculation,
+                loads: 2,
+                expectedTriggers: ['stale_refresh'],
+            },
+            {
+                name: 'does not refresh stale results while a run is active',
+                experiment: EXPERIMENT,
+                latest: { ...staleCompletedRecalculation, active_run: { id: 'recalc-2', status: 'in_progress' } },
+                loads: 1,
+                expectedTriggers: [],
+            },
+            {
+                name: 'does not refresh stale results on a stopped experiment',
+                experiment: { ...EXPERIMENT, end_date: '2025-01-30T21:55:00Z' } as Experiment,
+                latest: staleCompletedRecalculation,
+                loads: 1,
+                expectedTriggers: [],
+            },
+            {
+                name: 'does not refresh stale results on a paused experiment',
+                experiment: { ...EXPERIMENT, status: ExperimentStatus.Paused } as Experiment,
+                latest: staleCompletedRecalculation,
+                loads: 1,
+                expectedTriggers: [],
+            },
+            {
+                name: 'does not refresh an experiment with no metrics',
+                experiment: { ...EXPERIMENT, metrics: [], metrics_secondary: [], saved_metrics: [] } as Experiment,
+                latest: staleCompletedRecalculation,
+                loads: 1,
+                expectedTriggers: [],
+            },
+            {
+                name: 'does not refresh fresh results',
+                experiment: EXPERIMENT,
+                latest: completedRecalculation,
+                loads: 1,
+                expectedTriggers: [],
+            },
+        ])('$name', async ({ experiment, latest, loads, expectedTriggers }) => {
+            const postedTriggers: string[] = []
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [200, latest],
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/:recalc_id/': () => [
+                        200,
+                        completedRecalculation2,
+                    ],
+                },
+                post: {
+                    // A terminal run, so the refresh does not arm a poll timer.
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': async ({ request }) => {
+                        const body = (await request.json()) as { trigger: string }
+                        postedTriggers.push(body.trigger)
+                        return [201, completedRecalculation2]
+                    },
+                },
+            })
+            jest.useFakeTimers()
+            try {
+                logic = experimentMetricsLogic({ experiment })
+                logic.mount()
+                for (let load = 1; load <= loads; load++) {
+                    if (load > 1) {
+                        logic.actions.loadLatestRecalculation()
+                    }
+                    // Lets the latest read, a create POST and one poll tick of an active run settle.
+                    await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+                }
+                expect(postedTriggers).toEqual(expectedTriggers)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('clears the recalculating marks when the backend answers a stale refresh with the existing run', async () => {
+            // The backend judges freshness with server time and returns the latest run, which has no results on create.
+            const { results: _, ...existingJob } = { ...completedRecalculation, is_existing: true }
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                        200,
+                        staleCompletedRecalculation,
+                    ],
+                },
+                post: { '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [200, existingJob] },
+            })
+            mountLogic()
+
+            await expectLogic(logic)
+                .toDispatchActions(['triggerRecalculation', 'loadLatestRecalculation'])
+                .toFinishAllListeners()
+            expect(logic.values.recalculatingMetricUuids).toEqual([])
+            expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
         })
 
         it('accepts a timeseries fallback that covers every metric without triggering a run', async () => {
@@ -973,7 +1134,7 @@ describe('experimentMetricsLogic', () => {
         })
 
         describe('manual refresh window', () => {
-            // query_to stays old, as on a stopped experiment, so the window can only come from completed_at.
+            // query_to stays an hour old, outside the window, so the window can only come from completed_at.
             const finishedMinutesAgo = <T extends object>(
                 latest: T,
                 minutesAgo: number

@@ -39,6 +39,10 @@ import {
   appendRichOutputPrompt,
   getProjectWebUrl,
 } from "@posthog/agent-contracts/rich-output-prompt";
+import {
+  readStartupFailure,
+  type StartupFailure,
+} from "@posthog/agent-contracts/startup-failure";
 import { execGh } from "@posthog/git/gh";
 import { getCurrentBranch, getRemoteUrl } from "@posthog/git/queries";
 import { ghTokenEnv } from "@posthog/git/signed-commit";
@@ -445,6 +449,13 @@ function hiddenPromptBlock(block: ContentBlock): ContentBlock {
   } as ContentBlock;
 }
 
+function compactionFailed(result: PromptResponse): boolean {
+  return (
+    (result._meta as { compactionFailed?: unknown } | undefined)
+      ?.compactionFailed === true
+  );
+}
+
 function isManualCompactPrompt(prompt: ContentBlock[]): boolean {
   return /^\/compact(?:\s|$)/.test(promptBlocksToText(prompt).trimStart());
 }
@@ -611,6 +622,7 @@ export class AgentServer {
     typeof createAcpConnection
   > | null = null;
   private initializationFailureCode: string | undefined;
+  private startupFailure: StartupFailure | undefined;
   private initializationPhase: InitializationPhase | undefined;
   private initializingSseController: SseController | null = null;
   private initializingTelemetry: OtelRunTelemetry | undefined;
@@ -905,6 +917,8 @@ export class AgentServer {
         readiness: boot.state,
         initializationPhase: this.initializationPhase,
         failureCode: this.initializationFailureCode,
+        startupFailure: this.startupFailure,
+        runId: this.config.runId,
         bootMs: this.sessionReadyBootMs,
         sessionInitMs: this.sessionInitMs,
         boot,
@@ -1134,7 +1148,11 @@ export class AgentServer {
     });
 
     await this.startMemoryWatchdogWatcher();
-    await this.autoInitializeSession();
+    try {
+      await this.autoInitializeSession();
+    } catch (error) {
+      if (!this.startupFailure) throw error;
+    }
   }
 
   private async startMemoryWatchdogWatcher(): Promise<void> {
@@ -1364,10 +1382,12 @@ export class AgentServer {
         this.config.taskId,
         this.config.runId,
         {
-          status: "failed",
+          ...(this.startupFailure ? {} : { status: "failed" as const }),
           error_message: `Agent server crashed: ${errorMessage}`,
           error_type: "agent_server_crash",
-          state: { agent_version: this.agentVersion },
+          state: {
+            agent_version: this.agentVersion,
+          },
         },
       );
     } catch (updateError) {
@@ -1449,10 +1469,10 @@ export class AgentServer {
     return this.codexTokenClient;
   }
 
-  private async reportSubscriptionTokenMissing(
+  private reportSubscriptionTokenMissing(
     adapter: "claude" | "codex",
     reason: string,
-  ): Promise<void> {
+  ): void {
     const failure = SUBSCRIPTION_TOKEN_FAILURE[adapter];
     this.initializationFailureCode = `${adapter}_credential_unavailable`;
     this.logger.warn(this.initializationFailureCode);
@@ -1471,12 +1491,8 @@ export class AgentServer {
           },
         },
       });
-      await this.eventStreamSender?.stop({ complete: false });
     } catch (error) {
-      this.logger.error(
-        "Failed to flush events after credential relay failure",
-        error,
-      );
+      this.logger.error("Failed to report credential relay failure", error);
     }
   }
 
@@ -1755,7 +1771,11 @@ export class AgentServer {
                 result = await runTurn();
               }
 
-              if (result.stopReason === "end_turn" && manualCompactPrompt) {
+              if (
+                result.stopReason === "end_turn" &&
+                manualCompactPrompt &&
+                !compactionFailed(result)
+              ) {
                 commitDelivery();
                 if (messageId) {
                   this.pendingCompactContinuationMessageIds.add(messageId);
@@ -2122,19 +2142,44 @@ export class AgentServer {
       this.httpReadyBootMs,
       this.config.launcherToProcessMs,
     );
+    this.startupFailure = undefined;
+    this.initializationFailureCode = undefined;
     this.initializationPromise = this._doInitializeSession(payload);
     const initStartedAt = Date.now();
     try {
       await this.initializationPromise;
     } catch (error) {
       if (this.shutdownController.signal.aborted) throw error;
-      this.bootTracker.markFailed();
+      if (this.bootTracker.snapshot().state === "ready") throw error;
+      this.logger.error(
+        "Agent session initialization failed",
+        redactSecrets(describeFatalError(error)),
+      );
+      this.startupFailure = readStartupFailure(error) ?? {
+        provider: this.getRuntimeAdapter(),
+        phase: "session_setup",
+        reason: null,
+        retryability: "unknown",
+      };
       if (
         error instanceof CredentialRelayError ||
         error instanceof CodexSubscriptionTokenError
       ) {
+        const transient =
+          error instanceof CodexSubscriptionTokenError &&
+          (error.code === "request_failed" ||
+            error.code === "openai_unavailable");
+        this.startupFailure = {
+          provider: this.subscriptionAdapter(),
+          phase: "session_setup",
+          reason: transient
+            ? "credential_service_unavailable"
+            : "credential_unavailable",
+          retryability: transient ? "transient" : "requires_action",
+        };
         this.initializationFailureCode = `${this.subscriptionAdapter()}_credential_unavailable`;
       }
+      this.bootTracker.markFailed();
       const telemetry = this.initializingTelemetry;
       telemetry?.append(payload.run_id, {
         type: "notification",
@@ -2144,6 +2189,7 @@ export class AgentServer {
           method: POSTHOG_NOTIFICATIONS.INITIALIZATION_FAILED,
           params: {
             runtimeAdapter: this.getRuntimeAdapter(),
+            startupFailure: this.startupFailure,
             initializationPhase: "session_setup",
             initMs: Date.now() - initStartedAt,
             requestedModel: this.config.model,
@@ -2392,7 +2438,7 @@ export class AgentServer {
         if (this.shutdownController.signal.aborted) throw error;
         const reason = error instanceof Error ? error.message : String(error);
         this.logger.warn("Claude subscription token relay failed", { reason });
-        await this.reportSubscriptionTokenMissing("claude", reason);
+        this.reportSubscriptionTokenMissing("claude", reason);
         throw error;
       }
     }
@@ -2413,7 +2459,7 @@ export class AgentServer {
               ? error.message
               : String(error);
         this.logger.warn("ChatGPT token request failed", { reason });
-        await this.reportSubscriptionTokenMissing("codex", reason);
+        this.reportSubscriptionTokenMissing("codex", reason);
         throw error;
       }
     }
@@ -2447,6 +2493,10 @@ export class AgentServer {
       claudeMachineAuth:
         runtimeAdapter !== "codex" && claudeSubscriptionToken !== null
           ? { oauthToken: claudeSubscriptionToken }
+          : undefined,
+      claudeModelsGatewayUrl:
+        runtimeAdapter !== "codex" && claudeSubscriptionToken !== null
+          ? gatewayEnv.anthropicBaseUrl
           : undefined,
       codexOptions:
         runtimeAdapter === "codex"
@@ -2555,6 +2605,8 @@ export class AgentServer {
         taskOriginProduct: launch.originProduct,
       }),
       ...(launch.endRunWhenDone && { endRunWhenDone: true }),
+      ...(launch.callerEndsRun && { callerEndsRun: true }),
+      ...(launch.disableRepoHooks && { disableRepoHooks: true }),
       ...(this.config.baseBranch && { baseBranch: this.config.baseBranch }),
       ...(runtimeAdapter === "claude" &&
         this.config.contextWindow && {
@@ -2564,7 +2616,7 @@ export class AgentServer {
         this.config.fastMode !== undefined && {
           fastMode: this.config.fastMode,
         }),
-      ...this.buildClaudeCodeSessionMeta(runtimeAdapter),
+      ...this.buildClaudeCodeSessionMeta(runtimeAdapter, launch.disableSkills),
     };
 
     await this.measureInitialization("repository_ready", () =>
@@ -2779,16 +2831,23 @@ export class AgentServer {
     this.broadcastAndPersistNotification(agentStartedProgress);
 
     // Signal in_progress so the UI can start polling for updates
-    this.posthogAPI
-      .updateTaskRun(payload.task_id, payload.run_id, {
-        status: "in_progress",
-        state: {
-          agent_version: this.agentVersion,
-          ...(isBenjaminEnabled() && {
-            benjamin_version: BENJAMIN_UPSTREAM_COMMIT,
-          }),
+    this.startupFailure = undefined;
+    await this.posthogAPI
+      .updateTaskRun(
+        payload.task_id,
+        payload.run_id,
+        {
+          status: "in_progress",
+          error_message: null,
+          state: {
+            agent_version: this.agentVersion,
+            ...(isBenjaminEnabled() && {
+              benjamin_version: BENJAMIN_UPSTREAM_COMMIT,
+            }),
+          },
         },
-      })
+        AbortSignal.timeout(2_000),
+      )
       .catch((err) =>
         this.logger.debug("Failed to set task run to in_progress", err),
       );
@@ -4638,12 +4697,13 @@ export class AgentServer {
    */
   private buildClaudeCodeSessionMeta(
     runtimeAdapter: Adapter,
+    disableSkills = false,
   ): { claudeCode: { options: Record<string, unknown> } } | undefined {
     const plugins = this.config.claudeCode?.plugins;
     const effort =
       runtimeAdapter === "claude" ? this.config.reasoningEffort : undefined;
 
-    if (!plugins?.length && !effort) {
+    if (!plugins?.length && !effort && !disableSkills) {
       return undefined;
     }
 
@@ -4653,6 +4713,9 @@ export class AgentServer {
     }
     if (effort) {
       options.effort = effort;
+    }
+    if (disableSkills) {
+      options.skills = [];
     }
     return { claudeCode: { options } };
   }

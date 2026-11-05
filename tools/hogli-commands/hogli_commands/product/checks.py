@@ -109,7 +109,9 @@ def validate_facade_alternation(tach_content: str, products_dir: Path) -> list[s
       1. Every product named in the canonical alternation must exist as
          products/<name>/.
       2. Every product named in the canonical alternation must have
-         backend/facade/contracts.py (the Strict rung or above).
+         backend/facade/contracts.py (the Strict rung or above). A product
+         that also has a legacy-leak block is exempt: its facade block only
+         stops new reach-ins while the listed leaks drain.
       3. Names in alternation regexes must be sorted alphabetically.
 
     The inverse direction ("every Strict product must be listed") is not
@@ -149,6 +151,8 @@ def validate_facade_alternation(tach_content: str, products_dir: Path) -> list[s
                 f"canonical facade alternation lists '{name}' but products/{name}/ does not exist — "
                 "remove the stale entry from tach.toml"
             )
+            continue
+        if has_legacy_interface_leaks(tach_content, f"products.{name}"):
             continue
         if not has_contracts_module(product_dir / "backend"):
             issues.append(
@@ -1275,13 +1279,15 @@ class OrphanedTestFilesCheck(ProductCheck):
     _EXTERNAL_RUNNER_PREFIXES = (
         "dags/",  # ci-dagster.yml: pytest posthog/dags products/**/dags
     )
-    # Per-product exemptions — paths that another workflow targets directly
-    # (e.g. ci-backend.yml's Temporal segment) rather than `backend:test`.
+    # Exempt paths tested outside `backend:test`, including the Temporal tests in
+    # .depot/workflows/ci-backend.yml.
     _PRODUCT_SPECIFIC_EXEMPTIONS = {
-        # ci-backend.yml "Run Temporal tests" step pytest paths:
+        # .depot/workflows/ci-backend.yml "Run Temporal tests" step pytest paths:
         "batch_exports": ("backend/tests/temporal/",),
         "tasks": ("backend/temporal/",),
-        "warehouse_sources": ("backend/temporal/",),
+        # backend/temporal/ is the Temporal segment above. sources/ holds the vendor plugins, which
+        # the "Warehouse sources checks and tests" job in ci-python.yml runs.
+        "warehouse_sources": ("backend/temporal/", "sources/"),
         "signals": ("backend/emission/",),
         # Covered by the "Run pr-approval-agent (stamphog) tests" step in ci-python.yml. The review
         # engine is a flat script bundle with bare sibling imports, so it runs as its own pytest

@@ -35,22 +35,25 @@ export interface BoxPlotTooltipProps<Meta = unknown> {
     /** Whether multiple series are being shown — drives whether each box's series label is
      *  printed in the header above its stats. */
     grouped: boolean
+    /** Formats each statistic. Defaults to `toLocaleString`. */
+    valueFormatter?: (value: number, entry: TooltipContext['seriesData'][number]) => string
 }
 
 function defaultFormatValue(v: number): string {
-    return Number.isFinite(v) ? v.toLocaleString() : '—'
+    return v.toLocaleString()
 }
 
 export function BoxPlotTooltip<Meta = unknown>({
     ctx,
     userTooltip,
     grouped,
+    valueFormatter = defaultFormatValue,
 }: BoxPlotTooltipProps<Meta>): React.ReactElement | null {
     if (userTooltip) {
         return <>{userTooltip(ctx)}</>
     }
 
-    const entries: { key: string; color: string; label: string; datum: BoxPlotDatum }[] = []
+    const entries: { datum: BoxPlotDatum; seriesEntry: TooltipContext['seriesData'][number] }[] = []
     for (const seriesEntry of ctx.seriesData) {
         if (seriesEntry.series.visibility?.tooltip === false) {
             continue
@@ -59,12 +62,7 @@ export function BoxPlotTooltip<Meta = unknown>({
         if (!datum) {
             continue
         }
-        entries.push({
-            key: seriesEntry.series.key,
-            color: seriesEntry.color,
-            label: seriesEntry.series.label,
-            datum,
-        })
+        entries.push({ datum, seriesEntry })
     }
     if (entries.length === 0) {
         return null
@@ -74,11 +72,11 @@ export function BoxPlotTooltip<Meta = unknown>({
         <TooltipSurface data-attr="hog-chart-boxplot-tooltip">
             <div className="font-semibold mb-1">{ctx.label}</div>
             {entries.map((entry, i) => (
-                <div key={entry.key} className={i > 0 ? 'mt-2' : undefined}>
+                <div key={entry.seriesEntry.series.key} className={i > 0 ? 'mt-2' : undefined}>
                     {grouped && (
                         <div className="flex items-center gap-2 mb-1">
-                            <TooltipSwatch color={entry.color} />
-                            <span className="font-semibold">{entry.label}</span>
+                            <TooltipSwatch color={entry.seriesEntry.color} />
+                            <span className="font-semibold">{entry.seriesEntry.series.label}</span>
                         </div>
                     )}
                     <table className="border-collapse">
@@ -86,7 +84,11 @@ export function BoxPlotTooltip<Meta = unknown>({
                             {tooltipRows(entry.datum).map((row) => (
                                 <tr key={row.label}>
                                     <td className="pr-3 opacity-70">{row.label}</td>
-                                    <td className="font-medium">{defaultFormatValue(row.value)}</td>
+                                    <td className="font-medium">
+                                        {Number.isFinite(row.value)
+                                            ? valueFormatter(row.value, entry.seriesEntry)
+                                            : '—'}
+                                    </td>
                                 </tr>
                             ))}
                         </tbody>

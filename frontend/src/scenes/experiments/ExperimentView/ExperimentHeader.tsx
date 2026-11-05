@@ -14,7 +14,7 @@ export function ExperimentHeader(): JSX.Element {
                     {experiment.type === 'web' ? (
                         <WebExperimentImplementationDetails experiment={experiment} />
                     ) : (
-                        <ExperimentImplementationDetails experiment={experiment} />
+                        <ExperimentImplementationDetails experiment={experiment} placement="draft_header" />
                     )}
                 </div>
             )}
