@@ -131,8 +131,8 @@ def _sandbox_email_sender_ids(context: dict[str, Any]) -> frozenset[int]:
 
 
 def _stored_email_values(context: dict[str, Any]) -> list[object]:
-    # A workflow step passes its stored email values. A hog function passes them by input key, and a
-    # mapping by its position, so only the value stored under the input being validated counts.
+    # A workflow step passes its stored email values. A hog function passes them by input key,
+    # so only the value stored under the input being validated counts.
     stored = list(context.get("existing_email_values") or [])
     by_key = context.get("existing_email_values_by_key")
     mapping_index = context.get("mapping_index")
