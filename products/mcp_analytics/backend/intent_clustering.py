@@ -49,7 +49,11 @@ from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 
 from products.mcp_analytics.backend.constants import MAX_SNAPSHOT_CLUSTERS, MCP_TOOL_CALL_EVENT, MCP_TOOLS_LIST_EVENT
-from products.mcp_analytics.backend.hogql_queries.base import EFFECTIVE_DESCRIPTION_SQL, EFFECTIVE_TOOL_SQL
+from products.mcp_analytics.backend.hogql_queries.base import (
+    EFFECTIVE_DESCRIPTION_SQL,
+    EFFECTIVE_TOOL_SQL,
+    is_failure_expr,
+)
 from products.mcp_analytics.backend.models import MCPIntentEmbeddingCache
 
 logger = structlog.get_logger(__name__)
@@ -238,7 +242,7 @@ SELECT
     $session_id AS session_id,
     left({tool_expr}, {max_tool_len}) AS tool,
     left(coalesce(toString(properties.$mcp_intent), ''), {max_intent_len}) AS intent,
-    toString(properties.$mcp_is_error) IN ('true', '1') AS is_error
+    {is_failure} AS is_failure
 FROM events
 WHERE event = {event}
     AND $session_id IN {session_ids}
@@ -357,6 +361,7 @@ def fetch_session_calls(
             "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
             "tool_expr": parse_expr(EFFECTIVE_TOOL_SQL),
             "tool_expr_where": parse_expr(EFFECTIVE_TOOL_SQL),
+            "is_failure": is_failure_expr(),
             "session_ids": _session_ids_tuple(session_ids),
             "lookback_days": ast.Constant(value=lookback_days),
             "max_rows": ast.Constant(value=MAX_QUERY_ROWS),

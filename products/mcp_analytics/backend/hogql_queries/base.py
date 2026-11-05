@@ -36,6 +36,14 @@ EFFECTIVE_TOOL_SQL = """coalesce(
        nullIf(nullIf(toString(properties.$mcp_exec_target_tool), ''), 'unrecognized'), NULL),
     toString(properties.$mcp_tool_name)
 )"""
+# A failed tool call. $mcp_error_expected marks failed calls the server classified as an
+# expected outcome (rate limit, not found) that the agent handles, so they are not failures;
+# $mcp_is_error stays true on them. Every failure count and failure filter uses this predicate.
+# Compared as text because SDK versions stamp the flag as a boolean, the string 'true', or 1.
+IS_FAILURE_SQL = (
+    "toString(properties.$mcp_is_error) IN ('true', '1') "
+    "AND NOT coalesce(toString(properties.$mcp_error_expected) IN ('true', '1'), false)"
+)
 # The description of the *effective* tool: for single-exec calls the inner tool's
 # $mcp_exec_tool_call_description, else the directly-registered $mcp_tool_description.
 # Without this, an inner tool's description would resolve to the exec wrapper's text
@@ -70,6 +78,11 @@ def effective_tool_expr(tool: str) -> ast.Expr:
         "{EFFECTIVE_TOOL_SQL} = {tool}",
         placeholders={"EFFECTIVE_TOOL_SQL": parse_expr(EFFECTIVE_TOOL_SQL), "tool": ast.Constant(value=tool)},
     )
+
+
+def is_failure_expr() -> ast.Expr:
+    """The failed-tool-call predicate, ready to bind as a placeholder or a per-row column."""
+    return parse_expr(IS_FAILURE_SQL)
 
 
 def tool_scope_exprs(tool: str) -> list[ast.Expr]:

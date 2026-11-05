@@ -38,7 +38,7 @@ from products.mcp_analytics.backend.constants import (
     MCP_TOOL_CALL_EVENT,
 )
 from products.mcp_analytics.backend.facade import contracts, enums
-from products.mcp_analytics.backend.hogql_queries.base import shared_filter_exprs
+from products.mcp_analytics.backend.hogql_queries.base import is_failure_expr, shared_filter_exprs
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
 
 # How long a snapshot may sit in COMPUTING before we assume the run died and
@@ -156,7 +156,7 @@ SELECT
     groupUniqArrayIf(tool_name, matches) AS tools_used,
     argMaxIf(event_distinct_id, timestamp, matches) AS distinct_id,
     argMaxIf(client_name, timestamp, matches) AS mcp_client_name,
-    countIf(matches AND is_error) AS error_calls
+    countIf(matches AND is_failure) AS error_calls
 FROM (
     SELECT
         $session_id AS session_id,
@@ -164,7 +164,7 @@ FROM (
         distinct_id AS event_distinct_id,
         properties.$mcp_tool_name AS tool_name,
         properties.$mcp_client_name AS client_name,
-        toString(properties.$mcp_is_error) IN ('true', '1') AS is_error,
+        {is_failure} AS is_failure,
         {shared_filters} AS matches
     FROM events
     WHERE event = {event}
@@ -366,6 +366,7 @@ def _query_mcp_sessions(
         "limit": ast.Constant(value=limit + 1),
         "offset": ast.Constant(value=offset),
         "shared_filters": shared_filters_expr(team, properties, filter_test_accounts),
+        "is_failure": is_failure_expr(),
     }
 
     search_text = ""
@@ -543,13 +544,13 @@ SELECT
     -- every non-initialize call and cannot be counted here at all.
     uniqIf({mcp_harness.harness_label_or_token_sql("h")}, h != '') AS distinct_clients,
     countIf(has_intent) AS calls_with_intent,
-    countIf(is_error) AS error_calls
+    countIf(is_failure) AS error_calls
 FROM (
     SELECT
         properties.$mcp_tool_name AS tool,
         $session_id AS session_id,
         coalesce(properties.$mcp_intent, '') != '' AS has_intent,
-        toString(properties.$mcp_is_error) IN ('true', '1') AS is_error,
+        {{is_failure}} AS is_failure,
         {mcp_harness.HARNESS_TOKEN_SQL} AS h,
         {mcp_harness.HARNESS_DISPLAY_NAME_SQL} AS client_display
     FROM events
@@ -569,7 +570,7 @@ _ACTIVITY_TOP_TOOLS_SQL = """
 SELECT
     properties.$mcp_tool_name AS tool,
     count() AS calls,
-    countIf(toString(properties.$mcp_is_error) IN ('true', '1')) AS errors
+    countIf({is_failure}) AS errors
 FROM events
 WHERE event = {tool_call_event} AND properties.$mcp_tool_name IS NOT NULL AND timestamp >= {date_from}
     AND {shared_filters}
@@ -805,6 +806,7 @@ def _query_activity_overview(
                 {
                     "tool_call_event": tool_call_event,
                     "date_from": date_from,
+                    "is_failure": is_failure_expr(),
                 },
             ),
             (
@@ -823,6 +825,7 @@ def _query_activity_overview(
                     "tool_call_event": tool_call_event,
                     "date_from": date_from,
                     "limit": ast.Constant(value=ACTIVITY_TOP_TOOLS_LIMIT),
+                    "is_failure": is_failure_expr(),
                 },
             ),
             (

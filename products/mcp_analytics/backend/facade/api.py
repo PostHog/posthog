@@ -17,6 +17,7 @@ from products.mcp_analytics.backend.hogql_queries.base import (
     EFFECTIVE_DESCRIPTION_SQL,
     EFFECTIVE_TOOL_SQL,
     NEW_SDK_SOURCE,
+    is_failure_expr,
 )
 from products.mcp_analytics.backend.mcp_harness import HARNESS_TOKEN_SQL, harness_label_sql
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
@@ -309,7 +310,7 @@ _SERVER_STATS_SELECT = """
         toString(properties.$mcp_server_name) AS server_name,
         count() AS calls,
         uniq(toString(properties.$mcp_session_id)) AS sessions,
-        countIf(toString(properties.$mcp_is_error) IN ('true', '1')) AS errors,
+        countIf({is_failure}) AS errors,
         countIf(notEmpty(toString(properties.$mcp_intent))) AS calls_with_intent,
         uniq({effective_tool}) AS distinct_tools,
         uniq(toString(properties.$mcp_client_name)) AS client_names
@@ -327,7 +328,7 @@ _TOOL_STATS_SELECT = """
         {effective_tool} AS tool_name,
         any({effective_description}) AS description,
         count() AS calls,
-        countIf(toString(properties.$mcp_is_error) IN ('true', '1')) AS errors
+        countIf({is_failure}) AS errors
     FROM events
     WHERE event = '$mcp_tool_call'
         AND timestamp >= {date_from}
@@ -376,6 +377,7 @@ def measured_query_placeholders(date_from: datetime) -> dict[str, ast.Expr]:
     return {
         "effective_tool": parse_expr(EFFECTIVE_TOOL_SQL),
         "effective_description": parse_expr(EFFECTIVE_DESCRIPTION_SQL),
+        "is_failure": is_failure_expr(),
         "date_from": ast.Constant(value=date_from),
         "source": ast.Constant(value=NEW_SDK_SOURCE),
     }

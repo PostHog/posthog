@@ -1587,6 +1587,8 @@ class Command(BaseCommand):
                     else:
                         duration_ms = int(duration_ms * rng.uniform(1.2, 2.5))
                     tool_properties["$mcp_error_type"] = failure.error_type
+                    if failure.error_type == "rate_limited":
+                        tool_properties["$mcp_error_expected"] = True
                     tool_properties["$mcp_error_message"] = failure.message
                     tool_properties["$mcp_error_status"] = failure.status
                 tool_properties["$mcp_duration_ms"] = duration_ms

@@ -26,6 +26,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
 from products.mcp_analytics.backend.hogql_queries.base import (
+    is_failure_expr,
     mcp_query_date_range,
     shared_filter_exprs,
     validate_mcp_analytics_access,
@@ -34,8 +35,6 @@ from products.mcp_analytics.backend.hogql_queries.base import (
 if TYPE_CHECKING:
     from posthog.models.team import Team
     from posthog.models.user import User
-
-_IS_ERROR = "toBool(properties.$mcp_is_error)"
 
 
 def _dashboard_where(
@@ -80,8 +79,8 @@ class MCPToolCallsAndErrorsQueryRunner(AnalyticsQueryRunner[MCPToolCallsAndError
             """
             SELECT
                 toString(dateTrunc({interval}, timestamp)) AS bucket,
-                countIf(NOT {_IS_ERROR}) AS successes,
-                countIf({_IS_ERROR}) AS errors
+                countIf(NOT {is_failure}) AS successes,
+                countIf({is_failure}) AS errors
             FROM events
             WHERE {where}
             GROUP BY bucket
@@ -90,7 +89,7 @@ class MCPToolCallsAndErrorsQueryRunner(AnalyticsQueryRunner[MCPToolCallsAndError
             """,
             placeholders={
                 "interval": ast.Constant(value=interval),
-                "_IS_ERROR": parse_expr(_IS_ERROR),
+                "is_failure": is_failure_expr(),
                 "where": _dashboard_where(
                     self.query_date_range,
                     self.query.properties,

@@ -2,6 +2,9 @@ from typing import Any
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 
+from parameterized import parameterized
+
+from products.mcp_analytics.backend.tests import EXPECTED_ERROR_CASES
 from products.mcp_registry.backend.aggregation import aggregate_team, discover_measured_teams
 from products.mcp_registry.backend.models import MCPMeasuredStats, MCPRegistryServer, MCPRegistryTool
 
@@ -58,6 +61,18 @@ class TestAggregation(ClickhouseTestMixin, BaseTest):
         assert set(
             MCPRegistryTool.objects.filter(server=official, source="analytics").values_list("name", flat=True)
         ) == {"execute-sql", "docs-search"}
+
+    @parameterized.expand(EXPECTED_ERROR_CASES)
+    def test_expected_errors_are_not_failures(
+        self, _name: str, extra_properties: dict[str, bool], is_failure: bool
+    ) -> None:
+        _tool_call(self.team, "s1", **{"$mcp_tool_name": "execute-sql", "$mcp_is_error": True, **extra_properties})
+
+        aggregate_team(self.team)
+
+        stats = MCPMeasuredStats.objects.unscoped().get(team_id=self.team.id, server_name="PostHog")
+        assert stats.errors == int(is_failure)
+        assert [row["errors"] for row in stats.tool_stats] == [int(is_failure)]
 
     def test_discover_measured_teams_finds_teams_with_new_sdk_traffic(self) -> None:
         _tool_call(self.team, "s1", **{"$mcp_tool_name": "execute-sql"})

@@ -13,6 +13,14 @@ def _only_intent_routing_flag(flag_key: str, *args: object, **kwargs: object) ->
     return flag_key == MCP_ANALYTICS_INTENT_ROUTING_FEATURE_FLAG
 
 
+# (case, properties stamped on an errored call, whether that call counts as a failure)
+EXPECTED_ERROR_CASES = [
+    ("absent", {}, True),
+    ("false", {"$mcp_error_expected": False}, True),
+    ("true", {"$mcp_error_expected": True}, False),
+]
+
+
 class _MCPAnalyticsTeamScopedTestMixin:
     """Shared setUp/tearDown for mcp_analytics presentation tests:
 

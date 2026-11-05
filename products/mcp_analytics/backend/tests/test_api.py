@@ -26,7 +26,7 @@ from products.access_control.backend.property_access_control import PropertyAcce
 from products.mcp_analytics.backend import intent_generation, logic, mcp_harness
 from products.mcp_analytics.backend.facade import api, contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPSession
-from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
+from products.mcp_analytics.backend.tests import EXPECTED_ERROR_CASES, _MCPAnalyticsTeamScopedTestMixin
 
 INTERNAL_CLIENT = "internal-bot"
 TEST_ACCOUNT_FILTERS = [{"key": "$mcp_client_name", "value": [INTERNAL_CLIENT], "operator": "is_not", "type": "event"}]
@@ -119,6 +119,7 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         session_start: datetime | None = None,
         session_end: datetime | None = None,
         is_error: bool = False,
+        extra_properties: dict[str, Any] | None = None,
     ) -> None:
         """Seed one $mcp_tool_call event per element of ``tool_sequence``.
 
@@ -142,6 +143,7 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
                     "$mcp_tool_name": tool,
                     "$mcp_client_name": client_name,
                     "$mcp_is_error": is_error,
+                    **(extra_properties or {}),
                 },
             )
 
@@ -193,6 +195,18 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
             for s in page.results
             if s.session_id == sid
         } == expected
+
+    @parameterized.expand(EXPECTED_ERROR_CASES)
+    def test_expected_errors_are_not_session_errors(
+        self, _name: str, extra_properties: dict[str, Any], is_failure: bool
+    ) -> None:
+        session_id = str(uuid7())
+        self._seed_session(session_id, ["query_run"], is_error=True, extra_properties=extra_properties)
+        flush_persons_and_events()
+
+        page = api.list_mcp_sessions(self.team, limit=50, offset=0)
+
+        assert [(s.tool_calls, s.error_calls) for s in page.results] == [(1, int(is_failure))]
 
     @parameterized.expand(
         [
@@ -867,6 +881,17 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
                 properties={"$session_id": str(uuid7()), "$mcp_tool_name": "query_run", **properties},
             )
         flush_persons_and_events()
+
+    @parameterized.expand(EXPECTED_ERROR_CASES)
+    def test_expected_errors_are_not_failures(
+        self, _name: str, extra_properties: dict[str, Any], is_failure: bool
+    ) -> None:
+        self._emit_call({"$mcp_is_error": True, **(extra_properties or {})})
+
+        overview = api.get_activity_overview(self.team)
+
+        assert overview.stats.error_calls == int(is_failure)
+        assert [row.errors for row in overview.top_tools] == [int(is_failure)]
 
     @parameterized.expand(
         [

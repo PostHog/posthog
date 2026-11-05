@@ -22,7 +22,7 @@ from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 
 from products.mcp_analytics.backend import mcp_harness
 from products.mcp_analytics.backend.hogql_queries.harness_breakdown import MCPHarnessBreakdownQueryRunner
-from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
+from products.mcp_analytics.backend.tests import EXPECTED_ERROR_CASES, _MCPAnalyticsTeamScopedTestMixin
 
 
 def test_harness_labels_tuple_matches_multiif_branches() -> None:
@@ -295,6 +295,20 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
         assert row.errors == 1
         assert row.sessions == 2
         assert row.error_rate_pct == 33.3
+
+    @parameterized.expand(EXPECTED_ERROR_CASES)
+    def test_expected_errors_are_not_failures(
+        self, _name: str, extra_properties: dict[str, Any], is_failure: bool
+    ) -> None:
+        self._emit(
+            properties={"$mcp_client_name": "codex-mcp-client", **(extra_properties or {})},
+            is_error=True,
+        )
+        flush_persons_and_events()
+
+        row = self._breakdown()["OpenAI Codex"]
+
+        assert (row.total_calls, row.errors) == (1, int(is_failure))
 
     def test_date_range_excludes_older_events(self) -> None:
         now = datetime.now(tz=UTC)

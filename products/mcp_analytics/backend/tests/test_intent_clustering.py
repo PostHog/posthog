@@ -65,7 +65,7 @@ from products.mcp_analytics.backend.intent_clustering import (
     top_corpus_tools,
 )
 from products.mcp_analytics.backend.models import MCPIntentEmbeddingCache
-from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
+from products.mcp_analytics.backend.tests import EXPECTED_ERROR_CASES, _MCPAnalyticsTeamScopedTestMixin
 
 # Helpers
 
@@ -1055,11 +1055,13 @@ class TestCorpusQueries(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, B
         timestamp: datetime | None = None,
         exec_tool_name: str | None = None,
         description: str | None = None,
+        extra_properties: dict[str, Any] | None = None,
     ) -> None:
         properties: dict[str, Any] = {
             "$session_id": session_id,
             "$mcp_tool_name": tool_name,
             "$mcp_is_error": is_error,
+            **(extra_properties or {}),
         }
         if intent is not None:
             properties["$mcp_intent"] = intent
@@ -1131,6 +1133,17 @@ class TestCorpusQueries(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, B
             ("query_trends", "", True),
         ]
         assert [(r[1], r[2], r[3]) for r in by_session["session-b"]] == [("feature_flag_get", "check flags", False)]
+
+    @parameterized.expand(EXPECTED_ERROR_CASES)
+    def test_expected_errors_are_not_failed_calls(
+        self, _name: str, extra_properties: dict[str, Any], is_failure: bool
+    ) -> None:
+        self._seed_tool_call("session-a", "execute_sql", is_error=True, extra_properties=extra_properties)
+        flush_persons_and_events()
+
+        rows = fetch_session_calls(self.team, ["session-a"])
+
+        assert [failed for *_, failed in rows] == [is_failure]
 
     def test_oversized_sender_strings_are_clipped_at_the_sql_boundary(self) -> None:
         # A sender with the capture token controls these strings; without the SQL

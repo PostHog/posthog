@@ -34,7 +34,7 @@ from products.mcp_analytics.backend.hogql_queries.tool_tables import (
     MCPToolStatsQueryRunner,
     MCPToolTopUsersQueryRunner,
 )
-from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
+from products.mcp_analytics.backend.tests import EXPECTED_ERROR_CASES, _MCPAnalyticsTeamScopedTestMixin
 
 NEW_SDK_SOURCE = "posthog_mcp_analytics"
 
@@ -48,12 +48,14 @@ class TestMCPToolTopUsersQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhous
         client_name: str | None = None,
         source: str | None = NEW_SDK_SOURCE,
         is_error: bool = False,
+        extra_properties: dict[str, Any] | None = None,
         exec_tool: str | None = None,
         timestamp: datetime | None = None,
     ) -> None:
         properties: dict[str, Any] = {
             "$mcp_tool_name": tool_name,
             "$mcp_is_error": is_error,
+            **(extra_properties or {}),
         }
         if source is not None:
             properties["$mcp_source"] = source
@@ -110,6 +112,15 @@ class TestMCPToolTopUsersQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhous
         # Claude.ai once despite two raw spellings; sorted distinct labels.
         assert row.harnesses == ["Claude.ai", "Cursor"]
 
+    @parameterized.expand(EXPECTED_ERROR_CASES)
+    def test_expected_errors_are_not_failures(
+        self, _name: str, extra_properties: dict[str, Any], is_failure: bool
+    ) -> None:
+        self._emit(is_error=True, extra_properties=extra_properties)
+        flush_persons_and_events()
+
+        assert [r.errors for r in self._run()] == [int(is_failure)]
+
     def test_excludes_other_tools_and_resolves_effective_tool_name(self) -> None:
         self._emit(distinct_id="d1", tool_name="other_tool", client_name="claude-ai")
         # Single-exec wrapper: outer tool name is the wrapper, the effective tool is in $mcp_exec_tool_call_name.
@@ -148,12 +159,17 @@ class TestMCPToolFailuresQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhous
         is_error: bool = True,
         error_type: str | None = None,
         error_status: str | None = None,
+        extra_properties: dict[str, Any] | None = None,
         exec_tool: str | None = None,
         exec_verb: str | None = None,
         exec_target: str | None = None,
         timestamp: datetime | None = None,
     ) -> None:
-        properties: dict[str, Any] = {"$mcp_tool_name": tool_name, "$mcp_is_error": is_error}
+        properties: dict[str, Any] = {
+            "$mcp_tool_name": tool_name,
+            "$mcp_is_error": is_error,
+            **(extra_properties or {}),
+        }
         if source is not None:
             properties["$mcp_source"] = source
         if client_name is not None:
@@ -222,6 +238,15 @@ class TestMCPToolFailuresQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhous
 
         assert [r.message for r in self._run()] == ["internal"]
 
+    @parameterized.expand(EXPECTED_ERROR_CASES)
+    def test_expected_errors_are_not_failures(
+        self, _name: str, extra_properties: dict[str, Any], is_failure: bool
+    ) -> None:
+        self._emit(error_type="rate_limited", extra_properties=extra_properties)
+        flush_persons_and_events()
+
+        assert sum(r.occurrences for r in self._run()) == int(is_failure)
+
     def test_groups_by_label_dedupes_harnesses_and_counts(self) -> None:
         self._emit(error_type="internal", client_name="claude-ai")
         self._emit(error_type="internal", client_name="cursor-vscode")
@@ -275,12 +300,17 @@ class TestMCPToolFailureOccurrencesQueryRunner(_MCPAnalyticsTeamScopedTestMixin,
         error_type: str | None = None,
         error_status: str | None = None,
         error_message: str | None = None,
+        extra_properties: dict[str, Any] | None = None,
         session_id: str | None = None,
         intent: str | None = None,
         exec_tool: str | None = None,
         timestamp: datetime | None = None,
     ) -> None:
-        properties: dict[str, Any] = {"$mcp_tool_name": tool_name, "$mcp_is_error": is_error}
+        properties: dict[str, Any] = {
+            "$mcp_tool_name": tool_name,
+            "$mcp_is_error": is_error,
+            **(extra_properties or {}),
+        }
         if source is not None:
             properties["$mcp_source"] = source
         if client_name is not None:
@@ -316,6 +346,15 @@ class TestMCPToolFailureOccurrencesQueryRunner(_MCPAnalyticsTeamScopedTestMixin,
             team=self.team,
         )
         return runner.calculate().results
+
+    @parameterized.expand(EXPECTED_ERROR_CASES)
+    def test_expected_errors_are_not_failures(
+        self, _name: str, extra_properties: dict[str, Any], is_failure: bool
+    ) -> None:
+        self._emit(error_type="rate_limited", extra_properties=extra_properties)
+        flush_persons_and_events()
+
+        assert len(self._run("rate_limited")) == int(is_failure)
 
     @parameterized.expand(
         [
@@ -420,6 +459,7 @@ def _emit_tool_call(
     distinct_id: str = "d1",
     source: str | None = NEW_SDK_SOURCE,
     is_error: bool = False,
+    extra_properties: dict[str, Any] | None = None,
     duration_ms: float | None = None,
     intent: str | None = None,
     intent_source: str | None = None,
@@ -431,7 +471,11 @@ def _emit_tool_call(
     exec_target: str | None = None,
     timestamp: datetime | None = None,
 ) -> None:
-    properties: dict[str, Any] = {"$mcp_tool_name": tool_name, "$mcp_is_error": is_error}
+    properties: dict[str, Any] = {
+        "$mcp_tool_name": tool_name,
+        "$mcp_is_error": is_error,
+        **(extra_properties or {}),
+    }
     if source is not None:
         properties["$mcp_source"] = source
     if duration_ms is not None:
@@ -503,6 +547,15 @@ class TestMCPToolStatsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTe
         # Only the '{"goal":"x"}' call counts; '{}' and missing do not.
         assert row.with_intent == 1
         assert (row.p50_ms, row.p95_ms) == (200, 290)
+
+    @parameterized.expand(EXPECTED_ERROR_CASES)
+    def test_expected_errors_are_not_failures(
+        self, _name: str, extra_properties: dict[str, Any], is_failure: bool
+    ) -> None:
+        _emit_tool_call(self.team, is_error=True, extra_properties=extra_properties)
+        flush_persons_and_events()
+
+        assert [(r.calls, r.errors) for r in self._run()] == [(1, int(is_failure))]
 
     def test_returns_none_latency_when_durations_are_missing(self) -> None:
         _emit_tool_call(self.team)
@@ -587,6 +640,15 @@ class TestMCPToolDailyStatsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickho
         assert rows[1].sessions == 2
         assert (rows[0].p50, rows[0].p95) == (0, 0)
         assert (rows[1].p50, rows[1].p95) == (200, 290)
+
+    @parameterized.expand(EXPECTED_ERROR_CASES)
+    def test_expected_errors_are_not_failures(
+        self, _name: str, extra_properties: dict[str, Any], is_failure: bool
+    ) -> None:
+        _emit_tool_call(self.team, is_error=True, extra_properties=extra_properties)
+        flush_persons_and_events()
+
+        assert [(r.calls, r.errors) for r in self._run()] == [(1, int(is_failure))]
 
     def test_buckets_by_hour_when_interval_is_hour(self) -> None:
         # Two calls in the same day but different hours split into two hourly buckets — a sub-day
