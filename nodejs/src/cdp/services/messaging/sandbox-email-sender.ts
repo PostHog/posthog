@@ -16,7 +16,6 @@ import { logger } from '~/common/utils/logger'
 import { captureTeamEvent } from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
 
-import { DeadlineSlots } from '../../utils/deadline-slots'
 import { SandboxSenderStateService } from '../managers/sandbox-sender-state.service'
 import { ClaimRequest, IssuedClaim, RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
@@ -98,12 +97,7 @@ function deliveredCopiesByAddress(recipients: string[]): { address: string; copi
 }
 
 const BLOCKED_EVENT_WINDOW_SECONDS = 3600
-// The send is already decided when this runs, and the worker's batch waits for it, so a stalled
-// store must not hold the invocation open.
 const EVENT_CAPTURE_TIMEOUT_MS = 1000
-// The deadline cannot cancel a store call, so a stalled call keeps its connection until the store answers.
-// At most this many run at once, on a pool of their own this size; a capture waiting for a slot holds
-// nothing and gives up at its deadline, so a burst against a healthy store keeps every event.
 export const MAX_OPEN_STORE_CALLS = 10
 
 function htmlBody(document: DefaultTreeAdapterMap['document']): DefaultTreeAdapterMap['element'] | undefined {
@@ -601,18 +595,15 @@ function appendHtmlFooter(html: string, footer: string, preheader?: string): str
 
 export function sandboxBlockedEventRedisConfig(connection: RedisConnectionConfig): RedisPoolConfig {
     return {
-        // Blocked events are optional telemetry, so a store that refuses these connections must not stop the worker.
-        // No command timeout: a timed-out command stays queued on its connection while its slot frees, so a store
-        // that stops answering would collect commands without limit. A stalled call keeps its slot instead.
         connection: { ...connection, exitOnRepeatedErrors: false },
         poolMinSize: 0,
         poolMaxSize: MAX_OPEN_STORE_CALLS,
+        acquireTimeoutMillis: EVENT_CAPTURE_TIMEOUT_MS,
     }
 }
 
 export class SandboxEmailSender {
     public readonly canSend: boolean
-    private storeSlots = new DeadlineSlots(MAX_OPEN_STORE_CALLS)
     private dailyCaps: { team: number; recipient: number } | null
 
     constructor(
@@ -748,13 +739,12 @@ export class SandboxEmailSender {
         storeCheck?: () => Promise<boolean>
     ): Promise<void> {
         let timer: NodeJS.Timeout | undefined
-        const deadline = new Promise<void>((resolve) => {
-            timer = setTimeout(resolve, EVENT_CAPTURE_TIMEOUT_MS)
+        const deadline = new Promise<boolean>((resolve) => {
+            timer = setTimeout(() => resolve(false), EVENT_CAPTURE_TIMEOUT_MS)
         })
-        const captureNow = (): Promise<void> => this.captureEventNow(teamId, event, properties, storeCheck)
-        const capture = storeCheck ? this.storeSlots.run(deadline, captureNow) : captureNow()
+        const capture = this.captureEventNow(teamId, event, properties, storeCheck).then(() => true)
         try {
-            if ((await Promise.race([capture.then(() => true), deadline.then(() => false)])) === false) {
+            if (!(await Promise.race([capture, deadline]))) {
                 logger.warn('Gave up capturing a sandbox email event: the event store did not answer', {
                     teamId,
                     event,

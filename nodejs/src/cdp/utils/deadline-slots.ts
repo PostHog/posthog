@@ -1,13 +1,9 @@
-// At most `size` calls run at once. A caller that finds every slot taken waits, holding nothing, and gives up
-// when its deadline settles first. A running call keeps its slot until it settles, even past its deadline,
-// because nothing can cancel it; a freed slot goes straight to the next waiter.
 export class DeadlineSlots {
     private open = 0
     private waiters: (() => void)[] = []
 
     constructor(private readonly size: number) {}
 
-    // Resolves true once `work` ran, or false without running it when `deadline` settled before a slot freed.
     public async run(deadline: Promise<void>, work: () => Promise<void>): Promise<boolean> {
         if (this.open < this.size) {
             this.open++
