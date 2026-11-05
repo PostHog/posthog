@@ -12,6 +12,11 @@ before its response is lost, so a timeout does not mean it failed on the server.
 idle watchdog and reconnect policy. Transport failures have a dedicated error type; unrelated programming errors are
 not reported as connectivity failures.
 
+The classic conversation transport uses a 30-second connection deadline and a 60-second inactivity deadline.
+Each received chunk, including a heartbeat, resets the inactivity deadline.
+An interrupted accepted reply offers reconnection; the app does not resend it automatically.
+History reconciliation retains streamed generation failures, and only approvals with a pending decision pause reconnection.
+
 Most existing types are written by hand per module and name the Django serializer they mirror.
 PR checks use `PullRequestChecksResponseApi` from the Signals generated schemas. New API
 types should come from the generated schemas; update the Django serializer and run

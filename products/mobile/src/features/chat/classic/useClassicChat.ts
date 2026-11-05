@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError } from '@/api/client'
 import { cancelConversation, getConversation, streamConversation } from '@/api/conversations'
 import { readSse } from '@/api/sse'
+import { requestWithDeadline } from '@/api/transport'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { conversationListKeys } from '@/features/chats/conversationKeys'
 import { sessionListKeys } from '@/features/chats/hooks'
@@ -62,21 +63,25 @@ export function useClassicChat(initialId?: string): {
             })
             let accepted = false
             try {
-                const response = await streamConversation(
-                    {
-                        conversation,
-                        content,
-                        trace_id: traceId,
-                        is_sandbox: false,
-                        ...(proposal
-                            ? {
-                                  resume_payload: {
-                                      proposal_id: proposal.id,
-                                      action: proposal.approved ? 'approve' : 'reject',
-                                  },
-                              }
-                            : {}),
-                    },
+                const response = await requestWithDeadline(
+                    (signal) =>
+                        streamConversation(
+                            {
+                                conversation,
+                                content,
+                                trace_id: traceId,
+                                is_sandbox: false,
+                                ...(proposal
+                                    ? {
+                                          resume_payload: {
+                                              proposal_id: proposal.id,
+                                              action: proposal.approved ? 'approve' : 'reject',
+                                          },
+                                      }
+                                    : {}),
+                            },
+                            signal
+                        ),
                     abort.signal
                 )
                 accepted = true
@@ -89,11 +94,16 @@ export function useClassicChat(initialId?: string): {
                     (event) => {
                         if (active()) setState((previous) => reduceClassicEvent(previous, event))
                     },
-                    abort.signal
+                    abort.signal,
+                    60_000
                 )
                 if (active()) {
                     const saved = await getConversation(conversation, abort.signal)
-                    if (active()) setState(classicHistory(saved.messages, saved.title, saved.pending_approvals))
+                    if (active())
+                        setState((previous) => ({
+                            ...classicHistory(saved.messages, saved.title, saved.pending_approvals),
+                            error: previous.error,
+                        }))
                 }
                 return true
             } catch (failure) {
@@ -146,7 +156,11 @@ export function useClassicChat(initialId?: string): {
             const saved = await getConversation(conversation, abort.signal)
             if (generation !== epoch.current) return
             setState(classicHistory(saved.messages, saved.title, saved.pending_approvals))
-            if (saved.status === 'in_progress' && saved.pending_approvals.length === 0) void stream(null)
+            if (
+                saved.status === 'in_progress' &&
+                !saved.pending_approvals.some((approval) => approval.decision_status === 'pending')
+            )
+                void stream(null)
         } catch (failure) {
             if (generation === epoch.current && !abort.signal.aborted) setHistoryError(toChatError(failure).message)
         } finally {
@@ -156,14 +170,6 @@ export function useClassicChat(initialId?: string): {
             }
         }
     }, [stream])
-
-    useEffect(() => {
-        if (initialId) void reload()
-        return () => {
-            epoch.current++
-            controller.current?.abort()
-        }
-    }, [initialId, reload])
 
     const stop = async (): Promise<void> => {
         if (!idRef.current || stopBusy.current) return
@@ -181,13 +187,16 @@ export function useClassicChat(initialId?: string): {
             }
         }
     }
-    const reset = (): void => {
+    const invalidate = useCallback((): void => {
         epoch.current++
         controller.current?.abort()
         controller.current = null
         busy.current = false
         stopBusy.current = false
         reloadBusy.current = false
+    }, [])
+    const reset = useCallback((): void => {
+        invalidate()
         idRef.current = null
         setId(null)
         setState(EMPTY_CLASSIC_STATE)
@@ -196,7 +205,16 @@ export function useClassicChat(initialId?: string): {
         setHistoryError(null)
         setWorking(false)
         setStopping(false)
-    }
+    }, [invalidate])
+
+    useEffect(() => {
+        reset()
+        idRef.current = initialId ?? null
+        setId(initialId ?? null)
+        if (initialId) void reload()
+        return invalidate
+    }, [initialId, reload, reset, invalidate])
+
     return {
         id,
         state,

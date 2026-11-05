@@ -57,7 +57,7 @@ export function appendClassicMessage(state: ClassicState, data: Record<string, u
                 (data.trace_id ? message.data.trace_id === data.trace_id : message.data.content === data.content)
         )
     }
-    if (index < 0 && data.type !== 'human') {
+    if (index < 0 && data.type !== 'human' && (!wireId || complete)) {
         index = state.messages.findLastIndex((message) => !message.complete && message.data.type === data.type)
     }
     const entry: ClassicMessage = { id: wireId ?? `stream-${state.messages.length}`, data, complete }
@@ -111,7 +111,10 @@ export function reduceClassicEvent(state: ClassicState, event: SseEvent): Classi
         case 'conversation':
             return { ...state, title: typeof data.title === 'string' ? data.title : state.title }
         case 'update':
-            return { ...state, progress: typeof data.content === 'string' ? data.content : state.progress }
+            return {
+                ...state,
+                progress: typeof data.content === 'string' ? data.content : state.progress,
+            }
         case 'approval':
             return { ...state, approval: approvalFrom(data) }
         case 'status':
@@ -130,9 +133,22 @@ function visualizationLink(data: Record<string, unknown>, projectUrl: string): s
         return `[View insight](${projectUrl}/insights/${encodeURIComponent(shortId)})`
     }
     const query = data.answer ?? content.query
-    return isRecord(query)
-        ? `[View chart](${projectUrl}/insights/new#q=${encodeURIComponent(JSON.stringify({ kind: 'InsightVizNode', source: query }))})`
-        : null
+    if (!isRecord(query)) return null
+    const insightKinds = [
+        'TrendsQuery',
+        'FunnelsQuery',
+        'RetentionQuery',
+        'PathsQuery',
+        'StickinessQuery',
+        'LifecycleQuery',
+    ]
+    const visualization =
+        query.kind === 'HogQLQuery'
+            ? { kind: 'DataVisualizationNode', source: query }
+            : insightKinds.includes(String(query.kind))
+              ? { kind: 'InsightVizNode', source: query, showHeader: true }
+              : query
+    return `[View chart](${projectUrl}/insights/new#q=${encodeURIComponent(JSON.stringify(visualization))})`
 }
 
 export function classicThreadItems(state: ClassicState, projectUrl: string): SessionThreadItem[] {

@@ -50,7 +50,10 @@ describe('classic conversation events', () => {
             tool_name: 'Create dashboard',
             preview: 'Create a dashboard',
         }
-        const state = reduceClassicEvent(EMPTY_CLASSIC_STATE, { event: 'approval', data: JSON.stringify(approval) })
+        const state = reduceClassicEvent(EMPTY_CLASSIC_STATE, {
+            event: 'approval',
+            data: JSON.stringify(approval),
+        })
         expect(state.approval).toEqual({
             id: 'proposal-1',
             toolName: 'Create dashboard',
@@ -71,6 +74,50 @@ describe('classic conversation events', () => {
         )
         const items = classicThreadItems(state, 'https://app.example.com/project/42')
         expect(items[0]).toMatchObject({ text: expect.stringContaining('/insights/new#q=') })
-        expect(items[1]).toMatchObject({ text: '[View insight](https://app.example.com/project/42/insights/abc123)' })
+        expect(items[1]).toMatchObject({
+            text: '[View insight](https://app.example.com/project/42/insights/abc123)',
+        })
+    })
+    test('preserves distinct temporary answers while replacing snapshots of each', () => {
+        let state = EMPTY_CLASSIC_STATE
+        for (const data of [
+            { id: 'temp-0', type: 'ai', content: 'Searching' },
+            { id: 'temp-1', type: 'ai', content: 'Found' },
+            { id: 'temp-0', type: 'ai', content: 'Searching the web' },
+            { id: 'temp-1', type: 'ai', content: 'Found an answer' },
+        ])
+            state = appendClassicMessage(state, data)
+        expect(classicThreadItems(state, '').map((item) => ('text' in item ? item.text : null))).toEqual([
+            'Searching the web',
+            'Found an answer',
+        ])
+    })
+
+    test.each([
+        [
+            { kind: 'TrendsQuery', series: [] },
+            { kind: 'InsightVizNode', source: { kind: 'TrendsQuery', series: [] }, showHeader: true },
+        ],
+        [
+            { kind: 'HogQLQuery', query: 'SELECT 1' },
+            { kind: 'DataVisualizationNode', source: { kind: 'HogQLQuery', query: 'SELECT 1' } },
+        ],
+        [
+            {
+                kind: 'DataVisualizationNode',
+                source: { kind: 'HogQLQuery', query: 'SELECT 1' },
+                display: 'ActionsBar',
+            },
+            {
+                kind: 'DataVisualizationNode',
+                source: { kind: 'HogQLQuery', query: 'SELECT 1' },
+                display: 'ActionsBar',
+            },
+        ],
+    ])('keeps chart links compatible with the query schema: %j', (query, expected) => {
+        const state = classicHistory([{ type: 'ai/viz', id: 'chart', answer: query }], null)
+        const item = classicThreadItems(state, 'https://app.example.com/project/42')[0]
+        const encoded = item && 'text' in item ? (item.text.split('#q=')[1]?.slice(0, -1) ?? '') : ''
+        expect(JSON.parse(decodeURIComponent(encoded))).toEqual(expected)
     })
 })
