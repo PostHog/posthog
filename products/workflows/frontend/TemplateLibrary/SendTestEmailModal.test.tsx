@@ -52,24 +52,45 @@ describe('SendTestEmailModal', () => {
     it.each([
         [false, 'Verify your email address to send test emails to yourself.'],
         [true, null],
-    ])('asks a signed-in user with verified=%s to verify their own address', async (verified, expected) => {
+    ])(
+        'for a signed-in user with verified=%s sending to their own address, shows the matching warning',
+        async (verified, expected) => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/integrations/': { results: [sandbox] },
+                    '/api/organizations/:organization_id/members/': { results: [] },
+                },
+            })
+            userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_email_verified: verified })
+            openModal()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setRecipientEmail(MOCK_DEFAULT_USER.email.toUpperCase())
+
+            await waitFor(() =>
+                expect(screen.queryByText(/isn't among the verified members you can see/) !== null).toBe(verified)
+            )
+            expect(
+                screen.queryByText('Verify your email address to send test emails to yourself.')?.textContent ?? null
+            ).toBe(expected)
+            expect(screen.getByText('Send test email', { selector: 'button *' }).closest('button')).toHaveAttribute(
+                'aria-disabled',
+                String(!verified)
+            )
+        }
+    )
+
+    it('warns that a recipient cannot be checked when the member list fails to load', async () => {
         useMocks({
             get: {
                 '/api/projects/:team_id/integrations/': { results: [sandbox] },
-                '/api/organizations/:organization_id/members/': { results: [] },
+                '/api/organizations/:organization_id/members/': () => [500, { detail: 'Unavailable' }],
             },
         })
-        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_email_verified: verified })
         openModal()
         await expectLogic(logic).toFinishAllListeners()
-        logic.actions.setRecipientEmail(MOCK_DEFAULT_USER.email.toUpperCase())
+        logic.actions.setRecipientEmail('someone@example.com')
 
-        await waitFor(() =>
-            expect(screen.queryByText(/isn't among the verified members you can see/) !== null).toBe(verified)
-        )
-        expect(
-            screen.queryByText('Verify your email address to send test emails to yourself.')?.textContent ?? null
-        ).toBe(expected)
+        expect(await screen.findByText(/Couldn't load your organization's members/)).toBeInTheDocument()
     })
 
     it.each([
