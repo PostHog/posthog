@@ -463,21 +463,25 @@ class _Aliases(CloningVisitor):
         self.node = node
 
     @cached_property
-    def aliases(self) -> dict[str, ast.Expr]:
+    def aliases(self) -> dict[str, tuple[int, ast.Expr]]:
         # Most SELECTs read no events scan, so the aliases are collected only when a scan needs them.
-        return dict(select_aliases(self.node))
+        declared: dict[str, tuple[int, ast.Expr]] = {}
+        for position, (name, expr) in enumerate(select_aliases(self.node)):
+            declared.setdefault(name, (position, expr))
+        return declared
 
-    def target(self, expr: ast.Expr) -> ast.Expr:
+    def target(self, expr: ast.Expr, lambda_args: frozenset[str] = frozenset()) -> ast.Expr:
         """The expression that `expr`, without its own alias, names through a chain of select aliases."""
-        named: set[str] = set()
+        visible = len(self.aliases)
         expr = unwrap_alias(expr)
-        while isinstance(expr, ast.Field) and len(expr.chain) == 1:
-            name = str(expr.chain[0])
-            # In `event AS event`, the inner `event` is the column, because the resolver reads it before the alias.
-            if name not in self.aliases or name in named:
+        while isinstance(expr, ast.Field) and len(expr.chain) == 1 and expr.chain[0] not in lambda_args:
+            declared = self.aliases.get(str(expr.chain[0]))
+            # The resolver binds a name in an alias's expression only to an alias declared before it. In
+            # `event AS event`, the inner `event` is therefore the column.
+            if declared is None or declared[0] >= visible:
                 break
-            named.add(name)
-            expr = unwrap_alias(self.aliases[name])
+            visible, aliased = declared
+            expr = unwrap_alias(aliased)
         return expr
 
     def visit_field(self, node: ast.Field):
@@ -485,13 +489,18 @@ class _Aliases(CloningVisitor):
         return super().visit_field(target if isinstance(target, ast.Field) else node)
 
     def visit_alias(self, node: ast.Alias):
-        return self.visit(node.expr)
+        # `swap_scans_found_by_type` reads through an alias of a field, but it does not read a comparison inside an
+        # alias.
+        if isinstance(unwrap_alias(node), ast.Field):
+            return self.visit(unwrap_alias(node))
+        return super().visit_alias(node)
 
     def _keep(self, node):
-        # A subquery has its own aliases, and no rule here reads a comparison inside one.
+        # A subquery has its own aliases, and a lambda has its own arguments. No rule here reads a comparison inside
+        # either one.
         return node
 
-    visit_select_query = visit_select_set_query = _keep
+    visit_select_query = visit_select_set_query = visit_lambda = _keep
 
 
 class _ScanReadCopier(CloningVisitor):
@@ -653,11 +662,18 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
         self.root = root
         self.reader = scan
         self.aliases = aliases
+        self.lambda_args: frozenset[str] = frozenset()
         self.found = False
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         if node is self.root:
             super().visit_select_query(node)
+
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        outer = self.lambda_args
+        self.lambda_args = outer.union(node.args)
+        super().visit_lambda(node)
+        self.lambda_args = outer
 
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
         pass
@@ -671,18 +687,18 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
         super().visit_call(node)
 
     def _check(self, expr: ast.Expr) -> None:
-        values = compared_values(expr, lambda read: self.reader.column(self.aliases.target(read)) == ["event"])
-        targets = [self.aliases.target(compared) for compared in values or []]
+        def target(read: ast.Expr) -> ast.Expr:
+            return self.aliases.target(read, self.lambda_args)
+
+        values = compared_values(expr, lambda read: self.reader.column(target(read)) == ["event"])
+        targets = [target(compared) for compared in values or []]
         # `event IN names` reads the list that the alias `names` holds.
         items = [
             item
             for target in targets
             for item in (target.exprs if isinstance(target, (ast.Tuple, ast.Array)) else [target])
         ]
-        if any(
-            isinstance(value := self.aliases.target(item), ast.Constant) and value.value == FLAG_CALLED_EVENT
-            for item in items
-        ):
+        if any(isinstance(value := target(item), ast.Constant) and value.value == FLAG_CALLED_EVENT for item in items):
             self.found = True
 
 

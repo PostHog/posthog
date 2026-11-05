@@ -252,6 +252,32 @@ class TestRenameFlagCallScansToUnion(SimpleTestCase):
                 [],
             ),
             (
+                "alias_of_a_comparison_in_the_filter",
+                "SELECT count() FROM events WHERE (event = '$feature_flag_called' AS is_flag_call)",
+                [UNION],
+                [],
+            ),
+            (
+                "inline_alias_of_event_pinned_to_only_flag_calls",
+                "SELECT count() FROM events WHERE (event AS name) = '$feature_flag_called'",
+                ["events"],
+                [],
+            ),
+            (
+                "alias_of_a_column_that_a_later_alias_shadows",
+                "SELECT distinct_id AS d, event AS distinct_id FROM events "
+                f"WHERE d = '$feature_flag_called' AND {MIXED}",
+                [UNION],
+                [],
+            ),
+            (
+                "lambda_argument_named_like_an_alias_of_event",
+                "SELECT e.event AS name FROM persons AS p JOIN events AS e ON p.id = e.person_id "
+                "WHERE arrayExists(name -> name = '$feature_flag_called', ['$feature_flag_called'])",
+                ["persons", "events"],
+                [],
+            ),
+            (
                 "alias_of_event_pinned_to_only_flag_calls",
                 "SELECT event AS name FROM events WHERE name = '$feature_flag_called'",
                 ["events"],
