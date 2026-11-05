@@ -342,6 +342,7 @@ def unpublished_days(instance: dagster.DagsterInstance, today: date) -> list[dat
 
 @dagster.schedule(
     job=warehouse_object_reads_daily_job,
+    name=f"{warehouse_object_reads_daily_job.name}_schedule",
     cron_schedule=f"0 {','.join(str(hour) for hour in ATTEMPT_HOURS_UTC)} * * *",
     execution_timezone="UTC",
     default_status=dagster.DefaultScheduleStatus.RUNNING,
