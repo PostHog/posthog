@@ -75,12 +75,14 @@ describe('reportListLogic', () => {
                     [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
                 })
             ).toFinishAllListeners()
-            expect(requests).toHaveLength(2)
+            // The section is already loaded, so the refresh sends the first page alone and reads the
+            // count off its total.
+            expect(requests).toHaveLength(1)
             expect(requests.every((url) => new URL(url).searchParams.get('status') === 'monitoring')).toBe(true)
             expect(logic.values).toMatchObject({ count: 1, reports: [makeReport('monitored')] })
 
             await expectLogic(logic, () => featureFlagLogic.actions.setFeatureFlags([], {})).toFinishAllListeners()
-            expect(requests).toHaveLength(2)
+            expect(requests).toHaveLength(1)
             expect(logic.values).toMatchObject({ count: 0, reports: [], hasMore: false })
         } finally {
             logic.unmount()
@@ -281,6 +283,40 @@ describe('reportListLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.pageLoadFailed).toBe(false)
             expect(logic.values.reports).toHaveLength(FIRST_PAGE.length + SECOND_PAGE.length)
+        })
+
+        it('takes the count of a loaded section from its reloaded page, not from a late count of the old query', async () => {
+            logic.actions.setScope(INBOX_SCOPE_ENTIRE_PROJECT)
+            await expectLogic(logic).toFinishAllListeners()
+            const MINE = FIRST_PAGE.slice(0, 3)
+            const requests: string[] = []
+            let releaseOldCount: () => void = () => {}
+            const heldOldCount = new Promise<void>((resolve) => {
+                releaseOldCount = resolve
+            })
+            useMocks({
+                get: {
+                    [REPORTS_URL]: async ({ request }) => {
+                        const params = new URL(request.url).searchParams
+                        if (params.get('count_only') === 'true') {
+                            requests.push(`count:${params.get('assignee') ?? 'all'}`)
+                            await heldOldCount
+                            return [200, { count: 99, next: null, previous: null, results: [] }]
+                        }
+                        requests.push(`page:${params.get('assignee') ?? 'all'}`)
+                        return [200, { count: MINE.length, next: null, previous: null, results: MINE }]
+                    },
+                },
+            })
+
+            logic.actions.loadCount()
+            logic.actions.setScope(INBOX_SCOPE_CLAIMED_BY_YOU)
+            await expectLogic(logic).toDispatchActions(['loadReportsSuccess'])
+            releaseOldCount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(requests).toEqual(['count:all', 'page:mine'])
+            expect(logic.values.count).toBe(MINE.length)
         })
 
         it('keeps a claim made while the first page reloads, which the reload read before the claim saved', async () => {
