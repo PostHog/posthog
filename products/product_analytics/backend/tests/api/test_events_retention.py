@@ -1,7 +1,7 @@
 from datetime import date
 
 import time_machine
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import patch
 
 from django.db import transaction
@@ -10,7 +10,7 @@ from django.test import override_settings
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Organization
+from posthog.models import Organization, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.events_plan_deletion import TeamEventsPlanDeletion
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig, TeamEventsRetentionConfig
@@ -316,6 +316,15 @@ class TestEventsRetentionAPI(APIBaseTest):
         assert TeamEventsRetentionConfig.objects.get(team=self.team).events_retention_months == 12
         assert not TeamEventsPlanDeletion.objects.filter(team=self.team).exists()
 
+    @parameterized.expand([("project",), ("organization",)])
+    def test_only_organization_admins_count_deleted_events(self, scope: str) -> None:
+        self._set_membership("project_admin")
+        url = self.url() if scope == "project" else self.organization_url()
+
+        response = self.client.get(f"{url}deletion_count/", {"retention_months": 3})
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
     @parameterized.expand([("patch",), ("put",), ("delete",)])
     def test_rejects_other_writes(self, method: str) -> None:
         self._set_membership("organization_admin")
@@ -455,3 +464,30 @@ class TestEventsRetentionAPI(APIBaseTest):
             assert captured["project_id"] == self.team.id
         else:
             assert "project_id" not in captured
+
+
+class TestEventsRetentionDeletionCountAPI(ClickhouseTestMixin, APIBaseTest):
+    @time_machine.travel("2026-11-05T12:00:00Z", tick=False)
+    def test_counts_the_events_the_next_cleanup_deletes(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.team.timezone = "America/Los_Angeles"
+        self.team.save()
+        own_period_team = Team.objects.create(organization=self.organization, name="Own period")
+        TeamEventsRetentionConfig.objects.create(team=own_period_team, events_retention_months=12)
+        default_team = Team.objects.create(organization=self.organization, name="Default")
+        for team, timestamp in [
+            (self.team, "2026-08-31T23:59:59Z"),
+            (self.team, "2026-09-01T00:00:00Z"),
+            (own_period_team, "2026-08-01T00:00:00Z"),
+            (default_team, "2026-08-01T00:00:00Z"),
+        ]:
+            _create_event(team=team, event="$pageview", distinct_id="user", timestamp=timestamp)
+
+        project = self.client.get(f"/api/projects/{self.team.id}/events_retention/deletion_count/?retention_months=3")
+        organization = self.client.get(
+            f"/api/organizations/{self.organization.id}/events_retention_setting/deletion_count/?retention_months=3"
+        )
+
+        assert project.json() == {"retention_months": 3, "events_deleted": 1}
+        assert organization.json() == {"retention_months": 3, "events_deleted": 2}

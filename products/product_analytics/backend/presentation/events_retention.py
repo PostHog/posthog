@@ -4,6 +4,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_serializer
 from rest_framework import exceptions, serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -13,11 +14,13 @@ from posthog.event_usage import get_request_analytics_properties
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.team.event_retention import events_retention_floor_date, events_retention_months_for_team
 from posthog.models.user import User
-from posthog.permissions import OrganizationAdminWritePermissions
+from posthog.permissions import OrganizationAdminReadPermissions, OrganizationAdminWritePermissions
 
 from products.product_analytics.backend.facade.contracts import OrganizationEventsRetention
 from products.product_analytics.backend.facade.events_retention import (
+    organization_events_deleted,
     organization_events_retention,
+    project_events_deleted,
     project_events_retention,
     set_organization_events_retention,
     set_project_events_retention,
@@ -131,6 +134,31 @@ class EventsRetentionUpdateSerializer(serializers.Serializer):
     )
 
 
+class EventsDeletedQuerySerializer(serializers.Serializer):
+    retention_months = serializers.IntegerField(
+        min_value=1,
+        help_text="The period in months to count for. Only events older than this period are counted.",
+    )
+
+
+class EventsDeletedSerializer(serializers.Serializer):
+    retention_months = serializers.IntegerField(
+        read_only=True,
+        help_text="The period in months that was counted for.",
+    )
+    events_deleted = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "How many queryable events the next monthly cleanup deletes with this period. The count can be up to a "
+            "day old."
+        ),
+    )
+
+
+def _events_deleted_response(months: int, events_deleted: int) -> Response:
+    return Response(EventsDeletedSerializer({"retention_months": months, "events_deleted": events_deleted}).data)
+
+
 def _organization_fields(organization: OrganizationEventsRetention) -> dict[str, Any]:
     return {
         "organization_retention_months": organization.organization_months,
@@ -214,6 +242,31 @@ class EventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             raise exceptions.ValidationError(error.messages) from error
         return self._retention_response()
 
+    @validated_request(
+        query_serializer=EventsDeletedQuerySerializer,
+        operation_id="events_retention_deletion_count",
+        summary="Count the events a project's period would delete",
+        description=(
+            "Counts the project's events that the next monthly cleanup deletes if the project keeps events for "
+            "retention_months. Organization admins only."
+        ),
+        responses={
+            200: OpenApiResponse(response=EventsDeletedSerializer, description="The count."),
+            403: OpenApiResponse(description="The user isn't an organization admin."),
+            504: OpenApiResponse(description="The count took too long."),
+        },
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="deletion_count",
+        required_scopes=["project:read"],
+        permission_classes=[OrganizationAdminReadPermissions],
+    )
+    def deletion_count(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        months = request.validated_query_data["retention_months"]
+        return _events_deleted_response(months, project_events_deleted(self.team, months))
+
 
 @extend_schema(tags=["events_retention"])
 class OrganizationEventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -269,3 +322,28 @@ class OrganizationEventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSe
         except DjangoValidationError as error:
             raise exceptions.ValidationError(error.messages) from error
         return self._retention_response()
+
+    @validated_request(
+        query_serializer=EventsDeletedQuerySerializer,
+        operation_id="organization_events_retention_deletion_count",
+        summary="Count the events the organization's period would delete",
+        description=(
+            "Counts the events that the next monthly cleanup deletes if the organization keeps events for "
+            "retention_months, summed over the projects without their own period. Organization admins only."
+        ),
+        responses={
+            200: OpenApiResponse(response=EventsDeletedSerializer, description="The count."),
+            403: OpenApiResponse(description="The user isn't an organization admin."),
+            504: OpenApiResponse(description="The count took too long."),
+        },
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="deletion_count",
+        required_scopes=["organization:read"],
+        permission_classes=[OrganizationAdminReadPermissions],
+    )
+    def deletion_count(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        months = request.validated_query_data["retention_months"]
+        return _events_deleted_response(months, organization_events_deleted(self.organization, months))

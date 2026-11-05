@@ -38,6 +38,13 @@ export interface EventsRetentionUpdateApi {
     retention_months: number | null
 }
 
+export interface EventsDeletedApi {
+    /** The period in months that was counted for. */
+    readonly retention_months: number
+    /** How many queryable events the next monthly cleanup deletes with this period. The count can be up to a day old. */
+    readonly events_deleted: number
+}
+
 /**
  * * `private` - Private (only visible to creator)
  * * `shared` - Shared with team
@@ -10120,6 +10127,14 @@ export interface PathsV2SegmentToFunnelResponseApi {
     funnels_query: unknown
 }
 
+export type OrganizationEventsRetentionDeletionCountParams = {
+    /**
+     * The period in months to count for. Only events older than this period are counted.
+     * @minimum 1
+     */
+    retention_months: number
+}
+
 export type ColumnConfigurationsListParams = {
     /**
      * Return saved views for this context only.
@@ -10195,6 +10210,14 @@ export type ElementsValuesListParams = {
      * Optional substring to filter values by (case-sensitive contains match).
      */
     value?: string
+}
+
+export type EventsRetentionDeletionCountParams = {
+    /**
+     * The period in months to count for. Only events older than this period are counted.
+     * @minimum 1
+     */
+    retention_months: number
 }
 
 export type InsightsListParams = {

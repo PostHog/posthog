@@ -1,10 +1,16 @@
 from collections.abc import Iterable, Sequence
-from datetime import date, datetime, time
+from datetime import UTC, date, datetime, time
 from functools import partial
 
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
+from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.client.connection import Workload
 from posthog.event_usage import EventSource, report_user_action, sanitize_header_value
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.events_plan_deletion import (
@@ -46,6 +52,8 @@ from products.product_analytics.backend.facade.contracts import (
 )
 
 RETENTION_MONTHS_CHOICES = (1, 3, 12, 24, 36, 60, 84)
+EVENTS_DELETED_QUERY_SECONDS = 10
+EVENTS_DELETED_CACHE_SECONDS = 24 * 60 * 60
 
 
 def _report_retention_set(
@@ -154,6 +162,39 @@ def project_events_retention(team: Team) -> ProjectEventsRetention:
         first_pass_on=next_pass_on(today),
         default_period_deletes=default_period_deletes,
     )
+
+
+def _next_cleanup_cutoff(months: int) -> datetime:
+    return whole_month_cutoff(datetime.combine(next_cleanup_on(), time()), months).replace(tzinfo=UTC)
+
+
+def _events_before(team: Team, cutoff: datetime) -> int:
+    key = f"events_retention_deleted:{team.id}:{cutoff:%Y-%m-%d}"
+    if (count := cache.get(key)) is not None:
+        return count
+    response = execute_hogql_query(
+        "SELECT count() FROM events WHERE timestamp < {cutoff}",
+        team,
+        query_type="events_retention_deletion_count",
+        placeholders={"cutoff": ast.Constant(value=cutoff)},
+        workload=Workload.ONLINE,
+        settings=HogQLGlobalSettings(max_execution_time=EVENTS_DELETED_QUERY_SECONDS, timeout_overflow_mode="throw"),
+    )
+    count = response.results[0][0]
+    cache.set(key, count, EVENTS_DELETED_CACHE_SECONDS)
+    return count
+
+
+def project_events_deleted(team: Team, months: int) -> int:
+    return _events_before(team, _next_cleanup_cutoff(months))
+
+
+def organization_events_deleted(organization: Organization, months: int) -> int:
+    cutoff = _next_cleanup_cutoff(months)
+    teams = Team.objects.filter(organization_id=organization.id).exclude(
+        id__in=TeamEventsRetentionConfig.objects.values("team_id")
+    )
+    return sum(_events_before(team, cutoff) for team in teams)
 
 
 def _check_allowed(retention: OrganizationEventsRetention, months: int | None) -> None:
