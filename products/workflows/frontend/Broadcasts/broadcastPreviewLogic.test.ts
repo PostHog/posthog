@@ -158,29 +158,35 @@ describe('broadcastPreviewLogic', () => {
         expect(logic.values).toMatchObject({ personsFailed: false, personsLoading: false })
     })
 
-    it('re-renders the email and push merge tags when the sender picks another person', async () => {
+    it('re-renders the email and push merge tags when the person or the message changes', async () => {
         await mountWith([ADA, GRACE])
-        const tag = '{{ person.properties.name }}'
-        wizard.actions.setEmail({
-            ...DEFAULT_BROADCAST_EMAIL,
-            subject: `Subject ${tag}`,
-            html: `<p>Html ${tag}</p>`,
-            text: `Text ${tag}`,
+        const write = (word: string): void => {
+            const tag = '{{ person.properties.name }}'
+            wizard.actions.setEmail({
+                ...DEFAULT_BROADCAST_EMAIL,
+                to: { email: `${word} {{ person.properties.email }}` },
+                subject: `${word} subject ${tag}`,
+                html: `<p>${word} html ${tag}</p>`,
+                text: `${word} text ${tag}`,
+            })
+            wizard.actions.setPush({ channels: [], title: `${word} title ${tag}`, body: `${word} body ${tag}` })
+        }
+        const rendered = (word: string, name: string): Record<string, string> => ({
+            previewTo: `${word} ${name.toLowerCase()}@example.com`,
+            previewSubject: `${word} subject ${name}`,
+            previewHtml: `<p>${word} html ${name}</p>`,
+            previewText: `${word} text ${name}`,
+            previewPushTitle: `${word} title ${name}`,
+            previewPushBody: `${word} body ${name}`,
         })
-        wizard.actions.setPush({ channels: [], title: `Title ${tag}`, body: `Body ${tag}` })
-        const rendered = (name: string): Record<string, string> => ({
-            previewTo: `${name.toLowerCase()}@example.com`,
-            previewSubject: `Subject ${name}`,
-            previewHtml: `<p>Html ${name}</p>`,
-            previewText: `Text ${name}`,
-            previewPushTitle: `Title ${name}`,
-            previewPushBody: `Body ${name}`,
-        })
-        expect(logic.values).toMatchObject(rendered('Ada'))
+        write('First')
+        expect(logic.values).toMatchObject(rendered('First', 'Ada'))
 
         logic.actions.selectPerson('person-grace')
+        expect(logic.values).toMatchObject(rendered('First', 'Grace'))
 
-        expect(logic.values).toMatchObject(rendered('Grace'))
+        write('Second')
+        expect(logic.values).toMatchObject(rendered('Second', 'Grace'))
     })
 
     it('previews an empty recipient when the email has none', async () => {
