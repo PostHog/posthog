@@ -1574,6 +1574,30 @@ class TestSavedQuery(APIBaseTest):
         self.assertIsNone(response.json()["sync_frequency"])
         self.assertIsNone(get_declared_target(Node.objects.get(saved_query_id=saved_query["id"])))
 
+    @parameterized.expand([("never", "never"), ("null", None)])
+    def test_pausing_a_connection_view_clears_the_target_it_already_had(self, _name: str, value: str | None) -> None:
+        from products.data_modeling.backend.facade.api import get_declared_target, set_declared_target
+
+        saved_query = self._create_saved_query_for_frequency_tests()
+        node = Node.objects.get(saved_query_id=saved_query["id"])
+        set_declared_target(node, timedelta(hours=12))
+        view = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
+        assert view.query is not None
+        DataWarehouseSavedQuery.objects.filter(id=view.id).update(
+            query={**view.query, "connectionId": str(uuid.uuid4())}
+        )
+
+        with patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {"sync_frequency": value},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        node.refresh_from_db()
+        self.assertIsNone(get_declared_target(node))
+
     @parameterized.expand(
         [("unknown", "every_fortnight"), ("list", []), ("dict", {}), ("number", 5), ("boolean", True)]
     )

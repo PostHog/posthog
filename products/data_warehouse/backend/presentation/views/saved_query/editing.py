@@ -249,7 +249,7 @@ class DataWarehouseSavedQuerySerializer(
     has_incremental_history = serializers.SerializerMethodField(
         help_text="Whether incremental settings participated in any materialization run."
     )
-    engine = serializers.SerializerMethodField(help_text=view_state.VIEW_ENGINE_HELP_TEXT)
+    engine = view_state.ViewEngineSerializer(read_only=True, help_text=view_state.VIEW_ENGINE_HELP_TEXT)
     is_raw_managed_trino = serializers.SerializerMethodField(help_text=view_state.IS_RAW_MANAGED_TRINO_HELP_TEXT)
 
     class Meta:
@@ -502,7 +502,9 @@ class DataWarehouseSavedQuerySerializer(
                 database=self.context.get("database"),
             )
 
-        frequency_changed = frequency_given and engine.has_lineage.available
+        # Setting a cadence needs the view's DAG node. Clearing one does not, because a direct-connection view
+        # saved before those views lost lineage can still hold a node target that a pause must remove.
+        frequency_changed = frequency_given and (engine.has_lineage.available or sync_frequency in (None, "never"))
 
         soft_update = validated_data.pop("soft_update", False)
         edited_history_id = self.context["request"].data.get("edited_history_id", None)
