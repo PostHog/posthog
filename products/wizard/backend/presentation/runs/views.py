@@ -184,8 +184,9 @@ class WizardRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if _wizard_sync_killswitch_enabled(str(getattr(request.user, "distinct_id", self.team_id))):
             return HttpResponse(status=204)
         run = self._get_run()
+        # The event stream is async, which WSGI can't consume; 204 stops EventSource reconnecting.
         if getattr(settings, "SERVER_GATEWAY_INTERFACE", "ASGI") != "ASGI":
-            raise RuntimeError("wizard_runs.stream requires ASGI.")
+            return HttpResponse(status=204)
         return sse_streaming_response(wizard_run_event_stream(self.team_id, run.id), endpoint="wizard_run")
 
     @extend_schema(
