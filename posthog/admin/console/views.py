@@ -1,8 +1,10 @@
 import uuid
+from pathlib import Path
 from typing import cast
 
 from django.conf import settings
 from django.contrib import messages
+from django.contrib.staticfiles import finders
 from django.db.models import Q
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseNotAllowed
 from django.shortcuts import get_object_or_404, redirect, render
@@ -13,6 +15,7 @@ import structlog
 from posthog.admin.console.panels import Fact, Operation, Panel
 from posthog.admin.console.registry import console
 from posthog.dataclasses import frozen
+from posthog.git import get_git_commit_short
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -26,6 +29,21 @@ class RenderedPanel:
     panel: Panel
     facts: list[Fact]
     operations: list[Operation]
+
+
+class ConsoleAssets:
+    """A version for the console's CSS and JS URLs.
+
+    Static files are served with a one-hour cache at fixed URLs, so without it a browser keeps the old
+    stylesheet after a deploy or a rebuild and renders new markup unstyled.
+    """
+
+    @staticmethod
+    def version() -> str:
+        found = finders.find("admin-console/console.css")
+        if isinstance(found, str):
+            return str(Path(found).stat().st_mtime_ns)
+        return get_git_commit_short() or ""
 
 
 class ConsoleEnvironment:
@@ -45,7 +63,11 @@ class ConsoleEnvironment:
     @classmethod
     def context(cls) -> dict[str, str]:
         key = cls.key()
-        return {"console_env": key, "console_env_label": cls.LABELS[key]}
+        return {
+            "console_env": key,
+            "console_env_label": cls.LABELS[key],
+            "console_asset_version": ConsoleAssets.version(),
+        }
 
 
 def _search_teams(query: str) -> list[Team]:

@@ -14,8 +14,6 @@ const FRONTEND = path.resolve(__dirname, '..')
 const SOURCE = path.join(FRONTEND, 'src/styles/admin-console.css')
 const OUT_DIR = path.join(FRONTEND, 'public/admin-console')
 
-const FONT_FACES = ['RoundHog-latin', 'RoundHog-Medium-latin', 'RoundHog-SemiBold-latin', 'RoundHog-Bold-latin']
-
 // PNG, because each SVG is several times larger.
 const HOGGIES = ['traffic-police', 'asleep', 'stamp-approved', 'desk-wizard']
 
@@ -34,15 +32,16 @@ async function buildStylesheet() {
     for (const warning of result.warnings()) {
         console.warn(warning.toString())
     }
-    fs.writeFileSync(path.join(OUT_DIR, 'console.css'), result.css)
+    fs.writeFileSync(path.join(OUT_DIR, 'console.css'), inlineFonts(result.css))
 }
 
-function copyFonts() {
-    const fontDir = path.join(OUT_DIR, 'fonts')
-    fs.mkdirSync(fontDir, { recursive: true })
-    for (const face of FONT_FACES) {
-        fs.copyFileSync(path.join(BRAND_DIST, 'fonts/subsets', `${face}.woff2`), path.join(fontDir, `${face}.woff2`))
-    }
+// The admin CSP allows fonts only from data: URIs and Google Fonts, so the RoundHog faces go into the
+// stylesheet itself.
+function inlineFonts(css) {
+    return css.replace(/url\(['"]?fonts\/([\w-]+\.woff2)['"]?\)/g, (_match, file) => {
+        const font = fs.readFileSync(path.join(BRAND_DIST, 'fonts/subsets', file)).toString('base64')
+        return `url(data:font/woff2;base64,${font})`
+    })
 }
 
 function copyHoggies() {
@@ -92,7 +91,7 @@ async function writeCrests() {
 }
 
 fs.mkdirSync(OUT_DIR, { recursive: true })
+fs.rmSync(path.join(OUT_DIR, 'fonts'), { recursive: true, force: true })
 await buildStylesheet()
-copyFonts()
 copyHoggies()
 await writeCrests()

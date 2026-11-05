@@ -5,9 +5,11 @@
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>{% block title %}PostHog Admin{% endblock %}</title>
         {# Not the static tag: production hashes its URLs, and the CDN only serves unhashed names. #}
-        <link rel="stylesheet" href="/static/admin-console/console.css" />
+        <link rel="stylesheet"
+              href="/static/admin-console/console.css?v={{ console_asset_version }}" />
         <link rel="icon" href="/static/posthog-icon.svg" />
-        <script src="/static/admin-console/console.js" defer></script>
+        <script src="/static/admin-console/console.js?v={{ console_asset_version }}"
+                defer></script>
     </head>
     <body class="console-body m-0 min-h-screen bg-background text-foreground text-[13px]">
         <div class="console-env-stripe h-1"></div>
