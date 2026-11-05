@@ -119,25 +119,27 @@ export function AddToCollectionDialog(): JSX.Element {
                     <DialogDescription className="sr-only">
                         Pick canvases, dashboards, notebooks and insights to move into {folderName}.
                     </DialogDescription>
-                    <Tabs value={tab} onValueChange={(value: AddToCollectionTab) => setTab(value)}>
-                        <TabsList>
-                            <TabsTrigger value="mine" data-attr="analytics-add-items-tab-mine">
-                                My work
-                            </TabsTrigger>
-                            <TabsTrigger value="all" data-attr="analytics-add-items-tab-all">
-                                View all
-                            </TabsTrigger>
-                        </TabsList>
-                    </Tabs>
-                    <AnalyticsSearchInput
-                        value={search}
-                        onChange={setSearch}
-                        label="Search canvases, dashboards, notebooks and insights"
-                        placeholder="Search"
-                        dataAttr="analytics-add-items-search"
-                        className="w-full"
-                        autoFocus
-                    />
+                    <div className="flex items-center gap-2">
+                        <AnalyticsSearchInput
+                            value={search}
+                            onChange={setSearch}
+                            label="Search canvases, dashboards, notebooks and insights"
+                            placeholder="Search"
+                            dataAttr="analytics-add-items-search"
+                            className="min-w-0 flex-1"
+                            autoFocus
+                        />
+                        <Tabs value={tab} onValueChange={(value: AddToCollectionTab) => setTab(value)}>
+                            <TabsList>
+                                <TabsTrigger value="mine" data-attr="analytics-add-items-tab-mine">
+                                    My work
+                                </TabsTrigger>
+                                <TabsTrigger value="all" data-attr="analytics-add-items-tab-all">
+                                    View all
+                                </TabsTrigger>
+                            </TabsList>
+                        </Tabs>
+                    </div>
                 </DialogHeader>
                 {/* A fixed height keeps the dialog from jumping as the person switches tabs and searches. */}
                 <DialogBody className="h-80">{renderBody()}</DialogBody>
