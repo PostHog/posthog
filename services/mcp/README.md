@@ -286,7 +286,7 @@ To view which tools are available per feature, see our [documentation](https://p
 ### Learning and skills in cli mode
 
 In cli mode, the `exec` tool keeps the guidance needed for a correct first call in its `command` schema, and serves task-specific guidance on demand through `learn`.
-Every cli client gets this compact schema except `consumer=plugin` and `consumer=posthog-code`, which bundle their own skills and get the full schema with every section inline.
+Every cli client gets this compact schema except `consumer=posthog-code`, which has no `learn` and gets the full schema with every section inline.
 Claude web and desktop also get the compact tool-domain index inline, because they never show `instructions` to the model, and a shorter skills section, because they silently drop `exec` when its serialized `inputSchema` reaches 16,384 characters.
 Optional, task-specific guidance is served through the same tool:
 
@@ -341,7 +341,7 @@ Only latest, active, uncategorized skills are exposed through `learn`; category-
 Project full-text search is bounded to 10 skills, two short snippets per skill, and a five-second database timeout.
 Individual `learn` responses stay below 44,000 characters; large references return a heading outline for follow-up search or line reads.
 The fixed command syntax stays in the tool schema, while skill names and bodies are loaded only when requested.
-`consumer=plugin` and `consumer=posthog-code` omit `learn` because both surfaces already supply their own bundled skill context, regardless of the feature flag.
+`consumer=plugin` and `consumer=posthog-code` get no skill commands from `learn`, because both surfaces already supply their own bundled skill context, regardless of the feature flag. `consumer=plugin` still gets the built-in guides and the compact command reference; `consumer=posthog-code` keeps the full reference without `learn`.
 
 Other clients keep the full inline command reference.
 

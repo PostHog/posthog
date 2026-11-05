@@ -307,7 +307,7 @@ describe('ToolExecutor', () => {
                 isClaudeChatHost: true,
                 skillsEnabled: true,
                 consumer: 'plugin',
-                expectGuides: false,
+                expectGuides: true,
                 expectSkills: false,
             },
             {
