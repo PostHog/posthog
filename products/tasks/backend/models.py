@@ -532,7 +532,6 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         blank=True,
         editable=False,
     )
-    # The client of the latest person turn, so notifications can follow the user between clients.
     last_client = models.CharField(
         max_length=32,
         choices=task_client_provenance_choices,
@@ -721,12 +720,10 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             self._assign_task_number()
 
         if is_new and self.last_client is None:
-            if self.client_provenance:
-                self.last_client = self.client_provenance
-            elif self.origin_product == Task.OriginProduct.SLACK:
-                self.last_client = TaskClientProvenance.SLACK
-            if self.last_client is not None:
-                self.last_client_at = django_timezone.now()
+            self.last_client = self.client_provenance or (
+                TaskClientProvenance.SLACK if self.origin_product == Task.OriginProduct.SLACK else None
+            )
+            self.last_client_at = django_timezone.now() if self.last_client else None
 
         super().save(*args, **kwargs)
 

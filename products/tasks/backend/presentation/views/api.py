@@ -3782,11 +3782,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     status=status.HTTP_409_CONFLICT,
                 )
 
-            if request.headers.get("X-PostHog-Client-Platform") == "mobile":
-                tasks_facade.record_task_mobile_pickup(task_id=task_id, team_id=self.team_id, user_id=self._user_id())
-            tasks_facade.record_task_client(
-                task_id=task_id, team_id=self.team_id, client=get_task_client_provenance(request)
-            )
+            self._record_person_turn(request, task_id)
 
             # A warm Run has now received a human message — drop the warm flag so the warm-pool cap
             # (see products/tasks/backend/logic/services/warm.py) stops counting it. No-op for Runs
@@ -3943,13 +3939,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 pk, task_id, self.team_id, method=method, params=params, success=success
             )
             if success and method == "permission_response":
-                if request.headers.get("X-PostHog-Client-Platform") == "mobile":
-                    tasks_facade.record_task_mobile_pickup(
-                        task_id=task_id, team_id=self.team_id, user_id=self._user_id()
-                    )
-                tasks_facade.record_task_client(
-                    task_id=task_id, team_id=self.team_id, client=get_task_client_provenance(request)
-                )
+                self._record_person_turn(request, task_id)
             if agent_response.ok:
                 tasks_facade.signal_task_run_client_activity(pk, task_id, self.team_id)
                 return Response(response_data)
@@ -4005,6 +3995,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 TaskRunErrorResponseSerializer({"error": "Failed to send command to agent server"}).data,
                 status=status.HTTP_502_BAD_GATEWAY,
             )
+
+    def _record_person_turn(self, request: Request, task_id: str) -> None:
+        if request.headers.get("X-PostHog-Client-Platform") == "mobile":
+            tasks_facade.record_task_mobile_pickup(task_id=task_id, team_id=self.team_id, user_id=self._user_id())
+        tasks_facade.record_task_client(
+            task_id=task_id, team_id=self.team_id, client=get_task_client_provenance(request)
+        )
 
     @staticmethod
     def _is_valid_sandbox_url(url: str) -> bool:

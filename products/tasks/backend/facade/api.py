@@ -8258,13 +8258,16 @@ def create_task(
             if channel is not None and warm_task.channel_id != channel.id:
                 warm_task.channel = channel
                 update_fields.append("channel")
+            if client_provenance is not None:
+                warm_task.last_client = client_provenance
+                warm_task.last_client_at = django_timezone.now()
+                update_fields += ["last_client", "last_client_at"]
             if update_fields:
                 warm_task.save(update_fields=[*update_fields, "updated_at"])
             if should_set_client_provenance:
                 Task.objects.filter(id=warm_task.id, client_provenance__isnull=True).update(
                     client_provenance=client_provenance
                 )
-            record_task_client(task_id=str(warm_task.id), team_id=team_id, client=client_provenance)
             try:
                 _activate_warm_run(
                     warm_run,
@@ -12900,7 +12903,6 @@ def is_current_task_run_actor(team_id: int, run_id: UUID, user_id: int) -> bool:
 
 
 def record_task_client(*, task_id: str, team_id: int, client: TaskClientProvenance | None) -> None:
-    """Stamp the client a person used for their latest turn on this task. A null client changes nothing."""
     if client is None:
         return
     Task.objects.filter(id=task_id, team_id=team_id).update(last_client=client, last_client_at=django_timezone.now())
