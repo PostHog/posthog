@@ -8,12 +8,11 @@ from django.db import transaction
 
 from posthog.dataclasses import frozen
 
-from products.signals.backend.constants import FIRST_REPORT_SCOUT
 from products.signals.backend.spend import refresh_task_spend
 from products.signals.backend.trial.billing import paid_trial_continuation_authorized
 from products.signals.backend.trial.funding import TrialFunding
 from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
-from products.signals.backend.trial.reports import active_report_pass, context_funding, task_funding
+from products.signals.backend.trial.reports import active_report_pass, context_funding
 from products.tasks.backend.facade.api import get_task_run
 
 if TYPE_CHECKING:
@@ -58,8 +57,19 @@ _prepared_task_trial: ContextVar[PreparedTaskTrial | None] = ContextVar("prepare
 
 
 @contextmanager
-def task_trial_admission(*, team: "Team", origin: str, report_id: UUID | str | None = None) -> Iterator[None]:
-    admission = prepare_task_trial(team=team, origin=origin, report_id=UUID(str(report_id)) if report_id else None)
+def task_trial_admission(
+    *,
+    team: "Team",
+    origin: str,
+    report_id: UUID | str | None = None,
+    continue_admitted_pipeline: bool = False,
+) -> Iterator[None]:
+    admission = prepare_task_trial(
+        team=team,
+        origin=origin,
+        report_id=UUID(str(report_id)) if report_id else None,
+        continue_admitted_pipeline=continue_admitted_pipeline,
+    )
     token = _prepared_task_trial.set(
         PreparedTaskTrial(
             team_id=team.id, origin=origin, report_id=str(report_id) if report_id else None, admission=admission
@@ -72,7 +82,12 @@ def task_trial_admission(*, team: "Team", origin: str, report_id: UUID | str | N
 
 
 def prepare_task_trial(
-    *, team: "Team", origin: str, report_id: UUID | None = None, mode: str = "background"
+    *,
+    team: "Team",
+    origin: str,
+    report_id: UUID | None = None,
+    mode: str = "background",
+    continue_admitted_pipeline: bool = False,
 ) -> TaskTrialAdmission | None:
     if mode != "background" or origin not in SELF_DRIVING_ORIGINS:
         return None
@@ -85,10 +100,14 @@ def prepare_task_trial(
     ):
         return prepared.admission
     policy = TrialPolicy(team)
-    parent = context_funding(team) or (active_report_pass(team, report_id) if report_id else None)
+    parent = context_funding(team)
+    if parent is None and report_id is not None:
+        parent = active_report_pass(team, report_id, continue_admitted_pipeline=continue_admitted_pipeline)
+        if parent is None and continue_admitted_pipeline:
+            parent = TrialFunding(funding="existing")
     if parent is not None:
         return TaskTrialAdmission(team=team, paid_authorized=parent.funding == "paid", parent=parent)
-    grant = policy.active_grant()
+    grant = policy.admission_grant()
     if grant is None:
         return None
     paid_authorized = False
@@ -101,56 +120,22 @@ def prepare_task_trial(
 
 
 def start_task_trial(*, team: "Team", run_id: UUID) -> bool:
-    from products.signals.backend.models import (
-        SignalScoutRun,  # noqa: PLC0415 -- facade imported during Task model loading
-    )
-
-    policy = TrialPolicy(team)
-    if not policy.enabled():
-        return False
-    funding = task_funding(team.id, run_id)
+    run = get_task_run(run_id, team_id=team.id)
+    funding = TrialFunding.from_dict(run.state.get("self_driving_funding")) if run else None
     if funding is None or funding.grant_id is None:
         return False
-    run = get_task_run(run_id, team_id=team.id)
     if run is None or run.is_terminal:
         raise TrialRefused("operation_finished")
-    stage = run.state["self_driving_funding"]["stage"]
-    if stage == "scout":
-        scout = (
-            SignalScoutRun.objects.for_team(policy.team_id, canonical=True)
-            .select_related("scout_config")
-            .filter(task_run_id=run_id)
-            .first()
-        )
-        onboarding = (
-            scout is not None
-            and scout.skill_name == FIRST_REPORT_SCOUT
-            and (scout.metadata or {}).get("triggered_by") == "onboarding"
-        )
-        if scout is None or not scout.scout_config or (not scout.scout_config.enabled and not onboarding):
-            raise TrialRefused("scout_disabled")
     refresh_task_spend(team_id=team.id, run_id=str(run_id), strict=True)
-    policy.check_funding(
-        funding,
-        finishing_research=stage == "research" and run.state.get("sandbox_provisioning_started") is True,
-    )
     return True
 
 
-def check_trial_run_quota(*, team: "Team", run_id: UUID) -> str | None:
-    from products.signals.backend.trial.tasks import cancel_trial_run  # noqa: PLC0415 -- task workflow imports
-
-    policy = TrialPolicy(team)
-    if not policy.enabled():
-        return None
-    funding = task_funding(team.id, run_id)
-    if funding is None or funding.grant_id is None:
-        return None
-    run = get_task_run(run_id, team_id=team.id)
+def refresh_trial_run_spend(*, team_id: int, run_id: UUID) -> bool:
+    run = get_task_run(run_id, team_id=team_id)
     if run is None or run.is_terminal:
-        return "stop_checking"
-    refresh_task_spend(team_id=team.id, run_id=str(run_id), strict=True)
-    grant = policy.grant()
-    if grant is not None and grant.exhaustion_reason == "cost_limit" and cancel_trial_run(run):
-        return "cancelled"
-    return "proceed"
+        return False
+    funding = TrialFunding.from_dict(run.state.get("self_driving_funding"))
+    if funding is None or funding.grant_id is None:
+        return False
+    refresh_task_spend(team_id=team_id, run_id=str(run_id), strict=True)
+    return True

@@ -13,7 +13,7 @@ from products.signals.backend.trial.billing import paid_trial_continuation_autho
 from products.signals.backend.trial.funding import TrialFunding, direct_report_funding
 from products.signals.backend.trial.models import SignalTrialReportReservation
 from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
-from products.tasks.backend.facade.api import get_task_run, trial_research_has_started
+from products.tasks.backend.facade.api import get_task_run
 
 report_trial_context: ContextVar[tuple[int, str] | None] = ContextVar("report_trial_context", default=None)
 task_trial_context: ContextVar[tuple[int, UUID] | None] = ContextVar("task_trial_context", default=None)
@@ -50,23 +50,16 @@ def task_funding(team_id: int, run_id: UUID) -> TrialFunding | None:
     return TrialFunding.from_dict(run.state.get("self_driving_funding")) if run else None
 
 
-def active_report_pass(team: Team, report_id: UUID | str) -> TrialFunding | None:
+def active_report_pass(
+    team: Team, report_id: UUID | str, *, continue_admitted_pipeline: bool = False
+) -> TrialFunding | None:
     from products.signals.backend.models import SignalReport  # noqa: PLC0415 -- model registration cycle
 
-    snapshot = (
-        SignalReport.objects.filter(
-            team_id=team.id, id=report_id, status__in=[SignalReport.Status.CANDIDATE, SignalReport.Status.IN_PROGRESS]
-        )
-        .values_list("self_driving_funding", flat=True)
-        .first()
-    )
+    reports = SignalReport.objects.filter(team_id=team.id, id=report_id)
+    if not continue_admitted_pipeline:
+        reports = reports.filter(status__in=[SignalReport.Status.CANDIDATE, SignalReport.Status.IN_PROGRESS])
+    snapshot = reports.values_list("self_driving_funding", flat=True).first()
     return TrialFunding.from_dict(snapshot)
-
-
-def research_pass_started(team_id: int, funding: TrialFunding) -> bool:
-    return bool(funding.report_pass_key) and trial_research_has_started(
-        team_id=team_id, report_pass_key=funding.report_pass_key
-    )
 
 
 def context_funding(team: Team) -> TrialFunding | None:
@@ -78,7 +71,7 @@ def context_funding(team: Team) -> TrialFunding | None:
         return direct_context[1]
     context = report_trial_context.get()
     if context and context[0] == team.id:
-        return active_report_pass(team, context[1]) or TrialFunding(funding="existing")
+        return active_report_pass(team, context[1], continue_admitted_pipeline=True) or TrialFunding(funding="existing")
     return None
 
 
@@ -87,7 +80,7 @@ def requires_trial_accounting(team_id: int) -> bool:
     parent = context_funding(team)
     if parent is not None:
         return parent.grant_id is not None
-    grant = TrialPolicy(team).active_grant()
+    grant = TrialPolicy(team).admission_grant()
     if grant is not None and grant.exhausted_at is None:
         return True
     if grant is not None:
@@ -107,9 +100,6 @@ def prepare_report_pass(*, team: Team, report_id: str, operation_key: str) -> No
     from products.signals.backend.models import SignalReport  # noqa: PLC0415 -- model registration cycle
 
     policy = TrialPolicy(team)
-    grant = policy.active_grant()
-    if grant is None:
-        return
     snapshot = (
         SignalReport.objects.filter(team_id=team.id, id=report_id)
         .values_list("self_driving_funding", flat=True)
@@ -117,6 +107,9 @@ def prepare_report_pass(*, team: Team, report_id: str, operation_key: str) -> No
     )
     previous = TrialFunding.from_dict(snapshot)
     if previous is not None and previous.report_pass_key == operation_key:
+        return
+    grant = policy.admission_grant()
+    if grant is None:
         return
     paid_authorized = paid_trial_continuation_authorized(team) if grant.exhausted_at else False
     with transaction.atomic():

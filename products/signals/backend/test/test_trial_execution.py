@@ -8,7 +8,12 @@ from parameterized import parameterized
 from posthog.llm.gateway_usage import GatewayRequestCost
 
 from products.signals.backend.constants import FIRST_REPORT_SCOUT
-from products.signals.backend.facade.trial import check_trial_run_quota, prepare_task_trial, start_task_trial
+from products.signals.backend.facade.trial import (
+    prepare_task_trial,
+    refresh_trial_run_spend,
+    start_task_trial,
+    task_trial_admission,
+)
 from products.signals.backend.free_trial import self_driving_free_trial_enabled
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSpend
 from products.signals.backend.quota import trial_quota_gate
@@ -22,7 +27,6 @@ from products.signals.backend.trial.reports import (
     requires_trial_accounting,
 )
 from products.signals.backend.trial.scouts import trial_scout_limit
-from products.signals.backend.trial.tasks import cancel_trial_grant
 from products.tasks.backend.facade.billing import get_task_run_token_usage, process_pending_gateway_usage
 from products.tasks.backend.models import Task, TaskRun
 
@@ -87,14 +91,12 @@ class TestTrialExecution(BaseTest):
 
     @parameterized.expand(
         [
-            (FIRST_REPORT_SCOUT, "onboarding", True),
-            (FIRST_REPORT_SCOUT, "manual", False),
-            ("signals-scout-general", "onboarding", False),
+            (FIRST_REPORT_SCOUT, "onboarding"),
+            (FIRST_REPORT_SCOUT, "manual"),
+            ("signals-scout-general", "onboarding"),
         ]
     )
-    def test_disabled_scout_only_runs_for_authorized_first_report(
-        self, skill_name: str, triggered_by: str, allowed: bool
-    ) -> None:
+    def test_accepted_scout_finishes_after_config_is_disabled(self, skill_name: str, triggered_by: str) -> None:
         self.claim()
         config = SignalScoutConfig.objects.for_team(self.team.id).create(
             team_id=self.team.id, skill_name=skill_name, enabled=False
@@ -110,11 +112,7 @@ class TestTrialExecution(BaseTest):
             metadata={"triggered_by": triggered_by},
         )
         record_task_spend(team_id=self.team.id, run_id=str(run.id), stage="scout", scout_run_id=str(scout_run.id))
-        if allowed:
-            assert start_task_trial(team=self.team, run_id=run.id)
-        else:
-            with self.assertRaisesMessage(TrialRefused, "scout_disabled"):
-                start_task_trial(team=self.team, run_id=run.id)
+        assert start_task_trial(team=self.team, run_id=run.id)
 
     def test_cost_notification_updates_grant_without_trial_polling(self) -> None:
         grant = self.claim()
@@ -131,19 +129,21 @@ class TestTrialExecution(BaseTest):
                 self.make_run()
         assert not SignalSpend.objects.for_team(self.team.id).exists()
 
-    @parameterized.expand(
-        [("implementation", True, "cancelled"), ("research", True, "proceed"), ("research", False, "cancelled")]
-    )
-    def test_workflow_quota_recheck_enforces_shared_costs(self, stage: str, started: bool, outcome: str) -> None:
-        self.claim()
+    @parameterized.expand([("implementation",), ("research",), ("custom_agent",)])
+    def test_workflow_refresh_updates_shared_costs_without_cancelling(self, stage: str) -> None:
+        grant = self.claim()
         run = self.make_run(stage)
         run.status = TaskRun.Status.IN_PROGRESS
-        run.state["sandbox_provisioning_started"] = started
         run.state["token_cost"] = {"model": {"provider": {"cost_microusd": 10_000_001}}}
         run.save(update_fields=["state", "status"])
-        with patch("products.signals.backend.trial.tasks.cancel_task_run", return_value=("accepted", None)) as cancel:
-            assert check_trial_run_quota(team=self.team, run_id=run.id) == outcome
-        assert cancel.called == (outcome == "cancelled")
+        with patch("products.tasks.backend.facade.cancellation.cancel_task_run") as cancel:
+            assert refresh_trial_run_spend(team_id=self.team.id, run_id=run.id)
+        cancel.assert_not_called()
+        grant.refresh_from_db()
+        assert grant.settled_microusd == 10_040_001
+        assert grant.exhaustion_reason == "cost_limit"
+        run.refresh_from_db()
+        assert run.status == TaskRun.Status.IN_PROGRESS
 
     @parameterized.expand(
         [
@@ -219,10 +219,9 @@ class TestTrialExecution(BaseTest):
         assert run.state["self_driving_funding"]["funding"] == "trial"
 
     @parameterized.expand([(True,), (False,)])
-    def test_cost_exhaustion_cancels_implementation_with_existing_pr(self, enabled: bool) -> None:
+    def test_cost_exhaustion_keeps_accepted_implementation_with_existing_pr(self, enabled: bool) -> None:
         grant = self.claim()
         run = self.make_run()
-        task = run.task
         run.output = {"pr_url": "https://github.com/example/repository/pull/1"}
         run.save(update_fields=["output"])
         record_llm_spend(
@@ -234,14 +233,12 @@ class TestTrialExecution(BaseTest):
             trial_grant_id=str(grant.id),
         )
         self.flag_mock.return_value = enabled
-        with patch("products.signals.backend.trial.tasks.cancel_task_run", return_value=("accepted", None)) as cancel:
-            cancel_trial_grant(self.team.id, str(grant.id))
-        if enabled:
-            assert cancel.call_args.args[:3] == (run.id, task.id, self.team.id)
-        else:
-            cancel.assert_not_called()
-            assert not start_task_trial(team=self.team, run_id=run.id)
-            assert check_trial_run_quota(team=self.team, run_id=run.id) is None
+        self.flag_mock.reset_mock()
+        with patch("products.tasks.backend.facade.cancellation.cancel_task_run") as cancel:
+            assert start_task_trial(team=self.team, run_id=run.id)
+            assert refresh_trial_run_spend(team_id=self.team.id, run_id=run.id)
+        cancel.assert_not_called()
+        self.flag_mock.assert_not_called()
         run.refresh_from_db()
         assert run.output["pr_url"] == "https://github.com/example/repository/pull/1"
 
@@ -267,7 +264,7 @@ class TestTrialExecution(BaseTest):
             run = task.create_run()
             assert "self_driving_funding" not in run.state
             assert not start_task_trial(team=self.team, run_id=run.id)
-            assert check_trial_run_quota(team=self.team, run_id=run.id) is None
+            assert not refresh_trial_run_spend(team_id=self.team.id, run_id=run.id)
             report = SignalReport.objects.create(
                 team=self.team, status=SignalReport.Status.IN_PROGRESS, triggering_signal_id=uuid4()
             )
@@ -286,7 +283,7 @@ class TestTrialExecution(BaseTest):
         assert funding["funding"] == "trial"
         assert funding["grant_id"] == str(grant.id)
 
-    def test_only_executing_research_finishes_after_exhaustion(self) -> None:
+    def test_all_accepted_tasks_finish_after_exhaustion(self) -> None:
         grant = self.claim()
         report = SignalReport.objects.create(
             team=self.team, status=SignalReport.Status.IN_PROGRESS, triggering_signal_id=uuid4()
@@ -298,8 +295,7 @@ class TestTrialExecution(BaseTest):
         queued = research_task.create_run(extra_state={"ai_stage": "research"})
         implementation = self.make_run()
         research.status = TaskRun.Status.IN_PROGRESS
-        research.state["sandbox_provisioning_started"] = True
-        research.save(update_fields=["state", "status"])
+        research.save(update_fields=["status"])
         record_llm_spend(
             "exhaust",
             team_id=self.team.id,
@@ -310,8 +306,87 @@ class TestTrialExecution(BaseTest):
         )
         assert start_task_trial(team=self.team, run_id=research.id)
         for run in (queued, implementation):
-            with self.assertRaises(TrialRefused):
-                start_task_trial(team=self.team, run_id=run.id)
+            assert start_task_trial(team=self.team, run_id=run.id)
+        with patch("products.signals.backend.facade.trial.paid_trial_continuation_authorized", return_value=False):
+            with self.assertRaisesMessage(TrialRefused, "cost_limit"):
+                self.make_run()
         report.status = SignalReport.Status.PENDING_INPUT
         report.save(update_fields=["status"])
         assert SignalTrialReportReservation.objects.for_team(self.team.id).get(report_id=report.id).status == "consumed"
+
+    @parameterized.expand([("task",), ("report",), ("gateway",)])
+    def test_unknown_flag_refuses_new_work_instead_of_bypassing_trial(self, entrypoint: str) -> None:
+        self.claim()
+        self.flag_mock.return_value = None
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=uuid4())
+        with patch("products.signals.backend.trial.policy.cache.get", return_value=None):
+            with self.assertRaisesMessage(TrialRefused, "flag_unavailable"):
+                if entrypoint == "task":
+                    self.make_run()
+                elif entrypoint == "report":
+                    prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="new-work")
+                else:
+                    requires_trial_accounting(self.team.id)
+        assert not SignalSpend.objects.for_team(self.team.id).exists()
+        report.refresh_from_db()
+        assert report.self_driving_funding is None
+
+    @parameterized.expand([(False,), (None,)])
+    def test_accepted_report_pass_retry_does_not_recheck_the_flag(self, enabled: bool | None) -> None:
+        self.claim()
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=uuid4())
+        prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="accepted")
+        self.flag_mock.return_value = enabled
+        self.flag_mock.reset_mock()
+        prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="accepted")
+        self.flag_mock.assert_not_called()
+
+    def test_accepted_report_implementation_keeps_funding_but_manual_rerun_is_new_work(self) -> None:
+        grant = self.claim()
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=uuid4())
+        prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="accepted")
+        report.refresh_from_db()
+        report.status = SignalReport.Status.READY
+        report.save(update_fields=["status"])
+        record_llm_spend(
+            "exhaust",
+            team_id=self.team.id,
+            signal_id=str(uuid4()),
+            stage="research",
+            token_cost_microusd=10_000_001,
+            trial_grant_id=str(grant.id),
+        )
+        task = Task.objects.create(
+            team=self.team, title="Accepted implementation", origin_product="signal_report", signal_report=report
+        )
+        record_report_task(
+            team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), relationship="implementation"
+        )
+        self.flag_mock.return_value = False
+        with task_trial_admission(
+            team=self.team, origin="signal_report", report_id=report.id, continue_admitted_pipeline=True
+        ):
+            run = task.create_run()
+        assert run.state["self_driving_funding"]["grant_id"] == str(grant.id)
+        assert run.state["self_driving_funding"]["report_pass_key"] == "accepted"
+        receipt = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
+        assert receipt.trial_grant_id == grant.id and receipt.billing_exempt
+        self.flag_mock.return_value = True
+        with patch("products.signals.backend.facade.trial.paid_trial_continuation_authorized", return_value=False):
+            with self.assertRaisesMessage(TrialRefused, "cost_limit"):
+                task.create_run()
+        assert task.runs.count() == 1
+
+    def test_private_scout_experiment_does_not_consume_the_customer_trial(self) -> None:
+        grant = self.claim()
+        task = Task.objects.create(
+            team=self.team,
+            title="Private scout experiment",
+            origin_product="signals_scout",
+            origin_key=f"scout-trial:{uuid4()}",
+        )
+        run = task.create_run()
+        assert "self_driving_funding" not in run.state
+        grant.refresh_from_db()
+        assert grant.settled_microusd == 0
+        assert grant.incomplete_sources == 0

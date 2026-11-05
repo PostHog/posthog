@@ -3,7 +3,6 @@ from uuid import UUID
 
 from temporalio import activity
 
-from posthog.models import Team
 from posthog.temporal.common.utils import asyncify
 
 SELF_DRIVING_QUOTA_PROCEED = "proceed"
@@ -22,13 +21,12 @@ class EnforceSelfDrivingRunQuotaInput:
 @asyncify
 def enforce_self_driving_run_quota(input: EnforceSelfDrivingRunQuotaInput) -> str:
     # Keep the activity and its wire contract for existing workflow histories. Limits apply at
-    # pipeline admission, so an accepted pipeline can finish after the cap is hit. Trial-funded
-    # runs are the exception: the one-time allowance is not billed, so overspend has no payer.
+    # pipeline admission, so accepted work finishes. Refresh trial compute costs while it runs
+    # so new admissions see the allowance being consumed, including absorbed spillover.
     from products.signals.backend.facade.trial import (
-        check_trial_run_quota,  # noqa: PLC0415 -- trial cancellation imports this workflow package
+        refresh_trial_run_spend,  # noqa: PLC0415 -- Signals imports Tasks facade
     )
 
-    trial_outcome = check_trial_run_quota(team=Team.objects.get(id=input.team_id), run_id=UUID(input.run_id))
-    if trial_outcome is not None:
-        return trial_outcome
+    if refresh_trial_run_spend(team_id=input.team_id, run_id=UUID(input.run_id)):
+        return SELF_DRIVING_QUOTA_PROCEED
     return SELF_DRIVING_QUOTA_STOP_CHECKING

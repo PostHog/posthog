@@ -344,16 +344,18 @@ class SandboxWarmer:
         churned = self._warm_churn_exceeded()
         pool_full = self.at_capacity(origin_product, team, self.user, profile=profile)
 
-        from products.signals.backend.facade.trial import (  # noqa: PLC0415 -- Signals imports Tasks
-            TrialRefused,
-            prepare_task_trial,
-        )
+        from products.signals.backend.facade.trial import prepare_task_trial  # noqa: PLC0415 -- Signals imports Tasks
 
         trial_admission = prepare_task_trial(
-            team=team, origin=origin_product, report_id=self.task.signal_report_id, mode=mode
+            team=team,
+            origin=origin_product,
+            report_id=self.task.signal_report_source_id,
+            mode=mode if self.task.uses_self_driving_billing(mode) else "interactive",
         )
         new_run: TaskRun
         with transaction.atomic():
+            if trial_admission is not None:
+                trial_admission.lock_report(self.task.signal_report_source_id)
             locked = Task.objects.select_for_update().get(id=self.task.id)
             existing = locked.latest_run
             if existing is not None and not existing.is_terminal:
@@ -371,9 +373,6 @@ class SandboxWarmer:
                         raise WarmSourceChanged
                 # A warm Run already idling, or an active Run in progress — either way, no double-provision.
                 return WarmResult(run=existing, just_created=False)
-
-            if existing is not None and (existing.state or {}).get("cancel_source") == "self_driving_trial":
-                raise TrialRefused("explicit_retry_required")
 
             # The Run the successor resumes from. Normally the latest Run is the source itself, but a
             # successor the composer already handed back is terminal and sits in front of it — resume

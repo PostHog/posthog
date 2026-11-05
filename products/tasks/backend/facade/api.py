@@ -10447,7 +10447,7 @@ def run_task(
     trial_admission = prepare_task_trial(
         team=task.team,
         origin=task.origin_product,
-        report_id=task.signal_report_id,
+        report_id=task.signal_report_source_id,
         mode=mode if task.uses_self_driving_billing(mode) else "interactive",
     )
     try:
@@ -12872,13 +12872,13 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
     trial_admission = prepare_task_trial(
         team=admission_task.team,
         origin=admission_task.origin_product,
-        report_id=admission_task.signal_report_id,
+        report_id=admission_task.signal_report_source_id,
         mode="background" if admission_task.uses_self_driving_billing("background") else "interactive",
     )
 
     with transaction.atomic():
         if trial_admission is not None:
-            trial_admission.lock_report(admission_task.signal_report_id)
+            trial_admission.lock_report(admission_task.signal_report_source_id)
         # of=("self",): FOR UPDATE cannot span the nullable created_by join.
         task = (
             Task.objects.select_for_update(of=("self",))

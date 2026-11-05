@@ -1418,13 +1418,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             # here as well so loop exit doesn't depend on signal delivery order.
                             if not self._task_completed:
                                 self._completion_status = "cancelled"
-                                self._completion_error = (
-                                    "Stopped: the project's one-time Self-driving trial allowance is exhausted."
-                                    if (self.context.state or {}).get("self_driving_funding", {}).get("funding")
-                                    == "trial"
-                                    and workflow.patched("self-driving-trial-quota-rechecks")
-                                    else "Stopped automatically: the organization reached its self-driving pull request limit."
-                                )
+                                self._completion_error = "Stopped automatically: the organization reached its self-driving pull request limit."
                                 self._task_completed = True
                     case TaskEvent.SANDBOX_GONE:
                         await self._mark_sandbox_gone()
