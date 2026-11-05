@@ -151,6 +151,7 @@ export function TransactionalEmailLog(): JSX.Element {
                                 to={urls.transactionalEmailLogEntry(email.message_id)}
                                 title={<EmailAddress address={email.recipient} />}
                                 className="ph-no-capture"
+                                onClick={(event) => event.stopPropagation()}
                             />
                         ),
                     },

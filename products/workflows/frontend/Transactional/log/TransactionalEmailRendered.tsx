@@ -16,9 +16,11 @@ export function TransactionalEmailRendered({ email }: { email: TransactionalEmai
     if (!email.action_id) {
         return (
             <LemonBanner type="info">
-                {email.status === 'failed' || email.status === 'queued'
-                    ? "This email wasn't sent, so there's no copy of it."
-                    : 'No copy of this email was kept.'}
+                {email.status === 'queued'
+                    ? "This email hasn't gone out yet, so there's no copy of it."
+                    : email.status === 'failed'
+                      ? "This email wasn't sent, so there's no copy of it."
+                      : 'No copy of this email was kept.'}
             </LemonBanner>
         )
     }
