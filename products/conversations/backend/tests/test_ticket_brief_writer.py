@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 from typing import Any
 
 from unittest.mock import AsyncMock, patch
@@ -7,8 +8,25 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from products.conversations.backend.ticket_brief.limits import (
+    MAX_AREA,
+    MAX_ASK,
+    MAX_ERROR_MESSAGE,
+    MAX_FACT,
+    MAX_FACTS,
+    MAX_PURPOSE,
+    MAX_QUESTION,
+    MAX_QUESTIONS,
+    MAX_TRIED,
+)
 from products.conversations.backend.ticket_brief.schema import TicketBriefSerializer
-from products.conversations.backend.ticket_brief.writer import _build_brief, write_brief
+from products.conversations.backend.ticket_brief.writer import (
+    MAX_CONTEXT_CHARS,
+    MAX_OUTPUT_TOKENS,
+    _bounded_context,
+    _build_brief,
+    write_brief,
+)
 
 BASE = {"ask": "Explain why the export is empty.", "area": "Batch exports", "questions": ["Why?"]}
 
@@ -73,6 +91,7 @@ class TestWriteBrief(SimpleTestCase):
         # The gate is the whole safety story for shipping this: until the flag is rolled out,
         # merging must change nothing a support engineer sees and must spend no tokens.
         with (
+            patch(f"{MODULE}.ai_processing_approved", return_value=True),
             patch(f"{MODULE}.brief_enabled", return_value=False),
             patch(f"{MODULE}.get_async_anthropic_gateway_client") as client,
         ):
@@ -85,6 +104,7 @@ class TestWriteBrief(SimpleTestCase):
         # The gate is a database read, and an exception from it would fail the activity. Temporal
         # would then retry, paying for a model call to recover from something like a lock wait.
         with (
+            patch(f"{MODULE}.ai_processing_approved", return_value=True),
             patch(f"{MODULE}.brief_enabled", side_effect=RuntimeError("connection reset")),
             patch(f"{MODULE}.get_async_anthropic_gateway_client") as client,
         ):
@@ -97,6 +117,7 @@ class TestWriteBrief(SimpleTestCase):
         # Same reason as the gate check, and this one happens after the model call, so a raise
         # here buys a second call to redo work that already succeeded.
         with (
+            patch(f"{MODULE}.ai_processing_approved", return_value=True),
             patch(f"{MODULE}.brief_enabled", return_value=True),
             patch(f"{MODULE}.get_async_anthropic_gateway_client"),
             patch(f"{MODULE}.create_message", new_callable=AsyncMock),
@@ -111,9 +132,67 @@ class TestWriteBrief(SimpleTestCase):
         # The brief rides inside the reply pipeline. An exception here would fail a run whose
         # real job is drafting a reply, so a gateway blip must cost the brief and nothing else.
         with (
+            patch(f"{MODULE}.ai_processing_approved", return_value=True),
             patch(f"{MODULE}.brief_enabled", return_value=True),
             patch(f"{MODULE}.get_async_anthropic_gateway_client", side_effect=RuntimeError("gateway down")),
         ):
             output = await write_brief(team_id=1, ticket_id="t", ticket_context="ctx")
         assert output.written is False
         assert output.reason == "llm_failed"
+
+    @parameterized.expand([("gate_respected", True), ("gate_waived", False)])
+    async def test_an_organization_without_ai_approval_gets_no_brief_and_no_model_call(
+        self, _name: str, respect_gate: bool
+    ) -> None:
+        # Every other AI path in this product checks approval. respect_gate=False is how the
+        # staff button reads a brief before the flag reaches a team, so without the waived case
+        # that path would send a ticket to a model for an organization that never consented.
+        with (
+            patch(f"{MODULE}.ai_processing_approved", return_value=False),
+            patch(f"{MODULE}.brief_enabled", return_value=True),
+            patch(f"{MODULE}.get_async_anthropic_gateway_client") as client,
+        ):
+            output = await write_brief(team_id=1, ticket_id="t", ticket_context="ctx", respect_gate=respect_gate)
+        assert output.written is False
+        assert output.reason == "ai_not_approved"
+        assert client.call_count == 0
+
+    async def test_a_truncated_response_is_named_rather_than_reported_as_a_failure(self) -> None:
+        # A response cut at the token budget cannot parse, so it would otherwise land as
+        # llm_failed and point at the gateway instead of at the budget.
+        message = SimpleNamespace(stop_reason="max_tokens")
+        with (
+            patch(f"{MODULE}.ai_processing_approved", return_value=True),
+            patch(f"{MODULE}.brief_enabled", return_value=True),
+            patch(f"{MODULE}.get_async_anthropic_gateway_client"),
+            patch(f"{MODULE}.create_message", new_callable=AsyncMock, return_value=message),
+        ):
+            output = await write_brief(team_id=1, ticket_id="t", ticket_context="ctx")
+        assert output.written is False
+        assert output.reason == "truncated"
+
+    def test_the_output_budget_covers_every_field_at_its_cap(self) -> None:
+        # A budget below the contract truncates a detailed brief mid-object, and a truncated
+        # object does not parse, so the whole brief is lost rather than clipped.
+        widest = json.dumps(
+            {
+                "ask": "x" * MAX_ASK,
+                "area": "x" * MAX_AREA,
+                "purpose": "x" * MAX_PURPOSE,
+                "error_message": "x" * MAX_ERROR_MESSAGE,
+                "questions": ["x" * MAX_QUESTION] * MAX_QUESTIONS,
+                "facts": ["x" * MAX_FACT] * MAX_FACTS,
+                "tried": ["x" * MAX_FACT] * MAX_TRIED,
+            }
+        )
+        assert MAX_OUTPUT_TOKENS >= len(widest) // 4
+
+    def test_bounding_the_context_keeps_the_newest_messages(self) -> None:
+        # format_conversation already drops the oldest messages to fit its own budget, so the
+        # end of the string is the customer's latest word. Cutting the end would brief an
+        # engineer on a request the customer has since changed.
+        context = "OLDEST" + ("x" * MAX_CONTEXT_CHARS) + "NEWEST"
+        bounded = _bounded_context(context)
+        assert bounded.endswith("NEWEST")
+        assert "OLDEST" not in bounded
+        assert len(bounded) <= MAX_CONTEXT_CHARS + 4
