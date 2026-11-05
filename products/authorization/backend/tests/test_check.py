@@ -459,6 +459,9 @@ class TestCheckMatchesCurrentRules(BaseTest):
             authorization.permissions(resource=resource_for_object(self.organization), subject=subject) == frozenset()
         )
         assert authorization.permissions(resource=resource_for_object(self.team), subject=subject) == frozenset()
+        for resource_type in (ResourceType.PROJECT, ResourceType.ORGANIZATION):
+            type_resource = Resource(type=resource_type, project_id=self.team.id)
+            assert authorization.check(resource=type_resource, action=Action.VIEW, subject=subject) is False
 
     def test_role_check_needs_the_role_in_that_organization(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
