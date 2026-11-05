@@ -279,13 +279,25 @@ export const OAuthAuthorize = (): JSX.Element => {
                     title="Create an organization to continue"
                     description={`${appName} needs access to a PostHog organization, and your account doesn't belong to one yet. Create one here and PostHog adds a project to it. If your team already uses PostHog, ask an admin to invite you instead.`}
                     action={
-                        <div className="w-full text-left" data-attr="oauth-authorize-create-organization">
-                            <InlineCreateForm
-                                label="Organization name"
-                                placeholder="e.g. Acme"
-                                loading={newOrganizationLoading}
-                                onSubmit={createNewOrganization}
-                            />
+                        <div className="w-full flex flex-col items-center gap-2">
+                            <div className="w-full text-left" data-attr="oauth-authorize-create-organization">
+                                <InlineCreateForm
+                                    label="Organization name"
+                                    placeholder="e.g. Acme"
+                                    loading={newOrganizationLoading}
+                                    onSubmit={createNewOrganization}
+                                />
+                            </div>
+                            <LemonButton
+                                type="tertiary"
+                                size="small"
+                                onClick={cancel}
+                                loading={isCanceling}
+                                disabledReason={newOrganizationLoading ? 'Creating the organization' : undefined}
+                                data-attr="oauth-authorize-no-organization-cancel"
+                            >
+                                Cancel and return to {appName}
+                            </LemonButton>
                         </div>
                     }
                 />

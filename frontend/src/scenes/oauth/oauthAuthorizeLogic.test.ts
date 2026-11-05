@@ -339,6 +339,24 @@ describe('oauthAuthorizeLogic', () => {
         expect(logic.values.newOrganizationLoading).toBe(false)
     })
 
+    it('keeps the user when the refresh after creating an organization fails', async () => {
+        const userWithoutOrganization = { ...MOCK_DEFAULT_USER, organization: null, organizations: [], team: null }
+        userLogic.actions.loadUserSuccess(userWithoutOrganization)
+        useMocks({
+            get: {
+                '/api/users/@me/': () => [500, { detail: 'Server error' }],
+            },
+            post: {
+                '/api/organizations/': { id: 'new-org', name: 'New org' },
+            },
+        })
+
+        await expectLogic(logic, () => logic.actions.createNewOrganization('New org')).toFinishAllListeners()
+
+        expect(userLogic.values.user).toEqual(userWithoutOrganization)
+        expect(logic.values.newOrganizationLoading).toBe(false)
+    })
+
     const HINT_TEAMS = [
         { id: 11, organization: 'org-a', name: 'A project' },
         { id: 22, organization: 'org-b', name: 'B project' },
