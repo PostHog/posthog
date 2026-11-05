@@ -30,6 +30,7 @@ from temporalio import common
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.common import SearchAttributePair, TypedSearchAttributes
 
+from posthog.admin.console.moved import MovedToConsole
 from posthog.admin.inline_registry import extra_inlines_for
 from posthog.admin.inlines.events_retention_config_inline import TeamEventsRetentionConfigInline
 from posthog.admin.inlines.organization_member_for_related_inline import OrganizationMemberForRelatedInline
@@ -641,11 +642,10 @@ class TeamAdmin(admin.ModelAdmin):
     def api_token_display(self, team: Team):
         if not team.pk:
             return "-"
-        set_url = reverse("admin:posthog_team_set_api_token", args=[team.pk])
         return format_html(
-            '<span>{}</span> &nbsp; <a class="button" href="{}">Set API token</a>',
+            "<span>{}</span> &nbsp; {}",
             team.api_token,
-            set_url,
+            MovedToConsole.team_action(team, "api-token", "Set API token"),
         )
 
     @admin.display(description="Delete recordings")
@@ -679,8 +679,7 @@ class TeamAdmin(admin.ModelAdmin):
                 "admin/posthog/team/remote_config_cache_actions.html",
                 {
                     "view_url": reverse("admin:posthog_team_view_cache", args=[team.pk]),
-                    "rebuild_url": reverse("admin:posthog_team_rebuild_cache", args=[team.pk]),
-                    "team_name": team.name,
+                    "rebuild_moved": MovedToConsole.team_action(team, "remote-config", "Rebuild cache"),
                     "cache_key": RemoteConfig.get_hypercache().get_cache_key(team.api_token),
                 },
             )
@@ -948,20 +947,7 @@ class TeamAdmin(admin.ModelAdmin):
     def email_sending_suspension_actions(self, team: Team):
         if not team.pk:
             return "-"
-        state = get_email_sending_state(team.pk)
-        is_suspended = bool(state and state.suspended_at)
-        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
-        return mark_safe(
-            render_to_string(
-                "admin/posthog/team/email_sending_suspension_actions.html",
-                {
-                    "suspend_url": reverse("admin:posthog_team_suspend_email_sending", args=[team.pk]),
-                    "unsuspend_url": reverse("admin:posthog_team_unsuspend_email_sending", args=[team.pk]),
-                    "team_name": team.name,
-                    "is_suspended": is_suspended,
-                },
-            )
-        )
+        return MovedToConsole.team_action(team, "email-sending", "Suspending and re-enabling email sending")
 
     @admin.display(description="Email sending tier")
     def email_sending_tier_state(self, team: Team) -> str:
@@ -1235,20 +1221,7 @@ class TeamAdmin(admin.ModelAdmin):
     def ai_gateway_actions(self, team: Team):
         if not team.pk:
             return "-"
-        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
-        return mark_safe(
-            render_to_string(
-                "admin/posthog/team/ai_gateway_actions.html",
-                {
-                    "enable_url": reverse("admin:posthog_team_enable_ai_gateway", args=[team.pk]),
-                    "revoke_url": reverse("admin:posthog_team_revoke_ai_gateway", args=[team.pk]),
-                    "clear_revoke_url": reverse("admin:posthog_team_clear_ai_gateway_revoke", args=[team.pk]),
-                    "team_name": team.name,
-                    "is_enabled": team.llm_gateway_enabled_at is not None,
-                    "is_revoked": team.llm_gateway_revoked_at is not None,
-                },
-            )
-        )
+        return MovedToConsole.team_action(team, "ai-gateway", "Enabling and revoking access")
 
     @admin.display(description="Admit state")
     def admit_state(self, team: Team):
@@ -1279,7 +1252,7 @@ class TeamAdmin(admin.ModelAdmin):
                 "admin/posthog/team/ai_gateway_wallet_actions.html",
                 {
                     "wallet_url": reverse("admin:posthog_team_ai_gateway_wallet", args=[team.pk]),
-                    "add_credit_url": reverse("admin:posthog_team_add_ai_gateway_credit", args=[team.pk]),
+                    "add_credit_moved": MovedToConsole.team_action(team, "ai-gateway", "Add credit"),
                 },
             )
         )

@@ -324,6 +324,52 @@ class TestComputeSettlement(BaseTest):
         assert untouched.ended_at is None
         assert untouched.compute_settled_at is None
 
+    @parameterized.expand([("flag_on", True, 1), ("flag_off", False, 0)])
+    def test_sweep_pushes_gauges_after_settling(self, _name: str, enabled: bool, expected_unsettled: int) -> None:
+        overdue_at = self.now - timedelta(minutes=90)
+        self._session(ended_at=overdue_at)
+        stuck = self._session(ended_at=overdue_at)
+        self._session(ended_at=overdue_at, compute_settled_at=overdue_at, compute_settled_usd=Decimal(0))
+        self._session(ended_at=overdue_at, compute_settle_conflict_at=overdue_at)
+        self._session(ended_at=overdue_at, user_attributed_at=None)
+        self._session(ended_at=self.now - timedelta(minutes=30))
+        self._session(
+            ended_at=None, ended_reason=None, sandbox_backend="hogland", created_at=self.now - timedelta(days=2)
+        )
+        self._session(
+            ended_at=None, ended_reason=None, sandbox_backend="hogland", created_at=self.now - timedelta(hours=20)
+        )
+
+        def respond(_url: str, **kwargs: Any) -> httpx.Response:
+            if kwargs["json"]["reference"] == f"compute:{stuck.id}":
+                return _response(503)
+            return _ok()
+
+        with (
+            override_settings(GATEWAY_COMPUTE_DEBIT_ENABLED=enabled),
+            patch(HTTPX_POST, side_effect=respond),
+            patch("posthog.metrics.push_registry") as push,
+        ):
+            settle_overdue_sandbox_compute(self.now)
+
+        push.assert_called_once()
+        assert push.call_args.args[0] == "tasks_compute_settlement"
+        registry = push.call_args.args[1]
+        assert registry.get_sample_value("posthog_tasks_hogland_sandbox_sessions_open_over_day") == 1
+        assert registry.get_sample_value("posthog_tasks_sandbox_sessions_unsettled_over_hour") == expected_unsettled
+
+    def test_sweep_settles_when_the_gauge_push_fails(self) -> None:
+        session = self._session()
+        with (
+            override_settings(PROM_PUSHGATEWAY_ADDRESS="http://pushgateway.internal"),
+            patch(HTTPX_POST, return_value=_ok()),
+            patch("posthog.metrics.push_to_gateway", side_effect=OSError("refused")) as push,
+        ):
+            assert settle_overdue_sandbox_compute(self.now) == [SettlementOutcome.SETTLED]
+
+        push.assert_called_once()
+        assert self._reload(session).compute_settled_at is not None
+
     @parameterized.expand(
         [("settles", _ok(), SettlementOutcome.SETTLED), ("retries", _response(503), SettlementOutcome.RETRY)]
     )

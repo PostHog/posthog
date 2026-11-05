@@ -16,16 +16,13 @@ import { scannerTypeLabel } from '../replay_scanners/types'
 import { RECORDING_ORIGIN, currentReturnPath, observationFromOriginUrl } from '../utils/breadcrumbs'
 import { isSummaryObservation, readModelOutput, readReasoning, scannerLabel } from '../utils/observation'
 import { citedMoments } from '../utils/recordingTimeline'
-import { CitedMarkdown } from './CitedMarkdown'
-import {
-    FailureDetail,
-    IneligibleDetail,
-    ObservationPrimaryOutput,
-    ObservationResultSummary,
-    ObservationStatusTag,
-} from './ObservationCard'
+import { QuillCitedMarkdown } from './QuillCitedMarkdown'
+import { QuillObservationErrorDetail } from './QuillObservationErrorDetail'
+import { QuillObservationPrimaryOutput } from './QuillObservationPrimaryOutput'
 import { QuillObservationProgressBar } from './QuillObservationProgressBar'
+import { QuillObservationResultSummary } from './QuillObservationResultSummary'
 import { QuillObservationRetryButton } from './QuillObservationRetryButton'
+import { QuillObservationStatusTag } from './QuillObservationStatusTag'
 import { QuillScannerTypeBadge } from './QuillScannerTypeBadge'
 
 const NEAR_PLAYHEAD_MS = 60_000
@@ -40,12 +37,12 @@ function defaultFocus(observations: ReplayObservationApi[]): ReplayObservationAp
 
 function RunResult({ observation }: { observation: ReplayObservationApi }): JSX.Element | null {
     if (observation.status !== 'succeeded') {
-        return <ObservationStatusTag status={observation.status} errorReason={observation.error_reason} />
+        return <QuillObservationStatusTag status={observation.status} errorReason={observation.error_reason} />
     }
     if (isSummaryObservation(observation)) {
         return null
     }
-    return <ObservationResultSummary observation={observation} />
+    return <QuillObservationResultSummary observation={observation} />
 }
 
 function MomentTicks({
@@ -118,14 +115,13 @@ function FocusPane({
             <div ref={contentRef}>
                 {(observation.error_reason || isInFlight(observation)) && (
                     <div className="flex flex-col gap-2 px-3 pb-2">
-                        <span data-not-quill className="contents">
-                            {observation.status === 'failed' && observation.error_reason && (
-                                <FailureDetail errorReason={observation.error_reason} />
+                        {(observation.status === 'failed' || observation.status === 'ineligible') &&
+                            observation.error_reason && (
+                                <QuillObservationErrorDetail
+                                    status={observation.status}
+                                    errorReason={observation.error_reason}
+                                />
                             )}
-                            {observation.status === 'ineligible' && observation.error_reason && (
-                                <IneligibleDetail errorReason={observation.error_reason} />
-                            )}
-                        </span>
                         {observation.error_reason && (
                             <div>
                                 <QuillObservationRetryButton
@@ -147,9 +143,9 @@ function FocusPane({
                 )}
                 <div className="flex flex-col gap-2 px-3 py-2">
                     {hasText && (
-                        <div className="text-sm max-w-[120ch]" data-not-quill>
+                        <div className="text-sm max-w-[120ch]">
                             {isSummary ? (
-                                <ObservationPrimaryOutput
+                                <QuillObservationPrimaryOutput
                                     observation={observation}
                                     showPrompt={false}
                                     expandSummary
@@ -157,7 +153,7 @@ function FocusPane({
                                     onSeek={onSeek}
                                 />
                             ) : (
-                                <CitedMarkdown
+                                <QuillCitedMarkdown
                                     text={reasoning ?? ''}
                                     segments={readModelOutput(observation)?.reasoning_segments}
                                     onSeek={onSeek}
@@ -241,10 +237,7 @@ export function QuillScanList({
                                     <span className="min-w-0 truncate text-sm @[760px]:shrink-0 @[760px]:max-w-[40%]">
                                         {scannerLabel(observation)}
                                     </span>
-                                    <span
-                                        className="flex items-center gap-2 min-w-0 shrink-0 max-w-[40%]"
-                                        data-not-quill
-                                    >
+                                    <span className="flex items-center gap-2 min-w-0 shrink-0 max-w-[40%]">
                                         <RunResult observation={observation} />
                                     </span>
                                     {!isFocused && observation.summary_line && (
