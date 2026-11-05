@@ -166,7 +166,12 @@ export class InstructionsBuilder {
         if (!guidesEnabled && !skillsEnabled) {
             return undefined
         }
-        const guides = guidesEnabled ? this.formatter.buildExecLearnGuides(this.buildContext(state)) : []
+        const guides = guidesEnabled
+            ? this.formatter.buildExecLearnGuides({
+                  ...this.buildContext(state),
+                  queryRoutingInline: !state.clientProfile.isClaudeChatHost(),
+              })
+            : []
         const canReadProjectSkills = skillsEnabled && hasScope(state.apiKeyScopes, 'llm_skill:read')
         // The catalog (and this closure) is rebuilt per request, so this Set dedupes
         // within one exec command — a 5-file batch of one skill fires a single event,

@@ -38,6 +38,7 @@ import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import NOTEBOOK_PYTHON from '@/templates/sections/notebook-python.md'
 import NOTEBOOK_RUN from '@/templates/sections/notebook-run.md'
 import NOTEBOOK_SQL from '@/templates/sections/notebook-sql.md'
+import QUERY_TOOL_ROUTING from '@/templates/sections/query-tool-routing.md'
 import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
 import SKILLS_FIRST from '@/templates/sections/skills-first.md'
@@ -85,6 +86,9 @@ export interface InstructionsContext {
     /** Whether the Replay Vision scan tools are advertised to this client. Same reason
      *  as `docsSearchEnabled`: the line names three tools, and the reference drops `tools`. */
     replayVisionEnabled?: boolean | undefined
+    /** Whether the client's command reference already carries the query-tool routing inline, so the
+     *  `analytics` guide leaves it out instead of repeating it. */
+    queryRoutingInline?: boolean | undefined
     businessKnowledgeContent?: BusinessKnowledgeContent | undefined
 }
 
@@ -464,6 +468,8 @@ export class InstructionsFormatter {
                 ...(skillsEnabled ? [claudeChat ? CLI_LEARN_COMPACT : CLI_LEARN] : []),
                 ...(learnSection ? [learnSection] : []),
                 METRIC_DISCOVERY_COMPACT,
+                // Typed-runner routing drives tool choice on most analytics tasks, so cli clients keep it inline.
+                ...(claudeChat ? [] : [QUERY_TOOL_ROUTING]),
                 CLI_SCHEMA_DRILLDOWN,
                 CLI_DATA_DISCOVERY,
                 formatPrompt(CLI_EXAMPLES_LEARN, learnExampleVars(ctx.renderUiEnabled, skillsEnabled && !claudeChat)),
@@ -546,6 +552,7 @@ export class InstructionsFormatter {
             query_tools: ctx.queryTools ? buildQueryToolsBlock(ctx.queryTools) : '',
             entity_schema_discovery: ENTITY_SCHEMA_DISCOVERY.trim(),
             replay_vision: replayVisionAvailable(ctx) ? REPLAY_VISION : '',
+            query_tool_routing: ctx.queryRoutingInline ? '' : QUERY_TOOL_ROUTING.trim(),
             extra_commands: opts.extraCommands ?? '',
             whats_new_check: docsSearchAvailable(ctx) ? WHATS_NEW_WITH_DOCS_SEARCH : WHATS_NEW_CHANGELOG_ONLY,
         }

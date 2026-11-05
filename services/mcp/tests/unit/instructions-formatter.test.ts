@@ -387,6 +387,17 @@ describe('InstructionsFormatter', () => {
     })
 
     describe('cli exec guidance with skills', () => {
+        it('keeps the query-tool routing inline', () => {
+            const result = new InstructionsFormatter().buildCompactExecCommandReference(
+                { ...fullCtx, renderUiEnabled: false },
+                { skillsEnabled: true }
+            )
+
+            expect(result).toContain(
+                '"How many / how much / over time / compare periods" -> `metric-list` first, then `query-trends`'
+            )
+        })
+
         it('shows the skill search before the analytics guide', () => {
             const result = new InstructionsFormatter().buildCompactExecCommandReference(
                 { ...fullCtx, renderUiEnabled: false },
