@@ -98,7 +98,7 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'agent-platform': true,
         'experiment-setup-context': true,
         'scout-trials': true,
-        'signals-report-checks-replace': true,
+        'signals-report-monitoring': true,
         'inbox-report-actions-mcp': true,
         'inbox-reports-create-mcp': true,
         'signals-reviewer-exclusions-mcp': true,

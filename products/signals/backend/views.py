@@ -6415,6 +6415,8 @@ class SignalReportCheckViewSet(
     )
     @action(detail=True, methods=["post"], url_path="replace", required_scopes=["inbox:write", "query:read"])
     def replace(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        if not organization_report_monitoring_enabled(self.organization.id):
+            raise NotFound()
         check = cast(SignalReportCheck, self.get_object())
         data = request.validated_data
         try:
@@ -6425,6 +6427,9 @@ class SignalReportCheckViewSet(
                 config=data["config"],
                 attribution=resolve_request_attribution(request, self.team.id),
                 access_policy=ReportMetricAccessPolicy(request=request, team=self.team),
+                soak_minutes=data.get("soak_minutes"),
+                run_interval_minutes=data.get("run_interval_minutes"),
+                runs_remaining=data.get("runs_remaining"),
             )
         except CheckQueryAccessError as error:
             return Response({"error": str(error)}, status=status.HTTP_403_FORBIDDEN)

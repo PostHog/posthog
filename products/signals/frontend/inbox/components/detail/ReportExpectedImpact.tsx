@@ -3,6 +3,8 @@ import { useState } from 'react'
 
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
@@ -18,6 +20,7 @@ import { ReportMonitoringDetails } from './ReportMonitoringDetails'
 const MAX_VISIBLE_MEASUREMENTS = 6
 
 export function ReportExpectedImpact({ report, reportUrl }: { report: SignalReport; reportUrl: string }): JSX.Element {
+    const monitoringEnabled = useFeatureFlag('SIGNALS_REPORT_MONITORING')
     const [modalOpen, setModalOpen] = useState(false)
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
     const { reportChecks, reportChecksLoading, reportChecksError, reportArtefacts, approvingCheckIds } =
@@ -192,24 +195,26 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                     >
                         Looks good
                     </LemonButton>
-                    <LemonButton
-                        data-attr="report-expected-impact-suggest-metrics"
-                        type="secondary"
-                        size="small"
-                        disabledReason={
-                            metricCheckReplacementDisabledReason ??
-                            (openMeasurements.length === 0 ? 'No open metric checks to revise.' : undefined)
-                        }
-                        onClick={() => setModalOpen(true)}
-                    >
-                        Suggest different metrics
-                    </LemonButton>
+                    {monitoringEnabled && (
+                        <LemonButton
+                            data-attr="report-expected-impact-suggest-metrics"
+                            type="secondary"
+                            size="small"
+                            disabledReason={
+                                metricCheckReplacementDisabledReason ??
+                                (openMeasurements.length === 0 ? 'No open metric checks to revise.' : undefined)
+                            }
+                            onClick={() => setModalOpen(true)}
+                        >
+                            Suggest different metrics
+                        </LemonButton>
+                    )}
                 </div>
             )}
             <ReportCheckMetricSuggestionModal
                 report={report}
                 reportUrl={reportUrl}
-                isOpen={modalOpen}
+                isOpen={modalOpen && !!monitoringEnabled}
                 onClose={() => setModalOpen(false)}
             />
         </div>

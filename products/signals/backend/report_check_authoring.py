@@ -42,6 +42,7 @@ from products.signals.backend.report_checks import (
     CheckConfigValidationError,
     CheckSpec,
     MetricThresholdConfig,
+    MetricThresholdReplacementConfig,
     authored_monitoring_interval_minutes,
     check_schedule_expires_at,
     monitoring_interval_minutes,
@@ -451,6 +452,9 @@ def replace_check_with_metric(
     config: dict,
     attribution: ArtefactAttribution,
     access_policy: ReportMetricAccessPolicy,
+    soak_minutes: int | None = None,
+    run_interval_minutes: int | None = None,
+    runs_remaining: int | None = None,
 ) -> SignalReportCheck:
     """Keep the previous check live if replacement validation fails."""
     with transaction.atomic():
@@ -458,6 +462,14 @@ def replace_check_with_metric(
         locked = SignalReportCheck.objects.for_team(check.team_id).select_for_update().get(id=check.id)
         if locked.report_id != report.id:
             raise CheckCreationError("This check moved to another report. Reload the report before replacing it.")
+        try:
+            MetricThresholdReplacementConfig.model_validate(config)
+            duration = soak_minutes if soak_minutes is not None else locked.soak_minutes
+            if duration is None:
+                duration = DEFAULT_CHECK_SOAK_HOURS * 60
+            interval = authored_monitoring_interval_minutes(duration, run_interval_minutes)
+        except ValueError as error:
+            raise CheckCreationError(str(error)) from None
         stored_config = _stored_config(report, SignalReportCheck.Kind.METRIC_THRESHOLD, config)
         if not access_policy.may_read_query(stored_config):
             raise CheckQueryAccessError("The measurement query is not available to you.")
@@ -470,9 +482,9 @@ def replace_check_with_metric(
             kind=SignalReportCheck.Kind.METRIC_THRESHOLD,
             config=config,
             attribution=attribution,
-            soak_minutes=locked.soak_minutes if locked.soak_minutes is not None else DEFAULT_CHECK_SOAK_HOURS * 60,
-            run_interval_minutes=locked.run_interval_minutes,
-            runs_remaining=locked.runs_remaining,
+            soak_minutes=duration,
+            run_interval_minutes=interval,
+            runs_remaining=runs_remaining if runs_remaining is not None else locked.runs_remaining,
         )
 
 

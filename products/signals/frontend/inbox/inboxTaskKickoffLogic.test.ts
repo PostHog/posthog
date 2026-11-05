@@ -129,29 +129,44 @@ describe('inboxTaskKickoffLogic', () => {
 
         afterEach(() => logic.unmount())
 
-        it('opens an editable metric suggestion for the selected check without copying its stored title', async () => {
-            const check = {
-                id: 'check-checkout',
-                title: 'Checkout errors stay low',
-            } as SignalReportCheckApi
-            await expectLogic(logic, () =>
-                logic.actions.openReportCheckMetricSuggestion(report, check)
-            ).toFinishAllListeners()
+        it.each([true, false, undefined])(
+            'opens a metric suggestion only when Monitoring is enabled (%s)',
+            async (enabled) => {
+                featureFlagLogic.actions.setFeatureFlags(
+                    enabled ? [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING] : [],
+                    enabled === undefined ? {} : { [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: enabled }
+                )
+                const check = {
+                    id: 'check-checkout',
+                    title: 'Checkout errors stay low',
+                } as SignalReportCheckApi
+                await expectLogic(logic, () =>
+                    logic.actions.openReportCheckMetricSuggestion(report, check)
+                ).toFinishAllListeners()
 
-            expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)
-            expect(logic.values.reportChatContext?.report.id).toBe(report.id)
-            expect(logic.values.reportDiscussionDraft).toBe(
-                'For follow-up check (check ID: check-checkout), I suggest a better metric:\n\n'
-            )
-            expect(logic.values.reportDiscussionIntent).toBe('check_metrics')
-            expect(createdTasks).toHaveLength(0)
-            logic.actions.setReportDiscussionDraft(`${logic.values.reportDiscussionDraft}Fewer failed checkouts`)
-            expect(logic.values.reportDiscussionIntent).toBe('check_metrics')
+                if (!enabled) {
+                    expect(logic.values.reportDiscussionDraft).toBe('')
+                    expect(logic.values.reportDiscussionIntent).toBeNull()
+                    expect(logic.values.reportChatContext).toBeNull()
+                    expect(createdTasks).toHaveLength(0)
+                    return
+                }
 
-            logic.actions.openReportDiscussion(makeReport({ id: 'other-report' }), 'https://example.com/other')
-            expect(logic.values.reportDiscussionDraft).toBe('')
-            expect(logic.values.reportDiscussionIntent).toBeNull()
-        })
+                expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)
+                expect(logic.values.reportChatContext?.report.id).toBe(report.id)
+                expect(logic.values.reportDiscussionDraft).toBe(
+                    'For follow-up check (check ID: check-checkout), I suggest a better metric:\n\n'
+                )
+                expect(logic.values.reportDiscussionIntent).toBe('check_metrics')
+                expect(createdTasks).toHaveLength(0)
+                logic.actions.setReportDiscussionDraft(`${logic.values.reportDiscussionDraft}Fewer failed checkouts`)
+                expect(logic.values.reportDiscussionIntent).toBe('check_metrics')
+
+                logic.actions.openReportDiscussion(makeReport({ id: 'other-report' }), 'https://example.com/other')
+                expect(logic.values.reportDiscussionDraft).toBe('')
+                expect(logic.values.reportDiscussionIntent).toBeNull()
+            }
+        )
 
         it.each(['implementation', 'discussion'] as const)(
             'opens one %s run without leaving the report',

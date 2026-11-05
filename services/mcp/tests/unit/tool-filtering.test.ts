@@ -336,7 +336,7 @@ describe('Tool Filtering - API Scopes', () => {
     ])('metric replacement requires query access and rollout: %j', async ({ scopes, rollout, visible }) => {
         const featureFlags: EvaluatedFlags = {}
         if (rollout !== undefined) {
-            featureFlags['signals-report-checks-replace'] = rollout
+            featureFlags['signals-report-monitoring'] = rollout
         }
         const tools = await getToolsFromContext(createMockContext(scopes), { featureFlags })
         expect(tools.some((tool) => tool.name === 'inbox-report-checks-replace')).toBe(visible)
@@ -1127,7 +1127,7 @@ describe('Tool Filtering - Feature Flags', () => {
         const branchFlags = [
             'workflows-supabase-auth-emails',
             'scout-trials',
-            'signals-report-checks-replace',
+            'signals-report-monitoring',
             'inbox-report-actions-mcp',
             'inbox-reports-create-mcp',
             'signals-reviewer-exclusions-mcp',
