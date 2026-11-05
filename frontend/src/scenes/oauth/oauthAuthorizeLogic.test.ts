@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { decodeParams, router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
 
 import { DEFAULT_OAUTH_SCOPES, getScopeGroupLabel, scopeGroupLevel, scopeGroupTooltip } from 'lib/scopes'
 import { userLogic } from 'scenes/userLogic'
@@ -300,6 +301,20 @@ describe('oauthAuthorizeLogic', () => {
         logic.actions.setScopeAccess('feature_flag', 'none')
         logic.actions.setScopes(['openid', 'insight:write'])
         expect(logic.values.effectiveScopes).toEqual(['openid', 'insight:write'])
+    })
+
+    it('loads an empty project list instead of failing for a user with no organization', async () => {
+        useMocks({
+            get: {
+                '/api/projects/': () => [404, { detail: 'You need to belong to an organization.' }],
+            },
+        })
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, organization: null, organizations: [] })
+
+        await expectLogic(logic, () => logic.actions.loadAllTeams())
+            .toDispatchActions(['loadAllTeamsSuccess'])
+            .toNotHaveDispatchedActions(['loadAllTeamsFailure'])
+        expect(logic.values.allTeams).toEqual([])
     })
 
     const HINT_TEAMS = [

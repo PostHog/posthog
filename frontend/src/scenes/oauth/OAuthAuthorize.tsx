@@ -17,6 +17,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { organizationLogic } from 'scenes/organizationLogic'
 import ScopeAccessSelector from 'scenes/settings/user/scopes/ScopeAccessSelector'
+import { urls } from 'scenes/urls'
 
 import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
 import { AvailableFeature } from '~/types'
@@ -25,12 +26,21 @@ import { SceneExport } from '../sceneTypes'
 import { OAuthAuthorizeLayout } from './OAuthAuthorizeLayout'
 import { oauthAuthorizeLogic } from './oauthAuthorizeLogic'
 
-export const OAuthAuthorizeError = ({ title, description }: { title: string; description: string }): JSX.Element => {
+export const OAuthAuthorizeError = ({
+    title,
+    description,
+    action,
+}: {
+    title: string
+    description: string
+    action?: JSX.Element
+}): JSX.Element => {
     return (
         <div className="AuthScene__card flex flex-col items-center gap-4 p-8 text-center">
             <IconWarning className="text-muted-alt text-4xl" />
             <div className="text-xl font-semibold">{title}</div>
             <div className="text-sm text-muted">{description}</div>
+            {action}
         </div>
     )
 }
@@ -255,6 +265,26 @@ export const OAuthAuthorize = (): JSX.Element => {
         return (
             <OAuthAuthorizeLayout>
                 <OAuthAuthorizeRedirecting appName={appName} redirectUrl={redirectUrl} />
+            </OAuthAuthorizeLayout>
+        )
+    }
+
+    if (user && allOrganizations.length === 0) {
+        return (
+            <OAuthAuthorizeLayout>
+                <OAuthAuthorizeError
+                    title="Your account has no organization"
+                    description={`To authorize ${appName}, your account needs to belong to an organization. Create one, or ask an admin to invite you to theirs. Then connect ${appName} again.`}
+                    action={
+                        <LemonButton
+                            type="primary"
+                            to={urls.organizationCreateFirst()}
+                            data-attr="oauth-authorize-create-organization"
+                        >
+                            Create an organization
+                        </LemonButton>
+                    }
+                />
             </OAuthAuthorizeLayout>
         )
     }

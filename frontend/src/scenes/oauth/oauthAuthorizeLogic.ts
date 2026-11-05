@@ -399,8 +399,9 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 loadAllTeams: async () => {
                     const user = userLogic.values.user
                     if (!user?.organizations?.length) {
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-                        return await api.loadPaginatedResults('api/projects')
+                        // Without an organization there are no projects to list, and `api/projects`
+                        // would 404 because it resolves the current organization.
+                        return []
                     }
                     const results = await Promise.all(
                         user.organizations.map((org) =>
