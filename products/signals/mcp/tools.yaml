@@ -194,8 +194,8 @@ tools:
             Append an artefact to an inbox report so it reads as a living document. Everything is append-only. Status
             judgments are consequential, not advisory: the canonical priority and actionability steer what people and
             agents pick up next, and PostHog's automation uses them to decide which reports to act on. Follow-up goals
-            live in report checks, not artefacts. Writes are attributed to your task automatically. Returns the created
-            artefact with its id.
+            live in report checks, not artefacts. Writes are attributed to your task automatically, or to the calling
+            user when no task is running. Returns the created artefact with its id.
         param_overrides:
             content:
                 description: >
@@ -204,11 +204,13 @@ tools:
                     of at most 20 source lines (a single line has start_line equal to end_line). `commit`: repository,
                     branch, commit_sha, message, for one commit already pushed to a remote branch. git_signed_commit
                     usually records it for you, so create one only for a commit pushed by other means, and never for an
-                    unpushed or local-only commit. `note`: note, free-form. `priority_judgment`: explanation, priority
-                    (P0–P4). `actionability_judgment`: explanation, actionability, already_addressed. `safety_judgment`:
-                    choice. `repo_selection`: repository, reason. `suggested_reviewers`: a list of {github_login}.
-                    `source_suggestion`: product, reason, for a product the project does not use that would have given
-                    this report better evidence; the inbox hides it once the product is in use.
+                    unpushed or local-only commit. `note`: note, free-form, for annotating a report with context; to
+                    also steer the scouts use `scout-notes-create` with `report_id`, which records the note on the
+                    report too. `priority_judgment`: explanation, priority (P0–P4). `actionability_judgment`:
+                    explanation, actionability, already_addressed. `safety_judgment`: choice. `repo_selection`:
+                    repository, reason. `suggested_reviewers`: a list of {github_login}. `source_suggestion`: product,
+                    reason, for a product the project does not use that would have given this report better evidence;
+                    the inbox hides it once the product is in use.
     inbox-report-artefacts-delete:
         operation: signals_report_artefacts_destroy
         enabled: true
@@ -325,13 +327,13 @@ tools:
             readOnly: false
             destructive: true
             idempotent: false
-        title: Replace a metric follow-up check
+        title: Replace a follow-up check with a metric
         description: >
-            Replace one open metric check after investigating a better measure or threshold. Read the current check and
-            report first. Supply a bounded live Trends query or a report metric ID, an explicit comparison, and a
-            measured baseline. The old check stays live if the replacement fails validation. A successful replacement
-            starts unapproved and is scheduled independently of human approval. Do not use this to change an agent
-            check. The replacement preserves the existing soak and remaining recurrence. The measurement also requires
+            Replace one open agent or metric check with a metric check after investigating a better measure or
+            threshold. Read the current check and report first. Supply a bounded live Trends query or a report metric
+            ID, an explicit comparison, and a measured baseline. The old check stays live if the replacement fails
+            validation. A successful replacement starts unapproved and is scheduled independently of human approval. The
+            replacement preserves the existing soak and remaining recurrence. The measurement also requires
             event_definition:read for event series, action:read for action series, and cohort:read for cohort filters
             when present.
         feature_flag: signals-report-checks-replace
@@ -410,6 +412,38 @@ tools:
             id:
                 aliases:
                     - report_id
+    inbox-reports-create:
+        operation: signals_reports_create
+        enabled: true
+        scopes:
+            - inbox:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{report_id}'
+        title: File an inbox report
+        description: >
+            File a finding as an inbox report in this project, for example something your own agent found. Search
+            `inbox-reports-list` first and update an existing report rather than filing a near-duplicate. The report
+            passes the same safety judge a scout report passes, then surfaces at the status your `actionability` call
+            implies (`immediately_actionable` → READY, `requires_human_input` → PENDING_INPUT, `not_actionable` →
+            suppressed); an unsafe report is suppressed regardless. `evidence` lists the observations behind the report,
+            at least one. Safe to retry: resending a call returns the first report (`idempotent_replay` true) instead of
+            a second one, keyed on `idempotency_key` or, without one, on the report's content. A filed report never
+            starts an implementation run or opens a pull request on its own, even when it names a `repository`,
+            `priority`, and `suggested_reviewers`: a person starts one from the report's actions. `suggested_reviewers`
+            routes the report to the people who should read it. A `priority` requires a `priority_explanation`. Each
+            person can file 20 reports per project per day; a 429 says when the limit resets, so do not retry before
+            then. A 403 means the organization has not approved AI data processing: tell the person that an organization
+            admin must turn it on, and do not retry before then.
+        exclude_params:
+            - metrics
+        required_when_set:
+            priority:
+                - priority_explanation
+        feature_flag: inbox-reports-create-mcp
+        feature_flag_behavior: enable
     inbox-reports-feedback-create:
         operation: signals_reports_feedback_create
         enabled: true
@@ -447,19 +481,21 @@ tools:
             idempotent: true
         title: Get your personal ranked inbox
         description: >
-            Get the current user's own open inbox reports, ranked for them. One language model call ranks the reports
-            that need them (suggested reviewer, claimed, waiting on their input) and the reports the ranking model rates
-            highest, using their activity summary. Use it for "what should I work on" and "my top N" questions in place
-            of paging inbox-reports-list. Each entry has a rank, a tier, a short reason, a next step for the top entries
-            and a compact report. Read the full report with inbox-reports-retrieve before you act on it. The list is
-            personal: only the user it describes can read it. The call returns at once and never waits on the model. A
-            current stored list comes back as is. Otherwise the call starts a background build and returns the last
-            stored list with `stale: true`, or the reports in inbox order with `fallback_reason: building`, and sets
-            `building: true`. `refresh` and `focus` always start a build, and builds are rate limited. When `building`
-            is true, call again a little later, or pass `wait_seconds` (up to 30) to wait for the new list in the same
-            call. `personalized: false` means the user has no activity summary yet or the list is in inbox order (see
-            `fallback_reason`). `stale: true` without `building` means the build limit was reached and the list may miss
-            recent changes. `status: unavailable` means personal ranking is off for now.
+            Get the current user's own open inbox reports, ranked for them. One language model call ranks only the
+            reports tied to them (suggested reviewer, claimed, waiting on their input), using their activity summary and
+            the ranking model's scores. Use it for "what should I work on" and "my top N" questions in place of paging
+            inbox-reports-list. Each entry has a rank, a tier, a short reason, a next step for the top entries and a
+            compact report. Read the full report with inbox-reports-retrieve before you act on it. The list is personal:
+            only the user it describes can read it. The call never waits on the model. A current stored list comes back
+            quickly, as is. Otherwise the call reads every candidate report, which can take some seconds, starts a
+            background build and returns the last stored list with `stale: true`, or the reports in inbox order with
+            `fallback_reason: building`, and sets `building: true`. `refresh` and `focus` always start a build, and
+            builds are rate limited. A report created after the stored list joins at the next build. When `building` is
+            true, call again a little later, or pass `wait_seconds` (up to 30, counted from the start of the call) to
+            wait for the new list in the same call. `personalized: false` means the user has no activity summary yet or
+            the list is in inbox order (see `fallback_reason`). `stale: true` without `building` means the build limit
+            was reached and the list may miss recent changes. `status: unavailable` means personal ranking is off for
+            now.
         feature_flag: personal-inbox-ranking
     inbox-reports-leave-reviewers:
         operation: signals_reports_reviewers_me_create
@@ -1159,7 +1195,11 @@ tools:
             3 rows, which is the cap `suggested_reviewers` enforces anyway. A `team` that resolves to nobody comes back
             as an error saying which case it hit, because team rosters sync one by one and a slug with no rows almost
             always means it isn't synced here rather than that the team doesn't exist. The roster is a periodic
-            snapshot, so it can lag the live team. Strictly team-scoped.
+            snapshot, so it can lag the live team. When `search` or `team` narrows the result to 10 members or fewer,
+            each row also carries `activity`: the member's recent headline, themes, and the objects they own or watch.
+            Use it as context to check a candidate against the report; general activity is not evidence of ownership.
+            `activity` is null when the member has no ready summary or summaries are not available for this project, and
+            a null value is not evidence against the member. Strictly team-scoped.
     scout-metadata-get:
         operation: signals_scout_metadata_get
         enabled: true
@@ -1214,10 +1254,12 @@ tools:
             about how reports get researched, judged, and routed ('route billing-adjacent reports to the billing
             folks'), so it reaches that stage and no scout. `pipeline:report-research` is the only pipeline audience
             today; any other `pipeline:*` value is rejected. Optionally set `expires_at` so a time-boxed note retires
-            itself. Notes are advisory: scouts weigh them seriously as prior context but still apply their own evidence
-            bar. Because scouts read notes verbatim, writing one requires the same authorization as editing a scout's
-            skill: the `llm_skill:write` scope plus skill editor access. Each call creates a new note (NOT idempotent —
-            a retry leaves a duplicate); use `scout-notes-delete` to retire one that's been acted on.
+            itself. Pass `report_id` when the note is about one inbox report: the note then names that report, and the
+            report's activity log records the note. Notes are advisory: scouts weigh them seriously as prior context but
+            still apply their own evidence bar. Because scouts read notes verbatim, writing one requires the same
+            authorization as editing a scout's skill: the `llm_skill:write` scope plus skill editor access. Each call
+            creates a new note (NOT idempotent — a retry leaves a duplicate); use `scout-notes-delete` to retire one
+            that's been acted on.
     scout-notes-delete:
         operation: signals_scout_notes_destroy
         enabled: true

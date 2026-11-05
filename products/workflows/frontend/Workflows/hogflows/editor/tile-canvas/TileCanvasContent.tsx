@@ -72,6 +72,7 @@ export function TileCanvasContent(): JSX.Element {
         templateNameOf,
         nodeToBeAdded,
         isDraggingStep,
+        isDraggingNewStep,
         placeableEdgeKeys,
         dropTargetEdgeKey,
     } = useValues(tileCanvasLogic)
@@ -214,7 +215,7 @@ export function TileCanvasContent(): JSX.Element {
                         className={cn('!mb-5', isPanelOpen && '@max-[48rem]/workflow-editor:hidden')}
                     >
                         <div className="flex flex-col items-center gap-2">
-                            {commandPaletteQuery === null && <PlacementHint />}
+                            {(commandPaletteQuery === null || isDraggingNewStep) && <PlacementHint />}
                             <CommandBar />
                         </div>
                     </Panel>

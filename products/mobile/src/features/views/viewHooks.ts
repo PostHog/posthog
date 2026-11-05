@@ -11,7 +11,7 @@ import { DEMO_READ_MS, demoActorsResponse } from '@/demo/views'
 import { sleep } from '@/lib/sleep'
 import { ignoresRangeOverride } from '@/model/adapters/insightSnapshot'
 import { actorsFromResponse } from '@/model/adapters/webOverview'
-import { errorQuery, loadingQuery, successQuery } from '@/model/queryStates'
+import { connectionLoadingQuery, errorQuery, loadingQuery, successQuery } from '@/model/queryStates'
 import type { QueryState } from '@/model/types'
 import type {
     ActorRow,
@@ -98,7 +98,8 @@ function viewState<T>(
     error: ItemErrorKind | null,
     ready: boolean,
     busy: boolean,
-    refetch: () => void
+    refetch: () => void,
+    offline: boolean
 ): QueryState<T> {
     if (data !== undefined) {
         return successQuery(data, { refetch })
@@ -106,7 +107,7 @@ function viewState<T>(
     if (error && !busy) {
         return errorQuery(new Error(ERROR_COPY[error]), refetch)
     }
-    return ready ? { ...loadingQuery<T>(), refetch } : loadingQuery()
+    return ready ? connectionLoadingQuery<T>(offline, refetch) : loadingQuery()
 }
 
 interface Held<T> {
@@ -298,7 +299,7 @@ export function useDashboardScreen(dashboardRef: string, options: ViewOpenOption
         items,
         visibleKeys,
         container,
-        enabled: context.ready,
+        enabled: context.ready && !context.offline,
         rangeKey: overrideId,
     })
     useRecordRecentView(view ? { kind: 'dashboard', ref: dashboardRef, name: view.name } : null)
@@ -306,7 +307,7 @@ export function useDashboardScreen(dashboardRef: string, options: ViewOpenOption
     useDashboardTilesShownEvent(view, tiles, items)
     return {
         access: context.access,
-        dashboard: viewState(view, error, context.ready, refresh.busy, refresh.retry),
+        dashboard: viewState(view, error, context.ready, refresh.busy, refresh.retry, context.offline),
         error,
         tiles,
         range,
@@ -428,7 +429,7 @@ export function useInsightScreen(shortId: string, options: InsightScreenOptions)
         dataScope: context.dataScope,
         screenKey: `insight:${shortId}`,
         items,
-        enabled: context.ready,
+        enabled: context.ready && !context.offline,
         rangeKey: `${overrideId}|${compareId ?? ''}`,
     })
     const itemKey = items[0]?.key ?? null
@@ -467,7 +468,8 @@ export function useInsightScreen(shortId: string, options: InsightScreenOptions)
             error,
             context.ready,
             refresh.busy,
-            refresh.retry
+            refresh.retry,
+            context.offline
         ),
         error,
         range,
@@ -514,7 +516,7 @@ export function useWebAnalyticsScreen(options: ViewOpenOptions): WebAnalyticsScr
         dataScope: context.dataScope,
         screenKey: 'web',
         items,
-        enabled: context.ready,
+        enabled: context.ready && !context.offline,
         rangeKey: queryId,
     })
     const error = useItemError(items[0]?.key ?? null)
@@ -528,7 +530,8 @@ export function useWebAnalyticsScreen(options: ViewOpenOptions): WebAnalyticsScr
             error,
             context.ready,
             refresh.busy,
-            refresh.retry
+            refresh.retry,
+            context.offline
         ),
         error,
         range,

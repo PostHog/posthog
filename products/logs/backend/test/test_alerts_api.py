@@ -487,6 +487,22 @@ class TestLogsAlertAPI(APIBaseTest):
         copy = next((view for view in copies if str(view.legacy_configuration_id) == alert_id), None)
         assert (copy.enabled if copy else None) is copy_enabled
 
+    def test_deleting_an_alert_logs_owns_deletes_its_copy_and_no_other(self) -> None:
+        self._keep_the_team_on_logs()
+        deleted = self._create_via_api(name="Deleted")
+        kept = self._create_via_api(name="Kept")
+        backfill_platform_alert_configurations(team_id=self.team.id)
+
+        response = self.client.delete(f"{self.base_url}{deleted['id']}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        with team_scope(self.team.id):
+            copies = list_configurations(
+                team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], limit=10, offset=0
+            ).configurations
+        copied = {str(view.legacy_configuration_id) for view in copies}
+        assert kept["id"] in copied and deleted["id"] not in copied
+
     def test_a_copy_an_operator_retired_by_name_stays_off_when_its_alert_comes_back_on(self) -> None:
         self._keep_the_team_on_logs()
         self._create_via_api(name="Already on the platform")
@@ -3619,7 +3635,7 @@ class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
 
     def test_falls_back_to_the_logs_row_when_clickhouse_fails(self) -> None:
         with patch(
-            "products.logs.backend.presentation.views.alerts_api.history_by_legacy_id",
+            "products.logs.backend.presentation.views.alerts_api.history_by_public_id",
             side_effect=Exception("ClickHouse is down"),
         ):
             [row] = self._rows("list")

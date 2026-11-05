@@ -88,6 +88,7 @@ Its 16pt input has an explicit 20pt line height, centered vertically without And
   (54pt) and home indicator (34pt). `topOffset(insets, designTop)` and
   `bottomOffset(insets, designBottom)` swap those for the device's insets. The web build has no
   insets, so `useScreenInsets` uses the prototype's values there.
+  A minimum 12pt top inset keeps floating controls away from the edge when the native status area moves to a side.
 - **Page titles.** Pushed pages share a 46pt navigation row and a 20pt gap before their title block.
   Their blur fade ends 10pt before the content. `screenLayout` supplies these offsets to every page.
   As the title scrolls under navigation, `ScreenChrome` fades in a smaller copy centered between the controls.
@@ -98,7 +99,58 @@ Its 16pt input has an explicit 20pt line height, centered vertically without And
   `lineBreakStrategyIOS="standard"`, and web from the CSS property (`prettyWrap`).
   Android wraps greedily.
 
+## Adaptive layouts
+
+Layout follows the space in the current window, including independent left and right safe areas.
+It does not identify devices by name or assume that an iPhone always has compact width.
+The native build supports rotation; iOS builds use Xcode 27.1 for the full Duo display.
+
+- A window at least 480pt tall keeps the inbox beside the selected report when the list has 300pt and the report has at least 440pt.
+  Before selection, the detail area asks the person to choose a report. Opening the device does not mark a report read.
+- Folding or entering a narrow Split View hides the inbox pane without remounting the selected report or its sheets.
+  The expanded inbox shows the same filters and actions as the main inbox and initially reveals the selected report.
+  It retries the reveal as rows are measured, and stops if the reader starts scrolling.
+  Both inbox lists prefetch reports as rows become visible, including rows beyond the initial prefetch window.
+  The report's inbox pane only prefetches while it is visible and its screen is focused.
+- iOS follows the system's vertical-bar signal. When the rail is active, native tabs and stack toolbar buttons occupy it.
+  Subscribe to Expo's initial edge event; its synchronous edge getter can deadlock React's event beat during startup.
+  They use raster copies of the existing app glyphs, icon-only tab labels, and a distinct Chat action.
+  Without a vertical rail, the native tab bar is hidden and the existing floating pill and Chat button remain.
+  Native header options reset when the vertical system rail disappears.
+  Navigation pin toasts and Undo live above the native tab host so tab visibility changes preserve them.
+  The iOS navigator stays mounted across these transitions. Android retains its existing custom navigation.
+  Page titles, the logomark, and header backgrounds keep the app's original styling in every pose.
+  Regenerate native glyph images from their SVG components with `node scripts/make-navigation-icons.mjs` (`rsvg-convert` required).
+- Active division regions determine the inbox and report boundary, including a horizontal fold. If the panes are too small for a pair, the report stays inside the detail pane. Each pane must have enough
+  reading space; a narrow window keeps one report instance. A flat display uses the normal width-based split.
+  Measure regions above navigator transitions and translate them into the scene's safe content coordinates; a provider inside an animating screen can retain a translated fold frame.
+- Paired reports keep their heading in the detail pane, leaving the inbox heading clear.
+- Reports keep their contextual Chat action; their navigation bar does not add a second compose button.
+  The report action bar stays in the page layout when the keyboard opens or the window rotates.
+  With a navigation rail beside native side chrome, its bottom gutter is 16pt; phone layouts retain their bottom safe-area spacing.
+- Chat keeps a centered reading column up to 720pt wide. Resizing keeps the session, composer, queued messages and draft mounted.
+  Short landscape windows put the input and composer controls on one row, with a smaller header.
+  Empty-state suggestions scroll above the composer; Android keeps the app visible while editing instead of opening a full-screen editor.
+- Sign-in keeps its form within 600pt, and Settings uses the same 720pt reading width as chat.
+- Consecutive chart or number pins can share a row when each has enough width. Recent and Browse remain lists.
+  The first visible pin anchors the list when its columns change; chart tooltips can close as their canvases resize.
+  The chosen pin stays anchored through deferred row measurements until the user scrolls.
+- Sheets have a bounded width on expanded windows. Their height follows their current scene, including rotation and Split View.
+  Sheet contents receive that pane’s dimensions and shrink their scroll areas to keep controls reachable.
+  Their floating presentation uses a safe pane, even when opened from a narrow report list. Active folds and occlusions keep sheets and picker cards on one side without resetting their form state.
+  Floating sheets subtract their bottom margin from the available height so their top stays below the safe area.
+  Resolve and Dismiss resize above the keyboard; their headings scroll with the form in short windows while Confirm stays visible.
+  Assignee and Project cards cap their width at 600pt; navigation menus cap at 400pt.
+  Android Back dismisses the top sheet or card on the focused screen before navigating away from that page.
+  Native rail actions switch to Close while an overlay is open, and native tabs are disabled.
+  Row menus convert window measurements into overlay coordinates
+  and close when their measured frame or reserved regions change, so a stale anchor cannot survive rotation.
+- Full-screen charts use the space remaining below the title and above the safe bottom edge, including short landscape phones.
+
 ## Component inventory
+
+`features/chat/ChatErrorNotice.tsx` provides a bordered, wrapping error message with a screen-reader alert and 44pt Dismiss button.
+Optional recovery actions sit below the message and wrap on narrow screens.
 
 | Component                             | File                                                       | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | ------------------------------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

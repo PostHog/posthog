@@ -494,6 +494,12 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             ),
             ("read_mode", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True),
             param(
+                "read_mode_with_the_union_flag_off",
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                True,
+                union_flag_enabled=False,
+            ),
+            param(
                 "read_mode_with_reads_forced_to_events",
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
                 False,
@@ -515,7 +521,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             ),
         ]
     )
-    def test_read_flag_calls_from_flag_evaluations_follows_the_read_mode(
+    def test_flag_call_reads_follow_the_read_mode_and_the_union_flag(
         self,
         _name: str,
         mode: FlagEvaluationsMode,
@@ -523,7 +529,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         reads_forced_to_events: bool = False,
         debug: bool = False,
         include_flag_evaluations_table: bool | None = None,
+        union_flag_enabled: bool = True,
     ) -> None:
+        enabled_flags = {"hogql-flag-calls-union"} if union_flag_enabled else set()
         OrganizationFeatureFlagsConfig.objects.update_or_create(
             organization=self.organization, defaults={"flag_evaluations_mode": mode}
         )
@@ -531,12 +539,21 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         with (
             override_settings(DEBUG=debug),
             override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", reads_forced_to_events),
+            patch(
+                "posthog.hogql.database.database.feature_enabled_or_false",
+                side_effect=lambda key, *args, **kwargs: key in enabled_flags,
+            ),
         ):
             database = Database.create_for(
                 team=self.team, include_flag_evaluations_table=include_flag_evaluations_table
             )
 
         assert database.read_flag_calls_from_flag_evaluations is expected
+        union_expected = expected and union_flag_enabled
+        assert database.read_flag_calls_with_union is union_expected
+        assert database.has_table(["posthog", "events_with_flag_calls"]) is union_expected
+        context = HogQLContext(team_id=self.team.pk, database=database)
+        assert "posthog.events_with_flag_calls" not in database.serialize(context, include_hidden_posthog_tables=True)
 
     def test_serialize_database_without_fields_matches_full_metadata(self):
         credential = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
@@ -854,6 +871,119 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert field.hogql_value == "id"
         assert field.type == "string"
         assert field.schema_valid is True
+
+    @parameterized.expand(
+        [
+            param("running_by_dotted_name", schema={"status": "Running"}, queried="stripe.charges", hint="running"),
+            param("running_by_row_name", schema={"status": "Running"}, queried="stripe_charges", hint="running"),
+            param("never_started", schema={"status": None}, queried="stripe.charges", hint="running"),
+            param("failed", schema={"status": "Failed"}, queried="stripe.charges", hint="failed"),
+            param(
+                "prefixed_source_with_dotted_schema",
+                prefix="dev_",
+                schema={"name": "public.orders", "status": "Running"},
+                queried="stripe.dev.public__orders",
+                hint="running",
+            ),
+            param("sync_turned_off", schema={"status": "Failed", "should_sync": False}, queried="stripe.charges"),
+            param("deleted_schema", schema={"status": "Running", "deleted": True}, queried="stripe.charges"),
+            param(
+                "first_sync_complete_without_table",
+                schema={"status": "Completed", "initial_sync_complete": True},
+                queried="stripe.charges",
+            ),
+            param("other_teams_schema", schema={"status": "Running"}, queried="stripe.charges", other_team=True),
+            param("unrelated_name", schema={"status": "Running"}, queried="stripe.refunds"),
+            param(
+                "typo_of_synced_table_keeps_suggestion",
+                schema={"status": "Running"},
+                queried="stripe.invoice",
+                expected_message="Unknown table `stripe.invoice`. Did you mean: stripe.invoices?",
+            ),
+        ]
+    )
+    def test_unknown_table_says_when_first_sync_has_not_created_it(
+        self,
+        _name: str,
+        schema: dict[str, Any],
+        queried: str,
+        hint: str | None = None,
+        prefix: str | None = None,
+        other_team: bool = False,
+        expected_message: str | None = None,
+    ):
+        credential = DataWarehouseCredential.objects.create(access_key="k", access_secret="s", team=self.team)
+        own_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="own",
+            connection_id="own",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            prefix=prefix,
+        )
+        synced_table = DataWarehouseTable.objects.create(
+            name="stripe_invoices",
+            format="Parquet",
+            team=self.team,
+            external_data_source=own_source,
+            credential=credential,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        ExternalDataSchema.objects.create(team=self.team, name="invoices", source=own_source, table=synced_table)
+
+        schema_team = self.team
+        if other_team:
+            schema_team = Team.objects.create(organization=Organization.objects.create(name="other_org"))
+        pending_source = (
+            ExternalDataSource.objects.create(
+                team=schema_team,
+                source_id="other",
+                connection_id="other",
+                status=ExternalDataSource.Status.COMPLETED,
+                source_type=ExternalDataSourceType.STRIPE,
+            )
+            if other_team
+            else own_source
+        )
+        ExternalDataSchema.objects.create(
+            team=schema_team, source=pending_source, **{"name": "charges", "should_sync": True, **schema}
+        )
+
+        database = Database.create_for(team=self.team)
+
+        assert database.get_table(f"{'stripe.dev' if prefix else 'stripe'}.invoices").name is not None
+        with self.assertRaises(QueryError) as error:
+            database.get_table(queried)
+
+        if expected_message is None:
+            expected_message = {
+                None: f"Unknown table `{queried}`.",
+                "running": f"Unknown table `{queried}`: its first sync has not finished, so the table does not exist "
+                "yet. Check the sync status on the source page.",
+                "failed": f"Unknown table `{queried}`: its first sync failed, so the table does not exist yet. "
+                "Open the source page to see why.",
+            }[hint]
+        assert str(error.exception) == expected_message
+
+    def test_unknown_table_loads_first_sync_names_once_and_never_during_build(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="own",
+            connection_id="own",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+        )
+        ExternalDataSchema.objects.create(team=self.team, name="charges", source=source, status="Running")
+
+        sources = Database._fetch_sources(team=self.team)
+        with self.assertNumQueries(0):
+            database = Database._build_from_sources(sources)
+
+        with self.assertNumQueries(1):
+            for name in ["stripe.charges", "stripe.refunds", "stripe.charges", "nope"]:
+                with self.assertRaises(QueryError):
+                    database.get_table(name)
 
     def _create_warehouse_table(self, *, name, url_pattern, source=None, credential=None):
         return DataWarehouseTable.objects.create(

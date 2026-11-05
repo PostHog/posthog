@@ -2,8 +2,8 @@ import type { AppMetricsTotalsRequest } from 'lib/components/AppMetrics/appMetri
 
 import { getEdgeId } from '../../edgeId'
 import type { CreateActionType, HogFlowEditorActionMetrics } from '../../hogFlowEditorLogic'
-import { getWorkflowBranchLabel, isBranchingAction } from '../../tree/workflowTree'
 import type { HogFlow, HogFlowAction, HogFlowEdge } from '../../types'
+import { getWorkflowBranchLabel, isBranchingAction } from '../../workflowBranches'
 
 export type FlowGraph = Pick<HogFlow, 'actions' | 'edges'>
 
@@ -781,6 +781,10 @@ export interface PaletteCommand {
     label: string
     hint?: string
 }
+
+// Firefox starts a drag only when it carries data. A text field accepts a drop of text/plain and types it in,
+// so step drags carry a type that no text field accepts.
+export const STEP_DRAG_DATA_TYPE = 'application/x-posthog-workflow-step'
 
 export type PaletteItem<Command extends PaletteCommand = PaletteCommand> =
     | { kind: 'step'; key: string; section: string; label: string; description?: string; step: CreateActionType }

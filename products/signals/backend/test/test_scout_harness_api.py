@@ -77,6 +77,7 @@ from products.signals.backend.scout_harness.limits import (
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCE_REPORT_RESEARCH as PIPELINE_AUDIENCE
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.serializers import (
+    SearchMemoryQuerySerializer,
     SignalScoutConfigUpdateSerializer,
     SignalScoutRunSummarySerializer,
     SignalScoutSlackDestinationSerializer,
@@ -2390,6 +2391,11 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         keys = [row["key"] for row in response.json()]
         assert keys == ["match"]
 
+    def test_search_rejects_text_the_trigram_indexes_cannot_serve(self) -> None:
+        response = self.client.get(self._list_url(), {"text": "ai"})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "text"
+
     def test_search_keys_only_blanks_content(self) -> None:
         SignalScratchpad.objects.create(team=self.team, key="k1", content="a long body")
         response = self.client.get(f"{self._list_url()}?keys_only=true")
@@ -2628,6 +2634,25 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert NOT_IN_USE_WRITES_KEY not in (sibling_run.metadata or {})
 
 
+class TestSearchMemoryQuerySerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("blank", "", True),
+            ("word", "checkout", True),
+            ("key_prefix", "pattern:impl:posthog/posthog", True),
+            ("three_digits", "404", True),
+            ("non_ascii_word", "café", True),
+            ("two_chars_before_separator", "ai_", True),
+            ("two_chars_after_separator", ":pr", True),
+            ("two_chars", "ai", False),
+            ("short_words_split_by_separators", "a-b_c d", False),
+            ("punctuation_only", "%%%", False),
+        ]
+    )
+    def test_text_needs_a_trigram(self, _name: str, text: str, valid: bool) -> None:
+        assert SearchMemoryQuerySerializer(data={"text": text}).is_valid() is valid
+
+
 class TestScoutHarnessNotesAPI(APIBaseTest):
     # Session auth throughout — unlike the scratchpad, the notes surface is deliberately on the
     # user-grantable `signal_scout` scopes, so any team member's session/PAK can write.
@@ -2782,6 +2807,107 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         note = SignalScoutNote.objects.get(team=self.team)
         assert note.expires_at is None
         assert note.content == "watch checkout"
+
+    def test_create_with_report_id_names_the_report_and_logs_it_on_the_report(self) -> None:
+        self._make_scout_skill()
+        report = SignalReport.objects.create(team=self.team, title="Checkout 500s", status=SignalReport.Status.READY)
+
+        response = self.client.post(
+            self._list_url(),
+            data={
+                "content": "focus on the new checkout flow",
+                "skill_name": "signals-scout-web-analytics",
+                "report_id": str(report.id),
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        note = response.json()
+        assert str(report.id) in note["content"]
+        assert "Checkout 500s" not in note["content"]
+        # The content quotes a report id, so the row has to ride the derived-origin read gate.
+        assert note["origin"] == SignalScoutNote.Origin.REPORT_NOTE
+        listed = self.client.get(self._list_url(), data={"text": str(report.id)})
+        assert [row["id"] for row in listed.json()] == [note["id"]]
+        artefact = SignalReportArtefact.objects.get(
+            report=report, type=SignalReportArtefact.ArtefactType.SCOUT_NOTE_LEFT
+        )
+        assert json.loads(artefact.content) == {
+            "note": "focus on the new checkout flow",
+            "skill_name": "signals-scout-web-analytics",
+            "scout_note_id": note["id"],
+        }
+        assert artefact.created_by_id == self.user.id
+
+    @parameterized.expand(
+        [
+            ("unknown_report", "unknown", ["*"], status.HTTP_400_BAD_REQUEST),
+            ("other_teams_report", "other_team", ["*"], status.HTTP_400_BAD_REQUEST),
+            ("deleted_report", "deleted", ["*"], status.HTTP_400_BAD_REQUEST),
+            (
+                "caller_without_report_read",
+                "own",
+                ["signal_scout:write", "llm_skill:write"],
+                status.HTTP_403_FORBIDDEN,
+            ),
+            (
+                "caller_without_report_write",
+                "own",
+                ["signal_scout:write", "llm_skill:write", "task:read"],
+                status.HTTP_403_FORBIDDEN,
+            ),
+            (
+                "caller_with_inbox_write_only",
+                "own",
+                ["signal_scout:write", "llm_skill:write", "inbox:write"],
+                status.HTTP_403_FORBIDDEN,
+            ),
+        ]
+    )
+    def test_create_with_report_id_writes_nothing_when_refused(
+        self, _name: str, report_kind: str, scopes: list[str], expected_status: int
+    ) -> None:
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        other = Team.objects.create(organization=self.organization, name="Other")
+        report_id = {
+            "unknown": lambda: str(uuid4()),
+            "other_team": lambda: str(SignalReport.objects.create(team=other, status=SignalReport.Status.READY).id),
+            "deleted": lambda: str(SignalReport.objects.create(team=self.team, status=SignalReport.Status.DELETED).id),
+            "own": lambda: str(SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY).id),
+        }[report_kind]()
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
+        self.client.logout()
+
+        response = self.client.post(
+            self._list_url(),
+            data={"content": "focus on the new checkout flow", "report_id": report_id},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {raw}",
+        )
+
+        assert response.status_code == expected_status, response.content
+        assert not SignalScoutNote.objects.filter(team=self.team).exists()
+        assert not SignalReportArtefact.objects.filter(type=SignalReportArtefact.ArtefactType.SCOUT_NOTE_LEFT).exists()
+
+    def test_create_with_report_id_rejects_content_too_long_to_carry_the_reference(self) -> None:
+        from products.signals.backend.report_scout_notes import MAX_REPORT_NOTE_TEXT_LENGTH
+
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
+
+        response = self.client.post(
+            self._list_url(),
+            data={"content": "x" * (MAX_REPORT_NOTE_TEXT_LENGTH + 1), "report_id": str(report.id)},
+            format="json",
+        )
+
+        # The request serializer owns the shorter cap, so the caller gets a field error instead of
+        # the note layer's cap firing on prose the schema advertised as acceptable.
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert not SignalScoutNote.objects.filter(team=self.team).exists()
 
     def test_notes_do_not_leak_across_teams(self) -> None:
         # Cross-team rows go through `all_teams`: the fail-closed `objects` manager is pinned

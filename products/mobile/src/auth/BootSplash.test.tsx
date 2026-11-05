@@ -12,6 +12,9 @@ jest.mock('expo-router', () => {
     const { View } = jest.requireActual<typeof import('react-native')>('react-native')
     const segments = ['(tabs)', 'inbox']
     return {
+        DarkTheme: jest.requireActual('expo-router').DarkTheme,
+        DefaultTheme: jest.requireActual('expo-router').DefaultTheme,
+        ThemeProvider: jest.requireActual('expo-router').ThemeProvider,
         Stack: Object.assign(() => createElement(View, { testID: 'app-screens' }), { Screen: () => null }),
         useSegments: () => segments,
     }
@@ -43,6 +46,7 @@ jest.mock('@/ui/appearanceStore', () => ({
 jest.mock('@/features/ai/AiApprovalDialog', () => ({ AiApprovalDialog: () => null }))
 jest.mock('@/features/updates/useAutomaticUpdates', () => ({ useAutomaticUpdates: jest.fn() }))
 jest.mock('@/features/chat/draftPersistence', () => ({}))
+jest.mock('@/features/offlineCache', () => ({ installOfflineCache: jest.fn() }))
 jest.mock('@/features/hedgehog/useHedgehogWidgetSync', () => ({ useHedgehogWidgetSync: jest.fn() }))
 jest.mock('@/features/notifications/pushRegistration', () => ({ configureNotifications: jest.fn() }))
 jest.mock('@/features/notifications/useNotificationRouting', () => ({ useNotificationRouting: jest.fn() }))

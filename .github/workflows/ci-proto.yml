@@ -140,9 +140,20 @@ jobs:
             - name: Lint protos
               run: buf lint proto/
 
+            - name: Check out the compatibility baseline
+              if: ${{ !cancelled() }}
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: master
+                  path: .proto-baseline
+                  fetch-depth: 1
+                  sparse-checkout: proto
+                  sparse-checkout-cone-mode: false
+                  persist-credentials: false
+
             - name: Check for breaking changes
               if: ${{ !cancelled() }}
-              run: buf breaking proto/ --against 'https://github.com/PostHog/posthog.git#branch=master,subdir=proto'
+              run: buf breaking proto/ --against .proto-baseline/proto/
 
     python-codegen:
         name: Check Python proto stubs are up to date (depot-ubuntu-22.04-4)
@@ -155,6 +166,16 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
+                  sparse-checkout: |
+                      .github/actions/setup-uv
+                      bin/generate_personhog_proto.sh
+                      packages/owners-yaml
+                      packages/personhog-proto
+                      proto
+                      pyproject.toml
+                      tools/hogli
+                      uv.lock
+                  sparse-checkout-cone-mode: false
 
             - name: Mint setup-action GitHub token
               id: setup-gh-token

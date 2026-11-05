@@ -203,6 +203,7 @@ class ErrorTrackingIssueAssignmentNotification:
 
 @dataclass(frozen=True)
 class ErrorTrackingSettings:
+    adaptive_ingestion_enabled: bool
     project_rate_limit_value: int | None
     project_rate_limit_bucket_size_minutes: int | None
     per_issue_rate_limit_value: int | None
@@ -502,5 +503,25 @@ class ErrorTrackingIssueSummary:
     category: IssueSummaryCategory | None
     model: str
     generated_at: datetime
-    # When the summary was last generated or confirmed unchanged. The 24h regenerate interval runs from it.
+    # When generation last wrote the summary.
     checked_at: datetime
+
+
+class IssueSummaryStatus(LabeledStrEnum):
+    READY = "ready"
+    NOT_GENERATED = "not_generated"
+    UNAVAILABLE = "unavailable"
+
+
+class IssueSummaryUnavailableReason(LabeledStrEnum):
+    RESTRICTED = "restricted"
+    DISABLED = "disabled"
+    AI_NOT_APPROVED = "ai_not_approved"
+
+
+@dataclass(frozen=True)
+class IssueSummaryRead:
+    status: IssueSummaryStatus
+    summary: ErrorTrackingIssueSummary | None
+    # Set only when the status is unavailable.
+    reason: IssueSummaryUnavailableReason | None

@@ -1,5 +1,17 @@
 # posthog-cli
 
+## 0.19.3 — 2026-11-04
+
+### Patch changes
+
+- [48fd6d2c7cc](https://github.com/PostHog/posthog/commit/48fd6d2c7cc202105e3af13f11008086ce1796d0) Stop reporting Next.js Turbopack server page stubs as a possible bundler misconfiguration when `sourcemap upload` skips their empty source maps — Thanks @JamesPatrickGill!
+
+## 0.19.2 — 2026-11-03
+
+### Patch changes
+
+- [5d6bc49b864](https://github.com/PostHog/posthog/commit/5d6bc49b864253a8dbf7bab15cc1311ad08495cf) Return a credentials error that names `POSTHOG_HOME` and the env credential variables, instead of panicking, when no home directory can be found — Thanks @posthog[bot]!
+
 ## 0.19.1 — 2026-11-02
 
 ### Patch changes

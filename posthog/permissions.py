@@ -28,11 +28,12 @@ from posthog.auth import (
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
     TeamSecretTokenAuthentication,
+    WorkloadAccessTokenAuthentication,
     is_mcp_request,
 )
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
-from posthog.exceptions import Conflict, EnterpriseFeatureException, PaidFeatureException
+from posthog.exceptions import Conflict, EnterpriseFeatureException, InsufficientScope, PaidFeatureException
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, is_enforcement_disable_request
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Project, Team, User
 from posthog.models.oauth import OAuthAccessToken
@@ -745,13 +746,22 @@ def get_authenticator_scopes(authenticator) -> list[str] | None:
         return list(authenticator.personal_api_key.scopes or [])
     if isinstance(authenticator, OAuthAccessTokenAuthentication):
         return str(authenticator.access_token.scope or "").split()
-    if isinstance(authenticator, IDJagAccessTokenAuthentication):
+    if isinstance(authenticator, IDJagAccessTokenAuthentication | WorkloadAccessTokenAuthentication):
         return list(authenticator.scopes or [])
     if isinstance(authenticator, ProjectSecretAPIKeyAuthentication):
         return list(authenticator.project_secret_api_key.scopes or [])
     if isinstance(authenticator, ExportRendererAuthentication):
         return list(authenticator.scopes)
     return None
+
+
+def legacy_scope_object_used(request: Request, required_scope: str) -> str | None:
+    """The legacy scope object that satisfied `required_scope` through LEGACY_SCOPE_FALLBACKS, or
+    None when the request's token holds `required_scope` itself."""
+    held = get_authenticator_scopes(getattr(request, "successful_authenticator", None)) or []
+    covered = scopes_covered_by_legacy_fallback(held, scopes_not_covered(held, [required_scope]))
+    legacy_scope = covered.get(required_scope)
+    return legacy_scope.split(":", 1)[0] if legacy_scope else None
 
 
 def scopes_caller_lacks(request: Request | None, scopes: Iterable[str]) -> list[str]:
@@ -786,6 +796,8 @@ def get_authenticator_client(authenticator) -> dict[str, str]:
         return {"credential_type": "project_secret_key", "client_id": "project_secret_key"}
     if isinstance(authenticator, IDJagAccessTokenAuthentication):
         return {"credential_type": "id_jag", "client_id": getattr(authenticator, "client_id", None) or "id_jag"}
+    if isinstance(authenticator, WorkloadAccessTokenAuthentication):
+        return {"credential_type": "oidc_workload", "client_id": "oidc_workload"}
     if authenticator is None or isinstance(authenticator, SessionAuthentication):
         return {"credential_type": "session", "client_id": CLIENT_ID_POSTHOG}
     return {"credential_type": "other", "client_id": "other"}
@@ -823,6 +835,10 @@ def get_authenticator_scoped_organization_ids(authenticator) -> list[str] | None
         # keeps it away from the other organizations the resolved user happens to belong to
         # (cross-org confused-deputy defense).
         return [authenticator.organization_id]
+    if isinstance(authenticator, WorkloadAccessTokenAuthentication):
+        # A workload token acts as an owner, who belongs to the whole organization. The trust policy only
+        # covers the project the exchange named, so the token is confined to that organization and project.
+        return [authenticator.organization_id]
     return None
 
 
@@ -837,7 +853,7 @@ def get_authenticator_scoped_team_ids(authenticator) -> list[int] | None:
     credential = get_authenticator_user_credential(authenticator)
     if credential is not None:
         return list(credential.scoped_teams or []) or None
-    if isinstance(authenticator, ExportRendererAuthentication):
+    if isinstance(authenticator, ExportRendererAuthentication | WorkloadAccessTokenAuthentication):
         return [authenticator.team_id]
     return None
 
@@ -931,6 +947,9 @@ class APIScopePermission(ScopeBasePermission):
         if isinstance(authenticator, IDJagAccessTokenAuthentication) and not key_scopes:
             self.message = "ID-JAG access token has no scopes and cannot access this resource"
             return False
+        if isinstance(authenticator, WorkloadAccessTokenAuthentication) and not key_scopes:
+            self.message = "Workload access token has no scopes and cannot access this resource"
+            return False
         if is_psak:
             psak_allowed_actions = getattr(view, "psak_allowed_actions", self.psak_allowed_actions)
             if self._get_action(request, view) not in psak_allowed_actions:
@@ -968,8 +987,11 @@ class APIScopePermission(ScopeBasePermission):
 
         missing_scopes = scopes_missing_after_legacy_fallback(request, view, key_scopes, required_scopes)
         if missing_scopes:
-            self.message = f"API key missing required scope '{missing_scopes[0]}'"
-            return False
+            # A token type can answer with its own error, such as the policy link a workload token gets.
+            insufficient_scope_error = getattr(type(authenticator), "insufficient_scope_error", None)
+            if insufficient_scope_error is not None:
+                raise insufficient_scope_error(authenticator, view, required_scopes, missing_scopes)
+            raise InsufficientScope(required_scopes, detail=f"API key missing required scope '{missing_scopes[0]}'")
 
         return True
 
@@ -1037,6 +1059,7 @@ class APIScopePermission(ScopeBasePermission):
             | PersonalAPIKeyAuthentication
             | JwtAuthentication
             | IDJagAccessTokenAuthentication
+            | WorkloadAccessTokenAuthentication
             | ExportRendererAuthentication,
         ):
             raise ValueError("Unexpected authentication type")
@@ -1544,3 +1567,13 @@ class DenyMCPBuiltInAgentOAuth(BasePermission):
 
     def has_permission(self, request: Request, view: APIView) -> bool:
         return not is_mcp_built_in_agent_oauth_request(request)
+
+
+class DenyWorkloadAccessToken(BasePermission):
+    """For views that act on a person's own connections to other accounts. A workload token acts as the
+    organization owner without the owner minting it, so it must not reach the owner's connections."""
+
+    message = "Workload tokens can't use this endpoint, because it acts on a person's own connections."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        return not isinstance(request.successful_authenticator, WorkloadAccessTokenAuthentication)

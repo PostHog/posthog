@@ -23,9 +23,11 @@ from posthog.auth import (
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
     SessionAuthentication,
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
+    WorkloadAccessTokenAuthentication,
 )
 from posthog.clickhouse.query_tagging import get_team_query_tags, tag_queries
 from posthog.dataclasses import frozen
@@ -386,10 +388,19 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         except NotImplementedError:
             pass
         else:
+            # A workload token acts as an owner, who may pass a view's own checks, so its policy's scopes and
+            # project are enforced whatever chain the view builds.
+            workload_token_boundary = (
+                [APIScopePermission()]
+                if isinstance(self.request.successful_authenticator, WorkloadAccessTokenAuthentication)
+                else []
+            )
+
             # These are tenant boundaries, not authorization levels. Views that shape their own
             # permission chain cannot remove them.
             return [
                 *dangerously_defined,
+                *workload_token_boundary,
                 VerifiedDomainEnforcementPermission(),
                 MCPAccessPermission(),
                 ActiveOrganizationPermission(),
@@ -445,6 +456,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 # rejected before its own authenticator could run. IDJagAccessTokenAuthentication
                 # has a strict `typ == "at+jwt"` precheck and cleanly defers for other JWTs.
                 IDJagAccessTokenAuthentication,
+                # Same reason as ID-JAG: a workload access token is an RS256 JWT that JwtAuthentication would reject.
+                WorkloadAccessTokenAuthentication,
                 DelegatedPersonalAPIKeyAuthentication,
                 DelegatedOAuthAccessTokenAuthentication,
                 JwtAuthentication,
@@ -594,6 +607,8 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     def team(self) -> Team:
         if team_from_token := self._get_team_from_request():
             team = team_from_token
+        elif psak_team := self._get_team_from_project_secret_api_key():
+            team = psak_team
         elif self._is_project_view:
             team = Team.objects.select_related("organization").get(
                 id=self.project_id  # KLUDGE: This is just for the period of transition to project environments
@@ -615,6 +630,17 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
         tag_queries(**get_team_query_tags(team))
         return team
+
+    def _get_team_from_project_secret_api_key(self) -> Optional[Team]:
+        # The authenticator already loaded the key's team and organization. Reuse that row only when it is the
+        # team the route resolves to, so a key for another team still fails the permission check.
+        if not (self._is_team_view or self._is_project_view):
+            return None
+        authenticator = getattr(self.request, "successful_authenticator", None)
+        if not isinstance(authenticator, ProjectSecretAPIKeyAuthentication):
+            return None
+        psak = authenticator.project_secret_api_key
+        return psak.team if psak.team_id == self.team_id else None
 
     @cached_property
     def project_id(self) -> int:

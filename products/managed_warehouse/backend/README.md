@@ -130,6 +130,32 @@ The data-import copy and registration paths target the same stable DuckLake tabl
 
 The two organization flags also select the Data ops variant. `managed-warehouse-trino-query` gives the Trino variant and wins when both are on. `data-warehouse-scene` alone gives the DuckDB variant. `data_ops_variant` in `presentation/views.py` is the single backend implementation of that rule.
 
+## Trino canary hostname
+
+`MANAGED_WAREHOUSE_TRINO_CANARY_DOMAIN` (empty by default) names the domain of the canary Trino lane, for example `canary.dw.us.postwh.com`.
+A canary connection keeps the minted credential and replaces the host with `<database label>.<canary domain>`.
+The minted host must be a single label under `dw.<region>.postwh.com`.
+Any other minted host, or an empty canary domain, makes a canary connection fail with an explicit error instead of falling back to the normal host.
+
+An interactive run uses the canary host when the requesting user has the `managed-warehouse-trino-canary` flag, evaluated with `user.distinct_id` and the organization group.
+This covers the SQL editor, the schema browser, and the managed warehouse connection of the SQL editor.
+These runs never use the canary host:
+
+- Alert runs and cache-warming runs, which carry alert and warming query tags.
+- Runs with the export, SQL alert, or PostHog AI limit context. Exports and subscriptions run as their creator and carry no tag, so the limit context identifies them.
+- Schema discovery, data modeling, and model aliases, which never pass the canary option.
+
+A Dagster backfill uses the canary host only when its run config sets `use_trino_canary: true`.
+It does not evaluate the flag.
+
+The query runner decides once per query and uses that decision for the cache key and for the connection.
+A canary result is cached under its own key, so the normal lane never serves it.
+The decision is made again for each runner, so the web request and the Celery task that continues it each agree with themselves.
+
+Before you turn the flag on, run one real query through the canary host.
+The canary host must return `nextUri` and `infoUri` values on the canary host.
+The connection accepts only responses that name the host it dialed, so a response on the normal host fails with "Trino returned a different service credential destination".
+
 ## Data Ops workflow status
 
 The copy and registration workflows both write their lifecycle to `ManagedWarehouseSourceJob`. Each row identifies the project, source schema, external data job, workflow type, and workflow attempt. The supported states are running, completed, failed, skipped, and stale.

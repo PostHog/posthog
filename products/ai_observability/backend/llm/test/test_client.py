@@ -1,13 +1,18 @@
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+import httpx
 from parameterized import parameterized
 
 from products.ai_observability.backend.llm.client import Client
 from products.ai_observability.backend.llm.config import ProviderConfig
-from products.ai_observability.backend.llm.errors import ProviderMismatchError, UnsupportedProviderError
+from products.ai_observability.backend.llm.errors import (
+    ProviderMismatchError,
+    RetryableRateLimitError,
+    UnsupportedProviderError,
+)
 from products.ai_observability.backend.llm.types import CompletionRequest
 
 
@@ -217,3 +222,27 @@ class TestEffectiveCredentials(SimpleTestCase):
 
         assert api_key == "config-key"
         assert base_url is None
+
+
+class TestSdkRetries(SimpleTestCase):
+    @parameterized.expand([("openai", "gpt-4.1"), ("anthropic", "claude-haiku-4-5")])
+    def test_max_retries_zero_makes_one_call_on_a_429(self, provider: str, model: str):
+        calls: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(request)
+            return httpx.Response(429, json={"error": {"type": "rate_limit_error", "message": "Too many requests"}})
+
+        client = Client(config=ProviderConfig(api_key="sk-test"), capture_analytics=False, max_retries=0)
+        request = CompletionRequest(
+            model=model, system="s", messages=[{"role": "user", "content": "hi"}], provider=provider
+        )
+
+        with patch(
+            "products.ai_observability.backend.llm.providers._diagnostics.tagged_http_client",
+            return_value=httpx.Client(transport=httpx.MockTransport(handler)),
+        ):
+            with pytest.raises(RetryableRateLimitError):
+                client.complete(request)
+
+        assert len(calls) == 1
