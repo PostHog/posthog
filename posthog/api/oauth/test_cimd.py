@@ -1438,6 +1438,18 @@ class TestCIMDAuthorizeIntegration(APIBaseTest):
         )
 
     @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_missing_signing_key_answers_server_error_naming_the_setting(self, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata())
+
+        with patch.object(oauth2_settings, "OIDC_RSA_PRIVATE_KEY", ""):
+            response = self.client.get(self._authorize_url(VALID_CIMD_URL))
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json()["error"], "server_error")
+        self.assertIn("OIDC_RSA_PRIVATE_KEY", response.json()["error_description"])
+        self.assertFalse(OAuthApplication.objects.filter(client_id=VALID_CIMD_URL).exists())
+
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_fetch_failure_reason_hides_connection_details(self, mock_get, _url_mock):
         mock_get.side_effect = requests.ConnectionError("Max retries exceeded (host='10.1.2.3')")
 

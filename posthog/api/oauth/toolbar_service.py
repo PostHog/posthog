@@ -26,6 +26,7 @@ from posthog.api.utils import canonicalize_encoded_url, strip_url_userinfo, unpa
 from posthog.models import Team, User
 from posthog.models.oauth import OAuthApplication, is_loopback_host
 from posthog.models.organization import Organization
+from posthog.oauth_signing_key import OIDC_SIGNING_KEY_MISSING_MESSAGE, oidc_signing_key_configured
 
 logger = structlog.get_logger(__name__)
 
@@ -142,6 +143,11 @@ def normalize_and_validate_app_url(team: Team, app_url: str) -> str:
     return app_url
 
 
+def _require_oidc_signing_key() -> None:
+    if not oidc_signing_key_configured():
+        raise ToolbarOAuthError("server_error", OIDC_SIGNING_KEY_MISSING_MESSAGE, 500)
+
+
 def get_or_create_toolbar_oauth_application(user: User) -> OAuthApplication:
     """
     Return the toolbar OAuth app for the user's organization.
@@ -169,6 +175,7 @@ def get_or_create_toolbar_oauth_application(user: User) -> OAuthApplication:
 
         if existing:
             if existing.redirect_uris != redirect_uri:
+                _require_oidc_signing_key()
                 existing.redirect_uris = redirect_uri
                 existing.save(update_fields=["redirect_uris"])
                 logger.info(
@@ -178,6 +185,7 @@ def get_or_create_toolbar_oauth_application(user: User) -> OAuthApplication:
                 )
             return existing
 
+        _require_oidc_signing_key()
         app = OAuthApplication.objects.create(
             name=app_name,
             user=user,
