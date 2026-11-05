@@ -2,6 +2,14 @@ import { cleanup, render, waitFor } from '@testing-library/react'
 
 import { ToolCallValue } from './ToolCallValue'
 
+function nested(depth: number, leaf: unknown): unknown {
+    let value = leaf
+    for (let level = 0; level < depth; level++) {
+        value = { level: value }
+    }
+    return value
+}
+
 const longResult = { history: Array.from({ length: 6 }, (_, index) => ({ month: `2026-0${index + 1}`, seats: 4 })) }
 
 describe('ToolCallValue', () => {
@@ -15,6 +23,12 @@ describe('ToolCallValue', () => {
             'opens a folded value on text that its escaped preview hides',
             { ...longResult, note: 'Use "invoice" here' },
             '"invoice"',
+            { open: true, body: true },
+        ],
+        [
+            'opens a folded value nested deeper than the call stack',
+            { ...longResult, deep: nested(4000, 'needle') },
+            'needle',
             { open: true, body: true },
         ],
     ])('%s', async (_name, value, highlightQuery, expected) => {

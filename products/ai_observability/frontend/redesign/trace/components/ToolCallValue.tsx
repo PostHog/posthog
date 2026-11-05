@@ -29,9 +29,11 @@ function ValueBody({ value }: { value: unknown }): JSX.Element {
 function FoldedValue({ value, highlightQuery }: Required<ToolCallValueProps>): JSX.Element {
     const [details, setDetails] = useState<HTMLDetailsElement | null>(null)
     const [isOpen, setIsOpen] = useState(false)
-    const text = useMemo(() => searchableText(value).toLowerCase(), [value])
     // A closed fold holds only the escaped one-line preview, so the decoded value decides whether the query is in it.
-    const showsQuery = !!highlightQuery && text.includes(highlightQuery.toLowerCase())
+    const showsQuery = useMemo(
+        () => !!highlightQuery && searchableText(value).toLowerCase().includes(highlightQuery.toLowerCase()),
+        [value, highlightQuery]
+    )
     useLayoutEffect(() => {
         if (details && showsQuery) {
             details.open = true

@@ -15,13 +15,20 @@ export function toDisplayText(value: unknown): string {
 
 /** The keys and values of a JSON value as a person reads them, with strings unescaped, for matching search text. */
 export function searchableText(value: unknown): string {
-    if (Array.isArray(value)) {
-        return value.map(searchableText).join('\n')
+    // An explicit stack, because a captured tool result can nest deeper than the call stack allows.
+    const parts: string[] = []
+    const pending: unknown[] = [value]
+    while (pending.length > 0) {
+        const item = pending.pop()
+        if (Array.isArray(item)) {
+            pending.push(...[...item].reverse())
+        } else if (isPlainObject(item)) {
+            for (const [key, entry] of Object.entries(item).reverse()) {
+                pending.push(entry, key)
+            }
+        } else {
+            parts.push(String(item))
+        }
     }
-    if (isPlainObject(value)) {
-        return Object.entries(value)
-            .map(([key, entry]) => `${key}\n${searchableText(entry)}`)
-            .join('\n')
-    }
-    return String(value)
+    return parts.join('\n')
 }
