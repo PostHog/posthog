@@ -1337,7 +1337,10 @@ describe('queryDatabaseLogic', () => {
                 const capabilities = (referenceable: boolean): Record<string, unknown> => ({
                     materialize: { available: referenceable, reason: referenceable ? null : 'Not here.' },
                     lineage: { available: referenceable, reason: referenceable ? null : 'Not here.' },
-                    referenceable_from_hogql: { available: referenceable, reason: referenceable ? null : 'Not here.' },
+                    referenceable_from_clickhouse: {
+                        available: referenceable,
+                        reason: referenceable ? null : 'Not here.',
+                    },
                 })
                 viewsLogic.actions.loadDataWarehouseSavedQueriesSuccess(
                     [
