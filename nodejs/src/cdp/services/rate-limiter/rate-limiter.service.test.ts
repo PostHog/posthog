@@ -454,15 +454,30 @@ describe('RateLimiterService', () => {
             expect(await sender.claimDailyCaps(2, ['other@example.com'])).toMatchObject({ type: 'granted' })
             expect(await sender.claimDailyCaps(3, ['member@example.com'])).toMatchObject({ type: 'granted' })
             expect(await sender.claimDailyCaps(2, ['third@example.com'])).toEqual({ type: 'project_cap_reached' })
-            // One recipient written twice is one email for the project allowance too.
-            expect(await sender.claimDailyCaps(4, ['twice@example.com', ' twice@example.com'])).toMatchObject({
-                type: 'granted',
+            expect(await sender.claimDailyCaps(4, ['twice@example.com', ' twice@example.com'])).toEqual({
+                type: 'project_cap_reached',
             })
-            // Two members can store one address in two cases, and each case can be its own mailbox.
             expect(await sender.claimDailyCaps(6, ['Member@example.com', 'member@example.com'])).toEqual({
                 type: 'project_cap_reached',
             })
             expect(await sender.claimDailyCaps(5, ['member@example.com'])).toEqual({ type: 'check_failed' })
+            const roomyProjectSender = new SandboxEmailSender(
+                {
+                    enabled: true,
+                    tenantName: 'sandbox',
+                    configurationSetName: 'sandbox',
+                    fromAddress: 'sender@example.com',
+                    dailyTeamCap: '3',
+                    dailyRecipientCap: '1',
+                },
+                teamManager,
+                redis,
+                limiter
+            )
+            expect(await roomyProjectSender.claimDailyCaps(7, ['copy@example.com', 'Copy@example.com'])).toEqual({
+                type: 'recipient_cap_reached',
+                addresses: ['copy@example.com'],
+            })
         } finally {
             for (const organizationId of Object.values(organizations)) {
                 await deleteKeysWithPrefix(redis, `@posthog/workflows-sandbox-daily/{${organizationId}}`)
