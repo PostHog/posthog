@@ -119,4 +119,4 @@ def test_unsupported_version_and_unknown_table_fail_before_http() -> None:
     with pytest.raises(ValueError, match="Unsupported X Ads API version"):
         TwitterAdsClient(integration, "11")
     with pytest.raises(ValueError, match="Unknown X Ads table"):
-        twitter_ads_source(TwitterAdsClient(integration), "account", "unknown", MagicMock(), None)
+        twitter_ads_source(TwitterAdsClient(integration), "account", "unknown", MagicMock(), None, MagicMock())

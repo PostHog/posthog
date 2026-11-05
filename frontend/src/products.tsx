@@ -403,6 +403,9 @@ export const productRoutes: Record<string, [string, string]> = {
     '/transactional/reputation': ['Transactional', 'transactional'],
     '/transactional/settings': ['Transactional', 'transactional'],
     '/transactional/new': ['Transactional', 'transactional'],
+    '/transactional/log': ['Transactional', 'transactional'],
+    '/transactional/metrics': ['Transactional', 'transactional'],
+    '/transactional/log/:id': ['TransactionalEmailLogEntry', 'transactionalEmailLogEntry'],
     '/transactional/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
     '/broadcasts/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
     '/broadcasts/new': ['Broadcast', 'broadcast'],
@@ -1365,6 +1368,7 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         description: 'Send emails from your code with one API call',
     },
+    TransactionalEmailLogEntry: { name: 'Transactional', iconType: 'transactional', projectBased: true },
     WorkflowsEmailDomain: { name: 'Workflows', iconType: 'workflows', projectBased: true },
 }
 
@@ -1756,6 +1760,8 @@ export const productUrls = {
         intent,
         format,
         properties,
+        key,
+        variants,
     }: {
         type?: 'boolean' | 'multivariate' | 'remote_config'
         sourceId?: number | string | null
@@ -1763,6 +1769,8 @@ export const productUrls = {
         intent?: 'local-eval' | 'first-page-load'
         format?: 'rules_v2'
         properties?: AnyPropertyFilter[]
+        key?: string
+        variants?: string[]
     }): string => {
         const params = new URLSearchParams()
         if (type) {
@@ -1782,6 +1790,12 @@ export const productUrls = {
         }
         if (properties?.length) {
             params.set('properties', JSON.stringify(properties))
+        }
+        if (key) {
+            params.set('key', key)
+        }
+        if (variants?.length) {
+            params.set('variants', variants.join(','))
         }
         return `/feature-flags/new?${params.toString()}`
     },
@@ -1846,11 +1860,13 @@ export const productUrls = {
     insightNew: ({
         type,
         dashboardId,
+        tileGroupKey,
         query,
         sceneSource,
     }: {
         type?: InsightType
         dashboardId?: DashboardType['id'] | null
+        tileGroupKey?: string | null
         query?: Node
         sceneSource?: InsightSceneSource
     } = {}): string => {
@@ -1865,11 +1881,15 @@ export const productUrls = {
         if ((isDataVisualizationNode(query) || isDataTableNode(query)) && isHogQLQuery(query.source)) {
             return urls.sqlEditor({ query })
         }
-        return combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
-            ...(type ? { insight: type } : {}),
-            ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
-            ...(sceneSource ? { sceneSource } : {}),
-        }).url
+        return combineUrl(
+            '/insights/new',
+            dashboardId ? { dashboard: dashboardId, ...(tileGroupKey ? { tile_group: tileGroupKey } : {}) } : {},
+            {
+                ...(type ? { insight: type } : {}),
+                ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
+                ...(sceneSource ? { sceneSource } : {}),
+            }
+        ).url
     },
     insightNewHogQL: ({ query, filters }: { query: string; filters?: HogQLFilters }): string =>
         urls.insightNew({
@@ -2055,6 +2075,9 @@ export const productUrls = {
     broadcastNew: (): string => '/broadcasts/new',
     transactional: (tab?: MessagingNavTabKey): string => `/transactional${tab ? `/${tab}` : ''}`,
     transactionalNew: (): string => '/transactional/new',
+    transactionalLog: (): string => '/transactional/log',
+    transactionalMetrics: (): string => '/transactional/metrics',
+    transactionalEmailLogEntry: (messageId: string): string => `/transactional/log/${messageId}`,
     transactionalTemplate: (id: string): string => `/transactional/library/templates/${id}`,
     broadcastsTemplate: (id: string): string => `/broadcasts/library/templates/${id}`,
 }
@@ -2445,6 +2468,7 @@ export type ProductTreePath =
     | 'Visual review'
     | 'Web analytics'
     | 'Web scripts'
+    | 'Wizard'
     | 'Workflows'
 
 /** This const is auto-generated, as is the whole file */
@@ -2503,6 +2527,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'Broadcasts',
             'Broadcast',
             'Transactional',
+            'TransactionalEmailLogEntry',
             'WorkflowsEmailDomain',
         ],
     },
@@ -3384,6 +3409,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'Broadcasts',
             'Broadcast',
             'Transactional',
+            'TransactionalEmailLogEntry',
             'WorkflowsEmailDomain',
         ],
     },
@@ -3460,6 +3486,18 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['WebScripts'],
     },
     {
+        path: 'Wizard',
+        intents: [],
+        category: ProductItemCategory.TOOLS,
+        type: 'wizard',
+        iconType: 'wizard',
+        iconColor: ['var(--color-product-wizard-light)', 'var(--color-product-wizard-dark)'],
+        href: '/wizard/runs',
+        flag: FEATURE_FLAGS.WIZARD_UI_ENABLED,
+        sceneKey: 'WizardRuns',
+        sceneKeys: ['WizardRuns'],
+    },
+    {
         path: 'Workflows',
         intents: [ProductKey.WORKFLOWS],
         href: urls.workflows(),
@@ -3484,6 +3522,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'Broadcasts',
             'Broadcast',
             'Transactional',
+            'TransactionalEmailLogEntry',
             'WorkflowsEmailDomain',
         ],
     },

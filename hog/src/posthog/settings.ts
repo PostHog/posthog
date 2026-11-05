@@ -5,12 +5,11 @@ import type { StoreChoice } from '@/posthog/credential-store/types'
 import { hostKey, type HostKey } from './host'
 
 // What settings.json keeps about the login to one host: everything except its secrets.
-export interface LoginRecord {
+interface LoginRecordBase {
     // hog probes the keychain only at login, because a probe can open a dialog. Each host keeps its
     // own answer, so a login over SSH that had to use the file doesn't hide a keychain login to
     // another host.
     store: StoreChoice
-    type: 'personal_api_key'
     projectId: string
     // The host the login was made for, with the path a self-hosted PostHog sits under. The login is
     // keyed by origin, so a posthog.json path on the same origin can't send it elsewhere.
@@ -19,6 +18,11 @@ export interface LoginRecord {
     // keychain item can still be there. Logout tries to remove it.
     keychainLeftover?: true
 }
+
+export type LoginRecord =
+    | (LoginRecordBase & { type: 'personal_api_key' })
+    // `expiresAt` is in epoch milliseconds, for the access token.
+    | (LoginRecordBase & { type: 'oauth'; expiresAt: number; scopes: string[]; loginId: string })
 
 // What `hog auth login` decided, kept so later runs don't decide again. Nothing in it is secret.
 export interface HogSettings {
@@ -37,14 +41,28 @@ function settingsPath(runtime: Runtime): string {
 function parseLoginRecord(origin: string, value: unknown): LoginRecord | undefined {
     const item = value as Record<string, unknown> | null
     if (
-        (item?.store === 'keychain' || item?.store === 'file') &&
-        item.type === 'personal_api_key' &&
-        typeof item.projectId === 'string' &&
-        typeof item.host === 'string' &&
-        hostKey(item.host) === hostKey(origin)
+        (item?.store !== 'keychain' && item?.store !== 'file') ||
+        typeof item.projectId !== 'string' ||
+        typeof item.host !== 'string' ||
+        hostKey(item.host) !== hostKey(origin)
     ) {
-        const record: LoginRecord = { store: item.store, type: item.type, projectId: item.projectId, host: item.host }
-        return item.keychainLeftover === true ? { ...record, keychainLeftover: true } : record
+        return undefined
+    }
+    const { store, projectId, host } = item
+    const base: LoginRecordBase =
+        item.keychainLeftover === true ? { store, projectId, host, keychainLeftover: true } : { store, projectId, host }
+    if (item.type === 'personal_api_key') {
+        return { ...base, type: 'personal_api_key' }
+    }
+    if (
+        item.type === 'oauth' &&
+        typeof item.expiresAt === 'number' &&
+        typeof item.loginId === 'string' &&
+        Array.isArray(item.scopes) &&
+        item.scopes.every((scope) => typeof scope === 'string')
+    ) {
+        const { expiresAt, loginId } = item
+        return { ...base, type: 'oauth', expiresAt, scopes: item.scopes, loginId }
     }
     return undefined
 }

@@ -6,7 +6,7 @@ import { useAutoMarkRead } from 'lib/components/NotificationsMenu/useAutoMarkRea
 import { TZLabel } from 'lib/components/TZLabel'
 import { cn } from 'lib/utils/css-classes'
 
-import { ObservationThumbnail } from '../../components/ObservationThumbnail'
+import { QuillObservationThumbnail } from '../../components/QuillObservationThumbnail'
 import type { HighlightFeedItemApi } from '../../generated/api.schemas'
 import { citedTextToPlainText } from '../../utils/citations'
 import { CARD_SEEN_DWELL_MS } from '../highlightFeedTelemetry'
@@ -14,7 +14,7 @@ import { highlightPicksLogic } from '../highlightPicksLogic'
 import { highlightPickSummary } from '../highlightPickSummary'
 import { highlightReasonCopy } from './HighlightFeedCard'
 import { HighlightPickPreview } from './HighlightPickPreview'
-import { HighlightPickRankBadge } from './HighlightPickRankBadge'
+import { QuillHighlightPickRankBadge } from './QuillHighlightPickRankBadge'
 
 interface QuillHighlightPickRowProps {
     item: HighlightFeedItemApi
@@ -52,17 +52,13 @@ export function QuillHighlightPickRow({ item, position, isActive, rank }: QuillH
                     )}
                 >
                     <span className="relative w-28 shrink-0">
-                        <ObservationThumbnail
+                        <QuillObservationThumbnail
                             observation={observation}
                             className="w-full"
                             size="small"
                             retryKey={picksLoad?.feedLoadId}
                         />
-                        {rank !== undefined && (
-                            <span data-not-quill className="contents">
-                                <HighlightPickRankBadge rank={rank} size="small" />
-                            </span>
-                        )}
+                        {rank !== undefined && <QuillHighlightPickRankBadge rank={rank} />}
                         {!observation.viewed && (
                             <span className="absolute inset-y-0 left-0 w-1 rounded-l bg-primary" aria-hidden />
                         )}

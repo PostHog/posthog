@@ -64,6 +64,7 @@ from products.tasks.backend.logic.services.sandbox import (
     sandbox_repo_path,
     workload_for_origin_product,
 )
+from products.tasks.backend.logic.services.sandbox_usage import enforce_active_session_cap
 from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
     StepTimer,
@@ -909,6 +910,17 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
                 raise ComputeBillingLimitError(
                     {"team_id": ctx.team_id, "task_id": ctx.task_id, "run_id": ctx.run_id}, reason
                 )
+            # Not atomic: open_sandbox_session re-checks under the active-session locks after the
+            # create, so the loser of a race between two starts destroys the box it just provisioned.
+            enforce_active_session_cap(
+                origin_product=task.origin_product,
+                organization_id=task.team.organization_id,
+                created_by_id=task.created_by_id,
+                run_id=ctx.run_id,
+                context={"team_id": ctx.team_id, "task_id": ctx.task_id, "run_id": ctx.run_id},
+                signal_report_id=task.signal_report_id,
+                task_id=task.id,
+            )
         _emit_image_source_log(ctx, prepared)
         log_with_activity_context(
             f"Provisioning sandbox from {prepared.image_source_label} (image build may take a few minutes on first run)",
