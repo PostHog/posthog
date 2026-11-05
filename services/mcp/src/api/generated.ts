@@ -39469,26 +39469,6 @@ export namespace Schemas {
       current_from: string;
     }
 
-    /**
-     * * `own_code` - Own Code
-     * * `third_party` - Third Party
-     * * `network` - Network
-     * * `bots` - Bots
-     * * `expected` - Expected
-     * * `unclear` - Unclear
-     */
-    export type IssueSummaryCategoryEnum = typeof IssueSummaryCategoryEnum[keyof typeof IssueSummaryCategoryEnum];
-
-
-    export const IssueSummaryCategoryEnum = {
-      OwnCode: 'own_code',
-      ThirdParty: 'third_party',
-      Network: 'network',
-      Bots: 'bots',
-      Expected: 'expected',
-      Unclear: 'unclear',
-    } as const;
-
     export interface ErrorTrackingIssueSummary {
       /** What the error is and where it happens, in plain language. */
       what_happened: string;
@@ -39498,15 +39478,6 @@ export namespace Schemas {
       who_is_affected: string;
       /** One concrete step to investigate or fix the error. */
       suggested_next_step: string;
-      /** Where the error most likely comes from. 'own_code' is a bug in the application's code, 'third_party' a third-party script, browser extension or dependency, 'network' a network or connectivity failure, 'bots' automated traffic, 'expected' handled behavior that needs no fix, and 'unclear' means the stack trace does not tell. Absent when no category was inferred.
-       *
-       * * `own_code` - Own Code
-       * * `third_party` - Third Party
-       * * `network` - Network
-       * * `bots` - Bots
-       * * `expected` - Expected
-       * * `unclear` - Unclear */
-      category?: IssueSummaryCategoryEnum;
       /** When the summary was written. */
       generated_at: string;
     }
@@ -40005,15 +39976,6 @@ export namespace Schemas {
       who_is_affected: string;
       /** One concrete step to investigate or fix the issue. */
       suggested_next_step: string;
-      /** Broad source of the issue, or null when the category model did not answer.
-       *
-       * * `own_code` - Own Code
-       * * `third_party` - Third Party
-       * * `network` - Network
-       * * `bots` - Bots
-       * * `expected` - Expected
-       * * `unclear` - Unclear */
-      category: IssueSummaryCategoryEnum | null;
       /** Model that wrote the summary. */
       model: string;
       /** When the summary was written. */
