@@ -279,6 +279,31 @@ def _update_scan(scan: MembershipCleanupScan, next_key: MembershipKey | None, no
     scan.save(update_fields=["cursor", "scan_started_at"])
 
 
+def _recheck_candidates(
+    pending: list[MembershipCleanupCandidate],
+    existence: MembershipExistence,
+    deleted_team: bool,
+    now: datetime,
+) -> tuple[MembershipCleanupCounts, set[MembershipKey]]:
+    recovered = 0
+    overdue = 0
+    deletable: set[MembershipKey] = set()
+    for candidate in pending:
+        key = _get_key(candidate)
+        if not _is_missing(key, candidate.missing_side, existence, deleted_team):
+            RECOVERY_SECONDS.observe((now - candidate.first_missing_at).total_seconds())
+            candidate.delete()
+            recovered += 1
+            continue
+        candidate.last_checked_at = now
+        candidate.save(update_fields=["last_checked_at"])
+        if now - candidate.first_missing_at >= GRACE_PERIOD:
+            overdue += 1
+            CANDIDATE_AGE_SECONDS.observe((now - candidate.first_missing_at).total_seconds())
+            deletable.add(key)
+    return MembershipCleanupCounts(recovered=recovered, overdue=overdue), deletable
+
+
 def _run_batch(
     input: MembershipCleanupInput,
     store: MembershipCleanupStore,
@@ -299,23 +324,8 @@ def _run_batch(
     )
     check_lease()
     now = timezone.now()
-    recovered = 0
-    overdue = 0
-    deletable: set[MembershipKey] = set()
     with transaction.atomic():
-        for candidate in pending:
-            key = _get_key(candidate)
-            if not _is_missing(key, candidate.missing_side, existence, deleted_team):
-                RECOVERY_SECONDS.observe((now - candidate.first_missing_at).total_seconds())
-                candidate.delete()
-                recovered += 1
-                continue
-            candidate.last_checked_at = now
-            candidate.save(update_fields=["last_checked_at"])
-            if now - candidate.first_missing_at >= GRACE_PERIOD:
-                overdue += 1
-                CANDIDATE_AGE_SECONDS.observe((now - candidate.first_missing_at).total_seconds())
-                deletable.add(key)
+        counts, deletable = _recheck_candidates(pending, existence, deleted_team, now)
         for key in keys:
             for side in ("person", "group"):
                 if _is_missing(key, side, existence, deleted_team):
@@ -348,8 +358,8 @@ def _run_batch(
             _update_scan(scan, next_key, now)
     for outcome, count in (
         ("scanned", len(keys)),
-        ("recovered", recovered),
-        ("overdue", overdue),
+        ("recovered", counts.recovered),
+        ("overdue", counts.overdue),
         ("deleted", deleted),
     ):
         OUTCOMES.labels(outcome).inc(count)
@@ -357,16 +367,16 @@ def _run_batch(
         "membership_cleanup_batch",
         team_id=input.team_id,
         scanned=len(keys),
-        recovered=recovered,
-        overdue=overdue,
+        recovered=counts.recovered,
+        overdue=counts.overdue,
         deleted=deleted,
     )
     return MembershipCleanupCounts(
         scanned=len(keys),
-        recovered=recovered,
-        overdue=overdue,
+        recovered=counts.recovered,
+        overdue=counts.overdue,
         deleted=deleted,
-        has_more=next_key is not None or (len(pending) == BATCH_SIZE and deleted + recovered > 0),
+        has_more=next_key is not None or (len(pending) == BATCH_SIZE and deleted + counts.recovered > 0),
     )
 
 
