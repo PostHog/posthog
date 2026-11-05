@@ -1,6 +1,7 @@
 import logging
 
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import mixins, serializers, viewsets
@@ -14,6 +15,8 @@ from posthog.permissions import is_scout_sandbox_request
 from posthog.taxonomy.scout_writes import refuse_scout_taxonomy_write
 
 MAX_PROPERTY_NAME_LENGTH = 200
+# Bounds the per-request write cost of the nested `properties` list
+MAX_PROPERTIES_PER_GROUP = 1000
 
 
 class SchemaPropertyGroupPropertySerializer(serializers.ModelSerializer):
@@ -48,7 +51,12 @@ class EventDefinitionBasicSerializer(serializers.Serializer):
 
 
 class SchemaPropertyGroupSerializer(serializers.ModelSerializer):
-    properties = SchemaPropertyGroupPropertySerializer(many=True, required=False)
+    properties = SchemaPropertyGroupPropertySerializer(
+        many=True,
+        required=False,
+        max_length=MAX_PROPERTIES_PER_GROUP,
+        help_text=f"Properties in this group, up to {MAX_PROPERTIES_PER_GROUP}. On update, the list replaces the group's existing properties.",
+    )
     created_by = UserBasicSerializer(read_only=True)
     events = serializers.SerializerMethodField()
 
@@ -77,15 +85,20 @@ class SchemaPropertyGroupSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
 
         try:
-            property_group = SchemaPropertyGroup.objects.create(
-                **validated_data,
-                team_id=self.context["team_id"],
-                project_id=self.context["project_id"],
-                created_by=request.user if request else None,
-            )
+            with transaction.atomic():
+                property_group = SchemaPropertyGroup.objects.create(
+                    **validated_data,
+                    team_id=self.context["team_id"],
+                    project_id=self.context["project_id"],
+                    created_by=request.user if request else None,
+                )
 
-            for property_data in properties_data:
-                SchemaPropertyGroupProperty.objects.create(property_group=property_group, **property_data)
+                SchemaPropertyGroupProperty.objects.bulk_create(
+                    [
+                        SchemaPropertyGroupProperty(property_group=property_group, **property_data)
+                        for property_data in properties_data
+                    ]
+                )
 
             return property_group
         except IntegrityError as e:
@@ -115,17 +128,32 @@ class SchemaPropertyGroupSerializer(serializers.ModelSerializer):
                         SchemaPropertyGroupProperty.objects.filter(id__in=properties_to_delete).delete()
 
                     # Update existing properties and create new ones
+                    properties_to_update: list[SchemaPropertyGroupProperty] = []
+                    update_fields: set[str] = set()
+                    properties_to_create: list[SchemaPropertyGroupProperty] = []
                     for property_data in properties_data:
                         property_id = property_data.pop("id", None)
                         if property_id and property_id in existing_properties:
-                            # Update existing property
                             existing_prop = existing_properties[property_id]
                             for key, value in property_data.items():
                                 setattr(existing_prop, key, value)
-                            existing_prop.save()
+                            update_fields.update(property_data.keys())
+                            properties_to_update.append(existing_prop)
                         else:
-                            # Create new property
-                            SchemaPropertyGroupProperty.objects.create(property_group=instance, **property_data)
+                            properties_to_create.append(
+                                SchemaPropertyGroupProperty(property_group=instance, **property_data)
+                            )
+
+                    if properties_to_update:
+                        # bulk_update skips auto_now, so set updated_at explicitly
+                        now = timezone.now()
+                        for prop in properties_to_update:
+                            prop.updated_at = now
+                        SchemaPropertyGroupProperty.objects.bulk_update(
+                            properties_to_update, [*sorted(update_fields), "updated_at"]
+                        )
+                    if properties_to_create:
+                        SchemaPropertyGroupProperty.objects.bulk_create(properties_to_create)
 
             # Query fresh instance with properties to ensure all data is current
             return SchemaPropertyGroup.objects.prefetch_related("properties").get(pk=instance.pk)

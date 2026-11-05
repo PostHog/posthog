@@ -3,6 +3,7 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.schema_property_group import MAX_PROPERTIES_PER_GROUP
 from posthog.models import EventDefinition, EventSchema, Project, SchemaPropertyGroup, SchemaPropertyGroupProperty
 
 
@@ -229,6 +230,43 @@ class TestSchemaPropertyGroupAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "200 characters or less" in str(response.json())
+
+    @parameterized.expand([("create",), ("update",)])
+    def test_rejects_more_properties_than_the_cap(self, action: str) -> None:
+        too_many = [{"name": f"p{i}", "property_type": "String"} for i in range(MAX_PROPERTIES_PER_GROUP + 1)]
+        if action == "create":
+            response = self.client.post(
+                f"/api/projects/{self.project.id}/schema_property_groups/",
+                {"name": "Too Big", "properties": too_many},
+                format="json",
+            )
+        else:
+            property_group = SchemaPropertyGroup.objects.create(team=self.team, project=self.project, name="Too Big")
+            response = self.client.patch(
+                f"/api/projects/{self.project.id}/schema_property_groups/{property_group.id}/",
+                {"properties": too_many},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert f"no more than {MAX_PROPERTIES_PER_GROUP} elements" in response.json()["detail"]
+        assert not SchemaPropertyGroupProperty.objects.filter(property_group__team=self.team).exists()
+
+    def test_create_with_duplicate_property_names_leaves_no_group_behind(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.project.id}/schema_property_groups/",
+            {
+                "name": "Dupes",
+                "properties": [
+                    {"name": "same", "property_type": "String"},
+                    {"name": "same", "property_type": "Numeric"},
+                ],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not SchemaPropertyGroup.objects.filter(team=self.team, name="Dupes").exists()
 
     def test_delete_property_group(self):
         property_group = SchemaPropertyGroup.objects.create(team=self.team, project=self.project, name="To Delete")
