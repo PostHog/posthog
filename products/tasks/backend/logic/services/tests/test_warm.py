@@ -320,12 +320,14 @@ class TestSandboxWarmerWarm(APIBaseTest):
 
 
 class TestSandboxWarmerAtCapacity(APIBaseTest):
-    def _warm_run_on_new_task(self, *, created_by=None, status=TaskRun.Status.QUEUED, warm=True) -> TaskRun:
+    def _warm_run_on_new_task(
+        self, *, created_by=None, status=TaskRun.Status.QUEUED, warm=True, origin=Task.OriginProduct.POSTHOG_AI
+    ) -> TaskRun:
         task = Task.objects.create(
             team=self.team,
             title="",
             description="",
-            origin_product=Task.OriginProduct.POSTHOG_AI,
+            origin_product=origin,
             created_by=created_by or self.user,
         )
         extra = {"await_user_message": True} if warm else {}
@@ -362,10 +364,10 @@ class TestSandboxWarmerAtCapacity(APIBaseTest):
         # The requesting user holds no warm runs, but the org cap is full.
         assert SandboxWarmer.at_capacity(origin, self.team, self.user) is True
 
-    def test_active_session_cap_hit_counts_attributed_open_sessions_only(self) -> None:
-        origin = Task.OriginProduct.POSTHOG_AI
+    @parameterized.expand([(Task.OriginProduct.POSTHOG_AI,), (Task.OriginProduct.FEATURE_FLAGS,)])
+    def test_active_session_cap_hit_counts_attributed_open_sessions_only(self, origin: str) -> None:
         now = timezone.now()
-        run = self._warm_run_on_new_task(warm=False)
+        run = self._warm_run_on_new_task(warm=False, origin=origin)
 
         for _ in range(_ACTIVE_CAPS.per_org):
             _session(self.team, run, prewarmed=True)
@@ -387,7 +389,7 @@ class TestSandboxWarmerAtCapacity(APIBaseTest):
         )
 
         other = self._create_user("capped@posthog.com")
-        other_run = self._warm_run_on_new_task(created_by=other, warm=False)
+        other_run = self._warm_run_on_new_task(created_by=other, warm=False, origin=origin)
         for _ in range(_ACTIVE_CAPS.per_org - _ACTIVE_CAPS.per_user):
             _session(self.team, other_run, user_attributed_at=now)
         third = self._create_user("idle@posthog.com")
