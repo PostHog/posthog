@@ -187,13 +187,14 @@ class TestSandboxSenderValidation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unchanged_mapping_keeps_its_stored_sender", "mapping", 1, 200),
-            ("duplicated_mapping_cannot_borrow_its_original_sender", "mapping", 2, 400),
-            ("new_mapping_cannot_borrow_the_top_level_sender", "top_level", 1, 400),
+            ("unchanged_mapping_keeps_its_stored_sender", "mapping", ["sandbox"], 200),
+            ("duplicated_mapping_cannot_borrow_its_original_sender", "mapping", ["sandbox", "sandbox"], 400),
+            ("own_sender_copy_ahead_of_the_original_leaves_it_its_sender", "mapping", ["own", "sandbox"], 200),
+            ("new_mapping_cannot_borrow_the_top_level_sender", "top_level", ["sandbox"], 400),
         ]
     )
     def test_mapping_sender_is_compared_only_with_its_own_stored_mapping(
-        self, _name: str, stored_in: str, submitted: int, expected_status: int
+        self, _name: str, stored_in: str, submitted: list[str], expected_status: int
     ) -> None:
         mapping = {"name": "Mapping", "inputs_schema": self.email_schema, "inputs": {"email": {"value": self._email()}}}
         function = HogFunction.objects.create(
@@ -205,10 +206,18 @@ class TestSandboxSenderValidation(APIBaseTest):
             inputs={"email": {"value": self._email()}} if stored_in == "top_level" else {},
             mappings=[mapping] if stored_in == "mapping" else None,
         )
+        own_sender = Integration.objects.create(
+            team=self.team,
+            kind="email",
+            config={"provider": "ses", "domain": "example.com", "email": "sender@example.com", "verified": True},
+        )
+        mappings = [deepcopy(mapping) for _ in submitted]
+        for sent, sender in zip(mappings, submitted):
+            if sender == "own":
+                sent["inputs"]["email"]["value"]["from"] = {"integrationId": own_sender.id}
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_functions/{function.id}/",
-            {"mappings": [deepcopy(mapping) for _ in range(submitted)]},
+            f"/api/projects/{self.team.id}/hog_functions/{function.id}/", {"mappings": mappings}
         )
 
         assert response.status_code == expected_status, response.json()
