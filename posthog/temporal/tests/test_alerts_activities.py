@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 import time_machine
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from django.core.exceptions import ValidationError
 from django.db import OperationalError, connection, transaction
@@ -53,6 +53,7 @@ from posthog.temporal.alerts.activities import (
     _load_alert_for_evaluation,
     _lock_evaluation_alert,
     cleanup_alert_checks,
+    emit_alert_firing_signal,
     evaluate_alert,
     notify_alert,
     prepare_alert,
@@ -67,8 +68,9 @@ from posthog.temporal.alerts.admission import (
     inflight_alert_ids,
 )
 from posthog.temporal.alerts.investigation import MAX_INVESTIGATIONS_PER_EPISODE
-from posthog.temporal.alerts.retry_policy import SlotLease, alert_timeouts
+from posthog.temporal.alerts.retry_policy import ALERT_SIGNAL_SCHEDULE_TO_CLOSE, SlotLease, alert_timeouts
 from posthog.temporal.alerts.types import (
+    EmitAlertFiringSignalActivityInputs,
     EvaluateAlertActivityInputs,
     NotifyAlertActivityInputs,
     PrepareAction,
@@ -97,6 +99,7 @@ from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration,
 from products.alerts_platform.backend.facade.contracts import AlertDelivery
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.product_analytics.backend.facade.models import Insight
+from products.signals.backend.facade.source_configs import SignalSourceConfigSnapshot
 
 
 def _email_delivery(target: str, at: str = "2026-08-11T00:00:00+00:00") -> AlertDelivery:
@@ -1022,19 +1025,93 @@ class TestEvaluateAlert:
         assert inflight_alert_ids() == set()
 
     async def test_evaluate_firing_with_breaches(self, alert) -> None:
-        with patch(
-            "posthog.temporal.alerts.activities.check_alert_for_insight",
-            return_value=AlertEvaluationResult(value=100.0, breaches=["value above threshold"]),
+        emit = AsyncMock(return_value=True)
+        with (
+            patch(
+                "posthog.temporal.alerts.activities.check_alert_for_insight",
+                return_value=AlertEvaluationResult(value=100.0, breaches=["value above threshold"]),
+            ),
+            patch("posthog.temporal.alerts.alert_firing_signal.emit_signal", emit),
         ):
-            env = ActivityEnvironment()
-            result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
+            result = await ActivityEnvironment().run(
+                evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id))
+            )
 
+        # The signal goes out in a later workflow phase, so a slow send cannot delay the notification.
+        emit.assert_not_awaited()
+        assert result.signal_candidate is True
+        assert result.previous_state == AlertState.NOT_FIRING
         assert result.new_state == AlertState.FIRING
         assert result.should_notify is True
 
         check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
         assert check.state == AlertState.FIRING
         assert check.targets_notified == {}
+
+    @pytest.mark.parametrize(
+        "alert_change,signal_error,expect_emit",
+        [
+            (None, None, True),
+            (None, RuntimeError("signals unavailable"), True),
+            ("deleted", None, False),
+            ("disabled", None, False),
+        ],
+    )
+    async def test_emit_alert_firing_signal(
+        self, alert, alert_change: str | None, signal_error: Exception | None, expect_emit: bool
+    ) -> None:
+        check = await _create_alert_check(alert, state=AlertState.FIRING)
+        if alert_change == "deleted":
+            await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).delete)()
+        elif alert_change == "disabled":
+            await sync_to_async(AlertConfiguration.objects.filter(id=alert.id).update)(enabled=False)
+        reached_default_executor = False
+
+        async def _emit(**_kwargs) -> bool:
+            nonlocal reached_default_executor
+            # emit_signal runs sync work on the default executor. A thread that waits for the
+            # emission holds the only worker, so this would time out.
+            await asyncio.wait_for(sync_to_async(lambda: None, thread_sensitive=False)(), timeout=5)
+            reached_default_executor = True
+            if signal_error is not None:
+                raise signal_error
+            return True
+
+        emit = AsyncMock(side_effect=_emit)
+        loop = asyncio.get_running_loop()
+        loop.set_default_executor(ThreadPoolExecutor(max_workers=1))
+        try:
+            with (
+                patch("posthog.temporal.alerts.alert_firing_signal.emit_signal", emit),
+                patch(
+                    "posthog.temporal.alerts.alert_firing_signal.get_source_config",
+                    return_value=SignalSourceConfigSnapshot(enabled=True, created_by_id=None, config={}),
+                ),
+                patch(
+                    "posthog.temporal.alerts.alert_firing_signal.get_analytics_alert_scope",
+                    return_value="all_firing_alerts",
+                ),
+            ):
+                await ActivityEnvironment().run(
+                    emit_alert_firing_signal,
+                    EmitAlertFiringSignalActivityInputs(
+                        alert_id=str(alert.id),
+                        alert_check_id=str(check.id),
+                        team_id=alert.team_id,
+                        previous_state=AlertState.NOT_FIRING,
+                        breaches=["value above threshold"],
+                    ),
+                )
+        finally:
+            loop.set_default_executor(ThreadPoolExecutor())
+
+        assert reached_default_executor is expect_emit
+        if expect_emit:
+            emit.assert_awaited_once()
+            assert emit.await_args is not None
+            assert emit.await_args.kwargs["source_id"] == f"{alert.id}:{check.id}"
+        else:
+            emit.assert_not_awaited()
 
     @pytest.mark.parametrize(
         "investigated,previous_verdict,owner,expect_investigation,expect_notify,expect_held",
@@ -2038,7 +2115,12 @@ def test_alert_timeouts_never_restart_a_live_attempt(calculation_interval) -> No
     # The retried attempt must take the slot over before it lapses, or the scheduler fills it in between.
     slot = timeouts.evaluation_slot_lease
     assert slot.lease - slot.refresh > timeouts.heartbeat_timeout
-    activities = timeouts.prepare_start_to_close + timeouts.activity_schedule_to_close + timeouts.notify_start_to_close
+    activities = (
+        timeouts.prepare_start_to_close
+        + timeouts.activity_schedule_to_close
+        + timeouts.notify_start_to_close
+        + ALERT_SIGNAL_SCHEDULE_TO_CLOSE
+    )
     assert timeouts.workflow_execution >= activities
 
 

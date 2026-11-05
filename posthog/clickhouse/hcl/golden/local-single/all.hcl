@@ -1270,6 +1270,106 @@ database "posthog" {
     }
   }
 
+  table "email_status_events" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "message_id" {
+      type = "UUID"
+    }
+    column "status" {
+      type = "LowCardinality(String)"
+    }
+    column "version" {
+      type = "UInt64"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "status_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "reason" {
+      type = "String"
+    }
+    column "recipient" {
+      type = "String"
+    }
+    column "function_id" {
+      type = "String"
+    }
+    column "sending_domain" {
+      type = "LowCardinality(String)"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "email_status_events_data"
+    }
+  }
+
+  table "email_status_events_data" {
+    order_by     = ["team_id", "created_at", "message_id", "status_at"]
+    partition_by = "toYYYYMMDD(created_at)"
+    ttl          = "toDate(created_at) + toIntervalDay(31)"
+    settings = {
+      index_granularity   = "1024"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "message_id" {
+      type = "UUID"
+    }
+    column "status" {
+      type = "LowCardinality(String)"
+    }
+    column "version" {
+      type = "UInt64"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "status_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "reason" {
+      type = "String"
+    }
+    column "recipient" {
+      type = "String"
+    }
+    column "function_id" {
+      type = "String"
+    }
+    column "sending_domain" {
+      type = "LowCardinality(String)"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "replicated_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.email_status_events_data"
+      replica_name = "{replica}-{shard}"
+    }
+  }
+
   table "error_tracking_fingerprint_issue_state" {
     column "team_id" {
       type = "Int64"
@@ -2918,6 +3018,50 @@ database "posthog" {
     }
   }
 
+  table "kafka_email_status_events" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "message_id" {
+      type = "UUID"
+    }
+    column "status" {
+      type = "LowCardinality(String)"
+    }
+    column "version" {
+      type = "UInt64"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "status_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "reason" {
+      type = "String"
+    }
+    column "recipient" {
+      type = "String"
+    }
+    column "function_id" {
+      type = "String"
+    }
+    column "sending_domain" {
+      type = "LowCardinality(String)"
+    }
+    engine "kafka" {
+      collection           = "warpstream_cyclotron"
+      topic_list           = "clickhouse_email_status"
+      group_name           = "clickhouse_email_status_events"
+      format               = "JSONEachRow"
+      num_consumers        = 1
+      max_block_size       = 100000
+      skip_broken_messages = 100
+      poll_timeout_ms      = 10000
+      thread_per_consumer  = true
+    }
+  }
+
   table "kafka_error_tracking_fingerprint_issue_state" {
     column "team_id" {
       type = "Int64"
@@ -4107,6 +4251,37 @@ database "posthog" {
       topic_list = "clickhouse_person_distinct_id"
       group_name = "clickhouse-person-distinct-id-overrides"
       format     = "JSONEachRow"
+    }
+  }
+
+  table "kafka_person_group_membership" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "properties" {
+      type = "String"
+    }
+    column "timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "person_mode" {
+      type = "Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)"
+    }
+    engine "kafka" {
+      collection           = "warpstream_ingestion"
+      topic_list           = "clickhouse_events_json"
+      group_name           = "clickhouse_person_group_membership"
+      format               = "JSONEachRow"
+      num_consumers        = 1
+      max_block_size       = 10000
+      skip_broken_messages = 100
+      poll_timeout_ms      = 10000
+      poll_max_batch_size  = 10000
+      flush_interval_ms    = 7500
+      thread_per_consumer  = true
     }
   }
 
@@ -20579,6 +20754,67 @@ SQL
     }
   }
 
+  materialized_view "email_status_events_mv" {
+    to_table = "posthog.email_status_events_data"
+    query    = <<SQL
+SELECT
+  team_id,
+  message_id,
+  status,
+  version,
+  created_at,
+  status_at,
+  reason,
+  recipient,
+  function_id,
+  sending_domain,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_email_status_events
+SQL
+
+    column "team_id" {
+      type = "Int64"
+    }
+    column "message_id" {
+      type = "UUID"
+    }
+    column "status" {
+      type = "LowCardinality(String)"
+    }
+    column "version" {
+      type = "UInt64"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "status_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "reason" {
+      type = "String"
+    }
+    column "recipient" {
+      type = "String"
+    }
+    column "function_id" {
+      type = "String"
+    }
+    column "sending_domain" {
+      type = "LowCardinality(String)"
+    }
+    column "_timestamp" {
+      type = "Nullable(DateTime)"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+  }
+
   materialized_view "email_status_mv" {
     to_table = "posthog.email_status_data"
     query    = <<SQL
@@ -20594,6 +20830,7 @@ SELECT
   _offset,
   _partition
 FROM posthog.kafka_email_status
+WHERE status NOT IN ('opened', 'clicked')
 SQL
 
     column "team_id" {
@@ -22942,7 +23179,6 @@ SELECT
   anyLast(histogram_bounds) AS histogram_bounds,
   any(_topic) AS _topic,
   groupArray(10000)(timestamp) AS timestamp_arr,
-  groupArray(10000)(observed_timestamp) AS observed_timestamp_arr,
   groupArray(10000)(value) AS value_arr,
   groupArray(10000)(count) AS count_arr,
   groupArray(10000)(histogram_counts) AS histogram_counts_arr,
@@ -23000,9 +23236,6 @@ SQL
       type = "String"
     }
     column "timestamp_arr" {
-      type = "Array(DateTime64(6))"
-    }
-    column "observed_timestamp_arr" {
       type = "Array(DateTime64(6))"
     }
     column "value_arr" {
@@ -23893,6 +24126,59 @@ SQL
     }
     column "_partition" {
       type = "UInt64"
+    }
+  }
+
+  materialized_view "person_group_membership_mv" {
+    to_table = "posthog.writable_person_group_membership"
+    query    = <<SQL
+SELECT
+  team_id,
+  group_type_index,
+  replaceRegexpAll(
+    JSONExtractRaw(properties, concat('$group_', toString(group_type_index))),
+    '^"|"$',
+    ''
+  ) AS group_key,
+  distinct_id,
+  min(timestamp) AS first_seen,
+  max(timestamp) AS last_seen
+FROM
+  (
+    SELECT
+      team_id,
+      dictGet('posthog.person_group_membership_config_dict', 'group_type_index', tuple(team_id)) AS group_type_index,
+      distinct_id,
+      properties,
+      timestamp
+    FROM posthog.kafka_person_group_membership
+    WHERE
+      dictHas('posthog.person_group_membership_config_dict', tuple(team_id))
+    AND
+      (person_mode != 'propertyless')
+  )
+WHERE notEmpty(group_key)
+GROUP BY
+  team_id, group_type_index, group_key, distinct_id
+SQL
+
+    column "team_id" {
+      type = "Int64"
+    }
+    column "group_type_index" {
+      type = "UInt8"
+    }
+    column "group_key" {
+      type = "String"
+    }
+    column "distinct_id" {
+      type = "String"
+    }
+    column "first_seen" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "last_seen" {
+      type = "DateTime64(6, 'UTC')"
     }
   }
 
@@ -26541,41 +26827,7 @@ SELECT
   time_bucket,
   series_fingerprint,
   resource_fingerprint,
-  timestamp,
-  observed_timestamp,
-  original_expiry_timestamp,
-  service_name,
-  metric_type,
-  value,
-  count,
-  histogram_bounds,
-  histogram_counts,
-  trace_id,
-  span_id,
-  trace_flags,
-  has_labels,
-  unit,
-  aggregation_temporality,
-  is_monotonic,
-  instrumentation_scope
-FROM posthog.metrics2
-WHERE
-  (time_bucket > toDateTime('2026-08-25 00:00:00'))
-AND
-  (time_bucket < toDateTime('2026-09-14 00:00:00'))
-AND
-  (timestamp > toDateTime('2026-08-25 00:00:00'))
-AND
-  (timestamp < toDateTime('2026-09-14 00:00:00'))
-UNION ALL
-SELECT
-  team_id,
-  metric_name,
-  time_bucket,
-  series_fingerprint,
-  resource_fingerprint,
   point_timestamp AS timestamp,
-  point_observed_timestamp AS observed_timestamp,
   toDateTime64(original_expiry_date, 6) AS original_expiry_timestamp,
   service_name,
   metric_type,
@@ -26592,7 +26844,7 @@ SELECT
   toBool(is_monotonic) AS is_monotonic,
   instrumentation_scope
 FROM
-  posthog.metrics4_samples ARRAY JOIN timestamp_arr AS point_timestamp, observed_timestamp_arr AS point_observed_timestamp, value_arr AS point_value, count_arr AS point_count, histogram_counts_arr AS point_histogram_counts, trace_id_arr AS point_trace_id, span_id_arr AS point_span_id, trace_flags_arr AS point_trace_flags
+  posthog.metrics4_samples ARRAY JOIN timestamp_arr AS point_timestamp, value_arr AS point_value, count_arr AS point_count, histogram_counts_arr AS point_histogram_counts, trace_id_arr AS point_trace_id, span_id_arr AS point_span_id, trace_flags_arr AS point_trace_flags
 WHERE time_bucket >= toDateTime('2026-09-14 00:00:00')
 SQL
 

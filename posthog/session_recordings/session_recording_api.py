@@ -10,7 +10,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from json import JSONDecodeError
 from typing import Any, Literal, cast
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
@@ -78,6 +78,7 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
+from posthog.llm.gateway_client import build_openai_client, openai_gateway_configured
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.comment import Comment
@@ -96,7 +97,6 @@ from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
 from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
-from posthog.session_recordings.openai_client import get_openai_client
 from posthog.session_recordings.queries.console_logs import (
     MAX_CONSOLE_LOGS_PAGE_SIZE,
     MAX_CONSOLE_MESSAGE_LENGTH,
@@ -110,6 +110,11 @@ from posthog.session_recordings.queries.session_replay_events import (
 )
 from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
 from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
+from posthog.session_recordings.recordings.replay_blocks_jwt import (
+    ReplayBlocksToken,
+    is_direct_blocks_enabled,
+    mint_replay_blocks_token,
+)
 from posthog.session_recordings.recordings.replay_proxy_jwt import mint_replay_proxy_token
 from posthog.session_recordings.session_recording_v2_service import list_blocks, list_blocks_async
 from posthog.session_recordings.utils import (
@@ -226,6 +231,36 @@ def _replay_proxy_token_for_player(request, team_id: int) -> str | None:
     if not isinstance(getattr(request, "successful_authenticator", None), _PLAYER_AUTHENTICATION_CLASSES):
         return None
     return mint_replay_proxy_token(team_id)
+
+
+def _replay_blocks_viewer(request) -> str | None:
+    """Who the player is watching as, for the block URLs and the per-viewer rate limit. An export renders as the user
+    who created it. None for any caller that is not the player, which keeps reading blocks through Django. Share links
+    also stay on Django, because a block token cannot see a share being disabled or its password revoked."""
+    authenticator = getattr(request, "successful_authenticator", None)
+    if isinstance(authenticator, (SessionAuthentication, ExportRendererAuthentication)) and isinstance(
+        request.user, User
+    ):
+        return f"u{request.user.pk}"
+    return None
+
+
+@frozen
+class ReplayBlocksAccess:
+    path_prefix: str
+    token: ReplayBlocksToken
+
+
+def _replay_blocks_access_for_player(request, team_id: int, session_id: str) -> ReplayBlocksAccess | None:
+    viewer = _replay_blocks_viewer(request)
+    if viewer is None or not is_direct_blocks_enabled(team_id):
+        return None
+    token = mint_replay_blocks_token(team_id, session_id, viewer, "browser")
+    if token is None:
+        return None
+    return ReplayBlocksAccess(
+        path_prefix=f"/replay-blocks/{team_id}/{quote(session_id, safe='')}/{viewer}/", token=token
+    )
 
 
 # Type alias to avoid shadowing by SessionRecordingViewSet.list method
@@ -465,6 +500,10 @@ class SessionRecordingSnapshotsSourceSerializer(serializers.Serializer):
     start_timestamp = serializers.DateTimeField(allow_null=True)
     end_timestamp = serializers.DateTimeField(allow_null=True)
     blob_key = serializers.CharField(allow_null=True)
+    url = serializers.CharField(
+        required=False,
+        help_text="Where the player fetches this block directly, sending block_token as a Bearer token. Absent when the block must be read through this endpoint.",
+    )
 
 
 class SessionRecordingSourcesSerializer(serializers.Serializer):
@@ -474,6 +513,16 @@ class SessionRecordingSourcesSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="Short-lived token that the player sends to the replay asset proxy with each font or script request. Null when this install has no proxy signing key.",
+    )
+    block_token = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Short-lived token for the source urls, scoped to this recording. Null when no source has a url.",
+    )
+    block_token_expires_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="When block_token expires. List the sources again for a new one.",
     )
 
 
@@ -1749,21 +1798,31 @@ class SessionRecordingViewSet(
                 # Uncached, so a recording deleted a moment ago fails here before the player asks for any block.
                 blocks = list_blocks(recording, use_cache=False)
 
+            # Only encrypted recordings get refs, so a recording from before encryption has no urls.
+            access = (
+                _replay_blocks_access_for_player(self.request, self.team_id, str(recording.session_id))
+                if any(block.ref for block in blocks)
+                else None
+            )
+
             for i, block in enumerate(blocks):
-                sources.append(
-                    {
-                        "source": "blob_v2",
-                        "start_timestamp": block.start_timestamp,
-                        "end_timestamp": block.end_timestamp,
-                        "blob_key": str(i),
-                    }
-                )
+                source = {
+                    "source": "blob_v2",
+                    "start_timestamp": block.start_timestamp,
+                    "end_timestamp": block.end_timestamp,
+                    "blob_key": str(i),
+                }
+                if access and block.ref:
+                    source["url"] = self.request.build_absolute_uri(access.path_prefix + block.ref)
+                sources.append(source)
 
             with timer("serialize_data__gather_session_recording_sources"):
                 serializer = SessionRecordingSourcesSerializer(
                     {
                         "sources": sorted(sources, key=lambda x: x.get("start_timestamp", -1)),
                         "replay_proxy_token": _replay_proxy_token_for_player(self.request, self.team_id),
+                        "block_token": access.token.token if access else None,
+                        "block_token_expires_at": access.token.expires_at if access else None,
                     }
                 )
 
@@ -1950,18 +2009,22 @@ class SessionRecordingViewSet(
             user_content=clean_prompt_whitespace(request.data["regex"]),
         )
 
-        client = get_openai_client()
+        if not openai_gateway_configured():
+            raise exceptions.ValidationError("AI features are only available in PostHog Cloud")
+
+        distinct_id = self._distinct_id_from_request(request)
+        client = build_openai_client(
+            "django",
+            ai_product="session_replay",
+            distinct_id=distinct_id,
+            properties={"ai_feature": "ai_regex", "team_id": str(self.team.id)},
+        )
 
         completion = client.beta.chat.completions.parse(
             model=SESSION_REPLAY_AI_REGEX_MODEL,
             messages=messages,
             response_format=AiRegexSchema,
-            posthog_distinct_id=self._distinct_id_from_request(request),
-            posthog_properties={
-                "ai_product": "session_replay",
-                "ai_feature": "ai_regex",
-                "team_id": self.team.id,
-            },
+            user=distinct_id,
         )
 
         if not completion.choices or not completion.choices[0].message.content:

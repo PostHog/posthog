@@ -589,6 +589,7 @@ Product teams own their definitions and control which operations are exposed as 
        title: List things # human-friendly title (used in UI)
        description: > # instructions for the LLM
          Human-friendly description for the LLM.
+       search_keywords: [prometheus, promql] # extra search words, matched at title weight
        list: true # marks as a list endpoint
        enrich_url: '{id}' # appended to url_prefix for result URLs
        category: Other product # overrides the file-level category, e.g. for $mcp_tool_category in MCP analytics

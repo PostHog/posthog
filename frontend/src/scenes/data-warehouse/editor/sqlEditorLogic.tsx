@@ -49,7 +49,7 @@ import { objectsEqual, removeUndefinedAndNull } from 'lib/utils/objects'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
 import { backLinkParams, withBackLink } from 'scenes/analytics/analyticsBackLink'
-import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLoadAction, dashboardLogic, placeTilesInGroup } from 'scenes/dashboard/dashboardLogic'
 import {
     MANAGED_TRINO_SCHEMA_SCOPE,
     databaseTableListLogic,
@@ -676,6 +676,7 @@ export interface sqlEditorLogicValues {
     changesToSave: boolean
     currentDraft: DataWarehouseSavedQueryDraft | null | undefined
     dashboardId: number | null
+    dashboardTileGroupKey: string | null
     dataLogicKey: string
     diffShowRunButton: boolean | undefined
     editingAccessControlObject: DataWarehouseAccessControlModalProps | null
@@ -1143,6 +1144,9 @@ export interface sqlEditorLogicActions {
     setDashboardId: (dashboardId: number | null) => {
         dashboardId: number | null
     }
+    setDashboardTileGroupKey: (groupKey: string | null) => {
+        groupKey: string | null
+    }
     setDataError: (error: string | null) => {
         error: string | null
     }
@@ -1597,6 +1601,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         setSendRawQuery: (sendRawQuery: boolean) => ({ sendRawQuery }),
         enforceConnectionRawQueryMode: true,
         setDashboardId: (dashboardId: number | null) => ({ dashboardId }),
+        setDashboardTileGroupKey: (groupKey: string | null) => ({ groupKey }),
         openMaterializationModal: (view?: DataWarehouseSavedQuery) => ({
             view,
         }),
@@ -1807,6 +1812,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             null as number | null,
             {
                 setDashboardId: (_, { dashboardId }) => dashboardId,
+            },
+        ],
+        dashboardTileGroupKey: [
+            null as string | null,
+            {
+                setDashboardTileGroupKey: (_, { groupKey }) => groupKey,
+                setDashboardId: (state, { dashboardId }) => (dashboardId === null ? null : state),
             },
         ],
         materializationModalOpen: [
@@ -2978,6 +2990,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 cache.timeouts.push(timeoutId)
 
                 if (dashboardId) {
+                    const tile = insight.dashboard_tiles?.find((t) => t.dashboard_id === dashboardId)
+                    await placeTilesInGroup(
+                        teamLogic.values.currentTeamId,
+                        dashboardId,
+                        tile ? [tile.id] : [],
+                        values.dashboardTileGroupKey
+                    )
                     dashboardsModel.findMounted()?.actions.updateDashboardInsight(insight)
                     dashboardLogic.findMounted({ id: dashboardId })?.actions.loadDashboard({
                         action: DashboardLoadAction.Update,
@@ -3959,6 +3978,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const parsed = parseInt(searchParams.dashboard, 10)
                 if (!isNaN(parsed)) {
                     actions.setDashboardId(parsed)
+                    const tileGroup = searchParams.tile_group
+                    actions.setDashboardTileGroupKey(
+                        typeof tileGroup === 'string' || typeof tileGroup === 'number' ? String(tileGroup) : null
+                    )
                 }
             }
 

@@ -72,6 +72,7 @@ from products.cdp.backend.models.plugin import PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.error_tracking.backend.facade import api as error_tracking_api
+from products.feature_flags.backend.flag_analytics import USAGE_EVENT_NAMES, billable_feature_flag_requests
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.replay_vision.backend.billing import (
     get_replay_vision_credits_by_team,
@@ -253,6 +254,7 @@ class UsageReportCounters:
     ff_active_count: int
     decide_requests_count_in_period: int
     local_evaluation_requests_count_in_period: int
+    local_evaluation_not_modified_requests_count_in_period: int
     billable_feature_flag_requests_count_in_period: int
 
     # Queries
@@ -386,6 +388,7 @@ class UsageReportCounters:
     ruby_events_count_in_period: int
     python_events_count_in_period: int
     php_events_count_in_period: int
+    laravel_events_count_in_period: int
     dotnet_events_count_in_period: int
     elixir_events_count_in_period: int
     unity_events_count_in_period: int
@@ -1095,6 +1098,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
         ("posthog-python", "posthog-ai", "posthog_python_ai_events"),
         ("posthog-python", None, "python_events"),
         ("posthog-php", None, "php_events"),
+        ("posthog-laravel", None, "laravel_events"),
         ("posthog-dotnet", "posthog-ai", "posthog_dotnet_ai_events"),
         ("posthog-aspnetcore", "posthog-ai", "posthog_dotnet_ai_events"),
         ("posthog-dotnet", None, "dotnet_events"),
@@ -1173,6 +1177,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             "ruby_events": {},
             "python_events": {},
             "php_events": {},
+            "laravel_events": {},
             "dotnet_events": {},
             "elixir_events": {},
             "unity_events": {},
@@ -1546,7 +1551,7 @@ def get_teams_with_feature_flag_requests_count_in_period(
     team_to_query = 1 if get_instance_region() == "EU" else 2
     validity_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
 
-    target_event = "decide usage" if request_type == FlagRequestType.DECIDE else "local evaluation usage"
+    target_event = USAGE_EVENT_NAMES[request_type]
 
     use_new = use_new_events_schema(None)
     count_expr, _ = get_property_string_expr("events", "count", "'count'", "properties", use_new_events_schema=use_new)
@@ -1587,7 +1592,7 @@ def get_teams_with_feature_flag_requests_sdk_breakdown_in_period(
     team_to_query = 1 if get_instance_region() == "EU" else 2
     validity_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
 
-    target_event = "decide usage" if request_type == FlagRequestType.DECIDE else "local evaluation usage"
+    target_event = USAGE_EVENT_NAMES[request_type]
 
     use_new = use_new_events_schema(None)
     sdk_breakdown_expr, _ = get_property_string_expr(
@@ -3099,6 +3104,7 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.mobile_recording_count_in_period > 0
         or report.decide_requests_count_in_period > 0
         or report.local_evaluation_requests_count_in_period > 0
+        or report.local_evaluation_not_modified_requests_count_in_period > 0
         or report.survey_responses_count_in_period > 0
         or report.rows_synced_in_period > 0
         or report.free_historical_rows_synced_in_period > 0
@@ -3257,6 +3263,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_ruby_events_count_in_period": all_metrics["ruby_events"],
         "teams_with_python_events_count_in_period": all_metrics["python_events"],
         "teams_with_php_events_count_in_period": all_metrics["php_events"],
+        "teams_with_laravel_events_count_in_period": all_metrics["laravel_events"],
         "teams_with_dotnet_events_count_in_period": all_metrics["dotnet_events"],
         "teams_with_elixir_events_count_in_period": all_metrics["elixir_events"],
         "teams_with_unity_events_count_in_period": all_metrics["unity_events"],
@@ -3508,6 +3515,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
     local_evaluation_requests_count_in_period = all_data["teams_with_local_evaluation_requests_count_in_period"].get(
         team.id, 0
     )
+    local_evaluation_not_modified_requests_count_in_period = all_data[
+        "teams_with_local_evaluation_not_modified_requests_count_in_period"
+    ].get(team.id, 0)
     logs_bytes_in_period = all_data["teams_with_logs_bytes_in_period"].get(team.id, 0)
     apm_tracing_bytes_in_period = all_data["teams_with_apm_tracing_bytes_in_period"].get(team.id, 0)
     return UsageReportCounters(
@@ -3552,8 +3562,12 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         group_types_total=all_data["teams_with_group_types_total"].get(team.id, 0),
         decide_requests_count_in_period=decide_requests_count_in_period,
         local_evaluation_requests_count_in_period=local_evaluation_requests_count_in_period,
-        billable_feature_flag_requests_count_in_period=decide_requests_count_in_period
-        + (local_evaluation_requests_count_in_period * 10),
+        local_evaluation_not_modified_requests_count_in_period=local_evaluation_not_modified_requests_count_in_period,
+        billable_feature_flag_requests_count_in_period=billable_feature_flag_requests(
+            decide=decide_requests_count_in_period,
+            local_evaluation=local_evaluation_requests_count_in_period,
+            local_evaluation_not_modified=local_evaluation_not_modified_requests_count_in_period,
+        ),
         dashboard_count=all_data["teams_with_dashboard_count"].get(team.id, 0),
         dashboard_template_count=all_data["teams_with_dashboard_template_count"].get(team.id, 0),
         dashboard_shared_count=all_data["teams_with_dashboard_shared_count"].get(team.id, 0),
@@ -3673,6 +3687,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ruby_events_count_in_period=all_data["teams_with_ruby_events_count_in_period"].get(team.id, 0),
         python_events_count_in_period=all_data["teams_with_python_events_count_in_period"].get(team.id, 0),
         php_events_count_in_period=all_data["teams_with_php_events_count_in_period"].get(team.id, 0),
+        laravel_events_count_in_period=all_data["teams_with_laravel_events_count_in_period"].get(team.id, 0),
         dotnet_events_count_in_period=all_data["teams_with_dotnet_events_count_in_period"].get(team.id, 0),
         elixir_events_count_in_period=all_data["teams_with_elixir_events_count_in_period"].get(team.id, 0),
         unity_events_count_in_period=all_data["teams_with_unity_events_count_in_period"].get(team.id, 0),

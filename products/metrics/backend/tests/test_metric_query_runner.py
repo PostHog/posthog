@@ -33,6 +33,7 @@ from products.metrics.backend.metric_query_runner import (
 )
 from products.metrics.backend.metric_samples_query_runner import MetricSamplesQueryRunner, build_metric_query_runner
 from products.metrics.backend.metrics4_samples import METRICS4_CUTOVER
+from products.metrics.backend.query_counts import list_metric_query_counts
 from products.metrics.backend.tests._seeder import seed_metric, truncate_metrics_tables
 
 
@@ -316,6 +317,30 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual([row["value"] for row in runner.run()], [3.0])
+
+    def test_reads_points_ingested_without_observed_timestamps(self):
+        # Both points sit in one storage hour, so ingest writes a single samples row.
+        anchor = timezone.now().replace(minute=0, second=0, microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(anchor - dt.timedelta(minutes=50), 2.0), (anchor - dt.timedelta(minutes=49), 3.0)],
+        )
+
+        stored = sync_execute(
+            "SELECT length(timestamp_arr), length(observed_timestamp_arr) FROM metrics4_samples WHERE team_id = %(team_id)s",
+            {"team_id": self.team.id},
+        )
+        runner = self.runner_class(
+            team=self.team,
+            metric_name="m1",
+            aggregation="sum",
+            date_from=anchor - dt.timedelta(hours=1),
+            date_to=anchor,
+        )
+
+        self.assertEqual(stored, [(2, 0)])
+        self.assertEqual(sum(row["value"] for row in runner.run()), 5.0)
 
     def test_respects_team_isolation(self):
         anchor = timezone.now().replace(microsecond=0)
@@ -639,6 +664,21 @@ class TestRunMetricQueryFacade(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(series[0].clause, "a")
         self.assertEqual(sum(p.value for p in series[0].points), 4.0)
 
+    def test_counts_one_query_for_each_metric_it_reads(self):
+        run_metric_query(
+            team=self.team,
+            request=self._request(
+                clauses=(
+                    MetricQueryClause(name="a", metric_name="m1", aggregation=MetricAggregation.SUM),
+                    MetricQueryClause(name="b", metric_name="m2", aggregation=MetricAggregation.SUM),
+                    MetricQueryClause(name="c", metric_name="m1", aggregation=MetricAggregation.AVG),
+                )
+            ),
+        )
+
+        counts = list_metric_query_counts(self.team)
+        self.assertEqual({count.metric_name: count.query_count for count in counts}, {"m1": 1, "m2": 1})
+
     def test_attaches_ingested_unit_to_series(self):
         anchor = timezone.now().replace(microsecond=0)
         seed_metric(
@@ -892,6 +932,7 @@ class TestRunMetricQueryInParallel(SimpleTestCase):
             override_settings(IN_UNIT_TESTING=False),
             patch("products.metrics.backend.facade.api.build_metric_query_runner", side_effect=lambda **_: _Runner()),
             patch("products.metrics.backend.facade.api._units_by_fingerprint", side_effect=units),
+            patch("products.metrics.backend.facade.api.record_metric_queries"),
             patch("products.metrics.backend.facade.api.connection") as connection,
         ):
             series = run_metric_query(

@@ -22,21 +22,11 @@ import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
-import { DebugReplayButton } from 'scenes/session-recordings/player/player-meta/DebugReplayButton'
 import { parseUrl } from 'scenes/session-recordings/player/player-meta/PlayerMeta'
-import {
-    InsertInNotebookPlaylistButton,
-    MenuActions,
-} from 'scenes/session-recordings/player/player-meta/PlayerMetaLinks'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
-import {
-    InspectDOM,
-    SetPlaybackSpeed,
-    usePlayerChromeMenuItems,
-} from 'scenes/session-recordings/player/player-meta/PlayerMetaTopSettings'
+import { usePlayerChromeMenuItems } from 'scenes/session-recordings/player/player-meta/PlayerMetaTopSettings'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { PlayerShareMenu } from 'scenes/session-recordings/player/share/PlayerShareMenu'
 import { playerSidebarLogic } from 'scenes/session-recordings/player/sidebar/playerSidebarLogic'
 import { useLinkedIssuesAvailable } from 'scenes/session-recordings/player/sidebar/useLinkedIssuesAvailable'
 import { userLogic } from 'scenes/userLogic'
@@ -44,6 +34,12 @@ import { userLogic } from 'scenes/userLogic'
 import { SessionRecordingSidebarTab } from '~/types'
 
 import { debugTabKeys } from './DebugTabBar'
+import { QuillDebugReplayButton } from './QuillDebugReplayButton'
+import { QuillInsertInNotebookPlaylistButton } from './QuillInsertInNotebookPlaylistButton'
+import { QuillInspectDOM } from './QuillInspectDOM'
+import { QuillPlayerActionsMenu } from './QuillPlayerActionsMenu'
+import { QuillPlayerShareMenu } from './QuillPlayerShareMenu'
+import { QuillSetPlaybackSpeed } from './QuillSetPlaybackSpeed'
 
 type PlayerMode = 'watch' | 'debug'
 
@@ -166,12 +162,12 @@ export function PlayerModeBar(): JSX.Element {
                 )}
                 <div className="flex-1 min-w-4" />
                 <div className="flex items-center gap-0.5">
-                    {sessionRecordingId && <MenuActions size={size} extraItems={chromeItems} />}
-                    <SetPlaybackSpeed />
-                    {debugMode && <InspectDOM />}
-                    {debugMode && showDebugReplayButton && <DebugReplayButton settingsBar />}
-                    <InsertInNotebookPlaylistButton size={size} />
-                    <PlayerShareMenu />
+                    {sessionRecordingId && <QuillPlayerActionsMenu extraItems={chromeItems} />}
+                    <QuillSetPlaybackSpeed />
+                    {debugMode && <QuillInspectDOM />}
+                    {debugMode && showDebugReplayButton && <QuillDebugReplayButton />}
+                    <QuillInsertInNotebookPlaylistButton size={size} />
+                    <QuillPlayerShareMenu />
                 </div>
             </div>
         </div>

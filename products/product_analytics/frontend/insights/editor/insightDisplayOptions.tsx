@@ -412,10 +412,9 @@ const INSIGHT_BINDINGS: DisplayOptionBindings<InsightDisplayContext> = {
                 : c.showLegend),
     },
     legendPosition: {
-        showCondition: (c) => c.useQuillLegendOptions,
-        value: (c) => (c.legendPosition ?? (c.showLegend ? 'right' : 'bottom')) as DisplayOptionValue<'legendPosition'>,
+        showCondition: (c) => c.useQuillLegendOptions && c.showLegend,
+        value: (c) => (c.legendPosition ?? 'right') as DisplayOptionValue<'legendPosition'>,
         onChange: (legendPosition, c) => c.updateInsightFilter({ legendPosition }),
-        disabledReason: (c) => (c.showLegend ? undefined : 'Turn the legend on to set its position'),
     },
     excludeOutliers: {
         showCondition: (c) => c.showDisplaySection && c.isBoxPlot,

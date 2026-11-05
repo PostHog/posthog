@@ -82,6 +82,7 @@ APIScopeObject = Literal[
     "integration",
     "interactive_run",
     "internal_run",
+    "knowledge_writer",
     "legal_document",
     "link",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "live_debugger",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
@@ -154,6 +155,8 @@ APIScopeObject = Literal[
     "webhook",
     "wizard_session",
     "wizard_run",
+    "workload_trust_policy",
+    "workload_trust_policy_request",
 ]
 
 
@@ -288,6 +291,9 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     ("messaging_preference", "write"),
     ("transactional_email", "read"),
     ("transactional_email", "write"),
+    # SDK prompt fetches by name and by list, so a service does not need a credential tied
+    # to one person's account. Publishing, labels and archiving stay closed to these keys.
+    ("llm_prompt", "read"),
 ]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope
@@ -328,6 +334,26 @@ OAUTH_SCOPES_HIDDEN: frozenset[str] = (
 # they live in `OIDC_SCOPES` below and are accepted at `/authorize`
 # independently of `application.scopes`.
 UNPRIVILEGED_SCOPES: frozenset[str] = ALL_SCOPES - PRIVILEGED_SCOPES - OAUTH_SCOPES_HIDDEN
+
+# What a risky scope lets a token do, shown wherever a person grants scopes to a token so they add it with care.
+RISKY_SCOPE_WARNINGS: dict[str, str] = {
+    "access_control:write": "Changes who can access resources in this project.",
+    "approvals:write": "Approves or rejects change requests that gate other changes.",
+    "autoresearch:write": "Starts agent runs that get their own longer-lived token.",
+    "billing:read": "Reads the whole organization's billing details, not just this project's.",
+    "billing:write": "Changes the organization's subscription and payment details.",
+    "hog_flow:write": "Runs workflow code that can use the stored credentials of the project's integrations.",
+    "hog_function:write": "Runs code, including on your website, that can use the stored credentials of the project's integrations.",
+    "integration:write": "Connects and changes third-party integrations and their stored credentials.",
+    "llm_provider_key:write": "Stores and changes LLM provider API keys.",
+    "organization:write": "Changes organization settings, including roles and OAuth apps.",
+    "organization_integration:write": "Connects and changes organization-wide integrations and their stored credentials.",
+    "organization_member:write": "Invites and removes organization members and changes their roles, so it can give people access beyond this token's scopes.",
+    "sharing_configuration:read": "Reads the access tokens of public sharing links, which keep working after this token expires.",
+    "sharing_configuration:write": "Creates public sharing links that anyone with the link can open.",
+    "user:read": "Reads the account details of the user the token acts as, including every organization and project they belong to.",
+    "user:write": "Changes the account of the user the token acts as.",
+}
 
 
 def get_scope_descriptions() -> dict[str, str]:
@@ -717,7 +743,8 @@ def narrow_scopes_to_ceiling(original: Iterable[str], app_scopes: Iterable[str])
     if "*" in original_set:
         return original_list
 
-    narrowed = (original_set & ceiling) | (original_set & ALWAYS_ALLOWED_SCOPES)
+    # A `:write` in the ceiling covers its `:read`, as at issue time in `clamp_scopes_to_ceiling`.
+    narrowed = (original_set & _with_read_halves(ceiling)) | (original_set & ALWAYS_ALLOWED_SCOPES)
     if not narrowed and original_set:
         return None
     return sorted(narrowed)

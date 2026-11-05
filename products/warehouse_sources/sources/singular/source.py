@@ -124,6 +124,7 @@ class SingularSource(ResumableSource[SingularSourceConfig, SingularResumeConfig]
                         type=SourceFieldInputConfigType.PASSWORD,
                         required=True,
                         placeholder="",
+                        caption="Copy your Reporting API key from **Developer Tools > API Keys** in Singular. A PostHog API key does not work here.",
                         secret=True,
                     ),
                     SourceFieldInputConfig(

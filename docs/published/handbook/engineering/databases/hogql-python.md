@@ -59,6 +59,13 @@ Circular dependencies fail with a query error. Soft saves skip column inference 
 Query preparation shares a 60-second cooperative deadline across parsing, resolution, transformations, and printing.
 AST visitors check the deadline while walking; native parser calls are checked when they return, rather than interrupted mid-call.
 
+## Disabling projection optimization
+
+Set `HOGQL_PROJECTION_OPTIMIZATION_ENABLED` to `false` in Django admin's instance settings to disable unused-column pruning and exported event-property narrowing for every project.
+The setting defaults to `true` and overrides the `optimizeProjections` query modifier when disabled.
+Workers pick up the change within about a minute; it affects newly compiled queries, not running queries or cached results.
+Disabling these optimizations can increase query time and memory use. Set the instance setting back to `true` to restore the normal per-query behavior.
+
 ## Pattern matching during query preparation
 
 Expressions inside HogQL placeholders execute in the Python HogVM.
