@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useDebouncedCallback } from 'use-debounce'
 
 import { IconClock } from '@posthog/icons'
 import { LemonButtonProps, LemonSelect, LemonSelectOptionLeaf } from '@posthog/lemon-ui'
@@ -50,6 +51,10 @@ export function CompareFilter({
 
     const { isWindowLessThan } = useWindowSize()
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const commitCompareTo = useDebouncedCallback(
+        (compare_to: string) => updateCompareFilter({ compare: true, compare_to }),
+        500
+    )
 
     useEffect(() => {
         const newCompareTo = compareFilter?.compare_to
@@ -70,6 +75,7 @@ export function CompareFilter({
     }
 
     const selectValue = (newValue: CompareFilterValue): void => {
+        commitCompareTo.cancel()
         if (newValue === 'inherit') {
             onInherit?.()
         } else if (newValue === 'none') {
@@ -111,7 +117,7 @@ export function CompareFilter({
                 onSelect={selectValue}
                 onCompareToChange={(compare_to) => {
                     setTentativeCompareTo(compare_to)
-                    updateCompareFilter({ compare: true, compare_to })
+                    commitCompareTo(compare_to)
                 }}
                 disabled={disabled}
                 disabledReason={disableReason}

@@ -101,8 +101,12 @@ export function QuillCompareFilter({
                                         units={COMPARE_TO_UNITS}
                                         onChange={(range) =>
                                             onCompareToChange(
-                                                dateRangeForSelection({ kind: 'rolling', ...range }).date_from ??
-                                                    tentativeCompareTo
+                                                // Relative dates only parse whole numbers: "-1.5d" reads as five days.
+                                                dateRangeForSelection({
+                                                    kind: 'rolling',
+                                                    count: Math.round(range.count),
+                                                    unit: range.unit,
+                                                }).date_from ?? tentativeCompareTo
                                             )
                                         }
                                     />
