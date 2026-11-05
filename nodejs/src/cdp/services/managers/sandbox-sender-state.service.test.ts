@@ -125,7 +125,7 @@ describe('SandboxSenderStateService', () => {
         } as unknown as PubSub
         const storedStatuses = ['ENABLED', 'DISABLED', 'ENABLED', 'DISABLED', 'ENABLED', 'DISABLED']
         let holdNextLookup = false
-        let releaseHeldLookup: (() => void) | undefined
+        const heldLookups: (() => void)[] = []
         const query = jest.fn(async (_tx: unknown, sql: string) => {
             if (sql.startsWith('SET LOCAL')) {
                 return { rows: [] }
@@ -133,7 +133,7 @@ describe('SandboxSenderStateService', () => {
             const status = storedStatuses.shift()
             if (holdNextLookup) {
                 holdNextLookup = false
-                await new Promise<void>((resolve) => (releaseHeldLookup = resolve))
+                await new Promise<void>((resolve) => heldLookups.push(resolve))
             }
             return { rows: [{ tenant_name: 'sandbox-tenant', sending_status: status }] }
         })
@@ -151,28 +151,22 @@ describe('SandboxSenderStateService', () => {
         await expect(service.isPaused('sandbox-tenant')).resolves.toBe(true)
         expect(lookups()).toBe(2)
 
-        holdNextLookup = true
-        reload({ tenantName: 'sandbox-tenant' })
-        const checkDuringReload = service.isPaused('sandbox-tenant')
-        while (!releaseHeldLookup) {
-            await new Promise((resolve) => setImmediate(resolve))
+        const isPausedWithReloadDuringLookup = async (fresh: boolean): Promise<boolean> => {
+            holdNextLookup = true
+            const check = service.isPaused('sandbox-tenant', { fresh })
+            while (heldLookups.length === 0) {
+                await new Promise((resolve) => setImmediate(resolve))
+            }
+            reload({ tenantName: 'sandbox-tenant' })
+            heldLookups.shift()!()
+            return await check
         }
-        reload({ tenantName: 'sandbox-tenant' })
-        releaseHeldLookup()
 
-        await expect(checkDuringReload).resolves.toBe(true)
+        reload({ tenantName: 'sandbox-tenant' })
+        await expect(isPausedWithReloadDuringLookup(false)).resolves.toBe(true)
         expect(lookups()).toBe(4)
 
-        holdNextLookup = true
-        releaseHeldLookup = undefined
-        const freshCheckDuringReload = service.isPaused('sandbox-tenant', { fresh: true })
-        while (!releaseHeldLookup) {
-            await new Promise((resolve) => setImmediate(resolve))
-        }
-        reload({ tenantName: 'sandbox-tenant' })
-        releaseHeldLookup()
-
-        await expect(freshCheckDuringReload).resolves.toBe(true)
+        await expect(isPausedWithReloadDuringLookup(true)).resolves.toBe(true)
         expect(lookups()).toBe(6)
     })
 
