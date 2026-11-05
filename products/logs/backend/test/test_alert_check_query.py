@@ -2249,30 +2249,29 @@ class TestBatchedQueryPredicateHoistingEmptyScan(ClickhouseTestMixin, APIBaseTes
         assert [b.count for b in batched.per_alert[str(alert.id)]] == [0, 0, 0]
 
 
-class TestFetchLiveLogsCheckpoint(APIBaseTest):
-    @patch("products.logs.backend.alert_check_query.execute_hogql_query")
-    def test_returns_datetime_from_response(self, mock_execute):
-        mock_response = type("R", (), {"results": [[datetime(2025, 1, 1, 12, 34, 56, tzinfo=UTC)]]})()
-        mock_execute.return_value = mock_response
+class TestFetchLiveLogsCheckpoint(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        sync_execute("TRUNCATE TABLE IF EXISTS logs_kafka_metrics")
 
-        result = fetch_live_logs_checkpoint(self.team)
+    def _consumed(self, partition: int, observed: datetime) -> None:
+        sync_execute(
+            "INSERT INTO logs_kafka_metrics (_topic, _partition, max_observed_timestamp) VALUES",
+            [("logs", partition, observed)],
+        )
 
-        assert result == datetime(2025, 1, 1, 12, 34, 56, tzinfo=UTC)
-
-    @patch("products.logs.backend.alert_check_query.execute_hogql_query")
-    def test_returns_none_on_empty_table(self, mock_execute):
-        # min() over an empty set returns NULL.
-        mock_execute.return_value = type("R", (), {"results": [[None]]})()
-
+    def test_returns_none_before_any_log_is_consumed(self) -> None:
         assert fetch_live_logs_checkpoint(self.team) is None
 
-    @patch("products.logs.backend.alert_check_query.execute_hogql_query")
-    def test_returns_none_when_no_rows(self, mock_execute):
-        mock_execute.return_value = type("R", (), {"results": []})()
+    def test_returns_the_slowest_partitions_newest_log(self) -> None:
+        start = datetime(2026, 11, 5, 12, 0, tzinfo=UTC)
+        self._consumed(0, start)
+        self._consumed(0, start + dt.timedelta(seconds=30))
+        self._consumed(1, start + dt.timedelta(seconds=20))
 
-        assert fetch_live_logs_checkpoint(self.team) is None
+        assert fetch_live_logs_checkpoint(self.team) == start + dt.timedelta(seconds=20)
 
-    @patch("products.logs.backend.alert_check_query.execute_hogql_query")
+    @patch("products.alerts_platform.backend.facade.ingestion_checkpoint.execute_hogql_query")
     def test_attaches_utc_to_naive_datetime(self, mock_execute):
         # ClickHouse returns tz-naive datetimes for DateTime64 columns in some code paths.
         mock_execute.return_value = type("R", (), {"results": [[datetime(2025, 1, 1, 12, 34, 56)]]})()

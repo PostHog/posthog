@@ -28,10 +28,11 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 
+from products.alerts_platform.backend.facade.ingestion_checkpoint import fetch_ingestion_checkpoint
 from products.alerts_platform.backend.facade.rolling_checks import CheckWindow, rolling_check_ranges
 from products.logs.backend.alert_group_columns import GROUP_COLUMNS
 from products.logs.backend.alert_utils import MAX_BYTES_TO_READ
-from products.logs.backend.logs_query_runner import LIVE_LOGS_CHECKPOINT_QUERY, LogsFilterBuilder
+from products.logs.backend.logs_query_runner import LogsFilterBuilder
 
 
 class AlertQuerySubject(Protocol):
@@ -728,29 +729,14 @@ class GroupedAlertCheckQuery:
 def fetch_live_logs_checkpoint(
     team: Team, *, ch_user: ClickHouseUser = ClickHouseUser.DEFAULT, max_execution_time: int | None = None
 ) -> dt.datetime | None:
-    tag_queries(
+    return fetch_ingestion_checkpoint(
+        team,
+        consumption_table=("logs_kafka_metrics",),
         product=Product.LOGS,
-        feature=Feature.ALERTING,
         source="logs_alert",
-        team_id=str(team.id),
-    )
-    response = execute_hogql_query(
-        query_type="alert_check_checkpoint",
-        query=LIVE_LOGS_CHECKPOINT_QUERY,
-        team=team,
-        workload=Workload.LOGS,
         ch_user=ch_user,
-        modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),
-        settings=None
-        if max_execution_time is None
-        else HogQLGlobalSettings(max_execution_time=max_execution_time, timeout_overflow_mode="throw"),
+        max_execution_time=max_execution_time,
     )
-    if not response.results or response.results[0][0] is None:
-        return None
-    checkpoint = response.results[0][0]
-    if checkpoint.tzinfo is None:
-        checkpoint = checkpoint.replace(tzinfo=ZoneInfo("UTC"))
-    return checkpoint
 
 
 def is_projection_eligible(filters: dict) -> bool:
