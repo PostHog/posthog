@@ -36,7 +36,9 @@ from posthog.schema import RecordingsQuery
 from posthog.api.search import (
     ENTITY_MAP as _SEARCH_ENTITY_MAP,
     EntityConfig,
+    FacadeSearch,
     search_entities,
+    search_live_actions,
 )
 from posthog.clickhouse.query_tagging import get_query_tags, query_tags
 from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
@@ -173,9 +175,10 @@ _MAX_FILTER_EVENT_PROPERTIES = 2
 # who answered it is a real goal.
 _LIVE_SEARCH_ENTITY_MAP: dict[str, EntityConfig] = {
     **_SEARCH_ENTITY_MAP,
-    "action": {**_SEARCH_ENTITY_MAP["action"], "filters": {"deleted": False}},
     "cohort": {**_SEARCH_ENTITY_MAP["cohort"], "filters": {"deleted": False}},
 }
+# Actions are searched through the actions facade, not the union map, so they are left out the same way here.
+_LIVE_FACADE_SEARCHES: dict[str, FacadeSearch] = {"action": search_live_actions}
 # Words common to almost any goal. Matching them returns arbitrary events rather than the ones the
 # user means, and crowds out the terms that carry the intent.
 _GOAL_STOPWORDS = frozenset(
@@ -1094,6 +1097,7 @@ def _goal_entity_matches(
                 view=view,  # type: ignore[arg-type]
                 entity_map=_LIVE_SEARCH_ENTITY_MAP,
                 include_counts=False,
+                facade_searches=_LIVE_FACADE_SEARCHES,
             )
             for result in results:
                 extra = result.get("extra_fields") or {}

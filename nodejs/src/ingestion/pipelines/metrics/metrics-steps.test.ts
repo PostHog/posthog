@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { AppMetricsOutput, DLQ_OUTPUT, DlqOutput } from '~/common/outputs'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { DependencyUnavailableError, MessageSizeTooLarge } from '~/common/utils/db/error'
 import { isDevEnv } from '~/common/utils/env-utils'
 import { logger } from '~/common/utils/logger'
@@ -73,6 +74,7 @@ describe('metrics ingestion steps', () => {
                     kafkaHeaders: { token: 'tok', bytes_uncompressed: '120', record_count: '3' },
                     token: 'tok',
                     bytesUncompressed: 120,
+                    bytesUncompressedRecords: 0,
                     bytesCompressed: 0,
                     recordCount: 3,
                 })
@@ -169,6 +171,7 @@ describe('metrics ingestion steps', () => {
             teamId,
             message: createTestMessage(),
             bytesUncompressed,
+            bytesUncompressedRecords: 0,
             bytesCompressed: 0,
             recordCount: 1,
             usage,
@@ -329,7 +332,13 @@ describe('metrics ingestion steps', () => {
             usage.recordReceived(1, 100, 2)
             outputs.queueMessages.mockRejectedValueOnce(new Error('broker down'))
 
-            await expect(emitMetricsUsage(outputs, usage)).resolves.toBeUndefined()
+            await expect(
+                emitMetricsUsage(
+                    outputs,
+                    new UsageRecordBatch(null, { unit: 'bytes', isTeamEnabled: () => false }),
+                    usage
+                )
+            ).resolves.toBeUndefined()
             expect(logger.error).toHaveBeenCalledWith(
                 '🔴',
                 'Failed to emit usage metrics - billing data may be lost',
