@@ -1135,6 +1135,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'investigate-insight',
             'workflows-customerio-import',
             'mcp-session-recording-console-logs',
+            'workflows-push-token-import-mcp',
             'support-macros',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))

@@ -106,6 +106,7 @@ rules:
                               |BriefConfig
                               |ButtonTile
                               |WorkloadTrustPolicy
+                              |WorkloadTrustPolicyRequest
                               |Canvas
                               |CanvasBuild
                               |CanvasHomePreference
@@ -618,6 +619,7 @@ rules:
                         |BriefConfig
                         |ButtonTile
                         |WorkloadTrustPolicy
+                        |WorkloadTrustPolicyRequest
                         |Canvas
                         |CanvasBuild
                         |CanvasHomePreference

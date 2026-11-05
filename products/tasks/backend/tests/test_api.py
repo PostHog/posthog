@@ -68,7 +68,13 @@ from products.tasks.backend.facade import (
     api as tasks_facade,
     contracts as tasks_contracts,
 )
-from products.tasks.backend.facade.profiles import NetworkAccess, NetworkPolicy, TaskProfile, get_task_profile
+from products.tasks.backend.facade.profiles import (
+    GithubResolution,
+    NetworkAccess,
+    NetworkPolicy,
+    TaskProfile,
+    get_task_profile,
+)
 from products.tasks.backend.facade.repo_selection import RepoSelectionResult
 from products.tasks.backend.facade.run_config import TaskArtifactAdapter, TaskArtifactType
 from products.tasks.backend.logic.services.ai_run_defaults import update_team_ai_run_preferences
@@ -3852,6 +3858,86 @@ class TestTaskAPI(BaseTaskAPITest):
         task.refresh_from_db()
         self.assertIsNone(task.signal_report_id)
 
+    @parameterized.expand(
+        [
+            ("refused_origin_without_repository", Task.OriginProduct.WORKFLOW, "github_integration", [], None, False),
+            (
+                "refused_origin_removing_its_repository",
+                Task.OriginProduct.WORKFLOW,
+                "github_integration",
+                ["posthog/posthog"],
+                [],
+                False,
+            ),
+            (
+                "refused_origin_adding_a_repository",
+                Task.OriginProduct.WORKFLOW,
+                "github_integration",
+                [],
+                ["posthog/posthog"],
+                True,
+            ),
+            (
+                "opted_in_origin_without_repository",
+                Task.OriginProduct.USER_CREATED,
+                "github_integration",
+                [],
+                None,
+                True,
+            ),
+            (
+                "refused_origin_personal_integration_only",
+                Task.OriginProduct.WORKFLOW,
+                "github_user_integration",
+                [],
+                None,
+                False,
+            ),
+            (
+                "opted_in_origin_personal_integration_only",
+                Task.OriginProduct.USER_CREATED,
+                "github_user_integration",
+                [],
+                None,
+                True,
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.facade.api.inaccessible_repositories_via_integration", return_value=[])
+    def test_patch_attaches_github_only_where_create_would(
+        self,
+        _name: str,
+        origin_product: Task.OriginProduct,
+        patched_field: str,
+        repositories: list[str],
+        patched_repositories: list[str] | None,
+        attaches_github: bool,
+        _mock_repository_access: MagicMock,
+    ):
+        integration = Integration.objects.create(team=self.team, kind="github", config={})
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Task",
+            description="Task",
+            origin_product=origin_product,
+            repository=repositories[0] if repositories else None,
+            repositories=repositories,
+            github_integration=integration if repositories else None,
+        )
+        patched_id = (
+            _grant_user_github_access(self.user).id if patched_field == "github_user_integration" else integration.id
+        )
+        body: dict = {patched_field: str(patched_id)}
+        if patched_repositories is not None:
+            body["repositories"] = patched_repositories
+
+        response = self.client.patch(f"/api/projects/@current/tasks/{task.id}/", body, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        task.refresh_from_db()
+        self.assertEqual(getattr(task, f"{patched_field}_id"), patched_id if attaches_github else None)
+
     def test_update_task(self):
         task = self.create_task("Original Task")
 
@@ -5107,6 +5193,96 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertIsNone(task.github_user_integration_id)
         self.assertEqual(task_run.state["pr_authorship_mode"], "bot")
         mock_workflow.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (endpoint, available, is_creator)
+            for endpoint in ("runs", "run")
+            for available in ("user_integration", "team_integration_only", "existing_team_integration")
+            for is_creator in (True, False)
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoints_reject_user_authorship_for_refused_repo_less_task(
+        self, endpoint, available, is_creator, mock_workflow
+    ):
+        integration = Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})
+        creator = self.user if is_creator else self.create_organization_user("task-creator")
+        if available == "user_integration":
+            _grant_user_github_access(creator)
+        task = self.create_task(created_by=creator)
+        task.origin_product = Task.OriginProduct.WORKFLOW
+        task.github_integration = integration if available == "existing_team_integration" else None
+        task.save(update_fields=["origin_product", "github_integration"])
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/{endpoint}/",
+            {
+                "environment": "cloud",
+                "pr_authorship_mode": "user",
+                "run_source": "manual",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertEqual(response.json()["code"], "github_authorization_required")
+        self.assertFalse(task.runs.exists())
+        task.refresh_from_db()
+        self.assertEqual(
+            task.github_integration_id, integration.id if available == "existing_team_integration" else None
+        )
+        self.assertIsNone(task.github_user_integration_id)
+        mock_workflow.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("create_run_user_authored", "runs", "user", None, {"github_access": "none"}, "bot", False),
+            ("create_run_bot_authored", "runs", "bot", None, {"github_access": "none"}, "bot", False),
+            ("run_user_authored", "run", "user", None, {"github_access": "none"}, "bot", False),
+            ("run_bot_authored", "run", "bot", None, {"github_access": "none"}, "bot", False),
+            ("run_caller_token", "run", "user", "ghu_test_token", {"github_access": "none"}, "bot", False),
+            ("create_run_without_a_limit", "runs", "user", None, None, "user", True),
+            ("create_run_with_a_read_limit", "runs", "user", None, {"github_access": "read"}, "user", True),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_starting_a_run_honors_the_task_github_access_limit(
+        self,
+        _name: str,
+        endpoint: str,
+        requested_mode: str,
+        github_user_token: str | None,
+        options: dict | None,
+        expected_mode: str,
+        attached: bool,
+        _mock_workflow,
+    ):
+        Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})
+        user_integration = _grant_user_github_access(self.user)
+        task = self.create_task(created_by=self.user)
+        task.repository = "posthog/posthog"
+        task.options = options
+        task.save(update_fields=["repository", "options"])
+        payload = {"pr_authorship_mode": requested_mode, "run_source": "manual"}
+        if endpoint == "runs":
+            payload["environment"] = "cloud"
+        else:
+            payload.update(mode="interactive", branch="main")
+        if github_user_token:
+            payload["github_user_token"] = github_user_token
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/{endpoint}/", payload, format="json")
+
+        self.assertIn(response.status_code, (status.HTTP_200_OK, status.HTTP_201_CREATED), response.content)
+        task.refresh_from_db()
+        run_id = response.json()["id"] if endpoint == "runs" else response.json()["latest_run"]["id"]
+        task_run = TaskRun.objects.get(id=run_id)
+        self.assertEqual(task_run.state["pr_authorship_mode"], expected_mode)
+        self.assertEqual(task.github_user_integration_id, user_integration.id if attached else None)
+        self.assertIsNone(task.github_integration_id)
+        self.assertEqual("github_credential_source" in task_run.state, attached)
+        self.assertIsNone(get_cached_github_user_token(run_id))
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_run_endpoint_cannot_start_a_product_private_account_audit(self, mock_workflow):
@@ -17568,6 +17744,91 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self.assertIsNone(task.repository)
         self.assertEqual(task.repositories, [])
         self.assertTrue(tasks_facade.task_exempt_from_code_access(task.id, self.team.id))
+
+    @parameterized.expand(
+        [
+            ("never_refuses_a_later_attachment", GithubResolution.NEVER, None, False, "attach", False),
+            (
+                "with_repository_drops_both_when_the_repo_goes",
+                GithubResolution.WITH_REPOSITORY,
+                "a/b",
+                True,
+                "unset",
+                False,
+            ),
+            (
+                "with_repository_keeps_both_while_the_repo_stays",
+                GithubResolution.WITH_REPOSITORY,
+                "a/b",
+                True,
+                "title",
+                True,
+            ),
+            (
+                "with_repository_keeps_a_repo_less_attachment_on_a_title_edit",
+                GithubResolution.WITH_REPOSITORY,
+                None,
+                True,
+                "title",
+                True,
+            ),
+            ("always_takes_a_later_attachment", GithubResolution.ALWAYS, None, False, "attach", True),
+        ]
+    )
+    def test_update_follows_the_profile_github_resolution(
+        self,
+        _name,
+        resolution: GithubResolution,
+        repository: str | None,
+        preattached: bool,
+        change: str,
+        attached: bool,
+    ):
+        profile = replace(BUSINESS_KNOWLEDGE, key="test.github", github_resolution=resolution)
+        integration = Integration.objects.create(team=self.team, kind="github", config={})
+        task = self.create_task()
+        task.profile = profile.key
+        if preattached:
+            task.github_integration = integration
+        if repository is not None:
+            task.repository = repository
+            task.repositories = [repository]
+            task.github_user_integration = _grant_user_github_access(self.user)
+        task.save()
+        payload = {
+            "attach": {"github_integration": integration.id},
+            "unset": {"repositories": []},
+            "title": {"title": "Renamed"},
+        }[change]
+
+        with patch.dict("products.tasks.backend.facade.profiles._profiles", {profile.key: profile}):
+            response = self.client.patch(f"/api/projects/@current/tasks/{task.id}/", payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        task.refresh_from_db()
+        self.assertEqual(task.github_integration_id is not None, attached)
+        self.assertEqual(task.github_user_integration_id is not None, attached and repository is not None)
+
+    @parameterized.expand(
+        [
+            ("none_refuses_a_later_attachment", {"github_access": "none"}, False),
+            ("read_takes_a_later_attachment", {"github_access": "read"}, True),
+            ("no_options_take_a_later_attachment", None, True),
+        ]
+    )
+    def test_update_follows_the_task_github_access_option(self, _name, options: dict | None, attached: bool):
+        integration = Integration.objects.create(team=self.team, kind="github", config={})
+        task = self.create_task()
+        task.options = options
+        task.save()
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/", {"github_integration": integration.id}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        task.refresh_from_db()
+        self.assertEqual(task.github_integration_id is not None, attached)
 
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_start_without_code_access_returns_403(self, mock_gate):
