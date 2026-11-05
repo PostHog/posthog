@@ -3,7 +3,12 @@ from django.conf import settings
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string
 
 from posthog.clickhouse.client.connection import ClickHouseUser, get_clickhouse_creds
-from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_PERSON_GROUP_MEMBERSHIP, kafka_engine, trim_quotes_expr
+from posthog.clickhouse.kafka_engine import (
+    CONSUMER_GROUP_PERSON_GROUP_MEMBERSHIP,
+    kafka_engine,
+    kafka_num_consumers,
+    trim_quotes_expr,
+)
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 
@@ -33,7 +38,7 @@ PERSON_GROUP_MEMBERSHIP_COLUMNS = """
 KAFKA_PERSON_GROUP_MEMBERSHIP_COLUMNS = """
     team_id Int64,
     distinct_id String,
-    properties String CODEC(ZSTD(3)),
+    properties String,
     timestamp DateTime64(6, 'UTC'),
     person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
 """.strip()
@@ -168,7 +173,7 @@ SETTINGS
     kafka_poll_max_batch_size = 10000,
     kafka_poll_timeout_ms = 10000,
     kafka_flush_interval_ms = 7500,
-    kafka_num_consumers = 1,
+    kafka_num_consumers = {kafka_num_consumers(1)},
     kafka_thread_per_consumer = 1,
     kafka_skip_broken_messages = 100
 """

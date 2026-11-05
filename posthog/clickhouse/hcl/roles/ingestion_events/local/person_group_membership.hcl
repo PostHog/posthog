@@ -14,8 +14,7 @@ database "posthog" {
       type = "String"
     }
     column "properties" {
-      type  = "String"
-      codec = "ZSTD(3)"
+      type = "String"
     }
     column "timestamp" {
       type = "DateTime64(6, 'UTC')"

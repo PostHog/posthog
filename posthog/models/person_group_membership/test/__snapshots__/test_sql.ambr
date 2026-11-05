@@ -22,7 +22,7 @@
   (
       team_id Int64,
       distinct_id String,
-      properties String CODEC(ZSTD(3)),
+      properties String,
       timestamp DateTime64(6, 'UTC'),
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2)
   )
