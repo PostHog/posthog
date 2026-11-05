@@ -63,7 +63,10 @@ type Story = StoryObj<{}>
 export const Generating: Story = {
     parameters: {
         testOptions: {
+            // The loading bar never goes away while generating, so wait for the generating state itself.
+            // Without it the capture can land on the scene spinner that shows before the heatmap loads.
             waitForLoadersToDisappear: false,
+            waitForSelector: '[data-attr="heatmap-generating-screenshot"]',
         },
     },
 }
