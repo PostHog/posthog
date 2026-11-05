@@ -3819,13 +3819,15 @@ describe('sqlEditorLogic', () => {
                 undefined,
                 false,
                 undefined,
-                incremental
+                incremental,
+                'Daily revenue by region'
             )
 
             await expectLogic(viewsLogic).toDispatchActions(['createDataWarehouseSavedQuerySuccess'])
             await expectLogic(viewsLogic).toFinishAllListeners()
 
             expect(createBody?.incremental).toEqual(incremental)
+            expect(createBody?.description).toEqual('Daily revenue by region')
             expect(materializeEndpointMock).toHaveBeenCalledTimes(1)
 
             editorDataNodeLogic.unmount()

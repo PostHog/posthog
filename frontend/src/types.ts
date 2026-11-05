@@ -6297,6 +6297,7 @@ export interface DataWarehouseSavedQuery {
     /** UUID */
     id: string
     name: string
+    description?: string | null
     /** Only included when fetching a single saved query, not in list responses */
     query?: HogQLQuery
     columns: DatabaseSchemaField[]
