@@ -123,6 +123,15 @@ def test_parse_program_result_rejects_invalid_files(_name: str, raw: bytes) -> N
         parse_program_result(raw)
 
 
+def test_parse_program_result_accepts_what_the_wizard_can_publish() -> None:
+    savings = [_saving(f"saving-{index}") | {"evidence": "e" * 5000, "title": "t" * 200} for index in range(30)]
+
+    result = parse_program_result(_result(savings=savings, insight_ids=list(range(1, 80))))
+
+    assert len(result.savings) == 30
+    assert len(result.insight_ids) == 79
+
+
 def _create_run(team_id: int, user_id: int) -> WizardRunDTO:
     return run_store.create_run(
         team_id=team_id,
