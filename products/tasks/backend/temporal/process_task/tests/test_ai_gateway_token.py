@@ -21,9 +21,9 @@ from posthog.models import Organization, Team, User
 from posthog.security.outbound_proxy import internal_requests
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
+from products.signals.backend.facade.testing import claim_trial, trial_incomplete_sources
 from products.signals.backend.models import SignalReport
 from products.signals.backend.scout_harness.suggestions import SUGGESTIONS_AI_STAGE
-from products.signals.backend.trial.policy import TrialPolicy
 from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
 from products.tasks.backend.exceptions import (
@@ -734,7 +734,7 @@ class TestProvisioningBoundaries:
         task.save()
         with patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True):
             assert task.created_by_id is not None
-            grant = TrialPolicy(task.team).claim(user_id=task.created_by_id)
+            grant_id = claim_trial(team=task.team, user_id=task.created_by_id)
             run = task.create_run(extra_state={"ai_stage": "research"})
             ctx = self._ctx()
             ctx.run_id, ctx.team_id, ctx.origin_product, ctx.state = (
@@ -748,9 +748,8 @@ class TestProvisioningBoundaries:
                     utils.run_gateway_env_vars(ctx, task)
                 assert utils.run_gateway_env_vars(ctx, task)["AI_GATEWAY_TOKEN"] == "synthetic-token"
         run.refresh_from_db()
-        grant.refresh_from_db()
         assert not run.state.get("token_cost_incomplete")
-        assert grant.incomplete_sources == 0
+        assert trial_incomplete_sources(team=task.team, grant_id=grant_id) == 0
 
     @pytest.mark.django_db
     @pytest.mark.parametrize(

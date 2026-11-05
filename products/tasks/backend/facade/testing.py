@@ -7,7 +7,7 @@ from uuid import UUID
 from django.core.cache import BaseCache
 from django.utils import timezone
 
-from posthog.models import User
+from posthog.models import Team, User
 
 from products.tasks.backend import push_dispatcher
 from products.tasks.backend.models import SandboxSession, TaskArtifact, TaskPresence, TaskRun
@@ -29,6 +29,7 @@ __all__ = [
     "notify_task_run_failed",
     "notify_task_run_turn_completed",
     "tasks_cache",
+    "run_task_tool",
 ]
 
 
@@ -121,3 +122,11 @@ def create_task_run_oauth_access_token(
 
     run = _task_run(str(task_run_id), team_id)
     return create_oauth_access_token(run.task, user=User.objects.get(id=user_id), run_id=run.id, scopes=scopes)
+
+
+async def run_task_tool(*, team: Team, user: User, task_id: str) -> None:
+    from products.tasks.backend.max_tools import (
+        RunTaskTool,  # noqa: PLC0415 -- load tool dependencies only for tool tests
+    )
+
+    await RunTaskTool(team=team, user=user, config={})._arun_impl(task_id=task_id)

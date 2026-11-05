@@ -17,9 +17,9 @@ from posthog.exceptions import QuotaLimitExceeded
 from posthog.models import Integration, User
 from posthog.models.user_integration import UserIntegration
 
+from products.signals.backend.facade.testing import claim_trial
 from products.signals.backend.models import SignalReport
 from products.signals.backend.task_run_artefacts import record_report_task
-from products.signals.backend.trial.policy import TrialPolicy
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR
 from products.tasks.backend.facade import (
     access as tasks_access,
@@ -2019,7 +2019,7 @@ class TestRunTaskWarmActivation(APIBaseTest):
             patch(f"{FACADE}.signal_task_run_user_message", return_value=True),
             patch(f"{FACADE}._trigger_task_processing_workflow", return_value=None),
         ):
-            grant = TrialPolicy(self.team).claim(user_id=self.user.id)
+            grant_id = claim_trial(team=self.team, user_id=self.user.id)
             result = facade.run_task(
                 task.id,
                 self.team.id,
@@ -2034,7 +2034,7 @@ class TestRunTaskWarmActivation(APIBaseTest):
             assert run.state["billing_product"] == "posthog_ai"
             assert "self_driving_funding" not in run.state
         else:
-            assert run.state["self_driving_funding"]["grant_id"] == str(grant.id)
+            assert run.state["self_driving_funding"]["grant_id"] == str(grant_id)
             warm.refresh_from_db()
             assert warm.state["billing_product"] == "posthog_ai"
 
