@@ -405,6 +405,7 @@ describe('workflowMetricsSummaryLogic', () => {
         const trendsLogic = appMetricsLogic({
             logicKey: LOGIC_KEY,
             loadOnMount: true,
+            defaultParams: { dateFrom: '2026-10-01T00:00:00Z', dateTo: '2026-10-08T00:00:00Z' },
             forceParams: { appSource: 'hog_flow', appSourceId: WORKFLOW_ID, breakdownBy: 'metric_name' },
         })
         trendsLogic.mount()
