@@ -208,6 +208,22 @@ SANDBOX_TENANT = "workflows-sandbox"
 SANDBOX_TENANT_ARN = f"arn:aws:ses:us-east-1:123456789012:tenant/{SANDBOX_TENANT}/abc"
 
 
+def _ses_status_error(code: str, status: int) -> ClientError:
+    return ClientError(
+        {
+            "Error": {"Code": code},
+            "ResponseMetadata": {
+                "HTTPStatusCode": status,
+                "HTTPHeaders": {},
+                "HostId": "",
+                "RequestId": "",
+                "RetryAttempts": 0,
+            },
+        },
+        "GetTenant",
+    )
+
+
 @override_settings(SES_SANDBOX_TENANT_NAME=SANDBOX_TENANT)
 class TestSandboxTenantStateSync(BaseTest):
     def setUp(self) -> None:
@@ -303,23 +319,18 @@ class TestSandboxTenantStateSync(BaseTest):
             ),
             (
                 "ses_outage",
-                ClientError(
-                    {"Error": {"Code": "InternalFailure"}, "ResponseMetadata": {"HTTPStatusCode": 500}}, "GetTenant"
-                ),
+                _ses_status_error("InternalFailure", 500),
                 "transient",
             ),
             (
                 "access_denied",
-                ClientError(
-                    {"Error": {"Code": "AccessDeniedException"}, "ResponseMetadata": {"HTTPStatusCode": 403}},
-                    "GetTenant",
-                ),
+                _ses_status_error("AccessDeniedException", 403),
                 "error",
             ),
             ("no_credentials", NoCredentialsError(), "error"),
             (
                 "bad_ca_bundle",
-                SSLError(endpoint_url="https://email.example.com", error="certificate verify failed"),
+                SSLError(endpoint_url="https://email.example.com", error=Exception("certificate verify failed")),
                 "error",
             ),
         ]
