@@ -1262,31 +1262,35 @@ def _squash_commit(worktree: Path, head: str, default: str) -> str | None:
             *files,
         ],
     )
-    own_id = own[0][0]
-    return next((commit for patch_id, commit in candidates if patch_id == own_id), None)
+    own_id = next(iter(own))
+    return candidates.get(own_id)
 
 
-def _patch_ids(cwd: Path, git_args: Sequence[str], timeout: float = 120.0) -> list[tuple[str, str]]:
-    """(patch id, commit) pairs for the patches that ``git <git_args>`` prints.
+def _patch_ids(cwd: Path, git_args: Sequence[str], timeout: float = 120.0) -> dict[str, str]:
+    """The commit of each patch id among the patches that ``git <git_args>`` prints, the first one per id.
 
+    The patches stream straight into ``git patch-id``: a long history of a big, often rewritten file
+    would not fit in memory, and several worktrees are checked at once.
     Diffs are bytes, not text: a binary or non-UTF-8 file would make a text decode fail.
     --verbatim keeps whitespace in the id, so a re-indent committed after the merge does not match it."""
 
     try:
-        patch = subprocess.run(["git", *git_args], cwd=cwd, capture_output=True, timeout=timeout)
-        if patch.returncode != 0:
-            return []
-        ids = subprocess.run(
-            ["git", "patch-id", "--verbatim"], cwd=cwd, input=patch.stdout, capture_output=True, timeout=timeout
-        )
+        with subprocess.Popen(["git", *git_args], cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as patch:
+            ids = subprocess.run(
+                ["git", "patch-id", "--verbatim"], cwd=cwd, stdin=patch.stdout, capture_output=True, timeout=timeout
+            )
+            # Closed here too, so git exits on a broken pipe instead of blocking if patch-id stopped reading.
+            patch.stdout.close()
+            if patch.wait(timeout=timeout) != 0:
+                return {}
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        return []
-    pairs = []
+        return {}
+    commits: dict[str, str] = {}
     for line in ids.stdout.decode(errors="replace").splitlines():
         parts = line.split()
         if len(parts) == 2:
-            pairs.append((parts[0], parts[1]))
-    return pairs
+            commits.setdefault(parts[0], parts[1])
+    return commits
 
 
 def _merged_pull_request(worktree: Path, head: str) -> str | None:
