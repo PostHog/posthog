@@ -371,7 +371,7 @@ def _fetch_daily_metrics(
             {"AND team_id IN %(team_ids)s" if team_ids else ""}
             AND {in_hours}
             AND metric_name IN %(names)s
-            GROUP BY team_id, app_source_id, hour
+            GROUP BY team_id, app_source_id, instance_id, hour
         )
         GROUP BY team_id, day
     """
