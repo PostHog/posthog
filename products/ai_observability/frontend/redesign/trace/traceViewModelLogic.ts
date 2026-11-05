@@ -265,7 +265,7 @@ export interface traceViewModelLogicMeta {
         ) => NodeDetailData | null
         datasetsEnabled: (featureFlags: FeatureFlagsSet) => boolean
         datasetItemSource: (
-            datasetsEnabled: any,
+            datasetsEnabled: boolean,
             selectedNodeLoad: NodeLoad,
             createdAt: string | null,
             traceId: string
