@@ -632,7 +632,11 @@ const Message = React.memo(function Message({
                                 <span className="font-mono">{message.content}</span>
                             </div>
                         ) : (
-                            <MarkdownMessage content={message.content || '*No text.*'} id={message.id || 'no-text'} />
+                            <MarkdownMessage
+                                content={message.content || '*No text.*'}
+                                id={message.id || 'no-text'}
+                                literalTags
+                            />
                         )
 
                         if (quill) {
