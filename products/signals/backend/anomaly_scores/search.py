@@ -28,7 +28,7 @@ from products.signals.backend.anomaly_scores.config import (
     parse_config,
     read_payload,
 )
-from products.signals.backend.anomaly_scores.queue import active_insights, turned_off_in_settings
+from products.signals.backend.anomaly_scores.queue import active_insights
 from products.signals.backend.anomaly_scores.read import (
     MAX_BUCKETS,
     FlaggedPoint,
@@ -56,10 +56,6 @@ MAX_INSIGHT_SERIES = MAX_LIMITS.max_series
 SCORING_DISABLED_MESSAGE = "Anomaly scoring is not enabled for this project, so no insight is scored."
 SCORING_SOURCE_OFF_MESSAGE = (
     "The Product analytics source is turned off in this project's self-driving settings, so no insight is scored. "
-    "Scores written before it was turned off stay readable."
-)
-SCORING_TURNED_OFF_MESSAGE = (
-    "Anomaly scoring is turned off in this project's self-driving settings, so no insight is scored. "
     "Scores written before it was turned off stay readable."
 )
 
@@ -218,8 +214,6 @@ def _scoring_off_message(config: AnomalyScoringConfig, team: Team) -> str | None
         return SCORING_DISABLED_MESSAGE
     if not analytics_source_enabled(team.id):
         return SCORING_SOURCE_OFF_MESSAGE
-    if turned_off_in_settings(team):
-        return SCORING_TURNED_OFF_MESSAGE
     return None
 
 

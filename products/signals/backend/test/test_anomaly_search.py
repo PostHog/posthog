@@ -20,10 +20,9 @@ from products.signals.backend.anomaly_scores.search import (
     MAX_INSIGHT_SERIES,
     SCORING_DISABLED_MESSAGE,
     SCORING_SOURCE_OFF_MESSAGE,
-    SCORING_TURNED_OFF_MESSAGE,
 )
 from products.signals.backend.contracts import ALERT_SCOPE_SOURCE
-from products.signals.backend.models import SignalSourceConfig, SignalTeamConfig
+from products.signals.backend.models import SignalSourceConfig
 
 NOW = datetime.datetime(2026, 10, 23, 12, tzinfo=datetime.UTC)
 
@@ -190,8 +189,6 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
             ("insight_outside_the_payload", "insight", "payload", SCORING_DISABLED_MESSAGE),
             ("search_with_the_source_off", "search", "source", SCORING_SOURCE_OFF_MESSAGE),
             ("insight_with_the_source_off", "insight", "source", SCORING_SOURCE_OFF_MESSAGE),
-            ("search_turned_off_in_settings", "search", "settings", SCORING_TURNED_OFF_MESSAGE),
-            ("insight_turned_off_in_settings", "insight", "settings", SCORING_TURNED_OFF_MESSAGE),
         ]
     )
     def test_explains_an_empty_result_for_a_team_that_is_not_scored(
@@ -202,8 +199,6 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         elif off_by == "source":
             self.source.enabled = False
             self.source.save()
-        else:
-            SignalTeamConfig.objects.create(team=self.team, anomaly_scoring_enabled=False)
 
         body = self._get(endpoint, insight_id=self.insight.id).json()
 

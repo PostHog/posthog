@@ -584,16 +584,6 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "installations. Changes apply to tasks started afterwards. Empty by default."
         ),
     )
-    anomaly_scoring_enabled = serializers.BooleanField(
-        required=False,
-        help_text=(
-            "Legacy off switch for anomaly scoring. The Product analytics source (analytics / "
-            "anomaly_investigation) now controls scoring: when that source is on, anomaly scoring scores "
-            "this project's active trends insights and writes the results as $anomaly_score events, which "
-            "are not billed. True by default. False still stops new scores; events written before stay. "
-            "Turning it on does not enroll a project that anomaly_scoring_available reports as not covered."
-        ),
-    )
     anomaly_scoring_available = serializers.SerializerMethodField(
         help_text=(
             "Whether the anomaly scoring rollout covers this project. PostHog decides which projects it "
@@ -689,7 +679,6 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "pull_request_label_enabled",
             "pull_request_label",
             "implementation_repositories",
-            "anomaly_scoring_enabled",
             "anomaly_scoring_available",
             "reports_generated_today",
             "daily_report_limit_reached",

@@ -112,12 +112,7 @@ from products.signals.backend.anomaly_scores.tick import (
     shard_picks,
 )
 from products.signals.backend.contracts import ALERT_SCOPE_SOURCE
-from products.signals.backend.models import (
-    AnomalyScoringDueInsight,
-    AnomalyScoringState,
-    SignalSourceConfig,
-    SignalTeamConfig,
-)
+from products.signals.backend.models import AnomalyScoringDueInsight, AnomalyScoringState, SignalSourceConfig
 from products.subscriptions.backend.facade.testing import create_subscription
 
 NEW_YORK = ZoneInfo("America/New_York")
@@ -967,13 +962,10 @@ _SPLIT_PAYLOAD = {"enabled": True, "organization_ids": [ORGANIZATION_ID], "train
 class TestEligibleTeams(BaseTest):
     @parameterized.expand(
         [
-            ("every_team_of_the_organization", [], [], False, None, {"main", "second"}),
-            ("allowlist", ["main"], [], False, None, {"main"}),
-            ("skip_list", [], ["main"], False, None, {"second"}),
-            ("quota_limited", [], [], True, None, {"main"}),
-            ("turned_off_in_settings", [], [], False, False, {"main"}),
-            ("left_on_in_settings", [], [], False, True, {"main", "second"}),
-            ("settings_cannot_enroll_a_skipped_team", [], ["second"], False, True, {"main"}),
+            ("every_team_of_the_organization", [], [], False, {"main", "second"}),
+            ("allowlist", ["main"], [], False, {"main"}),
+            ("skip_list", [], ["main"], False, {"second"}),
+            ("quota_limited", [], [], True, {"main"}),
         ]
     )
     def test_only_allowed_teams_under_their_event_quota_are_scored(
@@ -982,14 +974,11 @@ class TestEligibleTeams(BaseTest):
         allow: list[str],
         skip: list[str],
         second_limited: bool,
-        second_setting: bool | None,
         expected: set[str],
     ) -> None:
         teams = {"main": self.team, "second": Team.objects.create(organization=self.organization, name="second")}
         for team in teams.values():
             _enable_analytics_source(team)
-        if second_setting is not None:
-            SignalTeamConfig.objects.create(team=teams["second"], anomaly_scoring_enabled=second_setting)
         other = Organization.objects.create(name="other")
         Team.objects.create(organization=other, name="other")
         config = AnomalyScoringConfig(
@@ -1057,14 +1046,6 @@ class TestEligibleTeams(BaseTest):
         assert covers_team(config, Team.objects.get(id=self.team.id)) is enrolled
         assert (self.team.id in eligible) is enrolled
         assert other.id not in eligible
-
-    def test_rollout_skips_a_team_that_turned_scoring_off(self) -> None:
-        _enable_analytics_source(self.team)
-        SignalTeamConfig.objects.create(team=self.team, anomaly_scoring_enabled=False)
-        config = AnomalyScoringConfig(enabled=True, self_driving_organization_percentage=100.0)
-
-        with patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]):
-            assert self.team.id not in {team.id for team in eligible_teams(config)}
 
 
 _DEFAULT_INTERVALS = (IntervalType.DAY, IntervalType.WEEK, IntervalType.MONTH)

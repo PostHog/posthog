@@ -444,9 +444,7 @@ export interface SignalTeamConfig {
     pull_request_label?: string | null
     /** Extra 'org/repo' names implementation tasks can read and write. They are not cloned and never become the PR target. */
     implementation_repositories?: string[]
-    /** Whether anomaly scoring writes $anomaly_score events for this project. True by default; false opts out. */
-    anomaly_scoring_enabled?: boolean
-    /** Read-only: whether anomaly scoring covers this project, so the switch above has an effect. Never send in a patch. */
+    /** Read-only: whether the anomaly scoring rollout covers this project. Never send in a patch. */
     anomaly_scoring_available?: boolean
     /** Read-only: reports that first became visible today (project timezone). Never send in a patch. */
     reports_generated_today?: number
