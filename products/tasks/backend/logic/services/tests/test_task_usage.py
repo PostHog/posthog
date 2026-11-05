@@ -413,3 +413,38 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
 
         assert first == second == Decimal("1.25")
         get_cost.assert_called_once()
+
+    @parameterized.expand(
+        [
+            (
+                "every_run_reported",
+                [{"budget_guard": {"sdk_total_usd": 2.25}}, {"budget_guard": {"sdk_total_usd": 0.5}}],
+                Decimal("2.75"),
+            ),
+            (
+                "a_run_without_a_settled_turn_spent_nothing",
+                [{"budget_guard": {"sdk_total_usd": 1.5}}, {}],
+                Decimal("1.5"),
+            ),
+            (
+                "a_run_that_worked_without_a_report_is_unknown",
+                [{"budget_guard": {"sdk_total_usd": 1.5}}, {"token_usage": {"turns": 2}}],
+                None,
+            ),
+        ]
+    )
+    def test_reported_token_cost_sums_the_task_runs(
+        self, _name: str, run_states: list[dict], expected: Decimal | None
+    ) -> None:
+        for state in run_states:
+            TaskRun.objects.create(task=self.task, team=self.team, state=state)
+        other_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Other task",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        TaskRun.objects.create(task=other_task, team=self.team, state={"budget_guard": {"sdk_total_usd": 40}})
+
+        assert task_usage.get_task_reported_token_cost(team_id=self.team.id, task_id=self.task.id) == expected
