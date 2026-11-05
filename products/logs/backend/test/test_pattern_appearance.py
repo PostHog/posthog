@@ -67,3 +67,15 @@ def test_the_message_links_to_the_announced_pattern_from_before_its_first_sighti
     assert json.loads(query["dateRange"][0])["date_from"] == (T0 - dt.timedelta(minutes=10)).isoformat()
     # The full service name from the detail, not the label cut for display.
     assert json.loads(query["serviceNames"][0]) == ["api"]
+
+
+def test_a_pattern_too_long_for_a_message_link_falls_back_to_service_and_severity() -> None:
+    pattern = "x" * 1700
+    url = _logs_url(
+        2,
+        {},
+        {"pattern": pattern, "pattern_complete": True, "pattern_version": 5, "service_name": "api"},
+    )
+
+    assert len(url) <= 2000
+    assert "filterGroup" not in parse_qs(urlparse(url).query)

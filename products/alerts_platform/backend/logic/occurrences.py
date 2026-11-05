@@ -11,7 +11,7 @@ from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import Any, Final
 
-from django.db import transaction
+from django.db import connection, transaction
 from django.utils import timezone
 
 from products.alerts_platform.backend.facade.contracts import (
@@ -42,6 +42,9 @@ MIN_STEP: Final = timedelta(microseconds=1)
 # A fact is visible once its transaction commits, a moment after `recorded_at` is set. A check reads
 # only up to this long ago, so it never passes a fact that is about to become visible.
 RECORD_ALLOWANCE: Final = timedelta(seconds=10)
+# Bounds on one pushed fact's write, well below a caller's own deadline, so a stalled write ends.
+WRITE_LOCK_TIMEOUT_MS: Final = 5_000
+WRITE_STATEMENT_TIMEOUT_MS: Final = 10_000
 
 _feeds: dict[SourceKind, OccurrenceFeed] = {}
 
@@ -201,33 +204,53 @@ def record(
 ) -> None:
     """Records one fact. Idempotent: a repeated fact, or an older one arriving late, changes nothing."""
     key = bounded_grouping_key(identity_key)
-    if kind == OccurrenceKind.NEW:
-        _insert_new(source, team_id, [(key, first_seen_at, labels, detail)])
-        return
     with transaction.atomic():
-        rows = PlatformOccurrence.objects.for_team(team_id).filter(source_kind=source.value, identity_key=key)
-        row = rows.select_for_update().first()
-        if row is None:
-            PlatformOccurrence.objects.for_team(team_id).create(
-                team_id=team_id,
-                source_kind=source.value,
-                identity_key=key,
-                first_seen_at=first_seen_at,
-                reappeared_at=occurred_at,
-                labels=_storable(labels),
-                detail=_storable(detail),
-            )
+        _bound_statements()
+        if kind == OccurrenceKind.NEW:
+            _insert_new(source, team_id, [(key, first_seen_at, labels, detail)])
             return
-        # Older than the latest return, or than a resolve since, so it is not news.
-        if any(moment is not None and occurred_at <= moment for moment in (row.reappeared_at, row.resolved_at)):
-            return
-        row.reappeared_at = occurred_at
-        row.resolved_at = None
-        # What came back may differ from what was first seen, and filters and messages read the latest.
-        row.labels = _storable(labels)
-        row.detail = _storable(detail)
-        row.recorded_at = timezone.now()
-        row.save(update_fields=["reappeared_at", "resolved_at", "labels", "detail", "recorded_at"])
+        _record_reappearance(source, team_id, key, occurred_at, first_seen_at, labels, detail)
+
+
+def _bound_statements() -> None:
+    """Ends a write that waits on a lock or runs long, so a caller's own deadline really stops it."""
+    with connection.cursor() as cursor:
+        cursor.execute(f"SET LOCAL lock_timeout = '{WRITE_LOCK_TIMEOUT_MS}ms'")
+        cursor.execute(f"SET LOCAL statement_timeout = '{WRITE_STATEMENT_TIMEOUT_MS}ms'")
+
+
+def _record_reappearance(
+    source: SourceKind,
+    team_id: int,
+    key: str,
+    occurred_at: datetime,
+    first_seen_at: datetime,
+    labels: dict[str, str],
+    detail: dict[str, Any],
+) -> None:
+    rows = PlatformOccurrence.objects.for_team(team_id).filter(source_kind=source.value, identity_key=key)
+    row = rows.select_for_update().first()
+    if row is None:
+        PlatformOccurrence.objects.for_team(team_id).create(
+            team_id=team_id,
+            source_kind=source.value,
+            identity_key=key,
+            first_seen_at=first_seen_at,
+            reappeared_at=occurred_at,
+            labels=_storable(labels),
+            detail=_storable(detail),
+        )
+        return
+    # Older than the latest return, or than a resolve since, so it is not news.
+    if any(moment is not None and occurred_at <= moment for moment in (row.reappeared_at, row.resolved_at)):
+        return
+    row.reappeared_at = occurred_at
+    row.resolved_at = None
+    # What came back may differ from what was first seen, and filters and messages read the latest.
+    row.labels = _storable(labels)
+    row.detail = _storable(detail)
+    row.recorded_at = timezone.now()
+    row.save(update_fields=["reappeared_at", "resolved_at", "labels", "detail", "recorded_at"])
 
 
 def _insert_new(
