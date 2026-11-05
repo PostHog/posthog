@@ -27,7 +27,6 @@ from uuid import UUID
 from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.utils import timezone
 
-from posthog.llm.semantic_enrichment import upsert_user_edited_annotation
 from posthog.uuidt import UUIDT
 
 # Source-agnostic storage contract for user-uploaded files — shared with the upload endpoint.
@@ -574,6 +573,10 @@ def live_table_exists(team_id: int, table_id: UUID) -> bool:
 
 def write_table_level_description(team_id: int, table_id: UUID, description: str) -> None:
     """Store a user edit, protected from enrichment. An empty description deletes the row."""
+    from posthog.llm.semantic_enrichment import (  # noqa: PLC0415 -- keeps the LLM gateway off this module's import path
+        upsert_user_edited_annotation,
+    )
+
     if not description:
         _WarehouseColumnAnnotation.objects.for_team(team_id).filter(table_id=table_id, column_name="").delete()
         return

@@ -28,18 +28,22 @@ from products.data_modeling.backend.facade.api import (
     UnsupportedFrequencyTargetError,
     apply_saved_query_frequency_target,
     cadence_changes,
+    can_describe_node,
     clear_legacy_sync_interval,
     delete_node,
     endpoint_link,
     get_declared_target,
     is_declared_pin,
+    load_node_descriptions,
     run_related_node_materializations,
     saved_query_pin_preview,
     saved_query_target_bounds,
     scheduled_cadences_by_node,
     suspension_state,
     unsuspend_nodes,
+    write_node_description,
 )
+from products.data_modeling.backend.facade.contracts import NodeDescription, NodeDescriptionTarget
 from products.data_modeling.backend.facade.models import (
     SAVED_QUERY_NODE_TYPES,
     DataModelingJob,
@@ -49,13 +53,6 @@ from products.data_modeling.backend.facade.models import (
     LineageIssueKind,
     Node,
     NodeType,
-)
-from products.data_modeling.backend.logic.node_description import (
-    NodeDescription,
-    can_describe_node,
-    load_node_descriptions,
-    warehouse_table_id,
-    write_node_description,
 )
 from products.data_modeling.backend.presentation.views.edge import EdgeSerializer
 from products.data_modeling.backend.presentation.views.metric_visibility import (
@@ -179,6 +176,18 @@ class NodeFrequencyBoundsSerializer(serializers.Serializer):
     options = NodeFrequencyOptionSerializer(
         many=True, help_text="Every cadence a picker may show, finest first. Empty when the node has no view."
     )
+
+
+def _description_target(node: Node) -> NodeDescriptionTarget:
+    if node.saved_query_id:
+        return NodeDescriptionTarget(node_id=node.id, saved_query_id=UUID(str(node.saved_query_id)))
+    table_id = node.properties.get("warehouse_table_id") if isinstance(node.properties, dict) else None
+    if node.type != NodeType.TABLE or not table_id:
+        return NodeDescriptionTarget(node_id=node.id)
+    try:
+        return NodeDescriptionTarget(node_id=node.id, warehouse_table_id=UUID(table_id))
+    except ValueError:
+        return NodeDescriptionTarget(node_id=node.id)
 
 
 class NodeDescriptionField(serializers.CharField):
@@ -419,7 +428,11 @@ class NodeSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Metric nodes are maintained by the data catalog.")
         if self.writes_cadence(attrs) and (self.instance is None or self.instance.saved_query_id is None):
             raise serializers.ValidationError("Only views and endpoints have a cadence to set.")
-        if "description" in attrs and self.instance is not None and not can_describe_node(self.instance):
+        if (
+            "description" in attrs
+            and self.instance is not None
+            and not can_describe_node(self.instance.team_id, _description_target(self.instance))
+        ):
             raise serializers.ValidationError("Only views, endpoints, and warehouse tables have a description to set.")
         node_type = attrs.get("type")
         if node_type is not None and self.instance is not None:
@@ -437,7 +450,7 @@ class NodeSerializer(serializers.ModelSerializer):
         description: str | None = validated_data.pop("description", None)
         with transaction.atomic():
             if description is not None:
-                write_node_description(instance, description)
+                write_node_description(instance.team_id, _description_target(instance), description)
             return self._update_node(instance, validated_data)
 
     def _update_node(self, instance: Node, validated_data: dict[str, Any]) -> Node:
@@ -636,22 +649,23 @@ class NodeViewSet(
             if saved_queries
             else {}
         )
-        table_ids = {table_id for node in nodes if (table_id := warehouse_table_id(node))}
+        targets = [_description_target(node) for node in nodes]
+        table_ids = {target.warehouse_table_id for target in targets if target.warehouse_table_id}
         readable_tables = allowed_table_ids(self.team_id, self.user_access_control, ids=table_ids)
 
-        def can_read(node: Node) -> bool:
-            if node.saved_query_id:
-                return levels.get(str(node.saved_query_id)) not in (None, "none")
-            return warehouse_table_id(node) in readable_tables
+        def can_read(target: NodeDescriptionTarget) -> bool:
+            if target.saved_query_id:
+                return levels.get(str(target.saved_query_id)) not in (None, "none")
+            return target.warehouse_table_id in readable_tables
 
-        return load_node_descriptions(self.team_id, [node for node in nodes if can_read(node)])
+        return load_node_descriptions(self.team_id, [target for target in targets if can_read(target)])
 
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
         self._require_warehouse_access(level="editor", message=EDIT_DENIED)
         node = cast(Node, serializer.instance)
         self._require_view_edit_access(node.saved_query)
         if "description" in serializer.validated_data:
-            table_id = warehouse_table_id(node)
+            table_id = _description_target(node).warehouse_table_id
             if table_id is not None and not allowed_table_ids(
                 self.team_id, self.user_access_control, required_level="editor", ids={table_id}
             ):

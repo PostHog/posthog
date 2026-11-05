@@ -141,3 +141,18 @@ class MaterializationRanRecentlyError(Exception):
 
 class MaterializationFailedError(Exception):
     pass
+
+
+@dataclass(frozen=True)
+class NodeDescriptionTarget:
+    """What a node stands for, which decides where its description lives."""
+
+    node_id: UUID
+    saved_query_id: UUID | None = None
+    warehouse_table_id: UUID | None = None
+
+
+@dataclass(frozen=True)
+class NodeDescription:
+    text: str = ""
+    source: str | None = None
