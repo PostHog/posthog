@@ -158,7 +158,7 @@ function MigrationPrefillConfirm({ sourceName }: { sourceName: string }): JSX.El
             <p className="font-semibold mb-1">Check where your credentials go</p>
             <p className="m-0 mb-2 text-sm">
                 {migrationCreator
-                    ? `${migrationCreator.first_name || migrationCreator.email} (${migrationCreator.email}) prepared this connection.`
+                    ? `${migrationCreator.first_name ? `${migrationCreator.first_name} (${migrationCreator.email})` : migrationCreator.email} prepared this connection.`
                     : 'A migration prepared this connection.'}{' '}
                 PostHog checks the credentials you enter against this server, so only continue if you trust it.
             </p>

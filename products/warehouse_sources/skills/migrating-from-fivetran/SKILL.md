@@ -32,8 +32,8 @@ surprised halfway through.
 
 Never ask the user to paste a Fivetran key or any source secret into the chat. Every secret goes through a link.
 
-The connector notes (`references/connector-notes.md`, when this skill ships them) explain how PostHog matches Fivetran
-tables and hold a note for each connector that differs. Read them before the report when they are there.
+The connector notes (`references/connector-notes.md`) explain how PostHog matches Fivetran tables and hold a note for
+each connector that differs. Read them before the report.
 
 ## Workflow
 
@@ -78,8 +78,9 @@ project yet. Tell the user that and stop.
    `posthog_<prefix>` (the item's `proposal.prefix`), so the two tools never write into the same tables while both
    run. Wait for the answer. If the user agrees, share `external-data-destinations-connect-link` with the item's
    `proposal.destination.type`, and tell the user the host, port, database and user from `proposal.destination` so
-   they can type them on the page. Then create the destination with `external-data-destinations-create`, and pass
-   its id as `destination_ids` to apply.
+   they can type them on the page. Poll `external-data-destinations-connect-link-status` until it is `connected`,
+   and confirm its `display_name` with the user. Then create the destination with `external-data-destinations-create`,
+   passing that `integration_id` and the schema `posthog_<prefix>`, and pass its id as `destination_ids` to apply.
    Attached at creation, the destination gets the full history in the first sync. If those tools are not available,
    the data lands in the PostHog warehouse only.
 5. **Move one connection at a time.** Ask which to start with; databases are a good first pick because the user

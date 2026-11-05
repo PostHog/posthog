@@ -184,8 +184,8 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
                     status=status.HTTP_400_BAD_REQUEST,
                     data={
                         "message": (
-                            f"These settings must match the migration: {', '.join(changed)}. "
-                            "To use other settings, set up a new source instead."
+                            f"These settings no longer match the migration: {', '.join(changed)}. "
+                            "Reload this link to see the current ones, or set up a new source instead."
                         )
                     },
                 )
