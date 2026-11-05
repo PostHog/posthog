@@ -67,6 +67,10 @@ export const Empty: Story = {
     args: { dataSource: [] },
 }
 
+export const Loading: Story = {
+    args: { dataSource: [], loading: true },
+}
+
 // One row per badge tier, plus two rows with no errors, so the column's alignment shows.
 export const SpansView: Story = {
     args: { showRootTag: true },
