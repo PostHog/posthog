@@ -10,10 +10,13 @@ export interface ReportLink {
     host: string | null
 }
 
-/** `pending` waits for a project switch or the account load. `elsewhere` is a project or region the session cannot open. */
-export type ReportLinkScope = 'ready' | 'pending' | 'elsewhere'
+/**
+ * `pending` waits for a project switch or the account load. `elsewhere` is a project or region the session cannot
+ * open. `unverified` is a project list the last account load failed to refresh, so the answer is not known yet.
+ */
+export type ReportLinkScope = 'ready' | 'pending' | 'elsewhere' | 'unverified'
 
-type ScopeAuth = Pick<AuthState, 'status' | 'host' | 'projectId' | 'projects' | 'accountLoading'>
+type ScopeAuth = Pick<AuthState, 'status' | 'host' | 'projectId' | 'projects' | 'accountLoading' | 'accountError'>
 
 function hostname(host: string): string {
     return host
@@ -37,10 +40,14 @@ export function reportLinkScope(link: ReportLink, auth: ScopeAuth): ReportLinkSc
         return 'pending'
     }
     // A project created after the cached account loaded appears once the reload finishes.
-    return auth.accountLoading ? 'pending' : 'elsewhere'
+    if (auth.accountLoading) {
+        return 'pending'
+    }
+    // A failed reload leaves the cached list incomplete, so it cannot rule the project out.
+    return auth.accountError !== null ? 'unverified' : 'elsewhere'
 }
 
-/** Switches to the link's project before the report loads. The first settled scope holds, so it never switches back. */
+/** Switches to the link's project before the report loads. The first decided scope holds, so it never switches back. */
 export function useReportLinkScope(link: ReportLink): ReportLinkScope {
     const demo = useDataMode() === 'demo'
     const auth = useAuthStore(
@@ -50,6 +57,7 @@ export function useReportLinkScope(link: ReportLink): ReportLinkScope {
             projectId: state.projectId,
             projects: state.projects,
             accountLoading: state.accountLoading,
+            accountError: state.accountError,
         }))
     )
     const settled = useRef<ReportLinkScope | null>(null)
@@ -62,8 +70,9 @@ export function useReportLinkScope(link: ReportLink): ReportLinkScope {
         }
     }, [switchTo])
 
+    // `pending` and `unverified` both wait on a load, so a later account reload still decides them.
     useEffect(() => {
-        if (scope !== 'pending') {
+        if (scope === 'ready' || scope === 'elsewhere') {
             settled.current = scope
         }
     }, [scope])

@@ -4,6 +4,7 @@ import * as WebBrowser from 'expo-web-browser'
 import { type ReactElement, useEffect, useState } from 'react'
 import { View } from 'react-native'
 import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated'
+import { useAuthStore } from '@/auth/authStore'
 import { CLOUD_REGIONS } from '@/auth/regions'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useViewer } from '@/auth/useViewer'
@@ -137,6 +138,8 @@ export function ReportScreen({ reportId, from, link = NO_LINK }: ReportScreenPro
                                 <ReportNotFound />
                             ) : linkScope === 'elsewhere' ? (
                                 <ReportElsewhere reportId={reportId} link={link} />
+                            ) : linkScope === 'unverified' ? (
+                                <ReportUnverified reportId={reportId} />
                             ) : linkScope === 'pending' ? (
                                 <ReportPending />
                             ) : (
@@ -158,6 +161,28 @@ function ReportPending(): ReactElement {
         <View style={styles.screen}>
             <TopChrome onBack={() => goBackOrInbox(router)} />
             <LoadingView label="Loading the report" />
+        </View>
+    )
+}
+
+function ReportUnverified({ reportId }: { reportId: string }): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
+    const router = useRouter()
+    useEffect(() => {
+        track('mobile_report_load_failed', { report_id: reportId, kind: 'project_unverified' })
+    }, [reportId])
+    return (
+        <View style={styles.screen}>
+            <TopChrome onBack={() => goBackOrInbox(router)} />
+            <StateView
+                icon={<WarningIcon size={iconSizes.empty} color={colors.tertiary} />}
+                title="Couldn't check this report's project"
+                message="Check your connection and try again."
+                actionLabel="Try again"
+                onAction={() => void useAuthStore.getState().reloadAccount()}
+                testID="report-unverified"
+            />
         </View>
     )
 }

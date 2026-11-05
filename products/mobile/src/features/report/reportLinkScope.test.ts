@@ -19,6 +19,7 @@ const AUTH: Auth = {
     projectId: 2,
     projects: PROJECTS,
     accountLoading: false,
+    accountError: null,
 }
 
 describe('reportLinkScope', () => {
@@ -28,6 +29,12 @@ describe('reportLinkScope', () => {
         ['another project of the account', { projectId: 7, host: 'us.posthog.com' }, undefined, 'pending'],
         ['a project the account lacks', { projectId: 9, host: 'us.posthog.com' }, undefined, 'elsewhere'],
         ['a project while the account reloads', { projectId: 9, host: null }, { accountLoading: true }, 'pending'],
+        [
+            'a project the account could not refresh',
+            { projectId: 9, host: null },
+            { accountError: 'Offline' },
+            'unverified',
+        ],
         ['another region', { projectId: 2, host: 'eu.posthog.com' }, undefined, 'elsewhere'],
         ['a signed-out session', { projectId: 9, host: 'eu.posthog.com' }, { status: 'signed_out' }, 'ready'],
     ])('%s', (_, link, auth, expected) => {
@@ -42,6 +49,16 @@ describe('reportLinkScope', () => {
         act(() => useAuthStore.getState().selectProject(2, 'nav_menu'))
         rerender({})
         expect(useAuthStore.getState().projectId).toBe(2)
+        expect(result.current).toBe('ready')
+    })
+
+    test('opens the report once a failed account reload brings its project back', () => {
+        useAuthStore.setState({ ...AUTH, projects: PROJECTS.slice(0, 1), accountError: 'Offline' })
+        const { result, rerender } = renderHook(() => useReportLinkScope({ projectId: 7, host: 'us.posthog.com' }))
+        expect(result.current).toBe('unverified')
+        act(() => useAuthStore.setState({ projects: PROJECTS, accountError: null }))
+        rerender({})
+        expect(useAuthStore.getState().projectId).toBe(7)
         expect(result.current).toBe('ready')
     })
 
