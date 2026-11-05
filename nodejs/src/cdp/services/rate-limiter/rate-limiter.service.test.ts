@@ -611,7 +611,6 @@ describe('RateLimiterService', () => {
         ])(
             'fails a sandbox cap claim closed and returns its claim when Valkey stops answering scripts, through %s',
             async (_case, override) => {
-                // Answers the connection's own commands, then never answers a script.
                 const stalledValkey: Server = createServer((socket) =>
                     socket.on('data', (data) => {
                         if (!/eval/i.test(data.toString())) {

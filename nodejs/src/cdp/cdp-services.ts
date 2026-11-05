@@ -239,11 +239,6 @@ export interface CdpCoreServicesDeps {
      * `null` elsewhere, and when no host is configured, which turns the cap off.
      */
     frequencyCapValkey: RedisV2 | null
-    /**
-     * Bounded SES Valkey pool for the sandbox daily caps only, set where the sandbox sender is on.
-     * Unset turns the caps' check into `check_failed`, so a sandbox send never claims through an
-     * unbounded pool.
-     */
     sandboxEmailCapValkey?: RedisV2 | null
 }
 
@@ -400,7 +395,6 @@ export function createCdpValkeyShadowPools(
     return { writer, reader }
 }
 
-// Only the bounded sandbox cap pool backs the sandbox daily caps. Without it the caps fail closed.
 export function createSandboxDailyCapLimiter(
     deps: Pick<CdpCoreServicesDeps, 'sandboxEmailCapValkey'>
 ): RateLimiterService | null {
