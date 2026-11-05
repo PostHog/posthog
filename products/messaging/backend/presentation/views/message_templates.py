@@ -32,15 +32,15 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ResponseDeclaration, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.auth import ProjectSecretAPIKeyAuthentication
+from posthog.auth import ProjectSecretAPIKeyAuthentication, ProjectSecretAPIKeyUser
 from posthog.event_usage import groups, report_user_action
 from posthog.integrations import IntegrationManager, IntegrationNotFound
-from posthog.models import User
+from posthog.models import ProjectSecretAPIKey, User
 from posthog.models.tag import tagify
 from posthog.permissions import is_authenticated_via_project_secret_api_key, legacy_scope_object_used
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
-from products.cdp.backend.presentation.hog_functions import build_html_wrap_design
+from products.cdp.backend.presentation.hog_functions import build_html_wrap_design, html_wrap_design_needs_refresh
 from products.messaging.backend.facade.api import (
     UnlayerNotConfiguredError,
     UnlayerRenderError,
@@ -61,11 +61,12 @@ from products.messaging.backend.facade.templates import (
     update_template,
 )
 from products.messaging.backend.facade.transactional_email import (
-    PIPELINE_ADDRESS_PATTERN,
     SENDER_ADDRESS_MAX_LENGTH,
     SENDER_ADDRESS_PATTERN,
     CodeEmail,
     DeliveryUnavailable,
+    EmailAttachment,
+    FieldNotAccepted,
     QueuedEmail,
     TransactionalEmailError,
     TransactionalEmailStage,
@@ -73,12 +74,22 @@ from products.messaging.backend.facade.transactional_email import (
     lock_transactional_workflow_id,
     make_transactional,
     observe_transactional_email_stage,
+    report_first_code_send,
     require_code_email_access,
     send_code_email,
     send_transactional_email,
     sender_address_error,
     sync_transactional_workflow,
     transactional_email_stage,
+)
+from products.messaging.backend.presentation.views.code_send_fields import (
+    CODE_SEND_EXTRA_FIELDS,
+    AddressListField,
+    AttachmentListField,
+    field_not_accepted_refusal,
+    template_send_refusal,
+    validate_pipeline_address,
+    with_code_send_reason,
 )
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
@@ -95,6 +106,7 @@ logger = structlog.get_logger(__name__)
 @extend_schema_field(
     {
         "type": "object",
+        "additionalProperties": True,
         "properties": {
             "counters": {
                 "type": "object",
@@ -103,6 +115,7 @@ logger = structlog.get_logger(__name__)
             "schemaVersion": {"type": "integer", "description": "Design schema version, e.g. 16."},
             "body": {
                 "type": "object",
+                "additionalProperties": True,
                 "properties": {
                     "id": {"type": "string", "description": "Any unique string."},
                     "rows": {
@@ -350,7 +363,7 @@ class MessageTemplateSerializer(serializers.Serializer):
         # Programmatically authored templates often supply html without a design, which the
         # visual editor can't open. Wrap the html in a single custom HTML block; the stored
         # html stays untouched, so nothing about the sent email changes.
-        if email and email.get("html") and not email.get("design"):
+        if email and email.get("html") and html_wrap_design_needs_refresh(email["html"], email.get("design")):
             email["design"] = build_html_wrap_design(email["html"])
         # Design-only saves get their html rendered server-side (the send path uses html
         # verbatim). A submitted html is trusted as-is — that's the visual editor's own export.
@@ -406,6 +419,7 @@ IDEMPOTENCY_KEY_PARAMETER = OpenApiParameter(
 
 
 TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
+FIRST_CODE_SEND_EVENT = "email first code send"
 
 
 DISTINCT_ID_HELP_TEXT = (
@@ -421,16 +435,8 @@ class TransactionalEmailIdentifiersSerializer(serializers.Serializer):
     )
 
 
-def _validate_pipeline_address(address: str) -> None:
-    if not PIPELINE_ADDRESS_PATTERN.fullmatch(address):
-        raise serializers.ValidationError(
-            "Enter an address PostHog can send to, like jane@example.com. Quoted names, IP addresses and "
-            "non-ASCII domains aren't supported."
-        )
-
-
 class TransactionalEmailMessageSerializer(serializers.Serializer):
-    to = serializers.EmailField(validators=[_validate_pipeline_address], help_text="Email address of the recipient.")
+    to = serializers.EmailField(validators=[validate_pipeline_address], help_text="Email address of the recipient.")
     message_data = serializers.DictField(
         child=serializers.JSONField(allow_null=True),
         required=False,
@@ -446,7 +452,16 @@ class SendTransactionalEmailSerializer(TransactionalEmailMessageSerializer):
     )
 
 
-CODE_SEND_FIELDS = ("template_key", "subject", "html", "text", "from", "reply_to", "capture_engagement")
+CODE_SEND_FIELDS = (
+    "template_key",
+    "subject",
+    "html",
+    "text",
+    "from",
+    "reply_to",
+    "capture_engagement",
+    *CODE_SEND_EXTRA_FIELDS,
+)
 CODE_BODY_MAX_BYTES = 5 * 1024 * 1024
 
 
@@ -492,11 +507,32 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         "the project's default sender, or from its only verified sender when it has no default.",
     )
     reply_to = serializers.ListField(
-        child=serializers.EmailField(validators=[_validate_pipeline_address]),
+        child=serializers.EmailField(validators=[validate_pipeline_address]),
         required=False,
         allow_empty=False,
         max_length=10,
         help_text="Addresses replies to the email your code rendered go to.",
+    )
+    cc = AddressListField(
+        required=False,
+        allow_null=True,
+        help_text="Addresses that get a visible copy of the email your code rendered: one address, or a list of up "
+        "to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with "
+        "`template_id`, which refuses any address here.",
+    )
+    bcc = AddressListField(
+        required=False,
+        allow_null=True,
+        help_text="Addresses that get a hidden copy of the email your code rendered: one address, or a list of up "
+        "to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with "
+        "`template_id`, which refuses any address here.",
+    )
+    attachments = AttachmentListField(
+        required=False,
+        allow_null=True,
+        help_text="Files attached to the email your code rendered: up to 10, and at most 512 KB in total after "
+        "decoding. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with "
+        "`template_id`, which refuses any file here.",
     )
     capture_engagement = serializers.BooleanField(
         required=False,
@@ -541,7 +577,13 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         if ("template_id" in data) == ("template_key" in data):
             raise serializers.ValidationError({"template_id": "Send either `template_id` or `template_key`."})
         if "template_id" in data:
-            if code_field := next((field for field in CODE_SEND_FIELDS if field in sent), None):
+            if extra_field := next((field for field in CODE_SEND_EXTRA_FIELDS if data.get(field)), None):
+                raise template_send_refusal(extra_field)
+            for field in CODE_SEND_EXTRA_FIELDS:
+                data.pop(field, None)
+            if code_field := next(
+                (field for field in CODE_SEND_FIELDS if field in sent and field not in CODE_SEND_EXTRA_FIELDS), None
+            ):
                 raise serializers.ValidationError({code_field: "Only a send with `template_key` takes this field."})
             return data
         unknown = next((field for field in sorted(sent) if field not in self.fields), None)
@@ -597,7 +639,7 @@ class SendTransactionalEmailResponseSerializer(serializers.Serializer):
     )
 
 
-class TransactionalEmailRejected(exceptions.APIException):
+class TransactionalEmailRejected(exceptions.ValidationError):
     STATUS_BY_CODE = {
         "quota_limited": 429,
         "idempotency_key_in_flight": 409,
@@ -607,12 +649,12 @@ class TransactionalEmailRejected(exceptions.APIException):
         "recipient_suppressed": 422,
         "recipient_unreachable": 422,
     }
-    # The caller has to change the request. Without this the error handler reports a server error.
+    # The caller has to change the request. Without this the error handler types it `validation_error`.
     default_type = "invalid_request"
 
     def __init__(self, error: TransactionalEmailError) -> None:
         self.status_code = self.STATUS_BY_CODE.get(error.code, status.HTTP_400_BAD_REQUEST)
-        super().__init__(detail=str(error), code=error.code)
+        super().__init__(detail={error.attr: [str(error)]} if error.attr else str(error), code=error.code)
 
 
 class TransactionalEmailUnavailable(exceptions.APIException):
@@ -809,6 +851,9 @@ class TransactionalEmailSendMixin:
         try:
             queued = send(idempotency_key)
             outcome["outcome"] = "replayed" if queued.replayed else "queued"
+        except FieldNotAccepted as e:
+            outcome.update({"outcome": "rejected", "error_code": e.code})
+            raise field_not_accepted_refusal(e.field) from None
         except TransactionalEmailError as e:
             outcome.update({"outcome": "rejected", "error_code": e.code})
             raise TransactionalEmailRejected(e)
@@ -818,6 +863,8 @@ class TransactionalEmailSendMixin:
         finally:
             with transactional_email_stage("usage_event"):
                 self._report_transactional_email_send(request, {**addressed, **outcome})
+        if not queued.replayed:
+            self._report_first_code_send_after_commit(request, route, addressed.get("addressed_by", "template_id"))
         return Response(
             SendTransactionalEmailResponseSerializer(queued).data,
             status=status.HTTP_202_ACCEPTED,
@@ -848,6 +895,37 @@ class TransactionalEmailSendMixin:
             return
         if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
             raise exceptions.PermissionDenied("You need editor access to workflows to send under a new key.")
+
+    def _report_first_code_send_after_commit(self, request: Any, route: str, addressed_by: str) -> None:
+        if route != "send_email" or not isinstance(request.user, ProjectSecretAPIKeyUser):
+            return
+        key = request.user.project_secret_api_key
+        if key.created_by_id is None:
+            return
+        # A code send passed this flag before it went out, so only a send by template id checks it here.
+        if addressed_by != "template_key" and not _flag_enabled(self.team, EMAIL_FROM_CODE_FLAG):
+            return
+        transaction.on_commit(lambda: self._report_first_code_send(key, addressed_by))
+
+    def _report_first_code_send(self, key: ProjectSecretAPIKey, addressed_by: str) -> None:
+        try:
+            report_first_code_send(self.team_id, lambda: self._capture_first_code_send(key, addressed_by))
+        except Exception as e:
+            logger.warning("Failed to capture the first code send", team_id=self.team_id, error=str(e))
+
+    def _capture_first_code_send(self, key: ProjectSecretAPIKey, addressed_by: str) -> bool:
+        key_creator = User.objects.filter(created_project_secret_api_keys__id=key.pk).first()
+        if key_creator is None:
+            return False
+        # A key made in an environment sends for its project, and the project holds the claim.
+        project = self.team.parent_team or self.team
+        queued = posthoganalytics.capture(
+            distinct_id=key_creator.distinct_id,
+            event=FIRST_CODE_SEND_EVENT,
+            properties={"team_id": project.id, "addressed_by": addressed_by},
+            groups=groups(self.organization, project),
+        )
+        return queued is not None
 
     def _report_transactional_email_send(self, request: Any, properties: dict[str, Any]) -> None:
         # report_user_action drops the synthetic user behind a project secret API key, so capture directly.
@@ -1174,6 +1252,12 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
     def get_throttles(self):
         return transactional_email_throttles()
 
+    def handle_exception(self, exc: Exception) -> Response:
+        response = super().handle_exception(exc)
+        if isinstance(response.data, dict):
+            response.data = with_code_send_reason(response.data)
+        return response
+
     @validated_request(
         SendEmailSerializer,
         responses=SEND_RESPONSES,
@@ -1224,6 +1308,9 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             sender=data.get("from"),
             reply_to=tuple(data.get("reply_to", ())),
             capture_engagement=data.get("capture_engagement", True),
+            cc=tuple(data.get("cc") or ()),
+            bcc=tuple(data.get("bcc") or ()),
+            attachments=tuple(EmailAttachment(**attachment) for attachment in data.get("attachments") or ()),
         )
         return self._queue_send(
             request,

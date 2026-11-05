@@ -21,6 +21,8 @@ from products.workflows.backend.facade.enums import (
     HogFlowScheduleStatus,
     HogFlowTemplateExitCondition,
     HogFlowTemplateScope,
+    PushTokenImportRowFailureReason,
+    PushTokenImportStatus,
     SetupStepKey,
     WorkflowImportNoteLevel,
     WorkflowProposalStatus,
@@ -1165,3 +1167,39 @@ class WorkflowImportRecord:
     notes: tuple[dict[str, Any], ...]
     updated_at: datetime
     hog_flow_created_by_id: int | None = None
+
+
+class PushTokenImportInvalid(Exception):
+    """The upload cannot be used. The message is shown to the person who sent it."""
+
+
+class PushTokenImportNotFound(LookupError):
+    pass
+
+
+@frozen
+class PushTokenImportRowFailure:
+    line: int
+    distinct_id: str
+    device_token_suffix: str
+    reason: PushTokenImportRowFailureReason
+    detail: str
+
+
+@frozen
+class PushTokenImportRecord:
+    id: UUID
+    integration_id: int
+    status: PushTokenImportStatus
+    create_missing_persons: bool
+    total_devices: int
+    processed_devices: int
+    imported_devices: int
+    failed_devices: int
+    unknown_person_devices: int
+    duplicate_lines: int
+    failures: tuple[PushTokenImportRowFailure, ...]
+    can_import_unknown_persons: bool
+    error: str
+    created_at: datetime
+    finished_at: datetime | None
