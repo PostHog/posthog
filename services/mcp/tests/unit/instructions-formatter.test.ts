@@ -346,6 +346,13 @@ describe('InstructionsFormatter', () => {
             expect(rendered).not.toMatch(/\{inbox_/)
         })
 
+        it('omits the section from the claude.ai exec schema', () => {
+            const ctx = { ...fullCtx, inboxFirstEnabled: true, inboxClaimEnabled: true }
+            const rendered = new InstructionsFormatter().buildCompactExecCommandReference(ctx, { claudeChat: true })
+
+            expect(rendered).not.toContain('Existing Inbox reports')
+        })
+
         it('omits the section when it is not enabled', () => {
             const formatter = new InstructionsFormatter()
             for (const rendered of [

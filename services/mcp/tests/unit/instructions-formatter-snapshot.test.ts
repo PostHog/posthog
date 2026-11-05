@@ -205,11 +205,15 @@ describe('InstructionsFormatter prompt snapshots', () => {
         // Worst case served in production: Claude web/desktop with every optional
         // learning topic advertised and the full live tool catalog.
         const state = {
-            allTools: Object.keys(getToolDefinitions()).map((name) => ({ name })),
+            allTools: [
+                ...Object.keys(getToolDefinitions()),
+                'inbox-reports-list',
+                'inbox-reports-retrieve',
+                'inbox-reports-claim',
+            ].map((name) => ({ name })),
             clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeAI', userAgent: 'Claude-User' }),
-            // Skills on is the worst case: the compact skills-first section joins the
-            // capped command reference.
-            toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true },
+            // Every flag that can add a section to the capped command reference is on.
+            toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true, [MCP_INBOX_FIRST_FLAG]: true },
             renderUiEnabled: true,
             requestContext: { mcpConsumer: undefined },
             sessionContext: null,
