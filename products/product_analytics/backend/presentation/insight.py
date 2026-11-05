@@ -2111,6 +2111,11 @@ Background calculation can be tracked using the `query_status` response field.""
                 description="JSON-encoded array of dashboard IDs. Returns insights attached to every listed dashboard (AND).",
             ),
             OpenApiParameter(
+                name="not_on_any_dashboard",
+                type=OpenApiTypes.BOOL,
+                description="When truthy, restricts results to insights that aren't tiled on any dashboard.",
+            ),
+            OpenApiParameter(
                 name="tags",
                 type=OpenApiTypes.STR,
                 description="JSON-encoded array of tag names. Returns insights with any of the listed tags.",
@@ -2447,6 +2452,14 @@ class InsightViewSet(
                     from posthog.helpers.dashboard_templates import feature_flag_generated_insight_q
 
                     queryset = queryset.exclude(feature_flag_generated_insight_q())
+            elif key == "not_on_any_dashboard":
+                if str_to_bool(request.GET["not_on_any_dashboard"]):
+                    # Mirrors the `saved` filter: an insight counts as "on a dashboard"
+                    # only when it has a tile on a listed (non-unlisted) dashboard.
+                    # insight_has_listed_tile uses the default DashboardTile manager,
+                    # which already excludes soft-deleted tiles and tiles whose
+                    # dashboard is soft-deleted.
+                    queryset = queryset.exclude(insight_has_listed_tile())
             elif key == "date_from":
                 queryset = queryset.filter(
                     last_modified_at__gt=relative_date_parse(request.GET["date_from"], self.team.timezone_info)

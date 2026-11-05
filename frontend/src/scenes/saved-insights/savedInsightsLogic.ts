@@ -70,6 +70,7 @@ export interface SavedInsightFilters {
     dashboardId: number | undefined | null
     events: string[] | undefined | null
     favorited: boolean | undefined | null
+    notOnAnyDashboard: boolean | undefined | null
 }
 
 export function cleanFilters(
@@ -94,6 +95,7 @@ export function cleanFilters(
         dashboardId: values.dashboardId,
         events: values.events,
         favorited: values.favorited || false,
+        notOnAnyDashboard: values.notOnAnyDashboard || false,
     }
 }
 
@@ -116,6 +118,7 @@ function insightsListParams(filters: SavedInsightFilters): Record<string, any> {
         hide_feature_flag_insights: true,
         exclude_bi: true,
         ...(filters.favorited && { favorited: true }),
+        ...(filters.notOnAnyDashboard && { not_on_any_dashboard: true }),
         ...(filters.search && { search: filters.search }),
         ...(filters.insightType?.toLowerCase() !== 'all types' && {
             insight: filters.insightType?.toUpperCase(),
