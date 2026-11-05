@@ -256,7 +256,7 @@ function MetricInner({
 
         return {
             headlineDisplay: sparklineData ? formatValue(animatedValue) : formatValue(restingValue),
-            headlineColor: valueColor?.(liveValue),
+            headlineColor: valueColor?.(animationTarget),
             subtitle: subtitle ?? (intentIndex < 0 && restingSubtitle != null ? restingSubtitle : labelCaption),
             change:
                 delta != null
@@ -302,6 +302,7 @@ function MetricInner({
         negativeColor,
         formatValue,
         valueColor,
+        animationTarget,
         animatedValue,
         subtitle,
         restingSubtitle,

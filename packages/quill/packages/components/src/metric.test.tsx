@@ -3,7 +3,7 @@ import { render } from '@testing-library/react'
 import type { ChartTheme } from '@posthog/quill-charts'
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
-import { Metric, MetricSparkline, MetricSubtitle } from './metric'
+import { Metric, MetricSparkline, MetricSubtitle, MetricValue } from './metric'
 
 const THEME: ChartTheme = { colors: ['#22d3ee'], backgroundColor: '#ffffff' }
 // Raw bucket keys, the shape a caller passes to keep the sparkline's x-scale keys unique.
@@ -31,6 +31,16 @@ describe('Metric', () => {
             </Metric>
         )
         expect(container.textContent).toContain('bucket 2025-11-01')
+    })
+
+    it('colors the resting headline by the shown value, not the last point', () => {
+        const valueColor = jest.fn((value: number) => (value > 100 ? 'red' : 'green'))
+        const { getByTestId } = render(
+            <Metric value={120} data={[60, 60]} theme={THEME} valueColor={valueColor}>
+                <MetricValue data-attr="headline" />
+            </Metric>
+        )
+        expect(getByTestId('headline').style.color).toBe('red')
     })
 
     it('reports an error from its sparkline through onError', () => {
