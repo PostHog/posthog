@@ -1,27 +1,28 @@
-"""Compare the directories that hold unowned tests with the baseline that repo-checks enforces.
+"""Compare the directories that hold unowned tests with the baseline.
 
-posthog/test/repo_invariants/test_unowned_test_directories.py gates CI on it, and the
-`test-owners` preflight check runs the same comparison before a push.
+Shared by test_unowned_test_directories.py (the CI gate) and the `test-owners` preflight check.
 """
 
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
 from hogli.manifest import REPO_ROOT
-from owners_yaml import OwnersResolver, runner_for_path, unowned_test_directories
+from owners_yaml import GitRefSource, OwnersResolver, runner_for_path, unowned_test_directories
 from owners_yaml.schema import DEFAULT_ALIAS_FILES, OWNERS_FILENAME
 
+from hogli_commands.change_detection import matches_globs
 from hogli_commands.preflight_checks import Outcome, Scope
 
 BASELINE = Path("posthog/test/repo_invariants/unowned_test_directories_baseline.txt")
 PRUNE = "PYTHONPATH=.:tools/hogli-commands python posthog/test/repo_invariants/test_unowned_test_directories.py"
 BLOCKING_FROM = date.fromisoformat("2026-11-11")
 
-# fnmatch globs for the preflight trigger, where `*` spans `/`. runner_for_path decides inside the check.
+# fnmatch: `*` spans `/`.
 TEST_FILE_GLOBS = (
     "test_*.py",
     "*/test_*.py",
@@ -41,20 +42,35 @@ class BaselineDrift:
     removed: list[str]
 
 
-def read_baseline() -> set[str]:
-    text = (REPO_ROOT / BASELINE).read_text(encoding="utf-8")
-    return {line.strip() for line in text.splitlines() if line.strip()}
+def _git_paths(*args: str) -> set[str]:
+    result = subprocess.run(["git", "-C", str(REPO_ROOT), *args, "-z"], capture_output=True, text=True, check=True)
+    return {path for path in result.stdout.split("\0") if path}
 
 
-def baseline_drift() -> BaselineDrift:
-    current = unowned_test_directories(OwnersResolver(REPO_ROOT))
-    baseline = read_baseline()
+def _tree(committed_only: bool) -> tuple[OwnersResolver, Iterable[str]]:
+    """HEAD for a push, or the working tree, untracked files included, for a local run."""
+    if committed_only:
+        head = GitRefSource(REPO_ROOT)
+        return OwnersResolver(REPO_ROOT, source=head), head.files
+    files = _git_paths("ls-files", "--cached", "--others", "--exclude-standard") - _git_paths("ls-files", "--deleted")
+    return OwnersResolver(REPO_ROOT), files
+
+
+def _baseline(resolver: OwnersResolver) -> set[str]:
+    return set((resolver.source.read(str(BASELINE)) or "").split())
+
+
+def baseline_drift(committed_only: bool = False) -> BaselineDrift:
+    resolver, files = _tree(committed_only)
+    current = unowned_test_directories(resolver, files)
+    baseline = _baseline(resolver)
     return BaselineDrift(added=sorted(current - baseline), removed=sorted(baseline - current))
 
 
 def prune_baseline() -> None:
-    """Drop the directories that hold no unowned tests. It never adds one, so a new gap stays a failure."""
-    remaining = sorted(read_baseline() & unowned_test_directories(OwnersResolver(REPO_ROOT)))
+    """Never adds a directory, so a new gap stays a failure."""
+    resolver, files = _tree(committed_only=False)
+    remaining = sorted(_baseline(resolver) & unowned_test_directories(resolver, files))
     (REPO_ROOT / BASELINE).write_text("".join(f"{directory}\n" for directory in remaining), encoding="utf-8")
 
 
@@ -68,33 +84,16 @@ def drift_problems(drift: BaselineDrift) -> list[str]:
     ]
 
 
-def _is_ownership_file(path: str) -> bool:
-    name = path.rsplit("/", 1)[-1]
-    return name in (OWNERS_FILENAME, *DEFAULT_ALIAS_FILES) or path == str(BASELINE)
-
-
-def _uncommitted_ownership_files() -> list[str]:
-    status = subprocess.run(
-        ["git", "-C", str(REPO_ROOT), "status", "--porcelain", "-z", "--no-renames", "--untracked-files=all"],
-        capture_output=True,
-        text=True,
-    )
-    return sorted(entry[3:] for entry in status.stdout.split("\0") if len(entry) > 3 and _is_ownership_file(entry[3:]))
-
-
 def check_test_owners(scope: Scope) -> Outcome:
-    # The trigger globs over-match (`*/test_*.py` also matches `test_utils/foo.py`), so decide here.
-    if not any(runner_for_path(path) or _is_ownership_file(path) for path in scope.files):
+    # `*/test_*.py` also matches `test_utils/foo.py`.
+    if not any(runner_for_path(path) or matches_globs(path, OWNERSHIP_FILE_GLOBS) for path in scope.files):
         return "pass", "no test or ownership file changed"
-    # Ownership resolves from the working tree, so an uncommitted owners.yaml would pass here and fail in CI.
-    if scope.committed_only and (dirty := _uncommitted_ownership_files()):
-        return "fail", f"commit or discard the changes to {', '.join(dirty[:3])}: the push carries only HEAD"
-    drift = baseline_drift()
+    drift = baseline_drift(scope.committed_only)
     problems = drift_problems(drift)
     if not problems:
         return "pass", "no new directory of unowned tests"
     detail = " · ".join(problems[:3]) + (f" · and {len(problems) - 3} more" if len(problems) > 3 else "")
-    # Same grace period as CI's enforce_baseline: a new directory only warns until the date, a stale entry fails now.
+    # Mirrors enforce_baseline in posthog/test/repo_invariants/ratchet.py.
     if drift.removed or date.today() >= BLOCKING_FROM:
         return "fail", detail
     return "warning", f"not blocking until {BLOCKING_FROM.isoformat()}: {detail}"

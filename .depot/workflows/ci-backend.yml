@@ -535,10 +535,8 @@ jobs:
                         # _EXTERNAL_COMPANION_SKILL_DIRS in products/signals/backend/scout_harness/lazy_seed.py
                         # names this companion skill from another product.
                         - 'products/replay_vision/skills/exploring-replay-vision-observations/**'
-                        # test_unowned_test_directories.py lists the directories that hold unowned
-                        # tests. Only a test file that a PR adds, deletes or moves can change that
-                        # list, including a Jest file in a frontend-only PR. A move arrives as one
-                        # deletion and one addition. Keep these globs in step with runner_for_path
+                        # A test file added or deleted, Jest included, can change the baseline that
+                        # test_unowned_test_directories.py enforces. Keep in step with runner_for_path
                         # in packages/owners-yaml/owners_yaml/census.py.
                         - added|deleted: '**/test_*.py'
                         - added|deleted: '**/*_test.py'
