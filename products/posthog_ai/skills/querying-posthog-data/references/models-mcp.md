@@ -156,7 +156,7 @@ A "harness" is the friendly product label for the MCP client that made a call �
 
 **Prefer the typed tool.** For "which harnesses use our MCP, and how reliably?", call the `posthog:query-mcp-harness-breakdown` tool. It returns calls / errors / error-rate / sessions per harness and accepts the same `dateRange` / `properties` / `filterTestAccounts` filters as the dashboard, so results match the UI exactly — no hand-written bucketing needed. It also accepts an optional `toolName` to scope the breakdown to one effective tool — but note that scoping **also restricts the result to new-SDK events** (`$mcp_source = 'posthog_mcp_analytics'`), so old-SDK and third-party calls for that tool are excluded and a harness can be undercounted. For a one-tool harness cut across all SDK sources, use `execute-sql`. Anything the typed tools don't express drops to `execute-sql` below.
 
-**Use `execute-sql` for custom cuts** the typed tool doesn't cover (share-of-users, latency percentiles, per-tool, a trends breakdown). Resolution is two steps: resolve a normalized token from the strongest signal available, then bucket it. An event carries only raw signals, over exactly three properties — the `x-anthropic-client` header (`$mcp_vendor_client`, with the legacy `mcp_vendor_client` coalesced for historical rows) is the only thing separating Anthropic's pooled surfaces (Cowork / Claude.ai / Claude Design); Claude Code's build (cli / sdk / vscode / desktop) rides in the User-Agent (`$mcp_client_user_agent`, also the generic last fallback); and `clientInfo.name` arrives as `$mcp_client_name`. The SQL below mirrors `harness_label_sql` / `HARNESS_TOKEN_SQL` in `mcp_harness.py`; keep them in step until a materialized `$mcp_harness` property exists. (HogQL has no `WITH <expr> AS alias`, so the normalized name `h` is computed in a subquery, not a CTE.)
+**Use `execute-sql` for custom cuts** the typed tool doesn't cover (share-of-users, latency percentiles, per-tool, a trends breakdown). Resolution is two steps: resolve a normalized token from the strongest signal available, then bucket it. An event carries only raw signals, over exactly three properties — the `x-anthropic-client` header (`$mcp_vendor_client`, with the legacy `mcp_vendor_client` coalesced for historical rows) is the only thing separating Anthropic's pooled surfaces (Cowork / Claude.ai / Claude Design / Claude Artifacts); Claude Code's build (cli / sdk / vscode / desktop) rides in the User-Agent (`$mcp_client_user_agent`, also the generic last fallback); and `clientInfo.name` arrives as `$mcp_client_name`. The SQL below mirrors `harness_label_sql` / `HARNESS_TOKEN_SQL` in `mcp_harness.py`; keep them in step until a materialized `$mcp_harness` property exists. (HogQL has no `WITH <expr> AS alias`, so the normalized name `h` is computed in a subquery, not a CTE.)
 
 **Share of users by harness** (answers "what % of my users are on Claude Code"):
 
@@ -180,6 +180,7 @@ FROM (
             h = 'anthropic/api', 'Anthropic API',
             h = 'cowork', 'Cowork',
             h = 'claude-design', 'Claude Design',
+            h = 'claude-artifacts', 'Claude Artifacts',
             h = 'openai-mcp chatgpt', 'ChatGPT',
             h = 'openai-mcp agent builder', 'OpenAI Agent Builder',
             h = 'openai-mcp responses api', 'OpenAI Responses API',
@@ -226,6 +227,7 @@ FROM (
                         lower(coalesce(nullIf(toString(properties.$mcp_vendor_client), ''), nullIf(toString(properties.mcp_vendor_client), ''))) IN ('claudeai', 'claude-ai'), 'claude-ai',
                         lower(coalesce(nullIf(toString(properties.$mcp_vendor_client), ''), nullIf(toString(properties.mcp_vendor_client), ''))) = 'cowork', 'cowork',
                         lower(coalesce(nullIf(toString(properties.$mcp_vendor_client), ''), nullIf(toString(properties.mcp_vendor_client), ''))) IN ('claudedesign', 'claude-design'), 'claude-design',
+                        lower(coalesce(nullIf(toString(properties.$mcp_vendor_client), ''), nullIf(toString(properties.mcp_vendor_client), ''))) IN ('claudeartifacts', 'claude-artifacts'), 'claude-artifacts',
                         NULL
                     ),
                     if(lower(extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')) = 'claude-code',
