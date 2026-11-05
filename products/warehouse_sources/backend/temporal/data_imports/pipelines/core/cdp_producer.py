@@ -336,7 +336,7 @@ class CDPProducer:
         high-volume path as it was.
         """
         key = emitted_rows_key(self.team_id, self.table.id) if self.table.kind == "view" else None
-        return EmittedRowStore(key, self.logger)
+        return EmittedRowStore(key, self.logger, job_id=self.job_id)
 
     async def produce_to_kafka_from_s3(
         self,
