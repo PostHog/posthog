@@ -55,6 +55,8 @@ function reportBootFailure(error: unknown): void {
 }
 
 interface RootErrorBoundaryState {
+    /** Separate from `error` because a component can throw `null` or `undefined`. */
+    hasError: boolean
     error: unknown
 }
 
@@ -66,10 +68,10 @@ interface RootErrorBoundaryState {
  * (see index.tsx); only errors that survive that recovery surface here.
  */
 export class RootErrorBoundary extends React.Component<{ children: React.ReactNode }, RootErrorBoundaryState> {
-    override state: RootErrorBoundaryState = { error: null }
+    override state: RootErrorBoundaryState = { hasError: false, error: null }
 
     static getDerivedStateFromError(error: unknown): RootErrorBoundaryState {
-        return { error }
+        return { hasError: true, error }
     }
 
     override componentDidCatch(error: unknown, errorInfo: React.ErrorInfo): void {
@@ -78,7 +80,7 @@ export class RootErrorBoundary extends React.Component<{ children: React.ReactNo
     }
 
     override render(): React.ReactNode {
-        if (this.state.error) {
+        if (this.state.hasError) {
             return (
                 <div className="Preloader" role="alert">
                     <div>

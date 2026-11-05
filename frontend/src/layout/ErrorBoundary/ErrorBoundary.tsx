@@ -3,7 +3,7 @@ import './ErrorBoundary.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Component, type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconCopy } from '@posthog/icons'
 import { PostHogErrorBoundary, type PostHogErrorBoundaryFallbackProps } from '@posthog/react'
@@ -52,6 +52,57 @@ function RemountOnMount({ onRemount }: { onRemount: () => void }): null {
         onRemount()
     }, [onRemount])
     return null
+}
+
+const MAX_THROWN_VALUE_LENGTH = 200
+
+function isErrorLike(value: unknown): value is Error {
+    return value instanceof Error || Object.prototype.toString.call(value) === '[object Error]'
+}
+
+function describeThrownValue(value: unknown): string {
+    if (value === null || value === undefined) {
+        return String(value)
+    }
+    let text: string
+    try {
+        text = String(value)
+    } catch {
+        text = '<unprintable>'
+    }
+    return `${typeof value} ${text.slice(0, MAX_THROWN_VALUE_LENGTH)}`
+}
+
+interface NonErrorThrowWrapperProps {
+    scene?: unknown
+    children?: ReactNode
+}
+
+/**
+ * A thrown non-Error value has no stack, so it is captured with no clue to where it came from.
+ * Error values pass through unchanged because the DOM mutation remount matches on the original.
+ */
+class NonErrorThrowWrapper extends Component<NonErrorThrowWrapperProps, { hasError: boolean; error: unknown }> {
+    override state = { hasError: false, error: null as unknown }
+
+    static getDerivedStateFromError(error: unknown): { hasError: boolean; error: unknown } {
+        return { hasError: true, error }
+    }
+
+    override render(): ReactNode {
+        const { hasError, error } = this.state
+        if (!hasError) {
+            return this.props.children
+        }
+        if (isErrorLike(error)) {
+            throw error
+        }
+        const { scene } = this.props
+        const location = typeof scene === 'string' && scene ? ` in scene ${scene}` : ''
+        const wrapped = new Error(`Non-Error value thrown${location}: ${describeThrownValue(error)}`)
+        wrapped.name = 'NonErrorThrown'
+        throw wrapped
+    }
 }
 
 interface RemountRecord {
@@ -199,7 +250,7 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                 )
             }}
         >
-            {children}
+            <NonErrorThrowWrapper scene={exceptionProps.feature}>{children}</NonErrorThrowWrapper>
         </PostHogErrorBoundary>
     )
 }
@@ -227,7 +278,7 @@ export function LightErrorBoundary({ children, exceptionProps = {}, className }:
                 )
             }}
         >
-            {children}
+            <NonErrorThrowWrapper scene={exceptionProps.feature}>{children}</NonErrorThrowWrapper>
         </PostHogErrorBoundary>
     )
 }
