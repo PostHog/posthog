@@ -77,7 +77,7 @@ export const ReportsOpen: Story = {
 }
 
 export const SentimentEvaluation: Story = {
-    parameters: { testOptions: { waitForSelector: '[data-attr="llma-evaluation-create-step-body-check"]' } },
+    parameters: { testOptions: { waitForSelector: '[data-attr="llma-evaluation-create-step-body-name"]' } },
     decorators: [scene(1240)],
     play: async ({ canvasElement }) => {
         await openPart(canvasElement, 'method', 'Sentiment')

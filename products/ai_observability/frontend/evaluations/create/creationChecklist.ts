@@ -45,6 +45,15 @@ export function creationChecklist(input: ChecklistInput): ChecklistItem[] {
             summary: evaluation.name.trim(),
         },
     ]
+    if (evaluation.evaluation_type !== 'sentiment') {
+        items.push({
+            key: 'result',
+            label: 'Result',
+            done: input.resultError === null,
+            todo: input.resultError ?? '',
+            summary: templateOutputText(evaluation),
+        })
+    }
     if (evaluation.evaluation_type === 'llm_judge' || evaluation.evaluation_type === 'hog') {
         const content =
             evaluation.evaluation_type === 'llm_judge'
@@ -58,15 +67,6 @@ export function creationChecklist(input: ChecklistInput): ChecklistItem[] {
                     ? content.trim().split('\n')[0]
                     : pluralize(content.trim().split('\n').length, 'line') + ' of code',
             ...CRITERIA[evaluation.evaluation_type],
-        })
-    }
-    if (evaluation.evaluation_type !== 'sentiment') {
-        items.push({
-            key: 'result',
-            label: 'Result',
-            done: input.resultError === null,
-            todo: input.resultError ?? '',
-            summary: templateOutputText(evaluation),
         })
     }
     if (input.modelSelectionRequired) {

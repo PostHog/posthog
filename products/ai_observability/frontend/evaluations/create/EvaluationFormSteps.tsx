@@ -5,6 +5,7 @@ import { Fragment } from 'react'
 import * as judgePng from '@posthog/brand/hoggies/png/judge'
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import * as officeWorkerPng from '@posthog/brand/hoggies/png/office-worker'
+import * as organizedPng from '@posthog/brand/hoggies/png/organized'
 import * as reporterPng from '@posthog/brand/hoggies/png/reporter'
 import * as stampApprovedPng from '@posthog/brand/hoggies/png/stamp-approved'
 import { IconCheck } from '@posthog/icons'
@@ -33,7 +34,7 @@ import { EvaluationVolumeEstimate } from './EvaluationVolumeEstimate'
 
 interface Step {
     // pinned: analytics property value, because the creation funnel reads it
-    key: 'name' | 'check' | 'traffic' | 'reports' | 'create'
+    key: 'name' | 'output' | 'check' | 'traffic' | 'reports' | 'create'
     title: string
     heading: string
     /** One paragraph per entry. */
@@ -48,21 +49,30 @@ interface Step {
 const STEPS: Step[] = [
     {
         key: 'name',
-        title: 'Name',
-        heading: 'Name your evaluation',
-        description: ['People see this name on results and reports.'],
+        title: 'Evaluate',
+        heading: 'What it evaluates',
+        description: ['Name it and choose how it decides.'],
         hoggie: pngHoggie(officeWorkerPng),
-        parts: [],
+        parts: ['method'],
         checks: ['name'],
+    },
+    {
+        key: 'output',
+        title: 'Returns',
+        heading: 'What it returns',
+        description: ['Choose what each run returns, and which results count as a pass.'],
+        hoggie: pngHoggie(organizedPng),
+        parts: [],
+        checks: ['result'],
     },
     {
         key: 'check',
         title: 'Check',
-        heading: 'What it checks',
-        description: ['Choose how each run gets checked, then write the instructions and pick what it returns.'],
+        heading: 'How it checks',
+        description: ['Write the prompt or the code that decides each result.'],
         hoggie: pngHoggie(judgePng),
-        parts: ['method', 'model'],
-        checks: ['criteria', 'result', 'model'],
+        parts: ['model'],
+        checks: ['criteria', 'model'],
     },
     {
         key: 'traffic',
@@ -104,15 +114,20 @@ function StepContent({ step }: { step: Step['key'] }): JSX.Element | null {
     }
     switch (step) {
         case 'name':
-            return <EvaluationNameFields />
+            return (
+                <>
+                    <EvaluationNameFields />
+                    <EvaluationMethodPanel />
+                </>
+            )
+        case 'output':
+            return <EvaluationOutputFields />
         case 'check':
             return (
                 <>
-                    <EvaluationMethodPanel />
                     {evaluation.evaluation_type === 'llm_judge' && <EvaluationModelPanel />}
                     {evaluation.evaluation_type === 'llm_judge' && <EvaluationPromptEditor />}
                     {evaluation.evaluation_type === 'hog' && <EvaluationCodeEditor />}
-                    <EvaluationOutputFields />
                 </>
             )
         case 'traffic':
@@ -156,7 +171,12 @@ export function EvaluationFormSteps({
     if (!evaluation) {
         return null
     }
-    const steps = onCreate ? STEPS : STEPS.filter((candidate) => candidate.key !== 'create')
+    // Sentiment has a fixed answer and no prompt, code, or model to set, so it skips those steps.
+    const steps = STEPS.filter(
+        (candidate) =>
+            (onCreate || candidate.key !== 'create') &&
+            (evaluation.evaluation_type !== 'sentiment' || (candidate.key !== 'check' && candidate.key !== 'output'))
+    )
     const index = Math.max(
         0,
         steps.findIndex((candidate) => candidate.key === formStep)
@@ -181,12 +201,12 @@ export function EvaluationFormSteps({
         <div className="flex flex-col gap-6">
             <EvaluationSentence
                 activeParts={step.parts}
-                onPartClick={(part) =>
-                    goTo(
-                        STEPS.findIndex((candidate) => candidate.parts.includes(part)),
-                        'sentence'
-                    )
-                }
+                onPartClick={(part) => {
+                    const target = steps.findIndex((candidate) => candidate.parts.includes(part))
+                    if (target >= 0) {
+                        goTo(target, 'sentence')
+                    }
+                }}
             />
             <nav className="flex flex-wrap items-center justify-center gap-2" aria-label="Steps">
                 {steps.map((candidate, candidateIndex) => {

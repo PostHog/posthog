@@ -60,10 +60,9 @@ export function reportsUnavailableReason(evaluation: EvaluationConfig, isReporta
     if (isReportable) {
         return null
     }
-    const instructions = evaluation.evaluation_type === 'hog' ? 'code' : 'prompt'
     return evaluation.output_type === 'numeric'
-        ? `Reports need a pass rate. Below the ${instructions}, set the score a run needs to pass.`
+        ? 'Reports need a pass rate. In the Returns step, set the score a run needs to pass.'
         : evaluation.output_type === 'categorical'
-          ? `Reports need a pass rate. Below the ${instructions}, pick which categories count as a pass.`
+          ? 'Reports need a pass rate. In the Returns step, pick which categories count as a pass.'
           : 'Reports are not available for this kind of evaluation.'
 }
