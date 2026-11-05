@@ -63,6 +63,11 @@ export function SearchPerformanceTab({
     const loading = !sourcesError && !dataWarehouseSources
     const sourceIssues = sourceNotices.filter(({ kind }) => kind !== 'info')
     const sourceInfoNotices = sourceNotices.filter(({ kind }) => kind === 'info')
+    const notReadyMessage = sourceIssues.some(({ kind }) => kind === 'attention')
+        ? 'Check the sources above to see your search data.'
+        : sourceIssues.length > 0
+          ? 'Search data shows up here once the sources above are ready.'
+          : 'No search data to show for this view. Try another breakdown or channel.'
 
     return (
         <div className="@container flex flex-col gap-4 pb-8" data-attr="marketing-search-performance">
@@ -241,10 +246,8 @@ export function SearchPerformanceTab({
                                     </>
                                 )}
                             </div>
-                            {readySources.length === 0 && sources.length > 0 && sourceNotices.length === 0 && (
-                                <p className="text-secondary text-sm mb-0 px-3 pb-3">
-                                    No search data to show for this view yet.
-                                </p>
+                            {readySources.length === 0 && sources.length > 0 && (
+                                <p className="text-secondary text-sm mb-0 px-3 pb-3">{notReadyMessage}</p>
                             )}
                             {readySources.length > 0 && (
                                 <div className="px-3 pb-3">

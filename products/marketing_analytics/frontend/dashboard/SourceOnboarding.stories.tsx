@@ -435,6 +435,7 @@ DashboardWithAdsSyncingWithoutSearchConsole.play = async ({
     expect(canvas.queryByText('Connect your search sources')).not.toBeInTheDocument()
     await openSearchTab(canvasElement)
     expect((await canvas.findAllByText('Connect Google Search Console'))[0]).toBeVisible()
+    expect(await canvas.findByText('Search data shows up here once the sources above are ready.')).toBeVisible()
 }
 
 export const DashboardWithAdsAndSearchConsole = dashboardStory([], false, true, 'ready', 'ready')
