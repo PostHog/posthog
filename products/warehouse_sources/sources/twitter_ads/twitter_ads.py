@@ -149,14 +149,12 @@ class TwitterAdsClient:
         params: dict[str, str | int],
         rejection: requests.Response,
         *,
-        window: tuple[date, date],
         today: date,
         account_timezone: ZoneInfo,
         logger: FilteringBoundLogger,
     ) -> None:
         """X fills some 400 messages with unformatted placeholders, so only these retries show what it rejects."""
         logger.warning("twitter_ads_stats_rejected", params=params, body=rejection.text[:_MAX_LOGGED_BODY])
-        start, window_end = window
         day = timedelta(days=1)
 
         def bounds(first: date, last: date) -> dict[str, str | int]:
@@ -169,7 +167,8 @@ class TwitterAdsClient:
         probes: list[tuple[str, dict[str, str | int]]] = [
             (f"entity {entity_id}", {"entity_ids": entity_id}) for entity_id in entity_ids[:_MAX_PROBED_ENTITIES]
         ]
-        probes.append(("window one day later", bounds(start + day, window_end + day)))
+        probes.append(("granularity TOTAL", {"granularity": "TOTAL"}))
+        probes.append(("granularity HOUR", {"granularity": "HOUR"}))
         probes.append(("most recent week", bounds(today - 7 * day, today)))
         probes.append(("engagement metrics only", {"metric_groups": "ENGAGEMENT"}))
         probes.extend(
@@ -293,7 +292,6 @@ class TwitterAdsClient:
                                 f"stats/{account_path}",
                                 params,
                                 error.response,
-                                window=(start, window_end),
                                 today=account_now.date(),
                                 account_timezone=account_timezone,
                                 logger=logger,

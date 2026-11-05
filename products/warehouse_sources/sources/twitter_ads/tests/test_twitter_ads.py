@@ -259,7 +259,13 @@ def test_rejected_stats_request_logs_probes_and_still_fails(client: TwitterAdsCl
     assert probes["entity good"] == 200
     assert probes["entity bad"] == 400
     assert probes["placement TREND"] == "probe connection dropped"
-    assert {"window one day later", "most recent week", "engagement metrics only", "placement SPOTLIGHT"} <= set(probes)
+    assert {
+        "granularity TOTAL",
+        "granularity HOUR",
+        "most recent week",
+        "engagement metrics only",
+        "placement SPOTLIGHT",
+    } <= set(probes)
 
 
 def test_error_detail_rides_along_with_the_status(client: TwitterAdsClient) -> None:
