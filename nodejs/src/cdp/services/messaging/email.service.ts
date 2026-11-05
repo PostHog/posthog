@@ -1313,8 +1313,6 @@ export class EmailService {
         return null
     }
 
-    // The check right before delivery passes `fresh`, like the member check, so a pause the worker
-    // missed the reload message for still stops the send.
     private async passesSandboxPauseGate(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         isTest: boolean,
