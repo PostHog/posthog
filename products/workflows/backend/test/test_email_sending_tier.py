@@ -576,7 +576,7 @@ class TestOwnSendsAtTheWindowStart(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("own_send_before_the_cutoff", [("email_sent", -20, "step-1"), ("email_sent", 20, "step-1")], 1),
+            ("own_send_before_the_cutoff", [("email_sent", -20, "step-1"), ("email_sent", 20, "step-2")], 1),
             ("full_pair", [("email_sent", 20, "step-1"), ("email_sandbox_sent", 20, "step-1")], 0),
             ("pair_split_sandbox_inside", [("email_sent", -10, "step-1"), ("email_sandbox_sent", 10, "step-1")], 0),
             ("pair_split_sent_inside", [("email_sandbox_sent", -10, "step-1"), ("email_sent", 10, "step-1")], 0),
