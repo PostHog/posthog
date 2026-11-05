@@ -62,6 +62,7 @@ class TestKeyMetrics(SimpleTestCase):
                 team=SimpleNamespace(id=1),
                 user=SimpleNamespace(id=2),
                 today=TODAY,
+                publish_pulse=None,
             ),
         )
         registered = next(s for s in load_sources() if s.name == "key_metrics")
@@ -89,7 +90,10 @@ class TestKeyMetrics(SimpleTestCase):
         )
 
     def test_a_pending_calculation_asks_for_a_quick_retry(self) -> None:
-        context = cast(Context, SimpleNamespace(team=SimpleNamespace(id=1), user=SimpleNamespace(id=2), today=TODAY))
+        context = cast(
+            Context,
+            SimpleNamespace(team=SimpleNamespace(id=1), user=SimpleNamespace(id=2), today=TODAY, publish_pulse=None),
+        )
         registered = next(s for s in load_sources() if s.name == "key_metrics")
 
         with patch.object(key_metrics, "get_key_metrics", return_value=None), self.assertRaises(DailyValueNotReady):

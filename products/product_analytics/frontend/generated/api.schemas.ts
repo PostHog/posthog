@@ -5462,6 +5462,13 @@ export interface ExperimentEventExposureConfigApi {
     version?: number | null
 }
 
+export interface ExperimentWarehouseNativeUnitBindingApi {
+    /** Which ids represent that unit, such as `billing_customer_id`. */
+    id_namespace: string
+    /** What was randomized, as a stable project-scoped label such as `customer` or `account`. */
+    unit_type: string
+}
+
 export type ExperimentWarehouseNativeExposureConfigApiResponse = { [key: string]: unknown } | null
 
 export interface ExperimentWarehouseNativeExposureConfigApi {
@@ -5471,6 +5478,7 @@ export interface ExperimentWarehouseNativeExposureConfigApi {
     /** Read-only SQL in the warehouse's dialect, returning one row per exposure with `entity_id`, `variant` and `timestamp` columns. PostHog keeps the first exposure per entity and applies the experiment's date range and multiple-variant handling. */
     query: string
     response?: ExperimentWarehouseNativeExposureConfigApiResponse
+    unit: ExperimentWarehouseNativeUnitBindingApi
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -5601,6 +5609,7 @@ export interface ExperimentWarehouseNativeNodeApi {
     /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id` and `timestamp` columns plus any numeric columns a metric can measure. */
     query: string
     response?: ExperimentWarehouseNativeNodeApiResponse
+    unit: ExperimentWarehouseNativeUnitBindingApi
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -7273,6 +7282,8 @@ export interface ErrorTrackingQueryApi {
     response?: ErrorTrackingQueryResponseApi | null
     /** Free-text search across exception type, message, and stack frames. */
     searchQuery?: string | null
+    /** Filter by issue severity. */
+    severity?: ErrorTrackingQueryIssueSeverityApi | null
     /** Filter by issue status. */
     status?: ErrorTrackingIssueStatusApi | string | null
     tags?: QueryLogTagsApi | null
@@ -8195,6 +8206,7 @@ export const YAxisPositionApi = {
 
 export interface ChartSettingsDisplayApi {
     color?: string | null
+    description?: string | null
     displayType?: DisplayTypeApi | null
     /** Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. */
     excludeFromTotal?: boolean | null
@@ -8237,6 +8249,8 @@ export interface ChartAxisApi {
 export type ChartSettingsApiResultCustomizations = { [key: string]: ResultCustomizationByValueApi } | null
 
 export interface ChartSettingsApi {
+    /** Shows only the annotations saved at this level. Unset shows every level. */
+    annotationsScope?: AnnotationScopeApi | null
     barGap?: number | null
     boxPlot?: BoxPlotSettingsApi | null
     /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
@@ -9718,93 +9732,6 @@ export interface InsightDataChecksRequestApi {
     depth?: InsightDataChecksDepthEnumApi
 }
 
-export interface InsightExplainChapterFactsApi {
-    /**
-     * Identifier of the chapter. The response returns the chapter under the same one.
-     * @maxLength 64
-     */
-    id: string
-    /**
-     * What the chapter is about, for example 'A peak on October 2'.
-     * @maxLength 200
-     */
-    title: string
-    /**
-     * The computed facts of the chapter in one or two sentences, with their numbers and dates.
-     * @maxLength 600
-     */
-    summary: string
-    /**
-     * Findings about the cause of the chapter, one sentence each. Empty when nothing was found. At most 6.
-     * @maxItems 6
-     * @items.maxLength 600
-     */
-    evidence?: string[]
-}
-
-export interface InsightExplainRequestApi {
-    /**
-     * Name of the series that the explanation follows.
-     * @maxLength 200
-     */
-    series_label: string
-    /**
-     * Name of the insight. Blank for an insight that has no name yet.
-     * @maxLength 400
-     */
-    insight_name?: string
-    /**
-     * The computed facts of the whole chart, such as its typical level, its range and how it ends.
-     * @maxLength 600
-     */
-    overview?: string
-    /**
-     * The chapters of the explanation in reading order. At most 8. Empty when nothing stands out on the chart.
-     * @maxItems 8
-     */
-    chapters: InsightExplainChapterFactsApi[]
-}
-
-/**
- * * `outside_traffic` - Outside traffic
- * * `usage` - Usage
- * * `one_person` - One person
- * * `tracking` - Tracking
- * * `weekly_pattern` - Weekly pattern
- * * `unclear` - Unclear
- */
-export type ChartCauseEnumApi = (typeof ChartCauseEnumApi)[keyof typeof ChartCauseEnumApi]
-
-export const ChartCauseEnumApi = {
-    OutsideTraffic: 'outside_traffic',
-    Usage: 'usage',
-    OnePerson: 'one_person',
-    Tracking: 'tracking',
-    WeeklyPattern: 'weekly_pattern',
-    Unclear: 'unclear',
-} as const
-
-export interface InsightExplainChapterApi {
-    /** Identifier of the chapter, as it was sent. */
-    id: string
-    /** What most likely caused the chapter: outside traffic, a real change in usage, one person or a test account, a tracking change, the usual weekly pattern, or unclear when no cause fits the facts.
-     *
-     * * `outside_traffic` - Outside traffic
-     * * `usage` - Usage
-     * * `one_person` - One person
-     * * `tracking` - Tracking
-     * * `weekly_pattern` - Weekly pattern
-     * * `unclear` - Unclear */
-    cause: ChartCauseEnumApi
-    /** How sure the model is of the cause, from 0 to 1. */
-    confidence: number
-}
-
-export interface InsightExplainApi {
-    /** The likely cause of each chapter the model answered, in the order they were sent. */
-    chapters: InsightExplainChapterApi[]
-}
-
 /**
  * Insight enriched with view-count and recent-viewer fields, used by the trending action.
  */
@@ -10352,17 +10279,6 @@ export type InsightsDataChecksCreateFormat =
     (typeof InsightsDataChecksCreateFormat)[keyof typeof InsightsDataChecksCreateFormat]
 
 export const InsightsDataChecksCreateFormat = {
-    Csv: 'csv',
-    Json: 'json',
-} as const
-
-export type InsightsExplainCreateParams = {
-    format?: InsightsExplainCreateFormat
-}
-
-export type InsightsExplainCreateFormat = (typeof InsightsExplainCreateFormat)[keyof typeof InsightsExplainCreateFormat]
-
-export const InsightsExplainCreateFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const

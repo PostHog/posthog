@@ -23,6 +23,11 @@ from products.data_warehouse.backend.facade.api import (
     is_multi_schema_capable_sql_source,
     source_namespace_is_blank,
 )
+from products.warehouse_sources.backend.facade.contracts import (
+    UNREADABLE_WAREHOUSE_SOURCE_USAGE_TYPE,
+    UPDATE_SHARED_CREDENTIALS_PARAM,
+    WAREHOUSE_SOURCE_USAGE_TYPE,
+)
 from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SOURCE_PREFIX, ExternalDataSource
 from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldCredentialAccountSelectConfig,
@@ -45,10 +50,15 @@ from products.warehouse_sources.backend.facade.source_management import (
     SourceSchema,
     source_requires_ssl,
 )
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType, ManagedWarehouseSQLMode
+from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
 
 if TYPE_CHECKING:
+    from posthog.integrations import IntegrationUsage
     from posthog.models.team import Team
+
+    from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+
+_SOURCE_USAGE_TYPES = frozenset({WAREHOUSE_SOURCE_USAGE_TYPE, UNREADABLE_WAREHOUSE_SOURCE_USAGE_TYPE})
 
 REFRESH_SCHEMAS_FALLBACK_ERROR_MESSAGE = "Could not fetch schemas from source."
 
@@ -498,7 +508,7 @@ def get_error_redaction_values(source: ExternalDataSource) -> frozenset[str]:
     except UnreadableSourceInputsError:
         return frozenset()
     try:
-        source_config = SourceRegistry.get_source(ExternalDataSourceType(source.source_type)).get_source_config
+        source_config = SourceRegistry.get_source(source.source_type).get_source_config
         sensitive = get_sensitive_field_names(source_config.fields)
     except (ValueError, KeyError):
         sensitive = set()
@@ -761,3 +771,40 @@ def _refresh_name_substitutions(
     if source_namespace_is_blank(source) and is_multi_schema_capable_sql_source(source.source_type):
         return apply_sql_warehouse_refresh_migration(source=source, team_id=team_id)
     return {}
+
+
+def update_shared_credentials_confirmed(request: Any) -> bool:
+    """True when the request confirms an edit of credentials that other sources or products also use.
+
+    The client sends the flag as a query parameter or in the body.
+    """
+    if request is None:
+        return False
+    value = request.query_params.get(UPDATE_SHARED_CREDENTIALS_PARAM)
+    if value is None and isinstance(request.data, Mapping):
+        value = request.data.get(UPDATE_SHARED_CREDENTIALS_PARAM)
+    return value is True or str(value).lower() == "true"
+
+
+def denied_source_usages(
+    user_access_control: UserAccessControl | None,
+    team_id: int,
+    usages: Iterable[IntegrationUsage],
+    required_level: AccessControlLevel,
+) -> set[str]:
+    """The ids of the warehouse source usages that the user lacks ``required_level`` access to.
+
+    Credentials that a source shares with other sources must not give a user access that object
+    access controls deny on those sources.
+    """
+    if user_access_control is None:
+        return set()
+    source_ids = {usage.id for usage in usages if usage.type in _SOURCE_USAGE_TYPES}
+    if not source_ids:
+        return set()
+    sources = ExternalDataSource.objects.filter(team_id=team_id, id__in=source_ids)
+    return {
+        str(source.id)
+        for source in sources
+        if not user_access_control.check_access_level_for_object(source, required_level=required_level)
+    }

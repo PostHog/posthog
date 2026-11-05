@@ -1230,6 +1230,17 @@ return result`,
 
             expect(router.values.searchParams.evaluation_tab).toBeUndefined()
         })
+
+        it('leaves the trace drawer params behind on a tab change', async () => {
+            router.actions.push(combineUrl(urls.aiObservabilityEvaluation('eval-123'), { trace: 'a', step: 'b' }).url)
+            logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setActiveTab('configuration')
+
+            expect(router.values.searchParams).toEqual({ evaluation_tab: 'configuration' })
+        })
     })
 
     describe('async flows', () => {

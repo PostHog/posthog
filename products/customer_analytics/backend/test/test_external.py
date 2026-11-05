@@ -836,7 +836,11 @@ class TestExternalAccountCustomPropertiesAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        active = CustomPropertyValue.objects.for_team(self.team.id).filter(account=self.account, is_deleted=False)
+        active = (
+            CustomPropertyValue.objects.for_team(self.team.id)
+            .filter(account=self.account, is_deleted=False)
+            .select_related("definition")
+        )
         self.assertEqual(
             {(v.definition.name, v.value_str, v.value_num) for v in active},
             {

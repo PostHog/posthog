@@ -1065,6 +1065,22 @@ describe('insightVizDataLogic', () => {
             })
         })
 
+        it('drops a debounced update when the insight type changes before it applies', async () => {
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateInsightFilter({
+                    formula: undefined,
+                    formulas: undefined,
+                    formulaNodes: [{ formula: '(A/B)*100' }],
+                })
+                builtInsightDataLogic.actions.setQuery({
+                    kind: NodeKind.InsightVizNode,
+                    source: funnelsQueryDefault,
+                } as Node)
+            }).toFinishAllListeners()
+
+            expect(builtInsightVizDataLogic.values.querySource).toEqual(funnelsQueryDefault)
+        })
+
         it('clears the breakdown when switching to the Metric display', async () => {
             await expectLogic(builtInsightDataLogic, () => {
                 builtInsightVizDataLogic.actions.updateBreakdownFilter({

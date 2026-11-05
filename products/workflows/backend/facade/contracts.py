@@ -21,6 +21,8 @@ from products.workflows.backend.facade.enums import (
     HogFlowScheduleStatus,
     HogFlowTemplateExitCondition,
     HogFlowTemplateScope,
+    PushTokenImportRowFailureReason,
+    PushTokenImportStatus,
     SetupStepKey,
     WorkflowImportNoteLevel,
     WorkflowProposalStatus,
@@ -681,6 +683,8 @@ class WorkflowRef:
     has_email_step: bool
 
 
+EMAIL_FROM_CODE_FLAG: Final[str] = "workflows-email-from-code"
+
 # Engagement tracking and message assets key on this id, so it stays stable across versions.
 TRANSACTIONAL_EMAIL_ACTION_ID: Final[str] = "transactional_email"
 
@@ -710,6 +714,10 @@ class TransactionalEmailSenderUnavailable(Exception):
     """No verified email sender: neither the requested one nor the project's default."""
 
 
+class TransactionalEmailSenderRequired(Exception):
+    """The project has several verified email senders and no default, so the send has to name one."""
+
+
 class TransactionalEmailContentInvalid(Exception):
     """The content has no subject or no body, so the workflow could not send it."""
 
@@ -726,7 +734,7 @@ class WorkflowArchived(Exception):
 class WorkflowListQuery:
     """What a workflow list asks for. The view validates each value before it builds one.
 
-    ``field_filters`` holds the raw exact-match and ``optimization_enabled`` query parameters. The
+    ``field_filters`` holds the raw exact-match, ``name`` and ``optimization_enabled`` query parameters. The
     service validates them and raises WorkflowListFiltersInvalid when one does not parse.
     """
 
@@ -985,8 +993,8 @@ class AudienceSuggestion:
     window_days: int
     # How many times the event must happen in the window. Set only for regulars.
     min_count: int | None
-    # People in the audience with an email address, counted when the suggestion was made.
-    reachable_count: int
+    # Roughly how many people in the audience have an email address. None until counted, or when the count failed.
+    reachable_count: int | None
     cohort_filters: dict[str, Any]
 
 
@@ -1159,3 +1167,39 @@ class WorkflowImportRecord:
     notes: tuple[dict[str, Any], ...]
     updated_at: datetime
     hog_flow_created_by_id: int | None = None
+
+
+class PushTokenImportInvalid(Exception):
+    """The upload cannot be used. The message is shown to the person who sent it."""
+
+
+class PushTokenImportNotFound(LookupError):
+    pass
+
+
+@frozen
+class PushTokenImportRowFailure:
+    line: int
+    distinct_id: str
+    device_token_suffix: str
+    reason: PushTokenImportRowFailureReason
+    detail: str
+
+
+@frozen
+class PushTokenImportRecord:
+    id: UUID
+    integration_id: int
+    status: PushTokenImportStatus
+    create_missing_persons: bool
+    total_devices: int
+    processed_devices: int
+    imported_devices: int
+    failed_devices: int
+    unknown_person_devices: int
+    duplicate_lines: int
+    failures: tuple[PushTokenImportRowFailure, ...]
+    can_import_unknown_persons: bool
+    error: str
+    created_at: datetime
+    finished_at: datetime | None

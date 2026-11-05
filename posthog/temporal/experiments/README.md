@@ -40,6 +40,15 @@ The write looks the row up on `(experiment, metric_uuid, query_to)` and stores t
 A row that already holds that window under another fingerprint, such as a recalculation result at the same window, is updated in place instead of failing on the unique constraint.
 A failed write is the exception: it leaves a completed row under another fingerprint in place, so a transient failure cannot replace a recalculation result.
 
+Discovery queues each metric with its calculation key, and the activity reads the settings again when it builds the query runner.
+Before the query runs, the activity checks that the runner's settings still give the queued key, in the key version of that key.
+When they do not, the activity skips the metric: it stores no result or failure, sends no notification, and returns `skipped=True` without a retry.
+The workflow counts such metrics as skipped, not as failed, and the next scheduled run computes them under the new settings.
+
+The significance notification compares a new daily result with the metric's newest earlier completed point that is compatible with it: a point under either key version of the metric's config, or whose display key is the version 1 key.
+So neither a key version change nor a settings change that version 1 does not cover sends a repeated notification.
+Without any earlier point, every significant variant counts as newly significant, as on the first point of a new experiment.
+
 These workflows used to publish a `timeseries_sync` recalculation row per experiment as well.
 The scheduled recalculation workflow owns that job now, so the publish pass is gated out behind
 `experiment-drop-timeseries-publish-2026-10`.

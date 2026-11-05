@@ -1,0 +1,206 @@
+from products.warehouse_sources.sources.sdk import CanonicalDescriptions
+
+# Descriptions are taken from the Twilio Segment Public API docs (https://docs.segmentapis.com). The
+# Public API is the workspace configuration/admin/metadata API, not the event or Profile data plane.
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "workspace": {
+        "description": "The Segment workspace associated with the Public API token used to connect.",
+        "docs_url": "https://docs.segmentapis.com/tag/Workspaces",
+        "columns": {
+            "id": "Unique identifier for the workspace.",
+            "name": "Human-readable name of the workspace.",
+            "slug": "URL-friendly slug for the workspace.",
+        },
+    },
+    "sources": {
+        "description": "Sources configured in the workspace — the integrations that send data into Segment.",
+        "docs_url": "https://docs.segmentapis.com/tag/Sources",
+        "columns": {
+            "id": "Unique identifier for the source.",
+            "slug": "URL-friendly slug for the source.",
+            "name": "Human-readable name of the source.",
+            "workspaceId": "Identifier of the workspace the source belongs to.",
+            "enabled": "Whether the source is currently enabled.",
+            "metadata": "Catalog metadata describing the source type (id, slug, name, categories, logos).",
+            "settings": "Source-specific configuration settings.",
+            "labels": "Labels applied to the source.",
+        },
+    },
+    "destinations": {
+        "description": "Destinations configured in the workspace — where Segment forwards collected data.",
+        "docs_url": "https://docs.segmentapis.com/tag/Destinations",
+        "columns": {
+            "id": "Unique identifier for the destination.",
+            "name": "Human-readable name of the destination.",
+            "sourceId": "Identifier of the source feeding this destination.",
+            "enabled": "Whether the destination is currently enabled.",
+            "metadata": "Catalog metadata describing the destination type.",
+        },
+    },
+    "warehouses": {
+        "description": "Warehouse connections configured in the workspace (e.g. Redshift, BigQuery, Snowflake).",
+        "docs_url": "https://docs.segmentapis.com/tag/Warehouses",
+        "columns": {
+            "id": "Unique identifier for the warehouse connection.",
+            "workspaceId": "Identifier of the workspace the warehouse belongs to.",
+            "enabled": "Whether the warehouse connection is currently enabled.",
+            "metadata": "Catalog metadata describing the warehouse type.",
+        },
+    },
+    "tracking_plans": {
+        "description": "Tracking plans that define the expected events and properties for the workspace.",
+        "docs_url": "https://docs.segmentapis.com/tag/Tracking-Plans",
+        "columns": {
+            "id": "Unique identifier for the tracking plan.",
+            "name": "Human-readable name of the tracking plan.",
+            "type": "The type of tracking plan.",
+            "updatedAt": "When the tracking plan was last updated.",
+            "createdAt": "When the tracking plan was created.",
+        },
+    },
+    "transformations": {
+        "description": "Transformations that modify events in-flight before they reach destinations.",
+        "docs_url": "https://docs.segmentapis.com/tag/Transformations",
+        "columns": {
+            "id": "Unique identifier for the transformation.",
+            "name": "Human-readable name of the transformation.",
+            "sourceId": "Identifier of the source the transformation applies to.",
+            "enabled": "Whether the transformation is currently enabled.",
+        },
+    },
+    "reverse_etl_models": {
+        "description": "Reverse ETL models — the queries that extract data from a warehouse to send to destinations.",
+        "docs_url": "https://docs.segmentapis.com/tag/Reverse-ETL",
+        "columns": {
+            "id": "Unique identifier for the Reverse ETL model.",
+            "sourceId": "Identifier of the Reverse ETL source the model belongs to.",
+            "name": "Human-readable name of the model.",
+            "enabled": "Whether the model is currently enabled.",
+            "query": "The SQL query defining the model.",
+        },
+    },
+    "iam_users": {
+        "description": "IAM users with access to the workspace.",
+        "docs_url": "https://docs.segmentapis.com/tag/IAM-Users",
+        "columns": {
+            "id": "Unique identifier for the user.",
+            "name": "The user's name.",
+            "email": "The user's email address.",
+        },
+    },
+    "iam_groups": {
+        "description": "IAM user groups defined in the workspace.",
+        "docs_url": "https://docs.segmentapis.com/tag/IAM-Groups",
+        "columns": {
+            "id": "Unique identifier for the user group.",
+            "name": "Human-readable name of the group.",
+            "memberCount": "Number of members in the group.",
+        },
+    },
+    "labels": {
+        "description": "Labels defined in the workspace, used to tag and organize sources and other resources.",
+        "docs_url": "https://docs.segmentapis.com/tag/Labels",
+        "columns": {
+            "key": "The label key (e.g. `environment`).",
+            "value": "The label value (e.g. `dev`).",
+            "description": "Optional description of the label.",
+        },
+    },
+    "audit_events": {
+        "description": "Workspace audit trail — a log of configuration and access events.",
+        "docs_url": "https://docs.segmentapis.com/tag/Audit-Trail",
+        "columns": {
+            "id": "Unique identifier for the audit event.",
+            "timestamp": "When the event occurred (ISO 8601).",
+            "type": "The type of audit event.",
+            "actor": "The user or token that performed the action.",
+            "resourceId": "Identifier of the resource the event acted on.",
+            "resourceType": "The type of resource the event acted on.",
+            "resourceName": "Name of the resource the event acted on.",
+        },
+    },
+    "destinations_catalog": {
+        "description": "Segment's catalog of destination types. Resolves the `metadata.id` on each destination row.",
+        "docs_url": "https://docs.segmentapis.com/tag/Catalog",
+        "columns": {
+            "id": "Identifier of the destination metadata.",
+            "name": "User-friendly name of the destination type.",
+            "slug": "Slug that identifies the destination type in the Segment app.",
+            "description": "Description of the destination type.",
+            "status": "Support status of the destination type.",
+            "categories": "Categories the destination type belongs to.",
+            "supportedMethods": "Event methods the destination type supports.",
+            "supportedPlatforms": "Platforms from which the destination type receives events.",
+            "actions": "Actions available for the destination type.",
+        },
+    },
+    "sources_catalog": {
+        "description": "Segment's catalog of source types. Resolves the `metadata.id` on each source row.",
+        "docs_url": "https://docs.segmentapis.com/tag/Catalog",
+        "columns": {
+            "id": "Identifier of the source metadata.",
+            "name": "User-friendly name of the source type.",
+            "slug": "Slug that identifies the source type in the Segment app.",
+            "description": "Description of the source type.",
+            "categories": "Categories the source type belongs to.",
+            "isCloudEventSource": "Whether the source type is a cloud event source.",
+            "status": "Support status of the source type.",
+        },
+    },
+    "warehouses_catalog": {
+        "description": "Segment's catalog of warehouse types. Resolves the `metadata.id` on each warehouse row.",
+        "docs_url": "https://docs.segmentapis.com/tag/Catalog",
+        "columns": {
+            "id": "Identifier of the warehouse metadata.",
+            "name": "Name of the warehouse type.",
+            "slug": "Unique, human-readable identifier of the warehouse type.",
+            "description": "Description of the warehouse type.",
+        },
+    },
+    "tracking_plan_rules": {
+        "description": "The event and property rules inside each tracking plan.",
+        "docs_url": "https://docs.segmentapis.com/tag/Tracking-Plans",
+        "columns": {
+            "trackingPlanId": "Identifier of the tracking plan the rule belongs to.",
+            "type": "The type of the rule, for example TRACK or IDENTIFY.",
+            "key": "Key of the rule, such as the event name. Empty for rule types that have no key.",
+            "jsonSchema": "JSON Schema of the rule.",
+            "version": "Version of the rule.",
+            "createdAt": "When the rule was created.",
+            "updatedAt": "When the rule was last changed.",
+            "deprecatedAt": "When the rule was deprecated.",
+        },
+    },
+    "destination_delivery_metrics": {
+        "description": "Event delivery totals per destination and metric over the last 12 full UTC days.",
+        "docs_url": "https://docs.segmentapis.com/tag/Destinations",
+        "columns": {
+            "destinationId": "Identifier of the destination.",
+            "sourceId": "Identifier of the source connected to the destination.",
+            "destinationMetadataId": "Identifier of the destination type in the destinations catalog.",
+            "metricName": "Name of the delivery metric.",
+            "total": "Number of occurrences of the metric in the window.",
+            "breakdown": "Breakdown of the metric into sub-metrics.",
+            "windowStart": "Start of the reporting window (inclusive).",
+            "windowEnd": "End of the reporting window.",
+        },
+    },
+    "reverse_etl_syncs": {
+        "description": "Sync history of each Reverse ETL model subscription.",
+        "docs_url": "https://docs.segmentapis.com/tag/Reverse-ETL",
+        "columns": {
+            "subscriptionId": "Identifier of the destination subscription the sync loaded into.",
+            "syncId": "Identifier of the sync.",
+            "modelId": "Identifier of the Reverse ETL model.",
+            "sourceId": "Identifier of the Reverse ETL source.",
+            "syncStatus": "Status of the sync: IN_PROGRESS, FAIL, SUCCESS or PARTIAL_SUCCESS.",
+            "duration": "Duration of the sync.",
+            "startedAt": "When the sync started.",
+            "finishedAt": "When the sync finished.",
+            "extractPhase": "Details of the extract phase.",
+            "loadPhase": "Details of the load phase.",
+            "error": "Error message, if applicable.",
+            "errorCode": "Code of a fatal sync error, if applicable.",
+        },
+    },
+}
