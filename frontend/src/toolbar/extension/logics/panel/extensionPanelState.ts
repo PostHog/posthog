@@ -35,8 +35,8 @@ export interface ExtensionPanelInputs {
     authorizedUrls: string[] | 'error' | null
 }
 
-// Browsers block every extension from scripting their own add-on stores.
-const EXTENSION_STORE_HOSTNAMES = new Set(['chromewebstore.google.com', 'chrome.google.com', 'addons.mozilla.org'])
+// Chrome blocks every extension from scripting the Chrome Web Store.
+const EXTENSION_STORE_HOSTNAMES = new Set(['chromewebstore.google.com', 'chrome.google.com'])
 
 const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]'])
 

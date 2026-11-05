@@ -15,7 +15,8 @@ from posthog.hogql.property import action_to_expr, property_to_expr
 
 from posthog.models import Team
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import ActionNotFound
 
 ConversionGoal = ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3
 
@@ -50,8 +51,8 @@ def action_match_expr(conversion_goal: ConversionGoal, team: Team) -> Optional[a
     if not isinstance(conversion_goal, ConversionGoalFilter2) or not conversion_goal.id:
         return None
     try:
-        action = Action.objects.get(pk=int(conversion_goal.id), team__project_id=team.project_id)
-    except (Action.DoesNotExist, TypeError, ValueError):
+        action = get_action(action_id=int(conversion_goal.id), project_id=team.project_id)
+    except (ActionNotFound, TypeError, ValueError):
         return None
     return action_to_expr(action)
 
@@ -61,8 +62,8 @@ def action_property_keys(conversion_goal: ConversionGoal, team: Team) -> list[st
     if not isinstance(conversion_goal, ConversionGoalFilter2) or not conversion_goal.id:
         return []
     try:
-        action = Action.objects.get(pk=int(conversion_goal.id), team__project_id=team.project_id)
-    except (Action.DoesNotExist, TypeError, ValueError):
+        action = get_action(action_id=int(conversion_goal.id), project_id=team.project_id)
+    except (ActionNotFound, TypeError, ValueError):
         return []
     return [prop["key"] for step in action.steps for prop in step.properties or [] if prop.get("key")]
 

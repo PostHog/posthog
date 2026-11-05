@@ -43,6 +43,7 @@ from posthog.usage_counters import UsageCounter, UsageCounterMode, UsageCounterP
 from posthog.utils import get_current_day
 
 from products.ai_observability.backend.offline_evaluation_billing import get_offline_evaluation_usage
+from products.feature_flags.backend.flag_analytics import billable_feature_flag_requests
 
 from ee.billing.quota_usage import QuotaUsageBatch, retry_quota_database_operation
 
@@ -1266,14 +1267,20 @@ def _aggregate_quota_usage(
     for team in teams:
         decide_requests = all_data["teams_with_decide_requests_count"].get(team.id, 0)
         local_evaluation_requests = all_data["teams_with_local_evaluation_requests_count"].get(team.id, 0)
+        local_evaluation_not_modified_requests = all_data[
+            "teams_with_local_evaluation_not_modified_requests_count"
+        ].get(team.id, 0)
 
         team_report = UsageCounters(
             events=all_data["teams_with_event_count_in_period"].get(team.id, 0),
             exceptions=all_data["teams_with_exceptions_captured_in_period"].get(team.id, 0),
             recordings=all_data["teams_with_recording_count_in_period"].get(team.id, 0),
             rows_synced=all_data["teams_with_rows_synced_in_period"].get(team.id, 0),
-            feature_flag_requests=decide_requests
-            + (local_evaluation_requests * 10),  # Same weighting as in _get_team_report
+            feature_flag_requests=billable_feature_flag_requests(
+                decide=decide_requests,
+                local_evaluation=local_evaluation_requests,
+                local_evaluation_not_modified=local_evaluation_not_modified_requests,
+            ),
             api_queries_read_bytes=all_data["teams_with_api_queries_read_bytes"].get(team.id, 0),
             survey_responses=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
             llm_events=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
@@ -1367,6 +1374,7 @@ def update_all_orgs_billing_quotas(
                 UsageCounter.RECORDINGS,
                 UsageCounter.FEATURE_FLAG_REQUESTS,
                 UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS,
+                UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_NOT_MODIFIED_REQUESTS,
                 UsageCounter.CDP_INVOCATIONS,
                 UsageCounter.SURVEY_RESPONSES,
                 UsageCounter.AI_EVENTS,
@@ -1416,6 +1424,9 @@ def update_all_orgs_billing_quotas(
         "teams_with_decide_requests_count": dict(counter_report.counts[UsageCounter.FEATURE_FLAG_REQUESTS]),
         "teams_with_local_evaluation_requests_count": dict(
             counter_report.counts[UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS]
+        ),
+        "teams_with_local_evaluation_not_modified_requests_count": dict(
+            counter_report.counts[UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_NOT_MODIFIED_REQUESTS]
         ),
         "teams_with_api_queries_read_bytes": convert_team_usage_rows_to_dict(api_queries_usage["read_bytes"]),
         "teams_with_cdp_trigger_events_metrics": dict(counter_report.counts[UsageCounter.CDP_INVOCATIONS]),
