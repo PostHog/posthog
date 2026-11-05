@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 from django.utils import timezone
 
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, EndpointConnectionError, NoCredentialsError
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
@@ -286,25 +286,44 @@ class TestSandboxTenantStateSync(BaseTest):
         assert sorted(tenant_names) == sorted([SANDBOX_TENANT, f"team-{self.team.id}"])
         assert SandboxSenderTenantState.objects.get(tenant_name=SANDBOX_TENANT).sending_status == "ENABLED"
 
-    def test_a_failed_sandbox_sync_does_not_stop_the_team_sweep(self) -> None:
+    @parameterized.expand(
+        [
+            ("throttled", ClientError({"Error": {"Code": "TooManyRequestsException"}}, "GetTenant"), "transient"),
+            ("connection_lost", EndpointConnectionError(endpoint_url="https://email.example.com"), "transient"),
+            (
+                "ses_outage",
+                ClientError(
+                    {"Error": {"Code": "InternalFailure"}, "ResponseMetadata": {"HTTPStatusCode": 500}}, "GetTenant"
+                ),
+                "transient",
+            ),
+            (
+                "access_denied",
+                ClientError(
+                    {"Error": {"Code": "AccessDeniedException"}, "ResponseMetadata": {"HTTPStatusCode": 403}},
+                    "GetTenant",
+                ),
+                "error",
+            ),
+            ("no_credentials", NoCredentialsError(), "error"),
+        ]
+    )
+    def test_a_failed_sandbox_sync_does_not_stop_the_team_sweep(self, _name: str, error: Exception, kind: str) -> None:
         Integration.objects.create(team=self.team, kind="email", config={"provider": "ses"})
 
         def get_tenant(TenantName: str) -> dict:
             if TenantName == SANDBOX_TENANT:
-                raise ClientError({"Error": {"Code": "TooManyRequestsException"}}, "GetTenant")
+                raise error
             return {"Tenant": {"TenantName": TenantName, "SendingStatus": "ENABLED"}}
 
         self.ses.get_tenant.side_effect = get_tenant
-        failures = REGISTRY.get_sample_value("workflows_sandbox_tenant_sync_failures_total", {"kind": "transient"}) or 0
+        failures = REGISTRY.get_sample_value("workflows_sandbox_tenant_sync_failures_total", {"kind": kind}) or 0
 
         with self.captureOnCommitCallbacks(execute=True):
             reconcile_ses_tenant_states()
 
         assert TeamWorkflowsConfig.objects.get(team=self.team).ses_tenant_sending_status == "ENABLED"
-        assert (
-            REGISTRY.get_sample_value("workflows_sandbox_tenant_sync_failures_total", {"kind": "transient"})
-            == failures + 1
-        )
+        assert REGISTRY.get_sample_value("workflows_sandbox_tenant_sync_failures_total", {"kind": kind}) == failures + 1
 
     @override_settings(SES_SANDBOX_TENANT_NAME="")
     def test_nothing_is_synced_while_no_sandbox_tenant_is_configured(self) -> None:
