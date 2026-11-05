@@ -461,6 +461,8 @@ export function InboxDetailFrame({
         </header>
     )
 
+    const isMonitoring = (currentReport ?? report).status === SignalReportStatus.MONITORING
+
     // Bound rather than passed as props so a chart can reach the logic by id alone. `ReportChart`
     // building the logic itself would have to pass `report` back in, and kea treats that as a props
     // change on the mounted instance.
@@ -474,6 +476,7 @@ export function InboxDetailFrame({
                             onPriorityChange={updatePriority}
                             prioritySaving={prioritySaving}
                         />
+                        {isMonitoring && <ReportChecksSection report={report} />}
                         {/* The observation leads, then the evidence its claims rest on. */}
                         {primaryMetric && (
                             <DetailSection
@@ -527,7 +530,7 @@ export function InboxDetailFrame({
                             <ReportSpendSection reportId={report.id} />
                         </FlaggedFeature>
                         <ReportTasksSection report={report} />
-                        <ReportChecksSection report={report} />
+                        {!isMonitoring && <ReportChecksSection report={report} />}
                         <ReportActivitySection report={report} />
                         {asideFooter}
                     </aside>
