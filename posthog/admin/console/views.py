@@ -5,15 +5,15 @@ from typing import cast
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.staticfiles import finders
-from django.db.models import Q
+from django.db.models import Model, Q
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseNotAllowed, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import reverse
 
 import structlog
 
 from posthog.admin.console.bridge import QueuedMessages
 from posthog.admin.console.panels import Fact, Operation, Panel, Tone
+from posthog.admin.console.records import RECORD_TYPES, RecordType
 from posthog.admin.console.registry import console
 from posthog.admin.console.tools import ConsoleTool
 from posthog.dataclasses import frozen
@@ -127,7 +127,7 @@ def console_home(request: HttpRequest) -> HttpResponse:
     if len(teams) == 1:
         if not query.isdigit():
             messages.info(request, f'Opened the only team that matches "{query}".')
-        return redirect("admin_console_team", team_id=teams[0].pk)
+        return redirect("admin_console_team", pk=teams[0].pk)
     return render(
         request,
         "admin_console/home.html",
@@ -142,19 +142,40 @@ def console_home(request: HttpRequest) -> HttpResponse:
     )
 
 
-def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:
-    team = get_object_or_404(Team.objects.select_related("organization"), pk=team_id)
-    RecentTeams.remember(request, team)
+def _record_type(record: str) -> RecordType:
+    record_type = RECORD_TYPES.get(record)
+    if record_type is None:
+        raise Http404("Unknown console record type")
+    return record_type
+
+
+def _record_context(record_type: RecordType, obj: Model) -> dict[str, object]:
+    return {
+        **ConsoleEnvironment.context(),
+        "record_type": record_type,
+        "obj": obj,
+        "record_title": record_type.title(obj),
+        "record_subtitle": record_type.subtitle(obj),
+        "record_url": record_type.url(obj),
+        "record_parents": record_type.parents(obj),
+    }
+
+
+def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse:
+    record_type = _record_type(record)
+    obj = get_object_or_404(record_type.queryset(), pk=pk)
+    if isinstance(obj, Team):
+        RecentTeams.remember(request, obj)
     panels = [
-        RenderedPanel(panel=panel, facts=panel.facts(team), operations=panel.operations(team))
-        for panel in console.panels_for("team")
+        RenderedPanel(panel=panel, facts=panel.facts(obj), operations=panel.operations(obj))
+        for panel in console.panels_for(record_type.key)
     ]
     return render(
         request,
-        "admin_console/team.html",
+        "admin_console/record.html",
         {
-            **ConsoleEnvironment.context(),
-            "team": team,
+            **_record_context(record_type, obj),
+            "record_links": record_type.links(obj),
             "attention": [
                 AttentionItem(panel=rendered.panel, fact=fact)
                 for rendered in panels
@@ -167,38 +188,38 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:
     )
 
 
-def _is_offered(panel: Panel, team: Team, operation_key: str) -> bool:
-    return any(operation.key == operation_key for operation in panel.operations(team))
+def _is_offered(panel: Panel, obj: Model, operation_key: str) -> bool:
+    return any(operation.key == operation_key for operation in panel.operations(obj))
 
 
-def _find_operation(panel: Panel, team: Team, operation_key: str) -> Operation:
+def _find_operation(panel: Panel, obj: Model, operation_key: str) -> Operation:
     # Look the operation up in what the panel offers now, so a stale form cannot run an operation the
     # current state no longer allows, for example suspending a team that is already suspended.
-    for operation in panel.operations(team):
+    for operation in panel.operations(obj):
         if operation.key == operation_key:
             return operation
-    raise Http404("This operation is not available for this team right now")
+    raise Http404("This operation is not available for this record right now")
 
 
-def run_team_operation(request: HttpRequest, team_id: int, panel_key: str, operation_key: str) -> HttpResponse:
-    team = get_object_or_404(Team.objects.select_related("organization"), pk=team_id)
-    panel = console.get_panel("team", panel_key)
+def run_operation(request: HttpRequest, record: str, pk: object, panel_key: str, operation_key: str) -> HttpResponse:
+    record_type = _record_type(record)
+    obj = get_object_or_404(record_type.queryset(), pk=pk)
+    panel = console.get_panel(record_type.key, panel_key)
     if panel is None:
         raise Http404("Unknown console panel")
-    operation = _find_operation(panel, team, operation_key)
-    team_url = reverse("admin_console_team", kwargs={"team_id": team.pk})
+    operation = _find_operation(panel, obj, operation_key)
+    record_url = record_type.url(obj)
 
     if request.method not in ("GET", "POST"):
         return HttpResponseNotAllowed(["GET", "POST"])
     if request.method == "GET" and operation.form_class is None:
-        return redirect(team_url)
+        return redirect(record_url)
 
     form = None
     if operation.form_class is not None:
         form = operation.form_class(request.POST if request.method == "POST" else None, initial=operation.form_initial)
     context = {
-        **ConsoleEnvironment.context(),
-        "team": team,
+        **_record_context(record_type, obj),
         "panel": panel,
         "operation": operation,
         "form": form,
@@ -211,23 +232,23 @@ def run_team_operation(request: HttpRequest, team_id: int, panel_key: str, opera
         return render(request, "admin_console/operation.html", context, status=400)
 
     audit = logger.bind(
-        record="team",
-        team_id=team.pk,
+        record=record_type.key,
+        record_id=str(obj.pk),
         panel=panel.key,
         operation=operation.key,
         reason=form.cleaned_data.get("reason") if form is not None else None,
         triggered_by=cast(User, request.user).email,
     )
     audit.info("admin_console_operation_started")
-    response = operation.handler(request, team, form)
+    response = operation.handler(request, obj, form)
     audit.info("admin_console_operation_finished", status=response.status_code if response is not None else None)
     if response is None:
-        return redirect(team_url)
+        return redirect(record_url)
     if response.status_code >= 400:
-        team.refresh_from_db()
+        obj.refresh_from_db()
         # A handler can fail after its state change committed, for example when a notification fails.
-        # The operation is then no longer offered, and staff belong on the team page, not on a dead form.
-        if form is not None and _is_offered(panel, team, operation.key):
+        # The operation is then no longer offered, and staff belong on the record page, not on a dead form.
+        if form is not None and _is_offered(panel, obj, operation.key):
             return render(request, "admin_console/operation.html", context, status=400)
         if QueuedMessages.error_count(request) == 0:
             messages.error(
@@ -235,7 +256,7 @@ def run_team_operation(request: HttpRequest, team_id: int, panel_key: str, opera
                 f"{operation.label} failed with status {response.status_code}. The page below shows the current "
                 f"state. Try again, or ask the {panel.owner.name} team if it keeps failing.",
             )
-        return redirect(team_url)
+        return redirect(record_url)
     return response
 
 

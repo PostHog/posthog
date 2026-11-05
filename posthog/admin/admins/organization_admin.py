@@ -25,6 +25,7 @@ from django.views.decorators.http import require_http_methods
 
 from posthog.admin.ai_training_opt_in_history import get_ai_training_opt_in_history
 from posthog.admin.authorization import can_trigger_admin_deletion
+from posthog.admin.console.moved import MovedToConsole
 from posthog.admin.inline_registry import extra_inlines_for
 from posthog.admin.inlines.events_retention_config_inline import OrganizationEventsRetentionConfigInline
 from posthog.admin.inlines.organization_domain_inline import OrganizationDomainInline
@@ -381,7 +382,13 @@ class OrganizationAdmin(admin.ModelAdmin):
         return mark_safe(
             render_to_string(
                 "admin/organization/limited_products.html",
-                {"limited": limited, "organization_id": organization.id, "total_teams": total_teams},
+                {
+                    "limited": limited,
+                    "total_teams": total_teams,
+                    "actions_moved": MovedToConsole.action(
+                        "organization", organization, "billing", "Limit and unlimit"
+                    ),
+                },
                 request=request,
             )
         )
@@ -462,15 +469,7 @@ class OrganizationAdmin(admin.ModelAdmin):
     def sync_to_billing_display(self, organization: Organization):
         if not organization.pk:
             return "-"
-        request = getattr(self, "_current_request", None)
-        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
-        return mark_safe(
-            render_to_string(
-                "admin/organization/sync_to_billing.html",
-                {"organization_id": organization.pk},
-                request=request,
-            )
-        )
+        return MovedToConsole.action("organization", organization, "billing", "Sync members to billing")
 
     @admin.display(description="Danger zone")
     def trigger_deletion_display(self, organization: Organization):
@@ -570,65 +569,6 @@ class OrganizationAdmin(admin.ModelAdmin):
         )
         return redirect(change_url)
 
-    def sync_to_billing_view(self, request, organization_id):
-        from posthog.tasks.sync_billing import sync_members_to_billing
-
-        try:
-            organization = Organization.objects.get(id=organization_id)
-        except Organization.DoesNotExist:
-            messages.error(request, f"Organization with id {organization_id} not found.")
-            return redirect(reverse("admin:posthog_organization_changelist"))
-
-        if request.method == "POST":
-            try:
-                sync_members_to_billing.delay(organization.id)
-                messages.success(
-                    request, f"Queued sync to billing for organization {organization.name} ({organization.id})."
-                )
-            except Exception as e:
-                messages.error(request, f"Error queuing sync to billing: {e}")
-
-        return redirect(reverse("admin:posthog_organization_change", args=[organization_id]))
-
-    def limit_product_view(self, request, organization_id):
-        from ee.billing.quota_limiting import QuotaResource
-
-        organization: Organization = Organization.objects.get(id=organization_id)
-        assert organization
-
-        if request.method == "POST":
-            resource_name = request.POST.get("resource")
-            try:
-                resource = QuotaResource(resource_name)
-                organization.limit_product_until_end_of_billing_cycle(resource)
-                messages.success(request, f"Successfully limited {resource_name} for organization {organization.name}")
-            except ValueError:
-                messages.error(request, f"Invalid resource: {resource_name}")
-            except Exception as e:
-                messages.error(request, f"Error limiting {resource_name}: {str(e)}")
-
-        return redirect(reverse("admin:posthog_organization_change", args=[organization_id]))
-
-    def unlimit_product_view(self, request, organization_id):
-        from ee.billing.quota_limiting import QuotaResource
-
-        organization = Organization.objects.get(id=organization_id)
-
-        if request.method == "POST":
-            resource_name = request.POST.get("resource")
-            try:
-                resource = QuotaResource(resource_name)
-                organization.unlimit_product(resource)
-                messages.success(
-                    request, f"Successfully unlimited {resource_name} for organization {organization.name}"
-                )
-            except ValueError:
-                messages.error(request, f"Invalid resource: {resource_name}")
-            except Exception as e:
-                messages.error(request, f"Error unlimiting {resource_name}: {str(e)}")
-
-        return redirect(reverse("admin:posthog_organization_change", args=[organization_id]))
-
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
@@ -651,24 +591,9 @@ class OrganizationAdmin(admin.ModelAdmin):
                 name="organization_bulk_deactivate",
             ),
             path(
-                "<path:organization_id>/limit-product/",
-                self.admin_site.admin_view(self.limit_product_view),
-                name="limit_product",
-            ),
-            path(
-                "<path:organization_id>/unlimit-product/",
-                self.admin_site.admin_view(self.unlimit_product_view),
-                name="unlimit_product",
-            ),
-            path(
                 "<path:organization_id>/model-counts/",
                 self.admin_site.admin_view(self.model_counts_view),
                 name="organization_model_counts",
-            ),
-            path(
-                "<path:organization_id>/sync-to-billing/",
-                self.admin_site.admin_view(self.sync_to_billing_view),
-                name="organization_sync_to_billing",
             ),
             path(
                 "<path:organization_id>/trigger-deletion/",

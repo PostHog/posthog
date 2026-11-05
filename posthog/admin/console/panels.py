@@ -36,11 +36,16 @@ class Fact:
     value: str
     tone: Tone | None = None
     mono: bool = False
+    # A console page the value links to, for example the team page of a team the fact names.
+    href: str | None = None
 
     def __post_init__(self) -> None:
         # The shell escapes facts. Markup from format_html or mark_safe would bypass the shared design.
         if isinstance(self.label, SafeData) or isinstance(self.value, SafeData):
             raise ValueError(f"Fact {self.label!r} must be plain text, not markup")
+        # Facts link within PostHog only, so a value that came from customer data cannot become an outside link.
+        if self.href is not None and (not self.href.startswith("/") or self.href.startswith("//")):
+            raise ValueError(f"Fact {self.label!r} links to {self.href!r}. Link to a PostHog path that starts with /.")
 
 
 class OperationHandler(Protocol):

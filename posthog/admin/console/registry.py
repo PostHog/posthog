@@ -3,9 +3,9 @@ import re
 from django.utils.module_loading import autodiscover_modules
 
 from posthog.admin.console.panels import Panel
+from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.tools import ConsoleTool
 
-RECORD_TYPES = frozenset({"team"})
 # Navigation headings. Add one here, in the shell, only when no existing group fits a new tool.
 TOOL_GROUPS = frozenset({"Data"})
 KEY_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -72,6 +72,7 @@ class ConsoleRegistry:
             return
         # Core panels register first, so they lead each page.
         import posthog.admin.console.team_panels  # noqa: F401, PLC0415 — registers the core Team panels
+        import posthog.admin.console.organization_panels  # noqa: F401, PLC0415 — registers the core Organization panels
         import posthog.admin.console.events_retention_tool  # noqa: F401, PLC0415 — registers a core tool
 
         autodiscover_modules("console")

@@ -12,10 +12,10 @@ Read [`posthog/admin/console/AGENTS.md`](../../../posthog/admin/console/AGENTS.m
 ## 1. Decide where it goes
 
 - **Plain create, read, update or delete on one model** stays in Django admin. The console is not a second CRUD layer.
-- **Facts and actions about one team** go in a panel. One panel per product concern, owned by the team that owns the data.
+- **Facts and actions about one team or one organization** go in a panel on that record's page. One panel per product concern, owned by the team that owns the data.
 - **A report across many teams** is a tool. Tools only read. An action from a tool row links to the team page.
 - **A staff page your product already has in the app** (a DRF staff endpoint and scene) is legacy. Do not extend it and do not bridge to it. Ask the user whether to move it into the console as its own change.
-- **Anything else** (a new record type such as an organization or user page, a new block kind, a new tool group, a template change) is a shell change. Stop and ask the user: those need a review by the console owners (team-devex), not a product team alone.
+- **Anything else** (a new record type such as a user or project page, a new block kind, a new tool group, a template change) is a shell change. Stop and ask the user: those need a review by the console owners (team-devex), not a product team alone.
 
 ## 2. Write the panel or tool as data
 
@@ -47,13 +47,13 @@ Invoke `/writing-user-facing-copy`. In the console that means:
 ## 5. Move a Django admin action without losing anyone
 
 1. Point the operation at the old view with `AdminViewBridge(Model, SomeAdmin.view_method)` while the logic still lives in the `ModelAdmin`.
-2. Replace the old button in Django admin with `MovedToConsole.team_action(team, "<panel-key>", "<what moved>")`, so staff who look in the usual place find the new one.
+2. Replace the old button in Django admin with `MovedToConsole.action("<record>", obj, "<panel-key>", "<what moved>")`, so staff who look in the usual place find the new one.
 3. When a whole page moves, keep its old URL name and route it to `MovedToConsole.page_redirect`, which tells staff the page moved.
-4. Every old URL keeps working, query parameters included. Support staff keep bookmarks to old admin pages and actions. When you delete a team action's view, add its old path to `MOVED_TEAM_ACTIONS` in `posthog/admin/console/urls.py`, so it redirects to the console form or panel.
+4. Every old URL keeps working, query parameters included. Support staff keep bookmarks to old admin pages and actions. When you delete a record action's view, add its old path to `MOVED_TEAM_ACTIONS` or `MOVED_ORGANIZATION_ACTIONS` in `posthog/admin/console/urls.py`, so it redirects to the console form or panel.
 
 ## 6. Before you call it done
 
-- Extend `posthog/admin/test_admin_console.py`: add the panel title to the team page test, and a parameterized case for each new operation's success and refusal. Do not add a new test file.
+- Extend `posthog/admin/test_admin_console.py`: add the panel title to the record page test, and a parameterized case for each new operation's success and refusal. Do not add a new test file.
 - Run `pnpm --filter=@posthog/frontend build:admin-console` when you add an owner crest. Commit the output.
-- Open `/admin/console/teams/<id>/` on the local stack (log in as `test@posthog.com`) and look at the page at a narrow and a wide window. A panel that reads wrong in the browser is not done, whatever the tests say.
+- Open the record page (`/admin/console/teams/<id>/` or `/admin/console/organizations/<uuid>/`) on the local stack (log in as `test@posthog.com`) and look at the page at a narrow and a wide window. A panel that reads wrong in the browser is not done, whatever the tests say.
 - Put a screenshot of the panel in the PR description.

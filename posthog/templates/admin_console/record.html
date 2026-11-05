@@ -1,26 +1,27 @@
 {% extends "admin_console/base.html" %}
-{% block title %}{{ team.name }} · PostHog Admin{% endblock %}
+{% block title %}{{ record_title }} · PostHog Admin{% endblock %}
 {% block content %}
     <nav class="text-xs text-muted-foreground" aria-label="Breadcrumb">
-        <a class="text-muted-foreground" href="{% url 'admin_console_home' %}">Teams</a>
-        ›
-        <a class="text-muted-foreground"
-           href="{% url 'admin_console_home' %}?q={{ team.organization.name|urlencode }}">{{ team.organization.name }}</a>
+        <a class="text-muted-foreground" href="{% url 'admin_console_home' %}">Home</a>
+        {% for parent in record_parents %}
+            ›
+            <a class="text-muted-foreground" href="{{ parent.href }}">{{ parent.label }}</a>
+        {% endfor %}
     </nav>
     <div class="flex flex-wrap items-start gap-4 mt-1.5 mb-4">
         <div class="min-w-0">
-            <h1 class="m-0 text-[22px] font-extrabold break-words">{{ team.name }}</h1>
+            <h1 class="m-0 text-[22px] font-extrabold break-words">{{ record_title }}</h1>
             <div class="flex flex-wrap items-center gap-2 mt-1 text-muted-foreground">
-                <span class="quill-badge inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap quill-badge--variant-default font-mono">Team {{ team.pk }}</span>
-                <span>{{ team.organization.name }}</span>
+                <span class="quill-badge inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap quill-badge--variant-default font-mono">{{ record_type.label }} {{ obj.pk }}</span>
+                {% if record_subtitle %}<span>{{ record_subtitle }}</span>{% endif %}
             </div>
         </div>
         <div class="ml-auto flex flex-wrap gap-2">
-            <a class="quill-button quill-button--variant-outline quill-button--size-default group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap"
-               href="{% url 'admin:posthog_team_change' team.pk %}"
-               title="The raw Team row, with every field">Raw record in Django admin</a>
-            <a class="quill-button quill-button--variant-outline quill-button--size-default group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap"
-               href="/project/{{ team.pk }}">Open in app ↗</a>
+            {% for link in record_links %}
+                <a class="quill-button quill-button--variant-outline quill-button--size-default group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap"
+                   href="{{ link.href }}"
+                   {% if link.title %}title="{{ link.title }}"{% endif %}>{{ link.label }}</a>
+            {% endfor %}
         </div>
     </div>
     {% if attention %}
