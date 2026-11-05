@@ -33,9 +33,14 @@ def _run(team: Any, state: dict) -> TaskRun:
     return TaskRun.objects.create(team=team, task=task, state=state)
 
 
-def _input(run: TaskRun, sandbox_id: str = "sb-1") -> PersistAgentMemoryInput:
+def _input(run: TaskRun, sandbox_id: str = "sb-1", actor_user_id: int | None = None) -> PersistAgentMemoryInput:
     return PersistAgentMemoryInput(
-        sandbox_id=sandbox_id, run_id=str(run.id), team_id=run.team_id, user_id=7, reason="teardown"
+        sandbox_id=sandbox_id,
+        run_id=str(run.id),
+        team_id=run.team_id,
+        user_id=7,
+        reason="teardown",
+        actor_user_id=actor_user_id,
     )
 
 
@@ -69,26 +74,28 @@ def test_persist_deletes_only_from_the_sandbox_that_received_a_complete_restore(
         ("sandbox_not_running", "not_running"),
         ("unsupported", "no_file_listing"),
         ("actor_changed", "other_slack_actor"),
+        ("actor_changed", "other_followup_actor"),
+        ("persisted", "creator_followup_actor"),
     ],
 )
-def test_permanent_outcomes_return_a_result(
+def test_persist_outcome_for_each_run_condition(
     activity_environment: Any, mocker: Any, team: Any, outcome: str, setup: str
 ) -> None:
     state: dict[str, Any] = {}
+    teammate = User.objects.create_and_join(team.organization, "teammate@example.com", None)
     if setup == "other_slack_actor":
-        teammate = User.objects.create_and_join(team.organization, "teammate@example.com", None)
         state = {"interaction_origin": "slack", "slack_actor_user_id": teammate.id}
     run = _run(team, state)
+    actor_user_id = {"other_followup_actor": teammate.id, "creator_followup_actor": run.task.created_by_id}.get(setup)
     _patch_sandbox(mocker, running=setup != "not_running")
     persist = mocker.patch(f"{MODULE}.persist_sandbox_memory", return_value=MemorySyncCounts())
     if setup == "no_file_listing":
         persist.side_effect = NotImplementedError("HoglandSandbox does not support listing directories")
 
-    output = activity_environment.run(unwrap(persist_agent_memory), _input(run))
+    output = activity_environment.run(unwrap(persist_agent_memory), _input(run, actor_user_id=actor_user_id))
 
     assert output.outcome == outcome
-    if setup != "no_file_listing":
-        persist.assert_not_called()
+    assert persist.called is (outcome in ("persisted", "unsupported"))
 
 
 @pytest.mark.django_db

@@ -226,6 +226,7 @@ class ResumedSandboxState:
     # The first execution's memory eligibility. A continuation reloads the context while a teammate
     # may be steering the run, which would switch persistence off for the creator's later turns.
     agent_memory_persist_enabled: bool | None = None
+    agent_memory_last_actor_user_id: int | None = None
 
 
 @frozen
@@ -481,6 +482,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._agent_memory_persisted_turns = 0
         self._agent_memory_sandbox_id: str | None = None
         self._agent_memory_persist_closed = False
+        self._agent_memory_last_actor_user_id: int | None = None
 
     @property
     def context(self) -> TaskProcessingContext:
@@ -585,6 +587,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 extra={"run_id": self.context.run_id},
             )
             return
+        # The persist activity refuses to save the creator's memory once someone else steers the run.
+        # An actorless follow-up (a Slack member with no PostHog user) keeps the last known actor, so
+        # it cannot re-enable persistence as the creator.
+        if followup.actor_user_id is not None:
+            self._agent_memory_last_actor_user_id = followup.actor_user_id
         outcome = await self._send_followup_to_sandbox(
             message=followup.message,
             artifact_ids=followup.artifact_ids,
@@ -1908,6 +1915,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 ),
                 sandbox_backend=self.context.sandbox_backend,
                 agent_memory_persist_enabled=self._agent_memory_persist_enabled,
+                agent_memory_last_actor_user_id=self._agent_memory_last_actor_user_id,
             ),
         )
 
@@ -1921,6 +1929,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         return self._chain_started_at or workflow.info().start_time
 
     def _restore_resumed_state(self, resumed: ResumedSandboxState) -> None:
+        self._agent_memory_last_actor_user_id = resumed.agent_memory_last_actor_user_id
         self._sandbox_rotation_idle = resumed.sandbox_rotation_idle
         self._chain_started_at = datetime.fromisoformat(resumed.chain_started_at) if resumed.chain_started_at else None
         self._is_agent_design_enabled = resumed.is_agent_design_enabled
@@ -3344,6 +3353,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     team_id=self.context.team_id,
                     user_id=user_id,
                     reason=reason,
+                    actor_user_id=self._agent_memory_last_actor_user_id,
                 ),
                 start_to_close_timeout=timedelta(minutes=3),
                 retry_policy=RetryPolicy(maximum_attempts=2),

@@ -36,6 +36,8 @@ class PersistAgentMemoryInput:
     team_id: int
     user_id: int
     reason: str
+    # The actor of the most recent follow-up the workflow dispatched; None before any follow-up.
+    actor_user_id: int | None = None
 
 
 @frozen
@@ -64,15 +66,18 @@ class _RunMemoryState:
     actor_changed: bool
 
 
-def _run_memory_state(run_id: str, team_id: int) -> _RunMemoryState:
+def _run_memory_state(run_id: str, team_id: int, actor_user_id: int | None) -> _RunMemoryState:
     row = TaskRun.objects.filter(id=run_id, team_id=team_id).values_list("state", "task__created_by_id").first()
     state, created_by_id = row if row is not None else (None, None)
     state = state if isinstance(state, dict) else {}
     restored = state.get(AGENT_MEMORY_RESTORED_SANDBOX_STATE_KEY)
-    # send_followup_to_sandbox records the Slack member steering the run. Once that is someone other
-    # than the creator, the creator's memory must not be saved from this sandbox.
+    # Once someone other than the creator steers the run, the creator's memory must not be saved
+    # from this sandbox. The workflow passes the latest follow-up's actor; run state carries the
+    # Slack actor recorded when the run started.
     actor = state.get("slack_actor_user_id")
-    actor_changed = isinstance(actor, int) and not isinstance(actor, bool) and actor != created_by_id
+    actor_changed = (isinstance(actor, int) and not isinstance(actor, bool) and actor != created_by_id) or (
+        actor_user_id is not None and actor_user_id != created_by_id
+    )
     return _RunMemoryState(
         restored_sandbox_id=restored if isinstance(restored, str) else None, actor_changed=actor_changed
     )
@@ -134,7 +139,7 @@ def persist_agent_memory(input: PersistAgentMemoryInput) -> PersistAgentMemoryOu
         return _finish_persist(input, "sandbox_not_found", started_at, counts, f"Sandbox not found: {e}")
     if not sandbox.is_running():
         return _finish_persist(input, "sandbox_not_running", started_at, counts, "Sandbox not running")
-    run_state = _run_memory_state(input.run_id, input.team_id)
+    run_state = _run_memory_state(input.run_id, input.team_id, input.actor_user_id)
     if run_state.actor_changed:
         return _finish_persist(input, "actor_changed", started_at, counts, None)
     try:

@@ -3911,6 +3911,29 @@ class TestProcessTaskWorkflowUnit:
 
         assert calls == expected_calls
 
+    async def test_an_actorless_followup_keeps_the_teammate_as_the_persist_actor(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123, state={"mode": "interactive"})
+        workflow._context.task_created_by_id = 42
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=datetime.now(UTC)))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        monkeypatch.setattr(workflow, "_send_followup_to_sandbox", AsyncMock(return_value="delivered"))
+        persist_inputs: list[Any] = []
+
+        async def capture_activity(activity_fn, activity_input, **kwargs):
+            persist_inputs.append(activity_input)
+            return PersistAgentMemoryOutput(outcome="persisted")
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", capture_activity)
+
+        await workflow._dispatch_followup(
+            PendingFollowup(message="take a look", artifact_ids=[], actor_user_id=99, steer=True)
+        )
+        await workflow._dispatch_followup(PendingFollowup(message="from an unmapped member", artifact_ids=[]))
+        await workflow._persist_agent_memory("sandbox-123", reason="turn_completed")
+
+        assert [persist_input.actor_user_id for persist_input in persist_inputs] == [99]
+
     async def test_turns_ending_during_a_persist_coalesce_into_one_trailing_persist(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(github_integration_id=123, state={"mode": "interactive"})
@@ -4059,6 +4082,7 @@ class TestContinueAsNew:
         wf._slack_thread_context = {"channel": "C1"}
         wf._posthog_mcp_scopes = "full"
         wf._agent_memory_persist_enabled = True
+        wf._agent_memory_last_actor_user_id = 99
 
         resumed_input = wf._build_resumed_input(ProcessTaskInput(run_id="run-id", create_pr=False), sandbox_id="sb-1")
 
@@ -4077,6 +4101,7 @@ class TestContinueAsNew:
         # the first execution's decision and leaves the per-persist actor check to the activity.
         restored.context.persist_agent_memory_enabled = False
         assert restored._agent_memory_eligible(rs) is True
+        assert restored._agent_memory_last_actor_user_id == 99
 
         assert restored._ci_repetitions == 2
         assert restored._ci_idle_skips == 1
