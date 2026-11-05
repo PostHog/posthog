@@ -255,7 +255,6 @@ post_save:products.feature_flags.backend.session_recording_links.relink_teams_on
 post_save:products.knowledge_writer.backend.receivers.open_docs_pull_request
 post_save:products.managed_warehouse.backend.models._observe_duckgres_server_save
 post_save:products.managed_warehouse.backend.signals.membership_saved
-post_save:products.managed_warehouse.backend.signals.organization_saved
 post_save:products.managed_warehouse.backend.signals.team_saved
 post_save:products.managed_warehouse.backend.signals.user_saved
 post_save:products.metrics.backend.dashboard_import.receivers.schedule_import_finalization
@@ -343,6 +342,7 @@ pre_save:products.event_definitions.backend.models.event_definition._capture_eve
 pre_save:products.feature_flags.backend.flag_version_sync.capture_cohort_definition_before_save
 pre_save:products.feature_flags.backend.flag_version_sync.capture_flag_definition_before_save
 pre_save:products.feature_flags.backend.session_recording_links.capture_replay_link_key_before_save
+pre_save:products.managed_warehouse.backend.signals.organization_saving
 pre_save:products.managed_warehouse.backend.signals.team_saving
 pre_save:products.signals.backend.receivers.capture_prior_state
 pre_save:products.surveys.backend.models.pre_save_survey

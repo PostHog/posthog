@@ -106,11 +106,17 @@ def team_saving(sender: Any, instance: Team, update_fields: Any = None, **kwargs
         _on_commit_organization(instance.organization_id)
 
 
-def organization_saved(sender: Any, instance: Organization, update_fields: Any = None, **kwargs: Any) -> None:
-    # Switching to most-specific resolution can hide an object that a role used to show. The
-    # endpoint that switches one organization names the field. The batch migration switches only
-    # organizations whose rules resolve the same either way, so it needs no push.
-    if update_fields is not None and "uses_most_specific_access_resolution" in update_fields:
+def organization_saving(sender: Any, instance: Organization, update_fields: Any = None, **kwargs: Any) -> None:
+    # A switch of access resolution can hide an object that a role used to show. The batch
+    # migration switches only organizations whose rules resolve the same either way, with
+    # .update(), so it sends no signal and needs no push.
+    field = "uses_most_specific_access_resolution"
+    if instance._state.adding or not member_teams.is_enabled():
+        return
+    if update_fields is not None and field not in update_fields:
+        return
+    stored = Organization.objects.filter(pk=instance.pk).values_list(field, flat=True).first()
+    if stored is not None and stored != getattr(instance, field):
         _on_commit_organization(instance.id)
 
 
@@ -139,7 +145,7 @@ def connect() -> None:
     pre_save.connect(team_saving, sender=Team, dispatch_uid=f"{uid}_team_saving")
     post_save.connect(team_saved, sender=Team, dispatch_uid=f"{uid}_team_saved")
     post_delete.connect(team_deleted, sender=Team, dispatch_uid=f"{uid}_team_deleted")
-    post_save.connect(organization_saved, sender=Organization, dispatch_uid=f"{uid}_organization_saved")
+    pre_save.connect(organization_saving, sender=Organization, dispatch_uid=f"{uid}_organization_saving")
     connect_access_change_receivers(
         on_rule_change=access_rule_changed,
         on_role_membership_change=role_membership_changed,

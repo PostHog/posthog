@@ -328,8 +328,15 @@ class TestReceivers(_MemberTeamsTest):
             self.organization.save(update_fields=["uses_most_specific_access_resolution", "updated_at"])
         self.org_push.assert_called_once_with(str(self.organization.id))
         self.org_push.reset_mock()
+        # Django admin saves every field, with no update_fields.
+        with self.captureOnCommitCallbacks(execute=True):
+            self.organization.uses_most_specific_access_resolution = False
+            self.organization.save()
+        self.org_push.assert_called_once_with(str(self.organization.id))
+        self.org_push.reset_mock()
         with self.captureOnCommitCallbacks(execute=True):
             self.organization.name = "renamed"
+            self.organization.save()
             self.organization.save(update_fields=["name"])
         self.org_push.assert_not_called()
 
