@@ -43,6 +43,7 @@ from products.signals.backend.recurrence import forks_recurrence
 from products.signals.backend.report_merge import signal_target_report
 from products.signals.backend.report_monitoring_signals import current_research_attempt
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
+from products.signals.backend.source_issues import open_report_for_source_issue
 from products.signals.backend.spend import begin_report_spend, complete_signal_pipeline, signal_spend_summaries
 from products.signals.backend.spend_billing import system_source_exempt
 from products.signals.backend.temporal import metrics
@@ -470,6 +471,41 @@ class MatchSignalToReportInput:
     sync_with_source: bool = False
     source_match_signal_id: str | None = None
     source_match_report_id: str | None = None
+    # The issue URL of a GitHub issue signal, so an open report that names the issue as its source
+    # can take the signal before similarity matching runs.
+    source_issue_url: str | None = None
+
+
+def source_issue_url_for_signal(source_product: str, source_type: str, extra: dict | None) -> str | None:
+    if source_product != SignalSourceProduct.GITHUB or source_type != SignalSourceType.ISSUE:
+        return None
+    url = (extra or {}).get("html_url")
+    return url if isinstance(url, str) and url else None
+
+
+def _source_issue_match(team_id: int, url: str) -> ExistingReportMatch | None:
+    report = open_report_for_source_issue(team_id=team_id, url=url)
+    if report is None or report.triggering_signal_id is None:
+        return None
+    return ExistingReportMatch(
+        report_id=str(report.id),
+        match_metadata=MatchedMetadata(
+            parent_signal_id=str(report.triggering_signal_id),
+            match_query="source issue",
+            reason="The report names this GitHub issue as its source issue",
+        ),
+        source_issue_matched=True,
+    )
+
+
+async def _match_by_source_issue_or_similarity(input: MatchSignalToReportInput) -> MatchResult:
+    if input.team_id is not None and input.source_issue_url:
+        match = await database_sync_to_async(_source_issue_match, thread_sensitive=False)(
+            input.team_id, input.source_issue_url
+        )
+        if match is not None:
+            return match
+    return await match_signal_to_report(input)
 
 
 async def match_signal_to_report(input: MatchSignalToReportInput) -> MatchResult:
@@ -569,9 +605,9 @@ async def match_signal_to_report_activity(input: MatchSignalToReportInput) -> Ma
                     source_synced=True,
                 )
             else:
-                result = await match_signal_to_report(input)
+                result = await _match_by_source_issue_or_similarity(input)
         else:
-            result = await match_signal_to_report(input)
+            result = await _match_by_source_issue_or_similarity(input)
         if isinstance(result, ExistingReportMatch) and input.team_id is not None:
             report = await SignalReport.objects.filter(team_id=input.team_id, id=result.report_id).afirst()
             if report is not None and report.status != SignalReport.Status.DELETED:

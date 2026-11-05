@@ -5,10 +5,14 @@ result lands in the inbox only. Nobody watching the issue hears anything, so a m
 outside contributor can start on work we already research. This comments a link to the report back
 on the issue, which closes that loop. Opt-in per team, because the comment is public on the issue
 thread.
+
+A scout that files a report about an issue records it as a `source_issue` artefact instead of a
+signal, so the writeback reads both (see `source_issues.py`).
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import timedelta
 
 from django.utils import timezone
@@ -20,9 +24,11 @@ from posthog.models import Team
 from posthog.models.github_integration_base import GitHubIntegrationBase, PullRequestRef
 from posthog.models.integration import GitHubIntegration
 
+from products.signals.backend.artefact_schemas import SourceIssue
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import SignalReport, SignalReportGithubComment, SignalTeamConfig
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
+from products.signals.backend.source_issues import source_issues_by_report
 
 logger = structlog.get_logger(__name__)
 
@@ -44,11 +50,12 @@ def _comment_body(report_url: str, marker: str) -> str:
     )
 
 
-def _issue_refs(signals: list[dict]) -> list[PullRequestRef]:
-    """The open GitHub issues among a report's signals, each one once.
+def _issue_refs(signals: list[dict], source_issues: Sequence[SourceIssue] = ()) -> list[PullRequestRef]:
+    """The open GitHub issues among a report's signals and its recorded source issues, each one once.
 
     A closed issue is answered already, and a locked one refuses comments, so neither is worth a
-    call.
+    call. A source issue carries no state of its own, so `_post_to_issue` reads it from GitHub
+    before it comments.
     """
     refs: dict[tuple[str, int], PullRequestRef] = {}
     for signal in signals:
@@ -63,6 +70,9 @@ def _issue_refs(signals: list[dict]) -> list[PullRequestRef]:
         ref = GitHubIntegrationBase.parse_issue_url(str(extra.get("html_url") or ""))
         if ref is not None:
             refs.setdefault((ref.repository.lower(), ref.number), ref)
+    for issue in source_issues:
+        owner, repo = issue.repository.split("/", 1)
+        refs.setdefault((issue.repository, issue.number), PullRequestRef(owner=owner, repo=repo, number=issue.number))
     return list(refs.values())
 
 
@@ -187,7 +197,8 @@ def _post_to_issue(
 
 
 def post_report_link_to_github_issues(team: Team, report_id: str, signals: list[dict]) -> int:
-    """Comment a link to a ready report on each GitHub issue that contributed to it.
+    """Comment a link to a ready report on each GitHub issue that contributed to it, or that the
+    report names as a `source_issue`.
 
     Returns the number of comments posted. Best-effort: a failure here must not fail the report's
     notification flow, so per-issue errors are logged rather than raised.
@@ -195,7 +206,8 @@ def post_report_link_to_github_issues(team: Team, report_id: str, signals: list[
     if not SignalTeamConfig.objects.filter(team_id=team.pk, github_issue_writeback_enabled=True).exists():
         return 0
 
-    refs = _issue_refs(signals)
+    source_issues = source_issues_by_report(team_id=team.pk, report_ids=[report_id]).get(report_id, [])
+    refs = _issue_refs(signals, source_issues)
     if not refs:
         return 0
 

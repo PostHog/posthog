@@ -8,8 +8,15 @@ from parameterized import parameterized
 
 from posthog.egress.limiter.policies import Priority
 
+from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.artefact_schemas import SourceIssue
 from products.signals.backend.github_writeback import CLAIM_LEASE, MAX_COMMENT_PAGES, post_report_link_to_github_issues
-from products.signals.backend.models import SignalReport, SignalReportGithubComment, SignalTeamConfig
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportGithubComment,
+    SignalTeamConfig,
+)
 
 WRITEBACK_MODULE_PATH = "products.signals.backend.github_writeback"
 
@@ -132,6 +139,26 @@ class TestPostReportLinkToGithubIssues(BaseTest):
             post_report_link_to_github_issues(self.team, str(self.report.id), [self.signal])
 
         assert integration.first_for_team_repository.call_args.kwargs["priority"] == Priority.BATCH
+
+    @parameterized.expand(
+        [
+            ("only the source issue", False),
+            ("the source issue and a signal for the same issue", True),
+        ]
+    )
+    def test_comments_on_a_source_issue_the_report_names(self, _name, with_signal):
+        SignalReportArtefact.add_log(
+            team_id=self.team.pk,
+            report_id=str(self.report.id),
+            content=SourceIssue.github("Acme/Widgets", 42),
+            attribution=ArtefactAttribution.system(),
+        )
+
+        posted, comment = self._post([self.signal] if with_signal else [])
+
+        assert posted == 1
+        comment.assert_called_once()
+        assert comment.call_args.args[:2] == ("acme/widgets", 42)
 
     def test_comments_once_when_two_signals_name_the_same_issue(self):
         posted, comment = self._post([self.signal, _signal()])

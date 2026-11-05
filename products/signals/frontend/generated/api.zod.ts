@@ -708,6 +708,10 @@ export const signalsReportsCreateBodyLinksItemReasonMax = 500
 
 export const signalsReportsCreateBodyLinksMax = 10
 
+export const signalsReportsCreateBodySourceIssuesItemUrlMax = 500
+
+export const signalsReportsCreateBodySourceIssuesMax = 5
+
 export const signalsReportsCreateBodyTagsMax = 10
 
 export const signalsReportsCreateBodyIdempotencyKeyMax = 200
@@ -1000,6 +1004,24 @@ export const SignalsReportsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Typed, directed links from the new report to reports that already exist. Send them here, not in a later `edit-report` call, because autostart reads them when the report is created: a `duplicate_of` link to a report that already has a pull request, or a `depends_on` link to a report with no pull request yet, stops a second draft PR. Only the new report gets a row, so link from the side the sentence starts at. Links of the same kind must stay acyclic and every report must be in this project.'
+            ),
+        source_issues: zod
+            .array(
+                zod
+                    .object({
+                        url: zod
+                            .string()
+                            .max(signalsReportsCreateBodySourceIssuesItemUrlMax)
+                            .describe(
+                                "The issue's URL, `https:\/\/github.com\/<owner>\/<repo>\/issues\/<number>`. Only GitHub issues are accepted today. Pull request URLs are rejected."
+                            ),
+                    })
+                    .describe('One external issue the report is about.')
+            )
+            .max(signalsReportsCreateBodySourceIssuesMax)
+            .optional()
+            .describe(
+                'The GitHub issues this report is about, when the finding came from an issue tracker. Pass the issue whenever the report is about one, so the report links back to it: a GitHub issue signal for the same issue then joins this report instead of opening a second one, and when the project turned on GitHub issue comments, the issue gets one comment that links the report. At most 5 per call.'
             ),
         tags: zod
             .array(zod.string())
@@ -3109,6 +3131,10 @@ export const signalsScoutEditReportBodyLinksItemReasonMax = 500
 
 export const signalsScoutEditReportBodyLinksMax = 10
 
+export const signalsScoutEditReportBodySourceIssuesItemUrlMax = 500
+
+export const signalsScoutEditReportBodySourceIssuesMax = 5
+
 export const signalsScoutEditReportBodyTagsMax = 10
 
 export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
@@ -3424,6 +3450,24 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
             .describe(
                 "Typed, directed links from this report to others, recording how the work relates. Use `depends_on` when you split one finding into a stack and the second report's fix cannot land until the first one's does, so the order is recorded rather than left to a reader of the diffs. Additive: links join what the report already has rather than replacing them, and only this report gets a row, so link from the side the sentence starts at. Links of the same kind must stay acyclic and every report must be in this project."
             ),
+        source_issues: zod
+            .array(
+                zod
+                    .object({
+                        url: zod
+                            .string()
+                            .max(signalsScoutEditReportBodySourceIssuesItemUrlMax)
+                            .describe(
+                                "The issue's URL, `https:\/\/github.com\/<owner>\/<repo>\/issues\/<number>`. Only GitHub issues are accepted today. Pull request URLs are rejected."
+                            ),
+                    })
+                    .describe('One external issue the report is about.')
+            )
+            .max(signalsScoutEditReportBodySourceIssuesMax)
+            .optional()
+            .describe(
+                'The GitHub issues this report is about, when the finding came from an issue tracker. Pass the issue whenever the report is about one, so the report links back to it: a GitHub issue signal for the same issue then joins this report instead of opening a second one, and when the project turned on GitHub issue comments, the issue gets one comment that links the report. At most 5 per call. Additive: issues join the ones the report already names, and an issue it already names is skipped. Only a newly added issue gets a comment.'
+            ),
         tags: zod
             .array(zod.string())
             .max(signalsScoutEditReportBodyTagsMax)
@@ -3526,6 +3570,10 @@ export const signalsScoutEmitReportBodySuggestedPromptsMax = 3
 export const signalsScoutEmitReportBodyLinksItemReasonMax = 500
 
 export const signalsScoutEmitReportBodyLinksMax = 10
+
+export const signalsScoutEmitReportBodySourceIssuesItemUrlMax = 500
+
+export const signalsScoutEmitReportBodySourceIssuesMax = 5
 
 export const signalsScoutEmitReportBodyTagsMax = 10
 
@@ -3819,6 +3867,24 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Typed, directed links from the new report to reports that already exist. Send them here, not in a later `edit-report` call, because autostart reads them when the report is created: a `duplicate_of` link to a report that already has a pull request, or a `depends_on` link to a report with no pull request yet, stops a second draft PR. Only the new report gets a row, so link from the side the sentence starts at. Links of the same kind must stay acyclic and every report must be in this project.'
+            ),
+        source_issues: zod
+            .array(
+                zod
+                    .object({
+                        url: zod
+                            .string()
+                            .max(signalsScoutEmitReportBodySourceIssuesItemUrlMax)
+                            .describe(
+                                "The issue's URL, `https:\/\/github.com\/<owner>\/<repo>\/issues\/<number>`. Only GitHub issues are accepted today. Pull request URLs are rejected."
+                            ),
+                    })
+                    .describe('One external issue the report is about.')
+            )
+            .max(signalsScoutEmitReportBodySourceIssuesMax)
+            .optional()
+            .describe(
+                'The GitHub issues this report is about, when the finding came from an issue tracker. Pass the issue whenever the report is about one, so the report links back to it: a GitHub issue signal for the same issue then joins this report instead of opening a second one, and when the project turned on GitHub issue comments, the issue gets one comment that links the report. At most 5 per call.'
             ),
         tags: zod
             .array(zod.string())
