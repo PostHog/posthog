@@ -23,7 +23,7 @@ from products.warehouse_sources.backend.facade.models import PendingSourceCreden
 from products.warehouse_sources.backend.facade.source_management import known_source_key
 from products.warehouse_sources.backend.presentation.views.external_data_source.source_type_field import SourceTypeField
 
-from . import base, helpers
+from . import base
 
 
 class SourceConnectLinkSerializer(serializers.Serializer):
@@ -166,11 +166,6 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
 
         source_type_model = known_source_key(source_type)
         source = base.SourceRegistry.get_source(source_type_model)
-        if helpers.source_feature_flag_missing(source, self.team):
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": helpers._source_unavailable_message(source_type)},
-            )
 
         error_response, _ = self._validate_source_config_and_credentials(source, source_type_model, payload)
         if error_response is not None:

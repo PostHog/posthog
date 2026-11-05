@@ -53,7 +53,7 @@ def query_workflow_run_list(
     date_to_clause = date_to_filter_clause(date_to, placeholders)
     branch_clause = branch_filter_clause(branch, placeholders)
     response = curated.run(
-        _SELECT.replace("__RUNS_SOURCE__", curated.run_source())
+        _SELECT.replace("__RUNS_SOURCE__", curated.run_source(live=True))
         .replace("__DATE_TO__", date_to_clause)
         .replace("__BRANCH__", branch_clause)
         .replace("__RUN_SCOPE__", run_scope_filter_clause(run_scope)),

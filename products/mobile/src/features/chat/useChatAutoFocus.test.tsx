@@ -1,5 +1,6 @@
 import { act, render } from '@testing-library/react-native'
 import { type ReactElement, useCallback } from 'react'
+import type { TextInputInstance } from 'react-native'
 import { Platform, TextInput } from 'react-native'
 
 import { useChatAutoFocus } from './useChatAutoFocus'
@@ -10,7 +11,7 @@ jest.mock('expo-router/react-navigation', () => ({ useIsFocused: () => mockNavig
 
 function Input({ autoFocus }: { autoFocus: boolean }): ReactElement {
     const ref = useCallback(
-        (node: TextInput | null) => {
+        (node: TextInputInstance | null) => {
             if (autoFocus) {
                 node?.focus()
             }
