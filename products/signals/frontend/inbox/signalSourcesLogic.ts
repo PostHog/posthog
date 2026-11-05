@@ -282,6 +282,8 @@ function setSourceConfigState(
             config: {},
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
+            admin_disabled: false,
+            admin_disable_note: '',
             status: null,
         },
     ]

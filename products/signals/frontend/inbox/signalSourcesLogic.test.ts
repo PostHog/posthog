@@ -73,6 +73,8 @@ const githubIssuesConfig = {
     config: {},
     created_at: '2026-07-27T00:00:00Z',
     updated_at: '2026-07-27T00:00:00Z',
+    admin_disabled: false,
+    admin_disable_note: '',
     status: null,
 }
 
@@ -693,6 +695,8 @@ describe('signalSourcesLogic', () => {
             config: {},
             created_at: '2026-07-30T00:00:00Z',
             updated_at: '2026-07-30T00:00:00Z',
+            admin_disabled: false,
+            admin_disable_note: '',
             status: null,
         })
         logic.actions.loadSourceConfigsSuccess([
@@ -704,6 +708,8 @@ describe('signalSourcesLogic', () => {
                 config: { evaluation_ids: ['evaluation-1'] },
                 created_at: '2026-07-30T00:00:00Z',
                 updated_at: '2026-07-30T00:00:00Z',
+                admin_disabled: false,
+                admin_disable_note: '',
                 status: null,
             },
         ])

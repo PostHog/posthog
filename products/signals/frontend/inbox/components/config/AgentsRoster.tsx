@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { memo, useCallback, useMemo, useState } from 'react'
 
-import { IconArrowUpRight, IconChevronDown, IconChevronRight, IconGear, IconPlus } from '@posthog/icons'
+import { IconArrowUpRight, IconChevronDown, IconChevronRight, IconGear, IconPlus, IconWarning } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -11,9 +11,11 @@ import {
     LemonTag,
     Link,
     Spinner,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { openInAppSupport } from 'lib/components/Support/openInAppSupport'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
@@ -514,6 +516,7 @@ function Expansion({
 
 interface AgentRowProps {
     agent: AgentRosterDefinition
+    sourceConfigs: SignalSourceConfig[]
     state: AgentSourceState
     product?: SourceProductStatus
     expanded: boolean
@@ -530,6 +533,7 @@ interface AgentRowProps {
 
 const AgentRow = memo(function AgentRow({
     agent,
+    sourceConfigs,
     state,
     product,
     expanded,
@@ -544,6 +548,11 @@ const AgentRow = memo(function AgentRow({
     onRetryData,
 }: AgentRowProps): JSX.Element {
     const { armed, loading, requiresSetup, syncStatus, entities } = state
+    const adminDisabledConfigs = sourceConfigs.filter((config) => config.admin_disabled)
+    const adminDisabledLabel =
+        adminDisabledConfigs.length === sourceConfigs.length
+            ? 'Source disabled by PostHog'
+            : 'Some signal types disabled by PostHog'
     const status = resolveAgentStatus(armed, syncStatus)
     const productOff = product?.enabled === false
     // An off product blocks arming (the source would watch nothing), never disarming.
@@ -558,7 +567,7 @@ const AgentRow = memo(function AgentRow({
     const hasMasterSwitch = !agent.entitiesAreUserCreated
     const enabledCount = entities.filter((entity) => entity.enabled).length
     return (
-        <div data-attr="signal-source-row" data-source={agent.source}>
+        <div className="@container/source-row" data-attr="signal-source-row" data-source={agent.source}>
             {/* A legacy row stays dimmed even while in use, so it reads as the older option. */}
             <div
                 className={`group flex min-h-13 items-center gap-2 px-2 py-2 transition-colors ${
@@ -597,6 +606,41 @@ const AgentRow = memo(function AgentRow({
                         </span>
                     </div>
                 </button>
+                {adminDisabledConfigs.length > 0 && (
+                    <Tooltip
+                        interactive
+                        openOnClick
+                        title={
+                            <div className="flex max-w-xs flex-col gap-2">
+                                <span className="font-semibold">{adminDisabledLabel}</span>
+                                {[
+                                    ...new Set(
+                                        adminDisabledConfigs.map((config) => config.admin_disable_note).filter(Boolean)
+                                    ),
+                                ].map((note) => (
+                                    <span key={note} className="whitespace-pre-wrap">
+                                        {note}
+                                    </span>
+                                ))}
+                                <LemonButton
+                                    type="primary"
+                                    size="xsmall"
+                                    onClick={() => openInAppSupport('self-driving-source-disabled')}
+                                    data-attr="signal-source-contact-support"
+                                >
+                                    Contact support
+                                </LemonButton>
+                            </div>
+                        }
+                    >
+                        <LemonButton
+                            size="xsmall"
+                            icon={<IconWarning className="text-warning" />}
+                            aria-label={adminDisabledLabel}
+                            data-attr="signal-source-admin-disabled"
+                        />
+                    </Tooltip>
+                )}
                 {tag && (
                     <LemonTag type={tag.type} size="small">
                         {tag.label}
@@ -604,7 +648,8 @@ const AgentRow = memo(function AgentRow({
                 )}
                 {entities.length > 0 && (
                     <span className="shrink-0 truncate text-right text-xs text-muted">
-                        {enabledCount} of {entities.length} {agent.entityNoun} on
+                        {enabledCount} of {entities.length}
+                        <span className="@max-[400px]/source-row:hidden"> {agent.entityNoun} on</span>
                     </span>
                 )}
                 {armed && !productOff && (
@@ -1002,6 +1047,9 @@ export function AgentsRoster(): JSX.Element {
                 <AgentRow
                     key={agent.source}
                     agent={agent}
+                    sourceConfigs={
+                        sourceConfigs?.filter((config) => config.source_product === agent.sourceProduct) ?? []
+                    }
                     state={state}
                     product={productStatusBySource[agent.source]}
                     expanded={expandedSource === agent.source}
@@ -1025,6 +1073,7 @@ export function AgentsRoster(): JSX.Element {
         },
         [
             stateFor,
+            sourceConfigs,
             linearIssuesConfig,
             openLinearTeamsPicker,
             isLinearIssuesToggling,

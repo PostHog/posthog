@@ -12,6 +12,8 @@ function sourceConfig(config: Record<string, any>): SignalSourceConfig {
         config,
         created_at: '2024-03-20T00:00:00Z',
         updated_at: '2024-03-20T00:00:00Z',
+        admin_disabled: false,
+        admin_disable_note: '',
         status: null,
     }
 }

@@ -129,6 +129,17 @@ class SignalSourceConfig(UUIDModel):
     source_product = models.CharField(max_length=100, choices=signal_source_product_choices)
     source_type = models.CharField(max_length=100, choices=signal_source_type_choices)
     enabled = models.BooleanField(default=True)
+    admin_disabled = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="Stops signal emission without changing the user's enabled setting.",
+    )
+    admin_disable_note = models.TextField(
+        blank=True,
+        default="",
+        db_default="",
+        help_text="Reason shown to the user when this source is disabled by PostHog.",
+    )
     config = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -158,7 +169,12 @@ class SignalSourceConfig(UUIDModel):
         # Replay Vision scanners are self-authorizing: the scanner's `emits_signals` flag is the
         # per-source config, so there's no separate SignalSourceConfig row to gate against.
         if source_product == cls.SourceProduct.REPLAY_VISION and source_type == cls.SourceType.SCANNER_FINDING:
-            return True
+            return not cls.objects.filter(
+                team_id=team_id,
+                source_product=source_product,
+                source_type=source_type,
+                admin_disabled=True,
+            ).exists()
 
         # Verification emits these internal signals without a source config. The team's authored
         # checks supply the opt-in; Monitoring requests also enforce their rollout gate.
@@ -173,10 +189,10 @@ class SignalSourceConfig(UUIDModel):
         # MCP/API by writing an explicit disabled row, which this honors.
         if source_product == cls.SourceProduct.SIGNALS_SCOUT and source_type == cls.SourceType.CROSS_SOURCE_ISSUE:
             return not cls.objects.filter(
+                models.Q(enabled=False) | models.Q(admin_disabled=True),
                 team_id=team_id,
                 source_product=source_product,
                 source_type=source_type,
-                enabled=False,
             ).exists()
 
         return cls.objects.filter(
@@ -184,6 +200,7 @@ class SignalSourceConfig(UUIDModel):
             source_product=source_product,
             source_type=cls.config_source_type(source_product, source_type),
             enabled=True,
+            admin_disabled=False,
         ).exists()
 
     class Meta:

@@ -18,6 +18,7 @@ from .models import (
     SignalScoutNote,
     SignalScoutRun,
     SignalScratchpad,
+    SignalSourceConfig,
     SignalTeamConfig,
 )
 from .scout_harness.note_targets import InvalidNoteError, validate_note_target
@@ -105,6 +106,17 @@ class SignalReportAdmin(admin.ModelAdmin):
     )
 
     inlines = [SignalReportArtefactInline]
+
+
+@admin.register(SignalSourceConfig)
+class SignalSourceConfigAdmin(admin.ModelAdmin):
+    list_display = ("id", "team", "source_product", "source_type", "enabled", "admin_disabled", "updated_at")
+    list_filter = ("admin_disabled", "enabled", "source_product", "source_type")
+    search_fields = ("id", "team__name", "team__organization__name")
+    raw_id_fields = ("team", "created_by")
+    readonly_fields = ("id", "config", "created_at", "updated_at")
+    list_select_related = ("team",)
+    show_full_result_count = False
 
 
 @admin.register(SignalScoutConfig)

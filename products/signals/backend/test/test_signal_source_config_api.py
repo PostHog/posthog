@@ -480,24 +480,61 @@ class TestSignalSourceConfigAPI(APIBaseTest):
 
     # --- Delete ---
 
-    def test_delete_source_config(self):
+    @parameterized.expand([(False, status.HTTP_204_NO_CONTENT), (True, status.HTTP_403_FORBIDDEN)])
+    def test_delete_source_config(self, admin_disabled: bool, expected_status: int) -> None:
         config = SignalSourceConfig.objects.create(
             team=self.team,
             source_product="session_replay",
             source_type="session_analysis_cluster",
             created_by=self.user,
+            admin_disabled=admin_disabled,
         )
         config_id = str(config.id)
         response = self.client.delete(self._url(config_id))
-        assert response.status_code == status.HTTP_204_NO_CONTENT
-        assert not SignalSourceConfig.objects.filter(id=config_id).exists()
+        assert response.status_code == expected_status
+        assert SignalSourceConfig.objects.filter(id=config_id).exists() is admin_disabled
 
     # --- Read-only fields ---
+
+    @parameterized.expand([("patch", False), ("put", True)])
+    def test_admin_disable_survives_user_settings_update(self, method: str, enabled: bool) -> None:
+        config = SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product="pganalyze",
+            source_type="issue",
+            enabled=not enabled,
+            admin_disabled=True,
+            admin_disable_note="This source needs a configuration review.",
+        )
+        response = getattr(self.client, method)(
+            self._url(str(config.id)),
+            data={
+                "source_product": "pganalyze",
+                "source_type": "issue",
+                "enabled": enabled,
+                "admin_disabled": False,
+                "admin_disable_note": "",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["admin_disabled"] is True
+        assert response.json()["admin_disable_note"] == config.admin_disable_note
+        config.refresh_from_db()
+        assert config.enabled is enabled
+        assert config.admin_disabled is True
+        assert config.admin_disable_note == "This source needs a configuration review."
+        assert not SignalSourceConfig.is_source_enabled(self.team.id, "pganalyze", "issue")
 
     def test_read_only_fields_in_response(self):
         response = self.client.post(
             self._url(),
-            data={"source_product": "session_replay", "source_type": "session_analysis_cluster"},
+            data={
+                "source_product": "session_replay",
+                "source_type": "session_analysis_cluster",
+                "admin_disabled": True,
+                "admin_disable_note": "A client cannot set the admin note.",
+            },
             format="json",
         )
         data = response.json()
@@ -505,6 +542,8 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         assert "id" in data
         assert "created_at" in data
         assert "updated_at" in data
+        assert data["admin_disabled"] is False
+        assert data["admin_disable_note"] == ""
 
     # --- Auth ---
 
@@ -738,18 +777,31 @@ class TestIsSourceEnabledGating(APIBaseTest):
     """Source-level gating quirks: session_problem routes through the session_analysis_cluster
     config rather than requiring its own SignalSourceConfig row."""
 
-    def test_session_problem_gated_by_session_analysis_cluster(self):
+    @parameterized.expand([(True, False), (True, True), (False, False), (False, True)])
+    def test_session_problem_gated_by_session_analysis_cluster(self, enabled: bool, admin_disabled: bool) -> None:
         SignalSourceConfig.objects.create(
             team=self.team,
             source_product=SignalSourceConfig.SourceProduct.SESSION_REPLAY,
             source_type=SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER,
-            enabled=True,
+            enabled=enabled,
+            admin_disabled=admin_disabled,
         )
 
-        assert SignalSourceConfig.is_source_enabled(self.team.id, "session_replay", "session_problem") is True
+        assert SignalSourceConfig.is_source_enabled(self.team.id, "session_replay", "session_problem") is (
+            enabled and not admin_disabled
+        )
 
-    @parameterized.expand([("no_row", None, False), ("enabled_row", True, True), ("disabled_row", False, False)])
-    def test_alert_firing_gated_by_product_analytics_row(self, _name, existing_enabled, expected):
+    @parameterized.expand(
+        [
+            ("no_row", None, False, False),
+            ("enabled_row", True, False, True),
+            ("disabled_row", False, False, False),
+            ("admin_disabled_row", True, True, False),
+        ]
+    )
+    def test_alert_firing_gated_by_product_analytics_row(
+        self, _name: str, existing_enabled: bool | None, admin_disabled: bool, expected: bool
+    ) -> None:
         if existing_enabled is not None:
             SignalSourceConfig.objects.create(
                 team=self.team,
@@ -757,28 +809,48 @@ class TestIsSourceEnabledGating(APIBaseTest):
                 source_type=SignalSourceConfig.SourceType.ANOMALY_INVESTIGATION,
                 enabled=existing_enabled,
                 config={"steering": "Skip the staging alerts."},
+                admin_disabled=admin_disabled,
             )
 
         assert SignalSourceConfig.is_source_enabled(self.team.id, "analytics", "alert_firing") is expected
         steering = async_to_sync(afetch_source_config)(self.team.id, "analytics", "alert_firing").get("steering")
         assert steering == (None if existing_enabled is None else "Skip the staging alerts.")
 
-    def test_pganalyze_issue_requires_own_config(self):
-        SignalSourceConfig.objects.create(
+    @parameterized.expand([(True, False), (True, True), (False, False), (False, True)])
+    def test_pganalyze_issue_requires_own_config(self, enabled: bool, admin_disabled: bool) -> None:
+        config = SignalSourceConfig.objects.create(
             team=self.team,
             source_product=SignalSourceConfig.SourceProduct.PGANALYZE,
             source_type=SignalSourceConfig.SourceType.ISSUE,
-            enabled=True,
+            enabled=enabled,
+            admin_disabled=admin_disabled,
         )
 
-        assert SignalSourceConfig.is_source_enabled(self.team.id, "pganalyze", "issue") is True
+        assert SignalSourceConfig.is_source_enabled(self.team.id, "pganalyze", "issue") is (
+            enabled and not admin_disabled
+        )
+
+        config.admin_disabled = False
+        config.save(update_fields=["admin_disabled"])
+        config.refresh_from_db()
+        assert config.enabled is enabled
+        assert SignalSourceConfig.is_source_enabled(self.team.id, "pganalyze", "issue") is enabled
 
     def test_pganalyze_disabled_when_no_config(self):
         assert SignalSourceConfig.is_source_enabled(self.team.id, "pganalyze", "issue") is False
 
-    def test_replay_vision_scanner_finding_is_self_authorizing(self):
-        # The scanner's `emits_signals` flag is the config — no SignalSourceConfig row exists.
-        assert SignalSourceConfig.is_source_enabled(self.team.id, "replay_vision", "scanner_finding") is True
+    @parameterized.expand([("no_row", None, True), ("admin_allowed", False, True), ("admin_disabled", True, False)])
+    def test_replay_vision_scanner_finding_is_self_authorizing(
+        self, _name: str, admin_disabled: bool | None, expected: bool
+    ) -> None:
+        if admin_disabled is not None:
+            SignalSourceConfig.objects.create(
+                team=self.team,
+                source_product="replay_vision",
+                source_type="scanner_finding",
+                admin_disabled=admin_disabled,
+            )
+        assert SignalSourceConfig.is_source_enabled(self.team.id, "replay_vision", "scanner_finding") is expected
 
     @parameterized.expand(
         [
@@ -802,18 +874,22 @@ class TestIsSourceEnabledGating(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("no_row_defaults_on", None, True),
-            ("explicit_disabled_opts_out", False, False),
-            ("explicit_enabled_on", True, True),
+            ("no_row_defaults_on", None, False, True),
+            ("explicit_disabled_opts_out", False, False, False),
+            ("explicit_enabled_on", True, False, True),
+            ("admin_disabled", True, True, False),
         ]
     )
-    def test_scout_source_on_by_default(self, _name, existing_enabled, expected):
+    def test_scout_source_on_by_default(
+        self, _name: str, existing_enabled: bool | None, admin_disabled: bool, expected: bool
+    ) -> None:
         if existing_enabled is not None:
             SignalSourceConfig.objects.create(
                 team=self.team,
                 source_product=SignalSourceConfig.SourceProduct.SIGNALS_SCOUT,
                 source_type=SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE,
                 enabled=existing_enabled,
+                admin_disabled=admin_disabled,
             )
 
         assert SignalSourceConfig.is_source_enabled(self.team.id, "signals_scout", "cross_source_issue") is expected

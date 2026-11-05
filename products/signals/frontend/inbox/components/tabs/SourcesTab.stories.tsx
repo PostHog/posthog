@@ -1,7 +1,7 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
-import { within } from '@testing-library/dom'
+import { waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { useActions } from 'kea'
 import { useEffect } from 'react'
@@ -41,6 +41,7 @@ interface PanelState {
     eventDefinitionsUnavailable: boolean
     sourceConfigsUnavailable: boolean
     externalConnections: boolean
+    adminDisabled: boolean
 }
 
 function sourceConfig(
@@ -53,6 +54,8 @@ function sourceConfig(
         source_product: sourceProduct,
         source_type: sourceType,
         enabled,
+        admin_disabled: false,
+        admin_disable_note: '',
         config: {},
         created_at: '2024-03-20T00:00:00Z',
         updated_at: '2024-03-20T00:00:00Z',
@@ -87,7 +90,16 @@ function sourceConfigsFor(state: PanelState): SignalSourceConfig[] {
         sourceConfig(SignalSourceProduct.LlmAnalytics, SignalSourceType.EvaluationReport, state.aiObservabilityArmed),
         sourceConfig(SignalSourceProduct.Analytics, SignalSourceType.AnomalyInvestigation, state.productAnalyticsArmed),
         sourceConfig(SignalSourceProduct.HealthChecks, SignalSourceType.HealthIssue, state.healthChecksArmed),
-    ]
+    ].map((config) =>
+        state.adminDisabled &&
+        (config.source_product === SignalSourceProduct.Github || config.source_type === SignalSourceType.IssueSpiking)
+            ? {
+                  ...config,
+                  admin_disabled: true,
+                  admin_disable_note: 'Signal emission is paused while we review this source.',
+              }
+            : config
+    )
 }
 
 /** Ten scanners, so the roster's per-scanner list renders on and off rows, the filter, and the cap. */
@@ -317,6 +329,7 @@ const meta: Meta<typeof PanelHarness> = {
         eventDefinitionsUnavailable: false,
         sourceConfigsUnavailable: false,
         externalConnections: false,
+        adminDisabled: false,
     },
 }
 export default meta
@@ -470,5 +483,22 @@ export const SourceConnectionForm: Story = {
     args: { externalConnections: true },
     play: async ({ canvasElement }) => {
         await userEvent.click(await within(canvasElement).findByLabelText('Connect GitLab'))
+    },
+}
+
+export const AdminDisabled: Story = {
+    args: {
+        externalConnections: true,
+        adminDisabled: true,
+    },
+    play: async ({ canvasElement }) => {
+        const warning = await waitFor(() => {
+            const source = canvasElement.querySelector<HTMLElement>('[data-source="github"]')!
+            return within(source).getByLabelText('Source disabled by PostHog')
+        })
+        await userEvent.hover(warning)
+        const body = within(canvasElement.ownerDocument.body)
+        await body.findByText('Signal emission is paused while we review this source.')
+        await body.findByText('Contact support')
     },
 }

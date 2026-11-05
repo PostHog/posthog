@@ -661,6 +661,13 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if instance.enabled and not was_enabled:
             transaction.on_commit(partial(self._trigger_data_import_sync, instance))
 
+    def perform_destroy(self, instance: SignalSourceConfig) -> None:
+        with transaction.atomic():
+            instance = self.get_queryset().select_for_update().get(pk=instance.pk)
+            if instance.admin_disabled:
+                raise exceptions.PermissionDenied("This source is disabled by PostHog. Contact support to remove it.")
+            instance.delete()
+
     # Maps source_product to ExternalDataSourceType value for data import sources
     _DATA_IMPORT_SOURCE_TYPE_MAP: dict[str, str] = {
         SignalSourceConfig.SourceProduct.GITHUB: "Github",
