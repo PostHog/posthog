@@ -166,16 +166,23 @@ export const channelCatalogLogic = kea<channelCatalogLogicType>([
         sandboxSetupError: [
             (s) => [
                 s.sandboxEmailSenderEnabled,
+                s.integrations,
                 s.integrationsLoadFailed,
                 s.sandboxEmailSender,
                 s.sandboxProvisionError,
             ],
             (
                 enabled: boolean,
+                integrations: IntegrationType[] | null,
                 loadFailed: boolean,
                 sandboxEmailSender: IntegrationType | null,
                 setupError: string | null
-            ): string | null => (enabled && !loadFailed && !sandboxEmailSender ? setupError : null),
+            ): string | null => {
+                if (!enabled || sandboxEmailSender || integrations === null) {
+                    return null
+                }
+                return setupError ?? (loadFailed ? 'Could not load the sandbox sender.' : null)
+            },
         ],
         /** `null` until the integrations load, so the catalog never shows a channel as not set up by mistake. */
         channels: [

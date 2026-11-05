@@ -127,6 +127,52 @@ describe('sandbox setup in the channel catalog', () => {
         expect(screen.getByTestId('workflows-channel-catalog-email')).toBeInTheDocument()
     })
 
+    it('offers Try again when the refresh after setup fails over an earlier list', async () => {
+        let loads = 0
+        let refreshStatus = 500
+        const sandbox = {
+            id: 9,
+            kind: 'email',
+            config: {
+                provider: 'sandbox',
+                verified: true,
+                name: 'Acme via PostHog',
+                email: 'hello@sandbox.example.com',
+            },
+        }
+        useMocks({
+            get: {
+                '/api/projects/:team_id/integrations/': () => {
+                    loads++
+                    if (loads === 1) {
+                        return [200, { results: [] }]
+                    }
+                    return refreshStatus === 200
+                        ? [200, { results: [sandbox] }]
+                        : [500, { detail: 'Could not load your channels.' }]
+                },
+            },
+            post: { '/api/projects/:team_id/integrations/email_sandbox_sender/': [200, sandbox] },
+        })
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER], {
+            [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER]: true,
+        })
+        integrationsLogic.mount()
+        await expectLogic(integrationsLogic).toDispatchActions(['loadIntegrationsSuccess'])
+        logic = channelCatalogLogic()
+        logic.mount()
+        await expectLogic(integrationsLogic).toDispatchActions(['loadIntegrationsFailure'])
+        await expectLogic(integrationsLogic).toFinishAllListeners()
+        expect(logic.values.channels).not.toBeNull()
+        render(createElement(MessageChannels))
+        expect(await screen.findByText('Could not load the sandbox sender.')).toBeInTheDocument()
+
+        refreshStatus = 200
+        fireEvent.click(screen.getAllByText('Try again')[0])
+        expect(await screen.findByText('Acme via PostHog <hello@sandbox.example.com>')).toBeInTheDocument()
+        expect(screen.queryByText('Could not load the sandbox sender.')).not.toBeInTheDocument()
+    })
+
     it('ignores a setup failure from an earlier visit after Channels opens again', async () => {
         let failFirstRequest: () => void = () => {}
         let requests = 0
