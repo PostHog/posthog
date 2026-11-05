@@ -970,7 +970,7 @@ export const HogFlowsInvocationResultsRetrieveQueryParams = () => zod.object({
         .max(hogFlowsInvocationResultsRetrieveQueryErrorMessageContainsMax)
         .optional()
         .describe(
-            "Only return invocations whose latest error_message contains this substring (case-insensitive). Matches the rerun endpoint's filter of the same name, so callers can check what a rerun would target."
+            "Only return invocations whose latest error_message contains this substring (case-insensitive). Matches the rerun endpoint's filter of the same name."
         ),
     limit: zod
         .number()

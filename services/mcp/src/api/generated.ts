@@ -127822,7 +127822,7 @@ export namespace Schemas {
      */
     distinct_id?: string;
     /**
-     * Only return invocations whose latest error_message contains this substring (case-insensitive). Matches the rerun endpoint's filter of the same name, so callers can check what a rerun would target.
+     * Only return invocations whose latest error_message contains this substring (case-insensitive). Matches the rerun endpoint's filter of the same name.
      * @minLength 1
      * @maxLength 200
      */
@@ -127857,7 +127857,7 @@ export namespace Schemas {
      */
     distinct_id?: string;
     /**
-     * Only return invocations whose latest error_message contains this substring (case-insensitive). Matches the rerun endpoint's filter of the same name, so callers can check what a rerun would target.
+     * Only return invocations whose latest error_message contains this substring (case-insensitive). Matches the rerun endpoint's filter of the same name.
      * @minLength 1
      * @maxLength 200
      */

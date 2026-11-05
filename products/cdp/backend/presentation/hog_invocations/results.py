@@ -145,7 +145,7 @@ class HogInvocationResultsFiltersSerializer(serializers.Serializer):
         max_length=200,
         help_text=(
             "Only return invocations whose latest error_message contains this substring (case-insensitive). "
-            "Matches the rerun endpoint's filter of the same name, so callers can check what a rerun would target."
+            "Matches the rerun endpoint's filter of the same name."
         ),
     )
     after = serializers.CharField(
@@ -238,14 +238,10 @@ def _build_invocation_results_filters(
     # the naive string matches the UTC `first_scheduled_at` column (toDateTime64 reads it as UTC). Skipping
     # this shifts the window by the team's offset — wrong for short windows on non-UTC teams.
     #
-    # The window matches `first_scheduled_at`, not `scheduled_at`. The table is partitioned by day of
-    # `scheduled_at`, and rows in different partitions never merge. A run's later rows can land on
-    # another day: a delay step finishes after midnight, a retry crosses midnight, or a scheduled send
-    # moves to an earlier or later day. A `scheduled_at` window then sees only some rows of the run and
-    # collapses them to a stale status, such as `running` for a run that already finished. Every row of
-    # a run carries the same `first_scheduled_at`, so this filter keeps all of its rows together. There
-    # is no `scheduled_at` bound, because a later row can be scheduled before or after the run's start.
-    # The 30-day TTL on `scheduled_at` limits the partitions that the query reads.
+    # Rows of one run can sit in different daily `scheduled_at` partitions, which never merge, so a
+    # `scheduled_at` window collapses only some of them to a stale status. Every row of a run shares
+    # `first_scheduled_at`. There is no `scheduled_at` bound, because a rescheduled row can land before
+    # the run's start.
     if after:
         where.append("first_scheduled_at >= toDateTime64(%(after)s, 6)")
         kwargs["after"] = after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")

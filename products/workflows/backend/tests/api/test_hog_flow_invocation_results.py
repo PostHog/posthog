@@ -226,7 +226,7 @@ class TestHogFlowInvocationResults(ClickhouseTestMixin, APIBaseTest):
         assert count == {"count": len(expected)}
 
     def test_default_window_excludes_rows_older_than_7d(self):
-        # No `after` → default -7d window bounds the partition scan, so older runs drop out.
+        # No `after` → default -7d window, so older runs drop out.
         now = datetime.now(tz=UTC)
         self._seed("recent", scheduled_at=now - timedelta(days=2))
         self._seed("old", scheduled_at=now - timedelta(days=30))
