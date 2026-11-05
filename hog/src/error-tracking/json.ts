@@ -1,6 +1,4 @@
-import { z } from 'zod'
-
-import { decodeJson } from '@/core/json'
+import { decodeJsonString } from '@/core/json'
 
 // A JSON reader and writer that produce the same bytes as serde_json 1.0.145 with default features,
 // which posthog-cli uses to read and rewrite sourcemaps. The bytes feed uploads and content hashes,
@@ -190,11 +188,10 @@ export class JsonParser {
         if (!escaped) {
             return text.slice(start + 1, end)
         }
-        const literal = decodeJson(text.slice(start, end + 1), z.string())
-        if (!literal.ok) {
+        const decoded = decodeJsonString(text.slice(start, end + 1))
+        if (decoded === undefined) {
             this.fail('invalid escape')
         }
-        const decoded = literal.value
         if (LONE_SURROGATE.test(decoded)) {
             this.fail('lone leading surrogate in hex escape')
         }

@@ -97,7 +97,7 @@ export async function fetchOrCreateRelease(
         const created = (await client.api('POST', 'error_tracking/releases', body)) as Release
         return { ...created, id: created.id.toLowerCase() }
     } catch (error) {
-        if (error instanceof ApiFailure && isStructuredCode(error.body, 'release_hash_in_use')) {
+        if (error instanceof ApiFailure && errorCode(error.body) === 'release_hash_in_use') {
             const raced = await lookup(client, hashId)
             if (raced) {
                 return { ...raced, id: raced.id.toLowerCase() }
@@ -105,8 +105,4 @@ export async function fetchOrCreateRelease(
         }
         throw new HogError('release_create_failed', `hog couldn't create the release: ${(error as Error).message}`)
     }
-}
-
-function isStructuredCode(body: string, code: string): boolean {
-    return errorCode(body) === code
 }

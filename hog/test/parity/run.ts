@@ -10,15 +10,8 @@ import { readJson } from '@/testing'
 
 import { startFakeServer } from './fake-server'
 import { write } from './fixtures'
-import { normalize, type NormalizedRequest } from './normalize'
+import { normalize } from './normalize'
 import type { ParityScenario } from './scenarios'
-
-export interface ParityResult {
-    exitCode: number
-    requests: NormalizedRequest[]
-    // The files the run created or changed, and null for the ones it deleted.
-    files?: Record<string, string | null>
-}
 
 // Strict, so a golden with a field hog doesn't produce fails the comparison instead of losing it.
 const ParityResultSchema = z.strictObject({
@@ -40,8 +33,11 @@ const ParityResultSchema = z.strictObject({
             status: z.number(),
         })
     ),
+    // The files the run created or changed, and null for the ones it deleted.
     files: z.record(z.string(), z.string().nullable()).optional(),
 })
+
+export type ParityResult = z.output<typeof ParityResultSchema>
 
 export function readGolden(name: string): ParityResult {
     return readJson(readFileSync(join(import.meta.dir, 'golden', 'e2e', `${name}.json`), 'utf8'), ParityResultSchema)

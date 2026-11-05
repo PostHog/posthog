@@ -159,7 +159,7 @@ export function validateConfig(contents: string): { config?: PostHogConfig; prob
     if (decoded.ok) {
         return { config: decoded.value, problems: [] }
     }
-    if (decoded.issues.length === 0) {
+    if (decoded.reason === 'syntax') {
         return { problems: [{ path: '', message: decoded.problem }] }
     }
     return {
