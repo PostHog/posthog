@@ -9,11 +9,6 @@ type BoundedPrimaryLookupOptions = {
     maxOpen: number
 }
 
-// A read on the primary that a send waits for. A stalled one fails the check instead of holding up every other
-// send in the worker's batch. The deadline counts the wait for a pooled connection too, and the statement timeout
-// also stops the query on the server. A lookup past its deadline still waits in the common pool until it gets a
-// connection, so at most `maxOpen` are open at once. Its slot frees once that connection is released or destroyed.
-// A lookup waiting for a slot holds nothing and fails at its deadline.
 export class BoundedPrimaryLookup {
     private slots: DeadlineSlots
 
@@ -45,8 +40,8 @@ export class BoundedPrimaryLookup {
             )
             result = { value }
         })
-        // A lookup that loses the race can still fail later, after nobody waits for it.
-        lookup.catch(() => undefined)
+        const ignoreFailureAfterDeadline = (): undefined => undefined
+        lookup.catch(ignoreFailureAfterDeadline)
         try {
             await Promise.race([lookup, deadline])
         } finally {
