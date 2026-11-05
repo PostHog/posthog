@@ -10,6 +10,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     AccountApi,
+    AccountDocumentApi,
+    AccountDocumentWriteApi,
+    AccountLegalDocumentApi,
     AccountNotebookApi,
     AccountNotesListParams,
     AccountPersonsPageApi,
@@ -118,6 +121,7 @@ import type {
     PaginatedGroupUsageMetricListApi,
     PaginatedMeetingListApi,
     PatchedAccountApi,
+    PatchedAccountDocumentWriteApi,
     PatchedAccountRelationshipDefinitionApi,
     PatchedCustomPropertyDefinitionApi,
     PatchedCustomPropertySourceUpdateApi,
@@ -651,6 +655,169 @@ export const accountsCustomPropertyValuesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(customPropertyValueWriteApi),
+    })
+}
+
+export const getAccountsDocumentsListUrl = (projectId: string, accountId: string) => {
+    return `/api/projects/${projectId}/accounts/${accountId}/documents/`
+}
+
+export const accountsDocumentsList = async (
+    projectId: string,
+    accountId: string,
+    options?: RequestInit
+): Promise<AccountDocumentApi[]> => {
+    return apiMutator<AccountDocumentApi[]>(getAccountsDocumentsListUrl(projectId, accountId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountsDocumentsCreateUrl = (projectId: string, accountId: string) => {
+    return `/api/projects/${projectId}/accounts/${accountId}/documents/`
+}
+
+export const accountsDocumentsCreate = async (
+    projectId: string,
+    accountId: string,
+    accountDocumentWriteApi?: AccountDocumentWriteApi,
+    options?: RequestInit
+): Promise<AccountDocumentApi> => {
+    return apiMutator<AccountDocumentApi>(getAccountsDocumentsCreateUrl(projectId, accountId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accountDocumentWriteApi),
+    })
+}
+
+export const getAccountsDocumentsRetrieveUrl = (projectId: string, accountId: string, id: string) => {
+    return `/api/projects/${projectId}/accounts/${accountId}/documents/${id}/`
+}
+
+export const accountsDocumentsRetrieve = async (
+    projectId: string,
+    accountId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AccountDocumentApi> => {
+    return apiMutator<AccountDocumentApi>(getAccountsDocumentsRetrieveUrl(projectId, accountId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountsDocumentsPartialUpdateUrl = (projectId: string, accountId: string, id: string) => {
+    return `/api/projects/${projectId}/accounts/${accountId}/documents/${id}/`
+}
+
+export const accountsDocumentsPartialUpdate = async (
+    projectId: string,
+    accountId: string,
+    id: string,
+    patchedAccountDocumentWriteApi?: PatchedAccountDocumentWriteApi,
+    options?: RequestInit
+): Promise<AccountDocumentApi> => {
+    return apiMutator<AccountDocumentApi>(getAccountsDocumentsPartialUpdateUrl(projectId, accountId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedAccountDocumentWriteApi),
+    })
+}
+
+export const getAccountsDocumentsDestroyUrl = (projectId: string, accountId: string, id: string) => {
+    return `/api/projects/${projectId}/accounts/${accountId}/documents/${id}/`
+}
+
+export const accountsDocumentsDestroy = async (
+    projectId: string,
+    accountId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getAccountsDocumentsDestroyUrl(projectId, accountId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getAccountsDocumentsPreviewRetrieveUrl = (projectId: string, accountId: string, id: string) => {
+    return `/api/projects/${projectId}/accounts/${accountId}/documents/${id}/preview/`
+}
+
+/**
+ * The document's current PDF rendition from PandaDoc, served inline so the account page can show an unsigned document in a frame. Available only for PandaDoc documents.
+ */
+export const accountsDocumentsPreviewRetrieve = async (
+    projectId: string,
+    accountId: string,
+    id: string,
+    options?: RequestInit
+): Promise<Blob> => {
+    return apiMutator<Blob>(getAccountsDocumentsPreviewRetrieveUrl(projectId, accountId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountsDocumentsSyncCreateUrl = (projectId: string, accountId: string, id: string) => {
+    return `/api/projects/${projectId}/accounts/${accountId}/documents/${id}/sync/`
+}
+
+/**
+ * Re-read the document's name and status from PandaDoc and store them on the record.
+ */
+export const accountsDocumentsSyncCreate = async (
+    projectId: string,
+    accountId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AccountDocumentApi> => {
+    return apiMutator<AccountDocumentApi>(getAccountsDocumentsSyncCreateUrl(projectId, accountId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getAccountsDocumentsLegalListUrl = (projectId: string, accountId: string) => {
+    return `/api/projects/${projectId}/accounts/${accountId}/documents/legal/`
+}
+
+/**
+ * The DPA, BAA and MSA the account's organization holds in PostHog. Empty when the account is not keyed on a PostHog organization id.
+ */
+export const accountsDocumentsLegalList = async (
+    projectId: string,
+    accountId: string,
+    options?: RequestInit
+): Promise<AccountLegalDocumentApi[]> => {
+    return apiMutator<AccountLegalDocumentApi[]>(getAccountsDocumentsLegalListUrl(projectId, accountId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountsDocumentsLegalDownloadRetrieveUrl = (
+    projectId: string,
+    accountId: string,
+    legalDocumentId: string
+) => {
+    return `/api/projects/${projectId}/accounts/${accountId}/documents/legal/${legalDocumentId}/download/`
+}
+
+/**
+ * Redirects to a short-lived download URL for a signed legal document's PDF.
+ */
+export const accountsDocumentsLegalDownloadRetrieve = async (
+    projectId: string,
+    accountId: string,
+    legalDocumentId: string,
+    options?: RequestInit
+): Promise<unknown> => {
+    return apiMutator<unknown>(getAccountsDocumentsLegalDownloadRetrieveUrl(projectId, accountId, legalDocumentId), {
+        ...options,
+        method: 'GET',
     })
 }
 

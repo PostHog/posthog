@@ -2258,6 +2258,193 @@ export namespace Schemas {
       default_tab_id: string | null;
     }
 
+    /**
+     * * `quote` - Quote
+     * * `order_form` - Order form
+     * * `msa` - Master service agreement
+     * * `dpa` - Data processing agreement
+     * * `baa` - Business associate agreement
+     * * `nda` - Non-disclosure agreement
+     * * `security_questionnaire` - Security questionnaire
+     * * `other` - Other
+     */
+    export type AccountDocumentTypeEnum = typeof AccountDocumentTypeEnum[keyof typeof AccountDocumentTypeEnum];
+
+
+    export const AccountDocumentTypeEnum = {
+      Quote: 'quote',
+      OrderForm: 'order_form',
+      Msa: 'msa',
+      Dpa: 'dpa',
+      Baa: 'baa',
+      Nda: 'nda',
+      SecurityQuestionnaire: 'security_questionnaire',
+      Other: 'other',
+    } as const;
+
+    /**
+     * * `draft` - Draft
+     * * `sent` - Sent
+     * * `signed` - Signed
+     * * `expired` - Expired
+     * * `voided` - Voided
+     */
+    export type AccountDocumentStatusEnum = typeof AccountDocumentStatusEnum[keyof typeof AccountDocumentStatusEnum];
+
+
+    export const AccountDocumentStatusEnum = {
+      Draft: 'draft',
+      Sent: 'sent',
+      Signed: 'signed',
+      Expired: 'expired',
+      Voided: 'voided',
+    } as const;
+
+    /**
+     * * `pandadoc` - PandaDoc
+     * * `link` - Link
+     */
+    export type AccountDocumentSourceEnum = typeof AccountDocumentSourceEnum[keyof typeof AccountDocumentSourceEnum];
+
+
+    export const AccountDocumentSourceEnum = {
+      Pandadoc: 'pandadoc',
+      Link: 'link',
+    } as const;
+
+    /**
+     * A document registered on an account: a quote, an order form, a contract, or a link to one (read-only).
+     */
+    export interface AccountDocument {
+      /** UUID of the document record. */
+      readonly id: string;
+      /** UUID of the account the document belongs to. */
+      readonly account_id: string;
+      /** Kind of document: quote, order form, MSA, DPA, BAA, NDA, security questionnaire, or other.
+       *
+       * * `quote` - Quote
+       * * `order_form` - Order form
+       * * `msa` - Master service agreement
+       * * `dpa` - Data processing agreement
+       * * `baa` - Business associate agreement
+       * * `nda` - Non-disclosure agreement
+       * * `security_questionnaire` - Security questionnaire
+       * * `other` - Other */
+      readonly document_type: AccountDocumentTypeEnum;
+      /** Display title. A PandaDoc document registered without a title takes the PandaDoc document name. */
+      readonly title: string;
+      /** Lifecycle state: draft, sent, signed, expired, or voided. A PandaDoc document's state follows PandaDoc after each sync.
+       *
+       * * `draft` - Draft
+       * * `sent` - Sent
+       * * `signed` - Signed
+       * * `expired` - Expired
+       * * `voided` - Voided */
+      readonly status: AccountDocumentStatusEnum;
+      /** 'pandadoc' when the record references a PandaDoc document, 'link' when it points at a URL held elsewhere.
+       *
+       * * `pandadoc` - PandaDoc
+       * * `link` - Link */
+      readonly source: AccountDocumentSourceEnum;
+      /** URL of a linked document; empty for a PandaDoc document. */
+      readonly external_url: string;
+      /** PandaDoc document id; empty for a linked document. */
+      readonly pandadoc_document_id: string;
+      /** Raw PandaDoc status (for example 'document.sent') as of the last sync; empty before the first sync. */
+      readonly pandadoc_status: string;
+      /**
+         * When the PandaDoc status was last read; null before the first sync.
+         * @nullable
+         */
+      readonly pandadoc_synced_at: string | null;
+      /**
+         * Link that opens the document in the PandaDoc editor; null for a linked document.
+         * @nullable
+         */
+      readonly pandadoc_url: string | null;
+      /**
+         * Date the document takes effect, when known.
+         * @nullable
+         */
+      readonly effective_date: string | null;
+      /**
+         * Date the document ends or expires, when known.
+         * @nullable
+         */
+      readonly end_date: string | null;
+      /**
+         * Monetary value of the document, when known. No currency is stored; the team's currency applies.
+         * @nullable
+         * @pattern ^-?\d{0,12}(?:\.\d{0,2})?$
+         */
+      readonly amount: string | null;
+      /**
+         * ID of the user who registered the document.
+         * @nullable
+         */
+      readonly created_by_id: number | null;
+      /** When the document was registered. */
+      readonly created_at: string;
+      /** When the record was last changed. */
+      readonly updated_at: string;
+    }
+
+    /**
+     * Request body for registering or updating an account document.
+     */
+    export interface AccountDocumentWrite {
+      /**
+         * Display title. Required for a linked document. Optional for a PandaDoc document, which takes the PandaDoc document name when left empty.
+         * @maxLength 512
+         */
+      title?: string;
+      /** Kind of document: quote, order_form, msa, dpa, baa, nda, security_questionnaire, or other. Defaults to other.
+       *
+       * * `quote` - Quote
+       * * `order_form` - Order form
+       * * `msa` - Master service agreement
+       * * `dpa` - Data processing agreement
+       * * `baa` - Business associate agreement
+       * * `nda` - Non-disclosure agreement
+       * * `security_questionnaire` - Security questionnaire
+       * * `other` - Other */
+      document_type?: AccountDocumentTypeEnum;
+      /** Lifecycle state: draft, sent, signed, expired, or voided. Defaults to draft. A PandaDoc document's state is replaced on the next sync.
+       *
+       * * `draft` - Draft
+       * * `sent` - Sent
+       * * `signed` - Signed
+       * * `expired` - Expired
+       * * `voided` - Voided */
+      status?: AccountDocumentStatusEnum;
+      /** 'pandadoc' to reference a PandaDoc document by link or id, 'link' (default) to store a URL.
+       *
+       * * `pandadoc` - PandaDoc
+       * * `link` - Link */
+      source?: AccountDocumentSourceEnum;
+      /**
+         * For a PandaDoc document: a PandaDoc document link or the document id. For a linked document: the http(s) URL of the document. Required when registering a document.
+         * @maxLength 2048
+         */
+      url?: string;
+      /**
+         * Date the document takes effect (YYYY-MM-DD).
+         * @nullable
+         */
+      effective_date?: string | null;
+      /**
+         * Date the document ends or expires (YYYY-MM-DD).
+         * @nullable
+         */
+      end_date?: string | null;
+      /**
+         * Monetary value of the document, in the team's currency.
+         * @nullable
+         * @pattern ^-?\d{0,12}(?:\.\d{0,2})?$
+         */
+      amount?: string | null;
+    }
+
     export interface ConversationMessageSender {
       /** Display name of the message sender. */
       readonly name: string;
@@ -2385,6 +2572,26 @@ export namespace Schemas {
       readonly direction: EmailThreadMessageDirectionEnum;
       /** Plain-text email content. */
       readonly content: string;
+    }
+
+    /**
+     * A legal document the customer's organization signed self-serve in PostHog (read-only).
+     */
+    export interface AccountLegalDocument {
+      /** UUID of the legal document. */
+      readonly id: string;
+      /** 'DPA', 'BAA', or 'MSA'. */
+      readonly document_type: string;
+      /** 'submitted_for_signature' or 'signed'. */
+      readonly status: string;
+      /** Legal company name the document names. */
+      readonly company_name: string;
+      /** Email address of the customer representative who signs for the company. */
+      readonly representative_email: string;
+      /** When the customer generated the document. */
+      readonly created_at: string;
+      /** Whether the signed PDF can be downloaded. False until the document is signed and the PDF is archived. */
+      readonly download_available: boolean;
     }
 
     /**
@@ -28624,10 +28831,10 @@ export namespace Schemas {
      * * `BAA` - BAA
      * * `DPA` - DPA
      */
-    export type DocumentTypeEnum = typeof DocumentTypeEnum[keyof typeof DocumentTypeEnum];
+    export type CreateLegalDocumentDocumentTypeEnum = typeof CreateLegalDocumentDocumentTypeEnum[keyof typeof CreateLegalDocumentDocumentTypeEnum];
 
 
-    export const DocumentTypeEnum = {
+    export const CreateLegalDocumentDocumentTypeEnum = {
       Baa: 'BAA',
       Dpa: 'DPA',
     } as const;
@@ -28642,7 +28849,7 @@ export namespace Schemas {
        *
        * * `BAA` - BAA
        * * `DPA` - DPA */
-      document_type: DocumentTypeEnum;
+      document_type: CreateLegalDocumentDocumentTypeEnum;
       /**
          * The customer legal entity entering the agreement (PandaDoc's Client.Company).
          * @maxLength 255
@@ -78776,6 +78983,62 @@ export namespace Schemas {
       readonly created_by?: number | null;
       /** @nullable */
       readonly updated_at?: string | null;
+    }
+
+    /**
+     * Request body for registering or updating an account document.
+     */
+    export interface PatchedAccountDocumentWrite {
+      /**
+         * Display title. Required for a linked document. Optional for a PandaDoc document, which takes the PandaDoc document name when left empty.
+         * @maxLength 512
+         */
+      title?: string;
+      /** Kind of document: quote, order_form, msa, dpa, baa, nda, security_questionnaire, or other. Defaults to other.
+       *
+       * * `quote` - Quote
+       * * `order_form` - Order form
+       * * `msa` - Master service agreement
+       * * `dpa` - Data processing agreement
+       * * `baa` - Business associate agreement
+       * * `nda` - Non-disclosure agreement
+       * * `security_questionnaire` - Security questionnaire
+       * * `other` - Other */
+      document_type?: AccountDocumentTypeEnum;
+      /** Lifecycle state: draft, sent, signed, expired, or voided. Defaults to draft. A PandaDoc document's state is replaced on the next sync.
+       *
+       * * `draft` - Draft
+       * * `sent` - Sent
+       * * `signed` - Signed
+       * * `expired` - Expired
+       * * `voided` - Voided */
+      status?: AccountDocumentStatusEnum;
+      /** 'pandadoc' to reference a PandaDoc document by link or id, 'link' (default) to store a URL.
+       *
+       * * `pandadoc` - PandaDoc
+       * * `link` - Link */
+      source?: AccountDocumentSourceEnum;
+      /**
+         * For a PandaDoc document: a PandaDoc document link or the document id. For a linked document: the http(s) URL of the document. Required when registering a document.
+         * @maxLength 2048
+         */
+      url?: string;
+      /**
+         * Date the document takes effect (YYYY-MM-DD).
+         * @nullable
+         */
+      effective_date?: string | null;
+      /**
+         * Date the document ends or expires (YYYY-MM-DD).
+         * @nullable
+         */
+      end_date?: string | null;
+      /**
+         * Monetary value of the document, in the team's currency.
+         * @nullable
+         * @pattern ^-?\d{0,12}(?:\.\d{0,2})?$
+         */
+      amount?: string | null;
     }
 
     /**

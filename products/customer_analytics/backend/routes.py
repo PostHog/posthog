@@ -2,6 +2,7 @@ from posthog.api.routing import RouterRegistry
 from posthog.settings import EE_AVAILABLE
 
 from products.customer_analytics.backend.presentation.views import urls as external_api_urls
+from products.customer_analytics.backend.presentation.views.account_documents import AccountDocumentViewSet
 from products.customer_analytics.backend.presentation.views.account_persons_query import AccountPersonsViewSet
 from products.customer_analytics.backend.presentation.views.accounts_table_query import AccountsTableQueryViewSet
 from products.customer_analytics.backend.presentation.views.announcements import AnnouncementViewSet
@@ -146,6 +147,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"relationships",
         AccountRelationshipViewSet,
         "project_account_relationships",
+        ["team_id", "account_id"],
+    )
+    project_accounts_router.register(
+        r"documents",
+        AccountDocumentViewSet,
+        "project_account_documents",
         ["team_id", "account_id"],
     )
     routers.projects.register(r"customer_tasks", CustomerTaskViewSet, "project_customer_tasks", ["team_id"])

@@ -31,6 +31,7 @@ from products.customer_analytics.backend.facade.hogql import (
     account_channel_summaries,
     account_custom_property_values,
     account_custom_property_values_history,
+    account_documents,
     account_email_thread_links,
     account_email_threads,
     account_email_threads_join,
@@ -50,6 +51,7 @@ from products.customer_analytics.backend.facade.hogql import (
 from products.customer_analytics.backend.models import (
     Account,
     AccountChannelSummary,
+    AccountDocument,
     CustomPropertyDefinition,
     CustomPropertyValue,
     FeatureRequest,
@@ -73,6 +75,7 @@ class TestFacadeHogqlSystemTables(SimpleTestCase):
             ("account_tagged_items", account_tagged_items, TaggedItem),
             ("account_resource_notebooks", account_resource_notebooks, ResourceNotebook),
             ("account_meetings", account_meetings, Meeting),
+            ("account_documents", account_documents, AccountDocument),
             ("account_channel_summaries", account_channel_summaries, AccountChannelSummary),
             ("account_email_threads", account_email_threads, EmailThread),
             ("account_email_thread_links", account_email_thread_links, EmailThreadAccountLink),
