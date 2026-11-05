@@ -10783,10 +10783,10 @@ Today (5): `deployments`, `projects`, `sast_findings`, `sca_findings`, `secrets`
 
 Diffed against: <https://semgrep.dev/api/v1/public_v1.openapi.yaml>
 
-- [ ] `POST /api/v1/deployments/{deploymentId}/dependencies (List dependencies)` — The full SCA dependency inventory that sca_findings point at — lets you join findings to the packages actually in use (high)
-- [ ] `POST /api/v1/deployments/{deploymentId}/scans/search (List scans)` — Scan run history per project — needed to trend findings over time and detect projects that stopped scanning (high)
-- [ ] `POST /api/v1/deployments/{deploymentId}/dependencies/repositories (List repositories with dependencies)` — Repository-level rollup that resolves which repos carry a given dependency (medium)
-- [ ] `POST /api/v1/deployments/{deploymentId}/dependencies/repositories/{repositoryId}/lockfiles` — Lockfile inventory per repo; useful for supply-chain coverage auditing (low)
+- [x] `POST /api/v1/deployments/{deploymentId}/dependencies (List dependencies)` — The full SCA dependency inventory that sca_findings point at — lets you join findings to the packages actually in use (high) → `dependencies` (full refresh, fan-out over `deployments`)
+- [x] `POST /api/v1/deployments/{deploymentId}/scans/search (List scans)` — Scan run history per project — needed to trend findings over time and detect projects that stopped scanning (high) → `scans` (full refresh, fan-out over `deployments`; Semgrep returns the last 30 days)
+- [x] `POST /api/v1/deployments/{deploymentId}/dependencies/repositories (List repositories with dependencies)` — Repository-level rollup that resolves which repos carry a given dependency (medium) → `dependency_repositories` (full refresh, fan-out over `deployments`)
+- [x] `POST /api/v1/deployments/{deploymentId}/dependencies/repositories/{repositoryId}/lockfiles` — Lockfile inventory per repo; useful for supply-chain coverage auditing (low) → `dependency_lockfiles` (full refresh, fan-out over `dependency_repositories`)
 
 Note: The dependency and scan list endpoints are POST-with-body (paginated search), not GET, so they need a POST-capable resource config. Policies and SBOM export are config/ephemeral and deliberately excluded.
 
