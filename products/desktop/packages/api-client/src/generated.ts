@@ -15050,18 +15050,9 @@ export namespace Schemas {
      * * `posthog_desktop` - PostHog Desktop
      * * `posthog_mobile` - PostHog Mobile
      * * `posthog_web` - PostHog Web
-     */
-    export type TaskClientProvenanceEnum =
-        | "posthog_desktop"
-        | "posthog_mobile"
-        | "posthog_web";
-    /**
-     * * `posthog_desktop` - PostHog Desktop
-     * * `posthog_mobile` - PostHog Mobile
-     * * `posthog_web` - PostHog Web
      * * `slack` - Slack
      */
-    export type TaskClientEnum =
+    export type TaskClientProvenanceEnum =
         | "posthog_desktop"
         | "posthog_mobile"
         | "posthog_web"
@@ -15170,7 +15161,7 @@ export namespace Schemas {
          * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
          * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
          */
-        last_client?: (TaskClientEnum | NullEnum) | undefined;
+        last_client?: (TaskClientProvenanceEnum | NullEnum) | undefined;
         /**
          * Detail response for a task.
          *
@@ -15313,7 +15304,7 @@ export namespace Schemas {
          * always returns it. A client uses the ``search`` query parameter to match description text
          * server-side.
          */
-        last_client?: (TaskClientEnum | NullEnum) | undefined;
+        last_client?: (TaskClientProvenanceEnum | NullEnum) | undefined;
         /**
          * Basic list response for a task, returned when the list is asked for ``basic=true``.
          *
@@ -17846,7 +17837,7 @@ export namespace Schemas {
          * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
          * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
          */
-        last_client?: (TaskClientEnum | NullEnum) | undefined;
+        last_client?: (TaskClientProvenanceEnum | NullEnum) | undefined;
         /**
          * Detail response for a task.
          *
@@ -18056,7 +18047,7 @@ export namespace Schemas {
          * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
          * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
          */
-        last_client?: (TaskClientEnum | NullEnum) | undefined;
+        last_client?: (TaskClientProvenanceEnum | NullEnum) | undefined;
         /**
          * The task ``run`` action's response: the refreshed task detail plus the run this call made.
          *
@@ -19468,7 +19459,8 @@ export namespace Endpoints {
                 client_provenance:
                     | "posthog_desktop"
                     | "posthog_mobile"
-                    | "posthog_web";
+                    | "posthog_web"
+                    | "slack";
                 commented_by: number;
                 created_by: number;
                 exclude_origin_product:
@@ -19569,7 +19561,8 @@ export namespace Endpoints {
                 "X-PostHog-Client-Provenance":
                     | "posthog_desktop"
                     | "posthog_mobile"
-                    | "posthog_web";
+                    | "posthog_web"
+                    | "slack";
                 "X-PostHog-Warm-Retry": string;
             }>;
             body: Schemas.TaskCreate;

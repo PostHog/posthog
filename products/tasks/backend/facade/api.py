@@ -190,7 +190,6 @@ from products.tasks.backend.models import (
     Task,
     TaskActivity,
     TaskArtifact,
-    TaskClient,
     TaskClientProvenance,
     TaskCommentActivity,
     TaskOwnershipChangedError,
@@ -7423,7 +7422,7 @@ def _task_sources_q(sources: list[str]) -> Q:
         elif source == TaskClientProvenance.POSTHOG_WEB:
             # PostHog AI runs in the web app, so the desktop app shows its tasks as web tasks too.
             matches |= (user_created & Q(client_provenance=source)) | Q(origin_product=Task.OriginProduct.POSTHOG_AI)
-        elif source in TaskClientProvenance.values:
+        elif source == TaskClientProvenance.POSTHOG_MOBILE:
             matches |= user_created & Q(client_provenance=source)
         else:
             matches |= Q(origin_product=source)
@@ -12900,7 +12899,7 @@ def is_current_task_run_actor(team_id: int, run_id: UUID, user_id: int) -> bool:
     return actor is not None and actor.id == user_id and user_has_current_team_access(actor, run.team)
 
 
-def record_task_client(*, task_id: str, team_id: int, client: TaskClient | TaskClientProvenance | None) -> None:
+def record_task_client(*, task_id: str, team_id: int, client: TaskClientProvenance | None) -> None:
     """Stamp the client a person used for their latest turn on this task. A null client changes nothing."""
     if client is None:
         return

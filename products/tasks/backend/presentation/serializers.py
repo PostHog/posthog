@@ -654,7 +654,7 @@ class TaskSerializer(DataclassSerializer):
         help_text="First-party PostHog client that created this task.",
     )
     last_client = serializers.ChoiceField(
-        choices=tasks_facade.TaskClient.choices,
+        choices=tasks_facade.TaskClientProvenance.choices,
         allow_null=True,
         required=False,
         help_text="Client the latest person turn on this task came from. Null when no turn came from a known client.",

@@ -384,25 +384,13 @@ class TaskClientProvenance(models.TextChoices):
     POSTHOG_DESKTOP = "posthog_desktop", "PostHog Desktop"
     POSTHOG_MOBILE = "posthog_mobile", "PostHog Mobile"
     POSTHOG_WEB = "posthog_web", "PostHog Web"
+    # Only `last_client` is ever Slack. Slack-created tasks keep `client_provenance` null.
+    SLACK = "slack", "Slack"
 
 
 def task_client_provenance_choices() -> list[tuple[str, str | Promise]]:
     # Callable so growing the enum doesn't generate a no-op migration.
     return list(TaskClientProvenance.choices)
-
-
-class TaskClient(models.TextChoices):
-    """Where a person took a turn on a task: the first-party clients, plus Slack, which is not a client app."""
-
-    POSTHOG_DESKTOP = TaskClientProvenance.POSTHOG_DESKTOP.value, "PostHog Desktop"
-    POSTHOG_MOBILE = TaskClientProvenance.POSTHOG_MOBILE.value, "PostHog Mobile"
-    POSTHOG_WEB = TaskClientProvenance.POSTHOG_WEB.value, "PostHog Web"
-    SLACK = "slack", "Slack"
-
-
-def task_client_choices() -> list[tuple[str, str | Promise]]:
-    # Callable so growing the enum doesn't generate a no-op migration.
-    return list(TaskClient.choices)
 
 
 def task_origin_product_choices() -> list[tuple[str, str | Promise]]:
@@ -547,7 +535,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
     # The client of the latest person turn, so notifications can follow the user between clients.
     last_client = models.CharField(
         max_length=32,
-        choices=task_client_choices,
+        choices=task_client_provenance_choices,
         null=True,
         blank=True,
         editable=False,
@@ -736,7 +724,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             if self.client_provenance:
                 self.last_client = self.client_provenance
             elif self.origin_product == Task.OriginProduct.SLACK:
-                self.last_client = TaskClient.SLACK
+                self.last_client = TaskClientProvenance.SLACK
             if self.last_client is not None:
                 self.last_client_at = django_timezone.now()
 
