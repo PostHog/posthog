@@ -467,12 +467,15 @@ export const Pagination: Story = {
         await canvas.findByText('1-10 of 23 entries')
         await userEvent.click(canvas.getByRole('button', { name: 'Next page' }))
         await canvas.findByText('11-20 of 23 entries')
-        const nextButton = canvas.getByRole('button', { name: 'Next page' })
-        const arrowTop = nextButton.getBoundingClientRect().top
+        // Opening the page menu can scroll the document, so measure against the table.
+        const arrowOffset = (): number =>
+            canvas.getByRole('button', { name: 'Next page' }).getBoundingClientRect().top -
+            canvasElement.querySelector('.SearchPerformanceTable')!.getBoundingClientRect().top
+        const arrowTop = arrowOffset()
         await userEvent.click(canvas.getByRole('button', { name: 'Go to page' }))
         await userEvent.click(await within(canvasElement.ownerDocument.body).findByText('Page 3 of 3'))
         await canvas.findByText('21-23 of 23 entries')
-        await expect(canvas.getByRole('button', { name: 'Next page' }).getBoundingClientRect().top).toBe(arrowTop)
+        await expect(arrowOffset()).toBe(arrowTop)
         await chooseBreakdown(canvasElement, 'Landing pages')
         await canvas.findByText('1-10 of 23 entries')
         await userEvent.click(canvas.getByRole('button', { name: 'Next page' }))
