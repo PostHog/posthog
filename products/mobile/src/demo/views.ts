@@ -944,8 +944,6 @@ function shortcut(id: string, path: string, type: string, ref: string | null, hr
 const DEFAULT_SHORTCUTS: FileSystemShortcutApi[] = [
     shortcut('demo-pin-kpis', 'Product KPIs', 'dashboard', DEMO_DASHBOARD_KPIS, `/dashboard/${DEMO_DASHBOARD_KPIS}`, 0),
     shortcut('demo-pin-signups', 'Signups', 'insight', DEMO_INSIGHT_SIGNUPS, `/insights/${DEMO_INSIGHT_SIGNUPS}`, 1),
-    shortcut('demo-pin-web', 'Web analytics', 'web_analytics', null, '/web', 2),
-    shortcut('demo-pin-notes', 'Launch notes', 'notebook', 'demo-nb-launch', '/notebooks/demo-nb-launch', 3),
 ]
 
 const DEFAULT_DISPLAY: Record<string, PinDisplay> = {

@@ -56,6 +56,7 @@ from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.report_check_final_agents import MonitoringScoutResult
 from products.signals.backend.report_metrics import MAX_REPORT_METRICS
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
+from products.signals.backend.report_scout_notes import MAX_REPORT_NOTE_TEXT_LENGTH
 from products.signals.backend.scout_harness.config_registry import CRON_SCHEDULE_MAX_LENGTH, cron_schedule_error
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG_KEYS, DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.fleet_sync import SYNC_SURFACES
@@ -1252,8 +1253,10 @@ class ScoutNoteSerializer(serializers.Serializer):
             "a directive. `report_feedback` for the note someone left when rating a report useful or "
             "not: one reader's rating of the named report, context to weigh rather than a directive. "
             "`report_reviewer_correction` for a suggested reviewer someone added or removed on a "
-            "report: evidence about who owns that surface, and a prompt to revisit the routing "
-            "memory it corrects, rather than a directive."
+            "report, or for a report a person or their agent claimed: evidence about who owns that "
+            "surface, and a prompt to revisit the routing memory it corrects or supports, rather "
+            "than a directive. `report_note` for one left from a report through this API with "
+            "`report_id` set: steering written straight for you, about the report its content names."
         ),
     )
 
@@ -1342,6 +1345,17 @@ class ScoutNoteCreateRequestSerializer(serializers.Serializer):
             "and no scout. Omit or leave blank for a general note every scout sees."
         ),
     )
+    report_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional id of the inbox report this note is about. The note then names the report so a "
+            "scout can fetch it, and the report's activity log records that the note was left. "
+            "Requires edit access to inbox reports, and the report must belong to this project. "
+            "The report reference shares the note's character budget, so `content` is capped at "
+            f"{MAX_REPORT_NOTE_TEXT_LENGTH} characters when this is set."
+        ),
+    )
     expires_at = _BestEffortDateTimeField(
         required=False,
         allow_null=True,
@@ -1359,6 +1373,18 @@ class ScoutNoteCreateRequestSerializer(serializers.Serializer):
         if value is not None and value <= timezone.now():
             return None
         return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs.get("report_id") and len(attrs.get("content", "")) > MAX_REPORT_NOTE_TEXT_LENGTH:
+            raise serializers.ValidationError(
+                {
+                    "content": (
+                        "A note about a report also stores a reference to it, so content is limited "
+                        f"to {MAX_REPORT_NOTE_TEXT_LENGTH} characters when report_id is set."
+                    )
+                }
+            )
+        return attrs
 
 
 # --- Emit -----------------------------------------------------------------
@@ -1754,6 +1780,15 @@ class EmitReportResponseSerializer(serializers.Serializer):
 class EditReportRequestSerializer(ReviewerProposalSerializer):
     """Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones."""
 
+    reviewer_outcome_reason = serializers.CharField(
+        required=False,
+        max_length=500,
+        help_text=(
+            "Why no suitable owner exists, with `reviewer_outcome: no_suitable_owner`. Required to clear a "
+            "report that already has suggested reviewers: without it the current reviewers stay and the "
+            "response carries a warning. The reason is recorded in the report's work log."
+        ),
+    )
     report_id = serializers.CharField(help_text="Id of the report to edit (must belong to this project).")
     title = serializers.CharField(
         required=False,
