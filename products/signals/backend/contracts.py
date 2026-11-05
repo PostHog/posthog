@@ -7,6 +7,7 @@ import enum
 from collections.abc import Mapping
 from typing import Annotated, Literal, get_args
 
+import re2
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.fields import FieldInfo
 
@@ -59,6 +60,36 @@ class AlertScope(enum.StrEnum):
     INVESTIGATED_ONLY = "investigated_only"
     # Every insight alert that starts to fire, also alerts without the investigation agent.
     ALL_FIRING_ALERTS = "all_firing_alerts"
+
+
+# ── Alert name patterns ─────────────────────────────────────────────────────────
+# Patterns matched against a firing alert's name and its insight's name. Only `ALERT_SCOPE_SOURCE` accepts them.
+# They compile with RE2, which runs in linear time, so a user pattern cannot stall a worker as `re` can.
+ALERT_ALLOW_PATTERNS_KEY = "alert_allow_patterns"
+ALERT_BLOCK_PATTERNS_KEY = "alert_block_patterns"
+ALERT_PATTERNS_MAX_COUNT = 20
+ALERT_PATTERN_MAX_LENGTH = 200
+
+
+def alert_patterns_problem(value: object) -> str | None:
+    """Why `value` is not a valid pattern list, or None when it is. The API rejects the value with
+    this message, and the signal paths drop every alert when a stored list fails it."""
+    if not isinstance(value, list) or not all(isinstance(pattern, str) and pattern for pattern in value):
+        return "must be a list of non-empty strings"
+    if len(value) > ALERT_PATTERNS_MAX_COUNT:
+        return f"must have at most {ALERT_PATTERNS_MAX_COUNT} patterns"
+    for pattern in value:
+        if len(pattern) > ALERT_PATTERN_MAX_LENGTH:
+            return f"patterns must be at most {ALERT_PATTERN_MAX_LENGTH} characters"
+        try:
+            re2.compile(pattern)
+        except re2.error as error:
+            # RE2 raises with the parser message as bytes, which would print as a `b'...'` literal.
+            detail = error.args[0] if error.args else ""
+            if isinstance(detail, bytes):
+                detail = detail.decode(errors="replace")
+            return f"pattern {pattern!r} is not a valid RE2 regex: {detail}"
+    return None
 
 
 # The sources that emit straight through `emit_signal` and still honor steering, via the gate in
