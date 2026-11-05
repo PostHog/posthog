@@ -58,7 +58,7 @@ export default defineCommand({
 - `exitCode` is for results that are not failures but that a script must branch on, like `hog query check` finding errors.
 - `--raw` is global: it prints the result of `run` as JSON and skips both views. Do not add per-command `--raw` or `--debug` flags; return enough data from `run` instead.
 - An argument with `stdin: true` reads stdin when the caller passes `-`, and fails when it is empty. `hog commands` tells agents which arguments accept it.
-- Data that enters hog, such as flags, env vars, files, keychain items and answers from PostHog, is parsed into a typed value at the boundary with a zod schema. It is not checked and then passed on as a plain string. A branded value, such as a `Host`, a `ProjectId` or a token kind, comes only from its factory, such as `parseHost` or `parseProjectId`.
+- Data that enters hog, such as flags, env vars, files, keychain items and answers from PostHog, is parsed into a typed value at the boundary with a zod schema. It is not checked and then passed on as a plain string. A branded value, such as a `Host`, a `ProjectId` or a token kind, comes only from its factory, such as `parseHost` or `parseProjectId`. Semgrep blocks `JSON.parse` outside `src/core/json.ts` and a cast to a brand outside the module that defines it (`.semgrep/rules/devex/hog-typed-boundaries.yaml`).
 - Commands reach the outside world only through `ctx` (`ctx.posthog()`, `ctx.runtime`), so tests can fake it. Do not read `process` or call `fetch` directly.
 - Import heavy dependencies inside `run` with `await import()`. Every command module loads on every call, so a top-level import of a large library slows down all commands.
 - Declare `scopes`. `hog commands` lists them for agents, and a 403 names them in its hint.
