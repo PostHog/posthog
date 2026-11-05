@@ -74,7 +74,7 @@ const SORTABLE_COLUMNS: ColumnSpec[] = [
         label: 'Error rate',
         align: 'right',
         tooltip:
-            'Percentage of calls that returned $mcp_is_error = true. An arrow marks a meaningful change versus the previous period, for tools with at least 20 calls in both.',
+            'Percentage of calls that returned $mcp_is_error = true, leaving out calls the server marked as expected errors, such as rate limits. An arrow marks a meaningful change versus the previous period, for tools with at least 20 calls in both.',
     },
     {
         key: 'p95_duration_ms',

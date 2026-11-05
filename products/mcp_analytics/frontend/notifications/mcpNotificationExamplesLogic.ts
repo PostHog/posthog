@@ -6,6 +6,7 @@ import { MCP_MESSAGE_FIELD_LIMITS, MCPMessageField } from 'scenes/hog-functions/
 
 import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 
+import { MCP_IS_FAILURE_HOGQL } from '../failurePredicate'
 import { asString } from '../queryResultParsers'
 import { MCPNotificationUseCase } from './mcpAnalyticsNotificationsLogic'
 
@@ -39,7 +40,7 @@ SELECT
 FROM events
 WHERE timestamp >= now() - INTERVAL 90 DAY
   AND event = '$mcp_tool_call'
-  AND toBool(properties.$mcp_is_error)
+  AND ${MCP_IS_FAILURE_HOGQL}
 `
 
 const KNOWN_USE_CASES: MCPNotificationUseCase[] = ['tool-error']

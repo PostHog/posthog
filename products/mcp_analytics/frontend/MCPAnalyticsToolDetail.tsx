@@ -777,7 +777,7 @@ export function MCPAnalyticsToolDetail(): JSX.Element {
             <div className="flex flex-col gap-3 px-4 pb-4">
                 <ResultTable
                     title="Failures"
-                    description="Errored calls of this tool grouped by error type and HTTP status. Sourced from the $mcp_is_error flag on $mcp_tool_call events, the same source as the error rate above. Click a row to see individual occurrences."
+                    description="Errored calls of this tool grouped by error type and HTTP status. Sourced from the $mcp_is_error flag on $mcp_tool_call events, the same source as the error rate above. Calls the server marked as expected errors, such as rate limits, are left out. Click a row to see individual occurrences."
                     rows={failureBuckets.map((b) => [b.message, b.occurrences, b.last_seen, b.harnesses])}
                     loading={failureBucketsLoading}
                     emptyMessage="No errored calls recorded for this tool in the selected date range."

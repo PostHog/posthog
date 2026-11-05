@@ -27,6 +27,7 @@ import {
 import { AnyPropertyFilter, IntervalType } from '~/types'
 
 import { mcpClusteringLogic } from './clustering/mcpClusteringLogic'
+import { MCP_IS_FAILURE_HOGQL } from './failurePredicate'
 import type { MCPIntentClusterApi } from './generated/api.schemas'
 import { type MCPSharedQueryFilters, mcpAnalyticsFiltersLogic } from './mcpAnalyticsFiltersLogic'
 import { mcpToolReportUrl } from './mcpAnalyticsToolQualityLogic'
@@ -49,7 +50,7 @@ SELECT
     __BUCKET__ AS bucket,
     countDistinctIf($session_id, $session_id != '') AS sessions,
     count() AS tool_calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
+    countIf(${MCP_IS_FAILURE_HOGQL}) AS errors,
     round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95
 FROM events
 WHERE event = '$mcp_tool_call'
@@ -86,8 +87,8 @@ const SESSION_ROWS_QUERY = `
 SELECT
     $session_id AS session_id,
     count() AS tool_calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct,
+    countIf(${MCP_IS_FAILURE_HOGQL}) AS errors,
+    round(countIf(${MCP_IS_FAILURE_HOGQL}) * 100.0 / count(), 1) AS error_rate_pct,
     dateDiff('second', min(timestamp), max(timestamp)) AS duration_seconds,
     uniq(toString(properties.$mcp_tool_name)) AS distinct_tools,
     max(timestamp) AS last_seen
@@ -109,8 +110,8 @@ const TOOL_ROWS_QUERY = `
 SELECT
     toString(properties.$mcp_tool_name) AS tool,
     count() AS total_calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct,
+    countIf(${MCP_IS_FAILURE_HOGQL}) AS errors,
+    round(countIf(${MCP_IS_FAILURE_HOGQL}) * 100.0 / count(), 1) AS error_rate_pct,
     round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95_duration_ms
 FROM events
 WHERE event = '$mcp_tool_call'
