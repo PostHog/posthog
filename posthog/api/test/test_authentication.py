@@ -38,6 +38,7 @@ from social_django.models import UserSocialAuth
 from two_factor.utils import totp_digits
 from two_factor.views.core import REMEMBER_COOKIE_PREFIX
 
+from posthog.after_response import AfterResponseMiddleware
 from posthog.api.authentication import (
     password_reset_token_generator,
     social_grant_staff_to_google_workspace_members,
@@ -2388,6 +2389,21 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
 
             model_key = PersonalAPIKey.objects.get(secure_value=hash_key_value(personal_api_key))
             self.assertEqual(str(model_key.last_used_at), "2021-08-25 21:09:14+00:00")
+
+    def test_personal_api_key_auth_makes_one_query_and_defers_the_last_used_at_write(self) -> None:
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X", user=self.user, secure_value=hash_key_value(personal_api_key), scopes=["*"], last_used_at=None
+        )
+
+        def view(request: HttpRequest) -> HttpResponse:
+            with self.assertNumQueries(1):
+                PersonalAPIKeyAuthentication().authenticate(request)
+            return HttpResponse()
+
+        AfterResponseMiddleware(view)(
+            RequestFactory().get("/", headers={"authorization": f"Bearer {personal_api_key}"})
+        )
 
 
 class TestTimeSensitivePermissions(APIBaseTest):

@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 import time_machine
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, NonAtomicBaseTest
 from unittest.mock import patch
 
 from django.apps import apps
@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.test import APIRequestFactory
 
 from posthog.schema import EventsQuery
 
@@ -722,6 +723,25 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
         # re-fetch from db
         updated_key = PersonalAPIKey.objects.get(id=key.id)
         assert updated_key.last_used_at is not None
+
+
+class TestPersonalAPIKeyHashUpgradeInAutocommit(NonAtomicBaseTest):
+    def test_upgrades_a_legacy_hash_to_sha256(self) -> None:
+        value = generate_random_token_personal()
+        key = PersonalAPIKey.objects.create(
+            label="Test",
+            user=self.user,
+            secure_value=hash_key_value(value, "pbkdf2", LEGACY_PERSONAL_API_KEY_SALT, iterations=260000),
+            scopes=["*"],
+        )
+
+        result = PersonalAPIKeyAuthentication().authenticate(
+            APIRequestFactory().get("/", HTTP_AUTHORIZATION=f"Bearer {value}")
+        )
+
+        assert result is not None and result[0] == self.user
+        key.refresh_from_db()
+        assert key.secure_value == hash_key_value(value)
 
 
 # NOTE: These tests use feature flags as an example of a scope, but the actual feature flag functionality is not relevant

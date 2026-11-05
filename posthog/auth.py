@@ -5,7 +5,7 @@ import string
 import logging
 import functools
 from abc import abstractmethod
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, ClassVar, Optional, TypedDict, Union
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -30,6 +30,7 @@ from rest_framework.request import Request
 from webauthn.helpers import base64url_to_bytes
 from zxcvbn import zxcvbn
 
+from posthog.after_response import run_after_response
 from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
@@ -338,8 +339,7 @@ class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseA
         return key_with_source[0] if key_with_source is not None else None
 
     @classmethod
-    @transaction.atomic
-    def validate_key(cls, personal_api_key_with_source):
+    def validate_key(cls, personal_api_key_with_source: tuple[str, str]) -> PersonalAPIKey:
         from posthog.models import PersonalAPIKey
 
         personal_api_key, source = personal_api_key_with_source
@@ -378,7 +378,10 @@ class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseA
         # Upgrade the key if it's not in the latest mode. We can do this since above we've already checked
         # that the key is valid in some mode, and we do check for all modes one by one.
         if mode_used != "sha256":
-            with tracer.start_as_current_span("posthog.auth.personal_api_key.mode_upgrade") as upgrade_span:
+            with (
+                tracer.start_as_current_span("posthog.auth.personal_api_key.mode_upgrade") as upgrade_span,
+                transaction.atomic(),
+            ):
                 upgrade_span.set_attribute("auth.hash_mode_used", mode_used or "")
                 key_to_update = PersonalAPIKey.objects.select_for_update().get(id=personal_api_key_object.id)
                 key_to_update.secure_value = hash_key_value(personal_api_key)
@@ -388,6 +391,10 @@ class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseA
             PERSONAL_API_KEY_QUERY_PARAM_COUNTER.labels(personal_api_key_object.user.uuid).inc()
 
         return personal_api_key_object
+
+    @staticmethod
+    def _save_last_used_at(personal_api_key: PersonalAPIKey, last_used_at: datetime) -> None:
+        PersonalAPIKey.objects.filter(id=personal_api_key.id).update(last_used_at=last_used_at)
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         with tracer.start_as_current_span("posthog.auth.personal_api_key") as span:
@@ -406,7 +413,7 @@ class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseA
             # This is to avoid excessive UPDATE queries, while still presenting accurate (down to the hour) info in the UI
             if key_last_used_at is None or (now - key_last_used_at > timedelta(hours=1)):
                 personal_api_key_object.last_used_at = now
-                personal_api_key_object.save(update_fields=["last_used_at"])
+                run_after_response(request, lambda: self._save_last_used_at(personal_api_key_object, now))
             assert personal_api_key_object.user is not None
             refuse_blocked_account(
                 request, personal_api_key_object.user, call_site="personal_api_key", impersonated=False
