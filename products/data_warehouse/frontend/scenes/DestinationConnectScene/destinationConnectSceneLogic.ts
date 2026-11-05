@@ -146,6 +146,17 @@ export interface PrefilledField {
     value: string
 }
 
+// Both ids go into a request path, so a link with anything but ids carries no migration.
+function migrationLinkIds(searchParams: Record<string, any>): { migrationId: string; itemId: string } | null {
+    const { migration_id: migrationId, migration_item_id: itemId } = searchParams
+    return typeof migrationId === 'string' &&
+        typeof itemId === 'string' &&
+        isUUIDLike(migrationId) &&
+        isUUIDLike(itemId)
+        ? { migrationId, itemId }
+        : null
+}
+
 export const destinationConnectSceneLogic = kea<destinationConnectSceneLogicType>([
     path(['products', 'dataWarehouse', 'destinationConnectSceneLogic']),
     connect(() => ({
@@ -421,17 +432,11 @@ export const destinationConnectSceneLogic = kea<destinationConnectSceneLogicType
     })),
     urlToAction(({ actions, values }) => ({
         [urls.warehouseDestinationConnect()]: (_, searchParams) => {
-            const { migration_id: migrationId, migration_item_id: itemId } = searchParams
-            // Both go into a request path, so anything but an id is ignored.
-            if (
-                typeof migrationId === 'string' &&
-                typeof itemId === 'string' &&
-                isUUIDLike(migrationId) &&
-                isUUIDLike(itemId)
-            ) {
+            const migrationLink = migrationLinkIds(searchParams)
+            if (migrationLink) {
                 // Coming back to the same link must not overwrite what the user typed.
-                if (itemId !== values.migrationItemId) {
-                    actions.loadMigrationPrefill(migrationId, itemId)
+                if (migrationLink.itemId !== values.migrationItemId) {
+                    actions.loadMigrationPrefill(migrationLink.migrationId, migrationLink.itemId)
                 }
             } else if (values.migrationItemId !== null) {
                 actions.clearMigrationPrefill()
