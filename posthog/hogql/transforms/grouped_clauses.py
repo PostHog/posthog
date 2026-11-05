@@ -81,8 +81,40 @@ WHOLE_DOCUMENT_GROUPING_ERROR = (
 )
 
 
+class _AliasExpressions(TraversingVisitor):
+    """The expression behind each alias, keyed by the alias type the resolver shares between the alias and every field
+    that refers to it, so an alias of the same name in a lambda or a nested query stays apart."""
+
+    def __init__(self, select: ast.SelectQuery) -> None:
+        super().__init__()
+        self.by_type: dict[int, ast.Expr] = {}
+        self.visit(select)
+
+    def visit_alias(self, node: ast.Alias) -> None:
+        if isinstance(node.type, ast.FieldAliasType):
+            self.by_type[id(node.type)] = node.expr
+        super().visit_alias(node)
+
+
+def _aliased_expression(expr: ast.Expr, aliases: dict[int, ast.Expr]) -> ast.Expr:
+    """The expression behind an alias, or behind a reference to one, which is what ClickHouse groups by."""
+    while True:
+        if isinstance(expr, ast.Alias):
+            expr = expr.expr
+            continue
+        if isinstance(expr, ast.Field) and isinstance(expr.type, ast.FieldAliasType):
+            aliased = aliases.get(id(expr.type))
+            if aliased is not None:
+                expr = aliased
+                continue
+        return expr
+
+
 class _AggregateFinder(TraversingVisitor):
-    found = False
+    def __init__(self, aliases: dict[int, ast.Expr]) -> None:
+        super().__init__()
+        self.aliases = aliases
+        self.found = False
 
     def visit_call(self, node: ast.Call) -> None:
         if find_hogql_aggregation(node.name):
@@ -90,52 +122,48 @@ class _AggregateFinder(TraversingVisitor):
         else:
             super().visit_call(node)
 
+    def visit_field(self, node: ast.Field) -> None:
+        aliased = _aliased_expression(node, self.aliases)
+        if aliased is not node:
+            self.visit(aliased)
+
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         """A subquery's aggregates group the subquery's rows."""
 
 
-def _has_aggregate(node: ast.Expr) -> bool:
-    finder = _AggregateFinder()
-    finder.visit(node)
+def _has_aggregate(expr: ast.Expr, aliases: dict[int, ast.Expr]) -> bool:
+    finder = _AggregateFinder(aliases)
+    finder.visit(expr)
     return finder.found
 
 
 class _ImplicitGroupingKeys(TraversingVisitor):
     """Collects the keys GROUP BY ALL takes from a select column: its largest parts that hold no aggregate."""
 
-    def __init__(self) -> None:
+    def __init__(self, aliases: dict[int, ast.Expr]) -> None:
         super().__init__()
+        self.aliases = aliases
         self.keys: list[ast.Expr] = []
 
     def visit(self, node: AST | None) -> None:
-        if isinstance(node, ast.Call) and find_hogql_aggregation(node.name):
-            return
-        if isinstance(node, ast.Expr) and not _has_aggregate(node):
-            self.keys.append(node)
-            return
+        if isinstance(node, ast.Expr):
+            node = _aliased_expression(node, self.aliases)
+            if isinstance(node, ast.Call) and find_hogql_aggregation(node.name):
+                return
+            if not _has_aggregate(node, self.aliases):
+                self.keys.append(node)
+                return
         super().visit(node)
 
 
-def _grouping_keys(node: ast.SelectQuery) -> list[ast.Expr]:
-    """The keys ClickHouse groups by: an ordinal names a select column, a tuple is one key per element, and
-    GROUP BY ALL takes the largest aggregate-free parts of every select column."""
-    if node.group_by_mode == "all":
-        implicit = _ImplicitGroupingKeys()
-        for expr in node.select:
-            implicit.visit(expr)
-        return implicit.keys
-    keys: list[ast.Expr] = []
-    for group in node.group_by or []:
-        for key in group.exprs if isinstance(group, ast.GroupingSet) else [group]:
-            if isinstance(key, ast.Constant) and type(key.value) is int and 1 <= key.value <= len(node.select):
-                key = node.select[key.value - 1]
-            if isinstance(key, ast.Tuple):
-                keys.extend(key.exprs)
-            elif isinstance(key, ast.Call) and key.name == "tuple":
-                keys.extend(key.args)
-            else:
-                keys.append(key)
-    return keys
+def _key_parts(key: ast.Expr, aliases: dict[int, ast.Expr]) -> list[ast.Expr]:
+    """A key as ClickHouse groups by it: an alias stands for its expression, and a tuple is one key per element."""
+    key = _aliased_expression(key, aliases)
+    if isinstance(key, ast.Tuple):
+        return [part for element in key.exprs for part in _key_parts(element, aliases)]
+    if isinstance(key, ast.Call) and key.name == "tuple":
+        return [part for element in key.args for part in _key_parts(element, aliases)]
+    return [key]
 
 
 def _reads_events_json_document(field_type: ast.Type | None, context: "HogQLContext") -> bool:
@@ -164,6 +192,26 @@ def _reads_events_json_document(field_type: ast.Type | None, context: "HogQLCont
     )
 
 
+def _grouping_keys(node: ast.SelectQuery) -> list[ast.Expr]:
+    """The keys ClickHouse groups by: an ordinal names a select column, and GROUP BY ALL takes the largest
+    aggregate-free parts of every select column."""
+    aliases = _AliasExpressions(node).by_type
+    keys: list[ast.Expr] = []
+    if node.group_by_mode == "all":
+        implicit = _ImplicitGroupingKeys(aliases)
+        for expr in node.select:
+            implicit.visit(expr)
+        keys = implicit.keys
+    else:
+        for group in node.group_by or []:
+            for key in group.exprs if isinstance(group, ast.GroupingSet) else [group]:
+                key = _aliased_expression(key, aliases)
+                if isinstance(key, ast.Constant) and type(key.value) is int and 1 <= key.value <= len(node.select):
+                    key = node.select[key.value - 1]
+                keys.append(key)
+    return [part for key in keys for part in _key_parts(key, aliases)]
+
+
 def raise_on_whole_document_grouping(node: ast.SelectQuery, context: "HogQLContext") -> None:
     """Rejects a JSON document of the events table, `properties` or `person_properties`, as a grouping key.
 
@@ -173,7 +221,5 @@ def raise_on_whole_document_grouping(node: ast.SelectQuery, context: "HogQLConte
     the other.
     """
     for key in _grouping_keys(node):
-        while isinstance(key, ast.Alias):
-            key = key.expr
         if isinstance(key, ast.Field) and _reads_events_json_document(key.type, context):
             raise QueryError(WHOLE_DOCUMENT_GROUPING_ERROR, node=key)

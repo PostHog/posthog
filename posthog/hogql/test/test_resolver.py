@@ -2419,6 +2419,29 @@ class TestResolver(BaseTest):
             ("grouping_sets", "SELECT event, count() FROM events GROUP BY GROUPING SETS ((event), (properties))", None),
             ("tuple_key", "SELECT properties.$browser, count() FROM events GROUP BY (properties, event)", None),
             ("group_by_all_inside_an_expression", "SELECT tuple(properties, count()) FROM events GROUP BY ALL", None),
+            ("tuple_alias", "SELECT tuple(properties, event) AS k, count() FROM events GROUP BY k", None),
+            ("tuple_under_group_by_all", "SELECT tuple(properties, event), count() FROM events GROUP BY ALL", None),
+            (
+                "aggregate_alias_under_group_by_all",
+                "SELECT count() AS n, if(n > 0, properties, '') AS p FROM events GROUP BY ALL",
+                None,
+            ),
+            (
+                "nested_aggregate_alias_under_group_by_all",
+                "SELECT (count() AS n) + 1, if(n > 0, properties, '') FROM events GROUP BY ALL",
+                None,
+            ),
+            (
+                "nested_tuple_alias",
+                "SELECT toString(tuple(properties, event) AS k), count() FROM events GROUP BY k",
+                None,
+            ),
+            ("aliased_ordinal", "SELECT properties, properties.browser, count() FROM events GROUP BY (1 AS k)", None),
+            (
+                "alias_shadowing_a_column",
+                "SELECT properties AS event, properties.x, any(events.event) FROM events GROUP BY event",
+                None,
+            ),
             (
                 "subquery_column",
                 "SELECT properties, count() FROM (SELECT properties FROM events) GROUP BY properties",
@@ -2466,9 +2489,22 @@ class TestResolver(BaseTest):
             ("ordinal_to_key", "SELECT event, count() FROM events GROUP BY 1"),
             ("aggregate_under_group_by_all", "SELECT any(properties), count() FROM events GROUP BY ALL"),
             ("aggregate_argument", "SELECT any(properties) FROM events GROUP BY event"),
+            (
+                "aggregate_alias_wrapping_the_document",
+                "SELECT count() AS n, if(n > 0, toString(properties), '') FROM events GROUP BY ALL",
+            ),
             ("subquery_wrapped", "SELECT s, count() FROM (SELECT toString(properties) AS s FROM events) GROUP BY s"),
             ("tuple_of_keys", "SELECT properties.$browser, count() FROM events GROUP BY (properties.$browser, event)"),
             ("persons_document", "SELECT properties.email, count() FROM persons GROUP BY properties"),
+            (
+                "column_aliased_properties",
+                "SELECT event AS properties, any(events.properties) FROM events GROUP BY properties",
+            ),
+            ("lambda_argument_named_like_an_alias", "SELECT arrayMap(x -> x, [1]) AS x FROM events GROUP BY ALL"),
+            (
+                "lambda_local_alias",
+                "SELECT event AS p, any(arrayMap(x -> (properties AS p), [1])) FROM events GROUP BY p",
+            ),
         ]
     )
     def test_grouping_by_a_property_key_or_a_wrapped_document_resolves(self, _name: str, query: str) -> None:
