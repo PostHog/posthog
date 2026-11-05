@@ -90,6 +90,7 @@ export interface channelCatalogLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         sandboxSetupError: (
             sandboxEmailSenderEnabled: boolean,
+            integrations: IntegrationType[] | null,
             integrationsLoadFailed: boolean,
             sandboxEmailSender: IntegrationType | null,
             sandboxProvisionError: string | null
