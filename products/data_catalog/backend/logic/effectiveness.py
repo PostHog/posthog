@@ -47,7 +47,6 @@ from .usage_adjusted import (
 )
 from .usage_judge import JudgeVerdict, MetricBrief
 from .usage_topics import (
-    SESSION_SAMPLE_LIMIT,
     CoverageVerdict,
     SessionKind,
     SessionLookups,
@@ -68,6 +67,10 @@ DEFINITION_VERSION = 1
 
 SESSION_OUTCOME_EVENT = "data catalog session outcome"
 TEAM_MEASURED_EVENT = "data catalog effectiveness measured"
+
+# Each session costs one model read. This check takes a larger sample than the usage scan, because it
+# splits the sessions into five outcomes and reports examples of the rare ones.
+EFFECTIVENESS_SESSION_LIMIT = 5000
 
 # Bounds one team's judge spend. A team that reaches it reports the rest as unchecked queries.
 _JUDGE_CALL_CAP = 3000
@@ -550,7 +553,11 @@ class _TelemetryWindow:
 
     def sessions(self) -> list[SessionText]:
         return fetch_topic_sessions(
-            team=self.team, telemetry_team=self.telemetry_team, window_start=self.start, window_end=self.end
+            team=self.team,
+            telemetry_team=self.telemetry_team,
+            window_start=self.start,
+            window_end=self.end,
+            session_limit=EFFECTIVENESS_SESSION_LIMIT,
         )
 
     def lookups(self, session_ids: list[str]) -> dict[str, SessionLookups]:
@@ -670,7 +677,7 @@ async def measure_team(
         window_start=window_start,
         window_end=window_end,
         sessions_read=len(sessions),
-        is_sample=len(sessions) >= SESSION_SAMPLE_LIMIT,
+        is_sample=len(sessions) >= EFFECTIVENESS_SESSION_LIMIT,
         unread_sessions=sum(reading.kind == SessionKind.UNREAD for reading in readings),
         analysis_sessions=len(analysis),
         unchecked_queries=count_unchecked_queries(verdicts, selection.over_cap),

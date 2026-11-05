@@ -488,3 +488,11 @@ class TestTopicSessionsQuery(ClickhouseTestMixin, BaseTest):
             ),
             _session("trends", "query-trends", person="d1", notes=("weekly signups",)),
         ]
+        capped = fetch_topic_sessions(
+            team=self.team,
+            telemetry_team=self.team,
+            window_start=end - timedelta(days=1),
+            window_end=end,
+            session_limit=1,
+        )
+        assert len(capped) == 1
