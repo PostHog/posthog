@@ -95,6 +95,7 @@ from products.warehouse_sources.backend.presentation.views.external_data_source.
 )
 from products.warehouse_sources.backend.presentation.views.external_data_source.source_setup import (
     ExternalDataSourceSerializers,
+    _payload_sync_frequency_interval,
 )
 from products.warehouse_sources.backend.presentation.views.external_data_source.viewset import ExternalDataSourceViewSet
 from products.warehouse_sources.backend.temporal.data_imports import schema_flags
@@ -13718,6 +13719,23 @@ class TestExternalDataSourceSetup(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert PendingSourceCredential.objects.for_team(self.team.pk).filter(pk=credential.pk).exists()
+
+
+class TestPayloadSyncFrequency(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("settable", "15min", timedelta(minutes=15)),
+            # Below the 5-minute floor a schema update enforces, so creation falls back to the default.
+            ("below_floor", "1min", timedelta(hours=6)),
+            ("never", "never", timedelta(hours=6)),
+            ("unknown", "2hour", timedelta(hours=6)),
+            ("missing", None, timedelta(hours=6)),
+        ]
+    )
+    def test_creation_takes_only_frequencies_a_schema_update_accepts(
+        self, _name: str, frequency: str | None, expected: timedelta
+    ) -> None:
+        assert _payload_sync_frequency_interval(frequency) == expected
 
 
 class TestExternalDataSourceStoreCredentials(APIBaseTest):
