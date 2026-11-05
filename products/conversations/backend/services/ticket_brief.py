@@ -25,7 +25,14 @@ def write_brief_for_ticket(*, team_id: int, ticket_id: str, respect_opt_in: bool
         return WriteBriefOutput(written=False, reason="ticket_gone")
     return asyncio.run(
         _write_brief(
-            WriteBriefInput(team_id=team_id, ticket_id=ticket_id, ticket_context=built.ticket_context),
+            WriteBriefInput(
+                team_id=team_id,
+                ticket_id=ticket_id,
+                ticket_context=built.ticket_context,
+                # There is no workflow run to borrow a trace from, so the ticket groups this
+                # call in LLM observability the way the pipeline's trace groups its own.
+                trace_id=ticket_id,
+            ),
             respect_opt_in=respect_opt_in,
         )
     )
