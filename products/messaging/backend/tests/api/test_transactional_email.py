@@ -312,6 +312,47 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         assert capture.call_args.kwargs["properties"]["authorized_by"] == expected_authorized_by
 
+    @parameterized.expand(
+        [
+            ("integration_header", {"X-PostHog-Integration": "django-anymail/13.1"}, "django-anymail"),
+            ("user_agent", {"User-Agent": "PostHog-Node/5.9.1 (node v22)"}, "posthog-node"),
+            (
+                "header_over_user_agent",
+                {"X-PostHog-Integration": "nodemailer/5.9.1", "User-Agent": "posthog-node/5.9.1"},
+                "nodemailer",
+            ),
+            ("neither", {}, "unknown"),
+            (
+                "malformed_header",
+                {"X-PostHog-Integration": "Laravel 1.4", "User-Agent": "posthog-laravel/1.4.0"},
+                "posthog-laravel",
+            ),
+        ]
+    )
+    def test_records_the_client_that_made_the_send(self, mock_post, _flag, capture, _name, headers, expected_client):
+        self._cdp_accepts(mock_post)
+
+        response = self._send(
+            self._psak_client(["transactional_email:write"]), "send_email", self.body, headers=headers
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert capture.call_args.kwargs["properties"]["client"] == expected_client
+
+    def test_a_send_still_queues_when_its_usage_event_fails(self, mock_post, _flag, capture):
+        self._cdp_accepts(mock_post)
+        capture.side_effect = RuntimeError("analytics down")
+
+        response = self._send(
+            self._psak_client(["transactional_email:write"]),
+            "send_email",
+            self.body,
+            headers={"X-PostHog-Integration": "nodemailer/5.9.1"},
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert response.json() == {"message_id": "invocation-1", "replayed": False}
+
     def test_a_personal_api_key_with_the_send_scope_cannot_change_the_template(self, mock_post, _flag, _capture):
         self._cdp_accepts(mock_post)
         client = APIClient()
