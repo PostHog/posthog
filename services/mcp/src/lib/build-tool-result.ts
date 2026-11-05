@@ -90,6 +90,7 @@ export function isToolCallPayload(value: unknown): value is ToolResultPayload {
 interface BuiltResponseText {
     structuredContentOnly: boolean
     footers: string[]
+    nextPageHint?: string | undefined
     resultEmpty: boolean
     bodySource?: ResponseBodySource | undefined
 }
@@ -141,6 +142,10 @@ export function estimateResponseTokens(response: ToolResultPayload): number {
  * Text and `structuredContent` are bounded separately because Codex sends `structuredContent` to the model
  * whenever it is present. `_meta` stays whole: hosts pass it to the UI app, not the model.
  */
+function joinFooters(footers: string[]): string {
+    return footers.length > 0 ? `\n\n${footers.join('\n\n')}` : ''
+}
+
 export function capResponseToBudget(response: ToolResultPayload, maxTokens: number | undefined): ToolResultPayload {
     if (maxTokens === undefined) {
         return response
@@ -158,12 +163,18 @@ export function capResponseToBudget(response: ToolResultPayload, maxTokens: numb
     const capped: ToolResultPayload = { ...response }
     if (!textFits) {
         const footers = built?.footers ?? []
-        const footerText = footers.length > 0 ? `\n\n${footers.join('\n\n')}` : ''
+        const footerText = joinFooters(footers)
         const hasFooters = footerText !== '' && text.endsWith(footerText)
         const body = hasFooters ? text.slice(0, -footerText.length) : text
         const bodyBytes = maxBytes - (hasFooters ? byteLength(footerText) : 0)
         const bounded = boundText(body, maxTokens, built?.bodySource, bodyBytes)
-        capped.content = [{ type: 'text', text: hasFooters ? bounded + footerText : bounded }]
+        // The next-page hint offsets past the full page, so it would skip any rows the bound dropped.
+        const keptFooterText = !hasFooters
+            ? ''
+            : bounded === body
+              ? footerText
+              : joinFooters(footers.filter((footer) => footer !== built?.nextPageHint))
+        capped.content = [{ type: 'text', text: bounded + keptFooterText }]
     }
     if (!structuredFits) {
         const fitted = fitValue(structuredContent, (value) => JSON.stringify(value), maxBytes, maxTokens)
@@ -290,9 +301,10 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
     const body = formattedBody ?? (useJson ? JSON.stringify(rawResult) : formatResponse(rawResult))
 
     const footers: string[] = []
+    let nextPageHint: string | null = null
 
     if (!isStringResult && !useJson && !structuredContentOnly && !isPrepareConfirmedActionResult(handlerResult)) {
-        const nextPageHint = getNextPageHint(toolName, rawResult)
+        nextPageHint = getNextPageHint(toolName, rawResult)
         if (nextPageHint) {
             footers.push(nextPageHint)
         }
@@ -310,6 +322,7 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
     builtResponseText.set(payload, {
         structuredContentOnly,
         footers,
+        nextPageHint: nextPageHint ?? undefined,
         resultEmpty: isEmptyToolResult(handlerResult, toolName),
         bodySource,
     })
