@@ -18,7 +18,7 @@ import {
     verifiedOwnEmailSenders,
 } from '../Channels/defaultEmailSender'
 import type { HogFlow, HogFlowAction } from './hogflows/types'
-import { emailStepValue, takesOwnSender, withEmailSender } from './workflowEmailPrefill'
+import { emailStepValue, takesOwnSender, withEmailSender, withStepSender } from './workflowEmailPrefill'
 
 function takesSandboxSender(action: HogFlowAction, workflow: HogFlow): boolean {
     const value = emailStepValue(action)
@@ -59,6 +59,13 @@ function sandboxApplies(integrations: IntegrationType[], sandboxAllowed: boolean
     return sandboxAllowed && sandboxSenderEnabled() && verifiedOwnEmailSenders(integrations).length === 0
 }
 
+function chooseSender(integrations: IntegrationType[], sandboxAllowed: boolean): DefaultEmailSender | null {
+    const sandbox = integrations.find(isSandboxEmailSender)
+    return sandbox && sandboxApplies(integrations, sandboxAllowed)
+        ? { integrationId: sandbox.id, reason: 'sandbox_sender' }
+        : resolveDefaultEmailSender(integrations, teamDefaultSenderId())
+}
+
 async function resolveFirstRunSender(allowSandbox: boolean): Promise<DefaultEmailSender | null> {
     try {
         const integrations = await loadEveryIntegrationPage()
@@ -73,8 +80,6 @@ async function resolveFirstRunSender(allowSandbox: boolean): Promise<DefaultEmai
     }
 }
 
-// An email step inserted meanwhile takes its sender from the shared list, so preparation ends only once that list
-// has loaded. A shared load still in flight is replaced, and the await follows whichever load finishes last.
 async function sharedIntegrationsLoaded(): Promise<void> {
     const logic = integrationsLogic.findMounted()
     if (logic && logic.values.integrations === null) {
@@ -97,7 +102,7 @@ export function withInsertedStepSender(
     const sender = takesOwnSender(action)
         ? chooseSender(integrations ?? [], takesSandboxSender(action, workflow))
         : null
-    return { action: sender ? withSender(action, sender.integrationId) : action, sender }
+    return { action: sender ? withStepSender(action, sender.integrationId) : action, sender }
 }
 
 export async function withFirstRunSender(
