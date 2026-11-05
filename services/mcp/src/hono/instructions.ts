@@ -152,19 +152,24 @@ export class InstructionsBuilder {
         }
     }
 
+    /** Typed-runner routing drives tool choice on most analytics tasks, so cli clients keep it in the
+     *  compact reference, and the `analytics` guide leaves it out. Claude web/desktop keep it in the guide. */
+    private compactExecContext(state: ExecToolState): InstructionsContext {
+        return { ...this.buildContext(state), queryRoutingInline: !state.clientProfile.isClaudeChatHost() }
+    }
+
     buildExecCommandReference(state: ExecToolState): string {
         const { guidesEnabled, skillsEnabled } = this.getExecLearnCapabilities(state)
-        const ctx = this.buildContext(state)
         const claudeChat = state.clientProfile.isClaudeChatHost()
         // Claude web/desktop stay on the compact reference without `learn`, because the full one overflows their schema cap.
         if (claudeChat || guidesEnabled) {
-            return this.formatter.buildCompactExecCommandReference(ctx, {
+            return this.formatter.buildCompactExecCommandReference(this.compactExecContext(state), {
                 claudeChat,
                 learnEnabled: guidesEnabled || skillsEnabled,
                 skillsEnabled,
             })
         }
-        return this.formatter.buildExecCommandReference(ctx)
+        return this.formatter.buildExecCommandReference(this.buildContext(state))
     }
 
     buildExecLearnCatalog(state: ResolvedState, skills: SkillCatalog | undefined): ExecLearnCatalog | undefined {
@@ -172,12 +177,7 @@ export class InstructionsBuilder {
         if (!guidesEnabled && !skillsEnabled) {
             return undefined
         }
-        const guides = guidesEnabled
-            ? this.formatter.buildExecLearnGuides({
-                  ...this.buildContext(state),
-                  queryRoutingInline: !state.clientProfile.isClaudeChatHost(),
-              })
-            : []
+        const guides = guidesEnabled ? this.formatter.buildExecLearnGuides(this.compactExecContext(state)) : []
         const canReadProjectSkills = skillsEnabled && hasScope(state.apiKeyScopes, 'llm_skill:read')
         // The catalog (and this closure) is rebuilt per request, so this Set dedupes
         // within one exec command — a 5-file batch of one skill fires a single event,

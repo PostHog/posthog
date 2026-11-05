@@ -441,7 +441,7 @@ describe('InstructionsFormatter', () => {
     describe('cli exec guidance with skills', () => {
         it('keeps the query-tool routing inline', () => {
             const result = new InstructionsFormatter().buildCompactExecCommandReference(
-                { ...fullCtx, renderUiEnabled: false },
+                { ...fullCtx, renderUiEnabled: false, queryRoutingInline: true },
                 { skillsEnabled: true }
             )
 
