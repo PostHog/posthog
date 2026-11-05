@@ -50,6 +50,7 @@ export interface messageTemplateTestSendLogicValues {
     recipientEmail: string
     recipientIsUnverifiedSelf: boolean
     recipientNotSuggested: boolean
+    recipientUncheckable: boolean
     recipientSuggestions: string[]
     sendDisabledReason: string | undefined
     senderIntegrationId: number | null
@@ -148,6 +149,12 @@ export interface messageTemplateTestSendLogicMeta {
             recipientEmail: string,
             members: OrganizationMemberType[] | null,
             recipientSuggestions: string[]
+        ) => boolean
+        recipientUncheckable: (
+            isSandboxSenderSelected: boolean,
+            membersLoadFailed: boolean,
+            recipientEmail: string,
+            user: UserType | null
         ) => boolean
         sendDisabledReason: (
             template: MessageTemplate,
@@ -341,6 +348,19 @@ export const messageTemplateTestSendLogic = kea<messageTemplateTestSendLogicType
                 members !== null &&
                 isEmail(recipientEmail) &&
                 !recipientSuggestions.some((suggestion) => sameEmail(suggestion, recipientEmail)),
+        ],
+        recipientUncheckable: [
+            (s) => [s.isSandboxSenderSelected, s.membersLoadFailed, s.recipientEmail, s.user],
+            (
+                isSandboxSenderSelected: boolean,
+                membersLoadFailed: boolean,
+                recipientEmail: string,
+                user: UserType | null
+            ): boolean =>
+                isSandboxSenderSelected &&
+                membersLoadFailed &&
+                isEmail(recipientEmail) &&
+                !(user?.is_email_verified === true && sameEmail(user.email, recipientEmail)),
         ],
         sendDisabledReason: [
             (s) => [
