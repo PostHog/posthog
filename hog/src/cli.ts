@@ -21,7 +21,7 @@ import { DRY_RUN_ENV, envFlag, GLOBAL_OPTIONS, networkRuntime, optOutFlag, resol
 import { Output } from '@/core/output'
 import type { Runtime } from '@/core/runtime'
 import { Telemetry } from '@/core/telemetry'
-import { capitalize, kebabCase } from '@/core/text'
+import { kebabCase } from '@/core/text'
 import { ApiError } from '@/posthog/api'
 import { resolveCredentials } from '@/posthog/credentials'
 import { VERSION } from '@/version'
@@ -388,7 +388,7 @@ function toHogError(caught: unknown): HogError {
     }
     if (caught instanceof CommanderError) {
         const message = caught.message.replace(/^error: /, '')
-        const sentence = capitalize(message)
+        const sentence = message.charAt(0).toUpperCase() + message.slice(1)
         if (caught.code === 'commander.unknownCommand') {
             const name = /unknown command '([^']+)'/.exec(caught.message)?.[1] ?? ''
             const renamed = RENAMED[name]
