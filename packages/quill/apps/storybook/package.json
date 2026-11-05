@@ -23,7 +23,7 @@
         "tailwindcss-scroll-mask": "^0.0.3"
     },
     "devDependencies": {
-        "@storybook/addon-docs": "^10.4.3",
+        "@storybook/addon-docs": "^10.6.5",
         "@storybook/react": "catalog:",
         "@storybook/react-vite": "catalog:",
         "@storybook/test-runner": "^0.24.4",
@@ -35,7 +35,7 @@
         "chokidar": "^3.6.0",
         "jest-image-snapshot": "^6.4.0",
         "storybook": "catalog:",
-        "storybook-addon-pseudo-states": "^10.4.3",
+        "storybook-addon-pseudo-states": "^10.6.5",
         "storybook-dark-mode": "^5.0.0",
         "typescript": "catalog:",
         "vite": "catalog:"
