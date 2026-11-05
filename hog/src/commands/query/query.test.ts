@@ -13,17 +13,16 @@ const ROWS = {
 }
 
 describe('hog query', () => {
-    test('run fails on an answer of the wrong shape, and names the field', async () => {
+    test('run fails on an answer of the wrong shape, and names every field that is wrong', async () => {
         const result = await runHog(['query', 'run', 'select 1'], {
             env: TEST_CREDENTIALS,
-            respond: () => ({ status: 200, body: { results: 'not rows' } }),
+            respond: () => ({ status: 200, body: { columns: 5, results: 'not rows' } }),
         })
 
         expect(result.exitCode).toBe(1)
-        expect(result.error()).toMatchObject({
-            code: 'unexpected_response',
-            message: expect.stringContaining('results:'),
-        })
+        expect(result.error()).toMatchObject({ code: 'unexpected_response' })
+        expect(result.error().message).toContain('columns:')
+        expect(result.error().message).toContain('results:')
     })
 
     test.each([

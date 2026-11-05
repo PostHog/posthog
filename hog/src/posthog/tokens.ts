@@ -1,7 +1,6 @@
 import { z } from 'zod'
 
 import { parser } from '@/core/schema'
-import { capitalize } from '@/core/text'
 
 // The prefixes PostHog issues, from posthog/models/utils.py.
 const TOKEN_KINDS = {
@@ -31,7 +30,7 @@ const JWT = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
 function tokenErrorMessage(value: string, name: string, rule: string): string {
     const other = PREFIX_NAMES[value.slice(0, 4)]
     return other
-        ? `This is ${other}, not ${name}. ${capitalize(name)} must ${rule}.`
+        ? `This is ${other}, not ${name}, which must ${rule}.`
         : `This doesn't look like ${name}: it must ${rule}.`
 }
 
@@ -111,11 +110,11 @@ export type WorkloadToken = z.output<typeof WorkloadTokenSchema>
 export type BearerToken = PersonalApiKey | OAuthAccessToken
 
 const LOG_IN_AGAIN = 'Run `hog auth login` to log in again.'
-const PROJECT_SETTINGS = 'Copy it again from Settings > Project in PostHog.'
+const PROJECT_SETTINGS = 'Copy it again from your project settings: https://app.posthog.com/settings/project-details'
 
 export const parsePersonalApiKey = parser(PersonalApiKeySchema, {
     code: 'invalid_personal_api_key',
-    hint: 'Create a personal API key in PostHog under Settings > Personal API keys.',
+    hint: 'Create a personal API key in PostHog: https://app.posthog.com/settings/user-api-keys',
 })
 export const parseProjectToken = parser(ProjectTokenSchema, { code: 'invalid_project_token', hint: PROJECT_SETTINGS })
 export const parseProjectSecretApiKey = parser(ProjectSecretApiKeySchema, {
