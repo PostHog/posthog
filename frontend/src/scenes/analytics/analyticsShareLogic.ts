@@ -216,7 +216,7 @@ export interface analyticsShareLogicMeta {
         pickerErrorMessage: (
             pickerSearching: boolean,
             browsePath: string | null,
-            searchResultsFailed: any,
+            searchResultsFailed: boolean,
             folderContentsFailed: boolean
         ) => string | null
         pickerEmptyMessage: (pickerSearching: boolean, pickerSearch: string, browsePath: string | null) => string
@@ -268,10 +268,12 @@ function toDestination(entry: FileSystemEntry): ShareDestination {
     return { path: entry.path, name: fileSystemEntryName(entry) }
 }
 
-async function listChildFolders(parent: string, depth: number): Promise<FileSystemEntry[]> {
+async function listChildFolders(parent: string, depth: number, breakpoint: () => void): Promise<FileSystemEntry[]> {
     const folders: FileSystemEntry[] = []
     for (let offset = 0; ; offset += 200) {
         const page = await api.fileSystem.list({ parent, depth, type: 'folder', limit: 200, offset })
+        // Stops the scan of a folder the user has already left.
+        breakpoint()
         folders.push(...page.results)
         if (!page.next || !page.results.length) {
             return folders
@@ -339,7 +341,7 @@ export const analyticsShareLogic = kea<analyticsShareLogicType>([
                     const depth = splitPath(parent).length + 1
                     // Folders load apart from items, so a full page of items cannot hide a folder to move into.
                     const [folders, items] = await Promise.all([
-                        listChildFolders(parent, depth),
+                        listChildFolders(parent, depth, breakpoint),
                         api.fileSystem.list({ parent, depth, notType: 'folder', limit: 100 }),
                     ])
                     breakpoint()
