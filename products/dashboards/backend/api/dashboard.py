@@ -1229,6 +1229,15 @@ class InsightResultSerializer(InsightSerializer):
         read_only_fields = fields
 
     def to_representation(self, instance: Insight):
+        # Check access before rendering, because rendering `result` runs the insight's query.
+        # A dashboard the user can view may carry insights they cannot.
+        user_access_level = self.get_user_access_level(instance)
+        if user_access_level and not access_level_satisfied_for_resource("insight", user_access_level, "viewer"):
+            return {
+                "id": instance.id,
+                "short_id": instance.short_id,
+                "user_access_level": user_access_level,
+            }
         # Skip InsightSerializer.to_representation which references fields
         # (dashboard_tiles, dashboards, etc.) we've excluded from this narrow serializer.
         return serializers.ModelSerializer.to_representation(self, instance)

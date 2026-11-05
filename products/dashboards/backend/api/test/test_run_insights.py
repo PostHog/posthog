@@ -1,7 +1,7 @@
 import json
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.test import override_settings
 from django.utils import timezone
@@ -22,12 +22,14 @@ from posthog.schema import (
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_result import InsightResult
-from posthog.models.organization import Organization
+from posthog.constants import AvailableFeature
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
 from products.dashboards.backend.access import DashboardAccessMethod
-from products.dashboards.backend.api.dashboard import DashboardsViewSet
+from products.dashboards.backend.api.dashboard import DashboardsViewSet, InsightResultSerializer
 from products.dashboards.backend.constants import RUN_INSIGHTS_MIN_TILE_CHARS
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
@@ -99,6 +101,42 @@ class TestDashboardRunInsights(APIBaseTest):
                 set(insight.keys()),
                 {"id", "short_id", "name", "derived_name", "result", "warnings"},
             )
+
+    @parameterized.expand([("json",), ("optimized",)])
+    def test_masks_insights_the_member_cannot_view(self, output_format: str) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        hidden_id, _ = self.dashboard_api.create_insight(
+            {"name": "Hidden", "query": _trends_query_dict(), "dashboards": [dashboard_id]}
+        )
+        visible_id, _ = self.dashboard_api.create_insight(
+            {"name": "Visible", "query": _trends_query_dict("$autocapture"), "dashboards": [dashboard_id]}
+        )
+        AccessControl.objects.create(
+            team=self.team, resource="insight", resource_id=str(hidden_id), access_level="none"
+        )
+        member = self._create_user("member@example.com", level=OrganizationMembership.Level.MEMBER)
+        self.client.force_login(member)
+
+        with patch(
+            "products.dashboards.backend.api.dashboard.InsightResultSerializer.insight_result",
+            autospec=True,
+            side_effect=InsightResultSerializer.insight_result,
+        ) as insight_result:
+            body = self._run(dashboard_id, output_format=output_format)
+
+        insights = {tile["insight"]["id"]: tile["insight"] for tile in body["results"]}
+        self.assertEqual(
+            insights[hidden_id],
+            {"id": hidden_id, "short_id": ANY, "user_access_level": "none"},
+        )
+        self.assertEqual(insights[visible_id]["name"], "Visible")
+        self.assertIn("result", insights[visible_id])
+        computed_ids = {call.args[1].id for call in insight_result.call_args_list}
+        self.assertNotIn(hidden_id, computed_ids)
 
     def test_json_format_returns_raw_query_results(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
