@@ -481,7 +481,7 @@ class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
         assert response.results == [(0,)]
         assert response.clickhouse is not None
         assert ("move_primary_key_columns_to_end_of_prewhere=0" in response.clickhouse) is expected
-        assert self._get_log_comment(marker).get("team_first_prewhere") is (True if expected else None)
+        assert self._get_log_comment(marker)["modifiers"].get("teamFirstPrewhere") is (True if expected else None)
 
     @parameterized.expand([("approved", True), ("not_approved", False)])
     def test_sync_execute_preserves_ai_data_processing_approved_tag(self, _name, approved):

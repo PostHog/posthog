@@ -678,10 +678,14 @@ class HogQLQueryExecutor:
             return {}
         return types
 
-    def _checks_team_first_in_prewhere(self) -> bool | None:
-        if self.clickhouse_settings is None:
-            return None
-        return self.clickhouse_settings.move_primary_key_columns_to_end_of_prewhere is False or None
+    def _modifiers_tag(self) -> dict[str, Any]:
+        tag = {k: v for k, v in self.modifiers.model_dump().items() if v is not None} if self.modifiers else {}
+        if (
+            self.clickhouse_settings is not None
+            and self.clickhouse_settings.move_primary_key_columns_to_end_of_prewhere is False
+        ):
+            tag["teamFirstPrewhere"] = True
+        return tag
 
     def _column_formats(self) -> list[str | None] | None:
         if self.send_raw_query and self.connection_id is not None:
@@ -1041,11 +1045,8 @@ class HogQLQueryExecutor:
                 hogql_features=hogql_features,
                 **self.context.read_tags(),
                 plan_fingerprint=plan_fingerprint,
-                team_first_prewhere=self._checks_team_first_in_prewhere(),
                 timings=timings_dict,
-                modifiers=(
-                    {k: v for k, v in self.modifiers.model_dump().items() if v is not None} if self.modifiers else {}
-                ),
+                modifiers=self._modifiers_tag(),
             )
 
             workload = self.workload

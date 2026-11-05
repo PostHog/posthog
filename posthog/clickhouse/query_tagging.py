@@ -590,7 +590,6 @@ class QueryTags(BaseModel):
     # query_log to calibrate it. None until the estimator runs.
     estimated_rows: Optional[int] = None
     estimated_bytes: Optional[int] = None
-    team_first_prewhere: Optional[bool] = None
 
     modifiers: Optional[object] = None
     number_of_entities: Optional[int] = None
