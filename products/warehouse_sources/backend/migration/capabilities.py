@@ -36,5 +36,5 @@ def source_capabilities(source_type: ExternalDataSourceType) -> SourceCapabiliti
             for field in config.fields
             if isinstance(field, SourceFieldSwitchGroupConfig | SourceFieldSSHTunnelConfig)
         ),
-        feature_flags=frozenset(flag for flag in (config.featureFlag, source.requires_team_feature_flag) if flag),
+        feature_flags=frozenset({config.featureFlag} if config.featureFlag else ()),
     )
