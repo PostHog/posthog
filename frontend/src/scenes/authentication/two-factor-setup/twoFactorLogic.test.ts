@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { userLogic } from 'scenes/userLogic'
 
@@ -133,6 +134,7 @@ describe('twoFactorLogic', () => {
         })
         useMocks({ get: { '/api/users/@me/two_factor_start_setup/': setupRequest } })
         initKeaTests()
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
         const logic = twoFactorLogic()
         logic.mount()
 
@@ -142,6 +144,9 @@ describe('twoFactorLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadStartSetupSuccess']).toFinishAllListeners()
 
         expect(setupRequest).toHaveBeenCalledTimes(1)
+        expect(capture.mock.calls.filter(([event]) => event === 'two_factor_setup_started')).toEqual([
+            ['two_factor_setup_started', { forced: true }],
+        ])
     })
 
     it('shows no secret after a failed setup call and loads one on the next open', async () => {

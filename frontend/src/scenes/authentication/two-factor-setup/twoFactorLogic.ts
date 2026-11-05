@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, prop
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { lazyLoaders, loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -414,9 +415,10 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
         },
     })),
     listeners(({ props, actions, values }) => ({
-        openTwoFactorSetupModal: () => {
+        openTwoFactorSetupModal: ({ forceOpen }) => {
             // Concurrent setup calls can each create a secret, so only one call runs at a time.
             if (!values.startSetupLoading) {
+                posthog.capture('two_factor_setup_started', { forced: !!forceOpen })
                 actions.loadStartSetup()
             }
         },
@@ -426,6 +428,7 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
             }
         },
         submitTokenSuccess: () => {
+            posthog.capture('two_factor_setup_completed')
             lemonToast.success('2FA method added successfully')
             actions.loadStatus()
             props.onSuccess?.()
@@ -434,6 +437,7 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
             try {
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. usersTwoFactorDisableCreate() from '~/generated/core/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 await api.create<any>('api/users/@me/two_factor_disable/')
+                posthog.capture('two_factor_disabled')
                 lemonToast.success('2FA disabled successfully. The page will reload.')
                 actions.loadStatus()
 
@@ -448,6 +452,7 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
             }
         },
         generateBackupCodesSuccess: ({ generatingCodes }) => {
+            posthog.capture('two_factor_backup_codes_generated')
             lemonToast.success('Backup codes generated successfully')
             if (values.status && generatingCodes) {
                 actions.loadStatusSuccess({
