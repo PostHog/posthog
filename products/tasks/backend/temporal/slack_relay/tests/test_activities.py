@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from django.db import DatabaseError
 from django.test import SimpleTestCase, TestCase, override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
@@ -16,7 +17,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN
 
-from products.slack_app.backend.models import SlackThreadTaskMapping
+from products.slack_app.backend.models import SlackThreadJoin, SlackThreadTaskMapping
 from products.tasks.backend.logic.services.living_artifacts import (
     SlackFileDeliveryResult,
     attach_streamed_slack_files,
@@ -81,7 +82,7 @@ class TestRelaySlackMessage(TestCase):
         self.task_run.artifacts = []
         self.task_run.state = {}
         self.task_run.save(update_fields=["artifacts", "state", "updated_at"])
-        SlackThreadTaskMapping.objects.filter(task_run=self.task_run).update(latest_actor_slack_user_id=None)
+        SlackThreadJoin.objects.for_team(self.team.id).all().delete()
 
     @parameterized.expand(
         [
@@ -297,27 +298,33 @@ class TestRelaySlackMessage(TestCase):
 
     @parameterized.expand(
         [
-            # ``mentioning_slack_user_id`` is the immutable thread creator;
-            # ``latest_actor_slack_user_id`` is set by the follow-up handler
-            # when someone else (or the creator themselves) replies. The bot
-            # tags the latest actor when present, otherwise the creator.
-            ("no_actor_falls_back_to_mentioner", None, "<@U123> "),
-            ("actor_overrides_mentioner", "UBOB", "<@UBOB> "),
+            ("no_joiner_falls_back_to_mentioner", [], "<@U123> "),
+            ("joiner_overrides_mentioner", [("UBOB", 1)], "<@UBOB> "),
+            # Carol joined first but sent the latest message.
+            ("most_recent_message_wins", [("UCAROL", 0), ("UBOB", 5)], "<@UCAROL> "),
         ]
     )
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
-    def test_mention_prefix_uses_latest_actor_then_mentioner(
+    def test_mention_prefix_uses_last_joiner_then_mentioner(
         self,
         _name,
-        latest_actor,
+        joiners,
         expected_prefix,
         _mock_delete_progress,
         mock_post,
         _mock_update,
     ):
-        SlackThreadTaskMapping.objects.filter(task_run=self.task_run).update(latest_actor_slack_user_id=latest_actor)
+        mapping = SlackThreadTaskMapping.objects.get(task_run=self.task_run)
+        now = timezone.now()
+        for slack_user_id, minutes_ago in joiners:
+            SlackThreadJoin.objects.for_team(self.team.id).create(
+                team=self.team,
+                thread_mapping=mapping,
+                slack_user_id=slack_user_id,
+                last_message_at=now - timedelta(minutes=minutes_ago),
+            )
 
         relay_slack_message(
             RelaySlackMessageInput(
