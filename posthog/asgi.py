@@ -201,6 +201,12 @@ try:
     from django.urls import get_resolver
 
     _ = get_resolver().url_patterns  # property access triggers the build
+
+    # Finalize Celery before this worker serves, to avoid a deadlock between the first
+    # `.delay()` and a lazy task import. See the matching block in wsgi.py.
+    from posthog.celery import app as celery_app
+
+    _ = celery_app.tasks  # property access triggers the finalize
 finally:
     gc.freeze()
     gc.enable()

@@ -5,6 +5,8 @@ import weakref
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from django.db.models.signals import post_save
 
 # Heavy subsystems that must NOT be imported by a bare ``django.setup()``. Each one was
@@ -503,3 +505,31 @@ print("WSGI_PREBUILD_OK")
     )
     assert result.returncode == 0, f"posthog.wsgi import failed:\n{result.stderr[-2000:]}"
     assert "WSGI_PREBUILD_OK" in result.stdout, result.stdout[-500:]
+
+
+# A web worker must finalize Celery at boot. A first `.delay()` that finalizes it during a request
+# can deadlock with a thread lazily importing a task module, which hangs that worker for good.
+_WEB_ENTRYPOINT_CELERY_FINALIZED = """
+import importlib
+import os
+import sys
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+importlib.import_module(sys.argv[1])
+from posthog.celery import app
+print(f"finalized={app.finalized}")
+"""
+
+
+@pytest.mark.parametrize("entrypoint", ["posthog.wsgi", "posthog.asgi"])
+def test_web_entrypoint_finalizes_celery_at_boot(entrypoint: str) -> None:
+    result = subprocess.run(
+        [sys.executable, "-c", _WEB_ENTRYPOINT_CELERY_FINALIZED, entrypoint],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert result.returncode == 0, f"{entrypoint} failed to import:\n{result.stderr[-2000:]}"
+    assert "finalized=True" in result.stdout, (
+        f"{entrypoint} leaves Celery unfinalized at boot. Finalize it before the worker serves, as "
+        "posthog/wsgi.py explains, or a first `.delay()` can deadlock with a lazy task import."
+    )
