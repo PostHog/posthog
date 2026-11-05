@@ -17,6 +17,8 @@ export interface QuillSceneNameProps {
     onGenerateMetadata?: () => void
     isGeneratingMetadata?: boolean
     suffix?: ReactNode
+    /** Shown after the open field, where `suffix` is hidden. */
+    fieldSuffix?: ReactNode
     editDataAttr?: string
 }
 
@@ -34,6 +36,7 @@ export function QuillSceneName({
     onGenerateMetadata,
     isGeneratingMetadata = false,
     suffix,
+    fieldSuffix,
     editDataAttr = 'scene-name-edit',
 }: QuillSceneNameProps): JSX.Element {
     const { name, isEditing, containerRef, startEditing, change, blur, saveFromEnter, cancel } = useSceneNameEditing({
@@ -104,6 +107,7 @@ export function QuillSceneName({
                         </TooltipContent>
                     </Tooltip>
                 )}
+                {fieldSuffix}
             </div>
         )
     }
