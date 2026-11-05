@@ -310,12 +310,8 @@ def apply_saved_query_frequency_target(
     return written
 
 
-def carry_saved_query_frequency_target(
-    team_id: int,
-    saved_query_id: uuid.UUID,
-    target: timedelta,
-    *,
-    retained_saved_query_ids: Collection[uuid.UUID],
+def check_saved_query_frequency_carry(
+    team_id: int, target: timedelta, *, retained_saved_query_ids: Collection[uuid.UUID]
 ) -> None:
     """Store on the saved query's nodes a cadence it inherits from the saved query it replaces.
 
@@ -342,6 +338,22 @@ def carry_saved_query_frequency_target(
                 f" refreshes more often than your plan allows. Pick {humanize_cadence(floor)} for this version,"
                 " or upgrade to refresh more often."
             )
+
+
+def carry_saved_query_frequency_target(
+    team_id: int,
+    saved_query_id: uuid.UUID,
+    target: timedelta,
+    *,
+    retained_saved_query_ids: Collection[uuid.UUID],
+) -> None:
+    """Store on the saved query's nodes a cadence it inherits from the saved query it replaces.
+
+    The plan floor lets a saved cadence stay, so a query edit must not turn an existing cadence into
+    a new one. This writes without validating: the `apply_saved_query_frequency_target` that follows
+    still checks the sources and consumers of the new query.
+    """
+    check_saved_query_frequency_carry(team_id, target, retained_saved_query_ids=retained_saved_query_ids)
     with transaction.atomic():
         for node in Node.objects.select_for_update(of=("self",)).filter(team_id=team_id, saved_query_id=saved_query_id):
             set_declared_target(node, target)

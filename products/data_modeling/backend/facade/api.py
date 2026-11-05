@@ -92,6 +92,7 @@ _LAZY = {
     "apply_saved_query_frequency_anchor": "logic.schedule_reconcile",
     "apply_saved_query_frequency_target": "logic.schedule_reconcile",
     "carry_saved_query_frequency_target": "logic.schedule_reconcile",
+    "check_saved_query_frequency_carry": "logic.schedule_reconcile",
     "check_saved_query_frequency_target": "logic.schedule_reconcile",
     "declared_targets_by_saved_query": "logic.node_frequency",
     "node_states_by_saved_query": "logic.node_frequency",

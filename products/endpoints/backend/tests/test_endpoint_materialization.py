@@ -448,63 +448,11 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         if was_materialized:
             self.assertEqual(new_version.data_freshness_seconds, 900)
 
-    @parameterized.expand(
-        [
-            ("older_version_still_below_the_floor", True, False, "older version of this endpoint"),
-            ("older_version_turned_off", True, True, None),
-            ("no_floor_on_this_plan", False, False, None),
-        ]
-    )
-    def test_query_edit_caps_how_many_versions_keep_a_cadence_below_the_plan_floor(
-        self, _name, floor_applies, turn_off_oldest, expected_error
-    ):
+    def _endpoint_with_a_cadence_below_the_floor(self, name):
         self.organization.has_active_subscription = False
         self.organization.save(update_fields=["has_active_subscription"])
         endpoint = create_endpoint_with_version(
-            name="floored_repeat_edits",
-            team=self.team,
-            query=self.sample_hogql_query,
-            created_by=self.user,
-            data_freshness_seconds=900,
-        )
-        url = f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/"
-        self.assertEqual(self.client.patch(url, {"is_materialized": True}, format="json").status_code, 200)
-        oldest = endpoint.get_version()
-        set_declared_target(Node.objects.get(saved_query=oldest.saved_query), timedelta(minutes=15))
-
-        def edit_query(columns):
-            query = {"kind": "HogQLQuery", "query": f"SELECT {columns} FROM events"}
-            return self.client.patch(url, {"query": query, "is_materialized": True}, format="json")
-
-        with mock.patch(
-            "products.data_modeling.backend.logic.refresh_floor.posthoganalytics.get_feature_flag_result",
-            return_value=FeatureFlagResult(
-                key="data-modeling-refresh-floor",
-                enabled=floor_applies,
-                variant=None,
-                payload={"min_interval": "6hour"},
-                reason=None,
-            ),
-        ):
-            self.assertNotIn("materialization_error", edit_query("count()").json())
-            if turn_off_oldest:
-                response = self.client.patch(url, {"version": 1, "is_materialized": False}, format="json")
-                self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-            response = edit_query("count(), 1")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        newest = endpoint.get_version()
-        self.assertEqual(newest.version, 3)
-        if expected_error:
-            self.assertIn(expected_error, response.json()["materialization_error"])
-            self.assertIsNone(newest.saved_query_id)
-        else:
-            self.assertNotIn("materialization_error", response.json())
-            self.assertEqual(newest.data_freshness_seconds, 900)
-
-    def test_query_edit_refuses_to_carry_a_cadence_while_the_plan_floor_is_unreadable(self):
-        endpoint = create_endpoint_with_version(
-            name="unreadable_floor_edit",
+            name=name,
             team=self.team,
             query=self.sample_hogql_query,
             created_by=self.user,
@@ -514,18 +462,86 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(self.client.patch(url, {"is_materialized": True}, format="json").status_code, 200)
         set_declared_target(Node.objects.get(saved_query=endpoint.get_version().saved_query), timedelta(minutes=15))
 
+        def edit_query(columns):
+            query = {"kind": "HogQLQuery", "query": f"SELECT {columns} FROM events"}
+            return self.client.patch(url, {"query": query}, format="json")
+
+        return endpoint, url, edit_query
+
+    @staticmethod
+    def _plan_floor(enabled=True):
+        return mock.patch(
+            "products.data_modeling.backend.logic.refresh_floor.posthoganalytics.get_feature_flag_result",
+            return_value=FeatureFlagResult(
+                key="data-modeling-refresh-floor",
+                enabled=enabled,
+                variant=None,
+                payload={"min_interval": "6hour"},
+                reason=None,
+            ),
+        )
+
+    def test_query_edit_past_the_cadence_cap_is_refused_and_can_be_retried(self):
+        endpoint, url, edit_query = self._endpoint_with_a_cadence_below_the_floor("floored_repeat_edits")
+
+        with self._plan_floor():
+            self.assertEqual(edit_query("count()").status_code, status.HTTP_200_OK)
+            refused = edit_query("count(), 1")
+
+            self.assertEqual(refused.status_code, status.HTTP_400_BAD_REQUEST, refused.json())
+            self.assertIn("older version of this endpoint", refused.json()["detail"])
+            current = endpoint.get_version()
+            self.assertEqual(current.version, 2)
+            self.assertIsNotNone(current.saved_query_id)
+
+            turn_off = self.client.patch(url, {"version": 1, "is_materialized": False}, format="json")
+            self.assertEqual(turn_off.status_code, status.HTTP_200_OK, turn_off.json())
+            retried = edit_query("count(), 1")
+
+        self.assertEqual(retried.status_code, status.HTTP_200_OK, retried.json())
+        self.assertNotIn("materialization_error", retried.json())
+        current = endpoint.get_version()
+        self.assertEqual(current.version, 3)
+        self.assertEqual(current.data_freshness_seconds, 900)
+
+    def test_query_edit_keeps_a_cadence_on_every_version_when_no_floor_applies(self):
+        endpoint, _url, edit_query = self._endpoint_with_a_cadence_below_the_floor("no_floor_repeat_edits")
+
+        with self._plan_floor(enabled=False):
+            self.assertEqual(edit_query("count()").status_code, status.HTTP_200_OK)
+            response = edit_query("count(), 1")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(endpoint.get_version().version, 3)
+        self.assertEqual(endpoint.get_version().data_freshness_seconds, 900)
+
+    def test_concurrent_query_edit_that_passes_the_early_check_still_hits_the_cadence_cap(self):
+        endpoint, _url, edit_query = self._endpoint_with_a_cadence_below_the_floor("floored_concurrent_edits")
+
+        with (
+            self._plan_floor(),
+            mock.patch.object(EndpointMaterializationService, "check_cadence_carry"),
+        ):
+            self.assertEqual(edit_query("count()").status_code, status.HTTP_200_OK)
+            response = edit_query("count(), 1")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertIn("older version of this endpoint", response.json()["materialization_error"])
+        self.assertIsNone(endpoint.get_version().saved_query_id)
+
+    def test_query_edit_refuses_to_carry_a_cadence_while_the_plan_floor_is_unreadable(self):
+        endpoint, _url, edit_query = self._endpoint_with_a_cadence_below_the_floor("unreadable_floor_edit")
+
         with mock.patch(
             "products.data_modeling.backend.logic.refresh_floor.posthoganalytics.get_feature_flag_result",
             side_effect=RuntimeError("flags down"),
         ):
-            response = self.client.patch(
-                url,
-                {"query": {"kind": "HogQLQuery", "query": "SELECT count() FROM events"}, "is_materialized": True},
-                format="json",
-            )
+            response = edit_query("count()")
 
-        self.assertIn("Couldn't check your plan", response.json()["materialization_error"])
-        self.assertIsNone(endpoint.get_version().saved_query_id)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertIn("Couldn't check your plan", response.json()["detail"])
+        self.assertEqual(endpoint.get_version().version, 1)
+        self.assertIsNotNone(endpoint.get_version().saved_query_id)
 
     def test_query_edit_cannot_speed_up_a_cadence_past_the_plan_floor(self):
         self.organization.has_active_subscription = False

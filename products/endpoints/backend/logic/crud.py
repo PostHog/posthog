@@ -212,6 +212,7 @@ class EndpointCrudService:
 
             # Before any write, so a refused update leaves the endpoint as it was.
             self._check_disable_breaks_no_reader(endpoint, data, target_version, version_targeted)
+            self._check_query_edit_keeps_cadence(endpoint, data, raw_data, current_version, version_targeted)
 
             step = "endpoint_activation"
             # Endpoint-level activation only — deactivating a single version must never
@@ -327,6 +328,36 @@ class EndpointCrudService:
 
         for version in versions_to_disable:
             self.materialization_dependencies.check_deletable(version)
+
+    def _check_query_edit_keeps_cadence(
+        self,
+        endpoint: Endpoint,
+        data: EndpointRequest,
+        raw_data: dict,
+        current_version: EndpointVersion,
+        version_targeted: bool,
+    ) -> None:
+        """Raise ValidationError if a query edit would lose its saved cadence on the new version.
+
+        Mirrors `_reconcile_materialization`, which can only report this after the new version exists.
+        Refusing first leaves the current version in place, so the person can change the request and retry.
+        """
+        if (
+            version_targeted
+            or data.query is None
+            or data.is_materialized is False
+            or current_version.saved_query_id is None
+            or not (endpoint.is_active if data.is_active is None else data.is_active)
+            or not endpoint.has_query_changed(data.query.model_dump())
+        ):
+            return
+        if "data_freshness_seconds" not in raw_data:
+            freshness = current_version.data_freshness_seconds
+        elif data.data_freshness_seconds is None:
+            freshness = DEFAULT_DATA_FRESHNESS_SECONDS
+        else:
+            freshness = data.data_freshness_seconds
+        self.materialization.check_cadence_carry(endpoint, current_version, freshness)
 
     def _apply_query_change(
         self,

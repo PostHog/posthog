@@ -6,6 +6,7 @@ materialization preview, and the status payload. The AST-level analysis and
 query transforms live in ``products.endpoints.backend.materialization_transforms``.
 """
 
+import uuid
 import dataclasses
 from datetime import timedelta
 from typing import cast
@@ -35,6 +36,7 @@ from products.data_modeling.backend.facade.api import (
     UnsatisfiableFrequencyError,
     UnsupportedFrequencyTargetError,
     carry_saved_query_frequency_target,
+    check_saved_query_frequency_carry,
     is_materialization_fresh,
     latest_saved_query_materialization_job,
     link_endpoint_nodes,
@@ -216,6 +218,17 @@ class MaterializationPreview:
         return cls(can_materialize=False, reason=reason)
 
 
+def _retained_saved_query_ids(
+    endpoint: Endpoint, replaced_version: EndpointVersion, new_version: EndpointVersion | None = None
+) -> list[uuid.UUID]:
+    replacing = [replaced_version.pk] if new_version is None else [replaced_version.pk, new_version.pk]
+    return list(
+        endpoint.versions.filter(saved_query__isnull=False)
+        .exclude(pk__in=replacing)
+        .values_list("saved_query_id", flat=True)
+    )
+
+
 class EndpointMaterializationService:
     """Enable, disable, and preview materialization for endpoint versions."""
 
@@ -353,15 +366,14 @@ class EndpointMaterializationService:
                     replaced_version is not None
                     and replaced_version.declared_target_seconds() == data_freshness_seconds
                 ):
+                    # Held until commit, so a concurrent query edit reads this version's link before it
+                    # counts the retained versions. Otherwise both could pass the cap in `check_cadence_carry`.
+                    Endpoint.objects.select_for_update(no_key=True).filter(team_id=self.team.pk, pk=endpoint.pk).first()
                     carry_saved_query_frequency_target(
                         saved_query.team_id,
                         saved_query.id,
                         timedelta(seconds=data_freshness_seconds),
-                        retained_saved_query_ids=list(
-                            endpoint.versions.filter(saved_query__isnull=False)
-                            .exclude(pk__in=[version.pk, replaced_version.pk])
-                            .values_list("saved_query_id", flat=True)
-                        ),
+                        retained_saved_query_ids=_retained_saved_query_ids(endpoint, replaced_version, version),
                     )
                 saved_query.schedule_materialization(
                     trigger_immediate_run=newly_materialized, triggered_by_id=self.user.pk
@@ -380,6 +392,21 @@ class EndpointMaterializationService:
             saved_query.refresh_from_db(fields=["is_materialized"])
             if not saved_query.is_materialized:
                 raise APIException(f"Failed to schedule materialization for endpoint {endpoint.name}.")
+
+    def check_cadence_carry(
+        self, endpoint: Endpoint, replaced_version: EndpointVersion, data_freshness_seconds: int
+    ) -> None:
+        """Raise ValidationError if a query edit replacing this version can't keep the requested cadence."""
+        if replaced_version.declared_target_seconds() != data_freshness_seconds:
+            return
+        try:
+            check_saved_query_frequency_carry(
+                self.team.pk,
+                timedelta(seconds=data_freshness_seconds),
+                retained_saved_query_ids=_retained_saved_query_ids(endpoint, replaced_version),
+            )
+        except UnsatisfiableFrequencyError as e:
+            raise ValidationError(str(e))
 
     def _get_or_build_saved_query(self, version: EndpointVersion) -> DataWarehouseSavedQuery:
         """Find this version's saved query, or build a new (unsaved) one.
