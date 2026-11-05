@@ -14,7 +14,7 @@ import {
 import { ModifiedRequest } from '~/common/api/router'
 import { isDevEnv, isTestEnv } from '~/common/utils/env-utils'
 import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
+import { logger, serializeError } from '~/common/utils/logger'
 
 import { CapturedEventsService } from '../captured-events/captured-events.service'
 import { HogFlowManagerService } from '../hogflows/hogflow-manager.service'
@@ -630,10 +630,7 @@ export class EmailTrackingService {
             return { status, message: body as string }
         } catch (error) {
             emailTrackingErrorsCounter.inc({ error_type: error.name || 'unknown' })
-            logger.error('[EmailService] handleWebhook: SES webhook error', {
-                errorName: error.name,
-                errorMessage: error.message,
-            })
+            logger.error('[EmailService] handleWebhook: SES webhook error', { error: serializeError(error) })
             throw error
         }
     }
