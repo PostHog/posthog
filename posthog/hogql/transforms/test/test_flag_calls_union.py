@@ -93,8 +93,8 @@ def _alias_flood() -> ast.SelectQuery:
 def _alias_chain_read_many_times() -> ast.SelectQuery:
     # `event AS a0, a0 AS a1, ...` read thousands of times in one IN list.
     select = _select("SELECT 1 FROM events")
-    select.select = [ast.Alias(alias="a0", expr=ast.Field(chain=["event"]))] + [
-        ast.Alias(alias=f"a{n}", expr=ast.Field(chain=[f"a{n - 1}"])) for n in range(1, 10_000)
+    select.select = [
+        ast.Alias(alias=f"a{n}", expr=ast.Field(chain=[f"a{n - 1}" if n else "event"])) for n in range(10_000)
     ]
     reads: list[ast.Expr] = [ast.Field(chain=["a9999"]) for _ in range(10_000)]
     select.where = ast.CompareOperation(
