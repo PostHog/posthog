@@ -445,8 +445,8 @@ class TestStoredCIConfig(SimpleTestCase):
 class TestStoredCIViews(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
-            ("runs", ci_rows.runs_select, ci_rows.RUN_FIELDS, 2, {"is_handoff_shell": 0}),
-            ("jobs", ci_rows.jobs_select, ci_rows.JOB_FIELDS, 3, {"is_rerun_copy": 0, "is_handoff_shell": 0}),
+            ("runs", ci_rows.runs_select, ci_rows.RUN_FIELDS, [100, 200], {"is_handoff_shell": 0}),
+            ("jobs", ci_rows.jobs_select, ci_rows.JOB_FIELDS, [1, 2, 3], {"is_rerun_copy": 0, "is_handoff_shell": 0}),
         ]
     )
     def test_view_runs_with_the_window_start_bound(
@@ -454,7 +454,7 @@ class TestStoredCIViews(ClickhouseTestMixin, BaseTest):
         _name: str,
         select: Callable[[JobSourceTables], str],
         fields: dict[str, Any],
-        seeded_rows: int,
+        seeded_ids: list[int],
         flags: dict[str, int],
     ) -> None:
         recent = datetime.now(UTC).replace(microsecond=0) - timedelta(days=1)
@@ -491,10 +491,10 @@ class TestStoredCIViews(ClickhouseTestMixin, BaseTest):
 
         rows_by_window = {}
         # A full build (NULL window start) seeds only the last SEED_LOOKBACK, so the older row stays out.
-        for since, expected_rows in (
-            (None, seeded_rows),
-            (recent, seeded_rows),
-            (recent + timedelta(hours=1), 0),
+        for since, expected_ids in (
+            (None, seeded_ids),
+            (recent, seeded_ids),
+            (recent + timedelta(hours=1), []),
         ):
             response = execute_hogql_query(
                 query=query,
@@ -503,7 +503,7 @@ class TestStoredCIViews(ClickhouseTestMixin, BaseTest):
                 placeholders={"incremental_window_start": ast.Constant(value=since)},
             )
             assert response.columns == list(fields)
-            assert len(response.results) == expected_rows, since
+            assert [dict(zip(fields, row))["id"] for row in response.results] == expected_ids, since
             rows_by_window[since] = response.results
 
         first = dict(zip(fields, rows_by_window[None][0]))

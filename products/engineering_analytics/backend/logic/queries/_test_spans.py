@@ -304,7 +304,8 @@ def query_setup_breaks(
     so no test loses its evidence on the strength of the span attributes alone, and a team whose jobs
     table is unsynced drops nothing.
     """
-    jobs_source = curated.jobs_source(created_floor=True, since=scan_from if scan_from is not None else date_from)
+    floor_from = scan_from if scan_from is not None else date_from
+    jobs_source = curated.jobs_source(created_floor=True, since=floor_from)
     if not curated.repository or jobs_source is None:
         return SetupBreaks(run_attempts=(), job_attempts=())
 
@@ -350,7 +351,7 @@ def query_setup_breaks(
             placeholders={
                 "candidate_run_ids": ast.Constant(value=candidate_run_ids),
                 "candidate_workflow_keys": ast.Constant(value=candidate_workflow_keys),
-                "job_created_floor": job_created_floor_constant(scan_from if scan_from is not None else date_from),
+                "job_created_floor": job_created_floor_constant(floor_from),
             },
         )
     }

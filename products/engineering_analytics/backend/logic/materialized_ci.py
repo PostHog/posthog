@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
@@ -13,13 +13,14 @@ from posthog.dataclasses import frozen
 from products.data_modeling.backend.facade.api import (
     IncrementalConfig,
     definition_fingerprint,
+    deserialize_watermark,
     get_incremental_config,
     get_incremental_state,
     is_materialization_fresh,
 )
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.engineering_analytics.backend.facade.contracts import MATERIALIZED_VIEWS_FEATURE_FLAG, CIDataFreshness
-from products.engineering_analytics.backend.logic.queries._workflow_filters import JOB_FLOOR_SLACK_ON_RUN_STARTED
+from products.engineering_analytics.backend.logic.queries._workflow_filters import WIDEST_SCAN_FLOOR_SLACK
 from products.engineering_analytics.backend.logic.sources import GitHubTables, resolve_job_source_tables
 from products.engineering_analytics.backend.logic.views import ci_rows, depot_ci, workflow_jobs, workflow_runs
 from products.engineering_analytics.backend.logic.views.incremental_floor import SEED_LOOKBACK
@@ -34,11 +35,6 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 MAX_MATERIALIZATION_AGE = ci_rows.SYNC_FREQUENCY * 2
-
-# A stored read's scan floor sits below its window start by at most the run-windowed jobs slack, and a
-# date-only floor reaches back up to one more day. A window start this far inside the coverage keeps
-# every floor a read registers inside the stored rows.
-COVERAGE_SLACK = JOB_FLOOR_SLACK_ON_RUN_STARTED + timedelta(days=1)
 
 
 def ci_tables(tables: GitHubTables, depot: depot_ci.DepotJobAttempts | None) -> list[str]:
@@ -142,7 +138,7 @@ class MaterializedCI:
         expected = ci_rows.build_views(sources)
         materialized_at: dict[str, datetime] = {}
         started_at: dict[str, datetime] = {}
-        seeded_at: dict[str, datetime] = {}
+        seeded_at: list[datetime] = []
         for name, fields, config, sql in (
             (ci_rows.RUNS_VIEW_NAME, ci_rows.RUN_FIELDS, ci_rows.RUN_INCREMENTAL_CONFIG, expected.runs),
             (ci_rows.JOBS_VIEW_NAME, ci_rows.JOB_FIELDS, ci_rows.JOB_INCREMENTAL_CONFIG, expected.jobs),
@@ -177,14 +173,15 @@ class MaterializedCI:
                 return None
             # The seed's floor is computed when the full build starts, and the state is written when
             # it completes, so the recorded instant claims no row the seed did not read.
-            if state.last_full_refresh_at is None:
+            full_refresh_at = deserialize_watermark(state.last_full_refresh_at, "datetime")
+            if full_refresh_at is None:
                 return None
             completed_at = job.last_run_at
             if not is_materialization_fresh(completed_at, int(MAX_MATERIALIZATION_AGE.total_seconds())):
                 return None
             materialized_at[name] = completed_at
             started_at[name] = job.created_at
-            seeded_at[name] = datetime.fromisoformat(state.last_full_refresh_at)
+            seeded_at.append(full_refresh_at)
 
         runs_at = materialized_at[ci_rows.RUNS_VIEW_NAME]
         jobs_at = materialized_at[ci_rows.JOBS_VIEW_NAME]
@@ -203,15 +200,18 @@ class MaterializedCI:
                 runs_synced_at=synced_at(tables.workflow_runs), jobs_synced_at=synced_at(tables.workflow_jobs)
             ),
             cache_scope=f"materialized:{runs_at.isoformat()}:{jobs_at.isoformat()}",
-            covers_from=max(seeded_at.values()) - SEED_LOOKBACK,
+            covers_from=max(seeded_at) - SEED_LOOKBACK,
         )
 
     def covers(self, since: datetime | None) -> bool:
         """Whether a read windowed from ``since`` finds every row it would read in the raw tables.
 
-        An unbounded read never does: the stored rows begin at ``covers_from``.
+        An unbounded read never does: the stored rows begin at ``covers_from``. A naive window start
+        cannot be placed against the coverage, so it reads the raw tables like every other unready case.
         """
-        return since is not None and since - COVERAGE_SLACK >= self.covers_from
+        if since is None or since.tzinfo is None:
+            return False
+        return since - WIDEST_SCAN_FLOOR_SLACK >= self.covers_from
 
     def _scope(self) -> str:
         return (

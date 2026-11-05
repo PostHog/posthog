@@ -25,8 +25,9 @@ from products.data_modeling.backend.facade.models import (
     DataWarehouseSavedQuery,
 )
 from products.engineering_analytics.backend.facade.contracts import MATERIALIZED_VIEWS_FEATURE_FLAG
-from products.engineering_analytics.backend.logic.materialized_ci import COVERAGE_SLACK, MAX_MATERIALIZATION_AGE
+from products.engineering_analytics.backend.logic.materialized_ci import MAX_MATERIALIZATION_AGE
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._workflow_filters import WIDEST_SCAN_FLOOR_SLACK
 from products.engineering_analytics.backend.logic.sources import (
     DEPOT_JOB_ATTEMPTS_SCHEMA,
     PULL_REQUESTS_SCHEMA,
@@ -205,19 +206,16 @@ class TestMaterializedCI(BaseTest):
     @parameterized.expand(
         [
             ("unbounded", None, False),
-            ("before_the_seed", lambda covers_from: covers_from - timedelta(days=1), False),
-            (
-                "floor_reaches_before_the_seed",
-                lambda covers_from: covers_from + COVERAGE_SLACK - timedelta(seconds=1),
-                False,
-            ),
-            ("inside_the_seed", lambda covers_from: covers_from + COVERAGE_SLACK, True),
+            ("floor_reaches_before_the_seed", WIDEST_SCAN_FLOOR_SLACK - timedelta(seconds=1), False),
+            ("inside_the_seed", WIDEST_SCAN_FLOOR_SLACK, True),
         ]
     )
-    def test_reads_windowed_before_the_stored_coverage_use_raw_tables(self, _: str, since: Any, stored: bool) -> None:
+    def test_reads_windowed_before_the_stored_coverage_use_raw_tables(
+        self, _: str, offset_from_coverage_start: timedelta | None, stored: bool
+    ) -> None:
         _ready_views(self)
         covers_from = timezone.now() - SEED_LOOKBACK
-        window_start = since(covers_from) if callable(since) else since
+        window_start = covers_from + offset_from_coverage_start if offset_from_coverage_start is not None else None
         with patch("posthoganalytics.feature_enabled", return_value=True):
             reader = self._reader()
             runs = set(get_table_names(parse_select(reader.run_source(since=window_start))))

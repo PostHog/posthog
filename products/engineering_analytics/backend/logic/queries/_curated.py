@@ -330,6 +330,9 @@ class CuratedGitHubSource:
         )
 
     def _stored_ci_covering(self, since: datetime | None) -> MaterializedCI | None:
+        # An unbounded read never uses the stored rows, so it skips resolving them.
+        if since is None:
+            return None
         stored = self._stored_ci()
         return stored if stored is not None and stored.covers(since) else None
 

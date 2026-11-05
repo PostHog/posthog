@@ -96,8 +96,11 @@ def run_started_floor_constant(window_start: datetime) -> ast.Constant:
     ISO timestamp ('2026-07-11' < '2026-07-11T...'), and the one-day slack absorbs any timezone
     offset between the window's zone and the UTC strings GitHub lands, so the coarse floor can
     never cut rows the precise parsed {date_from} filter would keep."""
-    return ast.Constant(value=(window_start - timedelta(days=1)).strftime("%Y-%m-%d"))
+    return ast.Constant(value=(window_start - _DATE_FLOOR_SLACK).strftime("%Y-%m-%d"))
 
+
+# A date-only floor reaches back up to one day past the slack it subtracts.
+_DATE_FLOOR_SLACK = timedelta(days=1)
 
 # How far below a window start the jobs-scan floor sits, by what the window actually filters.
 #
@@ -118,8 +121,12 @@ def run_started_floor_constant(window_start: datetime) -> ast.Constant:
 # the copy is only recognisable while its original attempt is inside the scan, so a tight floor under a
 # late re-run would turn the copy back into an execution. Queries that keep copies (red/green reads)
 # can use the tight floor.
-_JOB_FLOOR_SLACK_ON_JOB_CREATED = timedelta(days=1)
+_JOB_FLOOR_SLACK_ON_JOB_CREATED = _DATE_FLOOR_SLACK
 JOB_FLOOR_SLACK_ON_RUN_STARTED = timedelta(days=7)
+
+# The furthest any scan floor reaches below its window start. A stored read whose window start is
+# this far inside the stored coverage keeps every floor it registers inside the stored rows.
+WIDEST_SCAN_FLOOR_SLACK = JOB_FLOOR_SLACK_ON_RUN_STARTED + _DATE_FLOOR_SLACK
 
 
 def _date_floor(window_start: datetime, slack: timedelta) -> ast.Constant:
