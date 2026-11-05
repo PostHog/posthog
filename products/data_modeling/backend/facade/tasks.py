@@ -11,6 +11,7 @@ from products.data_modeling.backend.tasks.cleanup_test_saved_queries import clea
 from products.data_modeling.backend.tasks.reconcile_organization_schedules import (
     reconcile_dag_schedules_with_retry,
     reconcile_organization_schedules,
+    retry_pending_organization_reconciles,
 )
 from products.data_modeling.backend.tasks.refresh_downstream_view_columns import refresh_downstream_view_columns
 
@@ -20,5 +21,6 @@ __all__ = [
     "cleanup_expired_test_saved_queries",
     "reconcile_dag_schedules_with_retry",
     "reconcile_organization_schedules",
+    "retry_pending_organization_reconciles",
     "refresh_downstream_view_columns",
 ]

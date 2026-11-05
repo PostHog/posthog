@@ -12,6 +12,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
+from django.db import transaction
 from django.db.models import F, Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -844,10 +845,10 @@ class BillingManager:
                 org_modified = True
 
         if org_modified:
-            organization.save()
-
-        if plan_changed:
-            data_modeling_api.schedule_organization_schedule_reconcile(str(organization.id))
+            with transaction.atomic():
+                organization.save()
+                if plan_changed:
+                    data_modeling_api.schedule_organization_schedule_reconcile(str(organization.id))
 
         if events_retention_changed:
             reconcile_organization_events_retention(organization)

@@ -8,6 +8,7 @@ from unittest import mock
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 from posthoganalytics.types import FeatureFlagResult
@@ -52,7 +53,13 @@ from products.data_modeling.backend.models.datawarehouse_managed_viewset import 
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
+from products.data_modeling.backend.models.pending_organization_reconcile import PendingOrganizationReconcile
 from products.data_modeling.backend.schedule import DATA_MODELING_EXECUTE_DAG_WORKFLOW, build_schedule_spec
+from products.data_modeling.backend.tasks.reconcile_organization_schedules import (
+    reconcile_organization_schedules,
+    retry_pending_organization_reconciles,
+    schedule_organization_schedule_reconcile,
+)
 from products.data_modeling.backend.test.helpers import (
     no_existing_schedules,
     saved_query_node as _saved_query_node,
@@ -699,6 +706,69 @@ class TestMaybeReconcileDag(BaseTest):
             self._reconcile_with_stale_tier(
                 lambda dag: reconcile_dag_or_raise(str(dag.id), dag.team_id), RuntimeError("temporal down")
             )
+
+    def test_lost_plan_change_dispatch_is_recovered_by_the_sweep(self):
+        dag = self._dag_with_target()
+        organization_id = str(self.organization.id)
+
+        with (
+            mock.patch(
+                f"{RECONCILE_TASKS}.reconcile_organization_schedules.delay", side_effect=RuntimeError("no broker")
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            schedule_organization_schedule_reconcile(organization_id)
+
+        with mock.patch(f"{RECONCILE_TASKS}.reconcile_organization_schedules.delay") as dispatch:
+            retry_pending_organization_reconciles()
+            dispatch.assert_not_called()
+
+            old = timezone.now() - timedelta(hours=5)
+            PendingOrganizationReconcile.objects.filter(organization_id=organization_id).update(requested_at=old)
+            retry_pending_organization_reconciles()
+            retry_pending_organization_reconciles()
+            dispatch.assert_called_once_with(organization_id)
+
+        with mock.patch(f"{RECONCILE}.list_existing_schedule_ids", return_value={tier_schedule_id(str(dag.id), M15)}):
+            with (
+                mock.patch(f"{RECONCILE}.reconcile_dag_schedules", side_effect=RuntimeError("temporal down")),
+                self.assertRaises(OrganizationReconcileError),
+            ):
+                reconcile_organization_schedules(organization_id)
+            self.assertTrue(PendingOrganizationReconcile.objects.filter(organization_id=organization_id).exists())
+
+            with mock.patch(f"{RECONCILE}.reconcile_dag_schedules", return_value=[]):
+                reconcile_organization_schedules(organization_id)
+        self.assertFalse(PendingOrganizationReconcile.objects.filter(organization_id=organization_id).exists())
+
+    def test_plan_change_recorded_during_a_reconcile_stays_pending(self):
+        organization_id = str(self.organization.id)
+        now = timezone.now()
+        PendingOrganizationReconcile.objects.create(
+            organization_id=organization_id, requested_at=now, first_requested_at=now
+        )
+
+        def plan_changes_again(_organization_id):
+            later = timezone.now() + timedelta(hours=1)
+            PendingOrganizationReconcile.objects.filter(organization_id=organization_id).update(requested_at=later)
+
+        with mock.patch(f"{RECONCILE}.reconcile_organization_dags", side_effect=plan_changes_again):
+            reconcile_organization_schedules(organization_id)
+
+        self.assertTrue(PendingOrganizationReconcile.objects.filter(organization_id=organization_id).exists())
+
+    def test_sweep_gives_up_on_a_reconcile_that_keeps_failing(self):
+        organization_id = str(self.organization.id)
+        long_ago = timezone.now() - timedelta(days=8)
+        PendingOrganizationReconcile.objects.create(
+            organization_id=organization_id, requested_at=long_ago, first_requested_at=long_ago
+        )
+
+        with mock.patch(f"{RECONCILE_TASKS}.reconcile_organization_schedules.delay") as dispatch:
+            retry_pending_organization_reconciles()
+
+        dispatch.assert_not_called()
+        self.assertFalse(PendingOrganizationReconcile.objects.filter(organization_id=organization_id).exists())
 
     def test_reconcile_command_tries_every_organization_then_fails(self):
         failing_dag = self._dag_with_target()
