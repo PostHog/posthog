@@ -204,7 +204,7 @@ describe('ReportExpectedImpact', () => {
         expect(screen.getByText('Ask AI to update checks').closest('button')).toHaveAttribute('aria-disabled', 'true')
     })
 
-    it.each([false, undefined])('hides metric suggestion buttons when Monitoring is %s', (enabled) => {
+    it.each([false, undefined])('hides Expected impact and sidebar suggestions when Monitoring is %s', (enabled) => {
         featureFlagLogic.actions.setFeatureFlags(
             [],
             enabled === undefined ? {} : { [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: enabled }
@@ -214,7 +214,9 @@ describe('ReportExpectedImpact', () => {
         expect(screen.queryByText('Suggest different metrics')).not.toBeInTheDocument()
         expect(screen.queryByText('Suggest a better metric')).not.toBeInTheDocument()
         expect(screen.getByText('Cancel this check')).toBeInTheDocument()
-        expect(screen.getByText('Looks good')).toBeInTheDocument()
+        expect(screen.queryByText('Looks good')).not.toBeInTheDocument()
+        expect(screen.queryByText('Chart')).not.toBeInTheDocument()
+        expect(document.querySelector('[data-attr="report-expected-impact"]')).not.toBeInTheDocument()
     })
 
     it('caps visible measurements after skipping malformed check configs', () => {

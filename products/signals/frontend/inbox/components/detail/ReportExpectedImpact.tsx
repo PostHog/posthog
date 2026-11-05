@@ -19,14 +19,23 @@ import { ReportMonitoringDetails } from './ReportMonitoringDetails'
 
 const MAX_VISIBLE_MEASUREMENTS = 6
 
-export function ReportExpectedImpact({ report, reportUrl }: { report: SignalReport; reportUrl: string }): JSX.Element {
+export function ReportExpectedImpact({
+    report,
+    reportUrl,
+}: {
+    report: SignalReport
+    reportUrl: string
+}): JSX.Element | null {
     const monitoringEnabled = useFeatureFlag('SIGNALS_REPORT_MONITORING')
     const [modalOpen, setModalOpen] = useState(false)
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
     const { reportChecks, reportChecksLoading, reportChecksError, reportArtefacts, approvingCheckIds } =
         useValues(logic)
     const { approveReportCheck, loadReportChecks } = useActions(logic)
-    const { currentProjectId, metricCheckReplacementDisabledReason } = useValues(inboxTaskKickoffLogic)
+    const { currentProjectId } = useValues(inboxTaskKickoffLogic)
+    if (!monitoringEnabled) {
+        return null
+    }
     const measurements = buildReportCheckRows(
         reportChecks ?? [],
         latestCheckExplanations(reportArtefacts ?? []),
@@ -195,26 +204,21 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                     >
                         Looks good
                     </LemonButton>
-                    {monitoringEnabled && (
-                        <LemonButton
-                            data-attr="report-expected-impact-suggest-metrics"
-                            type="secondary"
-                            size="small"
-                            disabledReason={
-                                metricCheckReplacementDisabledReason ??
-                                (openMeasurements.length === 0 ? 'No open metric checks to revise.' : undefined)
-                            }
-                            onClick={() => setModalOpen(true)}
-                        >
-                            Suggest different metrics
-                        </LemonButton>
-                    )}
+                    <LemonButton
+                        data-attr="report-expected-impact-suggest-metrics"
+                        type="secondary"
+                        size="small"
+                        disabledReason={openMeasurements.length === 0 ? 'No open metric checks to revise.' : undefined}
+                        onClick={() => setModalOpen(true)}
+                    >
+                        Suggest different metrics
+                    </LemonButton>
                 </div>
             )}
             <ReportCheckMetricSuggestionModal
                 report={report}
                 reportUrl={reportUrl}
-                isOpen={modalOpen && !!monitoringEnabled}
+                isOpen={modalOpen}
                 onClose={() => setModalOpen(false)}
             />
         </div>
