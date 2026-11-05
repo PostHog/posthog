@@ -57,6 +57,7 @@ from posthog.permissions import (
     TeamMemberStrictManagementPermission,
     get_authenticator_scoped_team_ids,
     get_authenticator_scopes,
+    is_scout_sandbox_request,
     is_service_auth,
 )
 from posthog.rate_limit import RunSavedQueryRateThrottle
@@ -75,6 +76,7 @@ from products.customer_analytics.backend.facade.constants import (
     CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG,
     CUSTOMER_ANALYTICS_TRACK_RULES_FLAG,
 )
+from products.customer_analytics.backend.presentation.scout_notes import refuse_scout_note_delete, with_scout_tags
 from products.customer_analytics.backend.presentation.views.serializers import (
     AccountByExternalIdQuerySerializer,
     AccountChannelSummarySerializer,
@@ -2395,7 +2397,7 @@ class AccountNotebookViewSet(
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
-    scope_object = "account"
+    scope_object = "account_note"
     serializer_class = AccountNotebookSerializer
     path_parameters = {"account_id": _PARENT_ACCOUNT_ID}
     queryset = None
@@ -2483,7 +2485,9 @@ class AccountNotebookViewSet(
             team_id=self.team_id,
             account_id=self.parents_query_dict["account_id"],
             short_id=self.kwargs["short_id"],
-            input=contracts.UpdateAccountNotebookInput(tags=data.get("tags")),
+            input=contracts.UpdateAccountNotebookInput(
+                tags=with_scout_tags(is_scout_sandbox_request(request), data.get("tags"))
+            ),
             user=cast(User, request.user),
             user_access_control=self.user_access_control,
         )
@@ -2516,7 +2520,7 @@ class AccountNotebookViewSet(
                     content=data.content,
                     text_content=data.text_content,
                     synthesized_content=_synthesize_notebook_content(data.text_content, data.content),
-                    tags=serializer.initial_data.get("tags"),
+                    tags=with_scout_tags(is_scout_sandbox_request(request), serializer.initial_data.get("tags") or []),
                 ),
                 user=cast(User, request.user),
                 user_access_control=self.user_access_control,
@@ -2528,6 +2532,7 @@ class AccountNotebookViewSet(
         return Response(AccountNotebookSerializer(instance=notebook).data, status=status.HTTP_201_CREATED)
 
     def destroy(self, request: Request, *args, **kwargs) -> Response:
+        refuse_scout_note_delete(is_scout_sandbox_request(request))
         deleted = api.delete_account_notebook(
             team_id=self.team_id,
             account_id=self.parents_query_dict["account_id"],
@@ -2591,7 +2596,7 @@ class AccountNotesViewSet(
     mixins.ListModelMixin,
     viewsets.GenericViewSet,
 ):
-    scope_object = "account"
+    scope_object = "account_note"
     serializer_class = AccountNoteSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
     pagination_class = FacadeLimitOffsetPagination

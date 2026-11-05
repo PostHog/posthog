@@ -118,6 +118,9 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "llm_provider_key": "llm_analytics",
     "llm_prompt": "llm_analytics",
     "account": "customer_analytics",
+    # The account_note API scope split off `account`, and access control governs notes the way it governs
+    # accounts, through the Customer analytics rules.
+    "account_note": "customer_analytics",
     "customer_journey": "customer_analytics",
     "customer_task": "customer_analytics",
     "experiment_saved_metric": "experiment",
