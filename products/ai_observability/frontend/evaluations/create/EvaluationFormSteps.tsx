@@ -66,6 +66,15 @@ const STEPS: Step[] = [
         checks: ['result'],
     },
     {
+        key: 'traffic',
+        title: 'Runs on',
+        heading: 'What it runs on',
+        description: ['Choose what one run covers and which traffic it checks.'],
+        hoggie: pngHoggie(magnifyingGlassPng),
+        parts: ['target', 'triggers'],
+        checks: ['sampling'],
+    },
+    {
         key: 'check',
         title: 'Check',
         heading: 'How it checks',
@@ -73,15 +82,6 @@ const STEPS: Step[] = [
         hoggie: pngHoggie(judgePng),
         parts: ['model'],
         checks: ['criteria', 'model'],
-    },
-    {
-        key: 'traffic',
-        title: 'Traffic',
-        heading: 'What it runs on',
-        description: ['Pick the live traffic it checks, and how much of it.'],
-        hoggie: pngHoggie(magnifyingGlassPng),
-        parts: ['target', 'triggers'],
-        checks: ['sampling'],
     },
     {
         key: 'reports',
@@ -122,23 +122,20 @@ function StepContent({ step }: { step: Step['key'] }): JSX.Element | null {
             )
         case 'output':
             return <EvaluationOutputFields />
+        case 'traffic':
+            return (
+                <>
+                    <EvaluationTargetPanel />
+                    <EvaluationTriggersPanel />
+                    <EvaluationVolumeEstimate />
+                </>
+            )
         case 'check':
             return (
                 <>
                     {evaluation.evaluation_type === 'llm_judge' && <EvaluationModelPanel />}
                     {evaluation.evaluation_type === 'llm_judge' && <EvaluationPromptEditor />}
                     {evaluation.evaluation_type === 'hog' && <EvaluationCodeEditor />}
-                </>
-            )
-        case 'traffic':
-            return (
-                <>
-                    <EvaluationTargetPanel />
-                    <div className="flex flex-col gap-2">
-                        <h4 className="mb-0 text-base font-semibold">Triggers</h4>
-                        <EvaluationTriggersPanel />
-                    </div>
-                    <EvaluationVolumeEstimate />
                 </>
             )
         case 'reports':
