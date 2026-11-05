@@ -67,9 +67,13 @@ def is_flag_evaluations_table_enabled(team: "Team") -> bool:
     can query the table, but its flag-call readers still read events. Local dev and end-to-end tests also read
     true. A self-hosted instance reads true only when the organization's mode reads the table.
     """
+    # PostHog Cloud ingestion forks every team's flag calls into flag_evaluations, so an organization on
+    # EVENTS still has rows to query and export.
+    if is_cloud():
+        return True
     # Local and E2E organizations start on EVENTS because FLAG_EVALUATIONS_NEW_ORG_MODE defaults to 0.
     # Returning True keeps the table queryable there without setting a mode first.
-    if settings.DEBUG or settings.E2E_TESTING or is_cloud():
+    if settings.DEBUG or settings.E2E_TESTING:
         return True
     # Self-hosted ingestion leaves the flag_evaluations fork off by default, so the table holds no rows there
     # until an operator turns the fork on. The Usage tab reads flag_evaluations for any mode above EVENTS, and
