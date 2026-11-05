@@ -67,7 +67,7 @@ def test_signing_pagination_and_resume(client: TwitterAdsClient, manager: MagicM
             response({"data": [{"id": "two", "deleted": True}], "next_cursor": None}),
         ],
     ) as send:
-        resource = twitter_ads_source(client, "account", "campaigns", manager, None)
+        resource = twitter_ads_source(client, "account", "campaigns", manager, None, MagicMock())
         assert list(sync_items(resource)) == [[{"id": "one"}], [{"id": "two", "deleted": True}]]
     requests_sent = [call.args[0] for call in send.call_args_list]
     assert isinstance(client.session.auth, OAuth1)
@@ -98,7 +98,7 @@ def test_entity_page_request_respects_per_table_limits(
     client: TwitterAdsClient, manager: MagicMock, table: str, count: str, sort_by: list[str] | None
 ) -> None:
     with patch.object(client.session, "send", return_value=response({"data": [], "next_cursor": None})) as send:
-        list(sync_items(twitter_ads_source(client, "account", table, manager, None)))
+        list(sync_items(twitter_ads_source(client, "account", table, manager, None, MagicMock())))
     url = urlparse(request_url(send.call_args.args[0]))
     params = parse_qs(url.query)
     assert url.path == f"/12/accounts/account/{table}"
@@ -185,7 +185,7 @@ def test_stats_limits_daily_rows_currency_and_dst(
         time_machine.travel("2025-11-10T20:00:00Z", tick=False),
         patch.object(client.session, "send", side_effect=send),
     ):
-        resource = twitter_ads_source(client, "account", table, manager, incremental_since)
+        resource = twitter_ads_source(client, "account", table, manager, incremental_since, MagicMock())
         rows = [row for page in sync_items(resource) for row in page]
     start = incremental_since or date(2025, 10, 25)
     today = datetime(2025, 11, 10, 20, tzinfo=UTC).astimezone(account_timezone).date()
@@ -214,6 +214,52 @@ def test_stats_limits_daily_rows_currency_and_dst(
         resumed = [row for page in sync_items(resource) for row in page]
     assert min(row["date"] for row in resumed) == date.fromisoformat(first_checkpoint.next_date)
     assert max(row["date"] for row in resumed) == today - timedelta(days=1)
+
+
+def test_rejected_stats_request_logs_probes_and_still_fails(client: TwitterAdsClient, manager: MagicMock) -> None:
+    logger = MagicMock()
+
+    def send(request: requests.PreparedRequest, **kwargs: object) -> requests.Response:
+        url = request_url(request)
+        params = parse_qs(urlparse(url).query)
+        path = urlparse(url).path
+        if path.endswith("/funding_instruments"):
+            return response({"data": [{"id": "funding", "currency": "EUR"}]})
+        if path.endswith("/campaigns"):
+            return response({"data": [{"id": cid, "funding_instrument_id": "funding"} for cid in ("good", "bad")]})
+        if "/stats/" not in path:
+            return response({"data": {"timezone": "Asia/Kolkata", "created_at": "2025-01-01T00:00:00Z"}})
+        if params["placement"] == ["TREND"]:
+            raise requests.ConnectionError("probe connection dropped")
+        if "bad" not in params["entity_ids"][0].split(","):
+            return response({"data": []})
+        failure = requests.Response()
+        failure.status_code = 400
+        failure.url = url
+        failure._content = json.dumps(
+            {"errors": [{"code": "INVALID_PARAMETER", "message": "Expected %s", "parameter": "entity"}]}
+        ).encode()
+        return failure
+
+    with (
+        time_machine.travel("2025-11-10T20:00:00Z", tick=False),
+        patch.object(client.session, "send", side_effect=send),
+    ):
+        resource = twitter_ads_source(client, "account", "campaign_stats", manager, None, logger)
+        with pytest.raises(requests.HTTPError) as raised:
+            list(sync_items(resource))
+
+    assert "400 Client Error" in str(raised.value)
+    assert "INVALID_PARAMETER (entity)" in str(raised.value)
+    probes = {
+        call.kwargs["probe"]: call.kwargs.get("status", call.kwargs.get("error"))
+        for call in logger.warning.call_args_list
+        if call.args == ("twitter_ads_stats_probe",)
+    }
+    assert probes["entity good"] == 200
+    assert probes["entity bad"] == 400
+    assert probes["placement TREND"] == "probe connection dropped"
+    assert {"window one day later", "most recent week", "engagement metrics only", "placement SPOTLIGHT"} <= set(probes)
 
 
 def test_error_detail_rides_along_with_the_status(client: TwitterAdsClient) -> None:
