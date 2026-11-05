@@ -1,6 +1,6 @@
 import uuid
 import threading
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import (
     dataclass,
     field as dataclass_field,
@@ -47,6 +47,7 @@ from .attribution_weights import (
     build_position_based_weights,
     build_time_decay_weights,
 )
+from .constants import MAX_TOUCHPOINTS_PER_PERSON
 from .conversion_goal_conditions import (
     action_match_expr,
     action_property_keys,
@@ -137,7 +138,7 @@ def build_pageview_touchpoint_condition(source_field: str) -> ast.Expr:
 
     utm_campaign is optional — a source alone is enough. The precompute path
     (build_touchpoints_precompute_query) and the fallback path (_build_pageview_event_filter,
-    _build_utm_pageview_array) must all gate on this same rule, or the two disagree and one
+    _build_utm_pageview_arrays) must all gate on this same rule, or the two disagree and one
     window's touchpoints go missing.
     """
 
@@ -1000,6 +1001,46 @@ class ConversionGoalProcessor:
             group_by=[ast.Field(chain=["person_id"])],
         )
 
+    def _build_capped_touchpoint_arrays(
+        self,
+        timestamp: ast.Expr,
+        field_value: Callable[[TrackedField], ast.Expr],
+        tie_breaker: ast.Expr | None = None,
+        condition: ast.Expr | None = None,
+    ) -> list[ast.Expr]:
+        # Downstream reads every utm_* array positionally against utm_timestamps. Collecting whole
+        # (timestamp, *TRACKED_FIELDS) tuples keeps them aligned through the sort and the cap.
+        sort_key = [timestamp] if tie_breaker is None else [timestamp, tie_breaker]
+        touchpoint = ast.Tuple(exprs=[*sort_key, *(field_value(field) for field in TRACKED_FIELDS)])
+        collected = (
+            ast.Call(name="groupArray", args=[touchpoint])
+            if condition is None
+            else ast.Call(name="groupArrayIf", args=[touchpoint, condition])
+        )
+        capped = ast.Call(
+            name="arraySlice",
+            args=[
+                ast.Call(name="arraySort", args=[collected]),
+                ast.Constant(value=-MAX_TOUCHPOINTS_PER_PERSON),
+            ],
+        )
+        field_indexes = range(len(sort_key) + 1, len(sort_key) + 1 + len(TRACKED_FIELDS))
+        columns: list[ast.Expr] = [ast.Alias(alias="utm_touchpoints", expr=capped)]
+        for index, alias in [(1, "utm_timestamps"), *zip(field_indexes, (f.utm_array for f in TRACKED_FIELDS))]:
+            columns.append(
+                ast.Alias(
+                    alias=alias,
+                    expr=ast.Call(
+                        name="arrayMap",
+                        args=[
+                            ast.Lambda(args=["_tp"], expr=ast.TupleAccess(tuple=ast.Field(chain=["_tp"]), index=index)),
+                            ast.Field(chain=["utm_touchpoints"]),
+                        ],
+                    ),
+                )
+            )
+        return columns
+
     def _build_touchpoint_arrays_from_table(
         self, job_ids: Sequence[str | uuid.UUID], date_from: datetime, date_to: datetime
     ) -> ast.SelectQuery:
@@ -1016,25 +1057,11 @@ class ConversionGoalProcessor:
         """
         select_columns: list[ast.Expr] = [
             ast.Field(chain=["person_id"]),
-            ast.Alias(
-                alias="utm_timestamps",
-                expr=ast.Call(
-                    name="groupArray",
-                    args=[ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["touchpoint_timestamp"])])],
-                ),
+            *self._build_capped_touchpoint_arrays(
+                timestamp=ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["touchpoint_timestamp"])]),
+                field_value=lambda field: ast.Field(chain=[field.attributed_name]),
             ),
         ]
-        for field in TRACKED_FIELDS:
-            # Unfiltered, to stay index-parallel with `utm_timestamps` above: these arrays are read
-            # positionally against it, and a stored row can legitimately carry an empty value for any
-            # field except campaign and source (which the precompute WHERE requires). Filtering the
-            # empties out here shifted every later element onto the wrong touchpoint.
-            select_columns.append(
-                ast.Alias(
-                    alias=field.utm_array,
-                    expr=ast.Call(name="groupArray", args=[ast.Field(chain=[field.attributed_name])]),
-                )
-            )
 
         deduped_rows = self._build_distinct_preagg_rows(
             table="marketing_touchpoints_preaggregated",
@@ -1132,12 +1159,7 @@ class ConversionGoalProcessor:
                 self._build_conversion_utm_array(field.conversion_array, conversion_event, resolved[field.name])
             )
 
-        # Add pageview UTM arrays (timestamps + each tracked field)
-        select_columns.append(self._build_utm_pageview_array("utm_timestamps", utm_source_field, "timestamp"))
-        for field in TRACKED_FIELDS:
-            select_columns.append(
-                self._build_utm_pageview_array(field.utm_array, utm_source_field, resolved[field.name])
-            )
+        select_columns.extend(self._build_utm_pageview_arrays(utm_source_field, resolved))
 
         # Build HAVING clause
         having_expr = ast.CompareOperation(
@@ -1467,18 +1489,9 @@ class ConversionGoalProcessor:
             ),
         )
 
-    def _build_utm_pageview_array(self, alias: str, utm_source_field: str, return_field: str) -> ast.Alias:
-        """Build array for UTM pageview data.
-
-        Every array this builds is read positionally against `utm_timestamps`
-        (`_build_filtered_utm_field_expr`, `_build_single_touch_fallback_expr`), so all of them must
-        keep exactly one element per UTM pageview, in the same order. That means **every** array is
-        filtered by the same predicate — the timestamp being non-zero, i.e. the row qualified — and
-        never by whether its own value happens to be set. `utm_source` or an ad click id is the
-        touchpoint qualifier; every other tracked field, `utm_campaign` included, is routinely empty
-        on a qualifying pageview, and dropping those positions used to shift every later element:
-        touchpoint i's timestamp paired with touchpoint j's value.
-        """
+    def _build_utm_pageview_arrays(self, utm_source_field: str, resolved: dict[str, str]) -> list[ast.Expr]:
+        # The row qualifies on `utm_source` or an ad click id. Every other tracked field, `utm_campaign`
+        # included, is routinely empty on a qualifying pageview and still keeps its slot in the tuple.
         pageview_with_utm = ast.And(
             exprs=[
                 ast.CompareOperation(
@@ -1489,78 +1502,24 @@ class ConversionGoalProcessor:
                 build_pageview_touchpoint_condition(utm_source_field),
             ]
         )
-        timestamp_expr = ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])])
-        qualified_timestamp = ast.Call(name="if", args=[pageview_with_utm, timestamp_expr, ast.Constant(value=0)])
-        qualified = ast.Lambda(
-            args=["_tp"],
-            expr=ast.CompareOperation(
-                left=ast.TupleAccess(tuple=ast.Field(chain=["_tp"]), index=1),
-                op=ast.CompareOperationOp.Gt,
-                right=ast.Constant(value=0),
-            ),
-        )
-
-        if return_field == "timestamp":
-            return ast.Alias(
-                alias=alias,
-                expr=ast.Call(
-                    name="arrayFilter",
-                    args=[
-                        ast.Lambda(
-                            args=["x"],
-                            expr=ast.CompareOperation(
-                                left=ast.Field(chain=["x"]),
-                                op=ast.CompareOperationOp.Gt,
-                                right=ast.Constant(value=0),
-                            ),
-                        ),
-                        ast.Call(name="groupArray", args=[qualified_timestamp]),
-                    ],
-                ),
-            )
-
-        value_expr = ast.Call(
-            name="toString",
-            args=[
-                ast.Call(
-                    name="ifNull",
-                    args=[
-                        ast.Field(chain=["events", "properties", return_field]),
-                        ast.Constant(value=""),
-                    ],
-                )
-            ],
-        )
-        # Paired with the timestamp so the filter can key off the row qualifying rather than off this
-        # field being set; the tuple is unpacked immediately, so the array's shape is unchanged.
-        return ast.Alias(
-            alias=alias,
-            expr=ast.Call(
-                name="arrayMap",
+        return self._build_capped_touchpoint_arrays(
+            timestamp=ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])]),
+            field_value=lambda field: ast.Call(
+                name="toString",
                 args=[
-                    ast.Lambda(args=["_tp"], expr=ast.TupleAccess(tuple=ast.Field(chain=["_tp"]), index=2)),
                     ast.Call(
-                        name="arrayFilter",
+                        name="ifNull",
                         args=[
-                            qualified,
-                            ast.Call(
-                                name="groupArray",
-                                args=[
-                                    ast.Tuple(
-                                        exprs=[
-                                            qualified_timestamp,
-                                            ast.Call(
-                                                name="if",
-                                                args=[pageview_with_utm, value_expr, ast.Constant(value="")],
-                                            ),
-                                        ]
-                                    )
-                                ],
-                            ),
+                            ast.Field(chain=["events", "properties", resolved[field.name]]),
+                            ast.Constant(value=""),
                         ],
-                    ),
+                    )
                 ],
             ),
+            # Single-touch models credit the first touchpoint among equal timestamps. Ties sort by the same
+            # uuid hash the events table orders by, so the winner is deterministic instead of scan order.
+            tie_breaker=ast.Call(name="cityHash64", args=[ast.Field(chain=["events", "uuid"])]),
+            condition=pageview_with_utm,
         )
 
     def _build_single_touch_array_join_subquery(

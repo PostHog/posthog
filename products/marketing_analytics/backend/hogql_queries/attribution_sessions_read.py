@@ -22,9 +22,9 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.access_control.backend.facade.api import team_has_property_access_rules
 
-from .attribution_base import MAX_CONVERSIONS_PER_PERSON, MAX_TOUCHPOINTS_PER_PERSON, PERSON_CONVERSION_COUNT
+from .attribution_base import MAX_CONVERSIONS_PER_PERSON, PERSON_CONVERSION_COUNT
 from .attribution_session_dimensions import SEARCH_SESSION_COLUMNS, session_dimensions
-from .constants import UNKNOWN_CHANNEL
+from .constants import MAX_TOUCHPOINTS_PER_PERSON, UNKNOWN_CHANNEL
 from .session_breakdown_base import UNATTRIBUTED_SESSION_VALUES
 
 if TYPE_CHECKING:
