@@ -8,6 +8,7 @@ from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, S
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 from urllib.parse import urlparse
@@ -8650,8 +8651,15 @@ def handoff_task(
             hand_off_task_claims,
         )
 
-        hand_off_task_claims(
-            team_id=team_id, task_id=str(locked.id), previous_user_id=user_id, target_user_id=target.id
+        # After commit, so the report locks it takes are never waited on while this task row is locked.
+        transaction.on_commit(
+            partial(
+                hand_off_task_claims,
+                team_id=team_id,
+                task_id=str(locked.id),
+                previous_user_id=user_id,
+                target_user_id=target.id,
+            )
         )
         message = TaskThreadMessage.objects.for_team(team_id).create(
             team_id=team_id,

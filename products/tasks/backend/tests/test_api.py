@@ -13957,7 +13957,12 @@ class TestTaskHandoffAPI(BaseTaskAPITest):
             },
         )
 
-    def test_handoff_moves_the_report_claim_the_task_works_under(self):
+    # A claim left with the previous owner would refuse every rerun the new owner starts, but a replacement task the
+    # previous owner still runs under the same claim keeps it.
+    @parameterized.expand([("only_task_on_claim", False, "recipient"), ("replacement_shares_claim", True, "owner")])
+    def test_handoff_moves_the_report_claim_the_task_works_under(
+        self, _name: str, with_replacement: bool, expected_holder: str
+    ) -> None:
         from products.signals.backend.facade.report_tasks import record_report_task
         from products.signals.backend.models import SignalReport
 
@@ -13965,13 +13970,17 @@ class TestTaskHandoffAPI(BaseTaskAPITest):
         task = self.create_task(created_by=self.user)
         report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
         record_report_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+        if with_replacement:
+            replacement = self.create_task(title="Replacement", created_by=self.user)
+            record_report_task(team_id=self.team.id, report_id=str(report.id), task_id=str(replacement.id))
 
-        response = self.client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(self._handoff_url(task), {"user": recipient.id}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        # A claim left with the previous owner would refuse every rerun the new owner starts.
         assignee = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/").json()["assignee"]
-        self.assertEqual((assignee["kind"], assignee["user"]["id"]), ("user", recipient.id))
+        holder = recipient if expected_holder == "recipient" else self.user
+        self.assertEqual((assignee["kind"], assignee["user"]["id"]), ("user", holder.id))
 
     @parameterized.expand(
         [
