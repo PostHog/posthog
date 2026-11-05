@@ -7,6 +7,24 @@ feature: customer_analytics
 url_prefix: /customer_analytics
 ui_apps: {}
 tools:
+    account-notes-list:
+        operation: account_notes_list
+        enabled: true
+        scopes:
+            - account:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List account notes across accounts
+        description: >
+            Notes (internal notebooks) across every Customer Analytics account the caller can read, newest modified
+            first. Each row carries `short_id`, `title`, `account_id`, `account_name`, `created_by` and `tags`. Filter
+            with `tags` (JSON-encoded array, any match), `account_id`, `created_by`, `assigned_to` and `search`; sort
+            with `ordering` (`last_modified_at`, `created_at`, `title`, `account_name`, `-` prefix for descending). Use
+            `accounts-notebooks-retrieve` with the row's `account_id` and `short_id` to read a note's content.
+        feature_flag: customer-analytics-csp
     account-relationship-definitions-create:
         operation: account_relationship_definitions_create
         enabled: true
@@ -261,21 +279,6 @@ tools:
             created with internal visibility so it does not appear in the global notebooks list. Pass `tags` (array of
             tag names, shared with account tags) to tag the note at creation time.
         feature_flag: customer-analytics-csp
-    accounts-notebooks-partial-update:
-        operation: accounts_notebooks_partial_update
-        enabled: true
-        scopes:
-            - account:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Update account notebook tags or title
-        description: >
-            Update an account notebook's `title` or `tags` by its `short_id`. `tags` replaces the whole tag set, so
-            read the notebook first and send the full list to add one. Fields left out are untouched. Content is not
-            edited here, use `notebooks-partial-update` for that.
-        feature_flag: customer-analytics-csp
     accounts-notebooks-list:
         operation: accounts_notebooks_list
         enabled: true
@@ -289,10 +292,25 @@ tools:
         title: List account notebooks
         description: >
             List notebooks attached to a Customer Analytics account, newest first by default. Each result includes the
-            notebook `short_id`, `title`, `content`, `tags` and authorship metadata. Pass `tags` (JSON-encoded
-            array, e.g. `["renewal","risk"]`) to keep notebooks carrying any of those tags, `search` for full text,
-            and `ordering` (`title`, `created_at`, `last_modified_at`, `created_by`, each with a `-` prefix for
-            descending) to sort.
+            notebook `short_id`, `title`, `content`, `tags` and authorship metadata. Pass `tags` (JSON-encoded array,
+            e.g. `["renewal","risk"]`) to keep notebooks carrying any of those tags, `search` for full text, and
+            `ordering` (`title`, `created_at`, `last_modified_at`, `created_by`, each with a `-` prefix for descending)
+            to sort.
+        feature_flag: customer-analytics-csp
+    accounts-notebooks-partial-update:
+        operation: accounts_notebooks_partial_update
+        enabled: true
+        scopes:
+            - account:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update account notebook tags or title
+        description: >
+            Update an account notebook's `title` or `tags` by its `short_id`. `tags` replaces the whole tag set, so read
+            the notebook first and send the full list to add one. Fields left out are untouched. Content is not edited
+            here, use `notebooks-partial-update` for that.
         feature_flag: customer-analytics-csp
     accounts-notebooks-retrieve:
         operation: accounts_notebooks_retrieve
@@ -551,25 +569,6 @@ tools:
             for person/group targets it removes the source binding and stops future syncs (already-written person/group
             properties stay). The definition is team-scoped, so this affects all accounts. Deleting a group-target
             definition additionally requires the `group:write` scope.
-        feature_flag: customer-analytics-csp
-    account-notes-list:
-        operation: account_notes_list
-        enabled: true
-        scopes:
-            - account:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: List account notes across accounts
-        description: >
-            Notes (internal notebooks) across every Customer Analytics account the caller can read, newest modified
-            first. Each row carries `short_id`, `title`, `account_id`, `account_name`, `created_by` and `tags`.
-            Filter with `tags` (JSON-encoded array, any match), `account_id`, `created_by`, `assigned_to` and
-            `search`; sort with `ordering` (`last_modified_at`, `created_at`, `title`, `account_name`, `-` prefix
-            for descending). Use `accounts-notebooks-retrieve` with the row's
-            `account_id` and `short_id` to read a note's content.
         feature_flag: customer-analytics-csp
     custom-property-definitions-list:
         operation: custom_property_definitions_list

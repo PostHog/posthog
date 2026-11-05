@@ -370,7 +370,7 @@ export interface AccountNoteApi {
     /** User who created the note, if known. */
     readonly created_by: UserBasicApi | null
     /** Tag names on the note. */
-    readonly tags: string[]
+    readonly tags: readonly string[]
 }
 
 export interface PaginatedAccountNoteListApi {
@@ -850,7 +850,10 @@ export interface AccountNotebookApi {
     readonly created_by: UserBasicApi
     readonly last_modified_at: string
     readonly last_modified_by: UserBasicApi
-    /** Tag names on the notebook. On update this replaces the existing set; omit to leave tags untouched. */
+    /**
+     * Tag names on the notebook. On update this replaces the existing set; omit to leave tags untouched.
+     * @items.maxLength 255
+     */
     tags?: string[]
 }
 
@@ -872,7 +875,10 @@ export interface PatchedAccountNotebookUpdateApi {
      * @nullable
      */
     title?: string | null
-    /** Replaces the notebook's tags. Omit to leave them untouched. */
+    /**
+     * Replaces the notebook's tags. Omit to leave them untouched.
+     * @items.maxLength 255
+     */
     tags?: string[]
 }
 
@@ -5105,7 +5111,7 @@ export type AccountNotesListParams = {
     /**
      * Sort order. Defaults to '-last_modified_at'.
      */
-    ordering?: AccountNotesListOrdering
+    ordering?: string
     /**
      * Full-text search across note title and content, plus substring match on account name.
      */
@@ -5115,19 +5121,6 @@ export type AccountNotesListParams = {
      */
     tags?: string
 }
-
-export type AccountNotesListOrdering = (typeof AccountNotesListOrdering)[keyof typeof AccountNotesListOrdering]
-
-export const AccountNotesListOrdering = {
-    '-account_name': '-account_name',
-    '-created_at': '-created_at',
-    '-last_modified_at': '-last_modified_at',
-    '-title': '-title',
-    account_name: 'account_name',
-    created_at: 'created_at',
-    last_modified_at: 'last_modified_at',
-    title: 'title',
-} as const
 
 export type AccountRelationshipDefinitionsListParams = {
     /**
