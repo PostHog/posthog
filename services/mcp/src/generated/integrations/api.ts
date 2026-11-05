@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 12 enabled ops
+ * PostHog API - MCP 13 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -90,7 +90,7 @@ export const IntegrationsCreateBody = () => zod
     .object({
         config: zod.unknown().optional(),
     })
-    .describe('Standard Integration serializer.')
+    .describe('The request schema of a create. A create accepts only the public kinds, so the schema lists them.')
 
 export const IntegrationsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this integration.'),
