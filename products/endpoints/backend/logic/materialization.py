@@ -366,9 +366,8 @@ class EndpointMaterializationService:
                     replaced_version is not None
                     and replaced_version.declared_target_seconds() == data_freshness_seconds
                 ):
-                    # Held until commit, so a concurrent query edit reads this version's link before it
-                    # counts the retained versions. Otherwise both could pass the cap in `check_cadence_carry`.
-                    Endpoint.objects.select_for_update(no_key=True).filter(team_id=self.team.pk, pk=endpoint.pk).first()
+                    # `sync_saved_query_to_dag` above holds the DAG's advisory lock until commit, so a concurrent
+                    # query edit waits and then counts this version's link among the retained versions.
                     carry_saved_query_frequency_target(
                         saved_query.team_id,
                         saved_query.id,

@@ -502,6 +502,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("materialization_error", retried.json())
         current = endpoint.get_version()
         self.assertEqual(current.version, 3)
+        self.assertIsNotNone(current.saved_query_id)
         self.assertEqual(current.data_freshness_seconds, 900)
 
     def test_query_edit_keeps_a_cadence_on_every_version_when_no_floor_applies(self):
@@ -512,11 +513,14 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             response = edit_query("count(), 1")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        self.assertEqual(endpoint.get_version().version, 3)
-        self.assertEqual(endpoint.get_version().data_freshness_seconds, 900)
+        self.assertNotIn("materialization_error", response.json())
+        current = endpoint.get_version()
+        self.assertEqual(current.version, 3)
+        self.assertIsNotNone(current.saved_query_id)
+        self.assertEqual(current.data_freshness_seconds, 900)
 
-    def test_concurrent_query_edit_that_passes_the_early_check_still_hits_the_cadence_cap(self):
-        endpoint, _url, edit_query = self._endpoint_with_a_cadence_below_the_floor("floored_concurrent_edits")
+    def test_query_edit_that_passes_the_early_check_still_hits_the_cadence_cap(self):
+        endpoint, _url, edit_query = self._endpoint_with_a_cadence_below_the_floor("floored_late_refusal")
 
         with (
             self._plan_floor(),
