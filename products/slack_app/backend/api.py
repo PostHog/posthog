@@ -3013,6 +3013,13 @@ def route_posthog_code_event_to_relevant_region(
         elif mention_is_threaded:
             awaited_request_reply = _awaits_request_from_author(event, slack_team_id, workspace_result.candidates[0])
 
+        # Someone who only tags PostHog in channels may never open its DM. A guest from another
+        # workspace in a shared channel gets no onboarding, because it would come from this workspace's app.
+        if event_type == "app_mention" and event.get("user_team", slack_team_id) == slack_team_id:
+            onboarding_integration = workspace_result.resolved_or_first()
+            if onboarding_integration is not None and slack_user_id_str:
+                request_onboarding(onboarding_integration, slack_user_id_str, may_start=True, start_only=True)
+
         # Both event types share the rest of the pipeline. Mention-only side
         # effects (failure reply, scope notice, approval prompt, rules command,
         # picker hint) are silent drops for untagged followups — the originating
