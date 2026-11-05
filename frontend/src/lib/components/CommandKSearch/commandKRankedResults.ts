@@ -16,6 +16,7 @@ import {
     tokenTypos,
 } from './commandKRanking'
 import type { CommandKRow, CommandKSection } from './commandKSections'
+import { RESULTS_LIMIT } from './commandKSources'
 
 const BEST_MATCHES_LIMIT = 3
 const GROUP_LIMIT = 3
@@ -65,16 +66,27 @@ function rankLocalItems(items: SearchItem[], query: string, groupKey: string): R
 
 function rankItems(items: SearchItem[], query: string, groupKey: string): RankedItem[] {
     return items.flatMap((item) => {
-        const ranked = rankLocalItem(
-            query,
-            String(item.displayName || item.name),
-            item.searchKeywords,
-            !!item.parentName
-        )
+        const name = String(item.displayName || item.name)
+        const aliases =
+            groupKey === 'settings'
+                ? [
+                      ...(item.searchKeywords ?? []),
+                      [
+                          name,
+                          ...(item.searchKeywords ?? []),
+                          item.parentName ?? '',
+                          ...(item.contextKeywords ?? []),
+                      ].join(' '),
+                  ]
+                : item.searchKeywords
+        const ranked = rankLocalItem(query, name, aliases, !!item.parentName, groupKey === 'settings')
         return ranked
             ? [
                   {
-                      item: ranked.matchedAlias ? { ...item, matchedSearchKeyword: ranked.matchedAlias } : item,
+                      item:
+                          ranked.matchedAlias && !item.hideMatchedKeyword
+                              ? { ...item, matchedSearchKeyword: ranked.matchedAlias }
+                              : item,
                       rank: ranked.rank,
                       groupKey,
                   },
@@ -117,18 +129,19 @@ function tierBoostFor(item: SearchItem, groupKey: string, query: string): number
 }
 
 function candidateFor(item: SearchItem, groupKey: string, query: string): RankCandidate {
+    const productTab = groupKey === 'products' && !!item.parentName
     const common = {
         name: displayName(item),
-        typePrior: typePriorFor(groupKey, query),
+        typePrior: typePriorFor(productTab ? 'tabs' : groupKey, query),
         identity: item.identityFields,
     }
     if (item.category !== 'results') {
         return {
             ...common,
             aliases: item.searchKeywords,
-            context: item.parentName ? [item.parentName] : [],
+            context: [...(item.parentName ? [item.parentName] : []), ...(item.contextKeywords ?? [])],
             indirect: !!item.parentName,
-            tierBoost: tierBoostFor(item, groupKey, query),
+            tierBoost: productTab ? 0 : tierBoostFor(item, groupKey, query),
             matchesQuery: IDENTITY_GROUPS.includes(groupKey),
         }
     }
@@ -151,7 +164,10 @@ function rankUnified(items: SearchItem[], query: string, groupKey: (item: Search
         }
         return [
             {
-                item: ranked.matchedAlias ? { ...item, matchedSearchKeyword: ranked.matchedAlias } : item,
+                item:
+                    ranked.matchedAlias && !item.hideMatchedKeyword
+                        ? { ...item, matchedSearchKeyword: ranked.matchedAlias }
+                        : item,
                 rank: ranked.rank,
                 groupKey: key,
             },
@@ -252,6 +268,40 @@ function noticeSection(
     ]
 }
 
+const scopeSeeAll = (
+    groupKey: string,
+    total: number,
+    covered: number,
+    capped: boolean,
+    section: string
+): CommandKRow[] =>
+    !LOCAL_GROUPS.includes(groupKey) && total > covered
+        ? [
+              {
+                  kind: 'scope',
+                  key: `${section}/see-all`,
+                  type: groupKey,
+                  label: capped
+                      ? `See all ${groupLabel(groupKey).toLowerCase()}`
+                      : `See all ${total.toLocaleString()} ${groupLabel(groupKey).toLowerCase()}`,
+              },
+          ]
+        : []
+
+const nestingDepth = (item: SearchItem): number => (item.parentName ? item.parentName.split(' › ').length : 0)
+
+const shallowestFirst = <T extends RankedItem>(entries: T[]): T[] =>
+    entries
+        .map((entry, index) => ({ entry, index }))
+        .sort(
+            (a, b) =>
+                a.entry.rank[0] - b.entry.rank[0] ||
+                a.entry.rank[1] - b.entry.rank[1] ||
+                nestingDepth(a.entry.item) - nestingDepth(b.entry.item) ||
+                a.index - b.index
+        )
+        .map(({ entry }) => entry)
+
 interface RankedResultsInput {
     query: string
     highlightWords: string[]
@@ -259,6 +309,8 @@ interface RankedResultsInput {
     products: SearchItem[]
     persons?: SearchItem[]
     settings?: SearchItem[]
+    unrankedSettings?: SearchItem[]
+    expandedGroups?: string[]
     accounts?: SearchItem[]
     state: CommandKSection['state']
     scoped: boolean
@@ -272,6 +324,8 @@ export function buildRankedResults({
     products,
     persons = [],
     settings = [],
+    unrankedSettings = [],
+    expandedGroups = [],
     accounts = [],
     state,
     scoped,
@@ -338,14 +392,37 @@ export function buildRankedResults({
     const pool = collapseSameName(matching)
     const groupCount = new Set(pool.map((entry) => entry.groupKey)).size
     if (pool.length <= FLAT_LIST_LIMIT || groupCount === 1) {
+        const hasContinuation = !LOCAL_GROUPS.includes(pool[0].groupKey)
+        const shownPool = groupCount === 1 && !hasContinuation ? pool : pool.slice(0, RESULTS_LIMIT)
         return [
             ...notices,
             {
                 key: 'best-matches',
                 label: 'Results',
-                rows: pool.map((entry) =>
-                    itemRow('flat', entry.item, highlightWords, entry.duplicates, entry.duplicates > 0, groupCount > 1)
-                ),
+                rows: [
+                    ...shownPool.map((entry) =>
+                        itemRow(
+                            'flat',
+                            entry.item,
+                            highlightWords,
+                            entry.duplicates,
+                            entry.duplicates > 0,
+                            groupCount > 1
+                        )
+                    ),
+                    ...(groupCount === 1
+                        ? scopeSeeAll(
+                              pool[0].groupKey,
+                              Math.max(
+                                  pool[0].item.searchMatch?.typeCount ?? 0,
+                                  pool.reduce((sum, entry) => sum + 1 + entry.duplicates, 0)
+                              ),
+                              shownPool.reduce((sum, entry) => sum + 1 + entry.duplicates, 0),
+                              capped,
+                              'flat'
+                          )
+                        : []),
+                ],
                 state,
             },
         ]
@@ -390,25 +467,31 @@ export function buildRankedResults({
         groupKey !== 'products' &&
         searchWords(groupLabel(groupKey)).some((word) => tokenTypos(queryWords[0], word) !== null)
     const orderedGroups = [...groups].sort(([a], [b]) => Number(typeIntent(b)) - Number(typeIntent(a)))
-    for (const [groupKey, entries] of orderedGroups) {
-        const shown = entries.slice(0, GROUP_LIMIT)
+    for (const [groupKey, groupEntries] of orderedGroups) {
+        const expandable = groupKey === 'settings'
+        const entries = expandable ? shallowestFirst(groupEntries) : groupEntries
+        const expanded = expandable && expandedGroups.includes(groupKey)
+        const shown = expanded ? entries : entries.slice(0, GROUP_LIMIT)
         const inBest = best.filter((entry) => entry.groupKey === groupKey)
         const sample = entries[0] ?? inBest[0]
-        const total = Math.max(sample.item.searchMatch?.typeCount ?? 0, entries.length + inBest.length)
-        const rows: CommandKRow[] = shown.map((entry) =>
-            itemRow(`group-${groupKey}`, entry.item, highlightWords, entry.duplicates, entry.duplicates > 0)
-        )
+        const extra = expandable ? unrankedSettings : []
+        const total = Math.max(sample.item.searchMatch?.typeCount ?? 0, entries.length + inBest.length) + extra.length
+        const rows: CommandKRow[] = [
+            ...shown.map((entry) =>
+                itemRow(`group-${groupKey}`, entry.item, highlightWords, entry.duplicates, entry.duplicates > 0)
+            ),
+            ...(expanded ? extra.map((item) => itemRow(`group-${groupKey}`, item, highlightWords)) : []),
+        ]
         const covered = inBest.length + shown.reduce((sum, entry) => sum + 1 + entry.duplicates, 0)
-        if (!LOCAL_GROUPS.includes(groupKey) && total > covered) {
+        if (expandable && !expanded && total > covered) {
             rows.push({
-                kind: 'scope',
-                key: `group-${groupKey}/see-all`,
-                type: groupKey,
-                label: capped
-                    ? `See all ${groupLabel(groupKey).toLowerCase()}`
-                    : `See all ${total.toLocaleString()} ${groupLabel(groupKey).toLowerCase()}`,
+                kind: 'expand',
+                key: `group-${groupKey}/expand`,
+                group: groupKey,
+                label: `Show all ${total.toLocaleString()} ${groupLabel(groupKey).toLowerCase()}`,
             })
         }
+        rows.push(...scopeSeeAll(groupKey, total, covered, capped, `group-${groupKey}`))
         if (!rows.length) {
             continue
         }

@@ -50,6 +50,8 @@ import { useDashboardContainerWidth } from 'products/dashboards/frontend/useDash
 import { TAKE_OUT_DROP_ZONE_KEY, useTileGroupDrag } from 'products/dashboards/frontend/useTileGroupDrag'
 
 import { DashboardWidgetItem } from './components/DashboardWidgetItem/DashboardWidgetItem'
+import { getDashboardAddTileOptions } from './dashboardAddTileOptions'
+import { DashboardEmptyGroupAddButton } from './DashboardEmptyGroupAddButton'
 import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
 import { DashboardErrorTileItem } from './items/DashboardErrorTileItem'
 import { getDashboardWidgetFetchDisplayError } from './widgets/constants'
@@ -120,6 +122,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         widgetResultsByTileId,
         widgetRefreshStatus,
         scrollToBottomSignal,
+        renamingTileGroupKey,
         sizeKey,
         tileGroupSectionsEnabled,
         tileGroupSections,
@@ -153,6 +156,14 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         copyGroupToDashboard,
         changeTileGroupDisplay,
         renameTileGroup,
+        setRenamingTileGroupKey,
+        setAddTargetTileGroupKey,
+        openAddInsightModal,
+        openTextTileModal,
+        openImageTileModal,
+        openButtonTileModal,
+        setAddWidgetModalOpen,
+        removeTileGroup,
         setDashboardEditing,
         toggleTileGroup,
         selectTileGroupTab,
@@ -278,6 +289,30 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const onCopyGroupToDashboard = canEditDashboard && isEditablePlacement ? copyGroupToDashboard : undefined
     const onChangeGroupDisplay = canEditDashboard && isEditablePlacement ? changeTileGroupDisplay : undefined
     const onRenameTileGroup = canEditDashboard && isEditablePlacement ? renameTileGroup : undefined
+    // A layout edit only stages tile moves, but a delete saves at once, so Cancel would bring tiles back to a lost group.
+    const getAddTileOptions =
+        canEditDashboard && isEditablePlacement && !layoutEditMode
+            ? (groupKey: string) =>
+                  getDashboardAddTileOptions({
+                      onAddInsight: openAddInsightModal,
+                      onAddText: openTextTileModal,
+                      onAddImage: openImageTileModal,
+                      onAddButton: openButtonTileModal,
+                      setAddWidgetModalOpen,
+                  }).map((option) => ({
+                      key: option.key,
+                      label: option.label,
+                      onClick: () => {
+                          setAddTargetTileGroupKey(groupKey)
+                          option.onClick()
+                      },
+                  }))
+            : undefined
+    const getEmptyGroupAddAction =
+        canEditDashboard && isEditablePlacement && !layoutEditMode
+            ? (groupKey: string) => <DashboardEmptyGroupAddButton groupKey={groupKey} />
+            : undefined
+    const onRemoveTileGroup = canEditDashboard && isEditablePlacement && !layoutEditMode ? removeTileGroup : undefined
 
     const isLayoutZoomToggled = layoutEditMode && layoutZoom !== 1
 
@@ -845,10 +880,15 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             collapsedTileGroupKeys={collapsedTileGroupKeys}
             onToggleTileGroup={toggleTileGroup}
             onRenameTileGroup={onRenameTileGroup}
+            renamingTileGroupKey={renamingTileGroupKey}
+            onRenamingTileGroupKeyChange={setRenamingTileGroupKey}
+            onRemoveTileGroup={onRemoveTileGroup}
             copyToDestinations={copyToDestinations}
             onCopyGroupToDashboard={onCopyGroupToDashboard}
             copyLoading={copyGroupToDashboardLoading}
             onChangeGroupDisplay={onChangeGroupDisplay}
+            getAddTileOptions={getAddTileOptions}
+            getEmptyGroupAddAction={getEmptyGroupAddAction}
         >
             {renderSectionGrid(section, index)}
         </DashboardTileSectionBand>
@@ -869,10 +909,15 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         activeSectionKey={tileGroupSections[activeTabIndex].key}
                         onSelect={selectTileGroupTab}
                         onRenameGroup={onRenameTileGroup}
+                        renamingGroupKey={renamingTileGroupKey}
+                        onRenamingGroupKeyChange={setRenamingTileGroupKey}
+                        onRemoveGroup={onRemoveTileGroup}
                         copyToDestinations={copyToDestinations}
                         onCopyGroupToDashboard={onCopyGroupToDashboard}
                         copyLoading={copyGroupToDashboardLoading}
                         onChangeGroupDisplay={onChangeGroupDisplay}
+                        getAddTileOptions={getAddTileOptions}
+                        getEmptyGroupAddAction={getEmptyGroupAddAction}
                     >
                         {renderSectionGrid(tileGroupSections[activeTabIndex], activeTabIndex)}
                     </DashboardTileGroupTabs>

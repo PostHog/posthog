@@ -1,4 +1,5 @@
 import { createContext, type ReactElement, type ReactNode, type RefObject, useContext, useEffect, useMemo } from 'react'
+import type { ViewInstance } from 'react-native'
 import { BackHandler, Dimensions, type StyleProp, StyleSheet, View, type ViewStyle } from 'react-native'
 import { type SharedValue, useSharedValue } from 'react-native-reanimated'
 import { scheduleOnRN } from 'react-native-worklets'
@@ -9,7 +10,7 @@ export type ChartDismissReason = 'tap_again' | 'outside' | 'other_chart' | 'scro
 
 interface ChartEntry {
     dismiss: (reason: ChartDismissReason) => void
-    viewRef: RefObject<View | null>
+    viewRef: RefObject<ViewInstance | null>
 }
 
 interface SelectionState {
