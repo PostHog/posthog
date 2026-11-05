@@ -2655,11 +2655,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                         autoFocus
                                     />
                                 </LemonField>
-                                <LemonField name="description" label="Description" showOptional className="mt-2">
+                                <LemonField
+                                    name="description"
+                                    label="Description"
+                                    showOptional
+                                    help="Agents may use this description to work out how to use this data."
+                                    className="mt-2"
+                                >
                                     <LemonTextArea
                                         data-attr="sql-editor-input-save-view-description"
                                         disabled={isLoading}
-                                        placeholder="What does this view show?"
+                                        placeholder="For example: one row per paid order, without test orders or refunds. Use it for revenue reports."
                                         minRows={2}
                                         stopPropagation
                                     />
