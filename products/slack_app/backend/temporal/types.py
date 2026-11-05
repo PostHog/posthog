@@ -40,12 +40,25 @@ class SlackDmSetupMessage:
     progress: str | None = None
     summarizes_step: bool = False
 
+    @property
+    def summary(self) -> str:
+        """The label of the activity that sends this message, shown in the Temporal UI."""
+        if self.kind == "step" and self.summarizes_step:
+            return f"{self.step}: shrink to one line"
+        if self.kind == "step":
+            return f"{self.step}: show step"
+        if self.kind == "root":
+            return f"top message: {self.progress}"
+        return "ready message"
+
 
 @frozen
 class SlackDmSetupPlan:
     edits: list[SlackDmSetupMessage]
     post: SlackDmSetupMessage | None
     finished: bool
+    # Shown as the workflow's current details in the Temporal UI.
+    status: str = ""
 
     @property
     def plan_again(self) -> bool:
@@ -53,7 +66,7 @@ class SlackDmSetupPlan:
         return self.post is not None and self.post.kind == "root"
 
 
-DM_SETUP_DONE_PLAN = SlackDmSetupPlan(edits=[], post=None, finished=True)
+DM_SETUP_DONE_PLAN = SlackDmSetupPlan(edits=[], post=None, finished=True, status="Done")
 
 
 @frozen

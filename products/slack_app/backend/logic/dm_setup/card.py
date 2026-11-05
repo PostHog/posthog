@@ -61,6 +61,12 @@ def _ready_message(ctx: DmSetupContext, skipped: list[DmSetupStep]) -> SlackDmSe
     return SlackDmSetupMessage(kind="ready", text="PostHog is ready", blocks=[section_block(text)])
 
 
+def _status(progress: str, pending: list[DmSetupStep], skipped: list[DmSetupStep]) -> str:
+    current = f"current step: {pending[0].key}" if pending else "ready"
+    skips = ", ".join(step.key for step in skipped) or "none"
+    return f"{progress} · {current} · skipped: {skips}"
+
+
 def plan_dm_setup(integration: WorkspaceIntegration, slack_user_id: str) -> SlackDmSetupPlan:
     """Reads only, except that it stores that there is nothing to set up."""
     slack_workspace_id = integration.integration_id
@@ -75,13 +81,14 @@ def plan_dm_setup(integration: WorkspaceIntegration, slack_user_id: str) -> Slac
     skipped = [step for step in steps if step.skippable and step.key in skipped_keys and step not in done]
     pending = [step for step in steps if step not in done and step not in skipped]
     progress = f"{len(steps) - len(pending)} of {len(steps)} steps done"
+    status = _status(progress, pending, skipped)
 
     if state is None or state.root_ts is None:
         if not pending:
             # Storing this saves a workflow run on each later open of the DM.
             update_dm_setup_card(slack_workspace_id, slack_user_id, completed=True)
             return DM_SETUP_DONE_PLAN
-        return SlackDmSetupPlan(edits=[], post=_root_message(progress, ready=False), finished=False)
+        return SlackDmSetupPlan(edits=[], post=_root_message(progress, ready=False), finished=False, status=status)
 
     edits = [
         _summary_message(step, state.step_ts[step.key], skipped=step in skipped)
@@ -90,17 +97,17 @@ def plan_dm_setup(integration: WorkspaceIntegration, slack_user_id: str) -> Slac
     ]
     if not pending:
         edits.append(_root_message(progress, ready=True, ts=state.root_ts))
-        return SlackDmSetupPlan(edits=edits, post=_ready_message(ctx, skipped), finished=True)
+        return SlackDmSetupPlan(edits=edits, post=_ready_message(ctx, skipped), finished=True, status=status)
 
     if state.progress != progress:
         edits.append(_root_message(progress, ready=False, ts=state.root_ts))
     current = _step_message(ctx, pending[0], len(steps) - len(pending) + 1, len(steps))
     current_ts = state.step_ts.get(pending[0].key)
     if current_ts is None:
-        return SlackDmSetupPlan(edits=edits, post=current, finished=False)
+        return SlackDmSetupPlan(edits=edits, post=current, finished=False, status=status)
     # Rendering the shown step again keeps its content fresh, such as the 15-minute account link.
     edits.append(replace(current, ts=current_ts))
-    return SlackDmSetupPlan(edits=edits, post=None, finished=False)
+    return SlackDmSetupPlan(edits=edits, post=None, finished=False, status=status)
 
 
 def post_dm_setup_message(integration: WorkspaceIntegration, slack_user_id: str, message: SlackDmSetupMessage) -> None:

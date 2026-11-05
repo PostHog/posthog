@@ -23,7 +23,15 @@ INPUTS = SlackDmSetupInputs(integration_id=1, slack_team_id="T1", slack_user_id=
 
 
 def _message(kind: str, ts: str | None = None) -> SlackDmSetupMessage:
-    return SlackDmSetupMessage(kind=kind, text=kind, blocks=[], ts=ts)  # type: ignore[arg-type]
+    return SlackDmSetupMessage(
+        kind=kind,  # type: ignore[arg-type]
+        text=kind,
+        blocks=[],
+        ts=ts,
+        step="model" if kind == "step" else None,
+        progress="1 of 3 steps done" if kind == "root" else None,
+        summarizes_step=kind == "step" and ts is not None,
+    )
 
 
 ROOT_PLAN = SlackDmSetupPlan(edits=[], post=_message("root"), finished=False)
@@ -72,7 +80,7 @@ async def env() -> AsyncIterator[WorkflowEnvironment]:
         yield environment
 
 
-async def _run(env: WorkflowEnvironment, slack: _Slack, *, refreshes: int) -> None:
+async def _run(env: WorkflowEnvironment, slack: _Slack, *, refreshes: int) -> list[str]:
     task_queue = str(uuid.uuid4())
     async with Worker(
         env.client,
@@ -96,6 +104,12 @@ async def _run(env: WorkflowEnvironment, slack: _Slack, *, refreshes: int) -> No
             slack.refreshed.clear()
             await handle.signal(SlackDmSetupWorkflow.refresh)
         await asyncio.wait_for(handle.result(), timeout=60)
+        summaries: list[str] = []
+        async for event in handle.fetch_history_events():
+            if event.HasField("activity_task_scheduled_event_attributes") and event.HasField("user_metadata"):
+                summary = env.client.data_converter.payload_converter.from_payload(event.user_metadata.summary, str)
+                summaries.append(summary)
+        return summaries
 
 
 @pytest.mark.asyncio
@@ -138,6 +152,20 @@ async def test_workflow_applies_one_plan_per_refresh(
 ) -> None:
     slack = _Slack(plans, failing_posts=failing_posts)
 
-    await _run(env, slack, refreshes=refreshes)
+    summaries = await _run(env, slack, refreshes=refreshes)
 
     assert slack.calls == expected_calls
+    assert len(summaries) == len(expected_calls)
+
+
+@pytest.mark.asyncio
+async def test_each_activity_names_the_message_it_sends_in_the_history(env: WorkflowEnvironment) -> None:
+    slack = _Slack([ROOT_PLAN, FIRST_STEP_PLAN, NEXT_STEP_PLAN, READY_PLAN])
+
+    summaries = await _run(env, slack, refreshes=2)
+
+    assert summaries == [
+        *["plan", "post top message: 1 of 3 steps done", "plan", "post model: show step"],
+        *["plan", "edit model: shrink to one line", "edit top message: 1 of 3 steps done", "post model: show step"],
+        *["plan", "edit top message: 1 of 3 steps done", "post ready message"],
+    ]

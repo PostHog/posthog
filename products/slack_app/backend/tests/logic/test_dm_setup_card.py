@@ -152,6 +152,9 @@ def test_each_step_is_a_new_reply_and_done_steps_shrink_to_one_line(
     model_step = _posts(slack_client)[-1]
     edits_after_link = _edits(slack_client)
     update_dm_setup_card(SLACK_TEAM_ID, SLACK_USER_ID, skip_step="model")
+    assert plan_dm_setup(integration, SLACK_USER_ID).status == (
+        "2 of 3 steps done · current step: replies_in_threads · skipped: model"
+    )
     set_untagged_followup_mode(SLACK_TEAM_ID, SLACK_USER_ID, UntaggedFollowupMode.AUTO)
     capture.reset_mock()
     finished = _refresh(integration)

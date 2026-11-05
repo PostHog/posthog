@@ -53,13 +53,17 @@ class SlackDmSetupWorkflow(PostHogWorkflow):
                 inputs,
                 start_to_close_timeout=SLACK_DM_SETUP_ACTIVITY_TIMEOUT,
                 retry_policy=_SAFE_TO_RETRY,
+                summary="plan",
             )
+            # Summaries and details are metadata, not commands, so changing them needs no workflow.patched.
+            workflow.set_current_details(plan.status)
             for edit in plan.edits:
                 await workflow.execute_activity(
                     edit_slack_dm_setup_message_activity,
                     SlackDmSetupMessageInputs(setup=inputs, message=edit),
                     start_to_close_timeout=SLACK_DM_SETUP_ACTIVITY_TIMEOUT,
                     retry_policy=_SAFE_TO_RETRY,
+                    summary=f"edit {edit.summary}",
                 )
             if plan.post is not None:
                 await workflow.execute_activity(
@@ -67,6 +71,7 @@ class SlackDmSetupWorkflow(PostHogWorkflow):
                     SlackDmSetupMessageInputs(setup=inputs, message=plan.post),
                     start_to_close_timeout=SLACK_DM_SETUP_ACTIVITY_TIMEOUT,
                     retry_policy=_ONE_ATTEMPT,
+                    summary=f"post {plan.post.summary}",
                 )
             if not plan.plan_again:
                 return plan.finished
