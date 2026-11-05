@@ -31,6 +31,7 @@ def create_hog_invocation_result(
     error_kind: str = "",
     error_message: str = "",
     scheduled_at: Optional[datetime] = None,
+    first_scheduled_at: Optional[datetime] = None,
     started_at: Optional[datetime] = None,
     finished_at: Optional[datetime] = None,
     duration_ms: Optional[int] = 12,
@@ -50,7 +51,7 @@ def create_hog_invocation_result(
         "attempts": attempts,
         "is_retry": is_retry,
         "scheduled_at": scheduled,
-        "first_scheduled_at": scheduled,
+        "first_scheduled_at": first_scheduled_at or scheduled,
         "started_at": started_at,
         "finished_at": finished_at,
         "duration_ms": duration_ms,
@@ -185,6 +186,44 @@ class TestHogFlowInvocationResults(ClickhouseTestMixin, APIBaseTest):
         self._seed("inv-late", scheduled_at=now - timedelta(days=2))
         results = self._list(params).json()
         assert {r["invocation_id"] for r in results} == expected_ids
+
+    @parameterized.expand(
+        [
+            # A delay step: the run starts in the window and finishes the next day.
+            ("finishes_a_day_later", [("running", 0), ("success", 1)], {"inv": "success"}),
+            # A scheduled send moved earlier: its final row lands days before its start.
+            ("moved_earlier", [("running", 0), ("success", -2)], {"inv": "success"}),
+            # Started the day before the window: its final row inside the window doesn't list it.
+            ("started_before_the_window", [("running", -1), ("failed", 0)], {}),
+        ]
+    )
+    def test_run_counts_in_the_window_of_its_start(
+        self, _name: str, rows: list[tuple[str, int]], expected: dict[str, str]
+    ):
+        # Lifecycle rows of one run sit in different daily partitions, which never merge.
+        window_day = (datetime.now(tz=UTC) - timedelta(days=5)).replace(hour=12, minute=0, second=0, microsecond=0)
+        run_start = window_day + timedelta(days=rows[0][1])
+        for version, (invocation_status, day_offset) in enumerate(rows, start=1):
+            self._seed(
+                "inv",
+                invocation_status=invocation_status,
+                version=version,
+                scheduled_at=window_day + timedelta(days=day_offset),
+                first_scheduled_at=run_start,
+            )
+        window = {
+            "after": (window_day - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S"),
+            "before": (window_day + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S"),
+        }
+
+        results = self._list(window).json()
+        count = self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows/{self.hog_flow.id}/invocation_results_count/", window
+        ).json()
+
+        assert {r["invocation_id"]: r["status"] for r in results} == expected
+        assert [datetime.fromisoformat(r["scheduled_at"]) for r in results] == [run_start] * len(expected)
+        assert count == {"count": len(expected)}
 
     def test_default_window_excludes_rows_older_than_7d(self):
         # No `after` → default -7d window bounds the partition scan, so older runs drop out.
