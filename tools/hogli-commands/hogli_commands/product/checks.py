@@ -1362,40 +1362,37 @@ class OrphanedTestFilesCheck(ProductCheck):
 
 # A string shaped like a Django system check ID: dotted words, then a level letter and three digits.
 _SYSTEM_CHECK_ID_RE = re.compile(r"^[A-Za-z_][\w.]*\.[A-Z]\d{3}$")
-_REGISTER_FUNCTIONS = {("django.core.checks", "register"), ("posthog.checks", "register_check")}
+# Each module that registers system checks, mapped to its register function.
+_REGISTER_FUNCTIONS = {"django.core.checks": "register", "posthog.checks": "register_check"}
 
 
-def _register_bindings(tree: ast.Module) -> tuple[set[str], set[str]]:
-    """Local names bound to a check register function, and to the django.core.checks module."""
+def _register_bindings(tree: ast.Module) -> tuple[set[str], dict[str, str]]:
+    """Local names bound to a register function, and local module names mapped to their register function."""
     register_names: set[str] = set()
-    checks_module_names: set[str] = set()
+    module_names: dict[str, str] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module:
             for alias in node.names:
                 bound = alias.asname or alias.name
-                if (node.module, alias.name) in _REGISTER_FUNCTIONS:
+                if _REGISTER_FUNCTIONS.get(node.module) == alias.name:
                     register_names.add(bound)
-                elif (node.module, alias.name) == ("django.core", "checks"):
-                    checks_module_names.add(bound)
+                elif (module := f"{node.module}.{alias.name}") in _REGISTER_FUNCTIONS:
+                    module_names[bound] = _REGISTER_FUNCTIONS[module]
         elif isinstance(node, ast.Import):
-            checks_module_names.update(
-                alias.asname or alias.name for alias in node.names if alias.name == "django.core.checks"
-            )
-    return register_names, checks_module_names
+            for alias in node.names:
+                if alias.name in _REGISTER_FUNCTIONS:
+                    module_names[alias.asname or alias.name] = _REGISTER_FUNCTIONS[alias.name]
+    return register_names, module_names
 
 
 def _registers_system_check(tree: ast.Module) -> bool:
     """Whether the module registers a Django system check, through Django or posthog.checks."""
-    register_names, checks_module_names = _register_bindings(tree)
+    register_names, module_names = _register_bindings(tree)
 
     def _is_register(func: ast.expr) -> bool:
         if isinstance(func, ast.Name):
             return func.id in register_names
-        return (
-            isinstance(func, ast.Attribute)
-            and func.attr == "register"
-            and ast.unparse(func.value) in checks_module_names
-        )
+        return isinstance(func, ast.Attribute) and module_names.get(ast.unparse(func.value)) == func.attr
 
     return any(
         (isinstance(node, ast.Call) and _is_register(node.func))
@@ -1417,27 +1414,45 @@ def _system_check_ids(tree: ast.Module) -> list[str]:
     )
 
 
+def _runtime_imports(statements: list[ast.stmt]) -> Iterator[ast.Import | ast.ImportFrom]:
+    """Imports that run when the statements run: not in a nested def or class, or an `if TYPE_CHECKING:` body."""
+    for stmt in statements:
+        if isinstance(stmt, ast.Import | ast.ImportFrom):
+            yield stmt
+        elif isinstance(stmt, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            continue
+        elif isinstance(stmt, ast.If) and ast.unparse(stmt.test).endswith("TYPE_CHECKING"):
+            yield from _runtime_imports(stmt.orelse)
+        else:
+            for nested in ("body", "orelse", "finalbody"):
+                yield from _runtime_imports(getattr(stmt, nested, []))
+            for handler in getattr(stmt, "handlers", []):
+                yield from _runtime_imports(handler.body)
+
+
+def _imports_checks_module(node: ast.Import | ast.ImportFrom, backend: str) -> bool:
+    if isinstance(node, ast.Import):
+        return any(alias.name == f"{backend}.checks" for alias in node.names)
+    names = {alias.name for alias in node.names}
+    if node.level == 0:
+        return node.module == f"{backend}.checks" or (node.module == backend and "checks" in names)
+    return node.level == 1 and (node.module == "checks" or (node.module is None and "checks" in names))
+
+
 def _ready_imports_checks(apps_path: Path, product: str) -> bool:
-    """Whether an AppConfig.ready() in apps.py imports the product's backend/checks.py."""
+    """Whether an AppConfig.ready() in apps.py imports the product's backend/checks.py when it runs."""
     tree = ast_parse_safe(apps_path) if apps_path.exists() else None
     if tree is None:
         return False
     backend = f"products.{product}.backend"
-    for class_node in (n for n in tree.body if isinstance(n, ast.ClassDef)):
-        for ready in (n for n in class_node.body if isinstance(n, ast.FunctionDef) and n.name == "ready"):
-            for node in ast.walk(ready):
-                if isinstance(node, ast.Import) and any(a.name == f"{backend}.checks" for a in node.names):
-                    return True
-                if not isinstance(node, ast.ImportFrom):
-                    continue
-                names = {a.name for a in node.names}
-                if node.level == 0 and (
-                    node.module == f"{backend}.checks" or (node.module == backend and "checks" in names)
-                ):
-                    return True
-                if node.level == 1 and (node.module == "checks" or (node.module is None and "checks" in names)):
-                    return True
-    return False
+    return any(
+        _imports_checks_module(node, backend)
+        for class_node in tree.body
+        if isinstance(class_node, ast.ClassDef)
+        for ready in class_node.body
+        if isinstance(ready, ast.FunctionDef) and ready.name == "ready"
+        for node in _runtime_imports(ready.body)
+    )
 
 
 class SystemChecksCheck(ProductCheck):

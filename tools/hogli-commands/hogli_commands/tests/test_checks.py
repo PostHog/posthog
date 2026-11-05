@@ -3205,6 +3205,25 @@ class TestSystemChecksCheck:
                 {"apps.py": _READY_WITHOUT_CHECKS, "checks.py": _CHECKS_MODULE.format(check_id="posthog.p.E001")},
                 ["never imported by apps.py ready()"],
             ),
+            (
+                {
+                    "apps.py": _READY_WITHOUT_CHECKS,
+                    "logic/guard.py": "import posthog.checks as checks\n\n\n@checks.register_check('posthog.p.W001')\n"
+                    "def check_p(app_configs, **kwargs):\n    return []\n",
+                },
+                ["backend/logic/guard.py registers a Django system check"],
+            ),
+            (
+                {
+                    "apps.py": _READY_IMPORTS_CHECKS.replace(
+                        "        from products.p.backend import checks",
+                        "        from typing import TYPE_CHECKING\n\n        if TYPE_CHECKING:\n"
+                        "            from products.p.backend import checks",
+                    ),
+                    "checks.py": _CHECKS_MODULE.format(check_id="posthog.p.E001"),
+                },
+                ["never imported by apps.py ready()"],
+            ),
         ],
     )
     def test_system_check_placement_ids_and_registration(
