@@ -29,6 +29,7 @@ from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
+    error_message_matches,
     scripted_network,
 )
 
@@ -376,3 +377,43 @@ class TestValidateCredentials:
         assert ok is False
         assert message is not None and "not valid" in message
         assert network.requests_log == []
+
+
+class TestGetNonRetryableErrors:
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            # A standard 403 (disabled key auth, public network access off) keeps matching the
+            # existing "Forbidden" reason-phrase key.
+            "403 Client Error: Forbidden for url: https://unit-test.documents.azure.com/dbs/shop/colls",
+            # A firewall-blocked request gets a custom reason phrase instead of "Forbidden" — ignore
+            # the appended IP and URL, which vary per request.
+            "403 Client Error: Request originated from IP 10.0.0.1 through public internet. This is "
+            "blocked by your Cosmos DB account firewall settings. More info: "
+            "https://aka.ms/cosmosdb-tsg-forbidden for url: https://unit-test.documents.azure.com/dbs/shop/colls"
+            " — Request originated from IP 10.0.0.1 through public internet. This is blocked by your "
+            "Cosmos DB account firewall settings. More info: https://aka.ms/cosmosdb-tsg-forbidden",
+        ],
+    )
+    def test_matches_forbidden_variants(self, observed_error: str) -> None:
+        non_retryable_errors = CosmosDBSource().get_non_retryable_errors()
+        assert error_message_matches(observed_error, non_retryable_errors)
+
+    def test_firewall_block_surfaces_the_actionable_message(self) -> None:
+        observed_error = (
+            "403 Client Error: Request originated from IP 10.0.0.1 through public internet. This is "
+            "blocked by your Cosmos DB account firewall settings. More info: "
+            "https://aka.ms/cosmosdb-tsg-forbidden for url: https://unit-test.documents.azure.com/dbs/shop/colls"
+        )
+        messages = [
+            message
+            for pattern, message in CosmosDBSource().get_non_retryable_errors().items()
+            if error_message_matches(observed_error, [pattern])
+        ]
+        assert messages == [FORBIDDEN_MESSAGE]
+
+    def test_does_not_match_a_transient_server_error(self) -> None:
+        non_retryable_errors = CosmosDBSource().get_non_retryable_errors()
+        assert not error_message_matches(
+            "Azure Cosmos DB error (retryable): status=503, path=dbs/shop/colls", non_retryable_errors
+        )
