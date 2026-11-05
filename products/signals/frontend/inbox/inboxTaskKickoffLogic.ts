@@ -134,7 +134,7 @@ const REPORT_STATE_INSTRUCTIONS = `Keep the report's own state honest while you 
 - Opening the PR is enough by itself. The PR is linked to the report for you, and merging it resolves the report. Do NOT set the state to resolved because you opened a PR: that closes the PR you just opened.
 - If the work is finished without a PR, set the state to resolved with the reason that fits (\`fixed_outside_posthog\`, \`pr_merged\`, or \`already_fixed\`) and a short note that says what you did.
 - If the report holds no work to do, set the state to suppressed with the reason that says why (\`report_unclear\`, \`analysis_wrong\`, \`wrong_repo\` with \`corrected_repository\`, \`wontfix_intentional\`, \`wontfix_irrelevant\`, or \`other\`) and a short note, then release your claim: suppressing does not release it for you. A report sent to the wrong person still holds work, so do not suppress it for that reason.
-- If you stop for any other reason, release your claim on the report, so it does not look like work is still in flight.`
+- If you stop for any other reason, release your claim on the report, so it does not look like work is still in flight. When the claim belongs to the person who started you, keep it: it is their claim, and only they can release it.`
 
 export function buildCreatePrReportPrompt(report: SignalReport, feedback?: string): string {
     const base = `Act on PostHog Inbox report "${report.title ?? report.id}" (id ${report.id}). Investigate the root cause using the report's contributing findings, implement the fix, and open a PR.${

@@ -1406,16 +1406,26 @@ describe('inboxReportDetailLogic', () => {
             expect(logic.values.reportTaskToOpen).toEqual(openTaskIndex === null ? null : tasks[openTaskIndex])
         })
 
-        it('refreshes the artefact log once a PR task starts', async () => {
+        it('refreshes the artefact log and the claimant once a PR task starts', async () => {
             await expectLogic(logic).toFinishAllListeners()
             const beforeKickoff = artefactRequests
+            const reloadReport = jest.fn()
+            const sceneSpy = jest.spyOn(inboxSceneLogic, 'findMounted').mockReturnValue({
+                values: { selectedReportId: REPORT.id, selectedReportLoading: false },
+                actions: { loadSelectedReport: reloadReport },
+            } as unknown as ReturnType<typeof inboxSceneLogic.build>)
 
-            // Without this the gate keeps reading the pre-kickoff task list, so a ready report offers
-            // Create PR a second time and the server answers the press with a 429.
-            logic.actions.createPrSuccess()
-            await expectLogic(logic).toFinishAllListeners()
+            try {
+                // Without this the gate keeps reading the pre-kickoff task list, so a ready report offers
+                // Create PR a second time and the server answers the press with a 429.
+                logic.actions.createPrSuccess()
+                await expectLogic(logic).toFinishAllListeners()
 
-            expect(artefactRequests).toBe(beforeKickoff + 1)
+                expect(artefactRequests).toBe(beforeKickoff + 1)
+                expect(reloadReport).toHaveBeenCalledWith({ id: REPORT.id })
+            } finally {
+                sceneSpy.mockRestore()
+            }
         })
 
         it.each([SignalReportStatus.RESOLVED, SignalReportStatus.CLOSED, SignalReportStatus.SUPPRESSED])(
