@@ -90,6 +90,34 @@ def _alias_flood() -> ast.SelectQuery:
     return select
 
 
+def _alias_chain_read_many_times() -> ast.SelectQuery:
+    # `event AS a0, a0 AS a1, ...` read thousands of times in one IN list.
+    select = _select("SELECT 1 FROM events")
+    select.select = [ast.Alias(alias="a0", expr=ast.Field(chain=["event"]))] + [
+        ast.Alias(alias=f"a{n}", expr=ast.Field(chain=[f"a{n - 1}"])) for n in range(1, 10_000)
+    ]
+    reads: list[ast.Expr] = [ast.Field(chain=["a9999"]) for _ in range(10_000)]
+    select.where = ast.CompareOperation(
+        op=ast.CompareOperationOp.In,
+        left=ast.Field(chain=["event"]),
+        right=ast.Tuple(exprs=[*reads, ast.Constant(value="$pageview"), ast.Constant(value="$feature_flag_called")]),
+    )
+    return select
+
+
+def _lambdas_inside_a_lambda_with_many_aliases() -> ast.SelectQuery:
+    select = _select(f"SELECT 1 FROM events WHERE {MIXED}")
+    body: list[ast.Expr] = [ast.Alias(alias=f"a{n}", expr=ast.Constant(value=n)) for n in range(40_000)]
+    body += [ast.Lambda(args=["y"], expr=ast.Constant(value=1)) for _ in range(40_000)]
+    select.select.append(
+        ast.Call(
+            name="arrayMap",
+            args=[ast.Lambda(args=["x"], expr=ast.Tuple(exprs=body)), ast.Array(exprs=[ast.Constant(value=1)])],
+        )
+    )
+    return select
+
+
 def _set_mode(organization, mode: FlagEvaluationsMode) -> None:
     OrganizationFeatureFlagsConfig.objects.update_or_create(
         organization=organization, defaults={"flag_evaluations_mode": mode}
@@ -294,6 +322,13 @@ class TestRenameFlagCallScansToUnion(SimpleTestCase):
                 [],
             ),
             ("many_aliases_inside_one_lambda", _alias_flood(), [UNION], []),
+            ("long_alias_chain_read_many_times", _alias_chain_read_many_times(), [UNION], []),
+            (
+                "many_lambdas_inside_a_lambda_with_many_aliases",
+                _lambdas_inside_a_lambda_with_many_aliases(),
+                [UNION],
+                [],
+            ),
             (
                 "alias_of_event_inside_a_lambda",
                 "SELECT count() FROM events "

@@ -10,7 +10,8 @@ scan, so the rules decide which scans pay for a second table, and which shapes t
 """
 
 import math
-from collections.abc import Callable, Container
+from collections import ChainMap
+from collections.abc import Callable
 from functools import cached_property
 from typing import TYPE_CHECKING, cast
 
@@ -461,6 +462,7 @@ class _Aliases(CloningVisitor):
     def __init__(self, node: ast.SelectQuery) -> None:
         super().__init__()
         self.node = node
+        self._named: dict[tuple[str, float], ast.Expr] = {}
 
     @cached_property
     def aliases(self) -> dict[str, tuple[int, ast.Expr]]:
@@ -469,19 +471,36 @@ class _Aliases(CloningVisitor):
             declared.setdefault(name, (position, expr))
         return declared
 
-    def target(self, expr: ast.Expr, lambda_names: Container[str] = frozenset()) -> ast.Expr:
+    def target(self, expr: ast.Expr) -> ast.Expr:
         """The expression that `expr`, without its own alias, names through a chain of select aliases."""
-        visible: float = math.inf
         expr = unwrap_alias(expr)
-        while isinstance(expr, ast.Field) and len(expr.chain) == 1 and expr.chain[0] not in lambda_names:
-            declared = self.aliases.get(str(expr.chain[0]))
+        if not (isinstance(expr, ast.Field) and len(expr.chain) == 1):
+            return expr
+        return self._follow(str(expr.chain[0])) or expr
+
+    def _follow(self, name: str) -> ast.Expr | None:
+        """The expression at the end of the chain of select aliases that starts at `name`, or None for no alias."""
+        visible: float = math.inf
+        hops: list[tuple[str, float]] = []
+        named: ast.Expr | None = None
+        # Each hop is cached, so a query that reads one long chain many times walks the chain once.
+        while (name, visible) not in self._named:
+            declared = self.aliases.get(name)
             # The resolver binds a name in an alias's expression only to an alias declared before it. In
             # `event AS event`, the inner `event` is therefore the column.
             if declared is None or declared[0] >= visible:
                 break
+            hops.append((name, visible))
             visible, aliased = declared
-            expr = unwrap_alias(aliased)
-        return expr
+            named = unwrap_alias(aliased)
+            if not (isinstance(named, ast.Field) and len(named.chain) == 1):
+                break
+            name = str(named.chain[0])
+        else:
+            named = self._named[(name, visible)]
+        for hop in hops:
+            self._named[hop] = cast(ast.Expr, named)
+        return named
 
     def visit_field(self, node: ast.Field):
         target = self.target(node)
@@ -663,8 +682,8 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
         self.reader = scan
         self.aliases = aliases
         # The names that the enclosing lambdas bind, or None outside a lambda. A lambda argument maps to None. An alias
-        # inside a lambda maps to the expression that it names.
-        self.lambda_names: dict[str, ast.Expr | None] | None = None
+        # inside a lambda maps to the expression that it names. Each lambda adds a layer, so entering one copies nothing.
+        self.lambda_names: ChainMap[str, ast.Expr | None] | None = None
         self.found = False
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
@@ -673,7 +692,7 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
 
     def visit_lambda(self, node: ast.Lambda) -> None:
         outer = self.lambda_names
-        self.lambda_names = {**(outer or {}), **dict.fromkeys(node.args)}
+        self.lambda_names = (outer if outer is not None else ChainMap()).new_child(dict.fromkeys(node.args))
         super().visit_lambda(node)
         self.lambda_names = outer
 
@@ -682,8 +701,7 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
         # Inside a lambda, the resolver binds an alias's name in the lambda's scope when it visits the alias. Later
         # uses of the name in that lambda resolve to the alias's expression, not to a select alias.
         if self.lambda_names is not None:
-            # Each lambda gets its own copy in `visit_lambda`, so a write here stays inside this lambda. Adding in place
-            # keeps a lambda with many aliases linear.
+            # The write goes to this lambda's own layer, so the name stays inside this lambda.
             self.lambda_names[node.alias] = self._resolve(node.expr)
 
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
@@ -699,11 +717,11 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
 
     def _resolve(self, read: ast.Expr) -> ast.Expr:
         read = unwrap_alias(read)
-        names = self.lambda_names or {}
-        if isinstance(read, ast.Field) and len(read.chain) == 1 and str(read.chain[0]) in names:
+        names = self.lambda_names
+        if names is not None and isinstance(read, ast.Field) and len(read.chain) == 1 and str(read.chain[0]) in names:
             named = names[str(read.chain[0])]
             return read if named is None else named
-        return self.aliases.target(read, names)
+        return self.aliases.target(read)
 
     def _check(self, expr: ast.Expr) -> None:
         values = compared_values(expr, lambda read: self.reader.column(self._resolve(read)) == ["event"])
