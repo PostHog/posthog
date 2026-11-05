@@ -1,5 +1,5 @@
 import type { WizardRunApi, WizardRunTaskApi } from '../../generated/api.schemas'
-import { WizardRunProgressStep, wizardRunIsActive, wizardRunProgressStep } from '../../lib/wizardRunDisplay'
+import { WizardRunProgressStep, wizardRunProgressStep } from '../../lib/wizardRunDisplay'
 import type { WizardRunProgressState } from '../../lib/wizardRunDisplay'
 
 export type WizardSpendAuditStepKey = 'audit' | 'audit_notebook' | 'pull_requests' | 'unused_events'
@@ -85,7 +85,7 @@ export function wizardSpendAuditStepStates(
         states.audit = run.status === 'failed' ? 'failed' : 'active'
     }
 
-    if (!wizardRunIsActive(run) && !Object.values(states).includes('failed')) {
+    if (run.status === 'failed' && !Object.values(states).includes('failed')) {
         const firstOpen = WIZARD_SPEND_AUDIT_STEPS.find((step) => states[step.key] !== 'complete')
         if (firstOpen) {
             states[firstOpen.key] = 'failed'

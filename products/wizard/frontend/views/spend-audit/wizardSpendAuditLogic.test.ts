@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 'lib/api.mock'
 import { installMockEventSource } from 'lib/wizard-sync/eventSource.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
@@ -14,9 +15,14 @@ import type { PreflightStatus } from '~/types'
 
 import type { GitHubRepoApi } from 'products/integrations/frontend/generated/api.schemas'
 
-import { wizardRegistryList, wizardRunsCreate, wizardRunsList } from '../../generated/api'
+import { wizardRegistryList, wizardRunsCreate, wizardRunsList, wizardRunsTasksRetrieve } from '../../generated/api'
 import type { WizardProgramApi, WizardRunApi } from '../../generated/api.schemas'
-import { WIZARD_SPEND_AUDIT_PROGRAM_ID, wizardSpendAuditLogic } from './wizardSpendAuditLogic'
+import { wizardRunSyncLogic } from '../../logics/wizardRunSyncLogic'
+import {
+    WIZARD_SPEND_AUDIT_PROGRAM_ID,
+    WIZARD_SPEND_AUDIT_URL_PARAM,
+    wizardSpendAuditLogic,
+} from './wizardSpendAuditLogic'
 
 jest.mock('../../generated/api', () => ({
     wizardRegistryList: jest.fn(),
@@ -152,7 +158,7 @@ describe('wizardSpendAuditLogic', () => {
         expect(wizardRunsCreate).toHaveBeenCalledTimes(1)
     })
 
-    it('shows an audit already in flight instead of starting another', async () => {
+    it('follows an audit already in flight through to its result instead of starting another', async () => {
         jest.mocked(wizardRunsList).mockResolvedValue({
             count: 1,
             results: [{ ...run, status: 'running' }],
@@ -167,6 +173,28 @@ describe('wizardSpendAuditLogic', () => {
         expect(wizardRunsCreate).not.toHaveBeenCalled()
         expect(logic.values.view).toBe('run')
         expect(logic.values.run?.id).toBe(run.id)
+        expect(wizardRunsTasksRetrieve).toHaveBeenCalledWith(props.projectId, run.id)
+
+        const tasksCalls = jest.mocked(wizardRunsTasksRetrieve).mock.calls.length
+        wizardRunSyncLogic({ projectId: props.projectId }).actions.runsLoaded([{ ...run, status: 'completed' }], true)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.view).toBe('run')
+        expect(logic.values.run?.status).toBe('completed')
+        expect(jest.mocked(wizardRunsTasksRetrieve).mock.calls.length).toBeGreaterThan(tasksCalls)
+    })
+
+    it('reopens the modal when GitHub sends the user back', async () => {
+        await mountLogic()
+        const next = new URL(logic.values.connectGitHubUrl, 'http://localhost').searchParams.get('next')
+        expect(next).toContain(`${WIZARD_SPEND_AUDIT_URL_PARAM}=start`)
+
+        router.actions.push(next as string)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.isModalOpen).toBe(true)
+        expect(router.values.location.pathname).toBe('/organization/billing/overview')
+        expect(router.values.searchParams[WIZARD_SPEND_AUDIT_URL_PARAM]).toBeUndefined()
     })
 
     it('does not offer the audit when the registry has no cloud program for it', async () => {
