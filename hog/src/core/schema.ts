@@ -40,16 +40,3 @@ export function parseOrThrow<S extends z.ZodType>(schema: S, raw: unknown, failu
         failure.exitCode
     )
 }
-
-// For stored data, where a value hog doesn't recognize reads as missing instead of failing the command.
-export function parseOrUndefined<S extends z.ZodType>(schema: S, raw: unknown): z.output<S> | undefined {
-    const parsed = schema.safeParse(raw)
-    return parsed.success ? parsed.data : undefined
-}
-
-export function parser<S extends z.ZodType>(
-    schema: S,
-    defaults: ParseFailure
-): (raw: unknown, failure?: Partial<ParseFailure>) => z.output<S> {
-    return (raw, failure) => parseOrThrow(schema, raw, { ...defaults, ...failure })
-}
