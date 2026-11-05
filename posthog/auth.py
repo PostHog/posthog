@@ -5,7 +5,7 @@ import string
 import logging
 import functools
 from abc import abstractmethod
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, ClassVar, Optional, TypedDict, Union
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -30,7 +30,6 @@ from rest_framework.request import Request
 from webauthn.helpers import base64url_to_bytes
 from zxcvbn import zxcvbn
 
-from posthog.after_response import run_after_response
 from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
@@ -392,10 +391,6 @@ class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseA
 
         return personal_api_key_object
 
-    @staticmethod
-    def _save_last_used_at(personal_api_key: PersonalAPIKey, last_used_at: datetime) -> None:
-        PersonalAPIKey.objects.filter(id=personal_api_key.id).update(last_used_at=last_used_at)
-
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         with tracer.start_as_current_span("posthog.auth.personal_api_key") as span:
             personal_api_key_with_source = self.find_key_with_source(request)
@@ -413,7 +408,7 @@ class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseA
             # This is to avoid excessive UPDATE queries, while still presenting accurate (down to the hour) info in the UI
             if key_last_used_at is None or (now - key_last_used_at > timedelta(hours=1)):
                 personal_api_key_object.last_used_at = now
-                run_after_response(request, lambda: self._save_last_used_at(personal_api_key_object, now))
+                PersonalAPIKey.objects.filter(id=personal_api_key_object.id).update(last_used_at=now)
             assert personal_api_key_object.user is not None
             refuse_blocked_account(
                 request, personal_api_key_object.user, call_site="personal_api_key", impersonated=False
