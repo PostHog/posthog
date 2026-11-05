@@ -104,7 +104,10 @@ class TestCheckTestOwners:
             pytest.param("elsewhere/test_new.py", "fail", id="added_test_runs_the_scan"),
         ],
     )
-    def test_scans_only_when_a_test_or_ownership_file_changed(self, repo: Path, path: str, status: str) -> None:
+    def test_scans_only_when_a_test_or_ownership_file_changed(
+        self, repo: Path, monkeypatch: pytest.MonkeyPatch, path: str, status: str
+    ) -> None:
+        monkeypatch.setattr(ownership_lint, "BLOCKING_FROM", date.min)
         (repo / ownership_lint.BASELINE).write_text("nobody\n")
         (repo / path).parent.mkdir(exist_ok=True)
         (repo / path).write_text("def test_y():\n    pass\n")
