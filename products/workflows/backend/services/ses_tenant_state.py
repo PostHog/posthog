@@ -6,7 +6,11 @@ from django.db import transaction
 from django.utils import timezone
 
 import structlog
-from botocore.exceptions import BotoCoreError, ClientError
+from botocore.exceptions import (
+    ClientError,
+    ConnectionError as BotoConnectionError,
+    HTTPClientError,
+)
 from prometheus_client import Counter
 
 from posthog.models.team import Team
@@ -73,9 +77,12 @@ def _announce_state_change(team_id: int) -> None:
 
 
 def _sandbox_sync_failure_kind(error: Exception) -> str:
-    if isinstance(error, BotoCoreError):
+    if isinstance(error, BotoConnectionError | HTTPClientError):
         return "transient"
-    if isinstance(error, ClientError) and error.response["Error"]["Code"] in _TRANSIENT_SES_ERRORS:
+    if isinstance(error, ClientError) and (
+        error.response["Error"]["Code"] in _TRANSIENT_SES_ERRORS
+        or error.response.get("ResponseMetadata", {}).get("HTTPStatusCode", 0) >= 500
+    ):
         return "transient"
     return "error"
 
