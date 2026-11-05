@@ -31,17 +31,20 @@ User: At what exposure share does the experiment bias warning fire?
 Assistant: [Runs only `learn -s "experiment bias warning"`; waits. Loads `posthog:diagnosing-experiment-health`, reads `references/bias-and-skew.md`, answers from it — no web search, no source clone.]
 </example>
 
-**LEARN FIRST: HARD REQUIREMENT**
+**Built-in guides**
 
-Load all matching topics in one `learn` command first. Topics are cumulative.
+Search skills first, as above, and load the matching ones: these guides add general workflow and never replace a skill. Load only the topics this task needs in one `learn` command.
 
-- analytics: Query or analyze PostHog data; governed metrics, certified tables, and verified joins live in the catalog.
+- analytics: Query or analyze data: governed metrics, typed runners over SQL, schema checks.
+- sql: Before writing `execute-sql`: searching saved entities, certified tables, verified joins.
+- artifacts: Notebooks, dashboards, saved insights, chart explanations.
+- examples: Worked multi-step analysis plans.
 - hogql: Full HogQL guidelines, examples, and the observability and LLM tables for `execute-sql`.
 - visualizations: Create or render a visualization.
 - urls: Load before writing any PostHog app link or URL.
 - feedback: Send feedback about PostHog.
 
-**Metrics & SQL trust**: any count, sum, rate, average, percentile, cost per unit, or conversion — of anything the product records, not just KPIs, including derived forms — is a metric question. Call `metric-list` with `search` (the user's words and the likely metric name, comma-separated) before `read-data-schema`, insights, domain tools, or raw SQL. With no name, acronym, or all-words `match_reason`, read the whole catalog. Use `metric-describe` for a candidate's definition, including HogQL or SQL, before adapting it. After an approved, non-drifted run, open the answer with the 🛡️ data catalog badge, with the approver and date from `metric-describe`. Use a proposed or drifted match only if its definition fits, and tell the user it is proposed or drifted. Run `learn analytics` before writing SQL or joins — it covers certified tables/views and verified joins. State the catalog outcome in the `context` argument of the `execute-sql` call that answers it, never in the answer; with no such call, omit it.
+**Metrics & SQL trust**: any count, sum, rate, average, percentile, cost per unit, or conversion — of anything the product records, not just KPIs, including derived forms — is a metric question. Call `metric-list` with `search` (the user's words and the likely metric name, comma-separated) before `read-data-schema`, insights, domain tools, or raw SQL. With no name, acronym, or all-words `match_reason`, read the whole catalog. Use `metric-describe` for a candidate's definition, including HogQL or SQL, before adapting it. After an approved, non-drifted run, open the answer with the 🛡️ data catalog badge, with the approver and date from `metric-describe`. Use a proposed or drifted match only if its definition fits, and tell the user it is proposed or drifted. `info execute-sql` and `learn sql` cover certified tables/views and verified joins. State the catalog outcome in the `context` argument of the `execute-sql` call that answers it, never in the answer; with no such call, omit it.
 
 **SCHEMA DRILL-DOWN RULE — HARD REQUIREMENT**
 
@@ -82,7 +85,11 @@ Assistant: This needs analytics and visualization guidance, so I'll load both fi
 
 <example>
 User: How many weekly active users do we have?
-Assistant: This needs analytics and visualization guidance, so I'll load both before any other command.
+Assistant: Skills come first, so I'll search for this task on its own.
+[Runs `posthog:exec({"command":"learn -s \"weekly active users\""})`]
+Assistant: It matched `posthog:querying-posthog-data`, so I'll load that skill.
+[Runs `posthog:exec({"command":"learn posthog:querying-posthog-data"})`]
+Assistant: This also needs analytics and visualization guidance, so I'll load both.
 [Runs `posthog:exec({"command":"learn analytics visualizations"})`]
 Assistant: A weekly count is a governed shape, so the catalog comes first.
 [Runs `posthog:exec({"command":"call metric-list {\"limit\":100}"})`]
@@ -100,8 +107,8 @@ Assistant: [Briefly summarizes the weekly active user trend.] I'll render it so 
 
 <example>
 User: Create a dashboard for our key revenue metrics
-Assistant: Analytics applies. I'll load it before any other command.
-[Runs `posthog:exec({"command":"learn analytics"})`]
+Assistant: Analytics and artifacts apply. I'll load both first.
+[Runs `posthog:exec({"command":"learn analytics artifacts"})`]
 Assistant: I need dashboard and query tools.
 [Runs `posthog:exec({"command":"search dashboard"})` and `posthog:exec({"command":"search execute-sql"})` in parallel]
 Assistant: I'll inspect both schemas.

@@ -94,9 +94,10 @@ export interface InstructionsContext {
     replayVisionEnabled?: boolean | undefined
     /** Whether `endpoint-create` is advertised to this client. Same reason as `docsSearchEnabled`. */
     endpointsEnabled?: boolean | undefined
-    /** Whether the client's command reference already carries the query-tool routing inline, so the
-     *  `analytics` guide leaves it out instead of repeating it. */
-    queryRoutingInline?: boolean | undefined
+    /** The cli learn layout: query-tool routing rides inline in the command reference, and SQL catalog
+     *  guidance moves from `analytics` to its own `sql` guide, so the guide agents load for almost every
+     *  task does not steer typed-runner questions toward SQL. */
+    cliLearnLayout?: boolean | undefined
     businessKnowledgeContent?: BusinessKnowledgeContent | undefined
     /** Set only when the experiment flag is on and the report list and retrieve tools are advertised. */
     inboxFirstEnabled?: boolean | undefined
@@ -445,15 +446,33 @@ export class InstructionsFormatter {
             {
                 id: 'analytics',
                 title: 'Analytics',
-                description:
-                    'Query or analyze data: governed metrics, typed runners over SQL, schema checks, certified tables, verified joins.',
+                description: ctx.cliLearnLayout
+                    ? 'Query or analyze data: governed metrics, typed runners over SQL, schema checks.'
+                    : 'Query or analyze data: governed metrics, typed runners over SQL, schema checks, certified tables, verified joins.',
                 content: this.compose(
                     [
-                        ...this.metricDiscoverySections(ctx, METRIC_DISCOVERY), RETRIEVING_DATA, SCHEMA_WORKFLOW, CATALOG_TRUST_DISCOVERY],
+                        ...this.metricDiscoverySections(ctx, METRIC_DISCOVERY),
+                        RETRIEVING_DATA,
+                        SCHEMA_WORKFLOW,
+                        ...(ctx.cliLearnLayout ? [] : [CATALOG_TRUST_DISCOVERY]),
+                    ],
                     ctx,
                     { compact: false }
                 ),
             },
+            ...(ctx.cliLearnLayout
+                ? [
+                      {
+                          id: 'sql',
+                          title: 'SQL',
+                          description:
+                              'Before writing `execute-sql`: searching saved entities, certified tables, verified joins.',
+                          content: this.compose([ENTITY_SCHEMA_DISCOVERY, CATALOG_TRUST_DISCOVERY], ctx, {
+                              compact: false,
+                          }),
+                      },
+                  ]
+                : []),
             {
                 id: 'artifacts',
                 title: 'Analysis artifacts',
@@ -526,7 +545,7 @@ export class InstructionsFormatter {
         const claudeChat = opts.claudeChat ?? false
         const learnEnabled = opts.learnEnabled ?? true
         const skillsEnabled = opts.skillsEnabled ?? false
-        const learnGuides = this.buildExecLearnGuides(ctx)
+        const learnGuides = this.buildExecLearnGuides({ ...ctx, cliLearnLayout: !claudeChat })
         const learnGuideList = learnGuides.map((entry) => `- ${entry.id}: ${entry.description}`).join('\n')
         // Claude web/desktop keep the learn-first framing; with skills on, cli clients must search skills before guides.
         const learnHeading = claudeChat ? '**LEARN FIRST: HARD REQUIREMENT**' : '**Built-in guides**'
@@ -548,7 +567,8 @@ export class InstructionsFormatter {
                   guidelines: ctx.guidelines,
                   docsSearchEnabled: docsSearchAvailable(ctx),
                   metricCatalog: ctx.metricCatalog,
-              }
+        cliLearnLayout: true,
+        }
 
         return this.compose(
             [
@@ -640,10 +660,13 @@ export class InstructionsFormatter {
             available_tools: buildAvailableToolsBlock(ctx.renderUiEnabled, ctx.splitWrites),
             tool_domains: ctx.tools ? renderToolDomains(ctx.tools) : '',
             query_tools: ctx.queryTools ? buildQueryToolsBlock(ctx.queryTools) : '',
-            entity_schema_discovery: ENTITY_SCHEMA_DISCOVERY.trim(),
+            entity_schema_discovery: ctx.cliLearnLayout ? '' : ENTITY_SCHEMA_DISCOVERY.trim(),
             replay_vision: replayVisionAvailable(ctx) ? REPLAY_VISION : '',
             endpoints_routing: endpointsAvailable(ctx) ? ENDPOINTS_ROUTING : '',
-            query_tool_routing: ctx.queryRoutingInline ? '' : QUERY_TOOL_ROUTING.trim(),
+            query_tool_routing: ctx.cliLearnLayout ? '' : QUERY_TOOL_ROUTING.trim(),
+            sql_trust_pointer: ctx.cliLearnLayout
+                ? '`info execute-sql` and `learn sql` cover certified tables/views and verified joins'
+                : 'Run `learn analytics` before writing SQL or joins — it covers certified tables/views and verified joins',
             extra_commands: opts.extraCommands ?? '',
             whats_new_check: docsSearchAvailable(ctx) ? WHATS_NEW_WITH_DOCS_SEARCH : WHATS_NEW_CHANGELOG_ONLY,
             ...metricCatalogPromptVars(resolveMetricCatalogMode(ctx.metricCatalog)),
