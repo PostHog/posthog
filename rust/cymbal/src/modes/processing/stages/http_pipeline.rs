@@ -34,10 +34,11 @@ impl Stage for HttpEventPipeline {
     async fn process(self, batch: Batch<Self::Input>) -> StageResult<Self> {
         let (preprocess, postprocess) =
             create_pre_post_processing(batch.len(), Box::new(handle_result));
-        // Drop or mask first: pre-processing keeps this copy and returns it unchanged on failure.
+        // Sanitize before pre-processing retains a copy that can be returned on failure.
         let drop_team_ids = self.app_context.drop_code_variables_team_ids.clone();
         let batch = batch.map(
             |mut event, ()| {
+                event.drop_adaptive_ingestion_properties();
                 if drop_team_ids.contains(&event.team_id) {
                     event.drop_code_variables();
                 } else {
