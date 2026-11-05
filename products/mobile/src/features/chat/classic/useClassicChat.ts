@@ -7,6 +7,7 @@ import { cancelConversation, getConversation, streamConversation } from '@/api/c
 import { readSse } from '@/api/sse'
 import { requestWithDeadline } from '@/api/transport'
 import { useProjectScope } from '@/auth/useProjectScope'
+import { currentAiIdentity, useAiApproval } from '@/features/ai/aiApproval'
 import { conversationListKeys } from '@/features/chats/conversationKeys'
 import { sessionListKeys } from '@/features/chats/hooks'
 
@@ -19,7 +20,10 @@ import {
     reduceClassicEvent,
 } from './classicMessages'
 
-export function useClassicChat(initialId?: string): {
+export function useClassicChat(
+    initialId?: string,
+    initialConversation?: Awaited<ReturnType<typeof getConversation>>
+): {
     id: string | null
     state: typeof EMPTY_CLASSIC_STATE
     loading: boolean
@@ -39,10 +43,21 @@ export function useClassicChat(initialId?: string): {
 } {
     const scope = useProjectScope()
     const client = useQueryClient()
+    const approval = useAiApproval('chat', initialId ?? 'new')
+    const openedIdentity = useRef(currentAiIdentity())
+    const initialSnapshot = useRef(initialConversation?.id === initialId ? initialConversation : undefined)
     const [id, setId] = useState<string | null>(initialId ?? null)
     const idRef = useRef(id)
-    const [state, setState] = useState(EMPTY_CLASSIC_STATE)
-    const [loading, setLoading] = useState(!!initialId)
+    const [state, setState] = useState(() =>
+        initialSnapshot.current
+            ? classicHistory(
+                  initialSnapshot.current.messages,
+                  initialSnapshot.current.title,
+                  initialSnapshot.current.pending_approvals
+              )
+            : EMPTY_CLASSIC_STATE
+    )
+    const [loading, setLoading] = useState(!!initialId && !initialSnapshot.current)
     const [historyError, setHistoryError] = useState<string | null>(null)
     const [working, setWorking] = useState(false)
     const [stopping, setStopping] = useState(false)
@@ -51,6 +66,7 @@ export function useClassicChat(initialId?: string): {
     const stopBusy = useRef(false)
     const reloadBusy = useRef(false)
     const epoch = useRef(0)
+    const mounted = useRef(true)
     const controller = useRef<AbortController | null>(null)
 
     const stream = useCallback(
@@ -61,23 +77,28 @@ export function useClassicChat(initialId?: string): {
                 | { action: 'form'; form_answers: Record<string, string | string[]> }
                 | { action: 'dismiss_form' }
         ): Promise<boolean> => {
-            if (busy.current) return false
-            busy.current = true
             const generation = epoch.current
-            const active = (): boolean => generation === epoch.current
+            const active = (): boolean =>
+                mounted.current &&
+                generation === epoch.current &&
+                !approval.signal.aborted &&
+                currentAiIdentity() === openedIdentity.current
+            if (busy.current || !active()) return false
+            busy.current = true
+            setWorking(true)
             const conversation = idRef.current ?? randomUUID()
-            idRef.current = conversation
             const traceId = randomUUID()
             const abort = new AbortController()
-            controller.current = abort
-            setWorking(true)
-            setError(null)
-            setState((previous) => {
-                const next = { ...previous, error: null }
-                return content ? appendClassicMessage(next, { type: 'human', content, trace_id: traceId }) : next
-            })
             let accepted = false
             try {
+                if (!(await approval.request()) || !active()) return false
+                idRef.current = conversation
+                controller.current = abort
+                setError(null)
+                setState((previous) => {
+                    const next = { ...previous, error: null }
+                    return content ? appendClassicMessage(next, { type: 'human', content, trace_id: traceId }) : next
+                })
                 const response = await requestWithDeadline(
                     (signal) =>
                         streamConversation(
@@ -147,7 +168,7 @@ export function useClassicChat(initialId?: string): {
                 }
             }
         },
-        [client, scope]
+        [client, scope, approval.request, approval.signal]
     )
 
     const reload = useCallback(async (): Promise<void> => {
@@ -218,12 +239,28 @@ export function useClassicChat(initialId?: string): {
     }, [invalidate])
 
     useEffect(() => {
+        mounted.current = true
         reset()
         idRef.current = initialId ?? null
         setId(initialId ?? null)
-        if (initialId) void reload()
-        return invalidate
-    }, [initialId, reload, reset, invalidate])
+        const saved = initialSnapshot.current?.id === initialId ? initialSnapshot.current : undefined
+        if (saved) {
+            const history = classicHistory(saved.messages, saved.title, saved.pending_approvals)
+            setState(history)
+            if (
+                saved.status === 'in_progress' &&
+                !saved.pending_approvals.some((approval) => approval.decision_status === 'pending') &&
+                !history.form
+            )
+                void stream(null)
+        } else if (initialId) {
+            void reload()
+        }
+        return () => {
+            mounted.current = false
+            invalidate()
+        }
+    }, [initialId, reload, reset, invalidate, stream])
 
     return {
         id,

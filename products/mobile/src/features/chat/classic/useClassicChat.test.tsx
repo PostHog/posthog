@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, renderHook } from '@testing-library/react-native'
+import { act, renderHook, waitFor } from '@testing-library/react-native'
 import { randomUUID } from 'expo-crypto'
 import { type PropsWithChildren, type ReactElement, useState } from 'react'
 
@@ -8,6 +8,7 @@ import { cancelConversation, getConversation, streamConversation } from '@/api/c
 import { readSse } from '@/api/sse'
 import { REQUEST_TIMEOUT_MS } from '@/api/transport'
 import { useProjectScope } from '@/auth/useProjectScope'
+import { currentAiIdentity, useAiApproval } from '@/features/ai/aiApproval'
 
 import { useClassicChat } from './useClassicChat'
 
@@ -16,6 +17,7 @@ jest.mock('@/api/conversations', () => ({
     getConversation: jest.fn(),
     streamConversation: jest.fn(),
 }))
+jest.mock('@/features/ai/aiApproval', () => ({ currentAiIdentity: jest.fn(), useAiApproval: jest.fn() }))
 jest.mock('@/api/sse', () => ({ readSse: jest.fn() }))
 jest.mock('expo-crypto', () => ({ randomUUID: jest.fn() }))
 jest.mock('@/auth/useProjectScope', () => ({ useProjectScope: jest.fn(() => null) }))
@@ -33,6 +35,9 @@ describe('classic chat transport', () => {
     beforeEach(() => {
         jest.resetAllMocks()
         jest.mocked(useProjectScope).mockReturnValue(null)
+        jest.mocked(currentAiIdentity).mockReturnValue('origin-project')
+        const approval = { request: jest.fn(async () => true), pending: false, signal: new AbortController().signal }
+        jest.mocked(useAiApproval).mockReturnValue(approval)
         let id = 0
         jest.mocked(randomUUID).mockImplementation(() => `00000000-0000-4000-8000-${String(++id).padStart(12, '0')}`)
         jest.mocked(streamConversation).mockResolvedValue({} as Response)
@@ -109,6 +114,7 @@ describe('classic chat transport', () => {
             await Promise.resolve()
         })
         act(() => result.current.reset())
+        await waitFor(() => expect(readSse).toHaveBeenCalled())
         await act(async () => {
             finish()
             await pending
@@ -360,6 +366,102 @@ describe('classic chat transport', () => {
             })
             expect(result.current.form).toBeNull()
             expect(result.current.state.messages).toEqual([])
+        }
+    )
+
+    test.each(['send', 'approve', 'reject'] as const)('checks AI approval before %s', async (action) => {
+        const saved = {
+            id: 'saved-chat',
+            title: 'Saved chat',
+            status: 'idle',
+            messages: [{ id: 'human-1', type: 'human', content: 'Show my events' }],
+            pending_approvals: [{ proposal_id: 'proposal-1', decision_status: 'pending', tool_name: 'Update insight' }],
+        } as unknown as Awaited<ReturnType<typeof getConversation>>
+        const { result } = renderHook(() => useClassicChat(saved.id, saved), { wrapper })
+        const approval = jest.mocked(useAiApproval).mock.results[0]?.value as ReturnType<typeof useAiApproval>
+        jest.mocked(approval.request).mockResolvedValueOnce(false)
+        await act(async () => {
+            expect(
+                await (action === 'send'
+                    ? result.current.send('Question')
+                    : result.current.answer(action === 'approve'))
+            ).toBe(false)
+        })
+        expect(streamConversation).not.toHaveBeenCalled()
+        expect(result.current.working).toBe(false)
+        expect(result.current.state.messages[0]?.data.content).toBe('Show my events')
+        expect(getConversation).not.toHaveBeenCalled()
+    })
+
+    test.each(['unmount', 'project'] as const)('ignores a prepared send after %s', async (transition) => {
+        const { result, unmount } = renderHook(() => useClassicChat(), { wrapper })
+        const send = result.current.send
+        if (transition === 'unmount') unmount()
+        else if (transition === 'project') jest.mocked(currentAiIdentity).mockReturnValue('other-project')
+        await act(async () => {
+            expect(await send('Question')).toBe(false)
+        })
+        expect(streamConversation).not.toHaveBeenCalled()
+    })
+
+    test.each(['unmount', 'project', 'reset'] as const)('abandons an approval check after %s', async (transition) => {
+        let approve!: (value: boolean) => void
+        const { result, unmount } = renderHook(() => useClassicChat(), { wrapper })
+        const approval = jest.mocked(useAiApproval).mock.results[0]?.value as ReturnType<typeof useAiApproval>
+        jest.mocked(approval.request).mockReturnValueOnce(
+            new Promise((resolve) => {
+                approve = resolve
+            })
+        )
+        let sending!: Promise<boolean>
+        act(() => {
+            sending = result.current.send('Question')
+        })
+        if (transition === 'unmount') unmount()
+        else if (transition === 'project') jest.mocked(currentAiIdentity).mockReturnValue('other-project')
+        else act(() => result.current.reset())
+        await act(async () => {
+            approve(true)
+            expect(await sending).toBe(false)
+        })
+        expect(streamConversation).not.toHaveBeenCalled()
+    })
+
+    test.each(['idle', 'in_progress'] as const)(
+        'reuses loaded %s history and can explicitly reload',
+        async (status) => {
+            const saved = {
+                id: 'saved-chat',
+                title: 'Saved chat',
+                status,
+                messages: [{ id: 'message-1', type: 'human', content: 'Saved question' }],
+                pending_approvals: [],
+            } as unknown as Awaited<ReturnType<typeof getConversation>>
+            let finish!: () => void
+            jest.mocked(readSse).mockImplementation(
+                () =>
+                    new Promise((resolve) => {
+                        finish = resolve
+                    })
+            )
+            const { result } = renderHook(() => useClassicChat(saved.id, saved), { wrapper })
+            expect(result.current.state.messages[0]?.data.content).toBe('Saved question')
+            expect(result.current.loading).toBe(false)
+            expect(getConversation).not.toHaveBeenCalled()
+            if (status === 'in_progress') {
+                await waitFor(() => expect(readSse).toHaveBeenCalled())
+                expect(streamConversation).toHaveBeenCalledWith(
+                    expect.objectContaining({ conversation: saved.id, content: null }),
+                    expect.any(AbortSignal)
+                )
+                await act(async () => {
+                    finish()
+                })
+            }
+            await act(async () => {
+                await result.current.reload()
+            })
+            expect(getConversation).toHaveBeenCalledWith(saved.id, expect.any(AbortSignal))
         }
     )
 })

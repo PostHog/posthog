@@ -79,6 +79,10 @@ The same approval rules cover Chat, Create PR/task handoff, and replay summariza
 
 These client checks supplement existing server scopes, resource RBAC and product checks. They do not grant an organization role or replace server authorization. Revocation after a check must still be enforced by the backend; mobile cannot stop an agent that is already running on the server.
 
+Classic chat reuses the conversation loaded when it opens.
+If one chat history source fails, Chats keeps the loaded rows and offers a retry for the remaining history.
+Classic chat shows draft save failures with a retry action, and checks AI approval before each message or approval response.
+
 ## Composer drafts
 
 The message input wraps long text onto multiple lines and grows up to 120 points tall.

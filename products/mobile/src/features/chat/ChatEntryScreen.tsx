@@ -57,6 +57,7 @@ export function ChatEntryScreen({ conversationId, ...props }: ChatEntryScreenPro
             ) : (
                 <ClassicChatScreen
                     conversationId={conversationId}
+                    initialConversation={conversation.data}
                     source={props.source}
                     autoFocus={props.autoFocus ?? false}
                     onBack={props.onBack}

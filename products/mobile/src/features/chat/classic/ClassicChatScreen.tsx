@@ -1,9 +1,10 @@
 import { BlurTargetView } from 'expo-blur'
-import { type ReactElement, useCallback, useMemo, useRef, useState } from 'react'
+import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Keyboard, ScrollView, Text, type TextInput, View } from 'react-native'
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
 import Animated, { useAnimatedStyle } from 'react-native-reanimated'
 
+import type { getConversation } from '@/api/conversations'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { track } from '@/lib/analytics'
 import { conversationWebUrl } from '@/model/adapters/chats'
@@ -27,6 +28,7 @@ import { useClassicChat } from './useClassicChat'
 
 interface ClassicChatScreenProps {
     conversationId?: string
+    initialConversation?: Awaited<ReturnType<typeof getConversation>>
     source: ChatSheetSource
     autoFocus: boolean
     onBack: () => void
@@ -35,6 +37,7 @@ interface ClassicChatScreenProps {
 
 export function ClassicChatScreen({
     conversationId,
+    initialConversation,
     source,
     autoFocus,
     onBack,
@@ -42,7 +45,7 @@ export function ClassicChatScreen({
 }: ClassicChatScreenProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
-    const chat = useClassicChat(conversationId)
+    const chat = useClassicChat(conversationId, initialConversation)
     const events = useChatSheetEvents(
         { ...source, conversationId: chat.id, runtime: 'langgraph', hasContext: false, resumed: !!conversationId },
         null
@@ -53,7 +56,16 @@ export function ClassicChatScreen({
     const input = useRef<TextInput>(null)
     const draft = useChatDraft(chat.id, undefined, false, 'conversation')
     const [sending, setSending] = useState(false)
+    const [saving, setSaving] = useState(false)
+    const saveLock = useRef(false)
     const sendLock = useRef(false)
+    const lifetime = useRef(0)
+    useEffect(
+        () => () => {
+            lifetime.current++
+        },
+        []
+    )
     const keyboard = useReanimatedKeyboardAnimation()
     const keyboardStyle = useAnimatedStyle(() => ({ paddingBottom: Math.max(-keyboard.height.value, insets.bottom) }))
     const projectUrl = scope ? `${scope.host.replace(/\/$/, '')}/project/${scope.projectId}` : ''
@@ -74,8 +86,13 @@ export function ClassicChatScreen({
         if (!text || sendLock.current || chat.working || chat.loading || !draft.ready) return
         sendLock.current = true
         setSending(true)
+        const generation = lifetime.current
         try {
             const settle = await draft.beginSend({ text, reportIds: [] })
+            if (generation !== lifetime.current) {
+                await settle(false)
+                return
+            }
             const accepted = await chat.send(text)
             await settle(accepted)
             if (accepted) {
@@ -84,10 +101,22 @@ export function ClassicChatScreen({
             }
         } finally {
             sendLock.current = false
-            setSending(false)
+            if (generation === lifetime.current) setSending(false)
+        }
+    }
+    const retrySave = async (): Promise<void> => {
+        if (saveLock.current) return
+        saveLock.current = true
+        setSaving(true)
+        try {
+            await draft.retrySave()
+        } finally {
+            saveLock.current = false
+            setSaving(false)
         }
     }
     const close = (): void => {
+        lifetime.current++
         Keyboard.dismiss()
         onBack()
     }
@@ -134,6 +163,23 @@ export function ClassicChatScreen({
                             />
                         )}
                         <ChatAccessGate onDecline={close}>
+                            {draft.draftError ? (
+                                <ChatErrorNotice
+                                    message={draft.draftError}
+                                    actions={
+                                        <Pressable44
+                                            disabled={saving}
+                                            accessibilityRole="button"
+                                            accessibilityLabel="Retry saving draft"
+                                            onPress={() => void retrySave()}
+                                            style={styles.action}
+                                        >
+                                            {saving ? <ActivityIndicator color={colors.ink} /> : null}
+                                            <Text style={styles.label}>Retry saving draft</Text>
+                                        </Pressable44>
+                                    }
+                                />
+                            ) : null}
                             {chat.error ? <ChatErrorNotice message={chat.error} onDismiss={chat.dismissError} /> : null}
                             {approval ? (
                                 <View style={styles.approval} testID="classic-approval">
@@ -181,6 +227,7 @@ export function ClassicChatScreen({
                     webUrl={conversationWebUrl(scope, chat.id)}
                     onBack={close}
                     onNewChat={() => {
+                        lifetime.current++
                         events.countNewChat()
                         chat.reset()
                         onNewChat()

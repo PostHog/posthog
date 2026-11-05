@@ -104,20 +104,24 @@ function useLiveChatList(enabled: boolean): QueryState<ChatListItem[]> {
         }
         return successQuery<ChatListItem[]>([], { refetch: reloadAccount })
     }
-    if (failed && !unavailable) {
-        return errorQuery(toError(sessions.error), refetch)
+    const loadError =
+        failed && !unavailable
+            ? toError(sessions.error)
+            : conversations.isError && !isMissingFeature(conversations.error)
+              ? toError(conversations.error)
+              : null
+    const hasLoadedSource = sessions.data !== undefined || conversations.data !== undefined
+    if (loadError && !hasLoadedSource) {
+        return errorQuery(loadError, refetch)
     }
-    if (conversations.isError && conversations.data === undefined && !isMissingFeature(conversations.error)) {
-        return errorQuery(toError(conversations.error), refetch)
-    }
-    if ((sessions.data === undefined && !unavailable) || conversations.isPending) {
+    if (!hasLoadedSource && ((sessions.data === undefined && !unavailable) || conversations.isPending)) {
         return connectionLoadingQuery<ChatListItem[]>(offline, refetch)
     }
     return {
         data: items,
         isLoading: false,
-        isError: false,
-        error: null,
+        isError: loadError !== null,
+        error: loadError,
         isRefetching: pulling,
         refetch,
     }

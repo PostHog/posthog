@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { onlineManager, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen } from '@testing-library/react-native'
 import type { ReactElement } from 'react'
 
@@ -80,6 +80,17 @@ describe('mobile AI runtime selection', () => {
         open()
         expect(screen.getByTestId(runtime)).toBeTruthy()
         expect(getConversation).not.toHaveBeenCalled()
+    })
+
+    test('a new offline chat opens without waiting for a network lookup', () => {
+        onlineManager.setOnline(false)
+        try {
+            open()
+            expect(screen.getByTestId('classic')).toBeTruthy()
+            expect(getConversation).not.toHaveBeenCalled()
+        } finally {
+            onlineManager.setOnline(true)
+        }
     })
 
     test('waits for the selected project before showing a new chat', () => {

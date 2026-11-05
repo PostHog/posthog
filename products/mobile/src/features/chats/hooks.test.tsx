@@ -2,6 +2,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, type RenderHookResult, renderHook, waitFor } from '@testing-library/react-native'
 import type { ReactElement, ReactNode } from 'react'
 
+import { ApiError } from '@/api/client'
+import { listConversations } from '@/api/conversations'
 import type { TaskSummaryApi } from '@/api/tasks'
 import { useAuthStore } from '@/auth/authStore'
 
@@ -21,6 +23,7 @@ jest.mock('@/demo/demoMode', () => ({
     ...jest.requireActual('@/demo/demoMode'),
     useDataMode: () => 'live',
 }))
+jest.mock('@/api/reports', () => ({ ...jest.requireActual('@/api/reports'), retryUnlessMissing: () => false }))
 jest.mock('@/api/tasks', () => ({ listMySessions: jest.fn(), setTaskArchived: jest.fn() }))
 
 const mocked = jest.requireMock('@/api/tasks') as {
@@ -58,9 +61,43 @@ function renderChats(): RenderHookResult<ChatsHooks, unknown> {
 describe('chats hooks', () => {
     beforeEach(() => {
         jest.clearAllMocks()
+        jest.mocked(listConversations).mockReset().mockResolvedValue([])
     })
 
     describe('useChatList', () => {
+        test.each(['tasks', 'conversations'] as const)(
+            'preserves history when %s fail and retries',
+            async (failedSource) => {
+                useAuthStore.setState({
+                    user: { id: 7, uuid: 'u1', distinctId: 'd1', email: 'a@example.com', name: 'A' },
+                })
+                const tasks = [session('task-1', '2026-10-15T10:00:00Z')]
+                const conversations = [
+                    {
+                        id: 'conversation-1',
+                        title: 'Saved chat',
+                        task: null,
+                        created_at: '2026-10-15T10:00:00Z',
+                        updated_at: '2026-10-15T10:00:00Z',
+                    },
+                ] as unknown as Awaited<ReturnType<typeof listConversations>>
+                mocked.listMySessions.mockResolvedValue(tasks)
+                jest.mocked(listConversations).mockResolvedValue(conversations)
+                const failed = failedSource === 'tasks' ? mocked.listMySessions : jest.mocked(listConversations)
+                failed.mockRejectedValueOnce(new ApiError(500, { detail: 'Try again' }))
+                const { result } = renderChats()
+                await waitFor(() => expect(result.current.list.isError).toBe(true))
+                expect(result.current.list.data?.map((item) => item.sourceId)).toEqual([
+                    failedSource === 'tasks' ? 'conversation-1' : 'task-1',
+                ])
+                await act(async () => {
+                    await result.current.list.refetch()
+                })
+                await waitFor(() => expect(result.current.list.isError).toBe(false))
+                expect(result.current.list.data).toHaveLength(2)
+            }
+        )
+
         test.each<[string, string | null, boolean]>([
             ['shows the account error when the reload fails', 'Your account did not load.', true],
             ['shows an empty list when the reload brings no id', null, false],
