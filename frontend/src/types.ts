@@ -217,6 +217,7 @@ export enum AvailableFeature {
     SECONDARY_METRICS = 'secondary_metrics',
     STATISTICAL_ANALYSIS = 'statistical_analysis',
     PRODUCT_ANALYTICS_DATA_RETENTION = 'product_analytics_data_retention',
+    PRODUCT_ANALYTICS_STANDARD_DATA_RETENTION = 'product_analytics_standard_data_retention',
     DASHBOARDS = 'dashboards',
     FUNNELS = 'funnels',
     GRAPHS_TRENDS = 'graphs_trends',
