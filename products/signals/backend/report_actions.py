@@ -13,8 +13,7 @@ from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
 )
-from products.signals.backend.report_assignments import CLAIMABLE_REPORT_STATUSES
-from products.signals.backend.report_claims import close_denial, get_active_claim
+from products.signals.backend.report_assignments import CLAIMABLE_REPORT_STATUSES, claim_unowned_report_to_close
 from products.signals.backend.report_content_gates import team_inbox_claim_to_close_enabled
 
 logger = logging.getLogger(__name__)
@@ -44,8 +43,7 @@ def suppress_report_from_slack(
             return True
 
         if report.status in CLAIMABLE_REPORT_STATUSES and team_inbox_claim_to_close_enabled(team_id):
-            claim = get_active_claim(team_id=team_id, report_id=report.id)
-            if user_id is None or close_denial(claim, ArtefactAttribution.from_user(user_id)) is not None:
+            if user_id is None or claim_unowned_report_to_close(report, ArtefactAttribution.from_user(user_id)):
                 logger.info(
                     "suppress_report_from_slack: dismisser does not hold the claim",
                     extra={"report_id": report_id, "team_id": team_id},

@@ -38,11 +38,13 @@ from products.signals.backend.pull_requests import (
     update_pull_request_state,
 )
 from products.signals.backend.report_claims import (
+    CloseDenial,
     ReportClaim,
     actor_can_release_claim,
     actor_owns_claim,
     actor_works_under_claim,
     claim_from_artefact,
+    close_denial,
     get_active_claim,
     is_claim_of_person,
     is_claim_of_task_creator,
@@ -151,6 +153,22 @@ def create_claim(report: SignalReport, actor: ArtefactAttribution, *, task_id: s
     if task_id:
         _associate_task_with_claim(report, task_id, claim)
     return claim_from_artefact(claim)
+
+
+def claim_unowned_report_to_close(report: SignalReport, actor: ArtefactAttribution) -> CloseDenial | None:
+    """Why the actor may not close the report, after giving the report to them when nobody owns it.
+
+    Closing a report nobody owns records the closer as its owner, so the work log says who decided.
+    Only a person or their agent becomes an owner. Call with the report row locked.
+    """
+    claim = get_active_claim(team_id=report.team_id, report_id=str(report.id))
+    denial = close_denial(claim, actor)
+    if denial != "unclaimed" or actor.kind not in ("user", "agent"):
+        return denial
+    if claim is not None:
+        release_claim(claim, actor, takeover=True)
+    create_claim(report, actor)
+    return None
 
 
 def _associate_task_with_claim(report: SignalReport, task_id: str, claim: SignalReportArtefact) -> None:

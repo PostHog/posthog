@@ -182,6 +182,7 @@ from products.signals.backend.report_assignments import (
     InvalidPullRequestUrl,
     ReportClaimConflict,
     claim_report,
+    claim_unowned_report_to_close,
 )
 from products.signals.backend.report_check_authoring import (
     CheckCreationError,
@@ -193,7 +194,6 @@ from products.signals.backend.report_claim_follow_up import record_report_claime
 from products.signals.backend.report_claims import (
     ReportClaim,
     actor_works_under_claim,
-    close_denial,
     get_active_claim,
     get_active_claims,
     reports_claimed_for_user,
@@ -2157,7 +2157,10 @@ class SignalReportViewSet(
         return ArtefactAttribution.from_user(user_id) if user_id is not None else ArtefactAttribution.system()
 
     def _close_denial_message(self, report: SignalReport, target_status: SignalReport.Status) -> str | None:
-        """Why this request may not close the report by this route, or None when it may."""
+        """Why this request may not close the report by this route, or None when it may.
+
+        A report nobody owns becomes the closer's before it closes.
+        """
         verb = _close_verb(report, target_status)
         if (
             verb is None
@@ -2167,7 +2170,7 @@ class SignalReportViewSet(
         ):
             return None
         actor = self._close_actor
-        denial = close_denial(get_active_claim(team_id=self.team.id, report_id=report.id), actor)
+        denial = claim_unowned_report_to_close(report, actor)
         if denial is None:
             return None
         report_user_action(

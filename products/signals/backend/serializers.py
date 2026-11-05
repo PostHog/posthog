@@ -2042,7 +2042,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
     viewer_can_close = serializers.SerializerMethodField(
         help_text=(
             "Whether the requesting user may dismiss or resolve this report. When the claim rule is on, a "
-            "report that can be claimed needs the user, or their agent, to hold its claim first."
+            "report another person holds needs a takeover first, and closing a report nobody owns claims it."
         ),
     )
     refund = serializers.SerializerMethodField(
@@ -2544,7 +2544,10 @@ class SignalReportSerializer(serializers.ModelSerializer):
             self.context["inbox_claim_to_close"] = organization_inbox_claim_to_close_enabled(obj.team.organization_id)
         if not self.context["inbox_claim_to_close"]:
             return True
-        return close_denial(self._get_assignment(obj), ArtefactAttribution.from_user(request.user.id)) is None
+        return close_denial(self._get_assignment(obj), ArtefactAttribution.from_user(request.user.id)) in (
+            None,
+            "unclaimed",
+        )
 
     def _get_responsible_user(self, claim: "ReportClaim") -> User | None:
         from products.signals.backend.report_claims import responsible_user

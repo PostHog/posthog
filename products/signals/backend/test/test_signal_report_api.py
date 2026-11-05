@@ -6327,10 +6327,10 @@ class TestSignalReportClaimToCloseAPI(APIBaseTest):
             (f"{target}_{case}", target, case, expected)
             for target in ("suppressed", "resolved")
             for case, expected in (
-                ("unclaimed", status.HTTP_409_CONFLICT),
+                ("unclaimed", status.HTTP_200_OK),
                 ("own_claim", status.HTTP_200_OK),
                 ("teammate_claim", status.HTTP_409_CONFLICT),
-                ("task_claim", status.HTTP_409_CONFLICT),
+                ("task_claim", status.HTTP_200_OK),
                 ("own_agent_claim", status.HTTP_200_OK),
                 ("agent_under_own_claim", status.HTTP_200_OK),
                 ("flag_off", status.HTTP_200_OK),
@@ -6338,7 +6338,7 @@ class TestSignalReportClaimToCloseAPI(APIBaseTest):
             )
         ]
     )
-    def test_dismiss_and_resolve_need_the_claim(self, _name: str, target: str, case: str, expected: int) -> None:
+    def test_dismiss_and_resolve_follow_the_claim(self, _name: str, target: str, case: str, expected: int) -> None:
         headers: dict[str, str] = {}
         if case in {"own_claim", "agent_under_own_claim"}:
             create_claim(self.report, ArtefactAttribution.from_user(self.user.id))
@@ -6362,10 +6362,15 @@ class TestSignalReportClaimToCloseAPI(APIBaseTest):
         if expected == status.HTTP_409_CONFLICT:
             error = response.json()["error"].lower()
             assert "claim" in error
-            assert ("someone else" in error) == (case == "teammate_claim")
+            assert "someone else" in error
             assert self.report.status == SignalReport.Status.READY
         else:
             assert self.report.status == target
+        if case in {"unclaimed", "task_claim"}:
+            # Nobody owned the report, so closing it records the closer as the owner.
+            claim = get_active_claim(team_id=self.team.id, report_id=self.report.id)
+            assert claim is not None
+            assert (claim.actor_kind, claim.actor_user_id) == ("user", self.user.id)
 
     @parameterized.expand(
         [
@@ -6405,6 +6410,8 @@ class TestSignalReportClaimToCloseAPI(APIBaseTest):
     def test_only_token_bound_automatic_agents_skip_the_claim(
         self, _name: str, origin_product: str, internal: bool, bound: bool, client_id: str, expected: int
     ) -> None:
+        # Closing an unowned report claims it, so only a teammate's claim tells exempt and gated callers apart.
+        create_claim(self.report, ArtefactAttribution.from_user(self.teammate.id))
         if bound:
             task_id = self._bind_task_token(origin_product, internal=internal, client_id=client_id)
         else:
@@ -6417,15 +6424,10 @@ class TestSignalReportClaimToCloseAPI(APIBaseTest):
 
         assert response.status_code == expected, response.json()
 
-    @parameterized.expand([("claim_holder_task",), ("claim_holder_own_task",)])
-    def test_the_task_header_alone_does_not_borrow_a_claim(self, case: str) -> None:
-        """A teammate names the claim's task, or a task its holder started, without a token bound to it."""
-        if case == "claim_holder_task":
-            task_id = self._create_task("signal_report", internal=True, created_by=self.teammate)
-            create_claim(self.report, ArtefactAttribution.from_task(task_id))
-        else:
-            task_id = self._create_task("user_created", created_by=self.teammate)
-            create_claim(self.report, ArtefactAttribution.from_user(self.teammate.id))
+    def test_the_task_header_alone_does_not_borrow_a_claim(self) -> None:
+        """The caller names a task the claim's holder started, without a token bound to it."""
+        task_id = self._create_task("user_created", created_by=self.teammate)
+        create_claim(self.report, ArtefactAttribution.from_user(self.teammate.id))
 
         with self._flag():
             response = self.client.post(
@@ -6438,7 +6440,7 @@ class TestSignalReportClaimToCloseAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unclaimed", None, status.HTTP_409_CONFLICT, SignalReport.Status.READY),
+            ("unclaimed", None, status.HTTP_200_OK, SignalReport.Status.RESOLVED),
             ("teammate_claim", "teammate", status.HTTP_409_CONFLICT, SignalReport.Status.READY),
             # No follow-up check applies, so Monitoring resolves the report outright — which is why
             # the claim gate has to cover it.
@@ -6463,7 +6465,7 @@ class TestSignalReportClaimToCloseAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unclaimed", SignalReport.Status.READY, None, status.HTTP_409_CONFLICT),
+            ("unclaimed", SignalReport.Status.READY, None, status.HTTP_200_OK),
             ("teammate_claim", SignalReport.Status.READY, "teammate", status.HTTP_409_CONFLICT),
             ("own_claim", SignalReport.Status.READY, "self", status.HTTP_200_OK),
             # Nothing has been implemented from a report still awaiting input, so its snooze
@@ -6493,21 +6495,21 @@ class TestSignalReportClaimToCloseAPI(APIBaseTest):
         else:
             assert self.report.status == SignalReport.Status.POTENTIAL
 
-    def test_bulk_dismiss_skips_reports_the_caller_has_not_claimed(self) -> None:
-        claimed = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="Mine")
-        create_claim(claimed, ArtefactAttribution.from_user(self.user.id))
+    def test_bulk_dismiss_skips_only_reports_a_teammate_holds(self) -> None:
+        held = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="Theirs")
+        create_claim(held, ArtefactAttribution.from_user(self.teammate.id))
 
         with self._flag():
             response = self.client.post(
                 f"/api/projects/{self.team.id}/signals/reports/bulk-state/",
-                {"ids": [str(claimed.id), str(self.report.id)], "state": "suppressed"},
+                {"ids": [str(self.report.id), str(held.id)], "state": "suppressed"},
                 format="json",
             )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert [result["outcome"] for result in response.json()["results"]] == ["transitioned", "skipped"]
 
-    @parameterized.expand([("unclaimed", None, False), ("own_claim", "self", True), ("teammate", "teammate", False)])
+    @parameterized.expand([("unclaimed", None, True), ("own_claim", "self", True), ("teammate", "teammate", False)])
     def test_viewer_can_close_follows_the_claim(self, _name: str, holder: str | None, expected: bool) -> None:
         if holder is not None:
             user = self.user if holder == "self" else self.teammate

@@ -8,6 +8,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal
 
 from products.signals.backend.artefact_schemas import Dismissal
@@ -41,11 +42,14 @@ class TestSignalReportSlackActions(BaseTest):
         assert feedback.reason == "slack_dismiss"
         assert feedback.slack_user_id == "slack-user-1"
 
-    @parameterized.expand([("unclaimed", False, False), ("claimed", True, True)])
-    def test_slack_dismissal_needs_the_claim(self, _name: str, claimed: bool, expected: bool) -> None:
+    @parameterized.expand([("unclaimed", None, True), ("claimed", "self", True), ("teammate", "teammate", False)])
+    def test_slack_dismissal_follows_the_claim(self, _name: str, holder: str | None, expected: bool) -> None:
         report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="A report")
-        if claimed:
+        if holder == "self":
             create_claim(report, ArtefactAttribution.from_user(self.user.id))
+        elif holder == "teammate":
+            teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
+            create_claim(report, ArtefactAttribution.from_user(teammate.id))
 
         with patch(
             "products.signals.backend.report_content_gates.feature_enabled_or_false",

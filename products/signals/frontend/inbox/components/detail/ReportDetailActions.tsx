@@ -42,8 +42,7 @@ export interface ReportDetailAction {
 export function useReportDetailActions(report: SignalReport): ReportDetailAction[] {
     const detailLogic = inboxReportDetailLogic({ reportId: report.id, report })
     const { changeReportState, setReportClaimed } = useActions(detailLogic)
-    const { reportStateSaving, reportChecks, teammateClaimHolder, isReportClaimable, claimSaving } =
-        useValues(detailLogic)
+    const { reportStateSaving, reportChecks, teammateClaimHolder, claimSaving } = useValues(detailLogic)
     const { reportStateChanged, reportWriteFailed } = useActions(inboxBulkActionsLogic)
     const { activeTab } = useValues(inboxSceneLogic)
     const { loadSelectedReport } = useActions(inboxSceneLogic)
@@ -227,19 +226,6 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
               ]
             : []),
         ...(canResolve ? [resolve] : []),
-        // Closing a report needs the claim, so Claim takes those actions' place. A teammate's claim gets Take over.
-        ...(!canClose && isReportClaimable
-            ? [
-                  {
-                      key: 'claim',
-                      label: 'Claim',
-                      icon: <IconPerson />,
-                      loading: claimSaving,
-                      tooltip: 'Claim this report to resolve or dismiss it',
-                      onClick: () => setReportClaimed(true),
-                  },
-              ]
-            : []),
         ...(canClose
             ? [
                   {
