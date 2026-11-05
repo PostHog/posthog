@@ -129,6 +129,19 @@ ROW_SCOPED_TRIGGER_TYPES: Final[set[str]] = {
 # The "Add to static cohort" step. Its template lives in the plugin server.
 ADD_TO_STATIC_COHORT_TEMPLATE_ID: Final[str] = "template-posthog-add-to-static-cohort"
 
+# Steps that run another agent, or read recordings, with their own access. A workflow with one takes no
+# suggestions, because almost any change upstream of the step changes what reaches it.
+AGENT_STEP_TEMPLATE_IDS: Final[frozenset[str]] = frozenset(
+    {"template-posthog-create-task", "template-posthog-run-scout", "template-posthog-replay-vision"}
+)
+
+
+def has_agent_step_q(actions_field: str = "actions") -> models.Q:
+    query = models.Q()
+    for template_id in AGENT_STEP_TEMPLATE_IDS:
+        query |= models.Q(**{f"{actions_field}__contains": [{"config": {"template_id": template_id}}]})
+    return query
+
 
 def literal_static_cohort_id(inputs: Any) -> int | None:
     """The cohort id an "Add to static cohort" step names as a plain value, or None."""

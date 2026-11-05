@@ -681,6 +681,7 @@ class WorkflowRef:
     variables: list[dict[str, Any]] | None
     # Read from the published steps, not the draft.
     has_email_step: bool
+    step_template_ids: frozenset[str]
 
 
 EMAIL_FROM_CODE_FLAG: Final[str] = "workflows-email-from-code"

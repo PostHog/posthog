@@ -39,12 +39,12 @@ def approve_proposal(
     overwrite: bool,
     expected_draft_updated_at: Optional[datetime],
     resolved_by_id: Optional[int],
-    check_runnable: Callable[[dict], None],
+    check_runnable: Callable[[dict, dict], None],
 ) -> ProposalApproval:
     """Stage the suggestion into the workflow's draft and mark it approved. Approval only stages, like a
     revision restore: publish still previews and confirms. `team_id` scopes the suggestion and
-    `workflow_team_id` the workflow row. `check_runnable` receives the merged content and raises when
-    the graph could not run."""
+    `workflow_team_id` the workflow row. `check_runnable` receives the live and the merged content, and
+    raises when the suggestion may no longer be staged or the graph could not run."""
     with transaction.atomic():
         # The row lock serializes concurrent approvals; the second sees what the first wrote.
         locked = HogFlow.objects.select_for_update().get(pk=hog_flow_id, team_id=workflow_team_id)
@@ -69,9 +69,10 @@ def approve_proposal(
         # The draft is a full snapshot (live plus what the suggestion changes), so publish stays
         # a plain copy. A field the suggestion merely echoed is not staged, since writing it back
         # would undo a later edit the conflict check let through.
-        merged = merge_proposal_content(snapshot_flow_content(locked), staged.changes)
+        live = snapshot_flow_content(locked)
+        merged = merge_proposal_content(live, staged.changes)
         # Create validated the merge against the graph as it was then; it can have moved since.
-        check_runnable(merged)
+        check_runnable(live, merged)
         locked.draft = merged
         locked.draft_updated_at = timezone.now()
         # Proposal content carries no secrets, so the draft re-attaches them from live on publish.
