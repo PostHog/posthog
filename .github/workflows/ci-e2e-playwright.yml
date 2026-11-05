@@ -553,7 +553,7 @@ jobs:
             !cancelled()
             && needs.changes.outputs.shouldRun == 'true'
         # A pull request that runs the full suite runs the same 154 tests the merge queue does, and the
-        # runner size is what sets their wall: the test step takes 430s at 6 workers on 8 vCPU and 252s
+        # runner size is what sets their wall: the test step takes 426s at 6 workers on 8 vCPU and 252s
         # at 12 workers on 16 vCPU. See "Sizing the Playwright job" in
         # .agents/skills/authoring-ci-workflows/SKILL.md for the measurement. Talk to #team-devex before
         # changing the size or the worker counts below; they are tuned against each other.
@@ -1331,7 +1331,7 @@ jobs:
                         "full_run_reason_detail": ${{ toJSON(needs.select-specs.outputs.full_run_reason_detail || '') }},
                         "playwright_test_seconds": ${{ needs.playwright.outputs.test_seconds || 'null' }},
                         "playwright_result": ${{ toJSON(needs.playwright.result) }},
-                        "runner_billing_multiplier": 4,
+                        "runner_billing_multiplier": 8,
                         "event_type": ${{ toJSON(github.event_name) }},
                         "branch": ${{ toJSON(github.head_ref || github.ref_name) }},
                         "sha": ${{ toJSON(github.sha) }},
