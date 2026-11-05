@@ -18,7 +18,7 @@ const LoginRecordBaseSchema = z.object({
     host: HostSchema,
     // Set on a file login that replaced a keychain login while the keychain was unusable, so the old
     // keychain item can still be there. Logout tries to remove it.
-    keychainLeftover: z.literal(true).optional(),
+    keychainLeftover: z.boolean().optional(),
 })
 
 // What settings.json keeps about the login to one host: everything except its secrets.
