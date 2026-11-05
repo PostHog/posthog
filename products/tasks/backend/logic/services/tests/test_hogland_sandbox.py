@@ -1,3 +1,5 @@
+import subprocess
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -371,3 +373,31 @@ class TestHoglandBedrockDisabled:
         prefix = build_agent_runtime_env_prefix()
         assert "CLAUDE_CODE_USE_BEDROCK" not in prefix
         assert "AWS_CONTAINER_CREDENTIALS_FULL_URI" not in prefix
+
+
+class TestClaudeAutoModeEnv:
+    def _resolved_env(self, prefix: str) -> str:
+        return subprocess.run(["bash", "-c", f"{prefix}env"], capture_output=True, text=True, check=True).stdout
+
+    def test_gateway_model_disables_server_checks(self):
+        prefix = build_agent_runtime_env_prefix(runtime_adapter="claude", model="deepseek-ai/deepseek-v4-flash-0731")
+        assert "CLAUDE_CODE_AUTO_MODE_SERVER=0" in prefix
+
+    @parameterized.expand([("claude-sonnet-5",), ("anthropic/claude-opus-5",)])
+    def test_anthropic_model_keeps_server_checks(self, model: str):
+        prefix = build_agent_runtime_env_prefix(runtime_adapter="claude", model=model)
+        assert "CLAUDE_CODE_AUTO_MODE" not in prefix
+
+    def test_codex_run_is_untouched(self):
+        prefix = build_agent_runtime_env_prefix(runtime_adapter="codex", model="gpt-5")
+        assert "CLAUDE_CODE_AUTO_MODE" not in prefix
+
+    def test_model_pin_is_set_for_gateway_models(self):
+        prefix = build_agent_runtime_env_prefix(runtime_adapter="claude", model="deepseek-ai/deepseek-v4-flash-0731")
+        assert "CLAUDE_CODE_AUTO_MODE_MODEL=deepseek-ai/deepseek-v4-flash-0731" in prefix
+
+    def test_model_pin_keeps_a_hostile_model_id_in_one_argument(self):
+        prefix = build_agent_runtime_env_prefix(runtime_adapter="claude", model="x /bin/sh -c id")
+        env = self._resolved_env(prefix)
+        assert "CLAUDE_CODE_AUTO_MODE_MODEL=x /bin/sh -c id" in env
+        assert "uid=" not in env

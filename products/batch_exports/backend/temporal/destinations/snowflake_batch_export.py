@@ -83,6 +83,7 @@ class NamedBytesIO(io.BytesIO):
 CONNECTION_SEMAPHORE = asyncio.Semaphore(value=1)
 
 NON_RETRYABLE_ERROR_TYPES = (
+    "UnsupportedColumnTypeError",
     # Raised when we cannot connect to Snowflake.
     "DatabaseError",
     # Raised by Snowflake when a query cannot be compiled.
@@ -1492,7 +1493,7 @@ async def insert_into_snowflake_activity_from_stage(
         inputs.table_name,
     )
 
-    async with Heartbeater():
+    async with Heartbeater(), contextlib.AsyncExitStack() as cleanup:
         if inputs.integration_id is None:
             raise SnowflakeIntegrationRequiredError(inputs.batch_export_id)
 
@@ -1511,6 +1512,7 @@ async def insert_into_snowflake_activity_from_stage(
             max_record_batch_size_bytes=1024 * 1024 * 10,  # 10MB
             stage_folder=inputs.stage_folder,
         )
+        cleanup.push_async_callback(producer.stop)
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:

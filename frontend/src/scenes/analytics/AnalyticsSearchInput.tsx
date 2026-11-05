@@ -24,7 +24,7 @@ export function AnalyticsSearchInput({
         inputRef.current?.focus()
     }
     return (
-        <InputGroup className="h-8 w-56 max-w-full">
+        <InputGroup size="sm" className="w-56 max-w-full">
             <InputGroupAddon align="inline-start">
                 <InputGroupText>
                     <IconSearch />

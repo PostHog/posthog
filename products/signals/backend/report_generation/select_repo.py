@@ -3,6 +3,7 @@
 Thin wrapper around `products.tasks.backend.logic.repo_selection.select_repository`.
 Renders `SignalData` to text and collapses both `RepoSelectionRejectedError`
 (LLM hallucination) and `RepoSelectionUnavailableError` (no eligible repos)
+along with invalid agent output and failed sandbox runs
 into `RepoSelectionResult(repository=None, ...)` — Signals has no picker
 fallback, so the shared module's operational-vs-semantic distinction has
 nowhere to land; `summary.py` treats `repository=None` as
@@ -12,6 +13,7 @@ nowhere to land; `summary.py` treats `repository=None` as
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable, Collection
 from typing import TYPE_CHECKING
 
 from posthog.egress.limiter.policies import Priority
@@ -21,7 +23,12 @@ from products.signals.backend.agent_runtime import STEP_REPO_SELECTION, resolve_
 from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.repo_corrections import wrong_repo_corrections_block
 from products.signals.backend.report_generation.source_repository import source_repository_from_signals
+from products.signals.backend.report_monitoring_provenance import (
+    MonitoringRepositorySources,
+    monitoring_repository_sources,
+)
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.agents import SandboxRunFailed
 from products.tasks.backend.facade.repo_selection import (
     REPO_SELECTION_DUMMY_REPOSITORY,
     RepoSelectionRejectedError,
@@ -78,13 +85,16 @@ async def select_repository_for_team(
     sandbox_environment_id: str | None = None,
     verbose: bool = False,
     output_fn: OutputFn = None,
+    on_research_session: Callable[[str, str], None] | None = None,
     source_repository: str | None = None,
+    source_repositories: Collection[str] = (),
+    require_private_destination: bool = False,
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a free-form request against the team's repos.
 
     ``request_section`` is the caller-rendered string describing the request (e.g. rendered
-    signals or a custom agent's initial prompt). Both rejection (LLM hallucination) and
-    unavailability (no eligible repos) collapse into ``RepoSelectionResult(repository=None, ...)``
+    signals or a custom agent's initial prompt). Rejection, unavailability, invalid output,
+    and failed sandbox runs collapse into ``RepoSelectionResult(repository=None, ...)``
     — Signals/custom agents have no picker fallback, so callers treat ``repository=None`` as
     "no match / requires human input".
 
@@ -113,12 +123,15 @@ async def select_repository_for_team(
             sandbox_environment_id=sandbox_environment_id,
             verbose=verbose,
             output_fn=output_fn,
+            on_research_session=on_research_session,
             model=agent_runtime.model,
             runtime_adapter=agent_runtime.runtime_adapter,
             reasoning_effort=agent_runtime.reasoning_effort,
             service_tier=agent_runtime.service_tier,
             past_corrections=past_corrections,
             source_repository=source_repository,
+            source_repositories=source_repositories,
+            require_private_destination=require_private_destination,
         )
     except RepoSelectionRejectedError as exc:
         # Preserve legacy behavior: surface validation reject as null with reason so callers'
@@ -138,6 +151,13 @@ async def select_repository_for_team(
         # No picker fallback — collapse operational failure into a null result.
         logger.warning("repo selection unavailable: %s", exc.reason)
         return RepoSelectionResult(repository=None, reason=exc.reason)
+    except (ValueError, SandboxRunFailed):
+        logger.exception("repo selection agent failed", extra={"team_id": team_id, "report_id": signal_report_id})
+        return RepoSelectionResult(
+            repository=None,
+            reason="Repository selection failed. Choose a repository to continue.",
+            autostart_eligible=False,
+        )
 
 
 async def select_repository_for_report(
@@ -150,6 +170,8 @@ async def select_repository_for_report(
     sandbox_environment_id: str | None = None,
     verbose: bool = False,
     output_fn: OutputFn = None,
+    monitoring_sources: MonitoringRepositorySources | None = None,
+    on_research_session: Callable[[str, str], None] | None = None,
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a set of signals.
 
@@ -159,6 +181,10 @@ async def select_repository_for_report(
     """
     from products.signals.backend.temporal.types import render_signals_to_text  # noqa: PLC0415
 
+    if monitoring_sources is None:
+        monitoring_sources = await database_sync_to_async(monitoring_repository_sources, thread_sensitive=False)(
+            team_id, signals
+        )
     request_section = render_signals_to_text(signals)
     return await select_repository_for_team(
         team_id,
@@ -170,5 +196,8 @@ async def select_repository_for_report(
         sandbox_environment_id=sandbox_environment_id,
         verbose=verbose,
         output_fn=output_fn,
+        on_research_session=on_research_session,
         source_repository=source_repository_from_signals(signals),
+        source_repositories=monitoring_sources.repositories if monitoring_sources else (),
+        require_private_destination=monitoring_sources.require_private_destination if monitoring_sources else False,
     )

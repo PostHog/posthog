@@ -221,10 +221,10 @@ function describesStep(node: FunnelsQuerySeriesNodeUnion, step: FunnelStepWithNe
 
 /**
  * Cached results carry the step names from the run that produced them, so a step renamed since then
- * renders under its old label. Mirrors `_apply_funnels_custom_names` in `query_runner.py`, which the
+ * renders under its old label. Mirrors `_apply_custom_names_by_order` in `query_runner.py`, which the
  * stored-result path bypasses: the query wins in both directions. A cleared `custom_name` falls back
  * to a `name` override, and blanks the label only when `name` matches the raw key. The `name` half is
- * a widening `_apply_funnels_custom_names` does not yet share, so backend-rendered surfaces — CSV
+ * a widening `_apply_custom_names_by_order` does not yet share, so backend-rendered surfaces — CSV
  * exports and API consumers reading `results[].custom_name` — keep the raw label until it does.
  * Unordered funnels are exempt because they label steps by position, not by series.
  */

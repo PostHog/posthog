@@ -51,6 +51,16 @@
             <td style="padding: 8px; border-bottom: 1px solid #ddd;">{{ obj.count|default:"—" }}</td>
         </tr>
         <tr>
+            <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ddd">Queued in adhoc_events_deletion</th>
+            <td style="padding: 8px; border-bottom: 1px solid #ddd;">
+                {% if adhoc_backlog %}
+                    {{ adhoc_backlog.total|floatformat:"0g" }} events not yet deleted ({{ adhoc_backlog.for_team|floatformat:"0g" }} for team {{ obj.team_id }})
+                {% else %}
+                    &mdash;
+                {% endif %}
+            </td>
+        </tr>
+        <tr>
             <th style="text-align: left; padding: 8px;">Created by</th>
             <td style="padding: 8px;">{{ obj.created_by|default:"—" }}</td>
         </tr>

@@ -288,6 +288,7 @@ class SlackThreadHandler:
         actor_slack_user_id: str | None = None,
         turn_trace_id: str | None = None,
         turn_person_message: str | None = None,
+        include_thread_cost: bool = False,
     ) -> "SlackThreadHandler":
         """A handler whose footer describes ``run_id``.
 
@@ -296,7 +297,7 @@ class SlackThreadHandler:
         """
         handler = cls(
             context,
-            load_run_footer(run_id, integration_id=context.integration_id),
+            load_run_footer(run_id, integration_id=context.integration_id, include_thread_cost=include_thread_cost),
             actor_slack_user_id=actor_slack_user_id,
             turn_trace_id=turn_trace_id,
             turn_person_message=turn_person_message,
@@ -1182,6 +1183,9 @@ class SlackThreadHandler:
                 task_id=self.run_footer.task_id,
                 run_id=self.run_footer.run_id,
                 chart_links=self.run_footer.chart_links,
+                thread_cost_usd=(
+                    float(self.run_footer.thread_cost_usd) if self.run_footer.thread_cost_usd is not None else None
+                ),
             )
         except Exception:
             logger.warning("slack_app_reply_posted_capture_failed", reply_kind=str(reply_kind), exc_info=True)

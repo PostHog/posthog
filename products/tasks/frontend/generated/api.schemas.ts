@@ -422,6 +422,16 @@ export interface TaskActivityPageDTOApi {
      * @nullable
      */
     next_before_id?: string | null
+    /**
+     * URL of the next page, with before and before_id set, or null on the final page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * Always null: the feed pages forward only.
+     * @nullable
+     */
+    readonly previous: string | null
 }
 
 export interface TaskActivityReadMarkerApi {
@@ -3181,6 +3191,7 @@ export const RunStatusEnumApi = {
  * * `subscription_usage_limit` - subscription_usage_limit
  * * `task_spend_limit` - task_spend_limit
  * * `agent_error` - agent_error
+ * * `ActiveSessionCapError` - ActiveSessionCapError
  */
 export type ErrorTypeEnumApi = (typeof ErrorTypeEnumApi)[keyof typeof ErrorTypeEnumApi]
 
@@ -3201,6 +3212,7 @@ export const ErrorTypeEnumApi = {
     SubscriptionUsageLimit: 'subscription_usage_limit',
     TaskSpendLimit: 'task_spend_limit',
     AgentError: 'agent_error',
+    ActiveSessionCapError: 'ActiveSessionCapError',
 } as const
 
 export interface PatchedTaskRunUpdateApi {
@@ -3253,7 +3265,8 @@ export interface PatchedTaskRunUpdateApi {
      * * `turn_ended_without_response` - turn_ended_without_response
      * * `subscription_usage_limit` - subscription_usage_limit
      * * `task_spend_limit` - task_spend_limit
-     * * `agent_error` - agent_error */
+     * * `agent_error` - agent_error
+     * * `ActiveSessionCapError` - ActiveSessionCapError */
     error_type?: ErrorTypeEnumApi | null
 }
 

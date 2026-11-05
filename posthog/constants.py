@@ -231,6 +231,7 @@ class BreakdownAttributionType(StrEnum):
 
 MAX_SLUG_LENGTH = 48
 GROUP_TYPES_LIMIT = 5
+GroupTypeIndex = Literal[0, 1, 2, 3, 4]
 
 
 class EventDefinitionType(StrEnum):

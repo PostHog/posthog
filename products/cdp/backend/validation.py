@@ -19,6 +19,7 @@ from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.integrations import IntegrationManager
+from posthog.models.integration import POSTHOG_CONNECT_KIND, WAREHOUSE_SOURCE_TYPE_CONFIG_KEY
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -98,9 +99,17 @@ def _validate_not_posthog_connection(integration_ids: list[int], context: dict) 
     get_team = context.get("get_team")
     if get_team is None or not integration_ids:
         return
-    if IntegrationManager.posthog.any.get_many(get_team().id, integration_ids):
+    # Warehouse source rows must be read too, so the guard below can reject them.
+    rows = IntegrationManager.any.with_source_rows().get_many(get_team().id, integration_ids).values()
+    if any(row.kind == POSTHOG_CONNECT_KIND for row in rows):
         raise serializers.ValidationError(
             {"input": "A PostHog connection can't be used as a function input. Choose a different integration."}
+        )
+    # A row that a data warehouse source created holds the source's typed-in credentials (passwords,
+    # keys). The runtime passes an input's secrets to the function code, so no function may use it.
+    if any(WAREHOUSE_SOURCE_TYPE_CONFIG_KEY in (row.config or {}) for row in rows):
+        raise serializers.ValidationError(
+            {"input": "This integration can't be used as a function input. Choose a different integration."}
         )
 
 
@@ -231,6 +240,67 @@ def build_html_wrap_design(html: str) -> dict:
             "values": {},
         },
     }
+
+
+_UNLAYER_BODY_CLASS = re.compile(r"\bu_body\b")
+_UNLAYER_LAYOUT_TAGS = frozenset({"!doctype", "html", "body", "table", "tbody", "tr", "td", "div"})
+_TAG_NAME = re.compile(r"</?\s*([a-z!][a-z0-9]*)")
+_SKIPPED_ELEMENT_ENDS = {"head": "</head>", "style": "</style>"}
+
+
+def _position_after_layout_markup(html: str, position: int) -> int:
+    if html.startswith("<!--", position):
+        end = html.find("-->", position + 4)
+        return -1 if end == -1 else end + 3
+    tag = _TAG_NAME.match(html, position)
+    end = html.find(">", position)
+    if tag is None or end == -1:
+        return -1
+    closing = _SKIPPED_ELEMENT_ENDS.get(tag.group(1))
+    if closing is not None:
+        end = html.find(closing, end)
+        return -1 if end == -1 else end + len(closing)
+    return end + 1 if tag.group(1) in _UNLAYER_LAYOUT_TAGS else -1
+
+
+def _is_only_unlayer_layout(html: str) -> bool:
+    html = html.lower()
+    position = 0
+    while position < len(html):
+        if html[position] == "<":
+            position = _position_after_layout_markup(html, position)
+            if position == -1:
+                return False
+        elif html.startswith("&nbsp;", position):
+            position += 6
+        elif html[position].isspace():
+            position += 1
+        else:
+            return False
+    return True
+
+
+def _is_unlayer_render_of(html: str, block_html: str) -> bool:
+    start = html.find(block_html)
+    if start == -1:
+        return False
+    around_block = html[:start] + html[start + len(block_html) :]
+    return bool(_UNLAYER_BODY_CLASS.search(around_block)) and _is_only_unlayer_layout(around_block)
+
+
+def html_wrap_design_needs_refresh(html: str, design: Any) -> bool:
+    if not design:
+        return True
+    try:
+        wrapped_html = design["body"]["rows"][0]["columns"][0]["contents"][0]["values"]["html"]
+    except (KeyError, IndexError, TypeError):
+        return False
+    return (
+        isinstance(wrapped_html, str)
+        and wrapped_html != html
+        and design == build_html_wrap_design(wrapped_html)
+        and not _is_unlayer_render_of(html, wrapped_html)
+    )
 
 
 def register_supported_function(name: str) -> None:
@@ -657,6 +727,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "task_repository",
             "task_mcp_installations",
             "signals_scout",
+            "posthog_survey",
             "task_skills",
             "replay_vision_scan",
         ]
@@ -859,6 +930,9 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "signals_scout":
             if not isinstance(value, str):
                 raise serializers.ValidationError({"input": "Value must be a scout skill name."})
+        elif item_type == "posthog_survey":
+            if not isinstance(value, str):
+                raise serializers.ValidationError({"input": "Value must be a survey ID."})
         elif item_type == "replay_vision_scan":
             if not isinstance(value, dict) or not isinstance(value.get("type"), str):
                 raise serializers.ValidationError({"input": "Choose what Replay Vision should do."})
@@ -916,7 +990,11 @@ class InputsItemSerializer(serializers.Serializer):
 
                 _validate_email_sender_override(from_value, self.context)
 
-            if isinstance(value.get("html"), str) and value["html"] and not value.get("design"):
+            if (
+                isinstance(value.get("html"), str)
+                and value["html"]
+                and html_wrap_design_needs_refresh(value["html"], value.get("design"))
+            ):
                 # Programmatically authored emails often supply html without a design, which the
                 # visual editor can't open. Wrap it so every stored email has an editable design.
                 value = {**value, "design": build_html_wrap_design(value["html"])}
