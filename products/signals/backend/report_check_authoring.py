@@ -443,7 +443,7 @@ def create_checks_from_specs(
         return CheckReconciliation(applied=False, created=[])
 
 
-def replace_metric_check(
+def replace_check_with_metric(
     *,
     check: SignalReportCheck,
     title: str,
@@ -452,9 +452,7 @@ def replace_metric_check(
     attribution: ArtefactAttribution,
     access_policy: ReportMetricAccessPolicy,
 ) -> SignalReportCheck:
-    """Replace one open metric check atomically, keeping it live if the new check is invalid."""
-    if check.kind != SignalReportCheck.Kind.METRIC_THRESHOLD:
-        raise CheckCreationError("Only metric checks can be replaced this way.")
+    """Keep the previous check live if replacement validation fails."""
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().get(id=check.report_id, team_id=check.team_id)
         locked = SignalReportCheck.objects.for_team(check.team_id).select_for_update().get(id=check.id)
