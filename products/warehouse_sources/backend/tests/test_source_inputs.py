@@ -18,14 +18,21 @@ from posthog.models import Team
 from posthog.models.integration import ANY, Integration
 
 from products.warehouse_sources.backend.facade.contracts import (
+    CONNECTION_FIELDS_STRIPPED_KEY,
     CREDENTIALS_REFERENCE_INPUT_KEY,
     SharedCredentialsEdit,
     SharedCredentialsError,
+    SourceCredentialsMissingError,
     UnusableCredentialsReferenceError,
 )
 from products.warehouse_sources.backend.logic import source_credentials_rollout as rollout
 from products.warehouse_sources.backend.logic.source_credentials import WarehouseSourceCredentialsStore
-from products.warehouse_sources.backend.logic.source_credentials_rollout import DUAL_WRITE_FLAG, READ_FLAG, reset_caches
+from products.warehouse_sources.backend.logic.source_credentials_rollout import (
+    DUAL_WRITE_FLAG,
+    READ_FLAG,
+    STRIP_FLAG,
+    reset_caches,
+)
 from products.warehouse_sources.backend.logic.source_inputs import (
     INPUTS_UPDATE_FIELDS,
     SourceInputsStore,
@@ -1088,3 +1095,286 @@ def _set_inputs(source: ExternalDataSource, changes: dict[str, Any]) -> None:
     fresh = ExternalDataSource.objects.get(pk=source.pk)
     inputs = SourceInputsStore.load(fresh)
     ExternalDataSource.objects.filter(pk=source.pk).update(job_inputs={**inputs, **changes})
+
+
+STORED_POSTGRES_SETTINGS_AND_RUNTIME: dict[str, str] = {
+    key: value for key, value in STORED_POSTGRES_INPUTS.items() if key not in POSTGRES_CONNECTION_FIELDS
+}
+STRIPPED_AT = "2026-01-01T00:00:00+00:00"
+
+
+class TestSourceInputsStoreStripped(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        reset_caches()
+        self.addCleanup(reset_caches)
+
+    def _flags(self, *enabled: str) -> Any:
+        return patch.object(
+            schema_flags.posthoganalytics, "feature_enabled", side_effect=lambda flag, *args, **kwargs: flag in enabled
+        )
+
+    def _create(
+        self, inputs: dict[str, Any] | None = None, source_type: str = ExternalDataSourceType.POSTGRES
+    ) -> ExternalDataSource:
+        return SourceInputsStore.create(
+            inputs=STORED_POSTGRES_INPUTS if inputs is None else inputs,
+            team_id=self.team.pk,
+            source_id="source",
+            connection_id="connection",
+            status="Running",
+            source_type=source_type,
+        )
+
+    def _stripped_source(
+        self, inputs: dict[str, Any] | None = None, source_type: str = ExternalDataSourceType.POSTGRES
+    ) -> ExternalDataSource:
+        with self._flags(DUAL_WRITE_FLAG):
+            source = self._create(inputs, source_type)
+        SourceInputsStore.write_stripped(source, stripped_at=STRIPPED_AT)
+        reset_caches()
+        return ExternalDataSource.objects.get(pk=source.pk)
+
+    def _stored(self, source: ExternalDataSource) -> dict[str, Any]:
+        return SourceInputsStore.load_stored(ExternalDataSource.objects.get(pk=source.pk))
+
+    def _row(self, source: ExternalDataSource) -> dict[str, Any] | None:
+        return WarehouseSourceCredentialsStore.get(ExternalDataSource.objects.get(pk=source.pk))
+
+    def _loads(self, source: ExternalDataSource) -> list[Callable[[], dict[str, Any]]]:
+        return [
+            lambda: SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk)),
+            lambda: SourceInputsStore.load_many([ExternalDataSource.objects.get(pk=source.pk)])[source.id],
+        ]
+
+    @parameterized.expand(
+        [("no_flags", ()), ("dual_write_only", (DUAL_WRITE_FLAG,)), ("all_flags", (DUAL_WRITE_FLAG, READ_FLAG))]
+    )
+    def test_stripped_source_loads_connection_fields_from_the_integration_whatever_the_flags(
+        self, _name: str, flags: tuple[str, ...]
+    ) -> None:
+        source = self._stripped_source()
+        assert self._stored(source) == {
+            **STORED_POSTGRES_SETTINGS_AND_RUNTIME,
+            CONNECTION_FIELDS_STRIPPED_KEY: STRIPPED_AT,
+        }
+        assert _column(source) is not None
+
+        with self._flags(*flags):
+            for load in self._loads(source):
+                assert load() == STORED_POSTGRES_INPUTS
+            assert SourceInputsStore.load_settings(ExternalDataSource.objects.get(pk=source.pk)) == (
+                STORED_POSTGRES_SETTINGS_AND_RUNTIME
+            )
+
+    @parameterized.expand(
+        [
+            # (name, source type, inputs, stripped inputs, loaded inputs)
+            (
+                "top_level",
+                ExternalDataSourceType.HUBSPOT,
+                {"hubspot_integration_id": "7"},
+                {},
+                {"hubspot_integration_id": 7},
+            ),
+            (
+                "nested_with_a_stale_pointer_under_the_other_option",
+                ExternalDataSourceType.GITHUB,
+                {
+                    "auth_method": {"selection": "oauth", "github_integration_id": "7"},
+                    "repository": "posthog/posthog",
+                },
+                {"auth_method": {"selection": "oauth"}, "repository": "posthog/posthog"},
+                {"auth_method": {"selection": "oauth", "github_integration_id": 7}, "repository": "posthog/posthog"},
+            ),
+            (
+                "slack_hidden_key",
+                ExternalDataSourceType.SLACK,
+                {"slack_integration_id": "7"},
+                {},
+                {"slack_integration_id": 7},
+            ),
+            (
+                "pardot_keeps_its_typed_in_field",
+                ExternalDataSourceType.PARDOT,
+                {"pardot_integration_id": "7", "environment": "sandbox", "business_unit_id": "b"},
+                {"environment": "sandbox", "business_unit_id": "b"},
+                {"pardot_integration_id": 7, "environment": "sandbox", "business_unit_id": "b"},
+            ),
+        ]
+    )
+    def test_stripped_oauth_source_loads_its_pointer_from_the_column_whatever_the_flags(
+        self,
+        _name: str,
+        source_type: str,
+        inputs: dict[str, Any],
+        stripped: dict[str, Any],
+        loaded: dict[str, Any],
+    ) -> None:
+        source = self._stripped_source(inputs, source_type)
+        assert _column(source) == "7"
+        assert self._stored(source) == {**stripped, CONNECTION_FIELDS_STRIPPED_KEY: STRIPPED_AT}
+
+        with self._flags():
+            for load in self._loads(source):
+                assert load() == loaded
+
+    def test_stripped_oauth_source_drops_a_stale_pointer_under_the_other_option(self) -> None:
+        stale = {"auth_method": {"selection": "pat", "personal_access_token": "fake", "github_integration_id": "7"}}
+        with self._flags(DUAL_WRITE_FLAG):
+            source = self._create({**stale, "repository": "posthog/posthog"}, ExternalDataSourceType.GITHUB)
+        SourceInputsStore.write_stripped(source, stripped_at=STRIPPED_AT)
+
+        assert self._stored(source) == {"repository": "posthog/posthog", CONNECTION_FIELDS_STRIPPED_KEY: STRIPPED_AT}
+
+    @parameterized.expand(
+        [
+            (
+                "missing_row",
+                lambda source: Integration.objects._with_auth(ANY).filter(id=int(_column(source) or 0)).delete(),
+                "stripped_missing",
+            ),
+            (
+                "unreadable_row",
+                lambda source: (
+                    Integration.objects._with_auth(ANY).filter(id=int(_column(source) or 0)).update(sensitive_config={})
+                ),
+                "stripped_unreadable",
+            ),
+        ]
+    )
+    def test_stripped_source_without_a_readable_row_raises_and_never_falls_back(
+        self, _name: str, change_row: Callable[[ExternalDataSource], Any], expected_result: str
+    ) -> None:
+        source = self._stripped_source()
+        change_row(source)
+        before = _read_count(expected_result)
+
+        with self._flags(DUAL_WRITE_FLAG, READ_FLAG):
+            with self.assertRaises(SourceCredentialsMissingError):
+                SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk))
+            assert SourceInputsStore.load_many([ExternalDataSource.objects.get(pk=source.pk)]) == {}
+
+        assert _read_count(expected_result) - before == 2
+
+    @parameterized.expand([("cleared", None), ("uuid", "0b7e8c3a-5f4d-4e2a-9c1b-2d3e4f5a6b7c")])
+    def test_stripped_oauth_source_without_a_legacy_id_raises(self, _name: str, column: str | None) -> None:
+        source = self._stripped_source({"hubspot_integration_id": "7"}, ExternalDataSourceType.HUBSPOT)
+        ExternalDataSource.objects.filter(pk=source.pk).update(credentials_integration_id=column)
+
+        with self.assertRaises(SourceCredentialsMissingError):
+            SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk))
+        assert SourceInputsStore.load_many([ExternalDataSource.objects.get(pk=source.pk)]) == {}
+
+    @parameterized.expand(
+        [
+            ("save", lambda source, inputs: SourceInputsStore.save(source, inputs)),
+            (
+                "assign_then_model_save",
+                lambda source, inputs: (SourceInputsStore.assign(source, inputs), source.save()),
+            ),
+        ]
+    )
+    def test_writes_to_a_stripped_source_put_connection_fields_only_in_the_integration(
+        self, _name: str, write: Callable[[ExternalDataSource, dict[str, Any]], Any]
+    ) -> None:
+        source = self._stripped_source()
+        reference = _column(source)
+
+        with self._flags():
+            inputs = SourceInputsStore.load(source)
+            write(source, {**inputs, "password": "fake-rotated", "schema": "analytics"})
+            SourceInputsStore.update_runtime(source, {"cdc_slot_name": "fake-new-slot"})
+
+        assert self._stored(source) == {
+            **STORED_POSTGRES_SETTINGS_AND_RUNTIME,
+            "schema": "analytics",
+            "cdc_slot_name": "fake-new-slot",
+            CONNECTION_FIELDS_STRIPPED_KEY: STRIPPED_AT,
+        }
+        assert _column(source) == reference
+        assert self._row(source) == {**POSTGRES_CONNECTION_FIELDS, "password": "fake-rotated"}
+
+    def test_a_write_to_a_stripped_oauth_source_moves_the_new_pointer_to_the_column(self) -> None:
+        source = self._stripped_source(
+            {"auth_method": {"selection": "oauth", "stripe_integration_id": "7"}, "stripe_account_id": "acct"},
+            ExternalDataSourceType.STRIPE,
+        )
+
+        with self._flags():
+            inputs = SourceInputsStore.load(source)
+            SourceInputsStore.save(
+                source, {**inputs, "auth_method": {"selection": "oauth", "stripe_integration_id": 8}}
+            )
+
+        assert _column(source) == "8"
+        assert self._stored(source) == {
+            "auth_method": {"selection": "oauth"},
+            "stripe_account_id": "acct",
+            CONNECTION_FIELDS_STRIPPED_KEY: STRIPPED_AT,
+        }
+
+    def test_a_failed_integration_write_fails_the_save_of_a_stripped_source(self) -> None:
+        source = self._stripped_source()
+        stored = self._stored(source)
+
+        with (
+            self._flags(),
+            patch.object(WarehouseSourceCredentialsStore, "update", side_effect=RuntimeError("store down")),
+            self.assertRaises(RuntimeError),
+        ):
+            SourceInputsStore.save(source, {**STORED_POSTGRES_INPUTS, "password": "fake-rotated"})
+
+        assert self._stored(source) == stored
+
+    def test_a_shared_row_of_a_stripped_source_is_never_skipped(self) -> None:
+        source = self._stripped_source()
+        ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id="other",
+            connection_id="other",
+            status="Running",
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs=STORED_POSTGRES_INPUTS,
+            credentials_integration_id=_column(source),
+        )
+
+        with self._flags(), self.assertRaises(SharedCredentialsError):
+            SourceInputsStore.save(source, {**STORED_POSTGRES_INPUTS, "password": "fake-rotated"})
+
+        assert self._row(source) == POSTGRES_CONNECTION_FIELDS
+
+    @parameterized.expand(
+        [
+            ("strip_flag_on", (DUAL_WRITE_FLAG, READ_FLAG, STRIP_FLAG), True),
+            ("strip_flag_without_read_flag", (DUAL_WRITE_FLAG, STRIP_FLAG), False),
+            ("read_flags_only", (DUAL_WRITE_FLAG, READ_FLAG), False),
+        ]
+    )
+    def test_create_strips_a_new_source_only_with_the_strip_and_read_flags(
+        self, _name: str, flags: tuple[str, ...], expect_stripped: bool
+    ) -> None:
+        with self._flags(*flags):
+            source = self._create()
+            assert SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk)) == STORED_POSTGRES_INPUTS
+
+        stored = self._stored(source)
+        assert SourceInputsStore.is_stripped(ExternalDataSource.objects.get(pk=source.pk)) is expect_stripped
+        assert ("password" in stored) is not expect_stripped
+        assert self._row(source) == POSTGRES_CONNECTION_FIELDS
+
+    @parameterized.expand(
+        [
+            ("with_a_pointer", {"hubspot_integration_id": "7"}, True),
+            ("without_a_pointer", {}, False),
+        ]
+    )
+    def test_create_strips_an_oauth_source_only_when_it_has_a_pointer(
+        self, _name: str, inputs: dict[str, Any], expect_stripped: bool
+    ) -> None:
+        with self._flags(DUAL_WRITE_FLAG, READ_FLAG, STRIP_FLAG):
+            source = self._create(inputs, source_type=ExternalDataSourceType.HUBSPOT)
+
+            assert SourceInputsStore.is_stripped(ExternalDataSource.objects.get(pk=source.pk)) is expect_stripped
+            assert "hubspot_integration_id" not in self._stored(source) or not expect_stripped
+            assert _column(source) == ("7" if expect_stripped else None)
