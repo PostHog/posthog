@@ -67,15 +67,15 @@ describe('SendTestEmailModal', () => {
             logic.actions.setRecipientEmail(MOCK_DEFAULT_USER.email.toUpperCase())
 
             await waitFor(() =>
-                expect(screen.queryByText(/isn't among the verified members you can see/) !== null).toBe(verified)
+                expect(screen.getByText('Send test email', { selector: 'button *' }).closest('button')).toHaveAttribute(
+                    'aria-disabled',
+                    String(!verified)
+                )
             )
             expect(
                 screen.queryByText('Verify your email address to send test emails to yourself.')?.textContent ?? null
             ).toBe(expected)
-            expect(screen.getByText('Send test email', { selector: 'button *' }).closest('button')).toHaveAttribute(
-                'aria-disabled',
-                String(!verified)
-            )
+            expect(screen.queryByText(/isn't among the verified members you can see/)).toBeNull()
         }
     )
 
@@ -147,6 +147,7 @@ describe('SendTestEmailModal', () => {
     })
 
     it.each([true, false])('distinguishes member loading from an empty list (%s)', async (loading) => {
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_email_verified: false })
         let releaseMembers: () => void = () => {}
         const gate = new Promise<void>((resolve) => {
             releaseMembers = resolve
