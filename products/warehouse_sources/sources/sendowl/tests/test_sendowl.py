@@ -99,22 +99,27 @@ class TestLicensesFanout:
         assert result.raised is None
         assert result.rows == [_license(7, 2)]
 
-    def test_resumes_mid_product_from_the_saved_page(self) -> None:
+    @parameterized.expand([("parent_listing_from_start", None, 1), ("parent_listing_from_saved_page", 2, 2)])
+    def test_resumes_mid_product_from_the_saved_page(
+        self, _name: str, saved_parent_page: int | None, expected_parent_page: int
+    ) -> None:
         responses = {
-            _url("/api/v1/products"): [
+            _url("/api/v1/products", page=expected_parent_page): [
                 _page("product", [{"id": 1, "product_type": "software"}, {"id": 2, "product_type": "software"}])
             ],
             _url("/api/v1/products/2/licenses", page=3): [_page("license", [_license(9, 2)])],
         }
-        state = SendowlResumeConfig(
-            fanout_state={
-                "completed": ["/api/v1/products/1/licenses"],
-                "current": "/api/v1/products/2/licenses",
-                "child_state": {"page": 3},
-            }
-        )
+        fanout_state: dict[str, Any] = {
+            "completed": ["/api/v1/products/1/licenses"],
+            "current": "/api/v1/products/2/licenses",
+            "child_state": {"page": 3},
+        }
+        if saved_parent_page is not None:
+            fanout_state["parent"] = {"page": saved_parent_page}
 
-        result = _driver().run("licenses", _by_url(responses), resume_state=state)
+        result = _driver().run(
+            "licenses", _by_url(responses), resume_state=SendowlResumeConfig(fanout_state=fanout_state)
+        )
 
         assert result.raised is None
         assert result.rows == [_license(9, 2)]

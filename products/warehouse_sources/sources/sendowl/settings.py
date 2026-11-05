@@ -8,7 +8,7 @@ from products.warehouse_sources.sources.sdk import DependentEndpointConfig
 PER_PAGE = 50
 
 
-@dataclass
+@dataclass(frozen=True)
 class SendowlEndpointConfig:
     name: str
     path: str

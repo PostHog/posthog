@@ -132,7 +132,9 @@ def _fanout_source(
         endpoint_configs=SENDOWL_ENDPOINTS,
         child_endpoint=endpoint,
         fanout=config.fanout,
-        client_config=_client_config(api_key, api_secret),
+        # License keys are redeemable codes under a generic `key` field the sample scrubber does
+        # not redact, so keep these responses out of HTTP sample capture.
+        client_config={**_client_config(api_key, api_secret), "capture": False},
         path_format_values={},
         team_id=team_id,
         job_id=job_id,
@@ -148,6 +150,9 @@ def _fanout_source(
         },
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
+        # Saves the parent page too, so the checkpoint keeps two pages of finished products rather
+        # than every product in the account.
+        resume_parent_pagination=True,
     )
     items = cast(Resource, resource).add_map(_unwrap(config.wrapper_key))
 
