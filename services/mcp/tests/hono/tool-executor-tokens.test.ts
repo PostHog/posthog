@@ -229,6 +229,29 @@ describe('ToolExecutor token estimates', () => {
             expect(event[4].output_tokens).toBe(estimateTokens(returned))
         })
 
+        it.each([
+            ['an exec inner call', true],
+            ['a direct tool call', false],
+        ])('returns %s with truncate: false whole when the client sets no limit', async (_, useSingleExec) => {
+            const tools = catalog
+                .getPreBuiltEntries()
+                .map((entry) => toolFromPreBuilt(catalog.getToolByName(entry.name)!, entry))
+            const target = tools.find((t) => t.name === 'execute-sql')! as any
+            const table = Array.from({ length: 6_000 }, (_, i) => `${i},${'x'.repeat(80)}`).join('\n')
+            target.handler = vi.fn(async () => table)
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue({ ...target, build: () => target } as any)
+            const args = { query: 'select 1', truncate: false }
+
+            const response = (await executor.handleToolCall(
+                useSingleExec
+                    ? { name: 'exec', arguments: { command: `call execute-sql ${JSON.stringify(args)}` } }
+                    : { name: 'execute-sql', arguments: args },
+                makeToolExecutorState(tools as any, { useSingleExec })
+            )) as any
+
+            expect(joinedText(response)).toContain(table)
+        })
+
         it('attributes the canonical event to the inner tool via the standard $mcp_tool_name', async () => {
             // Full catalog tools (real names, so the instructions builder resolves them),
             // with the target handler stubbed to keep dispatch offline + deterministic.
