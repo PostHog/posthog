@@ -244,7 +244,7 @@ Available features:
 | `health_issues`          | Health                                                                                          |
 | `hog_function_templates` | CDP function template browsing                                                                  |
 | `hog_functions`          | [Functions](https://posthog.com/docs/cdp)                                                       |
-| `insights`               | [Insights & analytics](https://posthog.com/docs/product-analytics/insights)                     |
+| `insights`               | Run insight queries. Saved insights are in `product_analytics`                                  |
 | `integrations`           | Integrations                                                                                    |
 | `links`                  | PostHog app URL generation                                                                      |
 | `llm_analytics`          | [AI observability](https://posthog.com/docs/ai-observability)                                   |
@@ -258,7 +258,7 @@ Available features:
 | `notebooks`              | [Notebooks](https://posthog.com/docs/notebooks)                                                 |
 | `persons`                | [Persons](https://posthog.com/docs/data/persons)                                                |
 | `platform_features`      | Platform Features                                                                               |
-| `product_analytics`      | Product analytics                                                                               |
+| `product_analytics`      | Saved insights and other product analytics tools                                                |
 | `reminders`              | Reminders                                                                                       |
 | `replay`                 | [Session replays](https://posthog.com/docs/session-replay)                                      |
 | `replay_vision`          | Replay vision                                                                                   |

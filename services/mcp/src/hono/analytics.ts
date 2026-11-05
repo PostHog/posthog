@@ -125,6 +125,11 @@ export async function trackInitEvent(state: ResolvedState): Promise<void> {
                 has_project_id: !!requestContext.projectId,
                 read_only: !!requestContext.readOnly,
                 via_sse_redirect: !!requestContext.viaSseRedirect,
+                ...(requestContext.features?.length ? { requested_features: requestContext.features } : {}),
+                ...(requestContext.tools?.length ? { requested_tools: requestContext.tools } : {}),
+                ...(requestContext.excludeTools?.length
+                    ? { requested_exclude_tools: requestContext.excludeTools }
+                    : {}),
             },
         })
     } catch {

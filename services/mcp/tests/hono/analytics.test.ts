@@ -67,6 +67,9 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
             mcpConsumer: 'request-consumer',
             mode: 'cli',
             region: 'us',
+            features: ['insights', 'product_analytics'],
+            tools: ['dashboard-get'],
+            excludeTools: ['insight-delete'],
             mcpVendorClient: 'ClaudeAI',
         },
         sessionContext: {
@@ -244,6 +247,9 @@ describe('Hono MCP analytics contexts', () => {
             mcp_session_protocol_version: '2025-03-26',
             mcp_session_consumer: 'session-consumer',
             mcp_session_vendor_client: 'ClaudeCode',
+            requested_features: ['insights', 'product_analytics'],
+            requested_tools: ['dashboard-get'],
+            requested_exclude_tools: ['insight-delete'],
         })
     })
 
