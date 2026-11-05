@@ -120,6 +120,7 @@ class CodeAnalysisError(Exception):
             "cleanup_exists",
             "outcome_required",
             "invalid_outcome",
+            "unsupported_key",
         ],
         message: str,
     ) -> None:
@@ -232,7 +233,7 @@ def _outcomes(flag: FeatureFlag) -> str:
 def build_code_analysis_prompt(flag: FeatureFlag, repository: str) -> TaskPrompt:
     """Return the task title and the agent's instructions.
 
-    Only keys are interpolated: the flag key, which the API restricts to letters, digits, `-` and `_`,
+    Only keys are interpolated: the flag key, which `start_code_analysis` checks against `SAFE_KEY`,
     and variant keys that match the same pattern. The flag's name and description are free text a
     project member wrote, so they stay out of the prompt.
     """
@@ -290,6 +291,13 @@ def require_ai_allowed(flag: FeatureFlag) -> None:
 def start_code_analysis(
     flag: FeatureFlag, user: User, requested_repository: str | None = None
 ) -> FeatureFlagCodeAnalysis:
+    # The key goes into the agent's prompt. Older flags predate the API's key validation, so a key with
+    # other characters could carry instructions to the agent.
+    if not SAFE_KEY.fullmatch(flag.key):
+        raise CodeAnalysisError(
+            "unsupported_key",
+            "Code analysis works only with flag keys made of letters, digits, hyphens, and underscores.",
+        )
     require_ai_allowed(flag)
 
     target = get_code_analysis_target(flag, requested_repository=requested_repository)

@@ -15,6 +15,7 @@ const run = (overrides: Partial<FeatureFlagCodeCleanupRunApi>): FeatureFlagCodeC
     run_status: 'in_progress',
     is_terminal: false,
     pr_url: null,
+    pr_closed: false,
     error_message: null,
     can_view_task: true,
     ...overrides,
@@ -104,6 +105,20 @@ export const FailedAfterOpeningPr: Story = {
                 run_status: 'failed',
                 is_terminal: true,
                 pr_url: 'https://github.com/example-org/storefront/pull/482',
+            }),
+        },
+    },
+}
+
+export const ClosedWithoutMerge: Story = {
+    args: {
+        cleanup: {
+            ...available,
+            run: run({
+                run_status: 'completed',
+                is_terminal: true,
+                pr_url: 'https://github.com/example-org/storefront/pull/482',
+                pr_closed: true,
             }),
         },
     },

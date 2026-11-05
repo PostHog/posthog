@@ -39,6 +39,7 @@ _ERROR_STATUS = {
     "cleanup_exists": status.HTTP_409_CONFLICT,
     "outcome_required": status.HTTP_400_BAD_REQUEST,
     "invalid_outcome": status.HTTP_400_BAD_REQUEST,
+    "unsupported_key": status.HTTP_400_BAD_REQUEST,
 }
 
 
@@ -145,6 +146,9 @@ class FeatureFlagCodeCleanupRunSerializer(serializers.Serializer):
     pr_url = serializers.URLField(
         allow_null=True,
         help_text="The draft pull request the run opened. Null while it runs, or when it found no code to remove.",
+    )
+    pr_closed = serializers.BooleanField(
+        help_text="Whether the pull request was closed without a merge. A new cleanup pull request can then be opened."
     )
     error_message = serializers.CharField(allow_null=True, help_text="Why the run failed, when it failed.")
     can_view_task = serializers.BooleanField(

@@ -50,6 +50,7 @@ const cleanupRun = (overrides: Partial<FeatureFlagCodeCleanupRunApi> = {}): Feat
     run_status: 'in_progress',
     is_terminal: false,
     pr_url: null,
+    pr_closed: false,
     error_message: null,
     can_view_task: true,
     ...overrides,

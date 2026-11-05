@@ -69,6 +69,8 @@ class CodeCleanupRun:
     run_status: str
     is_terminal: bool
     pr_url: str | None
+    # GitHub reported the pull request closed without a merge.
+    pr_closed: bool
     error_message: str | None
     can_view_task: bool
 
@@ -150,11 +152,19 @@ def get_cleanup_run(flag: FeatureFlag, user: User) -> CodeCleanupRun | None:
     # transfer. Treat it as absent so it can't block a new request forever.
     if run is None:
         return None
+    pr_closed = False
+    if run.pr_url is not None:
+        pull_requests = tasks_facade.get_pull_requests_for_tasks(analysis.team_id, [analysis.cleanup_task_id])
+        pr_closed = any(
+            pull_request.url == run.pr_url and pull_request.state == "closed"
+            for pull_request in pull_requests.get(str(analysis.cleanup_task_id), [])
+        )
     return CodeCleanupRun(
         task_id=analysis.cleanup_task_id,
         run_status=run.status,
         is_terminal=run.is_terminal,
         pr_url=run.pr_url,
+        pr_closed=pr_closed,
         error_message=run.error_message,
         can_view_task=tasks_facade.task_visible(analysis.cleanup_task_id, analysis.team_id, user.id),
     )
@@ -231,11 +241,11 @@ def build_code_cleanup_prompt(
 
 def _cleanup_blocks_new_request(run: CodeCleanupRun | None) -> bool:
     # A run that ended without a pull request can be retried. One that opened a pull request blocks another,
-    # also when it failed or was canceled after opening it, so the repository never gets two cleanup pull
-    # requests for one flag.
+    # also when it failed or was canceled after opening it, so the repository never gets two open cleanup
+    # pull requests for one flag. Once that pull request is closed without a merge, a new one can replace it.
     if run is None:
         return False
-    return not run.is_terminal or run.pr_url is not None
+    return not run.is_terminal or (run.pr_url is not None and not run.pr_closed)
 
 
 def start_code_cleanup(flag: FeatureFlag, user: User, keep_outcome: str | None = None) -> FeatureFlagCodeAnalysis:
