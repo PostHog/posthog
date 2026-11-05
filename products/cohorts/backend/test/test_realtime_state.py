@@ -30,6 +30,7 @@ from products.cohorts.backend.models.team_access import (
 from products.cohorts.backend.realtime_state import (
     CohortHistoryBuildPhase,
     CohortRealtimeState,
+    CohortRealtimeUnavailableReason,
     resolve_realtime_readiness,
 )
 
@@ -379,15 +380,29 @@ class TestRealtimeReadiness(BaseTest):
 
     @parameterized.expand(
         [
-            ("static", {"is_static": True, "cohort_type": CohortType.STATIC}, CohortRealtimeState.STATIC),
-            ("not_realtime", {"cohort_type": CohortType.BEHAVIORAL}, CohortRealtimeState.DAILY),
+            ("static", {"is_static": True, "cohort_type": CohortType.STATIC}, (CohortRealtimeState.STATIC, None, None)),
+            ("not_realtime", {"cohort_type": CohortType.BEHAVIORAL}, (CohortRealtimeState.DAILY, None, None)),
+            (
+                "history_over_limit",
+                {
+                    "cohort_type": None,
+                    "filters": filters({**BEHAVIORAL_LEAF, "time_value": 2, "time_interval": "year"}),
+                },
+                (CohortRealtimeState.DAILY, CohortRealtimeUnavailableReason.HISTORY_OVER_LIMIT, 400),
+            ),
             # Neither kind of criteria decides anything: the realtime evaluator has no leaf to key
             # membership on, and the flag API does not gate on a cohort reference either.
             ("cohort_reference_only", {"filters": filters(COHORT_LEAF)}, None),
         ]
     )
-    def test_cohorts_outside_the_realtime_path(self, _name: str, kwargs: dict, expected: str | None) -> None:
-        assert self._state(self._cohort(**kwargs)) == expected
+    def test_cohorts_outside_the_realtime_path(
+        self, _name: str, kwargs: dict, expected: tuple[str, str | None, int | None] | None
+    ) -> None:
+        cohort = self._cohort(**kwargs)
+        readiness = resolve_realtime_readiness([cohort]).get(cohort.id)
+        assert (
+            (readiness.state, readiness.reason, readiness.history_limit_days) if readiness is not None else None
+        ) == expected
 
     def test_a_person_property_cohort_is_targetable_and_names_no_readiness_moment(self) -> None:
         # Flags read person properties off the person as they evaluate, so this cohort is

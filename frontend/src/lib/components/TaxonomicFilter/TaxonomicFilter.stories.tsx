@@ -810,7 +810,13 @@ export const CohortsWithRealtimeStates: Story = {
                         name: 'Viewed pricing this week',
                         count: 4321,
                         is_static: false,
-                        realtime: { state: 'ready', ready_at: '2023-07-03T09:40:00Z', build: null },
+                        realtime: {
+                            state: 'ready',
+                            ready_at: '2023-07-03T09:40:00Z',
+                            build: null,
+                            reason: null,
+                            history_limit_days: null,
+                        },
                     },
                     {
                         id: 2,
@@ -821,6 +827,8 @@ export const CohortsWithRealtimeStates: Story = {
                             state: 'building',
                             ready_at: null,
                             build: { phase: 'scanning', percent_complete: 45, updated_at: '2023-07-03T23:58:00Z' },
+                            reason: null,
+                            history_limit_days: null,
                         },
                     },
                     {
@@ -828,7 +836,13 @@ export const CohortsWithRealtimeStates: Story = {
                         name: 'Churn risk',
                         count: 76,
                         is_static: false,
-                        realtime: { state: 'needs_attention', ready_at: null, build: null },
+                        realtime: {
+                            state: 'needs_attention',
+                            ready_at: null,
+                            build: null,
+                            reason: null,
+                            history_limit_days: null,
+                        },
                     },
                     { id: 4, name: 'Beta testers', count: 89, is_static: true, realtime: null },
                     { id: 5, name: 'Signed up last month', count: 1200, is_static: false, realtime: null },

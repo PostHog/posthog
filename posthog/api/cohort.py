@@ -135,10 +135,13 @@ from products.cohorts.backend.models.util import (
     validate_actors_query_for_cohort,
 )
 from products.cohorts.backend.models.validation import CohortTypeValidationSerializer
+from products.cohorts.backend.parity.eligibility import behavioral_history_over_limit
+from products.cohorts.backend.parity.tzdates import day_of_instant, resolve_zoneinfo
 from products.cohorts.backend.realtime_state import (
     CohortHistoryBuildPhase,
     CohortRealtimeReadiness,
     CohortRealtimeState,
+    CohortRealtimeUnavailableReason,
     cohorts_with_realtime_state,
     resolve_realtime_readiness,
 )
@@ -257,6 +260,7 @@ def validate_filters_and_compute_realtime_support(
     team: Team,
     current_cohort_type: str | None = None,
     cohort_count: int | None = None,
+    apply_history_limit: bool = True,
 ) -> tuple[dict, str | None, list[str] | None]:
     try:
         if not filters_dict:
@@ -292,6 +296,17 @@ def validate_filters_and_compute_realtime_support(
             if _calculate_realtime_support(cast(CohortFilterGroup, validated_filters.properties))
             else None
         )
+
+        if (
+            apply_history_limit
+            and cohort_type == CohortType.REALTIME
+            and behavioral_history_over_limit(
+                clean_filters["properties"],
+                limit_days=settings.REALTIME_COHORT_MAX_HISTORY_DAYS,
+                today=day_of_instant(timezone.now(), resolve_zoneinfo(team.timezone)),
+            )
+        ):
+            cohort_type = None
 
         # Check if cohort exceeds the maximum person count for real-time evaluation
         if cohort_type == CohortType.REALTIME and cohort_count is not None:
@@ -1267,6 +1282,18 @@ class CohortRealtimeReadinessSerializer(serializers.Serializer):
         allow_null=True,
         help_text="The build preparing the cohort. Null unless the state is `building` or `rebuilding`.",
     )
+    reason = serializers.ChoiceField(
+        choices=CohortRealtimeUnavailableReason.choices,
+        allow_null=True,
+        help_text="A realtime limit that a `daily` cohort's criteria break. `history_over_limit`: they look back "
+        "further than `history_limit_days`. Other criteria can keep the cohort off realtime too. Null for every "
+        "other state, and for a `daily` cohort that breaks no limit.",
+    )
+    history_limit_days = serializers.IntegerField(
+        allow_null=True,
+        help_text="The most days realtime cohort criteria can look back. Null unless the reason is "
+        "`history_over_limit`.",
+    )
 
 
 class CohortListSerializer(serializers.ListSerializer):
@@ -2197,6 +2224,10 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                     cohort.team,
                     current_cohort_type=cohort.cohort_type,
                     cohort_count=cohort.count,
+                    # The editor sends filters on every save. An absolute start date that aged past the limit
+                    # must not take a realtime cohort off realtime on a rename, because flags that target it
+                    # would then match nobody.
+                    apply_history_limit=filters_changed or not was_realtime,
                 )
                 cohort.filters = clean_filters
                 cohort.cohort_type = computed_cohort_type

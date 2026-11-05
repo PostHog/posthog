@@ -292,8 +292,11 @@ class TestBackfillRuns(BaseTest):
         unseedable = self._unseedable_cohort(self._WINDOWLESS_LEAF)
         unclassified = self._cohort("$autocapture")
         Cohort.objects.filter(id=unclassified.id).update(condition_type=None)
+        past_the_history_limit = self._unseedable_cohort(
+            {**self._WINDOWED_LEAF, "time_value": 2, "time_interval": "year"}
+        )
 
-        for refused in (unseedable, unclassified):
+        for refused in (unseedable, unclassified, past_the_history_limit):
             with self.assertRaisesMessage(ValueError, "not eligible realtime behavioral cohorts"):
                 create_team_backfill_run(self.team.id, "team_enablement", [refused.id])
 
