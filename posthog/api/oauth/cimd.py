@@ -222,6 +222,95 @@ def is_cimd_client_id(client_id: str | None) -> bool:
     return valid
 
 
+# A CIMD client is trusted because it serves its metadata document from its client_id URL. Each
+# of these services gives anyone a public HTTPS URL with content they choose in seconds, so a
+# document served from one does not show that an accountable party controls the client.
+_TUNNEL_HOST_SUFFIXES = frozenset(
+    {
+        "trycloudflare.com",  # Cloudflare quick tunnels
+        "ngrok.io",
+        "ngrok.app",
+        "ngrok.dev",
+        "ngrok-free.app",
+        "ngrok-free.dev",
+        "loca.lt",  # localtunnel
+        "localtunnel.me",
+        "lhr.life",  # localhost.run
+        "localhost.run",
+        "pinggy.io",
+        "pinggy.link",
+        "pinggy.online",
+        "pinggy-free.link",
+        "serveo.net",
+        "serveousercontent.com",
+        "devtunnels.ms",  # Microsoft dev tunnels
+        "ts.net",  # Tailscale Funnel
+        "tunnelmole.net",
+        "loclx.io",  # LocalXpose
+        "zrok.io",
+        "sharedwithexpose.com",  # Expose
+        "localto.net",  # Localtonet
+        "tunnelto.dev",
+    }
+)
+
+_REQUEST_BIN_HOST_SUFFIXES = frozenset(
+    {
+        "webhook.site",
+        "m.pipedream.net",  # RequestBin
+        "requestcatcher.com",
+        "beeceptor.com",
+        "mocky.io",
+        "mockbin.io",
+        "mockbin.org",
+        "postb.in",
+        "hookbin.com",
+        "requestinspector.com",
+        "httpbin.org",
+        "quickmock.dev",
+    }
+)
+
+_JSON_AND_PASTE_HOST_SUFFIXES = frozenset(
+    {
+        "jsonbin.io",
+        "npoint.io",
+        "jsonblob.com",
+        "jsonkeeper.com",
+        "jsonstorage.net",
+        "extendsclass.com",
+        "gist.githubusercontent.com",
+        "raw.githubusercontent.com",
+        "pastebin.com",
+        "paste.rs",
+        "rentry.co",
+        "rentry.org",
+        "dpaste.org",
+        "dpaste.com",
+        "hastebin.com",
+        "surge.sh",
+        "tiiny.site",
+    }
+)
+
+THROWAWAY_HOST_SUFFIXES: frozenset[str] = (
+    _TUNNEL_HOST_SUFFIXES | _REQUEST_BIN_HOST_SUFFIXES | _JSON_AND_PASTE_HOST_SUFFIXES
+)
+
+THROWAWAY_HOST_MESSAGE = (
+    "PostHog doesn't accept client metadata from this host. "
+    "Host your client metadata document on a domain you control and use that URL as your client_id."
+)
+
+
+def is_throwaway_host(url: str) -> bool:
+    try:
+        host = (urlparse(url).hostname or "").rstrip(".")
+    except ValueError:
+        return False
+    return any(host == suffix or host.endswith(f".{suffix}") for suffix in THROWAWAY_HOST_SUFFIXES)
+
+
 def _cache_key(url: str) -> str:
     url_hash = hashlib.sha256(url.encode()).hexdigest()
     return f"cimd:metadata:{url_hash}"
@@ -916,6 +1005,15 @@ def fetch_and_upsert_cimd_application(
     that fails model validation a ``CIMDValidationError`` rather than a kept row, so nothing is
     granted off metadata we could not store; see ``_update_cimd_application``.
     """
+    # Refused before the fetch so that PostHog sends no request to the host.
+    if is_throwaway_host(url):
+        capture_ph_event(
+            distinct_id=url,
+            event="cimd_throwaway_host_refused",
+            properties={"cimd_url": url, "registering_partner": register_provisioning},
+        )
+        raise CIMDValidationError(THROWAWAY_HOST_MESSAGE)
+
     fetch_lock = _fetch_lock_key(url)
     if not cache.add(fetch_lock, True, timeout=CIMD_FETCH_TIMEOUT_SECONDS * 3):
         return None

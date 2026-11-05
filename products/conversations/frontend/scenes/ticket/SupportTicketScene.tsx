@@ -180,7 +180,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const simplifiedReplies = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIMPLIFIED_REPLIES]
-    const macrosEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_MACROS]
     // Widget tickets stay images only until the widget can render file links.
     const canAttachFiles =
         !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_REPLY_FILE_ATTACHMENTS] &&
@@ -355,7 +354,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         composerPrefillAt={composerPrefillAt}
                         composerInsertAt={composerInsertAt}
                         composerInsertContent={pendingComposerInsert}
-                        enableMacros={macrosEnabled}
+                        enableMacros
                         onAttachFile={
                             canAttachFiles
                                 ? (file) =>
@@ -364,14 +363,12 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                       })
                                 : undefined
                         }
-                        onInsertMacro={macrosEnabled ? (macro) => insertMacro(macro, 'slash') : undefined}
+                        onInsertMacro={(macro) => insertMacro(macro, 'slash')}
                         macroPicker={
-                            macrosEnabled ? (
-                                <MacroPicker
-                                    disabledReason={sendDisabledReason}
-                                    onInsert={(macro) => insertMacro(macro, 'button')}
-                                />
-                            ) : undefined
+                            <MacroPicker
+                                disabledReason={sendDisabledReason}
+                                onInsert={(macro) => insertMacro(macro, 'button')}
+                            />
                         }
                         aiSources={ticket?.ai_triage?.sources}
                         aiDraftApplying={aiDraftApplying}

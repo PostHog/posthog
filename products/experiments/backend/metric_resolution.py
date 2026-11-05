@@ -220,7 +220,7 @@ def metric_source_nodes(metric: ExperimentMetric) -> list[Any]:
     return [metric.start_event, metric.completion_event]
 
 
-def _metric_dict_source_nodes(metric_dict: dict[str, Any]) -> list[Any]:
+def metric_dict_source_nodes(metric_dict: dict[str, Any]) -> list[Any]:
     """A field absent on a shape is simply missing from the dict."""
     return [
         metric_dict.get("source"),
@@ -242,7 +242,7 @@ def metric_dict_reads_data_warehouse(metric_dict: dict[str, Any]) -> bool:
     sampling)."""
     return any(
         isinstance(node, dict) and node.get("kind") == "ExperimentDataWarehouseNode"
-        for node in _metric_dict_source_nodes(metric_dict)
+        for node in metric_dict_source_nodes(metric_dict)
     )
 
 
@@ -254,5 +254,5 @@ def metric_uses_warehouse_native_source(metric: ExperimentMetric) -> bool:
 def metric_dict_uses_warehouse_native_source(metric_dict: dict[str, Any]) -> bool:
     return any(
         isinstance(node, dict) and node.get("kind") == "ExperimentWarehouseNativeNode"
-        for node in _metric_dict_source_nodes(metric_dict)
+        for node in metric_dict_source_nodes(metric_dict)
     )
