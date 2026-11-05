@@ -1289,7 +1289,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // otherwise invisible outside session recordings, because no send event records a length.
             // Null content means resume/continue rather than a new message.
             const promptLength = typeof streamData.content === 'string' ? messageLength(streamData.content) : undefined
-            const contextSourceProperties = getContextSourceProperties(streamData.ui_context, values.sceneContext)
+            // Snapshot on the user's send only. A retry may run after the user navigated away, and a
+            // reconnect or resume sends no `ui_context`, yet both continue the same turn.
+            if (generationAttempt === 0 && streamData.content !== null) {
+                cache.turnContextSourceProperties = getContextSourceProperties(
+                    streamData.ui_context,
+                    values.sceneContext
+                )
+            }
+            const contextSourceProperties: ReturnType<typeof getContextSourceProperties> =
+                cache.turnContextSourceProperties ?? getContextSourceProperties(undefined, [])
 
             // Sandbox runtime: route the message to a non-streaming products/tasks Run, then hand the
             // SSE connection off to runStreamLogic. The LangGraph EventSource loop below is never
