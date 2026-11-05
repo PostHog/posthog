@@ -6,6 +6,7 @@ from typing import Any
 from posthog.dataclasses import frozen
 from posthog.models import User
 from posthog.models.integration import SlackIntegration
+from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
@@ -52,6 +53,15 @@ class OnboardingContext:
         if installer_slack_user_id(self.integration) == self.slack_user_id:
             return True
         return is_slack_workspace_admin(SlackIntegration(self.integration), self.integration, self.slack_user_id)
+
+    @cached_property
+    def has_project_access(self) -> bool:
+        """The link can name a member of another organization in the workspace, so check this project too."""
+        user = self.posthog_user
+        if user is None:
+            return False
+        permissions = UserPermissions(user=user, team=self.integration.team)
+        return permissions.current_team.effective_membership_level is not None
 
     @cached_property
     def is_org_admin(self) -> bool:

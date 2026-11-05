@@ -267,6 +267,8 @@ def update_onboarding(
     step_ts: tuple[str, str] | None = None,
     summarized_step: str | None = None,
     skip_step: str | None = None,
+    forget_step: str | None = None,
+    reset_thread: bool = False,
     completed_reason: OnboardingCompletedReason | None = None,
 ) -> None:
     """``root`` is (channel, ts) and ``step_ts`` is (step key, ts). The row lock stops a skip click and a
@@ -294,6 +296,12 @@ def update_onboarding(
             _append_key(card, "summarized", summarized_step)
         if skip_step is not None:
             _append_key(card, "skipped", skip_step)
+        if forget_step is not None:
+            card["step_ts"] = {key: ts for key, ts in (card.get("step_ts") or {}).items() if key != forget_step}
+        if reset_thread:
+            # Skips stay, so a new thread does not ask again for what the person turned down.
+            for field in ("channel", "root_ts", "root_status", "planned", "step_ts", "summarized"):
+                card.pop(field, None)
         if completed_reason is not None:
             card["completed_at"], card["completed_reason"] = now, completed_reason
         row.onboarding = card

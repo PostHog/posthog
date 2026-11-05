@@ -16,6 +16,11 @@ from products.slack_app.backend.logic.onboarding.step import (
 )
 from products.slack_app.backend.services.slack_welcome_messages import sources_blocks
 
+NO_PROJECT_ACCESS_TEXT = (
+    "You don't have access to the PostHog project connected to this Slack workspace. "
+    "Ask an admin of your PostHog organization for access."
+)
+
 
 class SourcesStep(OnboardingStep):
     key = OnboardingStepKey.SOURCES
@@ -24,8 +29,8 @@ class SourcesStep(OnboardingStep):
     action_ids = frozenset({SOURCES_ACTION_ID})
 
     def applies(self, ctx: OnboardingContext) -> bool:
-        # Turning sources on is recorded for a PostHog user, so it needs the linked account.
-        return ctx.is_workspace_admin and ctx.can_link
+        # Turning sources on is recorded for a PostHog user, so it needs a linked account with access to the project.
+        return ctx.is_workspace_admin and ctx.can_link and (ctx.posthog_user is None or ctx.has_project_access)
 
     def is_done(self, ctx: OnboardingContext) -> bool:
         return has_enabled_source(ctx.integration.team_id)
@@ -63,5 +68,7 @@ class SourcesStep(OnboardingStep):
         user = ctx.posthog_user
         if user is None:
             return StepClick(message="Link your PostHog account first.", refresh=False)
+        if not ctx.has_project_access:
+            return StepClick(message=NO_PROJECT_ACCESS_TEXT, refresh=False)
         set_sources(ctx.integration.team_id, user.id, value.get("selected") or [])
         return StepClick(refresh=False)

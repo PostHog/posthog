@@ -6,7 +6,9 @@ from unittest.mock import MagicMock, patch
 
 from django.core.exceptions import ValidationError
 
-from posthog.models import Organization, OrganizationMembership
+from slack_sdk.errors import SlackApiError
+
+from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.integration import Integration
 
 from products.slack_app.backend.logic.feature_tips.state import get_state
@@ -20,6 +22,7 @@ from products.slack_app.backend.logic.onboarding.interactivity import (
     handle_onboarding_action,
     onboarding_integration_hint,
 )
+from products.slack_app.backend.logic.onboarding.sources_step import NO_PROJECT_ACCESS_TEXT
 from products.slack_app.backend.models import UntaggedFollowupMode
 from products.slack_app.backend.services.slack_settings import (
     resolve_auto_model_choice,
@@ -391,6 +394,47 @@ def test_the_top_message_follows_a_skipped_step_set_later(
 
 
 @pytest.mark.django_db
+def test_a_deleted_top_message_starts_a_new_thread(
+    org_team_user, link_user, slack_client: MagicMock, capture: MagicMock
+) -> None:
+    _, team, user = org_team_user
+    integration = _install(team)
+    _refresh(integration)
+    slack_client.chat_update.side_effect = SlackApiError(
+        "message_not_found", {"ok": False, "error": "message_not_found"}
+    )
+    link_user(user)
+
+    with patch(f"{CARD}.request_onboarding") as plan_again:
+        _refresh(integration)
+    slack_client.chat_update.side_effect = None
+    _refresh(integration)
+
+    assert plan_again.called
+    old_root, _, new_root, next_step = _posts(slack_client)
+    assert "thread_ts" not in new_root and "0 of 2 steps done" in all_block_text(new_root["blocks"])
+    assert next_step["thread_ts"] == "100.3" and "Choose your model" in all_block_text(next_step["blocks"])
+
+
+@pytest.mark.django_db
+def test_an_org_admin_who_links_later_gets_ai_consent_at_the_end(
+    org_team_user, link_user, slack_client: MagicMock, capture: MagicMock
+) -> None:
+    org, team, user = org_team_user
+    OrganizationMembership.objects.filter(user=user, organization=org).update(level=OrganizationMembership.Level.ADMIN)
+    Organization.objects.filter(id=org.id).update(is_ai_data_processing_approved=False)
+    integration = _install(team)
+
+    _refresh(integration)
+    link_user(user)
+    _refresh(integration)
+
+    state = resolve_onboarding(SLACK_TEAM_ID, SLACK_USER_ID)
+    assert state is not None and state.planned == ("link_account", "model", "replies_in_threads", "ai_consent")
+    assert f"<@{SLACK_USER_ID}> Step 2 of 4" in all_block_text(_posts(slack_client)[-1]["blocks"])
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "action, org_admin, refreshes, message",
     [
@@ -399,6 +443,7 @@ def test_the_top_message_follows_a_skipped_step_set_later(
         ("inbox_join", True, True, None),
         ("inbox_join_fails", True, False, "I couldn't add you to #posthog-inbox."),
         ("sources", True, False, None),
+        ("sources_no_access", True, False, NO_PROJECT_ACCESS_TEXT),
         ("continue", True, True, None),
     ],
 )
@@ -411,9 +456,14 @@ def test_workspace_step_clicks(
         OrganizationMembership.objects.filter(user=user, organization=org).update(
             level=OrganizationMembership.Level.ADMIN
         )
+    if action == "sources_no_access":
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        Integration.objects.create(team=other_team, kind="slack", integration_id=SLACK_TEAM_ID, config={})
+        OrganizationMembership.objects.filter(user=user, organization=org).update(organization=other_org)
     link_user(user)
     integration = _install(team, scope=ADMIN_SCOPES)
-    if action == "sources":
+    if action.startswith("sources"):
         payload = _click(integration, "slack_onboarding:sources")
         payload["actions"] = [
             {
@@ -446,6 +496,8 @@ def test_workspace_step_clicks(
         assert "inbox_channel" in get_state(SLACK_TEAM_ID, SLACK_USER_ID).used
     if action == "sources":
         set_sources.assert_called_once_with(team.id, user.id, ["session_replay"])
+    if action == "sources_no_access":
+        set_sources.assert_not_called()
     if action == "continue":
         # Continue with no signal ticked closes the step, so the thread moves on.
         assert _skipped() == ("sources",)

@@ -1,4 +1,4 @@
-from products.slack_app.backend.logic.onboarding.actions import skip_button
+from products.slack_app.backend.logic.onboarding.actions import CONTINUE_ACTION_ID, button, skip_button
 from products.slack_app.backend.logic.onboarding.checks import has_personal_github, has_team_github
 from products.slack_app.backend.logic.onboarding.step import OnboardingContext, OnboardingStep, OnboardingStepKey
 from products.slack_app.backend.services.slack_messages import section_block
@@ -22,12 +22,14 @@ class GithubStep(OnboardingStep):
         return [
             section_block(
                 "*Connect GitHub*\nThen I can fix things, not only flag them: I open a pull request with the fix "
-                "for you to review."
+                "for you to review. Press Continue when GitHub is connected."
             ),
             {
                 "type": "actions",
                 "elements": [
                     github_connect_button(ctx.integration.team_id),
+                    # GitHub tells Slack nothing when the connection finishes, so the person moves the thread on.
+                    button(ctx, "Continue", CONTINUE_ACTION_ID, step=self.key),
                     skip_button(ctx, self.key),
                 ],
             },

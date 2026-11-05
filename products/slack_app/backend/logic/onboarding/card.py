@@ -3,10 +3,13 @@
 from dataclasses import replace
 from typing import Literal
 
+from slack_sdk.errors import SlackApiError
+
 from posthog.dataclasses import frozen
 from posthog.models.integration import SlackIntegration
 
 from products.slack_app.backend.analytics import capture_slack_event
+from products.slack_app.backend.logic.onboarding.dispatch import request_onboarding
 from products.slack_app.backend.logic.onboarding.step import OnboardingContext, OnboardingStep
 from products.slack_app.backend.logic.onboarding.steps import ONBOARDING_STEPS, STEPS_BY_KEY
 from products.slack_app.backend.services.slack_messages import context_block, section_block
@@ -161,16 +164,19 @@ def _status(checked: list[_PlannedStep]) -> str:
 
 
 def plan_onboarding(integration: WorkspaceIntegration, slack_user_id: str) -> SlackAppOnboardingPlan:
-    """Reads only, except that it stores that there is nothing to set up."""
+    """Reads only, except that it stores steps that join the thread and that there is nothing to set up."""
     slack_workspace_id = integration.integration_id
     state = resolve_onboarding(slack_workspace_id, slack_user_id)
     if state is not None and state.completed:
         return ONBOARDING_DONE_PLAN
 
     ctx = OnboardingContext(integration=integration, slack_user_id=slack_user_id)
+    skipped = state.skipped if state else ()
     if state is None or state.root_ts is None:
         # The thread promises these steps at its start.
-        steps = [step for step in ONBOARDING_STEPS if step.applies(ctx) and not step.is_done(ctx)]
+        steps = [
+            step for step in ONBOARDING_STEPS if step.key not in skipped and step.applies(ctx) and not step.is_done(ctx)
+        ]
         if not steps:
             # Storing this saves a workflow run on each later open of the DM.
             update_onboarding(slack_workspace_id, slack_user_id, completed_reason="nothing_to_set_up")
@@ -182,7 +188,17 @@ def plan_onboarding(integration: WorkspaceIntegration, slack_user_id: str) -> Sl
         root = replace(_root_message(checked, ready=False), planned=[step.key for step in steps])
         return SlackAppOnboardingPlan(edits=[], post=root, finished=False, status=_status(checked))
 
-    checked = _check_planned(ctx, state.planned, state.step_ts, state.skipped)
+    # A step can apply only after the account link, such as AI consent for an org admin. It joins at the end,
+    # so the replies already in the thread keep their numbers.
+    joining = [
+        step.key
+        for step in ONBOARDING_STEPS
+        if step.key not in state.planned and step.key not in skipped and step.applies(ctx) and not step.is_done(ctx)
+    ]
+    planned = (*state.planned, *joining)
+    if joining:
+        update_onboarding(slack_workspace_id, slack_user_id, planned=list(planned))
+    checked = _check_planned(ctx, planned, state.step_ts, skipped)
     status = _status(checked)
     edits = [
         _summary_message(item, state.step_ts[item.step.key])
@@ -224,7 +240,8 @@ def post_onboarding_message(
 
     state = resolve_onboarding(slack_workspace_id, slack_user_id)
     if state is None or state.channel is None or state.root_ts is None:
-        raise ValueError("A setup reply needs the top message of the thread")
+        # The top message was deleted earlier in this refresh. The next plan starts a new thread.
+        return
     response = client.chat_postMessage(
         channel=state.channel, thread_ts=state.root_ts, text=message.text, blocks=message.blocks
     )
@@ -238,6 +255,22 @@ def post_onboarding_message(
         )
 
 
+def _forget_deleted_message(
+    integration: WorkspaceIntegration, slack_user_id: str, message: SlackAppOnboardingMessage
+) -> None:
+    """Slack retention or an admin can delete a message. The thread then posts it again, or starts over
+    when the top message is gone, instead of failing on each refresh."""
+    slack_workspace_id = integration.integration_id
+    if message.kind == "root":
+        update_onboarding(slack_workspace_id, slack_user_id, reset_thread=True)
+    elif message.summarizes_step and message.step:
+        update_onboarding(slack_workspace_id, slack_user_id, summarized_step=message.step)
+    elif message.step:
+        update_onboarding(slack_workspace_id, slack_user_id, forget_step=message.step)
+    # The rest of this refresh was planned for the old messages, so plan again.
+    request_onboarding(integration, slack_user_id, may_start=False)
+
+
 def edit_onboarding_message(
     integration: WorkspaceIntegration, slack_user_id: str, message: SlackAppOnboardingMessage
 ) -> None:
@@ -245,9 +278,15 @@ def edit_onboarding_message(
     state = resolve_onboarding(slack_workspace_id, slack_user_id)
     if state is None or state.channel is None or message.ts is None:
         return
-    SlackIntegration(integration).client.chat_update(
-        channel=state.channel, ts=message.ts, text=message.text, blocks=message.blocks
-    )
+    try:
+        SlackIntegration(integration).client.chat_update(
+            channel=state.channel, ts=message.ts, text=message.text, blocks=message.blocks
+        )
+    except SlackApiError as error:
+        if error.response.get("error") != "message_not_found":
+            raise
+        _forget_deleted_message(integration, slack_user_id, message)
+        return
     if message.kind == "root" and message.root_status:
         update_onboarding(slack_workspace_id, slack_user_id, root_status=message.root_status)
     if message.summarizes_step and message.step:
