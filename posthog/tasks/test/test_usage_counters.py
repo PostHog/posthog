@@ -170,9 +170,15 @@ class TestUsageCounterReport(SimpleTestCase):
             "get_teams_with_cdp_billable_invocations_in_period": self.legacy[UsageCounter.CDP_INVOCATIONS],
             "get_teams_with_feature_flag_requests_count_in_period": Mock(
                 side_effect=lambda begin, end, kind: self.legacy[
-                    UsageCounter.FEATURE_FLAG_REQUESTS
-                    if kind == usage_report.FlagRequestType.DECIDE
-                    else UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS
+                    {
+                        usage_report.FlagRequestType.DECIDE: UsageCounter.FEATURE_FLAG_REQUESTS,
+                        usage_report.FlagRequestType.LOCAL_EVALUATION: (
+                            UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS
+                        ),
+                        usage_report.FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED: (
+                            UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_NOT_MODIFIED_REQUESTS
+                        ),
+                    }[kind]
                 ](begin, end)
             ),
             "get_teams_with_workflow_emails_sent_in_period": self.legacy[UsageCounter.WORKFLOW_EMAILS],
@@ -469,12 +475,20 @@ class TestUsageCounterReport(SimpleTestCase):
             UsageCounter.CDP_INVOCATIONS: ("cdp_billable_invocations", 111),
             UsageCounter.FEATURE_FLAG_REQUESTS: ("feature_flag_requests", 108),
             UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS: ("feature_flag_local_evaluation_requests", 109),
+            UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_NOT_MODIFIED_REQUESTS: (
+                "feature_flag_local_evaluation_not_modified_requests",
+                115,
+            ),
             UsageCounter.WORKFLOW_EMAILS: ("workflow_emails_sent", 112),
             UsageCounter.WORKFLOW_PUSH: ("workflow_push_sent", 113),
             UsageCounter.WORKFLOW_SMS: ("workflow_sms_sent", 114),
             UsageCounter.WORKFLOW_INVOCATIONS: ("workflow_billable_invocations", 110),
         }
-        flag_counters = {UsageCounter.FEATURE_FLAG_REQUESTS, UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS}
+        flag_counters = {
+            UsageCounter.FEATURE_FLAG_REQUESTS,
+            UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS,
+            UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_NOT_MODIFIED_REQUESTS,
+        }
         for index, counter in enumerate(counter_keys):
             self.legacy[counter].return_value = [("1" if counter in flag_counters else 1, index + 1)]
         self.exceptions.side_effect = None
@@ -494,6 +508,8 @@ class TestUsageCounterReport(SimpleTestCase):
                 )
             ),
             patch("posthoganalytics.get_feature_flag", return_value=mode if source == "flag" else "legacy"),
+            # Deferred counters read their record keys once they join plans, so check those keys here too.
+            patch("posthog.usage_counters.PLAN_DEFERRED_COUNTERS", frozenset()),
         ):
             service = UsageCounterService()
             plan = service.resolve_plan(period, complete=True, counters=tuple(counter_keys))
