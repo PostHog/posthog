@@ -13,6 +13,7 @@ import { SessionRecordingPlayer } from 'scenes/session-recordings/player/Session
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
+import { RecordingEmptyState } from '../RecordingEmptyState'
 import { SubHeader } from '../SubHeader'
 import { sessionTabLogic } from './sessionTabLogic'
 
@@ -42,10 +43,12 @@ export function SessionRecordingContent(): JSX.Element {
         getRecordingExists(sessionId) === false ? recordingDisabledReason(sessionId, recordingStatus, false) : null
 
     if (noRecordingReason) {
+        // A plain-string reason only says "no recording", which the title already says.
         return (
-            <div className="flex h-full w-full items-center justify-center p-4">
-                <p className="max-w-md text-center text-secondary">{noRecordingReason}</p>
-            </div>
+            <RecordingEmptyState
+                title="No recording for this exception"
+                description={typeof noRecordingReason === 'string' ? undefined : noRecordingReason}
+            />
         )
     }
 

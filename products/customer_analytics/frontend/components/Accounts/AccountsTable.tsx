@@ -28,25 +28,24 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { percentage } from 'lib/utils/numbers'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { urls } from 'scenes/urls'
 
+import { membersLogic } from '~/models/membersLogic'
 import { tagsModel } from '~/models/tagsModel'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
+import type {
+    AccountsTableCustomPropertyDefinition,
+    AccountsTableRelationshipDefinition,
+} from '~/queries/schema/schema-general'
 import { DataTableNode } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn, QueryContextColumnComponent } from '~/queries/types'
-
-import type {
-    AccountRelationshipDefinitionApi,
-    CustomPropertyDefinitionApi,
-} from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { ACCOUNTS_TABLE_DATA_NODE_KEY } from '../../constants'
 import { formatCustomPropertyValue } from '../../scenes/CustomerAnalyticsConfigurationScene/account/customPropertyTypes'
 import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
 import { AccountPinnedPropertiesExpansion } from './AccountPinnedPropertiesExpansion'
-import { AccountColumnDisplayConfig, LEGACY_ROLE_COLUMNS, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
+import { AccountColumnDisplayConfig, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import { AccountExpansionTab, accountsExpansionLogic } from './accountsExpansionLogic'
 import { accountsLogic, customPropertySavingKey, savingRoleKey } from './accountsLogic'
 import { AccountsTableNameCell } from './AccountsTableNameCell'
@@ -147,7 +146,7 @@ function RelationshipCell({
 }: {
     record: unknown
     column: string
-    definition: AccountRelationshipDefinitionApi
+    definition: AccountsTableRelationshipDefinition
 }): JSX.Element {
     const { isRoleSaving, relationshipOverrides } = useValues(accountsLogic)
     const { updateAccountRole } = useActions(accountsLogic)
@@ -253,7 +252,7 @@ function CustomPropertyHistoryCell({
     display,
 }: {
     raw: unknown
-    definition: CustomPropertyDefinitionApi
+    definition: AccountsTableCustomPropertyDefinition
     display: AccountColumnDisplayConfig
 }): JSX.Element {
     const { latest, baseline, chartPoints } = buildHistoryDisplay(
@@ -319,7 +318,9 @@ const CANONICAL_PROPERTY_TAB: Record<string, AccountExpansionTab> = {
     'Last Slack message at': 'conversations',
 }
 
-export function getCanonicalPropertyTab(definition: CustomPropertyDefinitionApi): AccountExpansionTab | undefined {
+export function getCanonicalPropertyTab(
+    definition: AccountsTableCustomPropertyDefinition
+): AccountExpansionTab | undefined {
     return definition.is_canonical ? CANONICAL_PROPERTY_TAB[definition.name] : undefined
 }
 
@@ -330,7 +331,7 @@ function CanonicalTimestampCell({
     tab,
 }: {
     record: unknown
-    definition: CustomPropertyDefinitionApi
+    definition: AccountsTableCustomPropertyDefinition
     value: string
     tab: AccountExpansionTab
 }): JSX.Element {
@@ -364,13 +365,16 @@ function CanonicalTimestampCell({
     )
 }
 
-export function isCustomPropertyEditable(definition: CustomPropertyDefinitionApi): boolean {
+export function isCustomPropertyEditable(definition: AccountsTableCustomPropertyDefinition): boolean {
     return !definition.is_canonical && !definition.source
 }
 
 type CustomPropertyDraft = boolean | string
 
-function customPropertyDraftValue(value: unknown, definition: CustomPropertyDefinitionApi): CustomPropertyDraft {
+function customPropertyDraftValue(
+    value: unknown,
+    definition: AccountsTableCustomPropertyDefinition
+): CustomPropertyDraft {
     if (definition.display_type === 'boolean') {
         return value === true || value === 'true' || value === '1'
     }
@@ -386,7 +390,7 @@ function customPropertyDraftValue(value: unknown, definition: CustomPropertyDefi
 
 function customPropertyValueToSave(
     draft: CustomPropertyDraft,
-    definition: CustomPropertyDefinitionApi
+    definition: AccountsTableCustomPropertyDefinition
 ): string | number | boolean {
     if (definition.display_type === 'boolean') {
         return draft === true
@@ -411,7 +415,7 @@ function isHttpUrl(value: string): boolean {
 
 export function isCustomPropertyValueValid(
     draft: CustomPropertyDraft,
-    definition: CustomPropertyDefinitionApi
+    definition: AccountsTableCustomPropertyDefinition
 ): boolean {
     if (definition.display_type === 'boolean') {
         return true
@@ -432,7 +436,7 @@ export function isCustomPropertyValueValid(
 function renderCustomPropertyValue(
     record: unknown,
     value: string,
-    definition: CustomPropertyDefinitionApi
+    definition: AccountsTableCustomPropertyDefinition
 ): JSX.Element {
     if (!value) {
         return <span className="text-muted">—</span>
@@ -468,7 +472,7 @@ function renderCustomPropertyValue(
 
 function renderCustomPropertyEditor(
     draft: CustomPropertyDraft,
-    definition: CustomPropertyDefinitionApi,
+    definition: AccountsTableCustomPropertyDefinition,
     setDraft: (draft: CustomPropertyDraft) => void,
     saveValue: (nextValue?: CustomPropertyDraft) => void,
     cancelEdit: () => void
@@ -571,7 +575,7 @@ function CustomPropertyCell({
 }: {
     record: unknown
     column: string
-    definition: CustomPropertyDefinitionApi
+    definition: AccountsTableCustomPropertyDefinition
     display?: AccountColumnDisplayConfig
     isEditable: boolean
 }): JSX.Element {
@@ -905,16 +909,6 @@ const SKELETON_COLUMNS: LemonTableColumns<{ key: number }> = [
         width: COLUMN_WIDTHS.notebook_count,
         render: () => <LemonSkeleton className="h-4 w-4" />,
     },
-    ...Object.values(LEGACY_ROLE_COLUMNS).map((label) => ({
-        title: label,
-        width: COLUMN_WIDTHS.relationship,
-        render: () => (
-            <div className="flex items-center gap-2">
-                <LemonSkeleton.Circle className="h-5 w-5" />
-                <LemonSkeleton className="h-4 w-24" />
-            </div>
-        ),
-    })),
 ]
 
 function AccountsTableSkeleton(): JSX.Element {
@@ -962,8 +956,6 @@ export function AccountsTable(): JSX.Element {
         }),
         [contextColumns, columnWidths, hasAutoSizedColumns, expandable, sortedRowsTransformer]
     )
-    // A null source means the query is still waiting on the relationship
-    // definitions — same skeleton as the initial fetch, not an empty table.
     if ((responseLoading || !accountsQuerySource) && !response) {
         return <AccountsTableSkeleton />
     }

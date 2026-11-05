@@ -4,10 +4,11 @@ import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
-from rest_framework import pagination, serializers, viewsets
+from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.permissions import is_service_auth
 
@@ -81,9 +82,13 @@ class DataModelingJobSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class DataModelingJobPagination(pagination.LimitOffsetPagination):
+class DataModelingJobPagination(BoundedLimitOffsetPagination):
     default_limit = 10
     max_limit = 100
+
+
+class UUIDInFilter(django_filters.BaseInFilter, django_filters.UUIDFilter):
+    pass
 
 
 DATA_MODELING_JOB_LIST_FIELDS = (
@@ -110,6 +115,11 @@ DATA_MODELING_JOB_LIST_FIELDS = (
 
 
 class DataModelingJobFilterSet(django_filters.FilterSet):
+    saved_query_ids = UUIDInFilter(
+        field_name="saved_query_id",
+        lookup_expr="in",
+        help_text="Comma-separated materialized view IDs.",
+    )
     after = django_filters.IsoDateTimeFilter(
         field_name="last_run_at", lookup_expr="gte", help_text="Include jobs finished at or after this time."
     )
@@ -119,7 +129,7 @@ class DataModelingJobFilterSet(django_filters.FilterSet):
 
     class Meta:
         model = DataModelingJob
-        fields = ["saved_query_id", "status", "engine"]
+        fields = ["saved_query_id", "saved_query_ids", "status", "engine"]
 
 
 @extend_schema_view(

@@ -1,3 +1,6 @@
+from collections.abc import Collection
+from typing import Any, Self
+
 from django.db import models, transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
@@ -154,8 +157,8 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
         self._initial_status = self.status
 
     @classmethod
-    def from_db(cls, db, field_names, values):
-        instance = super().from_db(db, field_names, values)
+    def from_db(cls, db: str | None, field_names: Collection[str], values: Collection[Any], **kwargs: Any) -> Self:
+        instance = super().from_db(db, field_names, values, **kwargs)
         instance._initial_enabled = instance.enabled
         instance._initial_status = instance.status
         return instance
@@ -238,6 +241,18 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
             return True
         return [c.get("properties", []) for c in self.conditions] != [c.get("properties", []) for c in stored]
 
+    def _stored_hog_bytecode_if_source_unchanged(self) -> list[Any] | None:
+        if self._state.adding:
+            return None
+        stored = (
+            Evaluation.objects.filter(pk=self.pk, team_id=self.team_id)
+            .values_list("evaluation_config", flat=True)
+            .first()
+        )
+        if not stored or stored.get("source") != self.evaluation_config["source"]:
+            return None
+        return stored.get("bytecode") or None
+
     def save(self, *args, **kwargs):
         from products.cdp.backend.filters import compile_filters_bytecode
 
@@ -272,13 +287,26 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
         except ValueError as e:
             raise ValidationError({"target_config": str(e)})
 
+        update_fields = kwargs.get("update_fields")
+
         # Compile Hog source to bytecode
-        if self.evaluation_type == EvaluationType.HOG and self.evaluation_config.get("source"):
+        writes_evaluation_config = update_fields is None or "evaluation_config" in update_fields
+        if (
+            writes_evaluation_config
+            and self.evaluation_type == EvaluationType.HOG
+            and self.evaluation_config.get("source")
+        ):
             try:
                 bytecode = compile_ai_observability_hog(self.evaluation_config["source"], "destination")
-                self.evaluation_config["bytecode"] = bytecode
             except Exception as e:
-                raise ValidationError({"evaluation_config": f"Failed to compile Hog code: {e}"})
+                # A newer compiler can reject source that an older one accepted. Keep the stored bytecode so the
+                # owner can still pause or delete the evaluation, but never let broken code start to run again.
+                activating = self.status == EvaluationStatus.ACTIVE and self._initial_status != self.status
+                stored_bytecode = None if activating else self._stored_hog_bytecode_if_source_unchanged()
+                if stored_bytecode is None:
+                    raise ValidationError({"evaluation_config": f"Failed to compile Hog code: {e}"})
+                bytecode = stored_bytecode
+            self.evaluation_config["bytecode"] = bytecode
 
         # Compile bytecode for each condition
         compiled_conditions = []
@@ -296,7 +324,6 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
 
         # The scheduler never matches a condition that has no bytecode. Reject the save when the caller
         # changes the filters. Other saves skip this check, so pause, delete and status changes work.
-        update_fields = kwargs.get("update_fields")
         writes_conditions = update_fields is None or "conditions" in update_fields
         if compile_error and writes_conditions and self._condition_filters_changed():
             raise ValidationError({"conditions": compile_error})

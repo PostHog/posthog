@@ -38,6 +38,12 @@ class EvaluationResultRow:
     score: str | None
     categories: str | None
     backfill_id: str | None
+    start_time: str | None
+
+    @property
+    def evaluation_uuid(self) -> str | None:
+        # Results can come from outside PostHog with any id, and a malformed UUID in the lookup raises.
+        return canonical_uuid(self.evaluation_id) if self.evaluation_id else None
 
 
 _PROPERTY_COLUMNS = {
@@ -54,6 +60,7 @@ _PROPERTY_COLUMNS = {
     "score": "$ai_evaluation_numeric_result",
     "categories": "$ai_evaluation_categorical_result",
     "backfill_id": "$ai_evaluation_backfill_id",
+    "start_time": "$ai_evaluation_start_time",
 }
 
 
@@ -114,15 +121,14 @@ def load_evaluation_results(team: Team, user: User | None, trace_id: str) -> tup
 
 
 def load_output_configs(
-    team: Team, user: User | None, evaluation_ids: Iterable[str]
+    team: Team, user: User | None, evaluation_uuids: Iterable[str]
 ) -> dict[str, Mapping[str, object]]:
-    """Keyed by each id as given, not by its canonical UUID form."""
-    # Results can come from outside PostHog with any id, and a malformed UUID in the lookup raises.
-    ids_by_uuid = {uuid: evaluation_id for evaluation_id in evaluation_ids if (uuid := canonical_uuid(evaluation_id))}
-    if not ids_by_uuid:
+    """Keyed by canonical UUID, like `EvaluationResultRow.evaluation_uuid`."""
+    uuids = set(evaluation_uuids)
+    if not uuids:
         return {}
     # A deleted detector's results still read as a detector's, so deleted evaluations stay in.
-    evaluations: QuerySet[Evaluation] = Evaluation.objects.filter(team_id=team.pk, id__in=ids_by_uuid)
+    evaluations: QuerySet[Evaluation] = Evaluation.objects.filter(team_id=team.pk, id__in=uuids)
     if user is not None:
         # Evaluations have their own access control, apart from the llm_analytics access that opens the trace.
         evaluations = UserAccessControl(user=user, team=team).filter_queryset_by_access_level(
@@ -130,7 +136,5 @@ def load_output_configs(
         )
     rows = evaluations.values_list("id", "output_config")
     return {
-        ids_by_uuid[str(evaluation_id)]: output_config
-        for evaluation_id, output_config in rows
-        if isinstance(output_config, Mapping)
+        str(evaluation_id): output_config for evaluation_id, output_config in rows if isinstance(output_config, Mapping)
     }

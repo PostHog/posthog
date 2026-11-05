@@ -22,3 +22,7 @@ class FlagEvaluationsMode(LabeledIntEnum):
     # the ingestion allowlist still writes to events. INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED makes
     # ingestion treat this mode as READ_FLAG_EVALUATIONS for every organization.
     FLAG_EVALUATIONS_ONLY = 2, "Flag evaluations only"
+
+
+# The activity log trigger `job_type` of a flag save that a scheduled change applies.
+SCHEDULED_CHANGE_JOB_TYPE = "scheduled_change"

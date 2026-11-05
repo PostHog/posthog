@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, waitFor } from '@testing-library/react'
 
-import { getHogChart, getHogChartTooltip, hoverAtIndex, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+import { getChart, getChartTooltip, hoverAtIndex, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -36,7 +36,7 @@ describe('<SampleDataState />', () => {
         ['funnel' as SampleDataVariant, 4],
     ])('keeps the made-up %s numbers out of a tooltip on hover', async (variant, pointCount) => {
         const { container } = render(<SampleDataState variant={variant} />)
-        const chart = getHogChart(container)
+        const chart = getChart(container)
         // Axis ticks appear once the chart commits its scales, which is also when it starts
         // answering hovers - without waiting for them the hovers below would be dropped.
         await waitFor(() => expect(chart.xTicks().length).toBeGreaterThan(0))
@@ -45,6 +45,6 @@ describe('<SampleDataState />', () => {
             hoverAtIndex(chart.element, index, pointCount)
         }
 
-        expect(getHogChartTooltip()).toBeNull()
+        expect(getChartTooltip()).toBeNull()
     })
 })

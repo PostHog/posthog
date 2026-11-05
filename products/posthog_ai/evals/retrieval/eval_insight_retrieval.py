@@ -19,7 +19,7 @@ To run:
 
 from __future__ import annotations
 
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.seeders.insight import seed_insight_noise
@@ -71,7 +71,7 @@ async def eval_insight_retrieval(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-retrieval-cli",
         offline_suite=offline_suite(
             "retrieval/eval_insight_retrieval::eval_insight_retrieval",

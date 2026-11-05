@@ -1,13 +1,21 @@
 import { ReactNode } from 'react'
 
+import { Tooltip } from '@posthog/lemon-ui'
+
 import { cn } from 'lib/utils/css-classes'
 
-import { COMBINED_SAVING_LABEL, SavingHighlight } from '../suggestionCopy'
+import type { WarehouseSuggestionApi } from '../generated/api.schemas'
+import { SavingHighlight } from '../suggestionCopy'
+import { SuggestionAssigneeSelect } from './SuggestionAssigneeSelect'
 
 const AMOUNT_CLASS = 'text-sm font-semibold tabular-nums text-success'
+export const SAVING_COLUMNS_CLASS =
+    '@min-[36rem]/suggestions:grid-cols-[minmax(0,1fr)_10rem_7.5rem] @min-[36rem]/suggestions:gap-x-3'
 
 export interface SuggestionRowProps {
     suggestionId: string
+    assignee: WarehouseSuggestionApi['assignee']
+    canAct: boolean
     icon: ReactNode
     title: ReactNode
     meta: ReactNode[]
@@ -18,6 +26,8 @@ export interface SuggestionRowProps {
 
 export function SuggestionRow({
     suggestionId,
+    assignee,
+    canAct,
     icon,
     title,
     meta,
@@ -37,9 +47,7 @@ export function SuggestionRow({
                 <div
                     className={cn(
                         'grid grid-cols-1 gap-y-2 px-3 py-2.5 @min-[36rem]/suggestions:items-center @min-[36rem]/suggestions:gap-x-3',
-                        highlight
-                            ? '@min-[36rem]/suggestions:grid-cols-[minmax(0,1fr)_10rem_minmax(15rem,auto)]'
-                            : '@min-[36rem]/suggestions:grid-cols-[minmax(0,1fr)_auto]'
+                        highlight ? SAVING_COLUMNS_CLASS : '@min-[36rem]/suggestions:grid-cols-[minmax(0,1fr)_auto]'
                     )}
                 >
                     <div className="flex min-w-0 items-start gap-2">
@@ -50,26 +58,20 @@ export function SuggestionRow({
                             <div className="flex min-w-0">{title}</div>
                             {highlight && (
                                 <div className="flex flex-wrap items-baseline gap-x-1.5 @min-[36rem]/suggestions:hidden">
-                                    <span translate="no" className={AMOUNT_CLASS}>
-                                        {highlight.amount}
-                                    </span>
-                                    {highlight.bytes && (
-                                        <>
-                                            <span aria-hidden className="text-muted">
-                                                ·
-                                            </span>
-                                            <span translate="no" className={AMOUNT_CLASS}>
-                                                {highlight.bytes.amount}
-                                            </span>
-                                        </>
-                                    )}
-                                    <span className="text-xs text-secondary">
-                                        {highlight.bytes ? COMBINED_SAVING_LABEL : highlight.label}
-                                    </span>
+                                    <HighlightAmount highlight={highlight} />
+                                    <span className="text-xs text-secondary">{highlight.narrowLabel}</span>
                                 </div>
                             )}
                             <div className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 overflow-hidden text-xs text-secondary">
-                                {meta.map((item, index) => (
+                                {[
+                                    ...meta,
+                                    <SuggestionAssigneeSelect
+                                        key="assignee"
+                                        suggestionId={suggestionId}
+                                        assignee={assignee}
+                                        canAct={canAct}
+                                    />,
+                                ].map((item, index) => (
                                     <span key={index} className="-ml-4 inline-flex items-baseline">
                                         <span aria-hidden className="w-4 shrink-0 text-center text-muted">
                                             ·
@@ -82,13 +84,10 @@ export function SuggestionRow({
                     </div>
                     {highlight && (
                         <div className="hidden min-w-0 flex-col items-end @min-[36rem]/suggestions:flex">
-                            <span translate="no" className={AMOUNT_CLASS}>
-                                {highlight.amount}
-                            </span>
-                            <span className="text-xs text-secondary">{highlight.label}</span>
-                            {highlight.bytes && (
+                            <HighlightAmount highlight={highlight} />
+                            {highlight.detail && (
                                 <span translate="no" className="text-xs tabular-nums text-secondary">
-                                    {`${highlight.bytes.amount} ${highlight.bytes.label}`}
+                                    {highlight.detail}
                                 </span>
                             )}
                         </div>
@@ -102,5 +101,31 @@ export function SuggestionRow({
                 </div>
             </div>
         </div>
+    )
+}
+
+function HighlightAmount({ highlight }: { highlight: SavingHighlight }): JSX.Element {
+    const amount = (
+        <span translate="no" className={AMOUNT_CLASS}>
+            {highlight.amount}
+        </span>
+    )
+    if (!highlight.tooltip?.length) {
+        return amount
+    }
+    return (
+        <Tooltip
+            title={
+                <div className="flex flex-col gap-0.5">
+                    {highlight.tooltip.map((line) => (
+                        <span key={line}>{line}</span>
+                    ))}
+                </div>
+            }
+        >
+            <span tabIndex={0} className="cursor-help underline decoration-dotted underline-offset-2">
+                {amount}
+            </span>
+        </Tooltip>
     )
 }

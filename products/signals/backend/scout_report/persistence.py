@@ -59,13 +59,15 @@ from products.signals.backend.artefact_schemas import (
     ReportLink,
     ReviewerState,
     SafetyJudgment,
+    SourceIssue,
     SuggestedReviewerEntry,
     SuggestedReviewers,
     SummaryChange,
     TaskRunArtefact,
     TitleChange,
 )
-from products.signals.backend.enums import ReportLinkWritePath
+from products.signals.backend.constants import FIRST_REPORT_SCOUT, first_report_idempotency_key
+from products.signals.backend.enums import ReportLinkWritePath, SignalSourceProduct
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
     MAX_SCOUT_REPORT_NOTES,
@@ -85,6 +87,7 @@ from products.signals.backend.report_tags import set_report_tags
 from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules
 from products.signals.backend.scout_harness.tags import slugify_tag
 from products.signals.backend.scout_harness.tools.emit import SCOUT_SIGNAL_WEIGHT, SOURCE_PRODUCT, SOURCE_TYPE
+from products.signals.backend.source_issues import append_source_issues
 from products.signals.backend.spend import SignalMetadataChange, submit_signal_metadata_updates
 from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT, research_implementation_context
 
@@ -124,6 +127,13 @@ class ExistingScoutReport:
 
     report_id: str
     status: SignalReport.Status
+
+
+class ReviewerClearNeedsReason(Exception):
+    """A `no_suitable_owner` edit tried to clear a non-empty reviewer list without a reason.
+
+    The edit keeps the current reviewers: an earlier pick (often the owner the skill names) must not
+    be lost to an unexplained empty result."""
 
 
 class ScoutReportAlreadyEmittedError(Exception):
@@ -185,10 +195,14 @@ def create_scout_report(
     metrics: Sequence[ReportMetric] = (),
     suggested_prompts: Sequence[str] = (),
     links: Sequence[ReportLink] = (),
+    source_issues: Sequence[SourceIssue] = (),
     tags: Sequence[str] = (),
     emit_signals: bool = True,
     run: SignalScoutRun | None = None,
     idempotency_key: str | None = None,
+    created_by_id: int | None = None,
+    proposed_reviewer_count: int | None = None,
+    reviewer_outcome: str | None = None,
 ) -> PersistedScoutReport:
     """Author a `SignalReport` directly plus its backing signal rows, in one report-owning transaction.
 
@@ -197,6 +211,10 @@ def create_scout_report(
     block commits — never inside it — so a rolled-back report never leaves orphan signals pointing at
     a `report_id` that doesn't exist. This function owns its transaction boundary; do not wrap it in an
     outer atomic block (that would defer the commit and the emits past your control).
+
+    `created_by_id` marks a report a project member filed by hand. The row is stored `user_authored`,
+    which keeps automatic start off for the report's whole life, and its backing signals carry the
+    `user_authored` source product so the inbox does not label it as a scout's.
 
     `status` is the status the report is born at. It defaults to READY (the custom-agent precedent);
     the safety/actionability judge (`judge.py`) is what chooses READY vs SUPPRESSED vs PENDING_INPUT
@@ -227,6 +245,10 @@ def create_scout_report(
     fires autostart. A link that `add_log` rejects rolls back the whole report and raises
     `InvalidScoutReportError`.
 
+    `source_issues`, when supplied, become the report's `source_issue` rows in the same transaction.
+    A report born READY then comments a link on each issue after commit, when the team opted into
+    the GitHub writeback (`source_issues.append_source_issues`).
+
     `idempotency_key`, when supplied, is stored on the report under a per-team unique index, so one
     key can only ever author one report. A call whose key a report already holds raises
     `ScoutReportAlreadyEmittedError` carrying that report, and writes nothing — the emit path turns
@@ -253,6 +275,8 @@ def create_scout_report(
     # `_assert_team_owns_run`; this guards a future direct caller that bypasses it (mirrors `emit`).
     if run is not None and run.team_id != team_id:
         raise RuntimeError(f"create_scout_report: team {team_id} does not own run {run.id} (team {run.team_id})")
+    if run is not None and run.skill_name == FIRST_REPORT_SCOUT:
+        idempotency_key = first_report_idempotency_key(team_id)
 
     document_ids = [s.document_id or str(uuid.uuid4()) for s in signals]
     total_weight = sum(s.weight for s in signals)
@@ -268,6 +292,8 @@ def create_scout_report(
                 title=title,
                 summary=summary,
                 scout_idempotency_key=idempotency_key,
+                user_authored=created_by_id is not None,
+                created_by_id=created_by_id,
                 triggering_signal_id=document_ids[0],
                 signal_count=len(signals),
                 total_weight=total_weight,
@@ -289,7 +315,7 @@ def create_scout_report(
             SignalReportArtefact.append(
                 team_id=team_id,
                 report_id=report_id,
-                content=scout_report_provenance(run),
+                content=user_report_provenance() if created_by_id is not None else scout_report_provenance(run),
                 attribution=attribution,
                 reevaluate_autostart=False,
             )
@@ -337,31 +363,37 @@ def create_scout_report(
                     )
                 except ArtefactContentValidationError as err:
                     raise InvalidScoutReportError(str(err))
-            if (suggested_reviewers is not None and suggested_reviewers.root) or assignment.enabled:
-                suggested_reviewers = suggested_reviewers or SuggestedReviewers(root=[])
+            append_source_issues(team_id=team_id, report_id=report_id, issues=source_issues, attribution=attribution)
+            reviewers_written = (
+                suggested_reviewers is not None and bool(suggested_reviewers.root)
+            ) or assignment.enabled
+            if reviewers_written:
                 artefact = SignalReportArtefact.append_status(
                     team_id=team_id,
                     report_id=report_id,
-                    content=suggested_reviewers,
+                    content=suggested_reviewers or SuggestedReviewers(root=[]),
                     attribution=attribution,
                     reviewer_proposal=ReviewerProposal(expected_state=ReviewerState(), source="scout"),
                     reevaluate_autostart=False,
                 )
                 suggested_reviewers = SuggestedReviewers.model_validate_json(artefact.content)
-                # on_commit, not inline: telemetry must not fire for a rolled-back report, and it must
-                # still fire when the post-commit signal emits below fail (they propagate).
+            # Every surfaced report counts, with or without reviewers, so the share of routed reports
+            # has the same denominator whichever assignment flags the team has. on_commit, not
+            # inline: telemetry must not fire for a rolled-back report, and it must still fire when
+            # the post-commit signal emits below fail (they propagate).
+            if reviewers_written or status in (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT):
+                stored = suggested_reviewers.root if reviewers_written and suggested_reviewers is not None else []
                 transaction.on_commit(
                     partial(
                         capture_suggested_reviewers_resolved,
                         team_id=team_id,
                         report_id=report_id,
-                        github_logins=[entry.github_login for entry in suggested_reviewers.root if entry.github_login],
-                        user_uuids=[
-                            entry.user_uuid
-                            for entry in suggested_reviewers.root
-                            if entry.user_uuid and not entry.github_login
-                        ],
-                        source="scout",
+                        github_logins=[entry.github_login for entry in stored if entry.github_login],
+                        user_uuids=[entry.user_uuid for entry in stored if entry.user_uuid and not entry.github_login],
+                        source="user_authored" if created_by_id is not None else "scout",
+                        proposed_count=proposed_reviewer_count,
+                        reviewer_outcome=reviewer_outcome,
+                        report_status=str(status),
                     )
                 )
             # In-txn and before the signal emits below: the autostart gate reads authorship from this
@@ -392,9 +424,15 @@ def create_scout_report(
         # on the evidence card + header, matching the emit_signal path. `run` is the single place the
         # skill_name is available (bound signals otherwise ship empty extra, see `_build_signals`).
         skill_name = run.skill_name if run is not None else None
+        source_product = SignalSourceProduct.USER_AUTHORED.value if created_by_id is not None else SOURCE_PRODUCT
         for signal, document_id in zip(signals, document_ids):
             _emit_bound_signal(
-                team_id=team_id, report_id=report_id, signal=signal, document_id=document_id, skill_name=skill_name
+                team_id=team_id,
+                report_id=report_id,
+                signal=signal,
+                document_id=document_id,
+                skill_name=skill_name,
+                source_product=source_product,
             )
 
     logger.info(
@@ -765,6 +803,30 @@ def append_report_links(
         extra={"team_id": team_id, "report_id": report_id, "link_count": len(links)},
     )
     return len(links)
+
+
+def append_report_source_issues(
+    *,
+    team_id: int,
+    report_id: str,
+    source_issues: Sequence[SourceIssue],
+    attribution: ArtefactAttribution,
+) -> int:
+    """Record the source issues an existing report does not hold yet, returning how many landed.
+
+    Additive like `append_report_links`: an issue the report already names is skipped, so a retried
+    edit writes nothing and comments on nothing. Only the new issues get a writeback comment.
+    """
+    _validate_report_id(report_id)
+    if not source_issues:
+        return 0
+    with transaction.atomic():
+        if not SignalReport.objects.filter(team_id=team_id, id=report_id).exists():
+            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        written = append_source_issues(
+            team_id=team_id, report_id=report_id, issues=source_issues, attribution=attribution
+        )
+    return len(written)
 
 
 def record_content_revision(*, team_id: int, report_id: str) -> int:
@@ -1243,8 +1305,15 @@ def set_scout_report_reviewers(
         return False
     with transaction.atomic():
         SignalReport.objects.select_for_update().get(team_id=team_id, id=report_id)
+        snapshot = service.read()
+        outcome_reason = (proposal.outcome_reason or "").strip() if proposal is not None else ""
+        clearing = proposal is not None and proposal.outcome == "no_suitable_owner" and not suggested_reviewers.root
+        if clearing and snapshot.reviewers and not outcome_reason:
+            raise ReviewerClearNeedsReason(
+                "Kept the current reviewers: give reviewer_outcome_reason to clear them with no_suitable_owner."
+            )
         merged = _merge_forward_reviewer_evidence(report_id=report_id, suggested_reviewers=suggested_reviewers)
-        previous = service.read().state.reviewers_id
+        previous = snapshot.state.reviewers_id
         artefact = SignalReportArtefact.append_status(
             team_id=team_id,
             report_id=report_id,
@@ -1257,10 +1326,15 @@ def set_scout_report_reviewers(
             return False
         applied = SuggestedReviewers.model_validate_json(artefact.content)
         reviewer_labels = [_reviewer_note_label(entry) for entry in applied.root]
+        note = (
+            f"Cleared suggested reviewers: {outcome_reason}"
+            if clearing and outcome_reason and not applied.root
+            else f"Set suggested reviewers: {', '.join(reviewer_labels)}"
+        )
         SignalReportArtefact.add_log(
             team_id=team_id,
             report_id=report_id,
-            content=NoteArtefact(note=f"Set suggested reviewers: {', '.join(reviewer_labels)}", author=author),
+            content=NoteArtefact(note=note, author=author),
             attribution=attribution,
         )
         transaction.on_commit(
@@ -1271,6 +1345,8 @@ def set_scout_report_reviewers(
                 github_logins=[entry.github_login for entry in applied.root if entry.github_login],
                 user_uuids=[entry.user_uuid for entry in applied.root if entry.user_uuid and not entry.github_login],
                 source="scout_edit",
+                proposed_count=len(suggested_reviewers.root),
+                reviewer_outcome=proposal.outcome if proposal is not None else "selected",
             )
         )
     return True
@@ -1314,7 +1390,9 @@ def set_scout_report_repository(
         # The whole selection is compared rather than the repository alone: a selection inferred from
         # the report's own text names the same repository with `autostart_eligible=False`, and a scout
         # naming it is the decision that lifts it, so that correction must still land.
-        if persisted_repo_selection(report_id) == selection:
+        previous = persisted_repo_selection(report_id)
+        selection.research_context = previous.research_context if previous is not None else None
+        if previous == selection:
             logger.info(
                 "signals_scout.edit_report: repository unchanged",
                 extra={"team_id": team_id, "report_id": report_id, "repository": repository},
@@ -1429,6 +1507,7 @@ def set_scout_report_inferred_repository(
     with transaction.atomic():
         if not SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).exists():
             raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        previous = persisted_repo_selection(report_id)
         SignalReportArtefact.append_status(
             team_id=team_id,
             report_id=report_id,
@@ -1436,6 +1515,7 @@ def set_scout_report_inferred_repository(
                 repository=repository,
                 reason=INFERRED_REPOSITORY_REASON,
                 autostart_eligible=False,
+                research_context=previous.research_context if previous is not None else None,
             ),
             attribution=attribution,
             reevaluate_autostart=False,
@@ -1485,6 +1565,7 @@ def _emit_bound_signal(
     signal: ScoutReportSignal,
     document_id: str,
     skill_name: str | None = None,
+    source_product: str = SOURCE_PRODUCT,
 ) -> None:
     """Write one backing signal row to `document_embeddings`, mirroring `assign_and_emit_signal_activity`
     minus the matcher. `report_id` in metadata is what binds it to the report on the read side.
@@ -1492,7 +1573,13 @@ def _emit_bound_signal(
     `skill_name`, when set, is merged into the signal's `extra` so the read side knows which scout
     authored the finding (the inbox renders it as "Scout · <name>")."""
     extra = {**signal.extra, "skill_name": skill_name} if skill_name else signal.extra
-    metadata = _signal_metadata(report_id=report_id, source_id=signal.source_id, weight=signal.weight, extra=extra)
+    metadata = _signal_metadata(
+        report_id=report_id,
+        source_id=signal.source_id,
+        weight=signal.weight,
+        extra=extra,
+        source_product=source_product,
+    )
     emit_embedding_request(
         content=signal.description,
         team_id=team_id,
@@ -1506,12 +1593,14 @@ def _emit_bound_signal(
     )
 
 
-def _signal_metadata(*, report_id: str, source_id: str, weight: float, extra: dict | None) -> dict:
+def _signal_metadata(
+    *, report_id: str, source_id: str, weight: float, extra: dict | None, source_product: str = SOURCE_PRODUCT
+) -> dict:
     """The `metadata` JSON for a backing signal row. Keys match the grouping pipeline's so the same
     `JSONExtractString(metadata, ...)` read queries resolve a scout-authored signal identically.
     `match_metadata` is intentionally omitted — these rows never went through the matcher."""
     return {
-        "source_product": SOURCE_PRODUCT,
+        "source_product": source_product,
         "source_type": SOURCE_TYPE,
         "source_id": source_id,
         "weight": weight,
@@ -1623,6 +1712,10 @@ def scout_report_provenance(run: SignalScoutRun | None) -> NoteArtefact:
         ),
         author=run.skill_name if run else "signals_scout",
     )
+
+
+def user_report_provenance() -> NoteArtefact:
+    return NoteArtefact(note="Filed directly by a project member through the report API.", author="user")
 
 
 def validate_scout_report(title: str, summary: str, signals: Sequence[ScoutReportSignal]) -> None:

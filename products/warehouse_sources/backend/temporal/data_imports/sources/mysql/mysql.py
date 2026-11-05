@@ -24,8 +24,6 @@ from collections.abc import Callable, Iterator, Sequence
 from contextlib import ExitStack, contextmanager
 from typing import Any, TypeVar
 
-from django.conf import settings
-
 import psycopg
 import pyarrow as pa
 import pymysql
@@ -98,6 +96,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.location import (
     normalize_namespace,
     resolve_source_location,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import (
+    system_ca_bundle,
+    tls_files,
+    tls_options,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
@@ -210,7 +213,17 @@ class MySQLUnavoidableFilesortError(Exception):
 # config error.
 _CANT_CONNECT_CODE = 2003
 
-_SYSTEM_SCHEMAS = ("information_schema", "mysql", "performance_schema", "sys")
+_SYSTEM_SCHEMAS = (
+    "information_schema",
+    "mysql",
+    "performance_schema",
+    "sys",
+    # Vitess's internal sidecar database (vreplication/schema-tracking metadata). It shows
+    # up in `information_schema` like any other schema, but VTGate doesn't expose it as a
+    # routable keyspace, so a sync-all-databases discovery that picks it up fails every
+    # streaming read against it with "unknown database '_vt' in vschema" (VT05003).
+    "_vt",
+)
 
 
 def _configured_schema(config: MySQLSourceConfig) -> str | None:
@@ -915,8 +928,9 @@ class _TLSRequiredConnection(_SourceConnection):
         if self.ssl and not offers_tls:
             raise pymysql.err.OperationalError(
                 CR.CR_SSL_CONNECTION_ERROR,
-                "The MySQL server did not offer a TLS connection. Turn off certificate "
-                "verification for this source, or enable TLS on the server.",
+                "The MySQL server did not offer a TLS connection. Enable TLS on the server, or turn off "
+                "certificate verification and remove the certificate authority and client certificate "
+                "for this source.",
             )
         super()._request_authentication()
 
@@ -935,8 +949,8 @@ def connection_timeouts(read_timeout: int) -> dict[str, int]:
 
 
 def _new_connection(kwargs: dict[str, Any], **extra: Any) -> pymysql.Connection:
-    """Build the connection, refusing plaintext when this source verifies the certificate."""
-    if kwargs.get("ssl_verify_cert"):
+    """Build the connection, refusing plaintext when this source verifies or presents a certificate."""
+    if kwargs.get("ssl_verify_cert") or kwargs.get("ssl_cert"):
         return _TLSRequiredConnection(**kwargs, **extra)
     return _SourceConnection(**kwargs, **extra)
 
@@ -1329,19 +1343,12 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         first rows are ready, and the keyset path sets `autocommit` so each
         page is its own transaction (see `_keyset_get_rows`).
         """
-        verify_certificate = config.verify_server_certificate
-        ssl_ca: str | None = None
-        # Verification implies TLS, so a user who asks us to check the certificate gets the
-        # encrypted connection that check needs, whatever `using_ssl` says.
-        if config.using_ssl or verify_certificate:
-            ssl_ca = "/etc/ssl/cert.pem" if settings.DEBUG else "/etc/ssl/certs/ca-certificates.crt"
+        tls = tls_options(config)
+        # Any TLS option implies TLS, so a user who sets one gets the encrypted connection it needs,
+        # whatever `using_ssl` says.
+        use_tls = config.using_ssl or tls.is_set
 
-        # The tunnel presents the database on a loopback address, so the certificate's hostname
-        # cannot match the address pymysql dials. The chain check still applies there.
-        tunnel = config.ssh_tunnel
-        verify_hostname = verify_certificate and not (tunnel is not None and tunnel.enabled)
-
-        with self._ssh_tunnel_endpoint(config, team_id) as (host, port):
+        with self._ssh_tunnel_endpoint(config, team_id) as (host, port), tls_files(tls) as files:
             kwargs: dict[str, Any] = {
                 "host": host,
                 # pymysql rejects a non-int port; config.port can arrive as a string when the
@@ -1351,11 +1358,13 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                 "user": config.user,
                 "password": config.password,
                 **connection_timeouts(read_timeout),
-                "ssl_ca": ssl_ca,
+                "ssl_ca": (files.ca_certificate or system_ca_bundle()) if use_tls else None,
+                "ssl_cert": files.client_certificate,
+                "ssl_key": files.client_key,
                 # pymysql resolves `ssl_ca` on its own to `verify_mode=CERT_NONE`, so only an
                 # explicit True verifies. None leaves that prior behavior untouched.
-                "ssl_verify_cert": True if verify_certificate else None,
-                "ssl_verify_identity": True if verify_hostname else None,
+                "ssl_verify_cert": True if tls.verify else None,
+                "ssl_verify_identity": True if tls.verify_hostname else None,
                 "conv": _MYSQL_SAFE_CONVERSIONS,
                 "autocommit": autocommit,
                 "init_command": "SET workload = 'OLAP';" if host.endswith("psdb.cloud") else None,

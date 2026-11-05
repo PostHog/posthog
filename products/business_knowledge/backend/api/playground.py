@@ -20,6 +20,7 @@ from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 
+from ..constants import MAX_OPEN_RUNS_PER_OWNER
 from ..models import PlaygroundChat
 from ..playground import (
     ask_playground_chat,
@@ -27,7 +28,7 @@ from ..playground import (
     serialize_playground_chat,
     serialize_playground_chat_list,
 )
-from ..sandbox import MAX_OPEN_RUNS_PER_OWNER, SandboxRunInProgress, SandboxRunLimitReached
+from ..sandbox import SandboxRunInProgress, SandboxRunLimitReached
 from .sandbox import SandboxConflict
 from .serializers import PlaygroundChatListSerializer, PlaygroundChatSerializer, SandboxQuestionSerializer
 from .settings import CanonicalTeamTokenPermission

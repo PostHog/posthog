@@ -12,6 +12,17 @@ class DataModelingJobStatus(models.TextChoices):
     SKIPPED = "Skipped", "Skipped"
 
 
+# Once a job reaches one of these, later activities must not overwrite its status or error.
+TERMINAL_JOB_STATUSES = frozenset(
+    {
+        DataModelingJobStatus.CANCELLED,
+        DataModelingJobStatus.COMPLETED,
+        DataModelingJobStatus.FAILED,
+        DataModelingJobStatus.SKIPPED,
+    }
+)
+
+
 class DataModelingJobEngine(models.TextChoices):
     CLICKHOUSE = "clickhouse", "ClickHouse"
     LEGACY_DUCKGRES = "duckgres", "Duckgres"

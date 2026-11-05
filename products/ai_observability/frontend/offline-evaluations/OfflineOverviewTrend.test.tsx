@@ -38,6 +38,8 @@ describe('OfflineOverviewTrend', () => {
                     experiment: { ...point.experiment, id: `${point.experiment.id}-${pageIndex}` },
                 })),
                 count: partial ? 200 : results.length,
+                next: null,
+                previous: null,
                 next_cursor: partial ? String(pageIndex + 1) : null,
             }
         })
@@ -64,7 +66,7 @@ describe('OfflineOverviewTrend', () => {
         ).toBeInTheDocument()
         expect(screen.getByText('Mean score')).toBeInTheDocument()
         if (partial) {
-            expect(screen.getByText(/30 of 200 experiment\/version results.*Partial history/)).toBeInTheDocument()
+            expect(screen.getByText(/30 of 200 history points.*Partial history/)).toBeInTheDocument()
             expect(screen.getByText('Earlier experiments and scorer versions may not be shown.')).toBeInTheDocument()
         } else {
             expect(screen.queryByText(/Partial history/)).not.toBeInTheDocument()

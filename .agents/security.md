@@ -10,8 +10,8 @@ Most security fixes do not justify that cost.
 Before you create a branch or PR, choose the route:
 
 - **The weakness exists only in an open, unmerged public PR:** fix it in that same PR before merge, including its tests. Do not open a private PR for it.
-- **Severe vulnerability that needs an embargo:** use `PostHog/posthog-private` on a `security/` branch only when team-security agrees an embargo is necessary. Severe means an attacker can exploit live code today, without special access, to do serious harm. Examples are cross-tenant data access, authentication bypass, remote code execution, or exposure of credentials or secrets. Keep the finding, reproduction, and vulnerable paths in private channels until disclosure is approved.
-- **Every other security fix:** open a normal PR in `PostHog/posthog`. This includes hardening, defense in depth, input validation, consistency fixes between code paths, access checks with low impact, issues that need privileged or same-team access, and missing rate limits.
+- **Severe vulnerability that needs an embargo:** use `PostHog/posthog-private` on a `security/` branch only when team-security agrees an embargo is necessary. Severe means an attacker can exploit PostHog Cloud remotely today, without special access, to do serious harm. Examples are cross-tenant data access, authentication bypass, remote code execution on our infrastructure, or exposure of credentials or secrets. The severity label does not necessarily decide the route: a high finding that does not meet this bar can go public. Keep the finding, reproduction, and vulnerable paths in private channels until disclosure is approved.
+- **Every other security fix:** open a normal PR in `PostHog/posthog`. This includes hardening, defense in depth, input validation, consistency fixes between code paths, access checks with low impact, issues that need privileged or same-team access, issues in local tools such as a CLI or SDK that need a non-default setup like a custom host, and missing rate limits.
 
 A public security fix is a normal fix with a neutral description.
 Describe what the change does, not how to exploit the old behavior.
@@ -199,6 +199,20 @@ through the proxy, treat raw SSRF, such as a request to an internal IP or to clo
 mitigated. A code path that bypasses the proxy, and a self-hosted deployment, do not have this
 control. A request that probes or trusts an attacker-controlled server is always in scope. The
 SSRF rule in `.agents/skills/security-audit/SKILL.md` says which control is load-bearing.
+
+## Deployment config
+
+PostHog/charts holds the deployment config for PostHog Cloud. A review of PostHog/posthog-private
+gets a read-only copy of it at `$CONTEXT_DIR/related/PostHog/charts`; a review of this public
+repository does not. When the copy is there, start with these paths:
+
+- `argocd/posthog-django/` and `apps/posthog-*-django/`: the Django web, worker, query and report
+  deployments.
+- `shared/posthog-django/`: values that every Django deployment shares.
+- `shared/cdp/`, `shared/ingestion/` and `argocd/ingestion/`: the Node CDP and ingestion services.
+- `argocd/contour-ingress/values/`: public routing.
+- `shared/smokescreen/`, `apps/smokescreen/` and `shared/infrastructure/`: the egress proxy and its
+  URL.
 
 ## Out-of-band interaction domains
 

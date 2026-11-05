@@ -15,6 +15,33 @@ CREATE TABLE posthog.cohortpeople (
   sign Int8,
   version UInt64
 ) ENGINE = Distributed('posthog_single_shard', 'posthog', 'cohortpeople', rand());
+CREATE TABLE posthog.email_status_data (
+  team_id Int64,
+  message_id UUID,
+  status LowCardinality(String),
+  version UInt64,
+  created_at DateTime64(6, 'UTC'),
+  status_at DateTime64(6, 'UTC'),
+  reason String,
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.email_status_data', '{replica}-{shard}', version) ORDER BY (team_id, message_id) PARTITION BY toYYYYMMDD(created_at) TTL toDate(created_at) + toIntervalDay(31) SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.email_status_events_data (
+  team_id Int64,
+  message_id UUID,
+  status LowCardinality(String),
+  version UInt64,
+  created_at DateTime64(6, 'UTC'),
+  status_at DateTime64(6, 'UTC'),
+  reason String,
+  recipient String,
+  function_id String,
+  sending_domain LowCardinality(String),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.email_status_events_data', '{replica}-{shard}') ORDER BY (team_id, created_at, message_id, status_at) PARTITION BY toYYYYMMDD(created_at) TTL toDate(created_at) + toIntervalDay(31) SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.events (
   uuid UUID,
   event String,
@@ -161,6 +188,27 @@ CREATE TABLE posthog.ingestion_warnings_v2_distributed (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('aux', 'posthog', 'ingestion_warnings_v2');
+CREATE TABLE posthog.kafka_email_status (
+  team_id Int64,
+  message_id UUID,
+  status LowCardinality(String),
+  version UInt64,
+  created_at DateTime64(6, 'UTC'),
+  status_at DateTime64(6, 'UTC'),
+  reason String
+) ENGINE = Kafka(warpstream_cyclotron) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_email_status', kafka_max_block_size = 100000, kafka_num_consumers = 1, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_email_status';
+CREATE TABLE posthog.kafka_email_status_events (
+  team_id Int64,
+  message_id UUID,
+  status LowCardinality(String),
+  version UInt64,
+  created_at DateTime64(6, 'UTC'),
+  status_at DateTime64(6, 'UTC'),
+  reason String,
+  recipient String,
+  function_id String,
+  sending_domain LowCardinality(String)
+) ENGINE = Kafka(warpstream_cyclotron) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_email_status_events', kafka_max_block_size = 100000, kafka_num_consumers = 1, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_email_status';
 CREATE TABLE posthog.kafka_error_tracking_fingerprint_issue_state (
   team_id Int64,
   fingerprint String,
@@ -615,6 +663,8 @@ CREATE TABLE posthog.sharded_experiment_metric_events_preaggregated (
   team_id Int64,
   job_id UUID,
   entity_id String,
+  distinct_id String,
+  person_id UUID DEFAULT toUUIDOrZero(entity_id),
   timestamp DateTime64(6, 'UTC'),
   event_uuid UUID,
   session_id String,
@@ -1318,6 +1368,34 @@ CREATE TABLE posthog.writable_query_log_archive_v3 (
   lc_estimated_rows SimpleAggregateFunction(max, Int64),
   lc_estimated_bytes SimpleAggregateFunction(max, Int64)
 ) ENGINE = Distributed('ops', 'posthog', 'query_log_archive_v3_buffer');
+CREATE MATERIALIZED VIEW posthog.email_status_events_mv TO posthog.email_status_events_data (team_id Int64, message_id UUID, status LowCardinality(String), version UInt64, created_at DateTime64(6, 'UTC'), status_at DateTime64(6, 'UTC'), reason String, recipient String, function_id String, sending_domain LowCardinality(String), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+  team_id,
+  message_id,
+  status,
+  version,
+  created_at,
+  status_at,
+  reason,
+  recipient,
+  function_id,
+  sending_domain,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_email_status_events;
+CREATE MATERIALIZED VIEW posthog.email_status_mv TO posthog.email_status_data (team_id Int64, message_id UUID, status LowCardinality(String), version UInt64, created_at DateTime64(6, 'UTC'), status_at DateTime64(6, 'UTC'), reason String, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+  team_id,
+  message_id,
+  status,
+  version,
+  created_at,
+  status_at,
+  reason,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_email_status
+WHERE status NOT IN ('opened', 'clicked');
 CREATE MATERIALIZED VIEW posthog.error_tracking_fingerprint_issue_state_mv TO posthog.writable_error_tracking_fingerprint_issue_state (team_id Int64, fingerprint String, issue_id UUID, issue_name Nullable(String), issue_description Nullable(String), issue_status String, issue_severity Nullable(String), assigned_user_id Nullable(Int64), assigned_role_id Nullable(UUID), first_seen DateTime64(3, 'UTC'), is_deleted Int8, version Int64, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
   team_id,
   fingerprint,
@@ -1656,6 +1734,33 @@ CREATE TABLE posthog.conversion_goal_attributed_preaggregated (
   computed_at DateTime64(6, 'UTC') DEFAULT now(),
   expires_at Date DEFAULT today() + toIntervalDay(7)
 ) ENGINE = Distributed('aux', 'posthog', 'sharded_conversion_goal_attributed_preaggregated', cityHash64(person_id));
+CREATE TABLE posthog.email_status (
+  team_id Int64,
+  message_id UUID,
+  status LowCardinality(String),
+  version UInt64,
+  created_at DateTime64(6, 'UTC'),
+  status_at DateTime64(6, 'UTC'),
+  reason String,
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('aux', 'posthog', 'email_status_data');
+CREATE TABLE posthog.email_status_events (
+  team_id Int64,
+  message_id UUID,
+  status LowCardinality(String),
+  version UInt64,
+  created_at DateTime64(6, 'UTC'),
+  status_at DateTime64(6, 'UTC'),
+  reason String,
+  recipient String,
+  function_id String,
+  sending_domain LowCardinality(String),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('aux', 'posthog', 'email_status_events_data');
 CREATE TABLE posthog.error_tracking_fingerprint_issue_state (
   team_id Int64,
   fingerprint String,
@@ -1677,6 +1782,8 @@ CREATE TABLE posthog.experiment_metric_events_preaggregated (
   team_id Int64,
   job_id UUID,
   entity_id String,
+  distinct_id String,
+  person_id UUID DEFAULT toUUIDOrZero(entity_id),
   timestamp DateTime64(6, 'UTC'),
   event_uuid UUID,
   session_id String,

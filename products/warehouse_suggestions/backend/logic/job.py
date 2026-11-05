@@ -10,11 +10,10 @@ from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
 
-from ..facade.contracts import SuggestionDraft
 from ..facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus
 from ..models import WarehouseSuggestion, WarehouseSuggestionTeamConfig
 from .analytics import report_candidates
-from .candidates.base import CandidateContext, CandidateResult
+from .candidates.base import CandidateContext, CandidateResult, MeasurementRequest
 from .candidates.registry import evaluate_candidates
 from .inventory import load_inventory
 from .lifecycle import FLIP_KINDS, LifecycleResult, apply_run
@@ -36,6 +35,7 @@ class TeamRunResult:
     status: TeamRunStatus
     drafts: int = 0
     lifecycle: LifecycleResult | None = None
+    measurement_requests: tuple[MeasurementRequest, ...] = ()
 
 
 def run_team(
@@ -59,12 +59,19 @@ def run_team(
             _record_run(_locked_config(team_id), reads, eligible=False, now=now)
         return TeamRunResult(team_id=team_id, status=status)
     context = build_context(team, reads, run_id=run_id, rules=rules, now=now)
-    drafts = _evaluate_and_report(context) if eligible else []
+    results = _evaluate_and_report(context) if eligible else {}
+    drafts = [draft for result in results.values() for draft in result.drafts]
     with transaction.atomic():
         config = _locked_config(team_id)
         _record_run(config, reads, eligible=eligible, now=now)
         lifecycle = apply_run(context, team, drafts, now, surface=eligible and config.paused_reason is None)
-    return TeamRunResult(team_id=team_id, status=status, drafts=len(drafts), lifecycle=lifecycle)
+    return TeamRunResult(
+        team_id=team_id,
+        status=status,
+        drafts=len(drafts),
+        lifecycle=lifecycle,
+        measurement_requests=tuple(request for result in results.values() for request in result.measurement_requests),
+    )
 
 
 def explain_team(
@@ -77,11 +84,11 @@ def explain_team(
     return context, evaluate_candidates(context)
 
 
-def _evaluate_and_report(context: CandidateContext) -> list[SuggestionDraft]:
+def _evaluate_and_report(context: CandidateContext) -> dict[WarehouseSuggestionKind, CandidateResult]:
     results = evaluate_candidates(context)
     for kind, result in results.items():
         report_candidates(kind, len(result.drafts))
-    return [draft for result in results.values() for draft in result.drafts]
+    return results
 
 
 def is_eligible(reads: TeamReads, rules: EligibilityRules) -> bool:

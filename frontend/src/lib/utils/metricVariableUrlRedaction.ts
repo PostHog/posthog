@@ -1,14 +1,18 @@
 import type { BeforeSendFn } from 'posthog-js'
 
-const MARKER = 'metricVariables'
+const MARKERS = ['metricVariables', 'bi_filter']
 // The options requests of dashboard variables carry queries and selected values, and return query results.
 const VARIABLE_OPTIONS_PATH = '/metrics/variable_options'
 const NETWORK_PLUGIN = 'rrweb/network@1'
 
-/** A URL that holds metric variables, in any parameter or encoding, keeps only its path, so the queries, options and
+function holdsFilterData(text: string): boolean {
+    return MARKERS.some((marker) => text.includes(marker))
+}
+
+/** A URL that holds metric variables or BI selections, in any parameter or encoding, keeps only its path, so the queries, options and
  * selected values of the variables stay out of analytics. Other text that holds them is dropped. */
 export function redactMetricVariableUrl(text: string): string {
-    if (!text.includes(MARKER)) {
+    if (!holdsFilterData(text)) {
         return text
     }
     if (text.startsWith('/') || /^https?:\/\/\S+$/.test(text)) {
@@ -55,8 +59,8 @@ function holdsVariableData(request: unknown): boolean {
     }
     const { name, requestBody, responseBody } = request as Record<string, unknown>
     return (
-        (typeof name === 'string' && (name.includes(VARIABLE_OPTIONS_PATH) || name.includes(MARKER))) ||
-        [requestBody, responseBody].some((body) => typeof body === 'string' && body.includes(MARKER))
+        (typeof name === 'string' && (name.includes(VARIABLE_OPTIONS_PATH) || holdsFilterData(name))) ||
+        [requestBody, responseBody].some((body) => typeof body === 'string' && holdsFilterData(body))
     )
 }
 

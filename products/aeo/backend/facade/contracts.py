@@ -114,6 +114,9 @@ class PromptCheck:
     search_queries: tuple[str, ...]
     answer_text: str | None
     prompt_version: int | None
+    # Sentiment of the sentences that name the brand. None until scored, and when the brand is not named.
+    brand_sentiment: str | None = None
+    brand_sentiment_score: float | None = None
 
 
 @frozen
@@ -121,6 +124,8 @@ class PromptEngineStats:
     engine: str
     checks: int
     cited: int
+    # Answers that name the brand, cited ones included: the same definition the citation gaps use.
+    mentioned: int
     failed: int
     first_checked_at: dt.datetime
     last_checked_at: dt.datetime
@@ -130,6 +135,11 @@ class PromptEngineStats:
         answered = self.checks - self.failed
         return self.cited / answered if answered else None
 
+    @property
+    def mention_rate(self) -> float | None:
+        answered = self.checks - self.failed
+        return self.mentioned / answered if answered else None
+
 
 @frozen
 class PromptDailyEngineStats:
@@ -137,16 +147,116 @@ class PromptDailyEngineStats:
     engine: str
     checks: int
     cited: int
+    mentioned: int
     failed: int
+
+
+@frozen
+class PromptEngineDomainShare:
+    """How many of one engine's answered checks in the window cited a domain."""
+
+    engine: str
+    domain: str
+    checks_citing: int
+    checks: int
+
+
+@frozen
+class PromptEngineSentiment:
+    """Brand sentiment of one engine's answered checks in the window. `unscored` answers name the
+    brand but have no sentiment yet."""
+
+    engine: str
+    positive: int
+    neutral: int
+    negative: int
+    unscored: int
+
+
+@frozen
+class PromptSearchWord:
+    word: str
+    count: int
 
 
 @frozen
 class PromptStats:
     total_checks: int
+    # The names an answer must contain to count as a mention, so a client can filter answers the same way.
+    brand_names: tuple[str, ...]
     engines: tuple[PromptEngineStats, ...]
     daily_from: dt.date
     daily_to: dt.date
     daily: tuple[PromptDailyEngineStats, ...]
+    consensus: tuple[PromptEngineDomainShare, ...]
+    sentiment: tuple[PromptEngineSentiment, ...]
+    top_words: tuple[PromptSearchWord, ...]
+
+
+def _rate(part: int, whole: int) -> float | None:
+    return part / whole if whole else None
+
+
+@frozen
+class PromptSetCounts:
+    """Checks across the prompt set in one window, all engines. Rates leave failed checks out."""
+
+    checks: int
+    failed: int
+    cited: int
+    mentioned: int
+    # Distinct prompts that ran at least once in the window, and how many of them were cited at least once.
+    prompts: int
+    prompts_cited: int
+
+    @property
+    def citation_rate(self) -> float | None:
+        return _rate(self.cited, self.checks - self.failed)
+
+    @property
+    def mention_rate(self) -> float | None:
+        return _rate(self.mentioned, self.checks - self.failed)
+
+
+@frozen
+class PromptSetEngineCounts(PromptSetCounts):
+    engine: str
+
+
+@frozen
+class PromptSetTopicCounts(PromptSetCounts):
+    """Checks that ran with this topic in the window, and the active prompts that have it now."""
+
+    topic: str
+    active_prompts: int
+
+
+@frozen
+class PromptSetDomain:
+    """How many answers across the set cited a domain in the window."""
+
+    domain: str
+    answers: int
+    share_of_answers: float
+    is_target: bool
+
+
+@frozen
+class PromptSetOverview:
+    """How the whole prompt set did over the last `days` days, against the `days` days before."""
+
+    days: int
+    window_from: dt.date
+    window_to: dt.date
+    # Active, unarchived prompts: the ones the next daily run takes.
+    prompts_tracked: int
+    target_domains: tuple[str, ...]
+    brand_names: tuple[str, ...]
+    current: PromptSetCounts
+    previous: PromptSetCounts
+    engines: tuple[PromptSetEngineCounts, ...]
+    topics: tuple[PromptSetTopicCounts, ...]
+    top_domains: tuple[PromptSetDomain, ...]
 
 
 @frozen

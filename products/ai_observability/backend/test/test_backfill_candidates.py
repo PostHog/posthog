@@ -245,9 +245,10 @@ class TestBackfillCandidates(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            # A judge response nobody could read may parse on a later run, so the unit is still owed a verdict.
+            # A later run can succeed for these, so the unit is still owed a verdict.
             ("unparsable_response", 4),
             ("output_limit_exceeded", 4),
+            ("rate_limit_retries_exhausted", 4),
             # These skip the same way every run, so re-offering them would never produce a verdict.
             ("context_window_exceeded", 3),
             ("trace_errored", 3),

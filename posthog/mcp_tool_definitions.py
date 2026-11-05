@@ -59,6 +59,7 @@ class McpToolDefinition:
     feature: str
     required_scopes: tuple[str, ...]
     read_only: bool
+    destructive: bool
     requires_ai_consent: bool
     # The flag gate, exactly as services/mcp/src/tools/toolDefinitions.ts reads it. The gate
     # resolves per project, so a caller that needs the served catalogue for one project
@@ -93,6 +94,7 @@ def _definition_from_json(name: str, raw: Mapping[str, Any]) -> McpToolDefinitio
         feature=raw["feature"],
         required_scopes=tuple(raw.get("required_scopes") or ()),
         read_only=bool(raw["annotations"]["readOnlyHint"]),
+        destructive=bool(raw["annotations"].get("destructiveHint", False)),
         requires_ai_consent=bool(raw.get("requires_ai_consent", False)),
         feature_flag=raw.get("feature_flag"),
         feature_flag_behavior=raw.get("feature_flag_behavior"),

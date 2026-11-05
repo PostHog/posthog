@@ -106,7 +106,7 @@ export interface ToolDefinition<N extends string = string> {
 }
 
 /** Active instance of a tool. */
-export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'description'> {
+export interface ToolRegistration extends Partial<Pick<ToolDefinition, 'name' | 'description'>> {
     /** A unique identifier for the tool */
     identifier: keyof typeof TOOL_DEFINITIONS
     /**
@@ -937,18 +937,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return 'Measure impact'
             }
             return 'Measure impact...'
-        },
-    },
-    suggest_replay_vision_tags: {
-        name: 'Suggest categories',
-        description: 'Suggest categories for a classifier, grounded in what it has seen',
-        icon: iconForType('session_replay'),
-        modes: [AgentMode.SessionReplay],
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Suggest categories'
-            }
-            return 'Suggest categories...'
         },
     },
     create_survey: {

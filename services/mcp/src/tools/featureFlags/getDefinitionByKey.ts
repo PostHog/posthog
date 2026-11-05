@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import { ToolInputValidationError } from '@/lib/errors'
 import { normalizeParamAliases } from '@/tools/cast-helpers'
+import { withConditionIds } from '@/tools/featureFlags/conditionIds'
 import { resolveFlagsByKey } from '@/tools/featureFlags/resolveFlagsByKey'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase } from '@/tools/types'
@@ -86,7 +87,7 @@ const featureFlagGetDefinitionByKey = (): ToolBase<typeof schema, Result> => ({
         // The list row is already the full flag, so it's wrapped directly instead of
         // triggering a redundant fetch-by-id round trip.
         const flagWithUrl = await withPostHogUrl(context, flag, `/feature-flags/${flag.id}`)
-        return { ...flagWithUrl, found: true }
+        return { ...withConditionIds(flagWithUrl), found: true }
     },
 })
 

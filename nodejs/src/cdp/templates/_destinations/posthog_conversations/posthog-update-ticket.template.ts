@@ -105,6 +105,7 @@ return response.body
                 { label: 'Low', value: 'low' },
                 { label: 'Medium', value: 'medium' },
                 { label: 'High', value: 'high' },
+                { label: 'Critical', value: 'critical' },
             ],
             description: 'New priority for the ticket. Leave empty to keep current.',
         },

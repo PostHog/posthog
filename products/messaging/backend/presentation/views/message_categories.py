@@ -41,18 +41,55 @@ from products.messaging.backend.facade.customerio import (
 
 
 class MessageCategorySerializer(serializers.Serializer):
-    id = serializers.UUIDField(read_only=True)
-    key = serializers.CharField(max_length=64)
-    name = serializers.CharField(max_length=128)
-    description = serializers.CharField(allow_blank=True, required=False, style={"base_template": "textarea.html"})
-    public_description = serializers.CharField(
-        allow_blank=True, required=False, style={"base_template": "textarea.html"}
+    id = serializers.UUIDField(
+        read_only=True,
+        help_text=(
+            "Category ID. Workflow message steps take it as `message_category_id`, and the opt-out of messages "
+            "step takes it as its `category_id` input."
+        ),
     )
-    category_type = serializers.ChoiceField(choices=MESSAGE_CATEGORY_TYPE_CHOICES, required=False)
-    created_at = serializers.DateTimeField(read_only=True)
-    updated_at = serializers.DateTimeField(read_only=True)
-    created_by = serializers.IntegerField(source="created_by_id", read_only=True, allow_null=True)
-    deleted = serializers.BooleanField(required=False)
+    key = serializers.CharField(
+        max_length=64,
+        help_text=(
+            "Stable identifier for the category, unique within the project, for example `newsletter`. "
+            "Opt-out lists and preference imports refer to categories by key. You can't change the key after creation."
+        ),
+    )
+    name = serializers.CharField(max_length=128, help_text="Display name of the category, shown in the PostHog app.")
+    description = serializers.CharField(
+        allow_blank=True,
+        required=False,
+        style={"base_template": "textarea.html"},
+        help_text="Internal notes about which messages belong to this category. Recipients don't see it.",
+    )
+    public_description = serializers.CharField(
+        allow_blank=True,
+        required=False,
+        style={"base_template": "textarea.html"},
+        help_text="Description that recipients see next to the category on the preferences page.",
+    )
+    category_type = serializers.ChoiceField(
+        choices=MESSAGE_CATEGORY_TYPE_CHOICES,
+        required=False,
+        help_text=(
+            "`marketing` (the default): recipients can opt out of it, and sends skip recipients who did. "
+            "`transactional`: for messages a recipient must get, such as receipts or password resets. "
+            "Sends ignore opt-outs, and the category doesn't appear on the preferences page. "
+            "Set `message_category_type` on a workflow message step to the type of its category."
+        ),
+    )
+    created_at = serializers.DateTimeField(read_only=True, help_text="When the category was created.")
+    updated_at = serializers.DateTimeField(read_only=True, help_text="When the category was last changed.")
+    created_by = serializers.IntegerField(
+        source="created_by_id",
+        read_only=True,
+        allow_null=True,
+        help_text="ID of the user who created the category. Null when the user no longer exists.",
+    )
+    deleted = serializers.BooleanField(
+        required=False,
+        help_text="Set to true to archive the category. Archived categories don't appear in lists.",
+    )
 
     def validate(self, data):
         if self.instance is None:
@@ -105,12 +142,19 @@ class MessageCategoryViewSet(
     ForbidDestroyModel,
     viewsets.ModelViewSet,
 ):
-    scope_object = "INTERNAL"
+    scope_object = "hog_flow"
+    # Categories are team-wide and belong to no single workflow. Without this, a member with access
+    # to one workflow could read and rewrite every category, because the permission falls back to
+    # "has access to any hog_flow object".
+    requires_resource_level_access = True
+    # The default read and write actions cover the category CRUD. The Customer.io actions below are
+    # in neither list, so API keys can't call them and they stay session-only: they store and
+    # remove third-party credentials.
 
     serializer_class = MessageCategorySerializer
 
     def _category(self) -> MessageCategoryRow:
-        # INTERNAL scope has no object-level access rules, so a team-scoped lookup is the whole check.
+        # Categories have no object-level access rules, so a team-scoped lookup is the whole check.
         try:
             return get_category(self.team_id, self.kwargs["pk"])
         except MessageCategoryMissing:
@@ -236,7 +280,7 @@ class MessageCategoryViewSet(
     def import_preferences_csv(self, request, **kwargs):
         """
         Import customer preferences from CSV file
-        Expected CSV columns: id, email, cio_subscription_preferences
+        Expected CSV columns: id, email, unsubscribed, cio_subscription_preferences
         """
         csv_file = request.FILES.get("csv_file")
 

@@ -75,6 +75,32 @@ async def _insert_batch(conn: psycopg.AsyncConnection[Any], **overrides: Any) ->
     return await BatchQueue.insert(conn, **params)
 
 
+async def _seed_gate_probe_population(conn: psycopg.AsyncConnection[Any]) -> None:
+    # Seed each probe's population and analyze, so the index pins are
+    # deterministic. With one row the planner rates the partial indexes that
+    # cover each probe on empty statistics, and the failed-run probe can pick
+    # sb_failed_changed_idx instead. Failed batches spread across many runs is
+    # the shape sb_run_gate_idx exists for, and executing batches spread across
+    # many groups is the shape sb_schema_busy_idx exists for. Keep the
+    # claimable set small: with many claimable runs the planner hashes every
+    # failed batch once, which is a correct plan for that shape.
+    await conn.execute(f"""
+        INSERT INTO {BATCH_TABLE} (
+            team_id, schema_id, source_id, job_id, run_uuid, batch_index,
+            s3_path, row_count, byte_size, is_final_batch, sync_type,
+            resource_name, latest_state, state_changed_at
+        )
+        SELECT 1, 'seed-schema-' || (g % 200), 'source-1', 'job-1', 'seed-run-' || (g % 500), g,
+               's3://bucket/path', 100, 1024, false, 'full_refresh', 'test_resource',
+               CASE WHEN g <= 2500 THEN 'failed' ELSE 'executing' END,
+               now() - (g || ' seconds')::interval
+        FROM generate_series(1, 3000) g
+    """)
+    for n in range(3):
+        await _insert_batch(conn, schema_id=f"schema-{n}", run_uuid=f"run-{n}")
+    await conn.execute(f"ANALYZE {BATCH_TABLE}")
+
+
 @pytest.fixture(scope="session")
 def _db_url() -> str:
     return _get_test_database_url()
@@ -774,14 +800,16 @@ class TestQueueFreshnessProbe:
 
     @pytest.mark.asyncio
     async def test_reports_only_batches_never_picked_up(self, conn):
-        assert (await self._freshness(conn)).oldest_age_seconds is None
+        empty = await self._freshness(conn)
+        assert (empty.slot_wait_age_seconds, empty.serialized_age_seconds) == (None, None)
 
         bid = await _insert_batch(conn)
-        assert (await self._freshness(conn)).oldest_age_seconds is not None
+        assert (await self._freshness(conn)).slot_wait_age_seconds is not None
 
         # Any status row means the batch was picked up — it must stop counting.
         await BatchQueue.update_status(conn, batch_id=bid, job_state="executing", attempt=1)
-        assert (await self._freshness(conn)).oldest_age_seconds is None
+        picked_up = await self._freshness(conn)
+        assert (picked_up.slot_wait_age_seconds, picked_up.serialized_age_seconds) == (None, None)
 
     @pytest.mark.asyncio
     async def test_batch_blocked_behind_failed_sibling_is_not_queue_lag(self, conn):
@@ -794,7 +822,7 @@ class TestQueueFreshnessProbe:
 
         freshness = await self._freshness(conn)
 
-        assert freshness.oldest_age_seconds is None
+        assert freshness.slot_wait_age_seconds is None
         assert freshness.blocked_batches == 1
 
     @pytest.mark.asyncio
@@ -806,8 +834,43 @@ class TestQueueFreshnessProbe:
 
         freshness = await self._freshness(conn)
 
-        assert freshness.oldest_age_seconds is not None
+        assert freshness.slot_wait_age_seconds is not None
         assert freshness.blocked_batches == 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "siblings,expected_lane",
+        [
+            ([("run-1", "executing")], "serialized"),
+            # The busy check is per group, not per run, matching the claim query's schema-busy gate.
+            ([("run-2", "executing")], "serialized"),
+            ([("run-1", "succeeded")], "slot_wait"),
+            ([("run-1", "waiting")], "slot_wait"),
+            ([("run-2", "failed")], "slot_wait"),
+            # A blocked run stays out of both ages, also when its group is busy.
+            ([("run-1", "failed"), ("run-2", "executing")], "blocked"),
+        ],
+    )
+    async def test_an_executing_batch_in_the_group_moves_the_pending_age_to_the_serialized_lane(
+        self, conn, siblings, expected_lane
+    ):
+        for run_uuid, state in siblings:
+            sibling = await _insert_batch(conn, run_uuid=run_uuid, batch_index=0)
+            await BatchQueue.update_status(conn, batch_id=sibling, job_state=state, attempt=1)
+        await _insert_batch(conn, run_uuid="run-1", batch_index=1)
+
+        freshness = await self._freshness(conn, backlog_threshold_seconds=0)
+
+        assert (
+            freshness.slot_wait_age_seconds is not None,
+            freshness.serialized_age_seconds is not None,
+            freshness.backlogged_groups,
+            freshness.blocked_batches,
+        ) == {
+            "slot_wait": (True, False, 1, 0),
+            "serialized": (False, True, 0, 0),
+            "blocked": (False, False, 0, 1),
+        }[expected_lane]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -840,10 +903,10 @@ class TestQueueFreshnessProbe:
         assert freshness.backlogged_groups == 0
 
     @pytest.mark.asyncio
-    async def test_probe_uses_the_partial_indexes_and_probes_each_run_once(self, conn):
-        # An inlined CTE copies the failed-run EXISTS into each FILTER that reads it,
-        # which ran the probe up to three times per pending batch in production.
-        await _insert_batch(conn)
+    async def test_probe_uses_the_partial_indexes_and_probes_each_run_and_group_once(self, conn):
+        # An inlined CTE copies each EXISTS into every FILTER that reads it,
+        # which ran the failed-run probe up to three times per pending batch in production.
+        await _seed_gate_probe_population(conn)
         await conn.execute("SET enable_seqscan = off")
         try:
             cur = await conn.execute("EXPLAIN (FORMAT TEXT) " + _queue_freshness_sql(), {"backlog_threshold": 900})
@@ -853,7 +916,8 @@ class TestQueueFreshnessProbe:
 
         assert "sb_claimable_idx" in plan
         assert "sb_run_gate_idx" in plan
-        assert plan.count("SubPlan") == 1
+        assert "sb_schema_busy_idx" in plan
+        assert plan.count("SubPlan") == 2
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("probe", ["freshness", "depth"])
@@ -2864,29 +2928,7 @@ class TestGetQueueDepth:
         # probes; a predicate edit that widens either falls back to scanning
         # every retained partition on every pod, every reconcile interval.
         #
-        # Seed each probe's population and analyze, so the index pins are
-        # deterministic. With one row the planner rates the partial indexes that
-        # cover each probe on empty statistics, and the failed-run probe can pick
-        # sb_failed_changed_idx instead. Failed batches spread across many runs is
-        # the shape sb_run_gate_idx exists for, and executing batches spread across
-        # many groups is the shape sb_schema_busy_idx exists for. Keep the
-        # claimable set small: with many claimable runs the planner hashes every
-        # failed batch once, which is a correct plan for that shape.
-        await conn.execute(f"""
-            INSERT INTO {BATCH_TABLE} (
-                team_id, schema_id, source_id, job_id, run_uuid, batch_index,
-                s3_path, row_count, byte_size, is_final_batch, sync_type,
-                resource_name, latest_state, state_changed_at
-            )
-            SELECT 1, 'seed-schema-' || (g % 200), 'source-1', 'job-1', 'seed-run-' || (g % 500), g,
-                   's3://bucket/path', 100, 1024, false, 'full_refresh', 'test_resource',
-                   CASE WHEN g <= 2500 THEN 'failed' ELSE 'executing' END,
-                   now() - (g || ' seconds')::interval
-            FROM generate_series(1, 3000) g
-        """)
-        for n in range(3):
-            await _insert_batch(conn, schema_id=f"schema-{n}", run_uuid=f"run-{n}")
-        await conn.execute(f"ANALYZE {BATCH_TABLE}")
+        await _seed_gate_probe_population(conn)
         await conn.execute("SET enable_seqscan = off")
         try:
             cur = await conn.execute("EXPLAIN (FORMAT TEXT) " + _queue_depth_sql(), {"top_groups": 5})

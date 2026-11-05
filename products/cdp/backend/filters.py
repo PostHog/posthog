@@ -13,7 +13,8 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action, get_actions
+from products.actions.backend.facade.contracts import Action
 from products.cohorts.backend.models.cohort import Cohort
 
 COHORT_FILTER_TYPES = frozenset({"cohort", "static-cohort", "precalculated-cohort", "dynamic-cohort"})
@@ -277,8 +278,9 @@ def _build_action_filter_expr(filter: dict, actions: dict[int, Action], team: Te
         action_id = int(filter["id"])
         action = actions.get(action_id)
         if not action:
-            action = Action.objects.get(id=action_id, team__project_id=team.project_id)
-        return action_to_expr(action)
+            return action_to_expr(get_action(action_id=action_id, project_id=team.project_id))
+        # Callers fetched these with their team joined, so reuse the team rather than read it once per action.
+        return action_to_expr(action, team=team)
     except KeyError:
         return parse_expr("1 = 2")  # No events match
 
@@ -445,12 +447,7 @@ def compile_filters_expr(filters: Optional[dict], team: Team, actions: Optional[
 
     if actions is None:
         # If not provided as an optimization we fetch all actions
-        # nosemgrep: idor-lookup-without-team (already scoped by team__project_id)
-        actions_list = (
-            Action.objects.select_related("team")
-            .filter(team__project_id=team.project_id)
-            .filter(id__in=filter_action_ids(filters))
-        )
+        actions_list = get_actions(project_id=team.project_id, action_ids=filter_action_ids(filters))
         actions = {action.id: action for action in actions_list}
 
     return hog_function_filters_to_expr(filters, team, actions)
@@ -469,6 +466,33 @@ class SelectFinder(TraversingVisitor):
         visitor = cls()
         visitor.visit(node)
         return visitor.found
+
+
+class _CohortMembershipFinder(TraversingVisitor):
+    found = False
+
+    def visit_compare_operation(self, node: ast.CompareOperation):
+        if node.op in (ast.CompareOperationOp.InCohort, ast.CompareOperationOp.NotInCohort):
+            self.found = True
+            return
+        super().visit_compare_operation(node)
+
+    @classmethod
+    def has_cohort_membership(cls, node: ast.Expr) -> bool:
+        visitor = cls()
+        visitor.visit(node)
+        return visitor.found
+
+
+def _test_account_filters_read_cohorts(filters: dict, team: Team) -> bool:
+    # A HogQL test account filter such as `person_id IN COHORT 5` is not a cohort-type filter, so it
+    # skips the inlining in _build_test_account_filters and fails later in the bytecode compiler.
+    # This runs while an error is being reported, so a failure here must not replace that error.
+    try:
+        team_exprs = _build_test_account_filters(filters, team)
+    except Exception:
+        return False
+    return any(_CohortMembershipFinder.has_cohort_membership(expr) for expr in team_exprs)
 
 
 def _internal_user_settings_url(team_id: int) -> str:
@@ -692,15 +716,20 @@ def compile_filters_bytecode(
     except Exception as e:
         error_msg = str(e)
 
-        # Cohort errors from sources other than test account filters (e.g. global
-        # property filters referencing a cohort) still hit the bytecode compiler's
-        # generic "Can't use cohorts in real-time filters" error.
-        if "Can't use cohorts in real-time filters" in error_msg:
-            settings_url = _internal_user_settings_url(team.id)
+        # Cohort errors that CohortInlineError does not catch (e.g. global property filters
+        # referencing a cohort, or a HogQL test account filter) still hit the bytecode
+        # compiler's generic "Can't use cohorts in real-time filters" error. Only link the
+        # internal user settings when the team's test account filters cause it.
+        if "Can't use cohorts in real-time filters" in error_msg and _test_account_filters_read_cohorts(filters, team):
             error_msg = (
-                f"Cohort membership can't be evaluated in real-time filters. "
-                f"Replace cohorts with equivalent inline person property filters. "
-                f"Update your filters at: {settings_url}"
+                "Your internal/test user filters use a cohort, and cohorts can't be used in real-time filters. "
+                "Replace the cohort with person property filters that match the same people. "
+                f"Update your filters at: {_internal_user_settings_url(team.id)}"
+            )
+        elif "Can't use cohorts in real-time filters" in error_msg:
+            error_msg = (
+                "Cohorts can't be used in real-time filters. "
+                "Replace the cohort with person property filters that match the same people."
             )
 
         filters["bytecode"] = None

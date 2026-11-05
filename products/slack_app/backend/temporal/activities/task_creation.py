@@ -22,6 +22,7 @@ from products.slack_app.backend.services.slack_messages import (
     post_slack_thread_reply,
     thread_permalink,
 )
+from products.slack_app.backend.services.workspace_integrations import require_workspace_integration
 from products.slack_app.backend.temporal.attachments import (
     PreparedSlackAttachments,
     SlackAttachmentBudget,
@@ -33,7 +34,12 @@ from products.slack_app.backend.temporal.attachments import (
     prepare_slack_file_artifacts,
     prepare_slack_thread_file_artifacts,
 )
-from products.slack_app.backend.temporal.helpers import block_if_team_over_quota, safe_react, safe_unreact
+from products.slack_app.backend.temporal.helpers import (
+    block_if_ai_processing_not_approved,
+    block_if_team_over_quota,
+    safe_react,
+    safe_unreact,
+)
 from products.slack_app.backend.temporal.types import (
     SLACK_APP_PROCESSING_REACTION,
     PostHogCodeSlackMentionWorkflowInputs,
@@ -597,7 +603,7 @@ def create_posthog_code_task_for_repo_activity(
     repo_research_run_id: str | None = None,
     model_override: SlackAppModelOverride | None = None,
 ) -> None:
-    from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.integration import SlackIntegration
     from posthog.models.user import User
 
     from products.signals.backend.facade import api as signals_facade
@@ -607,11 +613,7 @@ def create_posthog_code_task_for_repo_activity(
     from products.tasks.backend.facade import api as tasks_facade
     from products.tasks.backend.facade.temporal import dispatch_task_processing_workflow
 
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack",
-        integration_id=inputs.slack_team_id,
-    )
+    integration = require_workspace_integration(inputs.integration_id, inputs.slack_team_id)
     slack = SlackIntegration(integration)
 
     # A report notification invites the reader to reply in its thread, so a mention there is the
@@ -654,6 +656,16 @@ def create_posthog_code_task_for_repo_activity(
 
     # Refuse before the :eyes: reaction or the permalink fetch: a denied
     # mention should not first ack-react and then refuse a second later.
+    if block_if_ai_processing_not_approved(
+        integration=integration,
+        slack=slack,
+        channel=channel,
+        thread_ts=thread_ts,
+        slack_user_id=slack_user_id,
+        context="task_create",
+    ):
+        return
+
     if block_if_team_over_quota(
         integration=integration,
         slack=slack,
@@ -863,7 +875,7 @@ def create_posthog_code_task_for_repo_activity(
             *(m.ts for m in thread_messages),
         )
         SlackThreadTaskMapping.objects.update_or_create(
-            integration=integration,
+            integration_id=integration.id,
             channel=channel,
             thread_ts=thread_ts,
             defaults={
@@ -976,7 +988,7 @@ def forward_posthog_code_followup_activity(
     the first attempt announced. It defaults to ``None`` for histories recorded before
     the workflow classified this early, which simply leave the run on its own model.
     """
-    from posthog.models.integration import Integration, SlackIntegration
+    from posthog.models.integration import SlackIntegration
 
     from products.slack_app.backend.api import resolve_slack_user
     from products.tasks.backend.facade import api as tasks_facade
@@ -989,11 +1001,7 @@ def forward_posthog_code_followup_activity(
 
     task_run = mapping.task_run
 
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack",
-        integration_id=inputs.slack_team_id,
-    )
+    integration = require_workspace_integration(inputs.integration_id, inputs.slack_team_id)
     slack = SlackIntegration(integration)
 
     actor_user = mapping.task.created_by
@@ -1053,6 +1061,16 @@ def forward_posthog_code_followup_activity(
                 plan_name=plan.plan_name if (plan := tasks_facade.get_run_plan(task_run.state)) else None,
             )
             return True
+
+    if block_if_ai_processing_not_approved(
+        integration=integration,
+        slack=slack,
+        channel=channel,
+        thread_ts=thread_ts,
+        slack_user_id=slack_user_id,
+        context="followup",
+    ):
+        return True
 
     if block_if_team_over_quota(
         integration=integration,

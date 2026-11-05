@@ -57,6 +57,7 @@ Dashboard-wide state can make every card render even when only one tile moves.
 - Keep comparisons correct. Ignoring changed callbacks or content can preserve stale behavior.
 - Preserve tile keys and chart instances across geometry and mode changes.
 - Keep local edit-mode state changes out of dashboard data loaders when no dashboard data changed.
+- Do not dispatch a Kea action on the first movement of a gesture. Each dispatch reruns the selectors of every subscribed component on the dashboard, even when only a small overlay reads the new value.
 
 Memoization reduces repeated React work. It does not prevent browser layout or canvas drawing after dimensions change.
 For example, moving a tile usually needs a position update; resizing it can also require text layout and a chart redraw.
@@ -89,6 +90,7 @@ Check third-party drag and resize code for global style changes. Recheck upstrea
 - Use containment or content visibility where appropriate, and check overflow, overlays, focus, and active gestures.
 - Keep decorative DOM bounded. Repeated backgrounds need not create an element for every grid cell.
 - Count DOM nodes before and after mode changes. CSS containment cannot remove the cost of creating thousands of nodes.
+- Mount transient overlays, such as a move hint, outside the grid through a portal. The grid styles use `:has()` selectors, so a node inserted into the grid wrapper restyles every tile.
 
 Transforms can reduce layout work for position changes. Width and height changes can require layout through the tile's content.
 Containment does not remove React work, query work, timers, or canvas resources by itself.
@@ -155,7 +157,8 @@ A fast network response can still cause a slow interface if parsing, state propa
 A slow request does not explain a delayed local drag unless the interaction actually waits for it.
 
 SQL result tables in dashboard cards use row virtualization inside the tile's scroll area.
-Tables with more than 50 columns also use column virtualization with fixed column widths, unless pinned columns require the full column layout.
+Virtualized tables use a fixed layout. Each column width comes from its header and a sample of its cells, between 4rem and 20rem.
+Tables with more than 50 columns also use column virtualization with those widths, unless pinned columns require the full column layout.
 Image exports keep the full table layout.
 Table renderers prepare cells by row and column index, including transposed cells, so offscreen cells do not require formatting before display.
 Sorting prepares the selected column once per column configuration; comparisons reuse those cells.
@@ -179,6 +182,9 @@ If checks are paused, identify the unverified behavior and leave the change loca
 10. Stop traces and detach diagnostic sessions. Repeat timing measurements without profiling overhead.
 11. Compare the first gesture after a fresh load with a repeat gesture on the same page. Record whether tiles still mount during the gesture.
 
+A hidden or covered browser window throttles animation frames, and the timings it reports are not valid.
+Measure in a visible window or a headless browser, and check the frame rate before each run.
+
 An A/B comparison needs a stable outcome as well as a timing difference.
 Check that both variants save, cancel, move, resize, and display charts correctly.
 If a change improves only a helper benchmark while the browser frame intervals remain unchanged, report the helper result without claiming smoother interaction.
@@ -199,9 +205,9 @@ Do not convert one local result into a general performance guarantee.
 
 ## Code references
 
-- [Dashboard grid and event handlers](../../frontend/src/scenes/dashboard/DashboardItems.tsx).
+- [Dashboard grid and event handlers](./frontend/DashboardItems.tsx).
 - [Interaction state and layout commits](../../frontend/src/scenes/dashboard/useDashboardLayoutInteraction.ts).
-- [Neighbor resize](../../frontend/src/scenes/dashboard/dashboardResizeCompactor.ts) and [compaction modes](./frontend/dashboardCustomization.ts).
+- [Neighbor resize](./frontend/dashboardResizeCompactor.ts) and [compaction modes](./frontend/dashboardCustomization.ts).
 - [Insight card lifecycle](../../frontend/src/lib/components/Cards/InsightCard/InsightCard.tsx).
 - [Canvas sizing](../../packages/quill/packages/charts/src/core/hooks/useChartCanvas.ts) and [draw scheduling](../../packages/quill/packages/charts/src/core/hooks/useChartDraw.ts).
 - [Dashboard engineering skill](../../.agents/skills/managing-dashboards/SKILL.md) for access, queries, and surface contracts.
