@@ -687,7 +687,9 @@ async def _apply_reconciliation(
         except ScheduleAlreadyRunningError:
             # A concurrent reconcile of the same DAG created this tier from the same graph;
             # converge onto it. It is deliberately NOT in `created`: it isn't ours to roll back.
-            await a_update_schedule(temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes)
+            await a_update_schedule(
+                temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes, keep_paused=True
+            )
 
     try:
         for schedule_id, (tier, node_ids) in plan.to_create.items():
@@ -696,7 +698,7 @@ async def _apply_reconciliation(
             schedule = _build_tier_schedule(dag_id, team_id, team_timezone, tier, node_ids)
             try:
                 await a_update_schedule(
-                    temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes
+                    temporal, id=schedule_id, schedule=schedule, search_attributes=search_attributes, keep_paused=True
                 )
             except RPCError as error:
                 if error.status != RPCStatusCode.NOT_FOUND:
