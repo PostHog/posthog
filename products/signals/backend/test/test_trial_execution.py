@@ -3,6 +3,7 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from posthog.llm.gateway_usage import GatewayRequestCost
@@ -14,11 +15,12 @@ from products.signals.backend.facade.trial import (
     start_task_trial,
     task_trial_admission,
 )
-from products.signals.backend.free_trial import self_driving_free_trial_enabled
+from products.signals.backend.free_trial import FreeTrialPullRequestRefused, self_driving_free_trial_enabled
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSpend
 from products.signals.backend.quota import trial_quota_gate
 from products.signals.backend.spend import record_llm_spend, record_task_spend
 from products.signals.backend.task_run_artefacts import record_report_task
+from products.signals.backend.trial.funding import TrialFunding
 from products.signals.backend.trial.models import SignalTrialGrant, SignalTrialReportReservation
 from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
 from products.signals.backend.trial.reports import (
@@ -27,7 +29,10 @@ from products.signals.backend.trial.reports import (
     requires_trial_accounting,
 )
 from products.signals.backend.trial.scouts import trial_scout_limit
+from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.billing import get_task_run_token_usage, process_pending_gateway_usage
+from products.tasks.backend.facade.contracts import CreatedTaskDTO
+from products.tasks.backend.max_tools import RunTaskTool
 from products.tasks.backend.models import Task, TaskRun
 
 
@@ -390,3 +395,107 @@ class TestTrialExecution(BaseTest):
         grant.refresh_from_db()
         assert grant.settled_microusd == 0
         assert grant.incomplete_sources == 0
+
+    @parameterized.expand(
+        [
+            (status,)
+            for status in (SignalReport.Status.CANDIDATE, SignalReport.Status.IN_PROGRESS, SignalReport.Status.READY)
+        ]
+    )
+    def test_manual_tool_run_does_not_inherit_an_exhausted_report_grant(self, status: str) -> None:
+        grant = self.claim()
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=uuid4())
+        prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="accepted")
+        report.refresh_from_db()
+        report.status = status
+        report.save(update_fields=["status"])
+        task = Task.objects.create(
+            team=self.team,
+            title="Manual implementation",
+            origin_product="signal_report",
+            signal_report=report,
+            created_by=self.user,
+        )
+        record_report_task(
+            team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), relationship="implementation"
+        )
+        record_llm_spend(
+            "exhaust",
+            team_id=self.team.id,
+            signal_id=str(uuid4()),
+            stage="research",
+            token_cost_microusd=10_000_001,
+            trial_grant_id=str(grant.id),
+        )
+        tool = RunTaskTool(team=self.team, user=self.user, config={})
+        with (
+            patch("products.signals.backend.facade.trial.paid_trial_continuation_authorized", return_value=False),
+            patch(
+                "products.tasks.backend.max_tools.execute_task_processing_workflow_async", new_callable=AsyncMock
+            ) as dispatch,
+        ):
+            with self.assertRaisesMessage(TrialRefused, "cost_limit"):
+                async_to_sync(tool._arun_impl)(task_id=str(task.id))
+        dispatch.assert_not_called()
+        assert task.runs.count() == 0
+
+    @parameterized.expand([("trial",), ("paid",), ("existing",), (None,)])
+    def test_facade_continuation_keeps_admitted_funding_when_trial_rollout_is_disabled(
+        self, funding: str | None
+    ) -> None:
+        grant = self.claim()
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=uuid4())
+        if funding in {"trial", "paid"}:
+            if funding == "paid":
+                record_llm_spend(
+                    "exhaust",
+                    team_id=self.team.id,
+                    signal_id=str(uuid4()),
+                    stage="research",
+                    token_cost_microusd=10_000_001,
+                    trial_grant_id=str(grant.id),
+                )
+            with patch("products.signals.backend.trial.reports.paid_trial_continuation_authorized", return_value=True):
+                prepare_report_pass(team=self.team, report_id=str(report.id), operation_key="accepted")
+            report.refresh_from_db()
+        elif funding is not None:
+            report.self_driving_funding = TrialFunding(funding="existing", report_pass_key="accepted").as_dict()
+        report.status = SignalReport.Status.READY
+        report.save(update_fields=["status", "self_driving_funding"])
+        self.flag_mock.side_effect = lambda key, *args, **kwargs: key == "self-driving-free-trial"
+
+        def create_implementation(*, continue_admitted_pipeline: bool = False) -> CreatedTaskDTO:
+            return tasks_facade.create_and_run_task(
+                team=self.team,
+                title="Implementation",
+                description="Continue the accepted report",
+                user_id=self.user.pk,
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                signal_report_id=str(report.id),
+                internal=True,
+                start_workflow=False,
+                free_trial_enabled=True,
+                continue_admitted_pipeline=continue_admitted_pipeline,
+            )
+
+        if funding in {"trial", "paid"}:
+            created = create_implementation(continue_admitted_pipeline=True)
+            assert created.latest_run is not None
+            run = TaskRun.objects.get(id=created.latest_run.id)
+            assert run.state["self_driving_funding"]["funding"] == funding
+            receipt = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
+            assert receipt.billing_exempt is (funding == "trial")
+            assert (receipt.trial_grant_id == grant.id) is (funding == "trial")
+        else:
+            with self.assertRaises(FreeTrialPullRequestRefused):
+                create_implementation(continue_admitted_pipeline=True)
+        with self.assertRaises(FreeTrialPullRequestRefused):
+            create_implementation()
+        assert implementation_requires_trial_opt_in(self.team.id, str(report.id)) is (funding == "trial")
+
+    def test_projects_without_a_grant_do_not_depend_on_the_trial_flag(self) -> None:
+        self.flag_mock.return_value = None
+        with patch("products.signals.backend.trial.policy.cache.get", return_value=None):
+            run = self.make_run()
+        assert "self_driving_funding" not in run.state
+        assert SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id).trial_grant_id is None

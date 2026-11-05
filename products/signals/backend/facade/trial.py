@@ -12,7 +12,7 @@ from products.signals.backend.spend import refresh_task_spend
 from products.signals.backend.trial.billing import paid_trial_continuation_authorized
 from products.signals.backend.trial.funding import TrialFunding
 from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
-from products.signals.backend.trial.reports import active_report_pass, context_funding
+from products.signals.backend.trial.reports import context_funding, report_funding
 from products.tasks.backend.facade.api import get_task_run
 
 if TYPE_CHECKING:
@@ -101,10 +101,8 @@ def prepare_task_trial(
         return prepared.admission
     policy = TrialPolicy(team)
     parent = context_funding(team)
-    if parent is None and report_id is not None:
-        parent = active_report_pass(team, report_id, continue_admitted_pipeline=continue_admitted_pipeline)
-        if parent is None and continue_admitted_pipeline:
-            parent = TrialFunding(funding="existing")
+    if parent is None and report_id is not None and continue_admitted_pipeline:
+        parent = report_funding(team, report_id) or TrialFunding(funding="existing")
     if parent is not None:
         return TaskTrialAdmission(team=team, paid_authorized=parent.funding == "paid", parent=parent)
     grant = policy.admission_grant()

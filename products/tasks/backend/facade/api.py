@@ -2137,7 +2137,11 @@ def create_and_run_task(
         if not continue_admitted_pipeline:
             enforce_self_driving_pr_quota(team, report_id=signal_report_id, stage="task_create")
         enforce_self_driving_free_trial(
-            team, report_id=signal_report_id, stage="task_create", enabled=free_trial_enabled
+            team,
+            report_id=signal_report_id,
+            stage="task_create",
+            enabled=free_trial_enabled,
+            continue_admitted_pipeline=continue_admitted_pipeline,
         )
     channel = _visible_channel(channel_id, team.id, user_id) if channel_id is not None else None
     if channel is None and not origin.internal and not readable_without_channel(origin_product, profile):
@@ -2156,6 +2160,8 @@ def create_and_run_task(
         scheduled_at=scheduled_at,
         branch=branch,
         signal_report_id=signal_report_id,
+        continue_admitted_pipeline=continue_admitted_pipeline,
+
         sandbox_environment_id=sandbox_environment_id,
         **extra,
     )
@@ -3693,19 +3699,28 @@ def _refresh_self_driving_quota_for_pr(run: TaskRun, old_pr_url: str | None) -> 
 
 
 def enforce_self_driving_free_trial(
-    team: Team, *, report_id: str | None = None, stage: str = "manual_create", enabled: bool | None = None
+    team: Team,
+    *,
+    report_id: str | None = None,
+    stage: str = "manual_create",
+    enabled: bool | None = None,
+    continue_admitted_pipeline: bool = False,
 ) -> None:
-    """Keep PR-opening report work unavailable during the self-driving trial.
+    """Keep fresh PR-opening work unavailable during the legacy reports-only trial.
 
     Resolve enabled before taking database locks, since flag evaluation can use the network.
     """
+    if enabled is False:
+        return
     from products.signals.backend.facade.self_driving import (  # noqa: PLC0415 — cross-product read kept off the api import path
         FreeTrialPullRequestRefused,
         capture_signal_report_free_trial_paused,
         self_driving_free_trial_enabled,
     )
 
-    if not (self_driving_free_trial_enabled(team) if enabled is None else enabled):
+    if not self_driving_free_trial_enabled(
+        team, admitted_report_id=report_id if continue_admitted_pipeline else None, enabled=enabled
+    ):
         return
     capture_signal_report_free_trial_paused(team, report_id=report_id, stage=stage)
     raise FreeTrialPullRequestRefused()
@@ -9952,6 +9967,7 @@ def run_task(
                 report_id=report_id_for_slot_check,
                 stage="task_run",
                 enabled=free_trial_enabled,
+                continue_admitted_pipeline=pipeline_rerun,
             )
         # Ahead of the warm-run reuse below, which returns early: a task released its slot when
         # its runs all failed, so another implementation may hold it by now. Refusing here also
@@ -10449,6 +10465,7 @@ def run_task(
         origin=task.origin_product,
         report_id=task.signal_report_source_id,
         mode=mode if task.uses_self_driving_billing(mode) else "interactive",
+        continue_admitted_pipeline=pipeline_rerun,
     )
     try:
         with transaction.atomic():

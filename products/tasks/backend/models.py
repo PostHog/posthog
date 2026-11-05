@@ -1902,6 +1902,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         spend_signal_id: str | None = None,
         implementation_spend_kind: str | None = None,
         hog_flow_id: uuid.UUID | None = None,
+        continue_admitted_pipeline: bool = False,
         origin_key: str | None = None,
         extra_run_state: dict[str, Any] | None = None,
         sandbox_environment_id: str | None = None,
@@ -2089,6 +2090,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             origin=task.origin_product,
             report_id=task.signal_report_source_id,
             mode=mode if task.uses_self_driving_billing(mode) else "interactive",
+            continue_admitted_pipeline=continue_admitted_pipeline,
         )
         with transaction.atomic():
             # Preparation can call GitHub, so admission locks must wait until it completes.

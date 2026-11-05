@@ -50,15 +50,14 @@ def task_funding(team_id: int, run_id: UUID) -> TrialFunding | None:
     return TrialFunding.from_dict(run.state.get("self_driving_funding")) if run else None
 
 
-def active_report_pass(
-    team: Team, report_id: UUID | str, *, continue_admitted_pipeline: bool = False
-) -> TrialFunding | None:
+def report_funding(team: Team, report_id: UUID | str) -> TrialFunding | None:
     from products.signals.backend.models import SignalReport  # noqa: PLC0415 -- model registration cycle
 
-    reports = SignalReport.objects.filter(team_id=team.id, id=report_id)
-    if not continue_admitted_pipeline:
-        reports = reports.filter(status__in=[SignalReport.Status.CANDIDATE, SignalReport.Status.IN_PROGRESS])
-    snapshot = reports.values_list("self_driving_funding", flat=True).first()
+    snapshot = (
+        SignalReport.objects.filter(team_id=team.id, id=report_id)
+        .values_list("self_driving_funding", flat=True)
+        .first()
+    )
     return TrialFunding.from_dict(snapshot)
 
 
@@ -71,7 +70,7 @@ def context_funding(team: Team) -> TrialFunding | None:
         return direct_context[1]
     context = report_trial_context.get()
     if context and context[0] == team.id:
-        return active_report_pass(team, context[1], continue_admitted_pipeline=True) or TrialFunding(funding="existing")
+        return report_funding(team, context[1]) or TrialFunding(funding="existing")
     return None
 
 
@@ -89,7 +88,11 @@ def requires_trial_accounting(team_id: int) -> bool:
 
 
 def implementation_requires_trial_opt_in(team_id: int, report_id: str) -> bool:
-    if not TrialPolicy(Team.objects.get(id=team_id)).enabled():
+    team = Team.objects.get(id=team_id)
+    funding = report_funding(team, report_id)
+    if funding is not None and funding.funding == "trial":
+        return True
+    if not TrialPolicy(team).enabled():
         return False
     return SignalTrialReportReservation.objects.for_team(team_id).filter(
         report_id=report_id, status=SignalTrialReportReservation.Status.CONSUMED
