@@ -37,7 +37,11 @@ from posthog.event_usage import groups, report_user_action
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import ProjectSecretAPIKey, User
 from posthog.models.tag import tagify
-from posthog.permissions import is_authenticated_via_project_secret_api_key, legacy_scope_object_used
+from posthog.permissions import (
+    is_authenticated_via_project_secret_api_key,
+    legacy_scope_object_used,
+    scopes_caller_lacks,
+)
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
 from products.cdp.backend.presentation.hog_functions import build_html_wrap_design, html_wrap_design_needs_refresh
@@ -961,8 +965,8 @@ class MessageTemplatesViewSet(
 ):
     scope_object = "hog_flow"
     permission_classes = [IsAuthenticated]
-    # `design` and `make_transactional` are custom write actions; list them so programmatic callers (MCP/personal
-    # API key) get hog_flow:write checked instead of being rejected as an action with no declared scope.
+    # `design` is a custom write action; list it so programmatic callers (MCP/personal API key) get hog_flow:write
+    # checked instead of being rejected as an action with no declared scope.
     scope_object_write_actions = [
         "create",
         "update",
@@ -970,7 +974,6 @@ class MessageTemplatesViewSet(
         "patch",
         "destroy",
         "design",
-        "make_transactional",
     ]
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
     # A project secret API key can only send. Template CRUD stays session/personal API key/OAuth only.
@@ -1203,11 +1206,13 @@ class MessageTemplatesViewSet(
             "Make this template sendable over the transactional email API. This creates the workflow that sends it, "
             "with its own metrics, run history and versions. This can't be undone: the template stays transactional. "
             "Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes "
-            "nothing."
+            "nothing. Needs the `transactional_email:write` scope, the same scope as sending. A key with "
+            "`hog_flow:write` also works, but that scope reaches the rest of Workflows too. Without `hog_flow:read`, "
+            "the response leaves out `content` and `draft_content`."
         ),
         parameters=[TEMPLATE_ID_PARAMETER],
     )
-    @action(detail=True, methods=["POST"], pagination_class=None)
+    @action(detail=True, methods=["POST"], pagination_class=None, required_scopes=[TRANSACTIONAL_EMAIL_SEND_SCOPE])
     def make_transactional(self, request: Any, *args: Any, **kwargs: Any) -> Response:
         self._require_transactional_email_flag()
         template = self.get_object()
@@ -1239,7 +1244,12 @@ class MessageTemplatesViewSet(
                 )
             except Exception as e:
                 logger.warning("Failed to capture message template usage event", error=str(e))
-        return Response(self._serialize(updated))
+        data = self._serialize(updated)
+        # A send-scoped key can't read templates, so converting one must not hand it their content.
+        if scopes_caller_lacks(request, ["hog_flow:read"]):
+            data.pop("content", None)
+            data.pop("draft_content", None)
+        return Response(data)
 
 
 class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
