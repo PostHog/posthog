@@ -5357,14 +5357,15 @@
       any(instrumentation_scope) AS instrumentation_scope,
       anyLast(histogram_bounds) AS histogram_bounds,
       any(_topic) AS _topic,
-      groupArray(10000)(timestamp) AS timestamp_arr,
-      groupArray(10000)(value) AS value_arr,
-      groupArray(10000)(count) AS count_arr,
-      groupArray(10000)(histogram_counts) AS histogram_counts_arr,
-      groupArray(10000)(trace_id) AS trace_id_arr,
-      groupArray(10000)(span_id) AS span_id_arr,
-      groupArray(10000)(trace_flags) AS trace_flags_arr
-  FROM posthog_test.metrics4_input
+      groupArray(10000)(input.timestamp) AS timestamp_arr,
+      groupArray(10000)(input.value) AS value_arr,
+      groupArray(10000)(input.count) AS count_arr,
+      groupArray(10000)(input.histogram_counts) AS histogram_counts_arr,
+      groupArray(10000)(input.trace_id) AS trace_id_arr,
+      groupArray(10000)(input.span_id) AS span_id_arr,
+      groupArray(10000)(input.trace_flags) AS trace_flags_arr,
+      groupArray(10000)(input.histogram_bounds) AS histogram_bounds_arr
+  FROM posthog_test.metrics4_input AS input
   GROUP BY
       team_id,
       metric_name,
@@ -5472,6 +5473,7 @@
       `trace_id_arr` SimpleAggregateFunction(groupArrayArray(10000), Array(String)),
       `span_id_arr` SimpleAggregateFunction(groupArrayArray(10000), Array(String)),
       `trace_flags_arr` SimpleAggregateFunction(groupArrayArray(10000), Array(Int32)),
+      `histogram_bounds_arr` SimpleAggregateFunction(groupArrayArray(10000), Array(Array(Float64))),
       `timestamp_min` DateTime64(6) ALIAS arrayMin(timestamp_arr),
       `timestamp_max` DateTime64(6) ALIAS arrayMax(timestamp_arr),
       INDEX idx_metric_type_set metric_type TYPE set(10) GRANULARITY 1,
@@ -11253,7 +11255,8 @@
       `histogram_counts_arr` SimpleAggregateFunction(groupArrayArray(10000), Array(Array(UInt64))),
       `trace_id_arr` SimpleAggregateFunction(groupArrayArray(10000), Array(String)),
       `span_id_arr` SimpleAggregateFunction(groupArrayArray(10000), Array(String)),
-      `trace_flags_arr` SimpleAggregateFunction(groupArrayArray(10000), Array(Int32))
+      `trace_flags_arr` SimpleAggregateFunction(groupArrayArray(10000), Array(Int32)),
+      `histogram_bounds_arr` SimpleAggregateFunction(groupArrayArray(10000), Array(Array(Float64)))
   )
   ENGINE = Distributed('posthog_single_shard', 'posthog_test', 'metrics4_samples')
   
@@ -13344,6 +13347,7 @@
       `trace_id_arr` SimpleAggregateFunction(groupArrayArray(10000), Array(String)),
       `span_id_arr` SimpleAggregateFunction(groupArrayArray(10000), Array(String)),
       `trace_flags_arr` SimpleAggregateFunction(groupArrayArray(10000), Array(Int32)),
+      `histogram_bounds_arr` SimpleAggregateFunction(groupArrayArray(10000), Array(Array(Float64))),
       `timestamp_min` DateTime64(6) ALIAS arrayMin(timestamp_arr),
       `timestamp_max` DateTime64(6) ALIAS arrayMax(timestamp_arr),
       INDEX idx_metric_type_set metric_type TYPE set(10) GRANULARITY 1,

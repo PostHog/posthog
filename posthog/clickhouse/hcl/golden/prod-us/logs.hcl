@@ -2100,6 +2100,9 @@ SQL
     column "trace_flags_arr" {
       type = "SimpleAggregateFunction(groupArrayArray(10000), Array(Int32))"
     }
+    column "histogram_bounds_arr" {
+      type = "SimpleAggregateFunction(groupArrayArray(10000), Array(Array(Float64)))"
+    }
     column "timestamp_min" {
       type  = "DateTime64(6)"
       alias = "arrayMin(timestamp_arr)"

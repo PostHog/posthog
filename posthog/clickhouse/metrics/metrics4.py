@@ -64,6 +64,10 @@ METRICS4_POINT_ARRAY_COLUMNS: tuple[tuple[str, str], ...] = (
     ("trace_id", "String"),
     ("span_id", "String"),
     ("trace_flags", "Int32"),
+    # Each point keeps its own bounds, because the series-hour histogram_bounds column keeps only one layout.
+    # Rows written before migration 0372 store an empty array. Compare its length with timestamp_arr before
+    # an ARRAY JOIN, and use histogram_bounds when the lengths differ.
+    ("histogram_bounds", "Array(Float64)"),
 )
 
 # ClickHouse applies each codec to the continuous stream of array elements.
@@ -364,8 +368,9 @@ SETTINGS
 
 def METRICS4_INPUT_TO_METRICS4_SAMPLES_MV() -> str:
     db = _db()
+    # The input. prefix reads the point column, not the series-hour aggregate of the same name.
     group_arrays = ",\n".join(
-        f"    groupArray({METRICS4_MAX_SAMPLES_PER_SERIES_HOUR})({name}) AS {name}_arr"
+        f"    groupArray({METRICS4_MAX_SAMPLES_PER_SERIES_HOUR})(input.{name}) AS {name}_arr"
         for name, _ in METRICS4_POINT_ARRAY_COLUMNS
         if name not in METRICS4_UNWRITTEN_POINT_ARRAY_COLUMNS
     )
@@ -388,7 +393,7 @@ AS SELECT
     anyLast(histogram_bounds) AS histogram_bounds,
     any(_topic) AS _topic,
 {group_arrays}
-FROM {db}.{METRICS4_INPUT_TABLE_NAME}
+FROM {db}.{METRICS4_INPUT_TABLE_NAME} AS input
 GROUP BY
     team_id,
     metric_name,

@@ -14,14 +14,15 @@ SELECT
   any(instrumentation_scope) AS instrumentation_scope,
   anyLast(histogram_bounds) AS histogram_bounds,
   any(_topic) AS _topic,
-  groupArray(10000)(timestamp) AS timestamp_arr,
-  groupArray(10000)(value) AS value_arr,
-  groupArray(10000)(count) AS count_arr,
-  groupArray(10000)(histogram_counts) AS histogram_counts_arr,
-  groupArray(10000)(trace_id) AS trace_id_arr,
-  groupArray(10000)(span_id) AS span_id_arr,
-  groupArray(10000)(trace_flags) AS trace_flags_arr
-FROM posthog.metrics4_input
+  groupArray(10000)(input.timestamp) AS timestamp_arr,
+  groupArray(10000)(input.value) AS value_arr,
+  groupArray(10000)(input.count) AS count_arr,
+  groupArray(10000)(input.histogram_counts) AS histogram_counts_arr,
+  groupArray(10000)(input.trace_id) AS trace_id_arr,
+  groupArray(10000)(input.span_id) AS span_id_arr,
+  groupArray(10000)(input.trace_flags) AS trace_flags_arr,
+  groupArray(10000)(input.histogram_bounds) AS histogram_bounds_arr
+FROM posthog.metrics4_input AS input
 GROUP BY
   team_id,
   metric_name,

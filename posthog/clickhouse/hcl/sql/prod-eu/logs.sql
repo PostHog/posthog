@@ -531,6 +531,7 @@ CREATE TABLE posthog.metrics4_samples (
   trace_id_arr SimpleAggregateFunction(groupArrayArray(10000), Array(String)),
   span_id_arr SimpleAggregateFunction(groupArrayArray(10000), Array(String)),
   trace_flags_arr SimpleAggregateFunction(groupArrayArray(10000), Array(Int32)),
+  histogram_bounds_arr SimpleAggregateFunction(groupArrayArray(10000), Array(Array(Float64))),
   timestamp_min DateTime64(6) ALIAS arrayMin(timestamp_arr),
   timestamp_max DateTime64(6) ALIAS arrayMax(timestamp_arr),
   INDEX idx_metric_type_set metric_type TYPE set(10) GRANULARITY 1,

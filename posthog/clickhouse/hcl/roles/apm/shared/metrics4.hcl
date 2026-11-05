@@ -99,6 +99,7 @@ database "posthog" {
     column "trace_id_arr" { type = "SimpleAggregateFunction(groupArrayArray(10000), Array(String))" }
     column "span_id_arr" { type = "SimpleAggregateFunction(groupArrayArray(10000), Array(String))" }
     column "trace_flags_arr" { type = "SimpleAggregateFunction(groupArrayArray(10000), Array(Int32))" }
+    column "histogram_bounds_arr" { type = "SimpleAggregateFunction(groupArrayArray(10000), Array(Array(Float64)))" }
     engine "distributed" {
       cluster_name    = "logs"
       remote_database = "posthog"
@@ -256,6 +257,7 @@ database "posthog" {
     column "trace_id_arr" { type = "Array(String)" }
     column "span_id_arr" { type = "Array(String)" }
     column "trace_flags_arr" { type = "Array(Int32)" }
+    column "histogram_bounds_arr" { type = "Array(Array(Float64))" }
   }
 
   materialized_view "metrics4_input_to_metrics4_series" {
