@@ -8487,6 +8487,8 @@ export namespace Schemas {
       errors: HogQLNotice[];
       /** One entry per property filter, in query order. */
       index_usage?: PredicateIndexUsage[] | null;
+      /** The validator raised an internal error, such as a database failure, so the errors do not prove that the query is invalid. */
+      internalError?: boolean | null;
       isUsingIndices?: QueryIndexUsage | null;
       isValid?: boolean | null;
       notices: HogQLNotice[];
@@ -42494,6 +42496,13 @@ export namespace Schemas {
       workflow_ids: string[];
     }
 
+    export interface EventsDeleted {
+      /** The period in months that was counted for. */
+      readonly retention_months: number;
+      /** How many queryable events the next monthly cleanup deletes with this period. The count can be up to a day old. */
+      readonly events_deleted: number;
+    }
+
     export interface EventsRetention {
       /**
          * The period, in months, that every project without its own period uses. Null while those projects use the default period.
@@ -57313,6 +57322,8 @@ export namespace Schemas {
       debug?: boolean | null;
       /** Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder */
       filters?: HogQLFilters | null;
+      /** Validate on the Python validator with freshly fetched sources, the same sources query execution uses. Adds a sources fetch on every request, so only set it where the result blocks an action. */
+      freshSources?: boolean | null;
       /** Extra globals for the query */
       globals?: HogQLMetadataGlobals;
       /** Infer output column names and types without executing the query. Adds a type-resolution pass, so callers must opt in. */
@@ -95429,6 +95440,8 @@ export namespace Schemas {
       errors: HogQLNotice[];
       /** One entry per property filter, in query order. */
       index_usage?: PredicateIndexUsage[] | null;
+      /** The validator raised an internal error, such as a database failure, so the errors do not prove that the query is invalid. */
+      internalError?: boolean | null;
       isUsingIndices?: QueryIndexUsage | null;
       isValid?: boolean | null;
       notices: HogQLNotice[];
@@ -120907,6 +120920,15 @@ export namespace Schemas {
     status_min?: number;
     };
 
+    export type OrganizationEventsRetentionDeletionCountParams = {
+    /**
+     * The period in months to count for, at most 1200. Only events older than this period are counted.
+     * @minimum 1
+     * @maximum 1200
+     */
+    retention_months: number;
+    };
+
     export type OrgFeatureFlagsKeysParams = {
     /**
      * Page size (max 100)
@@ -127475,6 +127497,15 @@ export namespace Schemas {
       Csv: 'csv',
       Json: 'json',
     } as const;
+
+    export type EventsRetentionDeletionCountParams = {
+    /**
+     * The period in months to count for, at most 1200. Only events older than this period are counted.
+     * @minimum 1
+     * @maximum 1200
+     */
+    retention_months: number;
+    };
 
     export type ExperimentHoldoutsListParams = {
     /**
@@ -136868,6 +136899,44 @@ export namespace Schemas {
       Dismissed: 'dismissed',
       Expired: 'expired',
       AutoResolved: 'auto_resolved',
+    } as const;
+
+    export type WarehouseSuggestionsAcceptCreateParams = {
+    /**
+     * Page the decision was made on. Only recorded on the analytics event.
+     *
+     * * `models` - Models
+     * * `catalog` - Data catalog
+     * @minLength 1
+     */
+    surface?: WarehouseSuggestionsAcceptCreateSurface;
+    };
+
+    export type WarehouseSuggestionsAcceptCreateSurface = typeof WarehouseSuggestionsAcceptCreateSurface[keyof typeof WarehouseSuggestionsAcceptCreateSurface];
+
+
+    export const WarehouseSuggestionsAcceptCreateSurface = {
+      Models: 'models',
+      Catalog: 'catalog',
+    } as const;
+
+    export type WarehouseSuggestionsDismissCreateParams = {
+    /**
+     * Page the decision was made on. Only recorded on the analytics event.
+     *
+     * * `models` - Models
+     * * `catalog` - Data catalog
+     * @minLength 1
+     */
+    surface?: WarehouseSuggestionsDismissCreateSurface;
+    };
+
+    export type WarehouseSuggestionsDismissCreateSurface = typeof WarehouseSuggestionsDismissCreateSurface[keyof typeof WarehouseSuggestionsDismissCreateSurface];
+
+
+    export const WarehouseSuggestionsDismissCreateSurface = {
+      Models: 'models',
+      Catalog: 'catalog',
     } as const;
 
     export type WarehouseTablesListParams = {
