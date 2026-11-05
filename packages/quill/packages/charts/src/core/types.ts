@@ -123,6 +123,10 @@ export interface Series<Meta = unknown> {
          *  the stroke dashes; non-gradient area fills instead hatch the dashed range. */
         gradient?: boolean
     }
+    /** Line charts only; bar and combo charts ignore it. `false` keeps this series out of the stack,
+     *  so it draws at its own value (with its own fill to the baseline) while the other series
+     *  stack. `percentStackView` ignores it. Defaults to true. */
+    stacked?: boolean
     /** Auxiliary overlay derived from primary data — trend lines and moving averages.
      *  Excluded from stack computation and from the y-axis baseline calculation, so a
      *  trendline projection won't drag the axis below 0 when the underlying data is
@@ -528,6 +532,11 @@ export interface TimeScale {
 
 export interface LineChartConfig extends ChartConfig {
     percentStackView?: boolean
+    /** Stack the series on each axis, each drawn on top of the one before. Omit for the automatic
+     *  behavior: stack when two or more series set `fill`. `false` draws every series at its own
+     *  value, so filled series overlap. A series with `stacked: false`, `overlay`, or
+     *  `fill.lowerData` never stacks. `percentStackView` stacks every series. */
+    stacked?: boolean
     /** Place each label at its time instead of evenly by index. Labels must be ascending. Memoize it. */
     timeScale?: TimeScale
     /** Draw lines and areas across missing (non-finite) values instead of breaking them. */
