@@ -25,7 +25,7 @@ from products.alerts.backend.platform_cutover import (
     in_an_environment,
 )
 from products.alerts.backend.platform_source_cycle import platform_upsert_of
-from products.alerts_platform.backend.facade.api import close_owned_firings_now, delete_owned_copy, update_owned_copy
+from products.alerts_platform.backend.facade.api import close_owned_firings_now, delete_copy, update_owned_copy
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
     InvalidPlatformAlertEdit,
@@ -108,7 +108,18 @@ def delete_moved_alert_copy(*, team_id: int, alert_id: UUID) -> None:
     """
     alert = _locked(team_id, alert_id)
     if alert is not None and alert.platform_owned:
-        delete_owned_copy(team_id=team_id, legacy_configuration_id=alert_id)
+        delete_copy(team_id=team_id, legacy_configuration_id=alert_id)
+
+
+def delete_shadow_alert_copy(*, team_id: int, alert_id: UUID) -> None:
+    """Deletes the copy of an alert insight still owns, inside the transaction that deletes the
+    alert, by any route: the API, an insight sweep, or a cascade.
+
+    A copy the platform owns is left to `delete_moved_alert_copy`, which runs after its firings end.
+    """
+    alert = _locked(team_id, alert_id)
+    if alert is not None and not alert.platform_owned:
+        delete_copy(team_id=team_id, legacy_configuration_id=alert_id)
 
 
 def _locked(team_id: int, alert_id: UUID) -> AlertConfiguration | None:

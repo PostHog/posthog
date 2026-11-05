@@ -380,8 +380,23 @@ def delete_configuration(*, team_id: int, source_kinds: Sequence[str], configura
     )
 
 
-def delete_owned_copy(*, team_id: int, legacy_configuration_id: UUID) -> None:
-    platform_writes.delete_owned_copy(team_id=team_id, legacy_configuration_id=legacy_configuration_id)
+def delete_copy(*, team_id: int, legacy_configuration_id: UUID) -> None:
+    """Deletes the copy of a source alert, whichever stack owns it, inside the transaction that
+    deletes the source row."""
+    platform_writes.delete_copy(team_id=team_id, legacy_configuration_id=legacy_configuration_id)
+
+
+def delete_orphaned_shadow_copies(
+    *,
+    source_kind: SourceKind,
+    existing_source_ids: Callable[[Collection[UUID]], Collection[UUID]],
+    dry_run: bool,
+) -> int:
+    """Deletes the shadow copies of `source_kind` whose source row is gone, and returns the count.
+    `existing_source_ids` returns which of the given source row ids still exist."""
+    return platform_writes.delete_orphaned_shadow_copies(
+        source_kind=source_kind, existing_source_ids=existing_source_ids, dry_run=dry_run
+    )
 
 
 def close_owned_firings_now(*, team_id: int, legacy_configuration_id: UUID) -> None:
