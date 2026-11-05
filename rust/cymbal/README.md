@@ -50,9 +50,14 @@ are named for what is actually capped. Only issue-created is charged.
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_REDIS_URL` | none | Required. The service does not start without it. |
+| `ERROR_TRACKING_NOTIFICATIONS_SHADOW_REDIS_URL` | unset | Optional destination for best-effort shadow charges and refunds. Must be a different Redis instance from the primary. |
 | `ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_PER_HOUR` | `1000` | Bucket size, and the tokens a team earns back per hour. Zero or less disables the limit. |
 | `ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_KEY_PREFIX` | `@posthog/error-tracking-notifications-rate-limiter` | Key namespace. It must differ from the event limiter's prefix. |
 | `ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_BUCKET_TTL_SECONDS` | `3600` | Idle buckets expire and free the memory. A value below 3600 is raised to 3600, because a bucket takes an hour to refill and a shorter TTL would loosen the limit. |
+
+Processing mode can set `ERROR_TRACKING_PROCESSING_SHADOW_REDIS_URL` to copy issue and team spike counters, unique-issue sets, cooldown locks and releases, lifecycle event properties, and event rate-limiter charges to a separate Redis instance. Both shadow URLs are optional and unset by default. The primary Redis still supplies every decision and read. A shadow connection failure at startup disables shadow writes on that pod; runtime errors and the 200 ms shadow deadline are logged and counted in `cymbal_shadow_redis_operations_total` by `operation` and `outcome`, without changing the primary result. Do not use an alias of any primary Redis URL for the shadow: non-idempotent counters and token buckets would be charged twice. An exact URL match disables shadow writes.
+
+A shadow write is submitted after a successful primary write, with the same keys, bytes, expiry and Lua arguments. It runs in a bounded background task so it does not delay ingestion; at most 128 shadow writes run per pod, and excess submissions increment the `dropped` outcome rather than queue without a bound. Background writes can reorder or be lost when a pod exits, and an immediate shadow read is not read-after-write consistent. No historical keys are copied. A 48-hour warm-up covers event properties at their default TTL and the shorter-lived spike buckets only if all pods have a healthy shadow connection for the entire window and no writes fail, time out or drop. It does not guarantee parity for a higher configured TTL, independently advancing token buckets and cooldown locks, or writes that complete in a different order. A shadow that fails to connect at startup remains disabled on that pod until restart. Validate key and TTL coverage before switching any reader; this option never switches readers.
 
 The limit covers every team. To size it before it cuts anything, set `PER_HOUR`
 far above real traffic, watch `cymbal_issue_created_rate_limit_outcomes`, then

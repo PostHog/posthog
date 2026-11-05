@@ -54,15 +54,30 @@ pub async fn start_redis() -> (Arc<RedisClient>, RedisContainer) {
 /// A [`ScriptRunner`] that never touches Redis: a canned reply, or an error.
 pub struct FakeRunner {
     reply: Option<Vec<i64>>,
+    calls: std::sync::Mutex<Vec<(String, Vec<String>, Vec<String>)>>,
 }
 
 impl FakeRunner {
     pub fn returning(reply: Vec<i64>) -> Arc<Self> {
-        Arc::new(Self { reply: Some(reply) })
+        Arc::new(Self {
+            reply: Some(reply),
+            calls: std::sync::Mutex::new(Vec::new()),
+        })
     }
 
     pub fn failing() -> Arc<Self> {
-        Arc::new(Self { reply: None })
+        Arc::new(Self {
+            reply: None,
+            calls: std::sync::Mutex::new(Vec::new()),
+        })
+    }
+
+    pub fn call_count(&self) -> usize {
+        self.requests().len()
+    }
+
+    pub fn requests(&self) -> Vec<(String, Vec<String>, Vec<String>)> {
+        self.calls.lock().unwrap().clone()
     }
 }
 
@@ -70,10 +85,14 @@ impl FakeRunner {
 impl ScriptRunner for FakeRunner {
     async fn eval_int_vec(
         &self,
-        _script: &str,
-        _keys: Vec<String>,
-        _args: Vec<String>,
+        script: &str,
+        keys: Vec<String>,
+        args: Vec<String>,
     ) -> Result<Vec<i64>, CustomRedisError> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push((script.to_string(), keys, args));
         self.reply.clone().ok_or(CustomRedisError::Timeout)
     }
 }
