@@ -89,11 +89,11 @@ class TestEmailReputationAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("sandbox configured", "sandbox.example.com", 2),
-            ("sandbox not configured", "", 3),
+            ("sandbox configured", "sandbox.example.com"),
+            ("sandbox settings cleared after sandbox sends", ""),
         ]
     )
-    def test_sending_allowance_leaves_out_sandbox_sends(self, _name: str, sandbox_domain: str, expected: int):
+    def test_sending_allowance_leaves_out_sandbox_sends(self, _name: str, sandbox_domain: str):
         sends_by_source = {
             self.team.id: {"flow-a": {"email_sent": 1, "email_sandbox_sent": 3}, "flow-b": {"email_sent": 2}}
         }
@@ -119,8 +119,8 @@ class TestEmailReputationAPI(APIBaseTest):
             ),
         ):
             allowance = self._get_reputation({})["sending_allowance"]
-        assert allowance["emails_sent_last_hour"] == expected
-        assert allowance["emails_sent_last_day"] == expected
+        assert allowance["emails_sent_last_hour"] == 2
+        assert allowance["emails_sent_last_day"] == 2
 
     @parameterized.expand(
         [
