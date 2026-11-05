@@ -109,6 +109,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.int
     IntegrationAccount,
     IntegrationAccountListingError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_input_classification import (
+    stored_field_kinds,
+    stored_reference_options,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
     CredentialAccountsMixin,
@@ -408,6 +412,15 @@ class _PluginOnlySource(SimpleSource[_PluginOnlySourceConfig]):
 
 
 class TestExternalDataSource(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # Tests here patch `SourceRegistry.get_source` on the class, so the job input classification
+        # would read a MagicMock source. Its results are cached per source type, so filling the
+        # cache from the real registry before a test's patch starts keeps it on the real declarations.
+        for source_type in SourceRegistry.get_all_sources():
+            stored_field_kinds(source_type)
+            stored_reference_options(source_type)
+
     def _create_external_data_source(self, created_via: str = ExternalDataSource.CreatedVia.WEB) -> ExternalDataSource:
         return ExternalDataSource.objects.create(
             team_id=self.team.pk,
@@ -3867,7 +3880,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(source.status, "Running")
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_schemas")
+    @patch.object(StripeSource, "get_schemas")
     def test_refresh_schemas_creates_new_schemas_and_returns_counts(self, mock_get_schemas: Mock) -> None:
         mock_get_schemas.return_value = [
             SourceSchema(name="table_a", supports_incremental=False, supports_append=False),
@@ -3929,7 +3942,7 @@ class TestExternalDataSource(APIBaseTest):
         assert schema.should_sync is False
 
     @patch("products.data_warehouse.backend.facade.api.sync_external_data_job_workflow")
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_schemas")
+    @patch.object(StripeSource, "get_schemas")
     def test_refresh_schemas_auto_enables_matching_new_schemas(
         self, mock_get_schemas: Mock, mock_schedule: Mock
     ) -> None:
@@ -4013,7 +4026,7 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         self.assertFalse(source.auto_sync_new_schemas)
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_schemas")
+    @patch.object(StripeSource, "get_schemas")
     def test_refresh_schemas_creates_new_schemas_and_deletes_missing_schemas(self, mock_get_schemas: Mock) -> None:
         mock_get_schemas.return_value = [
             SourceSchema(name="new_table", supports_incremental=False, supports_append=False),
@@ -4042,7 +4055,7 @@ class TestExternalDataSource(APIBaseTest):
         )
         self.assertCountEqual(names, ["new_table"])
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_schemas")
+    @patch.object(StripeSource, "get_schemas")
     def test_refresh_schemas_adds_only_new_schemas(self, mock_get_schemas: Mock) -> None:
         mock_get_schemas.return_value = [
             SourceSchema(name="existing", supports_incremental=False, supports_append=False),
@@ -4068,7 +4081,7 @@ class TestExternalDataSource(APIBaseTest):
             ).exists()
         )
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_schemas")
+    @patch.object(StripeSource, "get_schemas")
     def test_refresh_schemas_idempotent_no_duplicates(self, mock_get_schemas: Mock) -> None:
         mock_get_schemas.return_value = [
             SourceSchema(name="only_one", supports_incremental=False, supports_append=False),
@@ -4089,7 +4102,7 @@ class TestExternalDataSource(APIBaseTest):
             1,
         )
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_schemas")
+    @patch.object(StripeSource, "get_schemas")
     def test_refresh_schemas_restores_deleted_schema_instead_of_creating_duplicate(
         self, mock_get_schemas: Mock
     ) -> None:
@@ -4137,7 +4150,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertFalse(restored_schema.should_sync)
         self.assertEqual(restored_schema.sync_type_config.get("legacy_key"), "keep")
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_schemas")
+    @patch.object(StripeSource, "get_schemas")
     def test_refresh_schemas_updates_labels_on_existing_schemas(self, mock_get_schemas: Mock) -> None:
         mock_get_schemas.return_value = [
             SourceSchema(name="c123", label="general", supports_incremental=False, supports_append=False),
@@ -4155,7 +4168,7 @@ class TestExternalDataSource(APIBaseTest):
         schema.refresh_from_db()
         self.assertEqual(schema.label, "general")
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_schemas")
+    @patch.object(StripeSource, "get_schemas")
     def test_refresh_schemas_updates_changed_label(self, mock_get_schemas: Mock) -> None:
         mock_get_schemas.return_value = [
             SourceSchema(name="c123", label="renamed-channel", supports_incremental=False, supports_append=False),
@@ -4173,7 +4186,7 @@ class TestExternalDataSource(APIBaseTest):
         schema.refresh_from_db()
         self.assertEqual(schema.label, "renamed-channel")
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_schemas")
+    @patch.object(StripeSource, "get_schemas")
     def test_refresh_schemas_sets_label_on_new_schema(self, mock_get_schemas: Mock) -> None:
         mock_get_schemas.return_value = [
             SourceSchema(name="c456", label="random", supports_incremental=False, supports_append=False),
@@ -4188,7 +4201,7 @@ class TestExternalDataSource(APIBaseTest):
         schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source_id=source.pk, name="c456")
         self.assertEqual(schema.label, "random")
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_schemas")
+    @patch.object(StripeSource, "get_schemas")
     def test_refresh_schemas_sets_label_on_restored_deleted_schema(self, mock_get_schemas: Mock) -> None:
         mock_get_schemas.return_value = [
             SourceSchema(name="c789", label="announcements", supports_incremental=False, supports_append=False),
@@ -4233,7 +4246,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertIn("Could not fetch schemas from source", response.json().get("message", ""))
 
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.get_schemas")
+    @patch.object(StripeSource, "get_schemas")
     def test_refresh_schemas_returns_zero_total_tables_seen_when_source_returns_nothing(
         self, mock_get_schemas: Mock
     ) -> None:

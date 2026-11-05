@@ -568,6 +568,31 @@ class TestRowTracking(BaseTest):
         mock_capture_exception.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_row_tracking_does_not_retry_a_rate_limited_billing_check(self):
+        from ee.billing.billing_manager import handle_billing_service_error
+
+        source = await self._create_source()
+
+        def _raise_billing_rate_limited(*args, **kwargs):
+            response = requests.Response()
+            response.status_code = 429
+            response.raw = mock.MagicMock()
+            handle_billing_service_error(response)
+
+        with (
+            mock.patch("ee.billing.billing_manager.BillingManager.get_billing") as mock_get_billing,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.row_tracking.capture_exception"
+            ) as mock_capture_exception,
+        ):
+            mock_get_billing.side_effect = _raise_billing_rate_limited
+
+            assert await self._run(source, 10) is False
+
+        assert mock_get_billing.call_count == 1
+        mock_capture_exception.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_row_tracking_fails_open_on_request_error_without_capturing_exception(self):
         # A network blip (e.g. a proxy timeout) reaching the billing service is a transient
         # infra issue, not a bug, and must fail open like any other billing-check error

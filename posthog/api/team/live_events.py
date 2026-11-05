@@ -8,7 +8,7 @@ from django.utils import timezone
 from rest_framework.request import Request
 
 from posthog.api.livestream_impersonation import LivestreamImpersonation
-from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication, WorkloadAccessTokenAuthentication
 from posthog.helpers.impersonation import get_original_user_id_from_session
 from posthog.jwt import PosthogJwtAudience, encode_jwt, signing_key_fingerprint
 from posthog.models import Team, User
@@ -114,10 +114,15 @@ def _impersonation_for_request(request: Request, impersonated_by_id: int) -> Liv
 def live_events_token_for_request(team: Team, request: Request | None) -> str | None:
     if request is None or not request.user.is_authenticated:
         return None
-    scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+
+    # A workload token acts as the owner, and this 7-day token would outlive it.
+    authenticator = getattr(request, "successful_authenticator", None)
+    if isinstance(authenticator, WorkloadAccessTokenAuthentication):
+        return None
+
+    scopes = get_authenticator_scopes(authenticator)
     if scopes is not None and "*" not in scopes and scopes_not_covered(scopes, ["query:read"]):
         return None
-    authenticator = getattr(request, "successful_authenticator", None)
     impersonated_by_id = None
     if isinstance(authenticator, OAuthAccessTokenAuthentication):
         impersonated_by_id = authenticator.access_token.impersonated_by_id
