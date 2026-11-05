@@ -218,12 +218,15 @@ class EventsWithFlagCallsTable(LazyTable):
                 select_from=ast.JoinExpr(
                     table=ast.Field(chain=["posthog", "flag_evaluations"]), alias="flag_evaluations"
                 ),
-                where=and_conditions([flag_evaluations_since_cutoff,
-                    filters.flag_evaluations,
-                    sample_flag_evaluations_filter(sample, flag_evaluations_field(["distinct_id"]))
-                    if sample is not None
-                    else None,
-                ]),
+                where=and_conditions(
+                    [
+                        flag_evaluations_since_cutoff,
+                        filters.flag_evaluations,
+                        sample_flag_evaluations_filter(sample, flag_evaluations_field(["distinct_id"]))
+                        if sample is not None
+                        else None,
+                    ]
+                ),
             )
         )
         return ast.SelectQuery(
