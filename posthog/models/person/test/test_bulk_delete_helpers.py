@@ -866,10 +866,10 @@ class QueueRecordingDeletionTests(BaseTest):
             _start_recording_workflows(self.team.pk, persons, self.user, "test reason")
         assert client.start_workflow.call_count == expected_workflows
 
-    def test_uses_empty_deleted_by_when_actor_missing(self):
+    def test_records_the_system_as_deleter_when_actor_missing(self):
         client = MagicMock()
         client.start_workflow = AsyncMock()
         with patch("posthog.models.person.bulk_delete.sync_connect", return_value=client):
             _start_recording_workflows(self.team.pk, [_person_with_distinct_ids("a")], None, "test reason")
         client.start_workflow.assert_called_once()
-        assert client.start_workflow.call_args.args[1].config.deleted_by == ""
+        assert client.start_workflow.call_args.args[1].config.deleted_by == "system"

@@ -873,7 +873,7 @@ def queue_recording_deletion_by_distinct_id(
     team_id: int,
     distinct_ids: builtins.list[str],
     *,
-    actor: User | None,
+    deleted_by: str,
     reason: str,
 ) -> None:
     """Delete recordings and training data for distinct ids that have no ``Person`` to carry them."""
@@ -886,7 +886,7 @@ def queue_recording_deletion_by_distinct_id(
             distinct_ids[i : i + _MAX_DISTINCT_IDS_PER_WORKFLOW]
             for i in range(0, len(distinct_ids), _MAX_DISTINCT_IDS_PER_WORKFLOW)
         ],
-        actor,
+        deleted_by,
         reason,
     )
 
@@ -895,6 +895,8 @@ def queue_recording_deletion_by_distinct_id(
 _RECORDING_DELETION_PERSONS_PER_WORKFLOW = 100
 _MAX_CONCURRENT_WORKFLOW_STARTS = 20
 _MAX_DISTINCT_IDS_PER_WORKFLOW = 2000
+# Recorded as the deleter when no user started the deletion, such as a Dagster job.
+_SYSTEM_DELETED_BY = "system"
 
 
 def _chunk_persons(persons: builtins.list[Person]) -> Iterator[builtins.list[Person]]:
@@ -931,13 +933,14 @@ def _start_recording_workflows(
         for distinct_ids in [sorted({distinct_id for person in batch for distinct_id in person.distinct_ids})]
         for i in range(0, len(distinct_ids), _MAX_DISTINCT_IDS_PER_WORKFLOW)
     ]
-    _start_recording_workflow_batches(team_id, batches, actor, reason)
+    deleted_by = getattr(actor, "email", None) or _SYSTEM_DELETED_BY
+    _start_recording_workflow_batches(team_id, batches, deleted_by, reason)
 
 
 def _start_recording_workflow_batches(
     team_id: int,
     batches: builtins.list[builtins.list[str]],
-    actor: User | None,
+    deleted_by: str,
     reason: str,
 ) -> None:
     """Start one ``delete-recordings-with-person`` workflow per batch of distinct ids.
@@ -946,7 +949,7 @@ def _start_recording_workflow_batches(
     that tests patching this seam don't need to mock ``sync_connect`` separately.
     """
     temporal = sync_connect()
-    config = DeletionConfig(deleted_by=getattr(actor, "email", None) or "", reason=reason)
+    config = DeletionConfig(deleted_by=deleted_by, reason=reason)
 
     async def start_all_workflows():
         semaphore = asyncio.Semaphore(_MAX_CONCURRENT_WORKFLOW_STARTS)

@@ -141,9 +141,19 @@ def run(options) -> None:
     erasure = plan_orphan_data_erasure(team_id, uuids)
     _log_erasure(team_id, erasure)
     if delete_recordings:
-        queue_recording_deletion_by_distinct_id(team_id, erasure.recording_distinct_ids, actor=None, reason=reason)
+        queue_recording_deletion_by_distinct_id(
+            team_id, erasure.recording_distinct_ids, deleted_by="fix_orphaned_ch_persons", reason=reason
+        )
     if delete_events:
         queue_event_deletion_by_uuid(team_id, erasure.person_uuids, actor=None)
+    if delete_recordings and erasure.unconfirmed_distinct_ids:
+        logger.error(
+            "Recordings for these distinct ids were not deleted, because a deleted mapping does not show who owns "
+            "the id. Check each id, then delete its recordings from the team admin.",
+            team_id=team_id,
+            unconfirmed_distinct_ids=erasure.unconfirmed_distinct_ids,
+        )
+        exit(1)
 
 
 def _log_erasure(team_id: int, erasure: OrphanDataErasure) -> None:
@@ -153,6 +163,7 @@ def _log_erasure(team_id: int, erasure: OrphanDataErasure) -> None:
         persons=len(erasure.person_uuids),
         recording_distinct_ids=len(erasure.recording_distinct_ids),
         excluded_distinct_ids=len(erasure.excluded_distinct_ids),
+        unconfirmed_distinct_ids=erasure.unconfirmed_distinct_ids,
     )
 
 
