@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
     from posthog.hogql import ast
     from posthog.hogql.constants import LimitContext
+    from posthog.hogql.database.raw_trino_view import RawTrinoViewMode
     from posthog.hogql.transforms.trino.manifest import PreparedTrinoCatalog, TrinoCatalogManifest
 
     from posthog.models import Team, User
@@ -219,6 +220,21 @@ def prepare_hogql_to_trino_compiler(
     )
 
 
+def _raw_trino_view_mode(team: Team, user: User | None) -> RawTrinoViewMode:
+    """Raw view SQL runs on the organization's warehouse credential, so only a caller allowed raw SQL may expand it."""
+    from posthog.hogql.database.raw_trino_view import RawTrinoViewMode  # noqa: PLC0415
+    from posthog.hogql.errors import ExposedHogQLError  # noqa: PLC0415
+
+    # query_execution imports this module, so its guard is imported here.
+    from products.managed_warehouse.backend.query_execution import validate_managed_trino_raw_access  # noqa: PLC0415
+
+    try:
+        validate_managed_trino_raw_access(team, user)
+    except ExposedHogQLError:
+        return RawTrinoViewMode.REFUSE
+    return RawTrinoViewMode.EXPAND
+
+
 def compile_hogql_to_trino_sql(
     team_id: int,
     query: HogQLQuery,
@@ -311,7 +327,7 @@ def compile_hogql_to_trino_sql(
         bypass_warehouse_access_control=bypass_warehouse_access_control,
         allowed_system_tables=allowed_system_tables,
         trigger="trino",
-        include_raw_trino_views=True,
+        raw_trino_view_mode=_raw_trino_view_mode(team, user),
     )
     placeholders = find_placeholders(parsed)
     if placeholders.has_filters:

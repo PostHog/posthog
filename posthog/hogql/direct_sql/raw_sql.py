@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from sqlglot.tokens import (
         Token as DialectToken,
         Tokenizer,
+        TokenType,
     )
 
 
@@ -32,7 +33,26 @@ def _tokenizer_class(dialect: str, alternate_escapes: bool = False) -> type["Tok
     return tokenizer
 
 
-def _lex_direct_sql(sql: str, dialect: str) -> list["DialectToken"]:
+@lru_cache(maxsize=1)
+def literal_token_types() -> frozenset["TokenType"]:
+    from sqlglot.tokens import TokenType  # noqa: PLC0415 -- load dialect grammars only for direct queries
+
+    return frozenset(
+        {
+            TokenType.STRING,
+            TokenType.BIT_STRING,
+            TokenType.HEX_STRING,
+            TokenType.BYTE_STRING,
+            TokenType.NATIONAL_STRING,
+            TokenType.RAW_STRING,
+            TokenType.HEREDOC_STRING,
+            TokenType.UNICODE_STRING,
+        }
+    )
+
+
+def lex_direct_sql(sql: str, dialect: str) -> list["DialectToken"]:
+    """Lex SQL with the connection's literal and comment rules. Each token's start and end index the input."""
     from sqlglot.errors import TokenError  # noqa: PLC0415 -- load dialect grammars only for direct queries
 
     try:
@@ -56,23 +76,13 @@ def _lex_direct_sql(sql: str, dialect: str) -> list["DialectToken"]:
 def _guard_tokens(token: "DialectToken", *, is_call: bool, is_qualified: bool, sql: str, dialect: str) -> list[Token]:
     from sqlglot.tokens import TokenType  # noqa: PLC0415 -- load dialect grammars only for direct queries
 
-    literal_types = {
-        TokenType.STRING,
-        TokenType.BIT_STRING,
-        TokenType.HEX_STRING,
-        TokenType.BYTE_STRING,
-        TokenType.NATIONAL_STRING,
-        TokenType.RAW_STRING,
-        TokenType.HEREDOC_STRING,
-        TokenType.UNICODE_STRING,
-    }
     if token.token_type == TokenType.IDENTIFIER:
         if is_call:
             return [Token(sqlparse_tokens.Name, token.text)]
         kind = sqlparse_tokens.Name if dialect == "mysql" else sqlparse_tokens.String.Symbol
         quote = "`" if dialect == "mysql" else '"'
         return [Token(kind, quote + token.text + quote)]
-    if token.token_type in literal_types:
+    if token.token_type in literal_token_types():
         # ANSI_QUOTES can make a double-quoted MySQL callee an identifier.
         if dialect == "mysql" and sql[token.start] == '"' and is_call:
             return [Token(sqlparse_tokens.Name, token.text)]
@@ -88,7 +98,7 @@ def _single_statement_tokens(sql: str, dialect: str) -> list["DialectToken"]:
 
     statement: list[DialectToken] = []
     terminated = False
-    for token in _lex_direct_sql(sql, dialect):
+    for token in lex_direct_sql(sql, dialect):
         if token.token_type == TokenType.SEMICOLON:
             terminated = bool(statement)
         elif terminated:

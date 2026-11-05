@@ -8,6 +8,7 @@ from posthog.schema import HogQLQueryModifiers
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.raw_trino_view import RawTrinoViewCatalog
 from posthog.hogql.database.trino_locator import TrinoTableLocator
 from posthog.hogql.printer.trino import TrinoPrinter
 from posthog.hogql.transforms.logical_property_lowering import lower_property_access
@@ -35,6 +36,7 @@ class TrinoTranspilerInput:
     stack: tuple[ast.SelectQuery, ...] = ()
     settings: HogQLGlobalSettings | None = None
     pretty: bool = False
+    raw_trino_view_catalog: RawTrinoViewCatalog | None = None
 
 
 @frozen
@@ -61,6 +63,7 @@ def transpile_prepared_hogql_to_trino(transpiler_input: TrinoTranspilerInput) ->
         ),
         restricted_properties=set(),
         trino_table_locators=transpiler_input.table_locators,
+        raw_trino_view_catalog=transpiler_input.raw_trino_view_catalog,
         values=dict(transpiler_input.values),
         timezone=transpiler_input.timezone,
         week_start_day=transpiler_input.week_start_day,

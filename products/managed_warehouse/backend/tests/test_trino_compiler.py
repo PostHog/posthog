@@ -4,6 +4,9 @@ from uuid import UUID
 import pytest
 from unittest import mock
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 import structlog
 from rest_framework.response import Response
 from structlog.testing import capture_logs
@@ -11,21 +14,24 @@ from structlog.testing import capture_logs
 from posthog.schema import HogQLQuery
 
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.transforms.trino.manifest import (
     TrinoCatalogManifest,
     TrinoManifestColumn,
     TrinoManifestTable,
     build_trino_manifest_database,
 )
+from posthog.hogql.trino_parameters import convert_pyformat_placeholders
 
-from posthog.models import Organization, Team
+from posthog.clickhouse.query_tagging import AccessMethod, QueryTags
+from posthog.models import Organization, Team, User
 from posthog.schema_enums import DatabaseSerializedFieldType
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTableNames,
     ManagedWarehouseTeamMembership,
+    TrinoCompiledQuery,
     TrinoExpansionMode,
 )
 from products.managed_warehouse.backend.table_binding import build_trino_table_locators
@@ -485,23 +491,25 @@ class TestCompileHogQLToTrinoSQL:
         assert "signup" in compiled.values.values()
         assert "translation_source" in compiled.hogql
 
-    @pytest.mark.django_db
-    @pytest.mark.parametrize(
-        "query,expected",
-        [
-            ("SELECT id FROM __ph_debug_view", '(\nSELECT 1 AS id\n) AS "__ph_debug_view"'),
-            (
-                "SELECT id FROM orders_daily",
-                '(\nWITH "__ph_debug_view" AS (\nSELECT 1 AS id\n)\nSELECT id FROM __ph_debug_view\n) AS "orders_daily"',
-            ),
-        ],
-    )
-    def test_django_inlines_raw_trino_views(self, query: str, expected: str) -> None:
+    @staticmethod
+    def _compile_with_raw_views(
+        query: HogQLQuery, *, signed_in: bool = True, access_method: AccessMethod | None = None, views: int = 0
+    ) -> tuple[TrinoCompiledQuery, int]:
         organization = Organization.objects.create(name="trino-raw-views")
         team = Team.objects.create(organization=organization)
+        user = (
+            User.objects.create_and_join(organization, f"reader-{team.pk}@example.com", "password")
+            if signed_in
+            else None
+        )
         raw: dict[str, object] = {"kind": "HogQLQuery", "executionTarget": "managed_trino", "sendRawQuery": True}
         columns = {"id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"}}
-        for name, sql in [("__ph_debug_view", "SELECT 1 AS id;"), ("orders_daily", "SELECT id FROM __ph_debug_view")]:
+        bodies = [
+            ("__ph_debug_view", "SELECT 1 AS id;"),
+            ("orders_daily", "SELECT id -- don't count tests\nFROM __ph_debug_view"),
+            *((f"extra_{i}", f"SELECT {i} AS id") for i in range(views)),
+        ]
+        for name, sql in bodies:
             DataWarehouseSavedQuery.objects.create(team=team, name=name, query={**raw, "query": sql}, columns=columns)
 
         with (
@@ -514,16 +522,59 @@ class TestCompileHogQLToTrinoSQL:
                 "products.managed_warehouse.backend.trino_compiler.get_org_team_membership",
                 return_value=_membership(team_id=team.pk, organization_id=str(organization.pk)),
             ),
+            mock.patch(
+                "products.managed_warehouse.backend.query_execution.get_query_tags",
+                return_value=QueryTags(access_method=access_method),
+            ),
+            CaptureQueriesContext(connection) as queries,
         ):
             compiled = compile_hogql_to_trino_sql(
-                team.pk,
-                HogQLQuery(query=query),
-                team=team,
-                expansion_mode=TrinoExpansionMode.DJANGO,
-                bypass_warehouse_access_control=True,
+                team.pk, query, team=team, user=user, expansion_mode=TrinoExpansionMode.DJANGO
+            )
+        return compiled, len(queries)
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        "query,expected_sql,expected_values",
+        [
+            (
+                "SELECT id FROM __ph_debug_view",
+                'SELECT "__ph_debug_view"."id" FROM (\nSELECT 1 AS id\n) AS "__ph_debug_view"',
+                [],
+            ),
+            (
+                "SELECT id FROM orders_daily WHERE toString(id) = {v}",
+                'SELECT "orders_daily"."id" FROM (\nWITH __ph_rv_0 AS (\nSELECT 1 AS id\n)\n'
+                'SELECT id FROM __ph_rv_0 AS "__ph_debug_view"\n) AS "orders_daily" '
+                'WHERE (CAST("orders_daily"."id" AS VARCHAR) = ?)',
+                ["1"],
+            ),
+        ],
+    )
+    def test_django_inlines_raw_trino_views_for_a_signed_in_user(
+        self, query: str, expected_sql: str, expected_values: list[object]
+    ) -> None:
+        compiled, _ = self._compile_with_raw_views(HogQLQuery(query=query, values={"v": "1"}))
+
+        assert convert_pyformat_placeholders(compiled.sql, compiled.values) == (expected_sql, expected_values)
+
+    @pytest.mark.django_db
+    @pytest.mark.parametrize("signed_in,access_method", [(False, None), (True, AccessMethod.PERSONAL_API_KEY)])
+    def test_django_refuses_raw_trino_views_without_a_browser_session(
+        self, signed_in: bool, access_method: AccessMethod | None
+    ) -> None:
+        with pytest.raises(ExposedHogQLError, match="Open it from the SQL editor while signed in"):
+            self._compile_with_raw_views(
+                HogQLQuery(query="SELECT id FROM orders_daily"), signed_in=signed_in, access_method=access_method
             )
 
-        assert expected in compiled.sql
+    @pytest.mark.django_db
+    def test_django_raw_trino_view_count_adds_no_queries(self) -> None:
+        query = HogQLQuery(query="SELECT id FROM orders_daily")
+        _, few = self._compile_with_raw_views(query)
+        _, many = self._compile_with_raw_views(query, views=200)
+
+        assert many == few
 
     def test_fails_closed_without_a_ready_catalog(self) -> None:
         team = _team()

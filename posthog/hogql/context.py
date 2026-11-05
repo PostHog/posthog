@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
     from posthog.hogql.database.database import Database
     from posthog.hogql.database.models import Table
+    from posthog.hogql.database.raw_trino_view import RawTrinoViewCatalog
     from posthog.hogql.observability import HogQLTypeObservability
     from posthog.hogql.property_metadata import PropertyMetadata
     from posthog.hogql.transforms.flag_calls_from_flag_evaluations import FlagCallPropertyMetadata
@@ -77,6 +78,8 @@ class HogQLContext:
     direct_postgres_connection_metadata: dict[str, Any] | None = None
     # Query-scoped mappings preserve resolved logical tables through Trino lowering.
     trino_table_locators: Mapping[str, tuple[str, str, str]] = field(default_factory=dict)
+    # The Trino printer runs without the database, so the raw Trino views it may inline travel here.
+    raw_trino_view_catalog: Optional["RawTrinoViewCatalog"] = None
     # Detached printer stages snapshot these values so they do not retain the schema database.
     timezone: Optional[str] = None
     week_start_day: Optional[WeekStartDay] = None
