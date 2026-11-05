@@ -515,21 +515,17 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         views = database.get_view_names()
         system_tables = database.get_system_table_names()
 
-        semantics = self._warehouse_table_semantics(set(warehouse_tables))
-
         listify = lambda items: "\n".join(f"- {item}" for item in sorted(items))
 
         def describe(name: str) -> str | None:
-            # Descriptions come from the shared resolver (raw, so sanitize here); the source-table
-            # description on `semantics` is already sanitized.
+            # The shared resolver returns raw text, so sanitize it here.
             raw = descriptions.for_table(database.get_table(name))
             return _sanitize_semantic_text(raw) if raw else None
 
-        def listify_described(items: list[str], external: bool) -> str:
+        def listify_described(items: list[str]) -> str:
             lines: list[str] = []
             for item in sorted(items):
-                source_desc = (semantics.get(item) or {}).get("description") if external else None
-                description = source_desc or describe(item)
+                description = describe(item)
                 lines.append(f"- {item} — {description}" if description else f"- {item}")
             return "\n".join(lines)
 
@@ -537,18 +533,17 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             READ_DATA_WAREHOUSE_SCHEMA_PROMPT,
             template_format="mustache",
             posthog_tables="\n".join(system_table_lines),
-            data_warehouse_tables=listify_described(warehouse_tables, external=True),
+            data_warehouse_tables=listify_described(warehouse_tables),
             system_tables=listify(system_tables),
-            data_warehouse_views=listify_described(views, external=False),
+            data_warehouse_views=listify_described(views),
         )
 
     def _warehouse_table_semantics(self, table_names: set[str]) -> dict[str, dict]:
-        """Map warehouse table name -> {description, label, foreign_keys}.
+        """Map warehouse table name -> {label, foreign_keys}.
 
-        Pulls the `ExternalDataSchema` context — the source-table description/label and the
-        foreign-key graph — so the agent sees what the data means, not just its column types. Column
-        and annotation descriptions come from `TableDescriptions` instead, so this doesn't re-read
-        the annotation models.
+        Pulls the `ExternalDataSchema` context — the source-table label and the foreign-key graph — so
+        the agent sees what the data means, not just its column types. Every description comes from
+        `TableDescriptions` instead, so `read_data` and `system.information_schema` show the same text.
 
         Results are memoized per tool instance (including misses, stored as `{}`) so repeated
         per-table lookups within a session don't re-fire the underlying queries.
@@ -584,12 +579,10 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         result: dict[str, dict] = {}
         for table in tables:
             schema = schemas_by_table_id.get(table.id)
-            # Descriptions/labels are untrusted (see _sanitize_semantic_text); sanitize at this
-            # chokepoint so every prompt surface that renders them gets the neutralized text.
-            description = schema.description if schema else None
+            # Labels are untrusted (see _sanitize_semantic_text); sanitize at this chokepoint so every
+            # prompt surface that renders them gets the neutralized text.
             label = schema.label if schema else None
             result[table.name] = {
-                "description": _sanitize_semantic_text(description) if description else None,
                 "label": _sanitize_semantic_text(label) if label else None,
                 "foreign_keys": schema.foreign_keys if schema else None,
             }
@@ -637,13 +630,9 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         raw_table = database.get_table(db_name)
         raw_fields = raw_table.fields
 
-        # Source-table description (warehouse only) wins; otherwise fall back to the resolver, which
-        # covers warehouse/view annotations and native schema descriptions uniformly. The resolver
-        # returns raw text, so sanitize; `semantics` is already sanitized.
-        table_description = semantics.get("description")
-        if not table_description:
-            resolved = descriptions.for_table(raw_table)
-            table_description = _sanitize_semantic_text(resolved) if resolved else None
+        # The resolver returns raw text, so sanitize it here.
+        resolved = descriptions.for_table(raw_table)
+        table_description = _sanitize_semantic_text(resolved) if resolved else None
 
         header = f"Table `{table_name}`"
         if table_description:
