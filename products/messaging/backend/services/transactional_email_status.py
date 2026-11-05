@@ -26,8 +26,9 @@ logger = structlog.get_logger(__name__)
 
 # Long past the time the first status row takes to reach the table, so a slow consumer still reads as queued.
 _ACCEPTED_SEND_TTL = timedelta(minutes=10)
-# The record is optional, so the connect and the command each time out after 0.25 s, and a stalled Redis adds at
-# most 0.5 s to the send's reply or a status read. The DNS lookup of a new connection is outside both timeouts.
+# The record is optional, so each socket operation times out after 0.25 s and a stalled Redis fails the call fast.
+# The timeouts apply per operation, not per call: a new connection also resolves DNS, outside any timeout, and sends
+# its handshake commands, each with its own timeout.
 _ACCEPTED_SEND_REDIS_TIMEOUT_SECONDS = 0.25
 # The Node API stamps the send's ID with its own clock, which can run ahead of this one.
 _CLOCK_SKEW = timedelta(minutes=5)
