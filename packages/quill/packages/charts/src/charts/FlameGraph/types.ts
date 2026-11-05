@@ -19,8 +19,8 @@ export interface FlameNode<Meta = unknown> {
      *  uses the larger of `value` and `baselineValue`, so a node that exists in only one window
      *  still gets room. */
     baselineValue?: number
-    /** Number of calls or samples behind `value`. Shown in the tooltip, and with `baselineCount`
-     *  it gates the diff colors through `config.diff.minCount`. */
+    /** Number of calls or samples behind `value`. With `baselineCount` it gates the diff colors
+     *  through `config.diff.minCount`. */
     count?: number
     /** Number of calls or samples behind `baselineValue`. */
     baselineCount?: number

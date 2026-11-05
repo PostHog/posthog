@@ -27,16 +27,8 @@ function renderFlame(props: Partial<FlameGraphProps> = {}): ReturnType<typeof re
 }
 
 describe('FlameGraph', () => {
-    let matchMedia: typeof window.matchMedia | undefined
-
-    beforeAll(() => {
-        // Reduced motion snaps the zoom, so a click settles without stepping through animation frames.
-        matchMedia = window.matchMedia
-        window.matchMedia = ((query: string) => ({ matches: query.includes('reduce') })) as typeof window.matchMedia
-    })
-
-    afterAll(() => {
-        window.matchMedia = matchMedia as typeof window.matchMedia
+    afterEach(() => {
+        jest.restoreAllMocks()
     })
 
     it.each<{
@@ -75,7 +67,7 @@ describe('FlameGraph', () => {
     })
 
     it('zooms into a clicked node and zooms back out with Escape and reset', () => {
-        const { chart, container } = renderFlame()
+        const { chart } = renderFlame()
         expect(chart.flame.breadcrumb()).toEqual(['All'])
 
         fireEvent.click(chart.element, { clientX: 200, clientY: rowY(1) })
@@ -85,10 +77,10 @@ describe('FlameGraph', () => {
         fireEvent.click(chart.element, { clientX: 390, clientY: rowY(2) })
         expect(chart.flame.breadcrumb()).toEqual(['All', 'root', 'a', 'a1'])
 
-        fireEvent.keyDown(container.querySelector('[data-attr="hog-chart-flame-viewport"]')!, { key: 'Escape' })
+        fireEvent.keyDown(chart.flame.viewport(), { key: 'Escape' })
         expect(chart.flame.breadcrumb()).toEqual(['All', 'root', 'a'])
 
-        fireEvent.click(container.querySelector('[data-attr="hog-chart-flame-reset"]')!)
+        fireEvent.click(chart.flame.resetButton()!)
         expect(chart.flame.breadcrumb()).toEqual(['All'])
     })
 
@@ -137,15 +129,10 @@ describe('FlameGraph', () => {
     it('repaints at the new size when its container resizes', () => {
         const { chart } = renderFlame()
         expect(chart.canvas.style.width).toBe('800px')
-        const rect = jest.spyOn(Element.prototype, 'getBoundingClientRect')
-        try {
-            rect.mockReturnValue({ ...mockRect, width: 400, right: 400 })
-            // A restored context makes the canvas re-measure, the same path a resize takes.
-            fireEvent(chart.canvas, new Event('contextrestored'))
-            expect(chart.canvas.style.width).toBe('400px')
-        } finally {
-            rect.mockReturnValue(mockRect)
-        }
+        jest.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ ...mockRect, width: 400, right: 400 })
+        // A restored context makes the canvas re-measure, the same path a resize takes.
+        fireEvent(chart.canvas, new Event('contextrestored'))
+        expect(chart.canvas.style.width).toBe('400px')
     })
 
     it('lists group colors through the shared legend accessor, largest self share first', () => {

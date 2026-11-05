@@ -144,6 +144,10 @@ export interface ChartAccessor<Meta = unknown> {
         breadcrumb(): string[]
         /** The search summary (`3 matches · 12% of total`), or null without a search. */
         searchSummary(): string | null
+        /** The scroll viewport, which takes keyboard focus and handles Escape. */
+        viewport(): HTMLElement
+        /** The "Reset zoom" button, or null when the whole graph is in view. */
+        resetButton(): HTMLElement | null
     }
     /** The legend container in this chart's render scope, or null when the legend is hidden. */
     legend(): HTMLElement | null
@@ -274,6 +278,10 @@ export function getChart<Meta = unknown>(
     }
     const gaugePart = (part: string): HTMLElement | null =>
         wrapper.querySelector<HTMLElement>(`[data-attr="hog-chart-gauge-${part}"]`)
+    const flamePart = (part: string): HTMLElement | null =>
+        wrapper
+            .closest('[data-hog-charts-flame]')
+            ?.querySelector<HTMLElement>(`[data-attr="hog-chart-flame-${part}"]`) ?? null
 
     return {
         element: wrapper,
@@ -355,10 +363,15 @@ export function getChart<Meta = unknown>(
                 const root = wrapper.closest('[data-hog-charts-flame]')
                 return root ? textsOf(root, 'hog-chart-flame-breadcrumb') : []
             },
-            searchSummary: () =>
-                wrapper
-                    .closest('[data-hog-charts-flame]')
-                    ?.querySelector('[data-attr="hog-chart-flame-search-summary"]')?.textContent ?? null,
+            searchSummary: () => flamePart('search-summary')?.textContent ?? null,
+            viewport: () => {
+                const viewport = flamePart('viewport')
+                if (!viewport) {
+                    throw new Error('This chart is not a flame graph')
+                }
+                return viewport
+            },
+            resetButton: () => flamePart('reset'),
         },
         legend: () => scope.querySelector<HTMLElement>('[data-hog-charts-legend]'),
         legendItems: () => readLegendItems(scope),
