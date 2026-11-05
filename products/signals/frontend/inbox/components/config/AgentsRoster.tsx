@@ -136,7 +136,8 @@ const ALERT_SCOPE_OPTIONS: { value: SignalAlertScope; label: string; description
     {
         value: SignalAlertScope.AllFiringAlerts,
         label: 'All firing alerts',
-        description: 'Every insight alert that fires, including alerts without the investigation agent.',
+        description:
+            'Each time an insight alert starts firing, including alerts without the investigation agent. An alert that is already firing is included the next time it starts firing.',
         dataAttr: 'signal-source-alert-scope-all-firing-alerts',
     },
 ]
