@@ -768,7 +768,7 @@ export const SignalsReportsCreateBody = () => zod
             .max(signalsReportsCreateBodyChartsMax)
             .optional()
             .describe(
-                'Optional charts to attach to the report — the inbox renders them inline, so a metric move is something the reader sees rather than a number they take on trust. Attach one whenever the finding rests on a trend, a spike, or a comparison you already queried.'
+                'Optional charts to attach to the report — the inbox renders them inline, so a metric move is something the reader sees rather than a number they take on trust. Attach one whenever the finding rests on a trend, a spike, or a comparison you already queried. Reference a chart from `summary` as `[label](chart:<chart_id>)` to place it in the body; an unreferenced chart renders below the summary.'
             ),
         suggested_prompts: zod
             .array(zod.string().max(signalsReportsCreateBodySuggestedPromptsItemMax))

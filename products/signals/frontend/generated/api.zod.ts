@@ -860,7 +860,7 @@ export const SignalsReportsCreateBody = /* @__PURE__ */ zod
             .max(signalsReportsCreateBodyChartsMax)
             .optional()
             .describe(
-                'Optional charts to attach to the report — the inbox renders them inline, so a metric move is something the reader sees rather than a number they take on trust. Attach one whenever the finding rests on a trend, a spike, or a comparison you already queried.'
+                'Optional charts to attach to the report — the inbox renders them inline, so a metric move is something the reader sees rather than a number they take on trust. Attach one whenever the finding rests on a trend, a spike, or a comparison you already queried. Reference a chart from `summary` as `[label](chart:<chart_id>)` to place it in the body; an unreferenced chart renders below the summary.'
             ),
         metrics: zod
             .array(
@@ -964,7 +964,7 @@ export const SignalsReportsCreateBody = /* @__PURE__ */ zod
             .max(signalsReportsCreateBodyMetricsMax)
             .optional()
             .describe(
-                'Optional typed impact measurements. Use one primary metric for the key observation and supporting metrics for users, sessions, occurrences, conversion, latency, or revenue. Every metric requires a bounded live InsightVizNode\/TrendsQuery built only from EventsNode or ActionsNode sources and capped at 1,000 estimated longitudinal points. Consumers derive BoldNumber and ActionsBar shapes. A value\/value_at snapshot is an optional cached fallback. Affected users must use one series with `math: dau`. Snapshot-only\/queryless payloads are invalid; legacy rows of that shape are always redacted.'
+                'Optional typed impact measurements, at most 6. Mark one metric `primary` for the key observation and the rest `supporting`, for users, sessions, occurrences, conversion, latency, or revenue. Every metric needs a live `query`: an InsightVizNode wrapping one bounded TrendsQuery built only from EventsNode or ActionsNode sources, with at most 1000 estimated longitudinal points. An affected-users metric counts distinct people through one series with `math: dau`; never sum its buckets. A `value`\/`value_at` snapshot is only an optional cached fallback, and a metric without a query is invalid.'
             ),
         suggested_prompts: zod
             .array(zod.string().max(signalsReportsCreateBodySuggestedPromptsItemMax))

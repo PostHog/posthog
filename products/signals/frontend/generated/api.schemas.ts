@@ -10049,7 +10049,7 @@ export interface EditReportRequestApi {
      */
     suggested_reviewers?: SuggestedReviewerApi[]
     /**
-     * Optional repository to point the report at, as `owner/repo` — the fix for a report that surfaced against the wrong codebase, so you correct it in place instead of filing a duplicate. It replaces the report's current target and re-runs autostart, so a report that had no repository to open a PR against can now open a draft PR. Omit the field to leave the target as it is, and pass the `NO_REPO` sentinel for a report where nothing under version control could change. The response's `repository` reads the target back from the report, and the call fails when the target you named did not land. The response's `repository` reads the target back from the report, and the call fails when the target you named did not land.
+     * Optional repository to point the report at, as `owner/repo` — the fix for a report that surfaced against the wrong codebase, so you correct it in place instead of filing a duplicate. It replaces the report's current target and re-runs autostart, so a report that had no repository to open a PR against can now open a draft PR. Omit the field to leave the target as it is, and pass the `NO_REPO` sentinel for a report where nothing under version control could change. The response's `repository` reads the target back from the report, and the call fails when the target you named did not land.
      * @nullable
      */
     repository?: string | null
