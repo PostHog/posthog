@@ -1,6 +1,6 @@
 //! Deterministic aperture: weighted ring-slice candidate selection.
 //!
-//! Every consumer sorts the full worker set into the same ring, takes an arc
+//! Every consumer sorts the workers into the same ring, takes an arc
 //! of it, and places its requests only on the workers under that arc (via the
 //! configured selection strategy). Because peers agree on both the ring order
 //! (same EndpointSlices, same sort) and their own indices
@@ -22,9 +22,13 @@
 //! | 1    | 7-14  | w2 2, w3 3, w4 2 |
 //! | 2    | 14-21 | w4 1, w5 3, w6 3 |
 //!
-//! Unroutable ring positions (unhealthy or draining workers) are skipped and
-//! the arc extends further around the ring, so the *effective* width holds
-//! under partial failure.
+//! The ring holds the workers that discovery lists, so a draining worker
+//! leaves every peer's ring and the arcs move to share its units. A worker
+//! that only this consumer finds unhealthy leaves only this slice, and the
+//! other workers of the slice take its share. When the routable workers hold
+//! less than half of the arc's weight, the consumer takes its arc of a ring of
+//! the routable workers instead, so that a large failure spreads over the
+//! whole routable pool and does not fall on the few workers left in a slice.
 
 use std::collections::HashSet;
 use std::iter;
@@ -34,8 +38,8 @@ use crate::routing::Candidate;
 use crate::worker_registry::WorkerId;
 
 /// The weighted candidate workers for one assignment round. `ring` is the
-/// canonically sorted full worker set; `healthy` the subset this dispatcher
-/// may route to.
+/// canonically sorted set of workers that discovery lists; `healthy` the
+/// subset this dispatcher may route to.
 ///
 /// Returns `None` (caller falls back to the full healthy pool) when the
 /// slice can't be computed: no peers known yet, an out-of-range index, or an
@@ -51,23 +55,47 @@ pub fn ring_slice(
     if ring.is_empty() || peer_count == 0 || index >= peer_count || min_width == 0 {
         return None;
     }
-    let arc = Arc::new(ring.len(), peer_count, index, min_width);
     let healthy: HashSet<&WorkerId> = healthy.iter().collect();
 
-    let healthy_spans = arc
-        .spans(ring.len())
-        .filter(|(position, _)| healthy.contains(&ring[*position]));
-    let covered = take_units(healthy_spans, arc.len);
-
-    let full_weight = NonZeroU64::new(arc.units_per_worker)?;
-    let candidates: Vec<Candidate> = sum_by_position(covered, ring.len())
+    let arc = arc_slice(ring, index, peer_count, min_width);
+    let arc_weight = total_weight(&arc);
+    let slice: Vec<Candidate> = arc
         .into_iter()
-        .filter_map(|(position, units)| {
-            let weight = NonZeroU64::new(units)?;
-            Some(Candidate::new(ring[position].clone(), weight, full_weight))
-        })
+        .filter(|candidate| healthy.contains(&candidate.worker))
         .collect();
-    (!candidates.is_empty()).then_some(candidates)
+    if total_weight(&slice) * 2 >= arc_weight {
+        return Some(slice);
+    }
+    let routable_ring: Vec<WorkerId> = ring
+        .iter()
+        .filter(|worker| healthy.contains(worker))
+        .cloned()
+        .collect();
+    (!routable_ring.is_empty()).then(|| arc_slice(&routable_ring, index, peer_count, min_width))
+}
+
+fn total_weight(slice: &[Candidate]) -> u64 {
+    slice.iter().map(|candidate| candidate.weight.get()).sum()
+}
+
+/// Every worker under peer `index`'s arc of `ring`, weighted by its units
+/// under the arc. `ring` and `peer_count` must not be empty or zero.
+fn arc_slice(
+    ring: &[WorkerId],
+    index: usize,
+    peer_count: usize,
+    min_width: usize,
+) -> Vec<Candidate> {
+    let arc = Arc::new(ring.len(), peer_count, index, min_width);
+    let full_weight = NonZeroU64::new(arc.units_per_worker).expect("peer_count is above zero");
+    let covered = take_units(arc.spans(ring.len()), arc.len);
+    sum_by_position(covered, ring.len())
+        .into_iter()
+        .map(|(position, units)| {
+            let weight = NonZeroU64::new(units).expect("take_units yields no empty span");
+            Candidate::new(ring[position].clone(), weight, full_weight)
+        })
+        .collect()
 }
 
 /// The spans in order, cut so that their units add up to at most `units`.
@@ -310,13 +338,29 @@ mod tests {
     }
 
     #[test]
-    fn test_slice_extends_past_unhealthy_workers() {
+    fn test_an_unhealthy_worker_leaves_the_slice_and_the_arc_stays() {
         let ring = ring(6);
         let healthy: Vec<WorkerId> = ring.iter().filter(|w| **w != ring[1]).cloned().collect();
         let slice = ring_slice(&ring, &healthy, Some(0), 3, 2).unwrap();
+        assert_eq!(weights(&slice), vec![(ring[0].clone(), 3)]);
+    }
+
+    #[test]
+    fn test_with_no_healthy_worker_under_the_arc_the_peer_takes_its_arc_of_the_healthy_ring() {
+        let ring = ring(6);
+        let healthy: Vec<WorkerId> = ring[2..].to_vec();
+        let slice = ring_slice(&ring, &healthy, Some(0), 3, 2).unwrap();
+        assert_eq!(
+            slice,
+            ring_slice(&healthy, &healthy, Some(0), 3, 2).unwrap()
+        );
         assert_eq!(
             weights(&slice),
-            vec![(ring[0].clone(), 3), (ring[2].clone(), 3)]
+            vec![
+                (ring[2].clone(), 3),
+                (ring[3].clone(), 3),
+                (ring[4].clone(), 2)
+            ]
         );
     }
 

@@ -213,18 +213,21 @@ impl Governor {
         }
     }
 
-    /// Each bound is the sum of the candidates' slots at its per-worker
-    /// permits, so a candidate that covers part of a worker adds that part.
-    /// `in_flight` counts the requests on `pool` only: a request on a worker
-    /// that left the pool holds none of the pool's permits.
+    /// The ceiling is the slots of `pool`. The floor is the min permits for
+    /// each worker that `pool` covers, and stays at least one below the
+    /// ceiling when the min is below the max, so the law can always shrink the
+    /// pool. `in_flight` counts the requests on `pool` only: a request on a
+    /// worker that left the pool holds none of the pool's permits.
     pub fn set_pool(&mut self, pool: &[Candidate], in_flight: usize) {
-        let slots = |per_worker: usize| -> usize {
-            pool.iter()
-                .map(|candidate| candidate.slots(per_worker))
-                .sum()
-        };
-        self.ceiling = slots(self.max_permits_per_worker);
-        self.floor = slots(self.settings.min_permits_per_worker).min(self.ceiling);
+        self.ceiling = pool
+            .iter()
+            .map(|candidate| candidate.slots(self.max_permits_per_worker))
+            .sum();
+        let mut floor = permits_for_covered_workers(pool, self.settings.min_permits_per_worker);
+        if self.settings.min_permits_per_worker < self.max_permits_per_worker {
+            floor = floor.min(self.ceiling.saturating_sub(1));
+        }
+        self.floor = floor.max(1).min(self.ceiling);
         self.in_flight = in_flight;
     }
 
@@ -266,6 +269,17 @@ impl Governor {
             applied: self.settings.adaptation == Adaptation::On,
         })
     }
+}
+
+/// `per_worker` permits for each worker that `pool` covers, rounded up once
+/// for the whole pool. The candidates of one pool share one full weight.
+fn permits_for_covered_workers(pool: &[Candidate], per_worker: usize) -> usize {
+    let Some(first) = pool.first() else {
+        return 0;
+    };
+    debug_assert!(pool.iter().all(|c| c.full_weight == first.full_weight));
+    let weight: u128 = pool.iter().map(|c| u128::from(c.weight.get())).sum();
+    (per_worker as u128 * weight).div_ceil(u128::from(first.full_weight.get())) as usize
 }
 
 #[cfg(test)]
@@ -442,13 +456,32 @@ mod tests {
         assert_eq!(governor.ceiling(), 12);
 
         let now = Instant::now();
+        for step in 0..3 {
+            assert_eq!(
+                governor.observe(SLOW, now + STEP * step),
+                applied(Direction::Shrink)
+            );
+        }
+        assert_eq!(governor.observe(SLOW, now + STEP * 3), None);
+        assert_eq!(governor.permits(), 9, "3 permits x 3 covered workers");
+    }
+
+    #[test]
+    fn a_slice_of_two_half_workers_can_still_shrink() {
+        let ring = sorted_ring(vec![WorkerId::from("w1"), WorkerId::from("w2")]);
+        let slice = ring_slice(&ring, &ring, Some(1), 4, 1).unwrap();
+        assert_eq!(slice.len(), 2);
+        let settings = GovernorSettings {
+            min_permits_per_worker: 3,
+            ..settings(Adaptation::On)
+        };
+        let mut governor = Governor::new(settings, MAX_PER_WORKER).expect("valid");
+        governor.set_pool(&slice, 0);
+        assert_eq!(governor.ceiling(), 4);
+
+        let now = Instant::now();
         assert_eq!(governor.observe(SLOW, now), applied(Direction::Shrink));
-        assert_eq!(
-            governor.observe(SLOW, now + STEP),
-            applied(Direction::Shrink)
-        );
-        assert_eq!(governor.observe(SLOW, now + STEP * 2), None);
-        assert_eq!(governor.permits(), 10, "2 + 3 + 3 + 2");
+        assert_eq!(governor.permits(), 3);
     }
 
     #[test]

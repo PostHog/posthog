@@ -86,9 +86,7 @@ impl WorkerPoolSource {
 
     fn narrow(&self, healthy: &[WorkerId]) -> Option<Vec<Candidate>> {
         self.active_aperture()?;
-        let ring = aperture::sorted_ring(self.registry.workers());
-        // The fleet's slices tile the pool, so each consumer's requests
-        // consolidate onto few workers.
+        let ring = aperture::sorted_ring(self.registry.members());
         self.slice(&ring, healthy)
     }
 }

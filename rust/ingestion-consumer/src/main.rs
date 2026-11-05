@@ -646,6 +646,7 @@ async fn build_debug_load(
     let ring = aperture::sorted_ring(
         snapshots
             .iter()
+            .filter(|snap| !snap.draining)
             .map(|snap| WorkerId::from(snap.url.as_str()))
             .collect(),
     );
