@@ -3,6 +3,7 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 import { decodeParams, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { DEFAULT_OAUTH_SCOPES, getScopeGroupLabel, scopeGroupLevel, scopeGroupTooltip } from 'lib/scopes'
 import { userLogic } from 'scenes/userLogic'
 
@@ -339,22 +340,32 @@ describe('oauthAuthorizeLogic', () => {
         expect(logic.values.newOrganizationLoading).toBe(false)
     })
 
-    it('keeps the user when the refresh after creating an organization fails', async () => {
-        const userWithoutOrganization = { ...MOCK_DEFAULT_USER, organization: null, organizations: [], team: null }
-        userLogic.actions.loadUserSuccess(userWithoutOrganization)
-        useMocks({
+    it.each([
+        {
+            failing: 'user',
+            get: { '/api/users/@me/': () => [500, { detail: 'Server error' }] },
+        },
+        {
+            failing: 'project',
             get: {
-                '/api/users/@me/': () => [500, { detail: 'Server error' }],
+                '/api/users/@me/': { ...MOCK_DEFAULT_USER, organizations: [{ id: 'new-org', name: 'New org' }] },
+                '/api/organizations/new-org/projects/': () => [500, { detail: 'Server error' }],
             },
-            post: {
-                '/api/organizations/': { id: 'new-org', name: 'New org' },
-            },
-        })
+        },
+    ])('offers a reload instead of a retry when the $failing refresh fails after creation', async ({ get }) => {
+        const toastError = jest.spyOn(lemonToast, 'error')
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, organization: null, organizations: [], team: null })
+        useMocks({ get, post: { '/api/organizations/': { id: 'new-org', name: 'New org' } } })
 
         await expectLogic(logic, () => logic.actions.createNewOrganization('New org')).toFinishAllListeners()
 
-        expect(userLogic.values.user).toEqual(userWithoutOrganization)
+        expect(toastError).toHaveBeenCalledWith(
+            expect.stringContaining('Reload the page'),
+            expect.objectContaining({ button: expect.objectContaining({ label: 'Reload' }) })
+        )
+        expect(userLogic.values.user).not.toBeNull()
         expect(logic.values.newOrganizationLoading).toBe(false)
+        toastError.mockRestore()
     })
 
     const HINT_TEAMS = [

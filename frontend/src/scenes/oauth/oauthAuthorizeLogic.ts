@@ -464,22 +464,30 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 // The backend creates a default project with the organization and makes both current.
                 // nosemgrep: prefer-codegen-api -- False positive: this is the generated create() from products/platform_features/frontend/generated/api, which semgrep resolves to api.create because the module is named api.
                 const organization = await createOrganization({ name })
-                await userLogic.asyncActions.loadUser()
-                if (!userLogic.values.user) {
-                    // loadUser reports its own failure and sets the user to null, which hides this screen.
-                    // Restore the previous user and offer a reload, because the authorize URL survives it.
-                    if (previousUser) {
-                        userLogic.actions.loadUserSuccess(previousUser)
-                    }
+                // The loaders below report their own failures and resolve anyway. A retry here would
+                // create a second organization, so offer a reload, which keeps the authorize URL.
+                const showReloadToast = (): void => {
                     lemonToast.error(
                         "Your organization was created, but it couldn't be loaded. Reload the page to continue.",
                         {
                             button: { label: 'Reload', action: () => window.location.reload() },
                         }
                     )
+                }
+                await userLogic.asyncActions.loadUser()
+                if (!userLogic.values.user) {
+                    // A failed loadUser sets the user to null, which hides this screen.
+                    if (previousUser) {
+                        userLogic.actions.loadUserSuccess(previousUser)
+                    }
+                    showReloadToast()
                     return
                 }
                 await oauthAuthorizeLogic.asyncActions.loadAllTeams()
+                if (!values.allTeams?.some((team) => team.organization === organization.id)) {
+                    showReloadToast()
+                    return
+                }
                 if (values.requiredAccessLevel === 'team') {
                     actions.setSelectedOrganization(organization.id, userLogic.values.user?.team?.id)
                 }
