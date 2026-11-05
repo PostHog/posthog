@@ -1,3 +1,5 @@
+import { z } from 'zod'
+
 import type { ApiKeyAccess } from '@posthog/mcp/src/cli/library-types'
 
 import { HogError } from '@/core/errors'
@@ -59,6 +61,14 @@ export interface AccessKey {
 }
 
 const KEY_CHECK_TIMEOUT_MS = 30_000
+
+// If hog doesn't recognize a scope, it drops it instead of failing the login
+const KeyScopes = z.object({
+    scopes: z
+        .array(z.unknown())
+        .transform((scopes) => scopes.filter((scope) => typeof scope === 'string'))
+        .catch([]),
+})
 
 export class PersonalAPIKey implements AccessKey {
     readonly host: Host
@@ -125,14 +135,9 @@ export class PersonalAPIKey implements AccessKey {
                 'Check the host, then run the command again.'
             )
         }
-        const scopes = (response.json as { scopes?: unknown } | undefined)?.scopes
         const { host, projectId, apiKey } = this
-        return new PersonalAPIKey({
-            host,
-            projectId,
-            apiKey,
-            scopes: Array.isArray(scopes) ? scopes.filter((scope) => typeof scope === 'string') : [],
-        })
+        const scopes = KeyScopes.safeParse(response.json).data?.scopes ?? []
+        return new PersonalAPIKey({ host, projectId, apiKey, scopes })
     }
 
     // A personal API key can't be revoked from hog, so logout says where to delete it.

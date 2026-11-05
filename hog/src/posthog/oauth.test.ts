@@ -75,7 +75,7 @@ describe('OAuth credentials', () => {
         const api = new PostHogApi(sessionFor(runtime, await resolveCredentials(runtime, {})), runtime.fetch)
         await runtime.sleep(commandRunsMs)
 
-        const outcome = await api.get<{ name: string }>('').catch((error: unknown) => error)
+        const outcome = await api.get('', z.looseObject({ name: z.string() })).catch((error: unknown) => error)
 
         expect(outcome).toMatchObject(expected)
         expect(tokenRequests(runtime)).toHaveLength(1)
@@ -94,8 +94,8 @@ describe('OAuth credentials', () => {
         const api = new PostHogApi(sessionFor(runtime, await resolveCredentials(runtime, {})), runtime.fetch)
 
         const outcomes = [
-            await api.get('').catch((error: unknown) => error),
-            await api.get('').catch((error: unknown) => error),
+            await api.get('', z.unknown()).catch((error: unknown) => error),
+            await api.get('', z.unknown()).catch((error: unknown) => error),
         ]
 
         expect(outcomes).toMatchObject([REJECTED, REJECTED])
@@ -114,7 +114,7 @@ describe('OAuth credentials', () => {
         runtime.files[SETTINGS_FILE] = JSON.stringify(replaced)
         runtime.keychain[EU] = secret('pha_other')
 
-        const outcome = await api.get('').catch((error: unknown) => error)
+        const outcome = await api.get('', z.unknown()).catch((error: unknown) => error)
 
         expect(outcome).toMatchObject({ code: 'login_changed' })
         expect(tokenRequests(runtime)).toEqual([])
@@ -129,7 +129,7 @@ describe('OAuth credentials', () => {
         })
         const api = new PostHogApi(sessionFor(runtime, await resolveCredentials(runtime, {})), runtime.fetch)
 
-        const outcome = await api.get('').catch((error: unknown) => error)
+        const outcome = await api.get('', z.unknown()).catch((error: unknown) => error)
 
         expect(outcome).toMatchObject(REJECTED)
         expect(runtime.requests).toHaveLength(1)
