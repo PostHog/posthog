@@ -848,7 +848,21 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual([(finding["code"], finding["subcode"]) for finding in health["findings"]], expected)
         self.assertEqual(health["findings"][0]["actions"], ["open_feature_flag"])
         self.assertEqual(health["findings"][0]["diagnostic_ref"], "A5")
-        self.assertEqual((health["checks"][0]["key"], health["checks"][0]["status"]), ("flag_state", "finding"))
+        self.assertEqual(health["findings"][0]["check"], "flag_state")
+        self.assertEqual(
+            {key: health["checks"][0][key] for key in ("key", "status", "values", "rule")},
+            {
+                "key": "flag_state",
+                "status": "finding",
+                "values": {
+                    "flag_active": False,
+                    "flag_deleted": False,
+                    "flag_rolled_out": True,
+                    "shipped_variant": None,
+                },
+                "rule": None,
+            },
+        )
 
     @parameterized.expand(
         [

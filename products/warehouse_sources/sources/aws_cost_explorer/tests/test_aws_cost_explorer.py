@@ -195,6 +195,7 @@ class TestValidateCredentials:
         [
             ("AccessDeniedException", VALIDATION_ERROR_MESSAGES["AccessDeniedException"]),
             ("ExpiredTokenException", VALIDATION_ERROR_MESSAGES["ExpiredTokenException"]),
+            ("IncompleteSignatureException", VALIDATION_ERROR_MESSAGES["IncompleteSignatureException"]),
             ("ThrottlingException", TRANSIENT_VALIDATION_ERROR),
             ("HTTP 503", TRANSIENT_VALIDATION_ERROR),
             ("SomeUnmappedException", GENERIC_VALIDATION_ERROR),

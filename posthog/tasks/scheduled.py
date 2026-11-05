@@ -147,6 +147,7 @@ from products.tasks.backend.facade.tasks import (
     refresh_stale_sandbox_custom_images_task,
     settle_overdue_sandbox_compute_task,
     sweep_inactive_tasks_task,
+    sweep_queued_gateway_usage,
 )
 from products.visual_review.backend.facade.tasks import (
     send_visual_review_debt_digests,
@@ -297,6 +298,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         60,
         capture_task_run_state_metrics.s(),
         name="tasks run state metrics",
+    )
+
+    # Backstop for a gateway callback whose Celery kick was lost: the run's usage workflow only
+    # starts from that kick, so nothing would drain the intake table otherwise.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/4"),
+        sweep_queued_gateway_usage.s(),
+        name="tasks queued gateway usage sweep",
     )
 
     add_periodic_task_with_expiry(
