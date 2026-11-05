@@ -357,7 +357,7 @@ class UsageReportCounters:
     go_mcp_events_count_in_period: int
     ruby_mcp_events_count_in_period: int
 
-    # MCP usage overlaps billable event and per-SDK totals.
+    # MCP usage overlaps `mcp_event_count_in_period` and per-SDK totals.
     mcp_tool_call_events_count_in_period: int
     mcp_missing_capability_events_count_in_period: int
     mcp_initialize_events_count_in_period: int

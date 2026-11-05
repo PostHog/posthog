@@ -6513,6 +6513,15 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             timestamp=self.begin + relativedelta(hours=3),
             properties={"$lib": sdk_type},
         )
+        # A `$mcp_*` name with no per-type counter still bills on the MCP meter, and only the full prefix leaves
+        # product analytics, so the last two names stay billable there.
+        for event in ["$mcp_auth_failed", "$mcp", "mcp_tool_call"]:
+            _create_event(
+                event=event,
+                team=self.team,
+                distinct_id="mcp_edge_user",
+                timestamp=self.begin + relativedelta(hours=3),
+            )
 
         flush_persons_and_events()
 
@@ -6521,16 +6530,16 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         )
         event_metrics = get_all_event_metrics_in_period(self.begin, reporting_end)
 
-        self.assertEqual(billable_result_after, billable_result_before)
+        self.assertEqual(billable_result_after, [(self.team.id, billable_result_before[0][1] + 2)])
         self.assertEqual(
             get_teams_with_billable_enhanced_persons_event_count_in_period(
                 self.begin, reporting_end, count_distinct=True
             ),
-            enhanced_persons_result_before,
+            [(self.team.id, enhanced_persons_result_before[0][1] + 2)],
         )
         self.assertEqual(
             get_teams_with_mcp_event_count_in_period(self.begin, reporting_end),
-            [(self.team.id, 3)],
+            [(self.team.id, 4)],
         )
         self.assertEqual(dict(event_metrics[metric_name]).get(self.team.id), 3)
         self.assertEqual(dict(event_metrics["mcp_tool_call_events"]).get(self.team.id), 2)

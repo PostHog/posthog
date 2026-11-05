@@ -209,6 +209,7 @@ WHERE timestamp >= {window_start}
     '$anomaly_score', '$anomaly_score_shadow'
   )
   AND NOT startsWith(event, '$ai_')
+  AND NOT startsWith(event, '$mcp_')
 GROUP BY event
 ORDER BY c DESC
 LIMIT 20
