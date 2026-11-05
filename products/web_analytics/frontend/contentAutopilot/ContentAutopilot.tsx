@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDialog, LemonSelect, LemonSkeleton, LemonTabs } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonSelect, LemonTabs } from '@posthog/lemon-ui'
 
 import { ContentAutopilotDrafts } from './ContentAutopilotDrafts'
 import { type ContentAutopilotWorkspaceTab, contentAutopilotLogic } from './contentAutopilotLogic'
@@ -38,7 +38,6 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
         proposalsLoading,
         runMutationLoading,
         workspaceError,
-        workspaceInitialized,
         profileDataLoaded,
         visibleOpportunities,
     } = useValues(contentAutopilotLogic)
@@ -70,10 +69,6 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
             bots.close()
         }
         setWorkspaceTab(tab)
-    }
-
-    if (!workspaceInitialized) {
-        return <LemonSkeleton className="h-72 w-full" />
     }
 
     return (
