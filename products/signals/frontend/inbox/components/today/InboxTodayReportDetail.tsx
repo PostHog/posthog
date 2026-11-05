@@ -40,7 +40,7 @@ export function InboxTodayReportDetail({
                 </nav>
                 {page ? (
                     <>
-                        <div data-quill>
+                        <div className="Today__page" data-quill>
                             <TodayReportLiveBody report={report} linksToInbox={false} />
                         </div>
                         <div className="mt-10">

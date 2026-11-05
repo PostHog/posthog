@@ -425,7 +425,7 @@ export function ReportsTab(): JSX.Element {
             ) : (
                 <div className="@container flex flex-col gap-1.5">
                     {todayStyle ? (
-                        <ol className="Today TodayRows">
+                        <ol className="Today__page TodayRows" data-quill>
                             {rows.map(({ report, sectionKey }, index) => (
                                 <Fragment key={report.id}>
                                     {index > 0 && index === firstUnscoredIndex && (
