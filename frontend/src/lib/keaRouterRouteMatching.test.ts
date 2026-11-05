@@ -1,4 +1,4 @@
-import { kea, path } from 'kea'
+import { kea, listeners, path, reducers } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
 import { initKeaTests } from '~/test/init'
@@ -50,5 +50,65 @@ describe('kea-router route matching', () => {
 
         expect(matched).toHaveBeenCalledTimes(1)
         expect(matched).toHaveBeenCalledWith(route, params)
+    })
+
+    it.each(['unmount', 'rebuild', 'remount instance'])('skips a removed URL listener (%s)', (transition) => {
+        const restored = jest.fn()
+        const survivor = jest.fn()
+        let unmountScene: () => void
+        const navigationLogic = kea([
+            path(['lib', 'keaRouterRouteMatching', 'navigationLogic']),
+            urlToAction({
+                '/leaving': () => {
+                    unmountScene()
+                    if (transition === 'rebuild') {
+                        unmountScene = sceneLogic.mount()
+                    } else if (transition === 'remount instance') {
+                        unmountScene = scene.mount()
+                    }
+                },
+            }),
+        ])
+        const sceneLogic = kea([
+            path(['lib', 'keaRouterRouteMatching', 'sceneLogic']),
+            reducers({ productTab: ['analytics', {}] }),
+            urlToAction(({ values }) => ({
+                '/leaving': () => restored(values.productTab),
+            })),
+        ])
+        const scene = sceneLogic.build()
+        const survivorLogic = kea([
+            path(['lib', 'keaRouterRouteMatching', 'survivorLogic']),
+            urlToAction({ '/leaving': survivor }),
+        ])
+
+        navigationLogic.mount()
+        unmountScene = scene.mount()
+        survivorLogic.mount()
+
+        expect(() => router.actions.push('/leaving')).not.toThrow()
+        expect(restored).toHaveBeenCalledTimes(transition === 'unmount' ? 0 : 1)
+        expect(survivor).toHaveBeenCalledTimes(1)
+    })
+
+    it('skips later listeners when an earlier listener unmounts their logic', () => {
+        const restored = jest.fn()
+        let unmountScene: () => void
+        const sceneLogic = kea([
+            path(['lib', 'keaRouterRouteMatching', 'sceneLogic']),
+            reducers({ productTab: ['analytics', {}] }),
+            listeners({
+                [router.actionTypes.locationChanged]: ({ pathname }) => {
+                    if (pathname.endsWith('/leaving')) {
+                        unmountScene()
+                    }
+                },
+            }),
+            urlToAction(({ values }) => ({ '/leaving': () => restored(values.productTab) })),
+        ])
+        unmountScene = sceneLogic.mount()
+
+        expect(() => router.actions.push('/leaving')).not.toThrow()
+        expect(restored).not.toHaveBeenCalled()
     })
 })

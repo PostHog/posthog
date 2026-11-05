@@ -130,13 +130,10 @@ export const sessionPlayerModalLogic = kea<sessionPlayerModalLogicType>([
     }),
     urlToAction(({ actions, values }) => {
         const urlToAction = (_: any, searchParams: QueryParams, hashParams: HashParams): void => {
-            // Check if the logic is still mounted. Because this is called on every URL change, the logic might have been unmounted already.
-            if (sessionPlayerModalLogic.isMounted()) {
-                const nulledSessionRecordingId = hashParams.sessionRecordingId ?? null
-                const initialTimestamp = searchParams.timestamp ?? null
-                if (nulledSessionRecordingId && nulledSessionRecordingId !== values.activeSessionRecording?.id) {
-                    actions.openSessionPlayer({ id: nulledSessionRecordingId }, initialTimestamp)
-                }
+            const nulledSessionRecordingId = hashParams.sessionRecordingId ?? null
+            const initialTimestamp = searchParams.timestamp ?? null
+            if (nulledSessionRecordingId && nulledSessionRecordingId !== values.activeSessionRecording?.id) {
+                actions.openSessionPlayer({ id: nulledSessionRecordingId }, initialTimestamp)
             }
         }
         return {
