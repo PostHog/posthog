@@ -320,6 +320,25 @@ class TestFacadeReadsAndMappers(TestCase):
         defaults.update(kwargs)
         return Task.objects.create(**defaults)
 
+    def test_ended_task_run_ids_returns_only_terminal_runs_across_teams(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        other_task = self._make_task(team=other_team)
+        task = self._make_task()
+        runs = {
+            status: TaskRun.objects.create(task=task, team=self.team, status=status) for status in TaskRun.Status.values
+        }
+        other_team_run = TaskRun.objects.create(task=other_task, team=other_team, status=TaskRun.Status.FAILED)
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.CANCELLED)
+
+        ended = facade.ended_task_run_ids([*(run.id for run in runs.values()), other_team_run.id])
+
+        assert ended == {
+            runs[TaskRun.Status.COMPLETED].id,
+            runs[TaskRun.Status.FAILED].id,
+            runs[TaskRun.Status.CANCELLED].id,
+            other_team_run.id,
+        }
+
     @parameterized.expand(
         [
             ("the_sandbox", True, True),

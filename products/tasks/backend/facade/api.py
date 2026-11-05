@@ -1295,6 +1295,17 @@ def get_task_run_completed_at(run_ids: Iterable[str | UUID], team_id: int) -> di
     )
 
 
+def ended_task_run_ids(run_ids: Iterable[UUID]) -> set[UUID]:
+    """The given runs that reached a terminal status. Cross-team, for sweeps that hold run ids from many teams."""
+    return set(
+        TaskRun.objects.filter(  # nosemgrep: celery-task-team-scope-audit
+            id__in=list(run_ids), status__in=_TERMINAL_TASK_RUN_STATUSES
+        )
+        .order_by()
+        .values_list("id", flat=True)
+    )
+
+
 def task_access_scope(*, team_id: int, user: User) -> contracts.TaskAccessScope:
     team = Team.objects.get(id=team_id)
     access = UserAccessControl(user=user, team=team)

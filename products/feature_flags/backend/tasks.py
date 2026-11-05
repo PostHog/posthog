@@ -98,6 +98,15 @@ def report_django_local_evaluation_usage_task() -> None:
     report_django_local_evaluation_usage()
 
 
+@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value)
+@skip_team_scope_audit
+def stop_rollout_plans_with_ended_runs_task() -> None:
+    # rollout_plans reaches the flag viewset and the tasks facade, which must stay off the Django setup import path.
+    from products.feature_flags.backend.rollout_plans import stop_rollout_plans_with_ended_runs  # noqa: PLC0415
+
+    stop_rollout_plans_with_ended_runs()
+
+
 # Pinned: products.cohorts dispatches this by name (a static import would close a product-dependency
 # cycle), so a module move must not silently rename the registration out from under that caller.
 @shared_task(

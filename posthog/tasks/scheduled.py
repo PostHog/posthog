@@ -111,6 +111,7 @@ from products.feature_flags.backend.tasks import (
     refresh_expiring_flag_definitions_cache_entries,
     refresh_expiring_flags_cache_entries,
     report_django_local_evaluation_usage_task,
+    stop_rollout_plans_with_ended_runs_task,
     sync_cross_region_flags_task,
 )
 from products.legal_documents.backend.facade.tasks import reconcile_pending_legal_documents
@@ -562,6 +563,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         sweep_workflow_email_deliverability.s(),
         name="sweep workflow email deliverability",
         expires_seconds=30 * 60,
+    )
+
+    # Stops rollout plans whose health check ended without reporting - every 5 minutes
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/5"),
+        stop_rollout_plans_with_ended_runs_task.s(),
+        name="stop rollout plans with ended runs",
     )
 
     # Flags cache sync - hourly

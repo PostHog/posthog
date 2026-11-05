@@ -10,6 +10,7 @@ from rest_framework import exceptions
 from posthog.api.utils import ServiceRequest
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
+from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.temporal.oauth import McpScopePreset
@@ -40,6 +41,9 @@ ROLLOUT_PLAN_MCP_SCOPES: McpScopePreset = "feature_flag_rollout"
 TITLE_MAX_LENGTH = 255
 MAX_LISTED_PLANS = 20
 SCHEDULE_FAILURE_REASON = "PostHog could not schedule the next health check."
+RUN_ENDED_REASON = (
+    "The health check ended without a result, so the next step did not run. Start a new rollout to continue."
+)
 
 
 def get_rollout_plan(plan_id: UUID, *, team: Team) -> FeatureFlagRolloutPlan:
@@ -188,6 +192,20 @@ def stop_rollout_plan_for_person(plan_id: UUID, *, team: Team, user: User, reaso
     if not user_can_edit_flag(plan.feature_flag, team=team, user=user):
         raise exceptions.PermissionDenied("You need editor access to this feature flag to stop its rollout.")
     return stop_rollout_plan(plan, reason=reason, stopped_by=user, acting_user=user)
+
+
+def stop_rollout_plans_with_ended_runs() -> None:
+    plans = list(
+        FeatureFlagRolloutPlan.objects.unscoped()
+        .filter(status=FeatureFlagRolloutPlan.Status.ACTIVE)
+        .only("id", "team_id", "latest_run_id")
+    )
+    ended_run_ids = tasks_facade.ended_task_run_ids(plan.latest_run_id for plan in plans if plan.latest_run_id)
+    for active_plan in plans:
+        if active_plan.latest_run_id in ended_run_ids:
+            with team_scope(active_plan.team_id):
+                plan = FeatureFlagRolloutPlan.objects.get(pk=active_plan.pk)
+                stop_rollout_plan(plan, reason=RUN_ENDED_REASON, stopped_by=None, acting_user=plan.created_by)
 
 
 def _check_flag_can_roll_out(flag: FeatureFlag, condition_index: int, percentages: list[int]) -> None:

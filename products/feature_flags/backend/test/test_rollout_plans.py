@@ -17,7 +17,11 @@ from posthog.temporal.oauth import POSTHOG_AI_APP_CLIENT_ID_DEV, resolve_scopes
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.feature_flag_rollout_plan import FeatureFlagRolloutPlan
-from products.feature_flags.backend.rollout_plans import ROLLOUT_PLAN_MCP_SCOPES
+from products.feature_flags.backend.rollout_plans import (
+    ROLLOUT_PLAN_MCP_SCOPES,
+    RUN_ENDED_REASON,
+    stop_rollout_plans_with_ended_runs,
+)
 
 TASK_ID = UUID("00000000-0000-4000-8000-000000000001")
 FIRST_RUN_ID = UUID("00000000-0000-4000-8000-000000000002")
@@ -358,6 +362,29 @@ class TestFeatureFlagRolloutPlanAPI(APIBaseTest):
         assert self._rollout() == 1
         cancel.assert_not_called()
         assert "Errors reached 6%." in notify.call_args.args[0].body
+
+    def test_a_run_that_ended_without_reporting_stops_only_its_own_plan(
+        self, _create: MagicMock, _run: MagicMock, cancel: MagicMock, notify: MagicMock, *_: MagicMock
+    ) -> None:
+        ended = self._plan(next_check_at=timezone.now() + timedelta(hours=1))
+        running = self._plan(feature_flag=self.other_flag, latest_run_id=uuid4())
+
+        with patch(f"{ROLLOUTS}.tasks_facade.ended_task_run_ids", return_value={FIRST_RUN_ID}) as ended_run_ids:
+            stop_rollout_plans_with_ended_runs()
+
+        assert set(ended_run_ids.call_args.args[0]) == {FIRST_RUN_ID, running.latest_run_id}
+        ended.refresh_from_db()
+        running.refresh_from_db()
+        assert (ended.status, ended.stop_reason, ended.next_check_at) == (
+            FeatureFlagRolloutPlan.Status.STOPPED,
+            RUN_ENDED_REASON,
+            None,
+        )
+        assert running.status == FeatureFlagRolloutPlan.Status.ACTIVE
+        assert self._rollout() == 1
+        cancel.assert_not_called()
+        notify.assert_called_once()
+        assert RUN_ENDED_REASON in notify.call_args.args[0].body
 
     def test_a_person_stopping_the_plan_cancels_the_pending_check(
         self, _create: MagicMock, _run: MagicMock, cancel: MagicMock, notify: MagicMock, *_: MagicMock
