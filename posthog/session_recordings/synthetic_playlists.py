@@ -16,8 +16,10 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 from posthog.models import Comment, Team, User
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.session_recordings.data_retention import retention_period_in_days
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.session_recording_api import list_recordings_from_query
 
@@ -195,7 +197,7 @@ class ExportedPlaylistSource(SyntheticPlaylistSource):
         )
 
 
-@dataclass
+@frozen
 class ExpiringPlaylistSource(SyntheticPlaylistSource):
     """
     Surfaces recordings whose retention window ends within the next 10 days.
@@ -220,7 +222,14 @@ class ExpiringPlaylistSource(SyntheticPlaylistSource):
         if cached_data is not None:
             return cached_data
 
-        query = RecordingsQuery(limit=ExpiringPlaylistSource.SCAN_LIMIT, order=RecordingOrder.RECORDING_TTL)
+        # RecordingsQuery defaults to the last 3 days, but a recording only nears expiry at the end
+        # of the team's retention window, so the scan must reach back across the whole window.
+        retention_days = retention_period_in_days(team.session_recording_retention_period)
+        query = RecordingsQuery(
+            limit=ExpiringPlaylistSource.SCAN_LIMIT,
+            order=RecordingOrder.RECORDING_TTL,
+            date_from=f"-{retention_days}d",
+        )
         listing_result = list_recordings_from_query(query, user, team)
 
         now = datetime.now(UTC)
