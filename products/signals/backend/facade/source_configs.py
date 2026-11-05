@@ -2,8 +2,6 @@
 
 from collections.abc import Sequence
 
-from django.db.models import QuerySet
-
 import structlog
 
 from posthog.dataclasses import frozen
@@ -64,19 +62,12 @@ def latest_enabled_source_config(
     return _to_snapshot(row)
 
 
-def _enabled_analytics_source_configs() -> QuerySet[SignalSourceConfig]:
-    source_product, source_type = ALERT_SCOPE_SOURCE
-    return SignalSourceConfig.objects.filter(source_product=source_product, source_type=source_type, enabled=True)
-
-
 def analytics_source_enabled(team_id: int) -> bool:
     """Whether the team turned on the Product analytics source, which also controls anomaly scoring."""
-    return _enabled_analytics_source_configs().filter(team_id=team_id).exists()
-
-
-def team_ids_with_analytics_source() -> set[int]:
-    """Every team that `analytics_source_enabled` is true for."""
-    return set(_enabled_analytics_source_configs().values_list("team_id", flat=True))
+    source_product, source_type = ALERT_SCOPE_SOURCE
+    return SignalSourceConfig.objects.filter(
+        team_id=team_id, source_product=source_product, source_type=source_type, enabled=True
+    ).exists()
 
 
 def get_analytics_alert_scope(*, team_id: int) -> AlertScope:
