@@ -103,9 +103,11 @@ from products.tasks.backend.constants import (
     is_html_artifact as is_html_artifact,
     is_same_run_resume_state,
 )
+from products.tasks.backend.contract_checks import drive_allowed
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
 from products.tasks.backend.facade.profiles import (
+    GithubAccess,
     NetworkAccess,
     TaskProfile,
     TaskRunOptions,
@@ -213,6 +215,7 @@ from products.tasks.backend.task_sources import apply_task_source
 from products.tasks.backend.visibility import (
     PRODUCT_PRIVATE_ORIGIN_PRODUCTS,
     TEAM_READABLE_ORIGIN_PRODUCTS,
+    readable_without_channel,
     scout_trial_visibility_q,
     task_control_q,
     task_run_visibility_q,
@@ -2082,7 +2085,7 @@ def create_and_run_task(
             team, report_id=signal_report_id, stage="task_create", enabled=free_trial_enabled
         )
     channel = _visible_channel(channel_id, team.id, user_id) if channel_id is not None else None
-    if channel is None and not internal and origin_product not in TEAM_READABLE_ORIGIN_PRODUCTS:
+    if channel is None and not internal and not readable_without_channel(origin_product, profile):
         channel = _ensure_personal_channel(team.id, user_id)[0]
     task = Task.create_and_run(
         team=team,
@@ -2328,7 +2331,7 @@ def create_task_without_run(
     if channel is None:
         channel = (
             None
-            if origin.origin_product in TEAM_READABLE_ORIGIN_PRODUCTS
+            if readable_without_channel(origin.origin_product, profile)
             else _ensure_personal_channel(team.id, user_id)[0]
         )
     task = Task.create_without_run(
@@ -3389,12 +3392,17 @@ def task_accessible_for_run_view(
             is_trial=Case(When(Task.scout_experiment_q(), then=Value(True)), default=Value(False)),
             accessible=Exists(Task.objects.filter(id=OuterRef("pk"), team_id=team_id).filter(visibility)),
         )
-        .values("is_trial", "accessible")
+        .values("is_trial", "accessible", "profile", "created_by_id")
         .first()
     )
     if task is not None and task["is_trial"]:
         tag_queries(is_scout_experiment=True)
-    return task is not None and bool(task["accessible"])
+    if task is None or not task["accessible"]:
+        return False
+    acts_on_its_own_task = sandbox_task_id is not None and str(sandbox_task_id) == str(task_id)
+    if for_control and not (bypass_visibility or acts_on_its_own_task):
+        return drive_allowed(task["profile"], created_by_id=task["created_by_id"], user_id=user_id)
+    return True
 
 
 def list_task_run_ids(task_id: str | UUID, team_id: int) -> list[UUID]:
@@ -6475,8 +6483,20 @@ def _resolve_cloud_pr_authorship_mode(
         user_github_integration_is_usable,
     )
 
-    if task.origin_product == Task.OriginProduct.ACCOUNT_AUDIT:
+    if not Task._github_resolution_allowed(
+        task.origin_product, has_repository=bool(task.repositories or task.repository)
+    ):
+        if pr_authorship_mode == PrAuthorshipMode.USER:
+            return None, contracts.TaskRunValidationError(
+                kind="validation_error",
+                code="github_authorization_required",
+                detail="User-authored runs are not allowed for this task without a repository.",
+                attr="pr_authorship_mode",
+            )
         return None, None
+
+    if task.github_access_limit == GithubAccess.NONE:
+        return PrAuthorshipMode.BOT, None
 
     if pr_authorship_mode != PrAuthorshipMode.USER or github_user_token:
         return pr_authorship_mode, None
@@ -7218,7 +7238,18 @@ def task_visible(task_id: str | UUID, team_id: int, user_id: int | None, *, for_
     the original ordering; the ``run`` action passes ``for_control`` since starting a run drives
     the task.
     """
-    return _visible_task_qs(team_id, user_id, for_control=for_control).filter(id=task_id).exists()
+    visible = _visible_task_qs(team_id, user_id, for_control=for_control).filter(id=task_id)
+    if not for_control:
+        return visible.exists()
+    row = visible.values_list("profile", "created_by_id").first()
+    if row is None:
+        return False
+    profile_key, created_by_id = row
+    return drive_allowed(profile_key, created_by_id=created_by_id, user_id=user_id)
+
+
+def _task_drive_allowed(task: Task, user_id: int | None) -> bool:
+    return drive_allowed(task.profile, created_by_id=task.created_by_id, user_id=user_id)
 
 
 def scout_trial_task_ids(team_id: int, *, visible_task_id: UUID | None = None) -> Iterable[UUID]:
@@ -8434,6 +8465,8 @@ def update_task(
         task = Task.objects.select_for_update().filter(id=task_id, team_id=team_id, deleted=False).first()
         if task is None or not Task.objects.filter(id=task.id).filter(task_control_q(user_id)).exists():
             return None
+        if not _task_drive_allowed(task, user_id):
+            return None
         previous_repositories = list(task.repositories or [])
         previous_integration_id = task.github_integration_id
 
@@ -8457,6 +8490,25 @@ def update_task(
                 validated_data["repositories"] = [validated_data["repository"]] if validated_data["repository"] else []
             else:
                 validated_data.pop("repository")
+        profile = task.stored_profile
+        changes_github_access = not validated_data.keys().isdisjoint(
+            {"repository", "repositories", "github_integration", "github_user_integration"}
+        )
+        github_access = task.github_access_limit
+        if (
+            (profile is not None or github_access == GithubAccess.NONE)
+            and changes_github_access
+            and not Task.attaches_github(
+                task.origin_product,
+                profile,
+                has_repository=bool(validated_data.get("repository", task.repository)),
+                github_access=github_access,
+            )
+        ):
+            validated_data.pop("github_integration", None)
+            validated_data.pop("github_user_integration", None)
+            task.github_integration = None
+            task.github_user_integration = None
         if "title" in validated_data and "title_manually_set" not in validated_data:
             validated_data["title_manually_set"] = True
         if "archived" in validated_data and validated_data["archived"] != task.archived:
@@ -8466,6 +8518,12 @@ def update_task(
         logger.info("perform_update called for task %s with validated_data: %s", task.id, validated_data)
         for key, value in validated_data.items():
             setattr(task, key, value)
+        github_fields_touched = repo_fields_touched or "github_user_integration" in validated_data
+        if github_fields_touched and not Task._github_resolution_allowed(
+            task.origin_product, has_repository=bool(task.repositories or task.repository)
+        ):
+            task.github_integration = None
+            task.github_user_integration = None
         task.save()
         logger.info("Task %s updated successfully", task.id)
 
@@ -8499,6 +8557,8 @@ def soft_delete_task(task_id: str | UUID, team_id: int, user_id: int | None) -> 
         task = Task.objects.select_for_update().filter(id=task_id, team_id=team_id, deleted=False).first()
         if task is None or not Task.objects.filter(id=task.id).filter(task_control_q(user_id)).exists():
             return False
+        if not _task_drive_allowed(task, user_id):
+            return False
         logger.info("Soft deleting task %s", task.id)
         task.soft_delete()
         soft_delete_conversations_for_task(task.id)
@@ -8519,6 +8579,8 @@ def handoff_task(
     if task is None:
         return None
     if user_id is None or task.created_by_id != user_id:
+        return None
+    if not _task_drive_allowed(task, user_id):
         return None
     if task.created_by_id == target_user_id:
         raise TaskHandoffError("That person already owns this task.")
@@ -8655,7 +8717,7 @@ def prepare_task_staged_artifacts(
 
     # Staged artifacts feed the task's next run, so this is control, not viewing.
     task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
-    if task is None:
+    if task is None or not _task_drive_allowed(task, user_id):
         return None
 
     prepared: list[contracts.StagedArtifactPreparedDTO] = []
@@ -8716,7 +8778,7 @@ def finalize_task_staged_artifacts(
     )
 
     task = _visible_task_qs(team_id, user_id, for_control=True).filter(id=task_id).first()
-    if task is None:
+    if task is None or not _task_drive_allowed(task, user_id):
         return None
 
     artifact_prefix = f"{settings.OBJECT_STORAGE_TASKS_FOLDER}/artifacts/team_{task.team_id}/task_{task.id}/staged/"
@@ -9462,7 +9524,7 @@ def warm_task_resume_sandbox(
     )
 
     task = _visible_task_qs(team_id, user_id, for_control=True).select_related("team").filter(id=task_id).first()
-    if task is None:
+    if task is None or not _task_drive_allowed(task, user_id):
         return None
 
     previous_run = task.runs.filter(id=resume_from_run_id).first()

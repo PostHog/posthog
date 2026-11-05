@@ -451,6 +451,26 @@ class CodexConnectUserThrottle(UserRateThrottle):
     rate = "10/hour"
 
 
+class _WorkloadTrustPolicyRequestThrottle(SimpleRateThrottle):
+    """One bucket per user and project, because each request asks the organization's admins to act."""
+
+    def get_cache_key(self, request: "Request", view: "APIView") -> str | None:
+        if not request.user.is_authenticated:
+            return None
+        team_id = PersonalApiKeyRateThrottle.safely_get_team_id_from_view(view)
+        return self.cache_format % {"scope": self.scope, "ident": f"{team_id}:{request.user.pk}"}
+
+
+class WorkloadTrustPolicyRequestBurstThrottle(_WorkloadTrustPolicyRequestThrottle):
+    scope = "workload_trust_policy_request_burst"
+    rate = "10/hour"
+
+
+class WorkloadTrustPolicyRequestSustainedThrottle(_WorkloadTrustPolicyRequestThrottle):
+    scope = "workload_trust_policy_request_sustained"
+    rate = "30/day"
+
+
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project

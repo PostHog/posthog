@@ -95,6 +95,8 @@ class TestApplyPersonsMigrations(TestCase):
         self.other_index = f"no_tx_test_{self.suffix}_other_idx"
         self._migrations_tmp = TemporaryDirectory()
         self.migrations_dir = Path(self._migrations_tmp.name)
+        self._hobby_migrations_tmp = TemporaryDirectory()
+        self.hobby_migrations_dir = Path(self._hobby_migrations_tmp.name)
 
     def tearDown(self) -> None:
         _persons_execute(
@@ -107,13 +109,16 @@ class TestApplyPersonsMigrations(TestCase):
             ]
         )
         self._migrations_tmp.cleanup()
+        self._hobby_migrations_tmp.cleanup()
         super().tearDown()
 
-    def _write_migration(self, version: str, name: str, body: str) -> None:
-        (self.migrations_dir / f"{version}_{self.suffix}_{name}.sql").write_text(body)
+    def _write_migration(self, version: str, name: str, body: str, *, hobby: bool = False) -> None:
+        directory = self.hobby_migrations_dir if hobby else self.migrations_dir
+        (directory / f"{version}_{self.suffix}_{name}.sql").write_text(body)
 
-    def _apply(self) -> None:
-        call_command("apply_persons_migrations", "--migrations-dir", str(self.migrations_dir))
+    def _apply(self, *, hobby: bool = False) -> None:
+        args = ["--migrations-dir", str(self.migrations_dir), "--hobby-migrations-dir", str(self.hobby_migrations_dir)]
+        call_command("apply_persons_migrations", *args, *(["--hobby"] if hobby else []))
 
     def _leave_an_invalid_index(self, table: str, index: str) -> None:
         _persons_execute([f"CREATE TABLE {table} (id INT)", f"INSERT INTO {table} (id) VALUES (1), (1)"])
@@ -204,3 +209,18 @@ class TestApplyPersonsMigrations(TestCase):
 
         assert "INVALID" in str(error.value)
         assert len(self._recorded_migrations()) == 1
+
+    @parameterized.expand([("hobby", True), ("not_hobby", False)])
+    def test_applies_hobby_migrations_only_with_the_hobby_flag(self, _name: str, hobby: bool) -> None:
+        self._write_migration("20990101000001", "create_table", f"CREATE TABLE {self.table} (id INT);")
+        self._write_migration(
+            "20990101000002",
+            "add_index",
+            f"-- no-transaction\nCREATE INDEX CONCURRENTLY IF NOT EXISTS {self.index} ON {self.table} (id);",
+            hobby=True,
+        )
+
+        self._apply(hobby=hobby)
+
+        assert _persons_fetchall("SELECT to_regclass(%s) IS NOT NULL", [self.index]) == [(hobby,)]
+        assert len(self._recorded_migrations()) == (2 if hobby else 1)

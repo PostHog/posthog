@@ -48,6 +48,48 @@ These are the only columns exposed via HogQL — the full flag model (e.g. `acti
 
 ---
 
+## Flag calls (`$feature_flag_called`)
+
+An SDK sends a `$feature_flag_called` event when code evaluates a flag.
+Its `$feature_flag` property holds the flag key, and `$feature_flag_response` holds the result: `true`, `false`, or a variant key.
+
+PostHog is moving these calls from `events` to `posthog.flag_evaluations`, one organization at a time.
+`project-get` returns the organization's `flag_evaluations_mode`:
+
+Mode | Where the flag calls are | `posthog.flag_evaluations`
+--- | --- | ---
+0 | `events` | Unknown table
+1 | `events` and `posthog.flag_evaluations` | Queryable
+2 | `posthog.flag_evaluations` only, for 90 days | Queryable
+
+### Query flag calls from `events` in a scan of their own
+
+Filter `event` to `$feature_flag_called` alone, as in `FROM events WHERE event = '$feature_flag_called'`.
+That query works in every mode, because PostHog reads such a scan from `posthog.flag_evaluations` when the organization keeps its calls there.
+On mode 2 it returns at most the last 90 days.
+
+On mode 2, these shapes can go wrong:
+
+- A scan that filters `event` to flag calls and other events together, such as `event IN ('$feature_flag_called', '$pageview')`, can read only `events` and return no flag calls, with no error.
+  A scan with no `event` filter, such as a count of every event, can leave the flag calls out the same way.
+  Give the flag calls their own scan: a separate query, or their own branch of a `UNION ALL`.
+- `SELECT *` and `SAMPLE` fail with an error that says the calls are only in `posthog.flag_evaluations`.
+  Select named columns, or query `posthog.flag_evaluations` directly.
+- The project can have no event or property definitions for `$feature_flag_called`, so `read-data-schema` can list neither the event nor its properties.
+  A missing definition is not evidence that nothing calls a flag. Count the calls with SQL.
+
+### `posthog.flag_evaluations`
+
+One row per flag call. Query it directly only on modes 1 and 2.
+Filter on `flag_key` rather than `properties.$feature_flag`: `flag_key` is in the table's sort key.
+
+{{ schema_columns('posthog.flag_evaluations') }}
+
+Never join this table to another one on `person_id`, because the query fails.
+Join on `distinct_id`, or filter with `person_id IN (SELECT person_id FROM posthog.flag_evaluations WHERE ...)`.
+
+---
+
 ## Experiment (`system.experiments`)
 
 Experiments are A/B tests that compare variants against a control group.

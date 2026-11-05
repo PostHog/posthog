@@ -15,7 +15,6 @@ from ..facade.contracts import DocsRequest
 DOCS_SECTION_PATTERN = re.compile(r"^https://posthog\.com/docs/([a-z0-9-]+)")
 DOCS_PAGE_PATTERN = re.compile(r"^https://posthog\.com/docs/(.+)$")
 SEARCH_QUERY_MAX_LENGTH = 500
-MAX_SUGGESTED_PAGES = 3
 SOURCE_REPOSITORY = "PostHog/posthog"
 SOURCE_LOOKUP_ERRORS = (
     requests.RequestException,
@@ -92,7 +91,7 @@ def route_request(request: DocsRequest, *, team_id: int, github: GitHubReader | 
         query = f"{request.trigger_instructions} {request.evidence}"[:SEARCH_QUERY_MAX_LENGTH]
         hits = business_knowledge_facade.search_knowledge(team_id=team_id, query=query)
         docs_urls = [hit.url for hit in hits if docs_section(hit.url)]
-        page_urls = tuple(dict.fromkeys(docs_urls))[:MAX_SUGGESTED_PAGES]
+        page_urls = tuple(dict.fromkeys(docs_urls))
     location_by_page_url = {page_url: page_location(github, page_url) for page_url in page_urls}
     writable_page_urls = tuple(
         page_url for page_url, location in location_by_page_url.items() if location == "docs_site"
