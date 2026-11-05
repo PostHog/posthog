@@ -78,6 +78,7 @@ use std::time::Duration;
 use common_metrics::{gauge, histogram, inc};
 use common_redis::{Client as RedisClient, CustomRedisError, PipelineCommand};
 use rand::Rng;
+use strum::IntoEnumIterator;
 use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 
@@ -774,11 +775,7 @@ async fn flush_once(inner: &Arc<Inner>, policy: FlushPolicy) {
     // FLAGS_BILLING_RECORDS. Doing this here instead of in `record()`
     // keeps the hot path free of the per-call `apply_label_filter`
     // allocation that `inc()` triggers.
-    for request_type in [
-        FlagRequestType::Decide,
-        FlagRequestType::FlagDefinitions,
-        FlagRequestType::FlagDefinitionsNotModified,
-    ] {
+    for request_type in FlagRequestType::iter() {
         let records = inner
             .record_counter(request_type)
             .swap(0, Ordering::Relaxed);

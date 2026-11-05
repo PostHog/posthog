@@ -35,7 +35,7 @@ where
     }))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::EnumIter)]
 pub enum FlagRequestType {
     Decide,
     FlagDefinitions,
