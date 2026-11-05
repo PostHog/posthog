@@ -42,8 +42,11 @@ export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
                 : node.type
             : node?.type
     const typeTag = nodeType ? NODE_TYPE_TAG_SETTINGS[nodeType] : null
+    // A native table such as `events` has no warehouse table, so it has no annotation to edit.
+    const isNativeTable = node?.type === 'table' && !node.warehouse_table_id
     const canEdit =
         node?.type !== 'metric' &&
+        !isNativeTable &&
         userHasAccess(
             AccessControlResourceType.WarehouseObjects,
             AccessControlLevel.Editor,
@@ -54,7 +57,14 @@ export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
         <>
             <SceneTitleSection
                 name={node?.name}
-                nameSuffix={typeTag && <LemonTag type={typeTag.type}>{typeTag.label}</LemonTag>}
+                nameSuffix={
+                    <div className="flex items-center gap-1">
+                        {typeTag && <LemonTag type={typeTag.type}>{typeTag.label}</LemonTag>}
+                        {node?.description && node.description_source === 'ai_generated' && (
+                            <LemonTag type="muted">AI-written description</LemonTag>
+                        )}
+                    </div>
+                }
                 actions={
                     // A failed saved query never resolves on its own, so the placeholder must not
                     // outlive it. The Materialization and Query tabs carry the retry.

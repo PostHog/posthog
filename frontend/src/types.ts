@@ -6262,6 +6262,7 @@ export interface DataModelingNode {
     name: string
     type: DataModelingNodeType
     description?: string
+    description_source?: 'canonical' | 'ai_generated' | 'user_edited' | null
     saved_query_id?: string
     /** UUID of the data catalog metric a metric node stands for */
     metric_id?: string | null

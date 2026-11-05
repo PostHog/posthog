@@ -33,6 +33,7 @@ from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_que
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
+from posthog.llm.semantic_enrichment import upsert_user_edited_annotation
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
 from posthog.rbac.query_access import assert_user_can_read_query
@@ -48,7 +49,6 @@ from products.data_modeling.backend.facade.models import (
     validate_saved_query_name,
 )
 from products.data_tools.backend.facade.models import DataWarehouseSavedQueryFolder
-from products.data_warehouse.backend.presentation.views.column_annotation_base import upsert_annotation
 from products.managed_warehouse.backend.facade.query_execution import validate_managed_trino_query
 from products.warehouse_sources.backend.facade.hogql import (
     get_view_or_table_by_name,
@@ -321,7 +321,7 @@ class DataWarehouseSavedQuerySerializer(
     def _write_view_description(self, view: DataWarehouseSavedQuery, description: str | None) -> None:
         team_id = self.context["team_id"]
         if description:
-            upsert_annotation(
+            upsert_user_edited_annotation(
                 DataWarehouseSavedQueryColumnAnnotation,
                 team_id,
                 parent_field="saved_query",
