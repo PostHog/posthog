@@ -54,6 +54,7 @@ import {
 import { HOGQL_METRIC_DEFINITION_KIND } from 'products/data_catalog/frontend/common'
 import type { DataCatalogMetricApi } from 'products/data_catalog/frontend/generated/api.schemas'
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
+import type { ViewEngineApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 import { SourceIcon, mapUrlToProvider } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 import {
     TABLE_CATEGORY_LIMIT,
@@ -1564,23 +1565,28 @@ const createTopLevelFolderNode = (
     }
 }
 
-const isRawTrinoViewNode = (node: TreeDataItem): boolean =>
-    node.record?.type === 'view' && !!node.record?.view?.is_raw_managed_trino
+const viewEngineOf = (node: TreeDataItem): ViewEngineApi | undefined =>
+    node.record?.type === 'view' ? node.record?.view?.engine : undefined
 
-// HogQL cannot reference a raw Trino view, so the ClickHouse tree must not offer one.
-const withoutRawTrinoViews = (nodes: TreeDataItem[]): TreeDataItem[] =>
+const isRawTrinoViewNode = (node: TreeDataItem): boolean => {
+    const engine = viewEngineOf(node)
+    return engine?.target === 'managed_trino' && engine.dialect === 'raw'
+}
+
+// The ClickHouse tree must not offer a view that HogQL cannot reference.
+const withoutViewsHogQLCannotReference = (nodes: TreeDataItem[]): TreeDataItem[] =>
     nodes.flatMap((node): TreeDataItem[] => {
-        if (isRawTrinoViewNode(node)) {
+        if (viewEngineOf(node)?.capabilities.referenceable_from_hogql.available === false) {
             return []
         }
         if (!node.children?.length) {
             return [node]
         }
-        const children = withoutRawTrinoViews(node.children)
+        const children = withoutViewsHogQLCannotReference(node.children)
         if (children.length > 0) {
             return [{ ...node, children }]
         }
-        // A folder or search section that held only raw Trino views goes away.
+        // A folder or search section that held only views HogQL cannot reference goes away.
         // The browsing Views section stays, with the same placeholder an empty section gets.
         if (node.record?.type === 'views' && !node.id.startsWith('search-')) {
             return [
@@ -3771,7 +3777,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 if (!shouldUseDirectConnectionTree(connectionId)) {
                     return filterMaterializedViewsByStatus(
-                        withoutRawTrinoViews(sourceData),
+                        withoutViewsHogQLCannotReference(sourceData),
                         materializationStatusFilters
                     )
                 }
