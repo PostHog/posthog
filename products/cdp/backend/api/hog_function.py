@@ -1612,6 +1612,31 @@ class HogFunctionViewSet(
             return False
         return bool(self._sent_content_fields())
 
+    def _require_recent_authentication_for_staged_secrets(
+        self, locked: HogFunction, serializer: BaseSerializer, validated_content: dict
+    ) -> None:
+        # Publish checks a secret staged in the draft against the draft it finds, so an edit that
+        # changes that draft is checked here, against the draft config the secret was staged with.
+        bindings = staged_secret_bindings(locked)
+        if not bindings:
+            return
+        supplied = explicit_secret_input_keys(getattr(serializer, "initial_data", {}).get("inputs"))
+        kept = (set(bindings) - supplied) | set(serializer.context.get("kept_secret_keys", set()))
+        staged = next(iter(bindings.values()))
+        sent = self._sent_content_fields()
+
+        def edited(field: str, staged_value: Any) -> Any:
+            return validated_content[field] if field in sent and field in validated_content else staged_value
+
+        after = SecretBinding(
+            code=edited("hog", staged.code),
+            inputs=edited("inputs", staged.inputs) or {},
+            inputs_schema=edited("inputs_schema", staged.inputs_schema),
+            mappings=edited("mappings", staged.mappings),
+        )
+        if credential_move_needs_reauth(staged, after, kept) and secret_binding_enforced(self.team):
+            require_recent_login_to_move_credentials(self.request, surface="destination")
+
     def _write_draft(
         self, instance: HogFunction, locked: HogFunction, serializer: BaseSerializer, validated_content: dict
     ) -> None:
@@ -1728,6 +1753,7 @@ class HogFunctionViewSet(
                     for field in DRAFT_CONTENT_FIELDS
                     if field in serializer.validated_data
                 }
+                self._require_recent_authentication_for_staged_secrets(locked, serializer, validated_content)
                 # Metadata in the same payload still applies live. Config (and the bytecode compiled
                 # from it) must not leak onto the live row — it belongs to the draft now.
                 remaining = {

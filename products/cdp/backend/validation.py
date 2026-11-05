@@ -1179,10 +1179,26 @@ def _comparable_schema(inputs_schema: Any) -> list[str]:
     )
 
 
-def _comparable_mappings(mappings: Any) -> list[tuple[dict[str, str], list[str]]]:
-    # Ordered, because the worker lets a later mapping's input override an earlier one.
+_DERIVED_FILTER_KEYS = frozenset({"bytecode", "bytecode_error", "bytecode_contract", "transpiled"})
+
+
+def _comparable_filters(filters: Any) -> str:
+    if not isinstance(filters, dict):
+        return json.dumps(filters, sort_keys=True, default=str)
+    return json.dumps(
+        {key: value for key, value in filters.items() if key not in _DERIVED_FILTER_KEYS}, sort_keys=True, default=str
+    )
+
+
+def _comparable_mappings(mappings: Any) -> list[tuple[dict[str, str], list[str], str]]:
+    # Ordered, because the worker lets a later mapping's input override an earlier one. Filters
+    # count because they pick which mapping's inputs, and so which address, an event reaches.
     return [
-        (_comparable_inputs(mapping.get("inputs"), set()), _comparable_schema(mapping.get("inputs_schema")))
+        (
+            _comparable_inputs(mapping.get("inputs"), set()),
+            _comparable_schema(mapping.get("inputs_schema")),
+            _comparable_filters(mapping.get("filters")),
+        )
         for mapping in mappings or []
         if isinstance(mapping, dict)
     ]

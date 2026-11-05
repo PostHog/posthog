@@ -1755,12 +1755,31 @@ class TestCredentialMoveNeedsReauth(SimpleTestCase):
 
         assert credential_move_needs_reauth(stored, current, {"api_key"}) is True
 
-    def test_reordered_mappings_count_as_a_move(self) -> None:
-        mappings = [{"inputs": {"connection": {"value": 1}}}, {"inputs": {"connection": {"value": 2}}}]
-        stored = SecretBinding(code=self.CODE, inputs=self.INPUTS, inputs_schema=self.SCHEMA, mappings=mappings)
-        current = replace(stored, mappings=list(reversed(mappings)))
+    MAPPINGS: list[dict[str, Any]] = [
+        {"inputs": {"connection": {"value": 1}}, "filters": {"events": [{"id": "$pageview"}], "bytecode": ["_H", 1]}},
+        {"inputs": {"connection": {"value": 2}}, "filters": {"events": [{"id": "$identify"}], "bytecode": ["_H", 1]}},
+    ]
 
-        assert credential_move_needs_reauth(stored, current, {"api_key"}) is True
+    @parameterized.expand(
+        [
+            ("reordered", list(reversed(MAPPINGS)), True),
+            # Filters pick which mapping's inputs, and so which address, an event reaches.
+            (
+                "filter_change",
+                [MAPPINGS[0], {**MAPPINGS[1], "filters": {**MAPPINGS[1]["filters"], "events": [{"id": "$pageview"}]}}],
+                True,
+            ),
+            (
+                "bytecode_recompiled",
+                [MAPPINGS[0], {**MAPPINGS[1], "filters": {**MAPPINGS[1]["filters"], "bytecode": ["_H", 2]}}],
+                False,
+            ),
+        ]
+    )
+    def test_mapping_change(self, _name: str, mappings: list[dict], expected: bool) -> None:
+        stored = SecretBinding(code=self.CODE, inputs=self.INPUTS, inputs_schema=self.SCHEMA, mappings=self.MAPPINGS)
+
+        assert credential_move_needs_reauth(stored, replace(stored, mappings=mappings), {"api_key"}) is expected
 
     @parameterized.expand(
         [
