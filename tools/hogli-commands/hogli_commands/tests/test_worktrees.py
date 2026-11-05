@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import os
+import json
 import math
 import time
 import fcntl
+import shutil
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -12,9 +14,17 @@ import pytest
 from unittest.mock import Mock, patch
 
 import click
+from click.testing import CliRunner
 from hogli import telemetry
 from hogli_commands import worktrees
-from hogli_commands.cargo_targets import unused_legacy_cargo_target, worktrees_running_cargo
+from hogli_commands.cargo_targets import (
+    cargo_target_locked,
+    shared_cargo_targets,
+    unused_cargo_target,
+    unused_cargo_units,
+    unused_legacy_cargo_target,
+    worktrees_running_cargo,
+)
 from hogli_commands.devbox import config as devbox_config
 from hogli_commands.worktrees import (
     Worktree,
@@ -22,16 +32,18 @@ from hogli_commands.worktrees import (
     _belongs_to_repo,
     _boxes_of_removed_worktrees,
     _clean_worktree_boxes,
-    _collect_deps_items,
+    _collect_artifacts,
     _compute_git_state,
     _discover_root_worktrees,
-    _du_sizes,
     _execute,
+    _git_approved_artifacts,
     _in_use,
     _include_orphans,
     _is_under,
+    _leftover_worktree_dirs,
     _match_worktree_boxes,
     _parse_cutoff,
+    _parse_mode,
     _populate_sizes,
     _reclaimed_bytes,
     _registered_worktrees,
@@ -118,6 +130,37 @@ class TestUnattendedLock:
         lock.close()
         return True
 
+    def test_unattended_tiers_skip_hand_made_worktrees_and_still_clean_the_old_cargo_target(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        hand_made = tmp_path / "projects" / "repo-wt-feature"
+        hand_made.mkdir(parents=True)
+        discovered_sources: list[str] = []
+        real_discover = worktrees._discover_candidate_worktrees
+
+        def discover(*args, **kwargs):
+            found = real_discover(*args, **kwargs)
+            discovered_sources.extend(source for source, _ in found)
+            return []
+
+        legacy_cleanups: list[float] = []
+        monkeypatch.setattr(worktrees, "_discover_candidate_worktrees", discover)
+        monkeypatch.setattr(
+            worktrees, "_registered_worktrees", lambda repo_root: {hand_made.resolve(): {"locked": False, "branch": ""}}
+        )
+        monkeypatch.setattr(worktrees, "_claude_scratchpad_root", lambda: tmp_path / "scratchpads")
+        monkeypatch.setattr(worktrees, "_process_cwds", lambda: {Path("/nowhere")})
+        monkeypatch.setattr(
+            worktrees, "_clean_legacy_cargo_target", lambda cutoff, *args: legacy_cleanups.append(cutoff)
+        )
+        monkeypatch.setattr(worktrees, "_leftover_worktree_dirs", lambda *args: [])
+
+        result = CliRunner().invoke(worktrees.worktrees_clean, ["--unattended", "--dry-run"])
+
+        assert result.exit_code == 0, result.output
+        assert "other" not in discovered_sources
+        assert len(legacy_cleanups) == 1
+
     def test_second_run_same_day_is_refused(self) -> None:
         assert self._take(dry_run=False)
         assert not self._take(dry_run=False)
@@ -177,6 +220,20 @@ class TestParseCutoff:
         # they must be rejected — only 'all' may mean everything.
         with pytest.raises(click.BadParameter):
             _parse_cutoff(value)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("deps", "deps"), ("build,deps", "deps,build"), (" BUILD , build ", "build"), ("full", "full")],
+)
+def test_parse_mode_normalizes_kinds(value: str, expected: str) -> None:
+    assert _parse_mode(value) == expected
+
+
+@pytest.mark.parametrize("value", ["full,deps", "deps,cache", "", ","])
+def test_parse_mode_rejects_full_with_kinds_and_unknown_kinds(value: str) -> None:
+    with pytest.raises(click.BadParameter):
+        _parse_mode(value)
 
 
 class TestBelongsToRepo:
@@ -246,8 +303,120 @@ class TestWorktreeRoots:
 
         assert [p.resolve() for p in _discover_root_worktrees(roots["phw"], registry)] == [wt.resolve()]
 
+    @pytest.mark.parametrize(
+        ("selected_sources", "mode", "expected_other"),
+        [(None, "deps,build", True), (None, "full", False), ({"other"}, "full", True), ({"claude"}, "deps", False)],
+        ids=["artifacts_by_default", "full_skips_by_default", "full_when_named", "other_source_selected"],
+    )
+    def test_worktree_registered_outside_every_tool_root_is_other(
+        self, tmp_path, monkeypatch, selected_sources: set[str] | None, mode: str, expected_other: bool
+    ) -> None:
+        monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+        monkeypatch.setattr(worktrees, "_claude_scratchpad_root", lambda: tmp_path / "scratchpads")
+        hand_made = tmp_path / "projects" / "repo-wt-feature"
+        hand_made.mkdir(parents=True)
+        registry = {hand_made.resolve(): {"locked": False, "branch": "feature"}}
+
+        discovered = worktrees._discover_candidate_worktrees(tmp_path / "repo", registry, selected_sources, mode)
+
+        assert discovered == ([("other", hand_made.resolve())] if expected_other else [])
+
+    @pytest.mark.parametrize(
+        ("layout", "trusted"),
+        [("private_folder", True), ("others_can_write", False), ("symlink", False), ("missing", False)],
+    )
+    def test_scratchpad_root_is_trusted_only_as_a_private_folder(self, tmp_path, layout: str, trusted: bool) -> None:
+        shared_tmp = tmp_path / "tmp"
+        shared_tmp.mkdir()
+        root = shared_tmp / f"claude-{os.getuid()}"
+        if layout == "symlink":
+            (tmp_path / "someone-elses-src").mkdir()
+            root.symlink_to(tmp_path / "someone-elses-src", target_is_directory=True)
+        elif layout != "missing":
+            root.mkdir(mode=0o700)
+            if layout == "others_can_write":
+                root.chmod(0o777)
+
+        assert worktrees._claude_scratchpad_root(shared_tmp) == (root if trusted else None)
+
+
+def _git_worktree(path: Path, files: dict[str, str], tracked: tuple[str, ...] = ()) -> Path:
+    for relative, content in files.items():
+        (path / relative).parent.mkdir(parents=True, exist_ok=True)
+        (path / relative).write_text(content)
+    path.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-q"], cwd=path, check=True)
+    if tracked:
+        subprocess.run(["git", "add", "--", *tracked], cwd=path, check=True)
+    return path
+
 
 class TestCollectDepsItems:
+    @pytest.mark.parametrize(
+        ("mode", "orphaned", "expected_removed"),
+        [
+            ("build", False, {"web/dist", ".pytest_cache", "web/app.tsbuildinfo", ".flox/cache/go-build"}),
+            ("deps", False, {"web/node_modules", "scratch/node_modules", "tools/.venv", ".flox/cache/venv"}),
+            # Without its index, git cannot say what the branch tracks, so nothing goes.
+            ("build", True, set()),
+            ("deps", True, set()),
+        ],
+        ids=["build", "deps", "orphaned_build", "orphaned_deps"],
+    )
+    def test_removes_only_untracked_artifacts_and_build_output_that_git_ignores(
+        self, tmp_path, mode: str, orphaned: bool, expected_removed: set[str]
+    ) -> None:
+        worktree = _git_worktree(
+            tmp_path / "wt",
+            {
+                ".gitignore": "dist/\nnode_modules/\n.venv/\n*.tsbuildinfo\n.flox/cache/\n",
+                "web/package.json": "{}",
+                "web/dist/app.js": "",
+                "web/app.tsbuildinfo": "",
+                "web/node_modules/react/index.js": "",
+                "web/build/notes.md": "",
+                "action/package.json": "{}",
+                "action/dist/index.js": "",
+                ".pytest_cache/.gitignore": "*\n",
+                ".pytest_cache/v/cache/lastfailed": "{}",
+                "scratch/node_modules/left-pad/index.js": "",
+                "vendored/node_modules/shim/index.js": "",
+                "tools/.venv/pyvenv.cfg": "",
+                "tools/target/release/notes.md": "",
+                "libs/.venv/pyvenv.cfg": "",
+                "libs/.venv/src/editable-pkg/.git/HEAD": "",
+                ".flox/cache/venv/pyvenv.cfg": "",
+                ".flox/cache/go-build/README": "",
+                ".flox/cache/postgres/data/PG_VERSION": "16",
+                "vendor/repo/.git/HEAD": "",
+                "vendor/repo/package.json": "{}",
+                "vendor/repo/dist/lib.js": "",
+                "site/package.json": "{}",
+                "site/dist/.git/HEAD": "",
+                "site/dist/index.html": "",
+            },
+            tracked=(".gitignore", "web/package.json", "action/package.json"),
+        )
+        # Git adds a file under an ignored folder only by force, as a committed GitHub Action bundle or vendored package needs.
+        subprocess.run(
+            ["git", "add", "-f", "action/dist/index.js", "vendored/node_modules/shim/index.js"],
+            cwd=worktree,
+            check=True,
+        )
+        if orphaned:
+            shutil.rmtree(worktree / ".git")
+            (worktree / ".git").write_text(f"gitdir: {tmp_path / 'pruned-admin-dir'}\n")
+
+        (worktree / "notes" / "draft.md").parent.mkdir()
+        (worktree / "notes" / "draft.md").write_text("")
+        (worktree / "linked").mkdir()
+        (worktree / "linked" / "node_modules").symlink_to(worktree / "notes", target_is_directory=True)
+
+        artifacts = _collect_artifacts(worktree, frozenset({mode}))
+        removed = _git_approved_artifacts(worktree, artifacts)
+
+        assert {path.relative_to(worktree.resolve()).as_posix() for path in removed} == expected_removed
+
     def test_never_escapes_worktree_via_symlinked_parent(self, tmp_path) -> None:
         worktree = tmp_path / "wt"
         (worktree / "node_modules").mkdir(parents=True)
@@ -255,9 +424,10 @@ class TestCollectDepsItems:
         # `frontend` symlinked to shared external storage that has its own dist/.
         external = tmp_path / "external"
         (external / "dist").mkdir(parents=True)
+        (external / "package.json").write_text("{}")
         (worktree / "frontend").symlink_to(external, target_is_directory=True)
 
-        items = _collect_deps_items(worktree)
+        items = [artifact.path for artifact in _collect_artifacts(worktree, frozenset({"deps", "build"}))]
         worktree_resolved = worktree.resolve()
 
         # The real node_modules is collected; nothing resolves outside the worktree.
@@ -268,7 +438,7 @@ class TestCollectDepsItems:
     def test_deps_mode_keeps_a_cargo_target_built_after_the_cutoff(self, tmp_path) -> None:
         cutoff = time.time() - 7 * 86400
         worktree = tmp_path / "wt"
-        (worktree / "node_modules").mkdir(parents=True)
+        _git_worktree(worktree, {"node_modules/left-pad/index.js": ""})
         stale_target = _write_cargo_target(worktree / "rust" / "target", cutoff - 86400)
         # Cargo rewrites fingerprint files in place, so a fresh build leaves the directory mtimes old.
         _write_cargo_target(worktree / "cli" / "target", time.time())
@@ -277,7 +447,7 @@ class TestCollectDepsItems:
 
         _populate_sizes([wt], "deps", cutoff)
 
-        assert sorted(wt.deps_items) == sorted([(worktree / "node_modules").resolve(), stale_target.resolve()])
+        assert sorted(wt.artifact_items) == sorted([(worktree / "node_modules").resolve(), stale_target.resolve()])
 
 
 def _write_cargo_target(target: Path, last_build_epoch: float, profile: Path = Path("debug")) -> Path:
@@ -294,6 +464,21 @@ def _write_cargo_target(target: Path, last_build_epoch: float, profile: Path = P
     return target
 
 
+def _write_cargo_unit(
+    profile: Path, name: str, unit_hash: str, fingerprint: int, depends_on: list[int], built_epoch: float
+) -> Path:
+    unit = profile / ".fingerprint" / f"{name}-{unit_hash}"
+    unit.mkdir(parents=True)
+    (unit / f"lib-{name}").write_text(fingerprint.to_bytes(8, "little").hex())
+    (unit / f"lib-{name}.json").write_text(json.dumps({"deps": [[0, "dep", False, dep] for dep in depends_on]}))
+    for entry in unit.iterdir():
+        os.utime(entry, (built_epoch, built_epoch))
+    output = profile / "deps" / f"lib{name.replace('-', '_')}-{unit_hash}.rlib"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(b"rlib")
+    return output
+
+
 def _fake_cargo_processes(monkeypatch, cargo_cwd: Path | None, lsof_available: bool = True) -> None:
     def fake_run(args, **kwargs):
         if args[0] == "pgrep":
@@ -305,6 +490,35 @@ def _fake_cargo_processes(monkeypatch, cargo_cwd: Path | None, lsof_available: b
         return subprocess.CompletedProcess(args, 0, stdout=f"p{os.getpid()}\nn{cargo_cwd}\n")
 
     monkeypatch.setattr("hogli_commands.cargo_targets.subprocess.run", fake_run)
+
+
+class TestLeftoverWorktreeDirs:
+    @pytest.mark.parametrize(
+        ("relative", "extra_entry", "expected_leftover"),
+        [
+            (".claude/worktrees/gone", None, True),
+            (".claude/worktrees/gone", ".git", False),
+            (".claude/worktrees/gone", "docker/compose.yml", False),
+            (".claude/worktrees/gone", ".flox/cache/postgres/PG_VERSION", False),
+            ("home/.codex/worktrees/1a2b/repo", None, True),
+            ("home/.codex/worktrees/1a2b/other-repo", None, False),
+        ],
+        ids=["only_go_cache", "still_a_worktree", "other_files", "flox_state", "home_root", "other_repos_name"],
+    )
+    def test_folder_counts_only_when_it_holds_nothing_but_flox_caches(
+        self, tmp_path, monkeypatch, relative: str, extra_entry: str | None, expected_leftover: bool
+    ) -> None:
+        monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+        repo = tmp_path / "repo"
+        folder = tmp_path / relative if relative.startswith("home/") else repo / relative
+        (folder / ".flox" / "cache" / "go" / "pkg" / "mod").mkdir(parents=True)
+        if extra_entry is not None:
+            (folder / extra_entry).parent.mkdir(parents=True, exist_ok=True)
+            (folder / extra_entry).write_text("")
+
+        leftovers = _leftover_worktree_dirs(repo, selected_sources=None, cutoff=time.time() + 60)
+
+        assert leftovers == ([folder] if expected_leftover else [])
 
 
 class TestCargoTargets:
@@ -321,7 +535,7 @@ class TestCargoTargets:
 
     @pytest.mark.parametrize(
         "cargo_target_dir_set,days_since_build,cargo_running,expected_offered",
-        [(False, 10, False, True), (True, 10, False, False), (False, 1, False, False), (False, 10, True, False)],
+        [(False, 10, False, True), (True, 10, False, True), (False, 1, False, False), (False, 10, True, False)],
         ids=["unused", "cargo_target_dir_set", "built_recently", "cargo_running_elsewhere"],
     )
     def test_legacy_cargo_target_is_offered_only_when_nothing_builds_there(
@@ -342,9 +556,87 @@ class TestCargoTargets:
         else:
             monkeypatch.delenv("CARGO_TARGET_DIR", raising=False)
 
-        offered = unused_legacy_cargo_target(time.time() - 7 * 86400)
+        cutoff = time.time() - 7 * 86400
 
-        assert offered == (target if expected_offered else None)
+        assert unused_legacy_cargo_target(cutoff) == (target if expected_offered and not cargo_target_dir_set else None)
+        assert [shared.path for shared in shared_cargo_targets() if unused_cargo_target(shared.path, cutoff)] == (
+            [target] if expected_offered else []
+        )
+
+    @pytest.mark.parametrize(
+        "case", ["graph", "unreadable_fingerprint", "locked_without_compiling", "symlinked_target"]
+    )
+    def test_sweep_keeps_every_unit_a_recent_build_reaches(self, tmp_path, case: str) -> None:
+        now = time.time()
+        month_ago = now - 30 * 86400
+        target = tmp_path / "target"
+        profile = target / "debug"
+        app_built = month_ago if case == "locked_without_compiling" else now
+        _write_cargo_unit(profile, "app", "a" * 16, fingerprint=1, depends_on=[2], built_epoch=app_built)
+        _write_cargo_unit(profile, "serde", "b" * 16, fingerprint=2, depends_on=[], built_epoch=month_ago)
+        left_pad = _write_cargo_unit(profile, "left-pad", "c" * 16, fingerprint=3, depends_on=[], built_epoch=month_ago)
+        stale_incremental = profile / "incremental" / "left_pad-0k1rn5ce8ga0p"
+        recent_incremental = profile / "incremental" / "app-2k0klfowy1csk"
+        for incremental, epoch in ((stale_incremental, month_ago), (recent_incremental, app_built)):
+            (incremental / "s-session").mkdir(parents=True)
+            os.utime(incremental / "s-session", (epoch, epoch))
+        (profile / ".cargo-lock").write_text("")
+        source_checkout = tmp_path / "src" / "old-module"
+        (source_checkout / "lib.rs").parent.mkdir(parents=True)
+        (source_checkout / "lib.rs").write_text("")
+        os.utime(source_checkout / "lib.rs", (month_ago, month_ago))
+        _write_cargo_unit(target / "release", "app", "d" * 16, fingerprint=4, depends_on=[], built_epoch=now)
+        (target / "release" / "incremental").symlink_to(tmp_path / "src", target_is_directory=True)
+        if case == "unreadable_fingerprint":
+            (profile / ".fingerprint" / f"serde-{'b' * 16}" / "lib-serde.json").write_text("{not json")
+        swept = target
+        if case == "symlinked_target":
+            swept = tmp_path / "linked-target"
+            swept.symlink_to(target, target_is_directory=True)
+
+        unused = unused_cargo_units(swept, now - 7 * 86400)
+
+        resolved_profile = profile.resolve()
+        expected = {
+            "graph": {
+                resolved_profile / ".fingerprint" / f"left-pad-{'c' * 16}",
+                resolved_profile / "deps" / left_pad.name,
+                resolved_profile / "incremental" / stale_incremental.name,
+            },
+            "unreadable_fingerprint": None,
+            "locked_without_compiling": set(),
+        }
+        expected["symlinked_target"] = expected["graph"]
+        assert (set(unused) if unused is not None else None) == expected[case]
+
+    def test_target_lock_waits_for_a_build_and_blocks_one_while_held(self, tmp_path) -> None:
+        target = _write_cargo_target(tmp_path / "target", time.time())
+        cargo_lock = target / "debug" / ".cargo-lock"
+        cargo_lock.write_text("")
+
+        with cargo_lock.open("a") as build:
+            fcntl.flock(build, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with cargo_target_locked(target) as locked:
+                assert not locked
+
+        with cargo_target_locked(target) as locked, cargo_lock.open("a") as build:
+            assert locked
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(build, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    @pytest.mark.parametrize("broken_git_metadata", [False, True], ids=["checkout", "checkout_git_cannot_read"])
+    def test_cargo_target_dir_inside_a_checkout_is_not_treated_as_shared(
+        self, tmp_path, monkeypatch, broken_git_metadata: bool
+    ) -> None:
+        checkout = _git_worktree(tmp_path / "checkout", {})
+        if broken_git_metadata:
+            shutil.rmtree(checkout / ".git")
+            (checkout / ".git").write_text(f"gitdir: {tmp_path / 'pruned-admin-dir'}\n")
+        target = _write_cargo_target(checkout / "target", time.time() - 10 * 86400)
+        monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+        monkeypatch.setenv("CARGO_TARGET_DIR", str(target))
+
+        assert [shared.path for shared in shared_cargo_targets()] == []
 
 
 class TestRegisteredWorktrees:
@@ -873,6 +1165,29 @@ class TestExecute:
         assert second.exists()
         assert [call.args[0].path for call in before_remove.call_args_list] == [first]
 
+    @pytest.mark.parametrize(
+        ("case", "expected_removed_failed"),
+        [("removable", (1, 0)), ("repo_deep_inside", (0, 1)), ("tracked_during_prompt", (0, 0))],
+    )
+    def test_artifact_is_checked_again_just_before_removal(
+        self, tmp_path, case: str, expected_removed_failed: tuple[int, int]
+    ) -> None:
+        worktree = _git_worktree(
+            tmp_path / "wt", {".gitignore": "node_modules/\n", "node_modules/pkg/index.js": ""}, tracked=(".gitignore",)
+        )
+        node_modules = (worktree / "node_modules").resolve()
+        if case == "repo_deep_inside":
+            (node_modules / ".pnpm" / "pkg@1.0.0" / "node_modules" / "pkg" / "src" / ".git").mkdir(parents=True)
+        wt = Worktree(source="claude", path=worktree, registered=True, locked=False, branch="", last_activity=0.0)
+        wt.artifact_items = [node_modules]
+        if case == "tracked_during_prompt":
+            subprocess.run(["git", "add", "-f", "node_modules/pkg/index.js"], cwd=worktree, check=True)
+
+        reap = _execute([wt], "deps", tmp_path)
+
+        assert (reap.removed, reap.failed) == expected_removed_failed
+        assert node_modules.exists() == (case != "removable")
+
     @pytest.mark.parametrize("read_only_go_module_cache", [True, False], ids=["read_only_tree", "already_removed"])
     def test_full_mode_counts_worktree_as_removed(self, tmp_path, read_only_go_module_cache) -> None:
         worktree = tmp_path / "wt"
@@ -891,23 +1206,3 @@ class TestExecute:
 
         assert (reap.removed, reap.failed) == (1, 0)
         assert not worktree.exists()
-
-
-class TestDuSizes:
-    def test_parses_per_path_and_skips_garbage(self, tmp_path, monkeypatch) -> None:
-        a = tmp_path / "a"
-        b = tmp_path / "b"
-        a.mkdir()
-        b.mkdir()
-
-        stdout = f"4\t{a}\n\nnot-a-number\t/whatever\n8\t{b}\n"
-        monkeypatch.setattr(
-            "hogli_commands.worktrees.subprocess.run",
-            lambda *a, **k: subprocess.CompletedProcess(args=[], returncode=1, stdout=stdout, stderr=""),
-        )
-
-        sizes = _du_sizes([a, b])
-        assert sizes == {str(a): 4 * 1024.0, str(b): 8 * 1024.0}
-
-    def test_no_existing_paths_returns_empty(self, tmp_path) -> None:
-        assert _du_sizes([tmp_path / "missing"]) == {}
