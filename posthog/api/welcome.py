@@ -240,6 +240,7 @@ def _recent_activity_queryset(team_ids: list[int], since: datetime, limit: int) 
 
     # Fix both index prefixes so each scan can stop at its limit without sorting its history.
     # A row below the top N in its team and scope cannot belong to the global top N.
+    # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (static SQL; all values use params)
     activity_ids = RawSQL(
         """
         SELECT recent.id
