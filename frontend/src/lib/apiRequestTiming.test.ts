@@ -323,6 +323,30 @@ describe('API request timing', () => {
             )
         })
 
+        it('classifies configured CDN scripts as app code and leaves unseen extension time unknown', () => {
+            Object.defineProperty(ResourceObserver, 'supportedEntryTypes', {
+                configurable: true,
+                value: ['resource', 'long-animation-frame'],
+            })
+            window.JS_URL = 'https://assets.example.com/static/'
+            try {
+                const recorder = new ApiRequestTimingRecorder({ now: () => now })
+                observer.deliver([
+                    frame(20, 120, [
+                        { sourceURL: 'https://assets.example.com/static/app.js', duration: 15 },
+                        { sourceURL: `${location.origin}.evil.example/script.js`, duration: 5 },
+                    ]),
+                ])
+                now = 320
+                const timing = recorder.finish()
+                expect(timing.long_frame_app_script_ms).toBe(15)
+                expect(timing.long_frame_other_script_ms).toBe(5)
+                expect(timing.long_frame_extension_script_ms).toBeUndefined()
+            } finally {
+                delete window.JS_URL
+            }
+        })
+
         it('reports no long frame fields where the browser cannot observe them', () => {
             const recorder = new ApiRequestTimingRecorder({ now: () => now })
             now = 320

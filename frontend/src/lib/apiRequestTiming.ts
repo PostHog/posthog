@@ -312,15 +312,23 @@ export class ApiRequestTimingRecorder {
     }
 
     private longFrameTiming(finishedAt: number): LongFrameTiming {
+        let assetOrigin: string | undefined
+        try {
+            assetOrigin = window.JS_URL ? new URL(window.JS_URL, location.href).origin : undefined
+        } catch {
+            // An invalid asset URL cannot identify application scripts.
+        }
         const frames = this.longFrames.filter(
             (frame) => frame.startTime < finishedAt && frame.startTime + frame.duration > this.startedAt
         )
-        const timing: Required<Omit<LongFrameTiming, 'long_frame_top_extension_id'>> = {
+        const timing: Required<
+            Omit<LongFrameTiming, 'long_frame_top_extension_id' | 'long_frame_extension_script_ms'>
+        > &
+            Pick<LongFrameTiming, 'long_frame_extension_script_ms'> = {
             long_frame_count: frames.length,
             long_frame_blocking_ms: 0,
             long_frame_max_ms: 0,
             long_frame_forced_layout_ms: 0,
-            long_frame_extension_script_ms: 0,
             long_frame_app_script_ms: 0,
             long_frame_other_script_ms: 0,
         }
@@ -332,12 +340,22 @@ export class ApiRequestTimingRecorder {
                 timing.long_frame_forced_layout_ms += script.forcedStyleAndLayoutDuration ?? 0
                 const extensionId = EXTENSION_URL_PATTERN.exec(script.sourceURL ?? '')?.[1]
                 if (extensionId) {
-                    timing.long_frame_extension_script_ms += script.duration
+                    // Isolated-world extension scripts are not attributed by LoAF, so even this is a lower bound.
+                    timing.long_frame_extension_script_ms =
+                        (timing.long_frame_extension_script_ms ?? 0) + script.duration
                     extensionMs.set(extensionId, (extensionMs.get(extensionId) ?? 0) + script.duration)
-                } else if (script.sourceURL?.startsWith(location.origin)) {
-                    timing.long_frame_app_script_ms += script.duration
                 } else {
-                    timing.long_frame_other_script_ms += script.duration
+                    let origin: string | undefined
+                    try {
+                        origin = script.sourceURL ? new URL(script.sourceURL, location.href).origin : undefined
+                    } catch {
+                        // Unknown URLs belong in the other bucket.
+                    }
+                    if (origin && (origin === location.origin || origin === assetOrigin)) {
+                        timing.long_frame_app_script_ms += script.duration
+                    } else {
+                        timing.long_frame_other_script_ms += script.duration
+                    }
                 }
             }
         }
