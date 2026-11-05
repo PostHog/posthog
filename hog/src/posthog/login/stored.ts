@@ -100,7 +100,9 @@ export async function logout(runtime: Runtime, host: Host): Promise<LoggedOut | 
                 return undefined
             }
             const leftover = record.keychainLeftover ? await removeKeychainLeftover(runtime, host) : null
-            return { revoked: null, revokeUrl: null, keychainLeftover: leftover }
+            // hog can't revoke an OAuth login it can't read, so logout says the session may still work.
+            const revoked = record.type === 'oauth' ? false : null
+            return { revoked, revokeUrl: null, keychainLeftover: leftover }
         }
         const [outcome, removed] = await Promise.all([
             login.key.logout(runtime),

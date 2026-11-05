@@ -6,7 +6,7 @@ import { parseHost } from './host'
 import { parseOrganizationId, parseProjectId } from './ids'
 import { parseOAuthAccessToken, parsePersonalApiKey, parseProjectToken, parseWorkloadToken } from './tokens'
 
-function problem(parse: () => unknown): string {
+function errorOf(parse: () => unknown): string {
     try {
         parse()
     } catch (error) {
@@ -84,7 +84,7 @@ describe('brand factories', () => {
             'invalid_host: The host must not have a query (?) or a fragment (#) in it.',
         ],
     ])('%s', (_name, parse, expected) => {
-        expect(problem(parse)).toBe(expected)
+        expect(errorOf(parse)).toBe(expected)
     })
 
     test.each([
