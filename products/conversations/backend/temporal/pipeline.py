@@ -298,7 +298,9 @@ class SupportReplyWorkflow:
                 # exists to draft a reply.
                 if workflow.patched(WRITE_BRIEF_PATCH):
                     try:
-                        await workflow.execute_activity(
+                        # Through _llm like every other model call in this run, so the brief's
+                        # call lands in the run's own llm_calls rather than going unbilled.
+                        await _llm(
                             support_write_brief_activity,
                             WriteBriefInput(
                                 team_id=input.team_id,
@@ -307,8 +309,8 @@ class SupportReplyWorkflow:
                                 ticket_type=ticket_type,
                                 trace_id=trace_id,
                             ),
-                            start_to_close_timeout=timedelta(minutes=2),
-                            retry_policy=RetryPolicy(maximum_attempts=2),
+                            timeout=timedelta(minutes=2),
+                            maximum_attempts=2,
                         )
                     except Exception:
                         workflow.logger.warning("support_reply: brief failed; continuing without one")

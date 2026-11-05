@@ -70,6 +70,7 @@ import {
 } from 'products/conversations/frontend/generated/api'
 import type {
     PatchedTicketUpdateRequestApi,
+    TicketBriefApi,
     TicketMacroApi,
 } from 'products/conversations/frontend/generated/api.schemas'
 import { getCommentsCreateUrl } from 'products/platform_features/frontend/generated/api'
@@ -156,7 +157,9 @@ const ATTESTED_LOOKUP_CHANNELS: TicketChannel[] = ['widget', 'email', 'slack', '
 // The brief endpoint reports why it wrote nothing as a code for the run's own logs. These are
 // the same outcomes said in words, because the engineer who pressed the button reads the toast.
 const BRIEF_FAILURE_MESSAGES: Record<string, string> = {
+    ai_not_approved: 'Approve AI data processing in organization settings to write a brief.',
     disabled: 'Briefs are turned off for this team.',
+    truncated: 'The brief ran long and did not finish. Try again.',
     gate_failed: "Couldn't check whether briefs are on for this team. Try again.",
     llm_failed: "Couldn't reach the model. Try again in a moment.",
     not_an_object: "The model didn't return a brief. Try again.",
@@ -567,6 +570,9 @@ export interface supportTicketSceneLogicActions {
     setTicket: (ticket: Ticket | null) => {
         ticket: Ticket | null
     }
+    setTicketBrief: (brief: TicketBriefApi | null) => {
+        brief: TicketBriefApi | null
+    }
     setTicketBriefWriting: (writing: boolean) => {
         writing: boolean
     }
@@ -761,6 +767,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         setTicketDeleting: (deleting: boolean) => ({ deleting }),
 
         writeTicketBrief: true,
+        setTicketBrief: (brief: TicketBriefApi | null) => ({ brief }),
         setTicketBriefWriting: (writing: boolean) => ({ writing }),
 
         submitAiReplyFeedback: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => ({
@@ -893,6 +900,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             null as Ticket | null,
             {
                 setTicket: (_, { ticket }) => ticket,
+                setTicketBrief: (state, { brief }) => (state ? { ...state, ticket_brief: brief } : state),
                 incrementUnreadCustomerCount: (state) =>
                     state ? { ...state, unread_customer_count: state.unread_customer_count + 1 } : state,
             },
@@ -1872,9 +1880,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     ticket.id
                 )
                 if (result.written) {
-                    // Reload rather than patch the ticket in place: the brief is written
-                    // server-side, so the stored one is the only version worth showing.
-                    actions.loadTicket()
+                    // Only the brief, not the whole ticket: loadTicket cancels an open message
+                    // edit and resets the unsaved status, priority, assignee and tag values, so
+                    // refreshing it here would throw away work the engineer has not saved.
+                    actions.setTicketBrief(result.brief ?? null)
                     lemonToast.success('Wrote the brief')
                 } else {
                     lemonToast.error(BRIEF_FAILURE_MESSAGES[result.reason] ?? "Couldn't write the brief. Try again.")

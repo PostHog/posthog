@@ -57,6 +57,19 @@ logger = structlog.get_logger(__name__)
 # so it needs less than the draft loop does.
 MAX_CONTEXT_CHARS = 6000
 
+# Every capped field at its limit, plus room for the JSON keys and quoting around them, at the
+# usual four characters per token. Derived rather than guessed: a budget below this truncates a
+# detailed brief mid-object, and a truncated object does not parse, so the whole brief is lost.
+MAX_OUTPUT_TOKENS = (
+    MAX_ASK
+    + MAX_AREA
+    + MAX_PURPOSE
+    + MAX_ERROR_MESSAGE
+    + MAX_QUESTIONS * MAX_QUESTION
+    + MAX_FACTS * MAX_FACT
+    + MAX_TRIED * MAX_FACT
+) // 4 + 512
+
 # Off until the flag is rolled out, so merging this ships nothing a support engineer sees. A
 # flag rather than a team setting, because the rollout, the kill switch and the staged percentage
 # are all decisions for whoever ships the brief, not writable by a customer's project admin.
@@ -208,6 +221,31 @@ def brief_enabled(team_id: int) -> bool:
     )
 
 
+def _bounded_context(ticket_context: str) -> str:
+    """The context, cut to fit, keeping the end rather than the start.
+
+    `format_conversation` already drops the oldest messages to fit its own budget, so the end
+    of this string holds the newest. Cutting the start keeps the customer's latest message,
+    which is the one a regenerated brief has to reflect; cutting the end would summarize a
+    request they have since changed.
+    """
+    if len(ticket_context) <= MAX_CONTEXT_CHARS:
+        return ticket_context
+    return "...\n" + ticket_context[-MAX_CONTEXT_CHARS:]
+
+
+def ai_processing_approved(team_id: int) -> bool:
+    """Whether this team's organization has approved sending its data to a model.
+
+    Separate from the rollout gate, and never waived: the flag decides whether we offer the
+    brief, this decides whether we are allowed to send the ticket to a model at all. Every
+    other AI path in this product checks it, and the on-demand callers have to as well.
+    """
+    return bool(
+        Team.objects.filter(id=team_id).values_list("organization__is_ai_data_processing_approved", flat=True).first()
+    )
+
+
 def _ticket_context_for(team_id: int, ticket_id: str) -> str | None:
     """The same ticket context the reply pipeline builds, for a caller outside the pipeline.
 
@@ -241,29 +279,49 @@ async def write_brief(
     """
     try:
         enabled = not respect_gate or await database_sync_to_async(brief_enabled, thread_sensitive=False)(team_id)
+        # Checked whatever `respect_gate` says. Reading a brief early is a reason to skip the
+        # rollout flag, never a reason to send an organization's data to a model without consent.
+        approved = await database_sync_to_async(ai_processing_approved, thread_sensitive=False)(team_id)
     except Exception:
         logger.warning("support_write_brief_gate_failed", ticket_id=ticket_id, exc_info=True)
         return BriefOutcome(written=False, reason="gate_failed")
+    if not approved:
+        return BriefOutcome(written=False, reason="ai_not_approved")
     if not enabled:
         return BriefOutcome(written=False, reason="disabled")
 
     user_content = (
-        f"Ticket context (untrusted data):\n<ticket_context>\n{ticket_context[:MAX_CONTEXT_CHARS]}\n</ticket_context>"
+        f"Ticket context (untrusted data):\n<ticket_context>\n{_bounded_context(ticket_context)}\n</ticket_context>"
     )
 
     try:
         # Inside the try with the call itself: building the client reaches configuration and
         # can throw, and a brief is never worth failing the run that drafts the reply.
+        #
+        # `max_retries=0` leaves retrying to the caller. The SDK's own default of two retries
+        # multiplies the 90-second request timeout, so a slow gateway outlasts the activity
+        # timeout and the brief stalls the reply the run exists to draft.
+        #
+        # `async with` because the factory hands the client a custom httpx client, which the
+        # SDK then does not clean up on its own. Without this, every brief leaves a connection
+        # pool behind: on a Temporal worker they accumulate, and the on-demand caller closes
+        # its event loop before the pool is collected.
         client = get_async_anthropic_gateway_client(product="conversations", team_id=team_id)
-        message = await create_message(
-            client,
-            model=UTILITY_MODEL,
-            max_tokens=1024,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_content}],
-            **anthropic_output_config(BriefResult),
-            **tracing_kwargs(trace_id, ticket_id),
-        )
+        async with client.with_options(max_retries=0) as bounded_client:
+            message = await create_message(
+                bounded_client,
+                model=UTILITY_MODEL,
+                max_tokens=MAX_OUTPUT_TOKENS,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": user_content}],
+                **anthropic_output_config(BriefResult),
+                **tracing_kwargs(trace_id, ticket_id),
+            )
+        if getattr(message, "stop_reason", None) == "max_tokens":
+            # The object is cut mid-field, so it cannot parse. Reported on its own because the
+            # fix is a budget, not a retry, and a generic failure hides that.
+            logger.warning("support_write_brief_truncated", ticket_id=ticket_id)
+            return BriefOutcome(written=False, reason="truncated")
         parsed = json_module.loads(strip_json_fence(anthropic_text(message)))
     except Exception:
         logger.warning("support_write_brief_llm_failed", ticket_id=ticket_id, exc_info=True)

@@ -306,9 +306,14 @@ class WriteTicketBriefResponseSerializer(serializers.Serializer):
     reason = serializers.CharField(
         allow_blank=True,
         help_text=(
-            "Why no brief was stored. Empty when one was. One of: gate_failed, llm_failed, "
-            "not_an_object, invalid, store_failed, ticket_gone."
+            "Why no brief was stored. Empty when one was. One of: ai_not_approved, disabled, "
+            "gate_failed, llm_failed, truncated, not_an_object, invalid, store_failed, ticket_gone."
         ),
+    )
+    brief = TicketBriefSerializer(
+        required=False,
+        allow_null=True,
+        help_text="The brief that was stored. Null when none was. Lets a caller show it without refetching the ticket.",
     )
 
 
@@ -2132,7 +2137,17 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
         ticket = self.get_object()
         output = write_brief_for_ticket(team_id=self.team_id, ticket_id=str(ticket.id))
-        return Response(WriteTicketBriefResponseSerializer({"written": output.written, "reason": output.reason}).data)
+        brief = None
+        if output.written:
+            # The stored row, not the writer's own copy: `_store_brief` adds the replay link, so
+            # reading it back is what keeps the response and the ticket in step.
+            ticket.refresh_from_db(fields=["ticket_brief"])
+            brief = ticket.ticket_brief or None
+        return Response(
+            WriteTicketBriefResponseSerializer(
+                {"written": output.written, "reason": output.reason, "brief": brief}
+            ).data
+        )
 
     @extend_schema(
         parameters=[TICKET_ID_PARAM],

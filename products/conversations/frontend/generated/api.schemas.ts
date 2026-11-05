@@ -868,8 +868,10 @@ export interface TicketReplyRequestApi {
 export interface WriteTicketBriefResponseApi {
     /** Whether a brief was stored on the ticket. */
     written: boolean
-    /** Why no brief was stored. Empty when one was. One of: gate_failed, llm_failed, not_an_object, invalid, store_failed, ticket_gone. */
+    /** Why no brief was stored. Empty when one was. One of: ai_not_approved, disabled, gate_failed, llm_failed, truncated, not_an_object, invalid, store_failed, ticket_gone. */
     reason: string
+    /** The brief that was stored. Null when none was. Lets a caller show it without refetching the ticket. */
+    brief?: TicketBriefApi | null
 }
 
 export interface BulkUpdateStatusRequestApi {

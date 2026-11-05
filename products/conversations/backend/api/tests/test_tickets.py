@@ -1139,16 +1139,39 @@ class TestWriteBriefEndpoint(APIBaseTest):
         # wait on the flag that governs automatic writes.
         self.user.is_staff = True
         self.user.save()
+        stored = {"ask": "Enable the source.", "area": "Data warehouse", "questions": []}
+
+        def _write(*, team_id: int, ticket_id: str) -> BriefOutcome:
+            Ticket.objects.filter(id=ticket_id).update(ticket_brief=stored)
+            return BriefOutcome(written=True)
+
         with patch(
             "products.conversations.backend.api.tickets.write_brief_for_ticket",
-            return_value=BriefOutcome(written=True),
+            side_effect=_write,
         ) as helper:
             response = self.client.post(self.url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"written": True, "reason": ""})
+        # The stored row, not the writer's return value: the caller renders this without
+        # refetching the ticket, so a response that drifts from the row shows a stale brief.
+        self.assertEqual(response.json(), {"written": True, "reason": "", "brief": stored})
         # The whole call, because passing respect_gate=True here would reinstate the wait the
         # button exists to skip, and a wrong team_id would brief someone else's ticket.
         self.assertEqual(helper.call_args.kwargs, {"team_id": self.team.id, "ticket_id": str(self.ticket.id)})
+
+    def test_a_failed_write_returns_no_brief(self):
+        # The caller sets its local brief from this field, so a failure must not hand it the
+        # brief that was already on the ticket and look like a fresh one.
+        self.user.is_staff = True
+        self.user.save()
+        self.ticket.ticket_brief = {"ask": "Older brief.", "area": "Billing", "questions": []}
+        self.ticket.save(update_fields=["ticket_brief"])
+        with patch(
+            "products.conversations.backend.api.tickets.write_brief_for_ticket",
+            return_value=BriefOutcome(written=False, reason="ai_not_approved"),
+        ):
+            response = self.client.post(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"written": False, "reason": "ai_not_approved", "brief": None})
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
