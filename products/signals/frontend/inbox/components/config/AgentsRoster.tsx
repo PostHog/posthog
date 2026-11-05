@@ -116,6 +116,7 @@ interface SourceFilters {
 
 /** Product analytics only: which firing alerts become signals. */
 interface SourceAlertScope {
+    options: typeof ALERT_SCOPE_OPTIONS
     value: SignalAlertScope
     onChange: (value: SignalAlertScope) => void
     /** False before the source was ever turned on, as the choice is stored on its config row. */
@@ -139,6 +140,12 @@ const ALERT_SCOPE_OPTIONS: { value: SignalAlertScope; label: string; description
         description:
             'Each time an insight alert starts firing, including alerts without the investigation agent. An alert that is already firing is included the next time it starts firing.',
         dataAttr: 'signal-source-alert-scope-all-firing-alerts',
+    },
+    {
+        value: SignalAlertScope.Off,
+        label: 'Off',
+        description: 'No alerts become signals. Alert checks, notifications, and investigations keep running.',
+        dataAttr: 'signal-source-alert-scope-off',
     },
 ]
 
@@ -420,7 +427,7 @@ function Expansion({
                                 aria-label="Alerts that become signals"
                                 data-attr="signal-source-alert-scope"
                                 radioPosition="top"
-                                options={ALERT_SCOPE_OPTIONS.map(({ value, label, description, dataAttr }) => ({
+                                options={alertScope.options.map(({ value, label, description, dataAttr }) => ({
                                     value,
                                     label,
                                     description,
@@ -948,14 +955,18 @@ export function AgentsRoster(): JSX.Element {
         [toggleScannerSignals, toggleErrorTrackingType]
     )
 
-    const showAlertScope = !!featureFlags[FEATURE_FLAGS.SIGNALS_ANALYTICS_ALL_ALERTS]
-    const alertScope = useMemo((): SourceAlertScope | undefined => {
-        if (!showAlertScope) {
-            return undefined
-        }
+    const allFiringAlertsEnabled = !!featureFlags[FEATURE_FLAGS.SIGNALS_ANALYTICS_ALL_ALERTS]
+    const alertScope = useMemo((): SourceAlertScope => {
         const blockedReason = stateFor('analytics').blockedReason
         return {
-            value: analyticsAlertScope,
+            options: allFiringAlertsEnabled
+                ? ALERT_SCOPE_OPTIONS
+                : ALERT_SCOPE_OPTIONS.filter(({ value }) => value !== SignalAlertScope.AllFiringAlerts),
+            // Without the flag the backend treats a stored all firing scope as investigated only.
+            value:
+                !allFiringAlertsEnabled && analyticsAlertScope === SignalAlertScope.AllFiringAlerts
+                    ? SignalAlertScope.InvestigatedOnly
+                    : analyticsAlertScope,
             onChange: setAnalyticsAlertScope,
             canChange: !!anomalyInvestigationConfig && !anomalyInvestigationConfig.id.startsWith('new_'),
             disabledReason:
@@ -963,7 +974,7 @@ export function AgentsRoster(): JSX.Element {
                 (savingAnalyticsAlertScope !== null || isAnomalyInvestigationToggling ? 'Saving' : undefined),
         }
     }, [
-        showAlertScope,
+        allFiringAlertsEnabled,
         stateFor,
         analyticsAlertScope,
         setAnalyticsAlertScope,
