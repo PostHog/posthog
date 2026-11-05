@@ -46,8 +46,9 @@ export const UploadedLogo = React.forwardRef<HTMLDivElement, UploadedLogoProps>(
             ref={ref}
         >
             {isLoadingImage && <LemonSkeleton className="absolute inset-0" />}
+            {/* An org or project has one logo for both themes, so a light tile keeps dark logos visible on dark chrome. */}
             <img
-                className="size-full object-cover"
+                className="size-full object-cover dark:bg-white"
                 src={mediaId.startsWith('data:') ? mediaId : backendAssetUrl(`/uploaded_media/${mediaId}`)}
                 alt="Uploaded logo"
                 onError={() => setIsLoadingImage(false)}
