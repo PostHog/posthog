@@ -523,7 +523,7 @@ class DataWarehouseSavedQuerySerializer(
         # Switching would add or drop the view's DAG node, and the dependents that read it through HogQL.
         if engine.has_lineage.available != instance.engine.has_lineage.available:
             raise serializers.ValidationError(
-                "A view cannot switch between Trino and ClickHouse. Save it as a new view."
+                "A view cannot switch to or from raw Trino SQL or a direct connection. Save it as a new view."
             )
         if engine.column_source == ViewColumnSource.CLIENT_TYPES and "query" in validated_data and not soft_update:
             inferred_columns = self._columns_from_request_types()

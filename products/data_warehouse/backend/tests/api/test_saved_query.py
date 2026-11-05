@@ -41,6 +41,7 @@ from products.data_modeling.backend.facade.models import (
     Edge,
     Node,
     NodeType,
+    ViewColumnSource,
     ViewEngine,
     ViewEngineDialect,
     ViewEngineTarget,
@@ -58,7 +59,7 @@ from products.data_warehouse.backend.presentation.views.saved_query.viewset impo
     SavedQueryResumeSchedulesRequestSerializer,
     SavedQueryRunSerializer,
 )
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 
@@ -230,6 +231,26 @@ class TestSavedQuery(APIBaseTest):
         # Expanding the view would fail on its inner Trino table instead, so the view name pins the filter.
         self.assertIn("Unknown table `hub_occupancy`", response.json()["detail"])
 
+    def test_list_marks_a_connection_view_without_the_trino_flag(self) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source-id",
+            connection_id="connection-id",
+            destination_id="destination-id",
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="hub_occupancy",
+            query={"kind": "HogQLQuery", "query": "SELECT * FROM hub_occupancy", "connectionId": str(source.pk)},
+        )
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            listed = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/").json()
+        engine = {row["name"]: row["engine"] for row in listed["results"]}["hub_occupancy"]
+        self.assertEqual(engine["target"], "connection")
+        self.assertFalse(engine["capabilities"]["materialize"]["available"])
+
     @parameterized.expand(
         [
             ("not_select", "SHOW SCHEMAS", True, [["x", "Int64"]], "read-only SELECT"),
@@ -263,26 +284,40 @@ class TestSavedQuery(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("run", "post", "run/", {}),
-            ("schedule", "patch", "", {"sync_frequency": "24hour"}),
+            (f"{engine}_{action}", query, method, path, body, expected_detail)
+            for engine, query, expected_detail in [
+                (
+                    "raw_trino",
+                    {
+                        "query": 'SELECT * FROM "warehouse_catalog".production.hub_occupancy',
+                        "executionTarget": "managed_trino",
+                        "sendRawQuery": True,
+                    },
+                    "raw Trino SQL cannot be materialized",
+                ),
+                (
+                    "connection",
+                    {"query": "SELECT * FROM hub_occupancy", "connectionId": str(uuid.uuid4())},
+                    "direct connection cannot be materialized",
+                ),
+            ]
+            for action, method, path, body in [
+                ("run", "post", "run/", {}),
+                ("schedule", "patch", "", {"sync_frequency": "24hour"}),
+            ]
         ]
     )
-    def test_raw_managed_trino_view_never_reaches_the_dag(self, _case: str, method: str, path: str, body: dict) -> None:
+    def test_view_off_posthog_engines_never_reaches_the_dag(
+        self, _case: str, query: dict, method: str, path: str, body: dict, expected_detail: str
+    ) -> None:
         view = DataWarehouseSavedQuery.objects.create(
-            team=self.team,
-            name="trino_view",
-            query={
-                "kind": "HogQLQuery",
-                "query": 'SELECT * FROM "warehouse_catalog".production.hub_occupancy',
-                "executionTarget": "managed_trino",
-                "sendRawQuery": True,
-            },
+            team=self.team, name="off_engine_view", query={"kind": "HogQLQuery", **query}
         )
         response = getattr(self.client, method)(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{view.id}/{path}", body, format="json"
         )
         self.assertEqual(response.status_code, 400, response.content)
-        self.assertIn("raw Trino SQL cannot be materialized", response.json()["detail"])
+        self.assertIn(expected_detail, response.json()["detail"])
         self.assertFalse(Node.objects.filter(saved_query=view).exists())
 
     @parameterized.expand(
@@ -2984,49 +3019,65 @@ class TestSavedQuery(APIBaseTest):
 class TestViewEngineFromQuery(SimpleTestCase):
     @parameterized.expand(
         [
-            ("clickhouse_hogql", {}, ViewEngine(target=ViewEngineTarget.CLICKHOUSE, dialect=ViewEngineDialect.HOGQL)),
+            (
+                "clickhouse_hogql",
+                {},
+                ViewEngine(target=ViewEngineTarget.CLICKHOUSE, dialect=ViewEngineDialect.HOGQL),
+                True,
+            ),
             (
                 "clickhouse_ignores_raw",
                 {"sendRawQuery": True},
                 ViewEngine(target=ViewEngineTarget.CLICKHOUSE, dialect=ViewEngineDialect.HOGQL),
+                True,
             ),
             (
                 "trino_hogql",
                 {"executionTarget": "managed_trino"},
                 ViewEngine(target=ViewEngineTarget.MANAGED_TRINO, dialect=ViewEngineDialect.HOGQL),
+                True,
             ),
             (
                 "trino_raw",
                 {"executionTarget": "managed_trino", "sendRawQuery": True},
                 ViewEngine(target=ViewEngineTarget.MANAGED_TRINO, dialect=ViewEngineDialect.RAW),
+                False,
             ),
             (
                 "trino_string_true",
                 {"executionTarget": "managed_trino", "sendRawQuery": "true"},
                 ViewEngine(target=ViewEngineTarget.MANAGED_TRINO, dialect=ViewEngineDialect.HOGQL),
+                True,
             ),
             (
                 "trino_wins_over_connection",
                 {"executionTarget": "managed_trino", "sendRawQuery": True, "connectionId": "conn-1"},
                 ViewEngine(target=ViewEngineTarget.MANAGED_TRINO, dialect=ViewEngineDialect.RAW),
+                False,
             ),
             (
                 "connection_hogql",
                 {"connectionId": "conn-1"},
                 ViewEngine(target=ViewEngineTarget.CONNECTION, dialect=ViewEngineDialect.HOGQL, connection_id="conn-1"),
+                False,
             ),
             (
                 "connection_raw",
                 {"connectionId": "conn-1", "sendRawQuery": True},
                 ViewEngine(target=ViewEngineTarget.CONNECTION, dialect=ViewEngineDialect.RAW, connection_id="conn-1"),
+                False,
             ),
         ]
     )
-    def test_from_query(self, _name: str, keys: dict, expected: ViewEngine) -> None:
+    def test_from_query(self, _name: str, keys: dict, expected: ViewEngine, runs_on_posthog: bool) -> None:
         engine = ViewEngine.from_query({"kind": "HogQLQuery", "query": "SELECT 1", **keys})
         self.assertEqual(engine, expected)
-        self.assertEqual(engine.can_materialize.available, not engine.is_raw_trino)
-        self.assertEqual(engine.referenceable_from_hogql.available, not engine.is_raw_trino)
+        for capability in (engine.can_materialize, engine.has_lineage, engine.referenceable_from_hogql):
+            self.assertEqual(capability.available, runs_on_posthog)
+        self.assertEqual(
+            engine.column_source,
+            ViewColumnSource.CLICKHOUSE_PROBE if runs_on_posthog else ViewColumnSource.CLIENT_TYPES,
+        )
 
 
 class TestSavedQueryNameValidation(SimpleTestCase):

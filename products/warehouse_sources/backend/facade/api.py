@@ -95,6 +95,7 @@ __all__ = [
     "get_queryable_table",
     "resolve_object_by_name",
     "direct_access_table_ids",
+    "team_may_have_direct_query_source",
     "discard_backing_table",
     "record_table_row_count",
     "allowed_table_ids",
@@ -502,6 +503,19 @@ def direct_access_table_ids(team_id: int) -> set[UUID]:
         .values_list("id", flat=True)
     )
     return set(rows)
+
+
+def team_may_have_direct_query_source(team_id: int) -> bool:
+    """Whether any source in this team may be queried over a direct connection. One query.
+
+    It can return True for a source that `is_direct_capable` refuses, such as one whose type maps to no engine.
+    """
+    return (
+        _ExternalDataSource.objects.filter(team_id=team_id)
+        .exclude(deleted=True)
+        .filter(Q(access_method=_ExternalDataSource.AccessMethod.DIRECT) | Q(direct_query_enabled=True))
+        .exists()
+    )
 
 
 def allowed_table_ids(
