@@ -14,10 +14,6 @@ export type EventNameGate = {
     filteredMetrics: () => { hogFunctions: MinimalAppMetric[]; hogFlows: MinimalAppMetric[] }
 }
 
-/**
- * Decides from the event name alone whether any event destination or event-triggered flow of a team
- * could want an event, by the same pre-filter that rejects it today once the body is parsed.
- */
 export function buildEventNameGate({
     hogFunctions,
     hogFlows,

@@ -356,10 +356,7 @@ export function convertToHogFunctionFilterGlobal(
 
 const HOG_FILTERING_TIMEOUT_MS = 100
 
-/**
- * Whether these filters reject an event on its name alone: they list events, list no actions (an action
- * is a saved event filter), and name neither this event nor all events (a null id).
- */
+/** An action is a saved event filter, so only an events-only list can reject on the name; a null id admits all. */
 export function rejectsEventName(filters: HogFunctionType['filters'], eventName: string): boolean {
     if (!filters?.events?.length || filters.actions?.length) {
         return false

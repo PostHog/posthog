@@ -34,10 +34,7 @@ export function readTeamIdHeader(message: Message): number | null {
     return isValidTeamId(teamId) ? teamId : null
 }
 
-/**
- * Reads the event name the producer put in a Kafka header. Like the team id, the body stays
- * authoritative: a caller may skip the body on this name, but reads the event from the body.
- */
+/** Like the team id header: a caller may skip the body on this name, but reads the event from the body. */
 export function readEventNameHeader(message: Message): string | null {
     return readHeader(message, EVENT_NAME_HEADER)
 }

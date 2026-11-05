@@ -45,8 +45,7 @@ export class CdpEventsConsumer<
     private deadLetterService: CdpDeadLetterService
     /** The message each set of globals was built from, so a failure can find its bytes. */
     private messageByGlobals = new WeakMap<HogFunctionInvocationGlobals, Message>()
-    // Events the name gate rejected while the skip is off, for the check after the build. Shadow
-    // scaffolding: remove it with countInvokedAfterNameRejection once the skip is on everywhere.
+    // Shadow scaffolding while the skip is off: a rejected event that still gets invoked is one the skip would drop.
     private rejectedByName = new WeakSet<HogFunctionInvocationGlobals>()
 
     constructor(
@@ -100,8 +99,7 @@ export class CdpEventsConsumer<
         beforeQueue?: () => Promise<void>
     ): Promise<{ backgroundTask: Promise<any>; invocations: CyclotronJobInvocation[] }> {
         if (!invocationGlobals.length) {
-            // A batch whose every message failed to parse still has records to write, and a batch
-            // whose every event was skipped by name still has filtered metrics to write.
+            // A batch whose every message failed to parse or was skipped still has records and metrics to write.
             await beforeQueue?.()
             return { backgroundTask: this.flushMonitoring(), invocations: [] }
         }
@@ -216,10 +214,6 @@ export class CdpEventsConsumer<
         }
     }
 
-    /**
-     * While the skip is off, an event the gate rejects is still parsed. One that a destination or workflow
-     * then invokes is a wrong rejection, which the skip would have dropped.
-     */
     private countInvokedAfterNameRejection(globalsList: HogFunctionInvocationGlobals[], invokedUuids: string[]): void {
         const rejected = new Set(globalsList.filter((g) => this.rejectedByName.has(g)).map((g) => g.event.uuid))
         if (!rejected.size) {
@@ -318,10 +312,7 @@ export class CdpEventsConsumer<
         return invocationGlobals
     }
 
-    /**
-     * Looks the team up for every message, so a failed lookup parks only its own message, and builds the
-     * gate once per team in a batch.
-     */
+    // Looks up per message, so a failed lookup parks only its own message.
     private async loadTeamWithEventNameGate(
         teamId: number,
         gates: Map<number, EventNameGate>
