@@ -1,5 +1,6 @@
 from collections.abc import Mapping
 from dataclasses import field
+from http import HTTPStatus
 from typing import cast
 
 from django.db import transaction
@@ -38,6 +39,28 @@ class HubspotRetryableError(Exception):
 
 class HubspotTokenRefreshError(Exception):
     """HubSpot rejected the token refresh."""
+
+    def __init__(self, message: str, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def _is_retryable_status(status_code: int) -> bool:
+    """Transient HubSpot statuses that warrant a backoff-and-retry rather than failing the sync.
+
+    408, 429 and 5xx are the usual transient signals. Unrecognised 4xx codes (e.g. the
+    non-standard 477 HubSpot's edge has been observed returning during brief incidents) aren't
+    actionable client errors, so treat any unknown 4xx as transient too instead of crashing the
+    import on it.
+    """
+    if status_code in (408, 429) or status_code >= 500:
+        return True
+    if 400 <= status_code < 500:
+        try:
+            HTTPStatus(status_code)
+        except ValueError:
+            return True
+    return False
 
 
 @frozen
@@ -118,7 +141,7 @@ def _hubspot_refresh_token_payload(refresh_token: str) -> Mapping[str, object]:
         # and retry rather than failing the sync (and disabling the schema) on a transient state.
         if "migration in progress" in err_message.lower():
             raise HubspotRetryableError(err_message)
-        raise HubspotTokenRefreshError(err_message)
+        raise HubspotTokenRefreshError(err_message, status_code=res.status_code)
 
     payload = res.json()
     if not isinstance(payload, Mapping):
@@ -151,7 +174,7 @@ def hubspot_exchange_legacy_grant(refresh_token: str) -> HubspotLegacyGrant:
             res = make_tracked_session().get(
                 "https://api.hubapi.com/oauth/v1/access-tokens/" + access_token,
             )
-        if res.status_code == 429 or res.status_code >= 500:
+        if _is_retryable_status(res.status_code):
             raise HubspotRetryableError("HubSpot could not return token information")
         if res.status_code != 200:
             raise LegacyOAuthGrantUnusable("HubSpot rejected the token information request")
@@ -171,7 +194,10 @@ def hubspot_exchange_legacy_grant(refresh_token: str) -> HubspotLegacyGrant:
             access_token=access_token,
             refresh_token=rotated_refresh_token,
         )
-    except HubspotTokenRefreshError:
+    except HubspotTokenRefreshError as e:
+        # A timeout or an unknown 4xx is not a rejection of the grant, so the cleanup must not clear the tokens.
+        if e.status_code is not None and _is_retryable_status(e.status_code):
+            raise HubspotRetryableError("The legacy HubSpot grant could not be checked") from None
         raise LegacyOAuthGrantUnusable("The legacy HubSpot grant could not be exchanged") from None
     except (HubspotRetryableError, requests.RequestException, ValueError):
         raise HubspotRetryableError("The legacy HubSpot grant could not be checked") from None

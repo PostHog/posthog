@@ -274,7 +274,7 @@ def _process_batch(batch: Iterable[ExternalDataSource], execute: bool, counts: B
 def _plan(source: ExternalDataSource) -> dict[str, Any] | str:
     """Return the stored typed-in fields or the planned outcome, without network calls or writes."""
     inputs = SourceInputsStore.load_stored(source)
-    if DEAD_CREDENTIALS_CLEARED_KEY in inputs:
+    if _still_cleaned(source, inputs):
         return SKIPPED_CLEANED
     if is_stripped(inputs):
         return SKIPPED_STRIPPED
@@ -287,6 +287,15 @@ def _plan(source: ExternalDataSource) -> dict[str, Any] | str:
     if not fields or not has_typed_in_credentials(str(source.source_type)):
         return SKIPPED_NO_ROW
     return fields
+
+
+def _still_cleaned(source: ExternalDataSource, inputs: Mapping[str, Any]) -> bool:
+    """Whether the cleanup marker still describes the source. The cleanup removed every in-use pointer, so a
+    pointer that is there now came from a reconnect, and the backfill must link it."""
+    if DEAD_CREDENTIALS_CLEARED_KEY not in inputs:
+        return False
+    slot = in_use_oauth_slot(str(source.source_type), inputs)
+    return slot is None or pointer_at(inputs, slot) is None
 
 
 def _oauth_outcome(source: ExternalDataSource, inputs: Mapping[str, Any], slot: PointerPath) -> str:
@@ -355,7 +364,7 @@ def _adopt_legacy_oauth(source: ExternalDataSource) -> str:
         return SKIPPED_DELETED
     source = current
     inputs = SourceInputsStore.load_stored(source)
-    if DEAD_CREDENTIALS_CLEARED_KEY in inputs:
+    if _still_cleaned(source, inputs):
         return SKIPPED_CLEANED
     source_class = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
     try:
@@ -377,7 +386,7 @@ def _adopt_legacy_oauth(source: ExternalDataSource) -> str:
         if fresh is None:
             return SKIPPED_DELETED
         fresh_inputs = SourceInputsStore.load_stored(fresh)
-        if DEAD_CREDENTIALS_CLEARED_KEY in fresh_inputs:
+        if _still_cleaned(fresh, fresh_inputs):
             return SKIPPED_CLEANED
         if grant.pointer_key in fresh_inputs:
             return _sync_source(fresh)
@@ -435,7 +444,7 @@ def _sync_source(source: ExternalDataSource) -> str:
         if fresh is None:
             return SKIPPED_DELETED
         inputs = SourceInputsStore.load_stored(fresh)
-        if DEAD_CREDENTIALS_CLEARED_KEY in inputs:
+        if _still_cleaned(fresh, inputs):
             return SKIPPED_CLEANED
         if is_stripped(inputs):
             # Stripped after the batch read. The row is the only copy, so `job_inputs` must never overwrite it.

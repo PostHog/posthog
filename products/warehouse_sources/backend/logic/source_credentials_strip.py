@@ -14,7 +14,7 @@ the check or replaces the stripped value with a full one, which a later run stri
 """
 
 from collections import Counter
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import timedelta
 from typing import Any
 from uuid import UUID
@@ -266,7 +266,7 @@ def _restore_one(source_id: UUID, team_id: int, execute: bool, prefer_backup: bo
                 if backup is None:
                     return NO_CREDENTIALS
                 if execute:
-                    SourceInputsStore.write_restored(source, backup.inputs)
+                    SourceInputsStore.write_restored(source, _merge_cleanup_backup(stored_inputs, backup.inputs))
                 return RESTORED_FROM_BACKUP
             return NOT_STRIPPED
         slot = in_use_oauth_slot(str(source.source_type), stored_inputs)
@@ -323,6 +323,19 @@ def _restore_oauth(
     if execute:
         SourceInputsStore.write_restored(source, with_pointer_at(stored_inputs, slot, integration_id))
     return outcome
+
+
+def _merge_cleanup_backup(current: Mapping[str, Any], backup: Mapping[str, Any]) -> dict[str, Any]:
+    """Put back only what the dead-credentials cleanup removed: keys that the current inputs lack, also in nested
+    groups. Settings and runtime state written since the cleanup stay, and so does a pointer that a reconnect
+    wrote."""
+    merged = dict(backup)
+    for key, value in current.items():
+        old = backup.get(key)
+        merged[key] = (
+            _merge_cleanup_backup(value, old) if isinstance(value, Mapping) and isinstance(old, Mapping) else value
+        )
+    return merged
 
 
 def _backup_of(source: ExternalDataSource) -> ExternalDataSourceInputsBackup | None:

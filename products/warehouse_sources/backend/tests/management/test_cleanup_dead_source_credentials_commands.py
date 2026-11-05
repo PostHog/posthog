@@ -14,7 +14,7 @@ import requests
 from parameterized import parameterized
 from structlog.testing import capture_logs
 
-from posthog.integrations import IntegrationManager
+from posthog.integrations import IntegrationManager, IntegrationReference
 from posthog.models.team import Team
 
 from products.warehouse_sources.backend.facade.contracts import (
@@ -311,6 +311,38 @@ class TestCleanupDeadSourceCredentials(_StripTestCase):
         assert self._reference(source) is None
         assert self._rows() == []
 
+    def test_backfill_links_a_cleaned_source_after_a_reconnect(self) -> None:
+        source = self._source({"hubspot_integration_id": MISSING_ID}, source_type="Hubspot", column=MISSING_ID)
+        self._run(COMMAND, "--execute")
+        row = IntegrationManager.hubspot.oauth.create(self.team.pk, external_id="fake-account", config={})
+        fresh = ExternalDataSource.objects.get(pk=source.pk)
+        SourceInputsStore.save(fresh, {**SourceInputsStore.load(fresh), "hubspot_integration_id": row.id})
+        # The dual write was off, so the reconnect left the column empty.
+        ExternalDataSource.objects.filter(pk=source.pk).update(credentials_integration_id=None)
+        assert DEAD_CREDENTIALS_CLEARED_KEY in self._stored(source)
+
+        counts: Counter[tuple[str, str]] = Counter()
+        _process_batch([ExternalDataSource.objects.get(pk=source.pk)], True, counts)
+
+        assert counts == Counter({("Hubspot", "oauth_linked"): 1})
+        assert self._reference(source) == str(IntegrationReference.from_legacy_id(row.id))
+
+    def test_restore_after_cleanup_keeps_later_settings_and_runtime_state(self) -> None:
+        inputs = {
+            "auth_method": {"selection": "oauth", "stripe_integration_id": MISSING_ID},
+            "stripe_account_id": "acct",
+        }
+        source = self._source(inputs, source_type="Stripe", column=MISSING_ID)
+        self._run(COMMAND, "--execute")
+        fresh = ExternalDataSource.objects.get(pk=source.pk)
+        SourceInputsStore.update_runtime(fresh, {"cdc_position": "later"})
+
+        assert "restored_from_backup=1" in self._run(
+            "restore_warehouse_source_connection_fields", "--execute", "--source-id", str(source.id)
+        )
+
+        assert self._stored(source) == {**inputs, "cdc_position": "later"}
+
     @parameterized.expand([("unmarked", False, "not_stripped"), ("marked", True, "no_row_and_no_backup")])
     def test_restore_without_cleanup_backup(self, _name: str, marked: bool, outcome: str) -> None:
         inputs = {DEAD_CREDENTIALS_CLEARED_KEY: timezone.now().isoformat()} if marked else {}
@@ -420,9 +452,13 @@ class TestLegacyGrantFailures(SimpleTestCase):
             ("refresh_timeout", False, requests.ReadTimeout(FAKE_TOKEN)),
             ("refresh_rate_limit", False, ScriptedResponse(status=429, json={"message": "retry"})),
             ("refresh_server_error", False, ScriptedResponse(status=503, json={"message": "retry"})),
+            ("refresh_request_timeout", False, ScriptedResponse(status=408, json={"message": "retry"})),
+            ("refresh_unknown_4xx", False, ScriptedResponse(status=477, json={"message": "retry"})),
             ("info_timeout", True, requests.ReadTimeout(FAKE_TOKEN)),
             ("info_rate_limit", True, ScriptedResponse(status=429)),
             ("info_server_error", True, ScriptedResponse(status=503)),
+            ("info_request_timeout", True, ScriptedResponse(status=408)),
+            ("info_unknown_4xx", True, ScriptedResponse(status=477)),
         ]
     )
     def test_transport_failures_do_not_mark_a_grant_unusable(
