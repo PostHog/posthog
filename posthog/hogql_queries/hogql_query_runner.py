@@ -1,3 +1,4 @@
+import dataclasses
 from collections.abc import Callable
 from datetime import UTC, datetime
 from functools import cached_property
@@ -90,17 +91,9 @@ class TimeBucketCollector(TraversingVisitor):
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         parent_window_exprs = self.window_exprs
         self.window_exprs = node.window_exprs or {}
-        for cte in (node.ctes or {}).values():
-            self.visit(cte)
-        self.visit(node.select_from)
-        for expr in node.array_join_list or []:
-            self.visit(expr)
-        for expr in node.select:
-            self.visit(expr)
-        for expr in node.group_by or []:
-            self.visit(expr)
-        for expr in node.order_by or []:
-            self.visit(expr)
+        # A bucket in WHERE, PREWHERE or HAVING only narrows the rows, so the result has no time buckets from it.
+        # Named windows count only when a window function references them, in visit_window_function.
+        super().visit_select_query(dataclasses.replace(node, where=None, prewhere=None, having=None, window_exprs=None))
         self.window_exprs = parent_window_exprs
 
     def visit_join_expr(self, node: ast.JoinExpr) -> None:

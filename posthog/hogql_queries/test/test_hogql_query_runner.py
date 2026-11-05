@@ -812,6 +812,17 @@ class TestFinestTimeBucket(SimpleTestCase):
                 "select event from events order by toStartOfMinute(timestamp) desc limit 10",
                 "minute",
             ),
+            ("inside_limit_by", "select event from events limit 1 by toStartOfMinute(timestamp)", "minute"),
+            (
+                "inside_qualify",
+                "select event from events qualify row_number() over (partition by toStartOfMinute(timestamp)) = 1",
+                "minute",
+            ),
+            (
+                "having_bucket_is_not_a_result_bucket",
+                "select event, count() from events group by event having max(timestamp) > toStartOfHour(now())",
+                None,
+            ),
         ]
     )
     def test_finest_time_bucket(self, _name: str, sql: str, expected: Optional[str]) -> None:
