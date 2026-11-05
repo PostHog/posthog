@@ -775,6 +775,7 @@ describe('SesWebhookHandler', () => {
 
         it.each([
             { label: 'plain text', message: plainText, logged: plainText },
+            { label: 'control character', message: '\u001b[31mforged\nline', logged: ' (31mforged line' },
             {
                 label: 'truncated SES JSON',
                 message: '{"eventType":"Bounce","mail":{"destination":["victim@example.com"',

@@ -488,9 +488,10 @@ export const formatSesEventLogs = (rec: SesEventRecord): SesEventLogLine[] => {
 }
 
 // A malformed SES event still carries recipients and links, so only text that does not open like
-// JSON, such as an SNS or SES notice, is safe to quote in a log.
+// JSON, such as an SNS or SES notice, is quoted. With an empty topic allowlist any AWS account can
+// send that text, so it is sanitized like other SES fields.
 const plainTextPrefix = (message: string): string | undefined =>
-    /^\s*[{[]/.test(message) ? undefined : message.slice(0, 200)
+    /^\s*[{[]/.test(message) ? undefined : sanitizeSesField(message, 200)
 
 export class SesWebhookHandler {
     certCache: Record<string, Promise<string> | undefined> = {}
