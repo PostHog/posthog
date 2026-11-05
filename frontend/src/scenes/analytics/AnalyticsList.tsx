@@ -44,6 +44,8 @@ import { todayAnalyticsLogic } from '~/layout/today/todayAnalyticsLogic'
 import { TodayAnalyticsNewFolderDialog } from '~/layout/today/TodayAnalyticsNewFolderDialog'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
+import { AddToCollectionDialog } from './AddToCollectionDialog'
+import { addToCollectionLogic } from './addToCollectionLogic'
 import { AnalyticsCreateModals } from './AnalyticsCreateModals'
 import { analyticsOrderByOfColumn, parseAnalyticsOrderBy } from './analyticsFeed'
 import { AnalyticsFolderBreadcrumbs } from './AnalyticsFolderBreadcrumbs'
@@ -90,6 +92,7 @@ function AnalyticsListContent(): JSX.Element {
     const { clearFilters, loadList, loadMore, setFilters } = useActions(analyticsListLogic)
     const { setNewFolderDialogOpen } = useActions(todayAnalyticsLogic)
     const { deleteItem } = useActions(projectTreeDataLogic)
+    const { openAddToCollection } = useActions(addToCollectionLogic)
     const [tableViewport, setTableViewport] = useState<HTMLDivElement | null>(null)
     const { ref: tableEndRef, inView: tableEndInView } = useInView({
         root: tableViewport,
@@ -127,7 +130,13 @@ function AnalyticsListContent(): JSX.Element {
         }
     }, [nearEnd, hasMore, loadedCount, loadMore])
 
-    const newButton = (
+    const addFolder = mode === 'folder' ? filters.folder : null
+    const primaryButton = addFolder ? (
+        <Button variant="primary" onClick={() => openAddToCollection(addFolder)} data-attr="analytics-add-items">
+            <IconPlus />
+            Add items
+        </Button>
+    ) : (
         <NewAnalyticsMenu source="list" trigger={<Button variant="primary" data-attr="analytics-list-new" />}>
             <IconPlus />
             New
@@ -202,15 +211,15 @@ function AnalyticsListContent(): JSX.Element {
                         </EmptyTitle>
                         <EmptyDescription>
                             {mode === 'folder'
-                                ? 'Add something to this collection from its page and it shows up here.'
+                                ? 'Add canvases, dashboards, notebooks and insights, and they show up here.'
                                 : scope === 'mine'
                                   ? 'Canvases, dashboards, notebooks and insights you create show up here.'
                                   : 'Canvases, dashboards, notebooks and insights show up here as people create them.'}
                         </EmptyDescription>
                     </EmptyHeader>
                     <EmptyContent>
-                        {mode === 'feed' ? (
-                            newButton
+                        {mode === 'feed' || addFolder ? (
+                            primaryButton
                         ) : (
                             <Button
                                 variant="outline"
@@ -335,7 +344,7 @@ function AnalyticsListContent(): JSX.Element {
                                 </DropdownMenuContent>
                             </DropdownMenu>
                         )}
-                        {newButton}
+                        {primaryButton}
                     </div>
                 }
             />
@@ -364,6 +373,7 @@ function AnalyticsListContent(): JSX.Element {
             </div>
             <AnalyticsCreateModals />
             <ShareToSpaceDialog />
+            <AddToCollectionDialog />
             <TodayAnalyticsNewFolderDialog />
         </SceneContent>
     )

@@ -139,7 +139,6 @@ function SpaceCell({ item }: { item: AnalyticsItem }): JSX.Element {
                     Move to another collection
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                    variant="destructive"
                     onClick={() => moveItem(target, null)}
                     data-attr="analytics-list-row-remove-from-space"
                 >
@@ -152,7 +151,8 @@ function SpaceCell({ item }: { item: AnalyticsItem }): JSX.Element {
 }
 
 function ItemMenuCell({ item }: { item: AnalyticsItem }): JSX.Element {
-    const { openShareToSpace } = useActions(analyticsShareLogic)
+    const { openShareToSpace, moveItem } = useActions(analyticsShareLogic)
+    const target = { type: item.type, ref: item.id, name: item.name }
     return (
         <DropdownMenu>
             <DropdownMenuTrigger
@@ -172,13 +172,19 @@ function ItemMenuCell({ item }: { item: AnalyticsItem }): JSX.Element {
                     target={{ type: item.type, ref: item.id, name: item.name, href: item.href }}
                     dataAttr="analytics-list-row-pin"
                 />
-                <DropdownMenuItem
-                    onClick={() => openShareToSpace({ type: item.type, ref: item.id, name: item.name })}
-                    data-attr="analytics-list-row-move"
-                >
+                <DropdownMenuItem onClick={() => openShareToSpace(target)} data-attr="analytics-list-row-move">
                     <IconFolderMove />
                     Move to another collection
                 </DropdownMenuItem>
+                {item.spaceName && (
+                    <DropdownMenuItem
+                        onClick={() => moveItem(target, null)}
+                        data-attr="analytics-list-row-menu-remove-from-space"
+                    >
+                        <IconX />
+                        {`Remove from "${item.spaceName}"`}
+                    </DropdownMenuItem>
+                )}
             </DropdownMenuContent>
         </DropdownMenu>
     )
