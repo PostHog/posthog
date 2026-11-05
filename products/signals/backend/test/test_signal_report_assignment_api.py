@@ -615,12 +615,14 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
             ("agent_without_claim_id", "codex", False, status.HTTP_409_CONFLICT, SignalActorKind.USER),
             ("agent_with_claim_id", "codex", True, status.HTTP_200_OK, SignalActorKind.AGENT),
             ("person_with_claim_id", None, True, status.HTTP_200_OK, SignalActorKind.USER),
+            # The notification carries the report title, so someone who lost Inbox access gets none.
+            ("holder_without_inbox_access", None, True, status.HTTP_200_OK, SignalActorKind.USER),
         ]
     )
     @patch("products.signals.backend.claim_takeover_notification.create_notification")
     def test_taking_over_another_persons_claim_needs_claim_id_and_notifies_them(
         self,
-        _name: str,
+        name: str,
         agent: str | None,
         send_claim_id: bool,
         expected_status: int,
@@ -636,7 +638,13 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         data: dict[str, object] = {"takeover": True}
         if send_claim_id:
             data["takeover_claim_id"] = teammate_claim["claim_id"]
-        with self.captureOnCommitCallbacks(execute=True):
+        with (
+            patch(
+                "products.signals.backend.claim_takeover_notification.may_read_reports",
+                return_value=name != "holder_without_inbox_access",
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
             response = self.client.post(
                 self._claim_url(report),
                 data=data,
@@ -651,6 +659,8 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         if expected_status == status.HTTP_409_CONFLICT:
             assert "Dana is working on this report" in response.json()["detail"]
             assert assignment.actor_user_id == teammate.id
+            mock_create_notification.assert_not_called()
+        elif name == "holder_without_inbox_access":
             mock_create_notification.assert_not_called()
         else:
             mock_create_notification.assert_called_once()

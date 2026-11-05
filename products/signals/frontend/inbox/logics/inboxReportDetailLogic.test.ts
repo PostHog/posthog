@@ -515,6 +515,7 @@ describe('inboxReportDetailLogic', () => {
             expectedToast: string | null
             shownAssignee?: SignalReport['assignee']
             takeover?: boolean
+            confirmedAssignee?: SignalReport['assignee']
         }>([
             {
                 name: 'takes over the task claim the list row did not show',
@@ -542,51 +543,65 @@ describe('inboxReportDetailLogic', () => {
                 expectedBodies: [{ takeover: true, takeover_claim_id: 'claim-person' }],
                 expectedToast: null,
             },
-        ])('$name', async ({ serverAssignee, expectedBodies, expectedToast, shownAssignee, takeover }) => {
-            const myClaim = claimBy('user', 'claim-mine', 'me')
-            const bodies: unknown[] = []
-            const claim = jest.fn(async ({ request }: MockResolverInfo): Promise<[number, unknown]> => {
-                const body = (await request.json()) as { takeover?: boolean }
-                bodies.push(body)
-                return body.takeover
-                    ? [200, { ...REPORT, assignee: myClaim, updated_at: '2026-01-02T00:00:00Z' }]
-                    : [409, { detail: 'This report already has an active claim.' }]
-            })
-            useMocks({
-                get: {
-                    '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: null, note: '' },
-                    '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [] },
-                    '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
-                    '/api/projects/:team_id/signals/reports/:id/checks/': { results: [] },
-                    '/api/projects/:team_id/signals/reports/available_reviewers/': [],
-                    '/api/projects/:team_id/signals/reports/:id/': { ...REPORT, assignee: serverAssignee },
-                },
-                post: { '/api/projects/:team_id/signals/reports/:id/claim/': claim },
-            })
-            initKeaTests()
-            const errorToast = jest.spyOn(lemonToast, 'error')
-            const logic = inboxReportDetailLogic({
-                reportId: REPORT.id,
-                report: { ...REPORT, assignee: shownAssignee },
-            })
-            logic.mount()
-            try {
-                await expectLogic(logic).toFinishAllListeners()
-                logic.actions.setReportClaimed(true, takeover)
-                await waitFor(() => expect(logic.values.claimSaving).toBe(false))
+            {
+                // The report refreshed to a newer claim while the dialog was open, so the takeover must name the
+                // claim the dialog showed and let the server refuse it.
+                name: 'takes over only the claim the dialog showed',
+                serverAssignee: claimBy('user', 'claim-person', 'other-user'),
+                shownAssignee: claimBy('user', 'claim-newer', 'third-user'),
+                confirmedAssignee: claimBy('user', 'claim-person', 'other-user'),
+                takeover: true,
+                expectedBodies: [{ takeover: true, takeover_claim_id: 'claim-person' }],
+                expectedToast: null,
+            },
+        ])(
+            '$name',
+            async ({ serverAssignee, expectedBodies, expectedToast, shownAssignee, takeover, confirmedAssignee }) => {
+                const myClaim = claimBy('user', 'claim-mine', 'me')
+                const bodies: unknown[] = []
+                const claim = jest.fn(async ({ request }: MockResolverInfo): Promise<[number, unknown]> => {
+                    const body = (await request.json()) as { takeover?: boolean }
+                    bodies.push(body)
+                    return body.takeover
+                        ? [200, { ...REPORT, assignee: myClaim, updated_at: '2026-01-02T00:00:00Z' }]
+                        : [409, { detail: 'This report already has an active claim.' }]
+                })
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: null, note: '' },
+                        '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [] },
+                        '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
+                        '/api/projects/:team_id/signals/reports/:id/checks/': { results: [] },
+                        '/api/projects/:team_id/signals/reports/available_reviewers/': [],
+                        '/api/projects/:team_id/signals/reports/:id/': { ...REPORT, assignee: serverAssignee },
+                    },
+                    post: { '/api/projects/:team_id/signals/reports/:id/claim/': claim },
+                })
+                initKeaTests()
+                const errorToast = jest.spyOn(lemonToast, 'error')
+                const logic = inboxReportDetailLogic({
+                    reportId: REPORT.id,
+                    report: { ...REPORT, assignee: shownAssignee },
+                })
+                logic.mount()
+                try {
+                    await expectLogic(logic).toFinishAllListeners()
+                    logic.actions.setReportClaimed(true, takeover, confirmedAssignee)
+                    await waitFor(() => expect(logic.values.claimSaving).toBe(false))
 
-                expect(bodies).toEqual(expectedBodies)
-                if (expectedToast) {
-                    expect(errorToast).toHaveBeenCalledWith(expectedToast)
-                } else {
-                    expect(errorToast).not.toHaveBeenCalled()
-                    expect(logic.values.report?.assignee).toEqual(myClaim)
+                    expect(bodies).toEqual(expectedBodies)
+                    if (expectedToast) {
+                        expect(errorToast).toHaveBeenCalledWith(expectedToast)
+                    } else {
+                        expect(errorToast).not.toHaveBeenCalled()
+                        expect(logic.values.report?.assignee).toEqual(myClaim)
+                    }
+                } finally {
+                    errorToast.mockRestore()
+                    logic.unmount()
                 }
-            } finally {
-                errorToast.mockRestore()
-                logic.unmount()
             }
-        })
+        )
     })
 
     // A claim from the row menu writes a work-log entry, and a ready report without a running task does not poll

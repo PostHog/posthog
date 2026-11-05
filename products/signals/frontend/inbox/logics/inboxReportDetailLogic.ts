@@ -72,6 +72,7 @@ import type { SignalNodeApi } from 'products/signals/frontend/generated/api.sche
 
 import type { SignalReportFeedbackSentimentEnumApi } from '../../generated/api.schemas'
 import type { SignalReportStateEnumApi } from '../../generated/api.schemas'
+import type { SignalReportAssigneeApi } from '../../generated/api.schemas'
 import { deriveTaskPurpose, ReportTaskPurpose, TaskRunArtefactContent } from '../components/detail/artefactTypes'
 import {
     AvailableReviewerOption,
@@ -727,9 +728,11 @@ export interface inboxReportDetailLogicActions {
     }
     setReportClaimed: (
         claimed: boolean,
-        takeover?: boolean
+        takeover?: boolean,
+        shownAssignee?: SignalReport['assignee']
     ) => {
         claimed: boolean
+        shownAssignee: SignalReportAssigneeApi | null | undefined
         takeover: boolean
     }
     setReportStateSaving: (saving: boolean) => {
@@ -912,7 +915,11 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         setPrioritySaving: (saving: boolean) => ({ saving }),
         changeReportState: (state: SignalReportStateRequestApi['state']) => ({ state }),
         setReportStateSaving: (saving: boolean) => ({ saving }),
-        setReportClaimed: (claimed: boolean, takeover: boolean = false) => ({ claimed, takeover }),
+        setReportClaimed: (claimed: boolean, takeover: boolean = false, shownAssignee?: SignalReport['assignee']) => ({
+            claimed,
+            takeover,
+            shownAssignee,
+        }),
         setClaimSaving: (saving: boolean) => ({ saving }),
         // Optimistically replace the reviewer list while the PUT is in flight, then reload from the server.
         // Addressed by report (not artefact) so a report with no reviewers yet can still be assigned one.
@@ -1771,7 +1778,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             actions.loadReportArtefacts()
             actions.setPrioritySaving(false)
         },
-        setReportClaimed: async ({ claimed, takeover }) => {
+        setReportClaimed: async ({ claimed, takeover, shownAssignee }) => {
             const teamId = teamLogic.values.currentTeamId
             const currentReport = values.report
             if (!teamId || !currentReport || values.claimSaving) {
@@ -1787,7 +1794,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             const scene = inboxSceneLogic.findMounted()
             const outcome = await requestReportClaim(
                 String(teamId),
-                { id: props.reportId, assignee: currentReport.assignee },
+                // A confirmed takeover names the claim the dialog showed, so a claim that changed since is refused.
+                { id: props.reportId, assignee: shownAssignee !== undefined ? shownAssignee : currentReport.assignee },
                 claimed,
                 { currentUserUuid: userLogic.values.user?.uuid ?? null, takeover }
             )

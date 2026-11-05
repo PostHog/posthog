@@ -196,7 +196,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
                           openTakeOverReportDialog({
                               report,
                               holder: teammateClaimHolder,
-                              onConfirm: () => setReportClaimed(true, true),
+                              onConfirm: () => setReportClaimed(true, true, report.assignee),
                           }),
                   },
               ]
