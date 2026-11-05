@@ -5,6 +5,7 @@ describe('shouldWarnBeforeLeavingNotebook', () => {
         isLocalOnly: false,
         isEditable: true,
         syncStatus: 'unsaved' as const,
+        notebookPathname: '/notebooks/abc',
         currentPathname: '/project/1/notebooks/abc',
     }
 
@@ -45,5 +46,16 @@ describe('shouldWarnBeforeLeavingNotebook', () => {
 
     it('warns when no newPathname is provided (browser tab close)', () => {
         expect(shouldWarnBeforeLeavingNotebook(baseInput)).toBe(true)
+    })
+
+    it.each([
+        ['/project/1/replay-vision', '/project/1/dashboard', false],
+        ['/project/1/notebooks/other', '/project/1/dashboard', false],
+        ['/project/1/notebooks/abc', '/project/1/dashboard', true],
+        ['/notebooks/abc', '/dashboard', true],
+        ['/project/1/notebooks/abc/', '/project/1/dashboard', true],
+        ['/project/1/replay-vision', undefined, true],
+    ])('guards navigation from %s to %s: %s', (currentPathname, newPathname, expected) => {
+        expect(shouldWarnBeforeLeavingNotebook({ ...baseInput, currentPathname, newPathname })).toBe(expected)
     })
 })

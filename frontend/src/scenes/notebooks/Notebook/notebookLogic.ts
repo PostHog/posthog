@@ -2260,6 +2260,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 isLocalOnly: logic.values.isLocalOnly,
                 isEditable: logic.values.isEditable,
                 syncStatus: logic.values.syncStatus,
+                notebookPathname: urls.notebook(logic.props.shortId),
                 currentPathname: router.values.location.pathname,
                 newPathname: newLocation?.pathname,
             }),
