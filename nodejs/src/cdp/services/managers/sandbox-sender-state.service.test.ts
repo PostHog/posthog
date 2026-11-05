@@ -116,14 +116,14 @@ describe('SandboxSenderStateService', () => {
         }
     )
 
-    it('reads the row again after a reload message, also when the message arrives during a lookup', async () => {
+    it('reads the row again after a reload message, also when the message arrives during a cached or fresh lookup', async () => {
         let reload: (message: { tenantName: string }) => void = () => undefined
         const reloadingPubSub = {
             on: (_channel: string, handler: typeof reload) => {
                 reload = handler
             },
         } as unknown as PubSub
-        const storedStatuses = ['ENABLED', 'DISABLED', 'ENABLED', 'DISABLED']
+        const storedStatuses = ['ENABLED', 'DISABLED', 'ENABLED', 'DISABLED', 'ENABLED', 'DISABLED']
         let holdNextLookup = false
         let releaseHeldLookup: (() => void) | undefined
         const query = jest.fn(async (_tx: unknown, sql: string) => {
@@ -162,6 +162,18 @@ describe('SandboxSenderStateService', () => {
 
         await expect(checkDuringReload).resolves.toBe(true)
         expect(lookups()).toBe(4)
+
+        holdNextLookup = true
+        releaseHeldLookup = undefined
+        const freshCheckDuringReload = service.isPaused('sandbox-tenant', { fresh: true })
+        while (!releaseHeldLookup) {
+            await new Promise((resolve) => setImmediate(resolve))
+        }
+        reload({ tenantName: 'sandbox-tenant' })
+        releaseHeldLookup()
+
+        await expect(freshCheckDuringReload).resolves.toBe(true)
+        expect(lookups()).toBe(6)
     })
 
     it('fails fresh checks at their deadline while the pool has no connection, keeps at most five lookups open, and runs no query for them later', async () => {

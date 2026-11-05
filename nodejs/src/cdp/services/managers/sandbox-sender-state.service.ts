@@ -41,11 +41,10 @@ export class SandboxSenderStateService {
     }
 
     public async isPaused(tenantName: string, { fresh = false }: { fresh?: boolean } = {}): Promise<boolean> {
-        if (fresh) {
-            return isDisabled((await this.fetchStatesWithRetry([tenantName]))[tenantName])
-        }
         for (let attempt = 0; attempt < 2; attempt++) {
-            const state = await this.lazyLoader.get(tenantName)
+            const state = fresh
+                ? (await this.fetchStatesWithRetry([tenantName]))[tenantName]
+                : await this.lazyLoader.get(tenantName)
             if (state?.generation === this.generation) {
                 return isDisabled(state)
             }
