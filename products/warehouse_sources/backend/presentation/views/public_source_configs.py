@@ -1,4 +1,7 @@
+import json
 import functools
+
+from django.core.cache import cache
 
 import structlog
 from drf_spectacular.utils import extend_schema
@@ -6,12 +9,29 @@ from opentelemetry import trace
 from rest_framework import permissions, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.utils.encoders import JSONEncoder
+
+from posthog.git import get_git_commit_full
 
 from products.warehouse_sources.backend.facade.source_config import SourceConfigMapResponse
 from products.warehouse_sources.backend.facade.source_management import SourceRegistry, cdc_engine
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
+
+# Web workers recycle often, so most catalog requests land on a process that has not imported the
+# source registry yet (~5 s of vendor SDK imports). The catalog is identical in every process of a
+# deploy, so share it through the Django cache, keyed by commit. It is stored as JSON text so that a
+# cache read never unpickles classes from the source modules this cache exists to avoid importing.
+SHARED_CATALOG_CACHE_TTL_SECONDS = 24 * 60 * 60
+
+
+def shared_catalog_cache_key(*, include_tables: bool) -> str | None:
+    commit = get_git_commit_full()
+    if not commit:
+        # Without a commit we cannot tell deploys apart, so a shared entry could outlive a code change.
+        return None
+    return f"warehouse_sources:source_configs:v1:{commit}:{'tables' if include_tables else 'no_tables'}"
 
 
 @functools.cache
@@ -25,8 +45,30 @@ def build_source_configs(*, include_tables: bool = True) -> dict[str, dict]:
     Kept in one place so the two endpoints can never drift (see ``test_matches_wizard_response``).
 
     The catalog is deploy-static (it only changes when source code ships), so the result is
-    memoized per process — callers must treat it as read-only.
+    memoized per process and shared across processes through the Django cache — callers must
+    treat it as read-only.
     """
+    cache_key = shared_catalog_cache_key(include_tables=include_tables)
+    if cache_key is not None:
+        try:
+            shared = cache.get(cache_key)
+            if shared is not None:
+                return json.loads(shared)
+        except Exception:
+            logger.exception("build_source_configs: shared cache read failed")
+
+    serialized = json.dumps(_build_source_configs_from_registry(include_tables=include_tables), cls=JSONEncoder)
+
+    if cache_key is not None:
+        try:
+            cache.set(cache_key, serialized, timeout=SHARED_CATALOG_CACHE_TTL_SECONDS)
+        except Exception:
+            logger.exception("build_source_configs: shared cache write failed")
+    # The DRF encoder matches how the response renders. Decode on both paths, so a hit and a miss give the same shape.
+    return json.loads(serialized)
+
+
+def _build_source_configs_from_registry(*, include_tables: bool) -> dict[str, dict]:
     with tracer.start_as_current_span("warehouse_sources.catalog.registry"):
         sources = SourceRegistry.get_all_sources()
 

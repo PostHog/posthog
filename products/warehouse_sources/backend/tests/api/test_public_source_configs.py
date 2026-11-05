@@ -1,24 +1,56 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
+
 from rest_framework import status
 
 from products.warehouse_sources.backend.facade.source_config import SourceConfigMapResponse
-from products.warehouse_sources.backend.presentation.views.public_source_configs import build_source_configs, tracer
+from products.warehouse_sources.backend.presentation.views.public_source_configs import (
+    build_source_configs,
+    shared_catalog_cache_key,
+    tracer,
+)
+
+MODULE = "products.warehouse_sources.backend.presentation.views.public_source_configs"
 
 
 class TestPublicSourceConfigs(APIBaseTest):
-    def test_catalog_spans_only_cover_cache_misses(self):
+    @patch(f"{MODULE}.get_git_commit_full", return_value="test-commit")
+    def test_catalog_spans_only_cover_cache_misses(self, _commit):
+        shared_key = shared_catalog_cache_key(include_tables=False)
         build_source_configs.cache_clear()
+        cache.delete(shared_key)
         try:
             with patch.object(tracer, "start_as_current_span") as start_span:
                 cold = build_source_configs(include_tables=False)
                 assert build_source_configs(include_tables=False) is cold
+                assert [call.args[0] for call in start_span.call_args_list] == [
+                    "warehouse_sources.catalog.registry",
+                    "warehouse_sources.catalog.build",
+                ]
 
-            assert [call.args[0] for call in start_span.call_args_list] == [
-                "warehouse_sources.catalog.registry",
-                "warehouse_sources.catalog.build",
-            ]
+                # A fresh process reads the catalog from the shared cache instead of loading the registry.
+                build_source_configs.cache_clear()
+                start_span.reset_mock()
+                with patch(f"{MODULE}.SourceRegistry.get_all_sources") as get_all_sources:
+                    assert build_source_configs(include_tables=False) == cold
+                get_all_sources.assert_not_called()
+                start_span.assert_not_called()
+        finally:
+            build_source_configs.cache_clear()
+            cache.delete(shared_key)
+
+    def test_shared_catalog_cache_is_skipped_without_a_commit(self):
+        build_source_configs.cache_clear()
+        try:
+            with (
+                patch(f"{MODULE}.get_git_commit_full", return_value=None),
+                patch(f"{MODULE}.cache") as shared_cache,
+            ):
+                assert len(build_source_configs(include_tables=False)) > 0
+            shared_cache.get.assert_not_called()
+            shared_cache.set.assert_not_called()
         finally:
             build_source_configs.cache_clear()
 
