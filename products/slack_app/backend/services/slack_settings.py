@@ -317,6 +317,15 @@ def has_chosen_untagged_followup_mode(slack_workspace_id: str, slack_user_id: st
     ).exists()
 
 
+def has_chosen_channel_welcome_mode(slack_workspace_id: str) -> bool:
+    """Whether an admin picked a mode, as opposed to getting the ``CHANNEL`` default."""
+    from products.slack_app.backend.models import SlackSettings
+
+    return SlackSettings.objects.filter(
+        slack_workspace_id=slack_workspace_id, slack_user_id__isnull=True, channel_welcome_mode__isnull=False
+    ).exists()
+
+
 def resolve_workspace_default_integration_id(slack_workspace_id: str) -> int | None:
     """The integration that the workspace-wide row routes mentions to."""
 
@@ -345,6 +354,7 @@ __all__ = [
     "ONBOARDING_VERSION",
     "OnboardingState",
     "parse_onboarding",
+    "has_chosen_channel_welcome_mode",
     "has_chosen_untagged_followup_mode",
     "resolve_onboarding",
     "update_onboarding",
