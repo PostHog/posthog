@@ -46,7 +46,9 @@ from posthog.integrations import IntegrationReference
 
 from products.warehouse_sources.backend.facade.contracts import (
     CONNECTION_FIELDS_STRIPPED_KEY,
+    CONNECTION_FIELDS_STRIPPED_TYPED_IN_KEY,
     CREDENTIALS_REFERENCE_INPUT_KEY,
+    STRIPPED_STORE_KEYS,
     SharedCredentialsEdit,
     SharedCredentialsError,
     SourceCredentialsMissingError,
@@ -233,7 +235,7 @@ def assign_credentials_reference(
         return
     try:
         source_class = _source_class(source.source_type)
-        slot = source_class.in_use_oauth_slot(inputs)
+        slot = _slot_of(source_class, inputs)
         pointer = source_class.in_use_oauth_pointer(inputs)
         connection = _typed_in_connection_fields(source.source_type, inputs) if slot is None else {}
     except Exception:
@@ -484,15 +486,21 @@ def stripped_job_inputs(source_type: str, inputs: Mapping[str, Any], stripped_at
     and `OAuthPointerShapeError` (a ValueError) for a shape that the OAuth walk does not read.
     """
     source_class = _source_class(source_type)
-    if source_class.in_use_oauth_slot(inputs) is None:
+    typed_in = _slot_of(source_class, inputs) is None
+    if typed_in:
         split = _split(source_type, inputs)
         kept = {**split.references, **split.selectors, **split.settings, **split.runtime}
     else:
         kept = dict(inputs)
-    return {
-        **_without_oauth_pointers(kept, source_class.oauth_pointer_paths),
-        CONNECTION_FIELDS_STRIPPED_KEY: stripped_at,
+    stripped = {
+        key: value
+        for key, value in _without_oauth_pointers(kept, source_class.oauth_pointer_paths).items()
+        if key not in STRIPPED_STORE_KEYS
     }
+    if typed_in and source_class.in_use_oauth_slot(stripped) is not None:
+        # Without the connection fields the source would read as an OAuth source (Slack), so keep the mode.
+        stripped[CONNECTION_FIELDS_STRIPPED_TYPED_IN_KEY] = "true"
+    return {**stripped, CONNECTION_FIELDS_STRIPPED_KEY: stripped_at}
 
 
 def write_stripped_credentials(
@@ -514,7 +522,7 @@ def write_stripped_credentials(
         source.credentials_integration_id = str(reference)
     try:
         source_class = _source_class(source.source_type)
-        if source_class.in_use_oauth_slot(inputs) is not None:
+        if _slot_of(source_class, inputs) is not None:
             pointer = source_class.in_use_oauth_pointer(inputs)
             if pointer is not None:
                 source.credentials_integration_id = _reference_of(pointer)
@@ -568,7 +576,7 @@ def _read_stripped(source: ExternalDataSource, inputs: dict[str, Any]) -> dict[s
         # Async code must call `aload`. Returning `job_inputs` here would hand the caller a source without credentials.
         _count_read(source, "stripped_event_loop")
         raise RuntimeError("A stripped warehouse source must be loaded with aload from async code")
-    if _source_class(source.source_type).in_use_oauth_slot(inputs) is not None:
+    if _slot_of(_source_class(source.source_type), inputs) is not None:
         return _merge_stripped(source, inputs, None)
     stored: dict[str, Any] | CredentialsUnreadable | None
     if _PRELOADED_ROW_ATTR in source.__dict__:
@@ -592,9 +600,7 @@ def _read_stripped_many(
         return
     try:
         typed_in = [
-            source
-            for source in sources
-            if _source_class(source.source_type).in_use_oauth_slot(loaded[source.id]) is None
+            source for source in sources if _slot_of(_source_class(source.source_type), loaded[source.id]) is None
         ]
         stored = WarehouseSourceCredentialsStore.get_many(typed_in)
     except Exception:
@@ -616,8 +622,8 @@ def _merge_stripped(
     stored: dict[str, Any] | CredentialsUnreadable | None,
 ) -> dict[str, Any]:
     # The marker is internal to the store, so a caller never sees it.
-    kept = {key: value for key, value in inputs.items() if key != CONNECTION_FIELDS_STRIPPED_KEY}
-    slot = _source_class(source.source_type).in_use_oauth_slot(inputs)
+    kept = {key: value for key, value in inputs.items() if key not in STRIPPED_STORE_KEYS}
+    slot = _slot_of(_source_class(source.source_type), inputs)
     if slot is not None:
         from products.warehouse_sources.backend.temporal.data_imports.sources.common.oauth_pointers import (  # noqa: PLC0415 — see `_source_class`
             with_pointer_at,
@@ -776,7 +782,7 @@ def _merge_oauth_reference(source: ExternalDataSource, inputs: dict[str, Any]) -
         with_pointer_at,
     )
 
-    slot = _source_class(source.source_type).in_use_oauth_slot(inputs)
+    slot = _slot_of(_source_class(source.source_type), inputs)
     if slot is None:
         return "no_row", inputs
     in_inputs = pointer_at(inputs, slot)
@@ -830,7 +836,7 @@ def _count_read_error(source: ExternalDataSource) -> None:
 
 def _typed_in_connection(source: ExternalDataSource, inputs: Mapping[str, Any]) -> dict[str, Any] | None:
     """The connection fields that the row of the source must hold, or None when the source has no typed-in row."""
-    if _source_class(source.source_type).in_use_oauth_slot(inputs) is not None:
+    if _slot_of(_source_class(source.source_type), inputs) is not None:
         return None
     return _typed_in_connection_fields(source.source_type, inputs) or None
 
@@ -840,7 +846,7 @@ def _reads_typed_in_row(source: ExternalDataSource, inputs: Mapping[str, Any]) -
 
     Once `job_inputs` no longer holds the connection fields, the column alone tells that the source has a row.
     """
-    if _source_class(source.source_type).in_use_oauth_slot(inputs) is not None:
+    if _slot_of(_source_class(source.source_type), inputs) is not None:
         return False
     if not has_typed_in_credentials(str(source.source_type)):
         return False
@@ -912,6 +918,14 @@ def _source_class(source_type: str) -> Any:
     return SourceRegistry.get_source(ExternalDataSourceType(source_type))
 
 
+def _slot_of(source_class: Any, inputs: Mapping[str, Any]) -> "PointerPath | None":
+    # A stripped source with typed-in credentials can lose the field that told its authentication mode (Slack's
+    # pasted token wins over its legacy OAuth pointer). The strip then keeps a key that says so.
+    if CONNECTION_FIELDS_STRIPPED_TYPED_IN_KEY in inputs:
+        return None
+    return source_class.in_use_oauth_slot(inputs)
+
+
 def connection_fields_equal(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
     """True when two connection field mappings hold the same stored values."""
     return same_connection_fields(left, right)
@@ -928,7 +942,7 @@ def in_use_oauth_slot(source_type: str, inputs: Mapping[str, Any]) -> "PointerPa
     Raises ValueError for an unknown source type, and `OAuthPointerShapeError` (a ValueError) when the inputs
     cannot tell which OAuth field is in use.
     """
-    return _source_class(source_type).in_use_oauth_slot(inputs)
+    return _slot_of(_source_class(source_type), inputs)
 
 
 def _in_event_loop() -> bool:

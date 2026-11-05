@@ -19,6 +19,7 @@ from posthog.models.integration import ANY, Integration
 
 from products.warehouse_sources.backend.facade.contracts import (
     CONNECTION_FIELDS_STRIPPED_KEY,
+    CONNECTION_FIELDS_STRIPPED_TYPED_IN_KEY,
     CREDENTIALS_REFERENCE_INPUT_KEY,
     SharedCredentialsEdit,
     SharedCredentialsError,
@@ -1226,6 +1227,30 @@ class TestSourceInputsStoreStripped(BaseTest):
         SourceInputsStore.write_stripped(source, stripped_at=STRIPPED_AT)
 
         assert self._stored(source) == {"repository": "posthog/posthog", CONNECTION_FIELDS_STRIPPED_KEY: STRIPPED_AT}
+
+    def test_stripped_slack_token_source_stays_typed_in(self) -> None:
+        # Without its pasted token, Slack would read as a legacy OAuth source and use the column as its pointer.
+        inputs = {"slack_access_token": "xoxb-fake"}
+        source = self._stripped_source(inputs, ExternalDataSourceType.SLACK)
+        row_reference = _column(source)
+        assert row_reference is not None
+
+        assert self._stored(source) == {
+            CONNECTION_FIELDS_STRIPPED_TYPED_IN_KEY: "true",
+            CONNECTION_FIELDS_STRIPPED_KEY: STRIPPED_AT,
+        }
+        assert rollout.in_use_oauth_slot(ExternalDataSourceType.SLACK, self._stored(source)) is None
+        with self._flags():
+            for load in self._loads(source):
+                assert load() == inputs
+
+        stored = ExternalDataSource.objects.get(pk=source.pk)
+        SourceInputsStore.save(stored, {**inputs, "slack_access_token": "xoxb-rotated"})
+        assert _column(source) == row_reference
+        assert self._stored(source)[CONNECTION_FIELDS_STRIPPED_TYPED_IN_KEY] == "true"
+        assert SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk))["slack_access_token"] == (
+            "xoxb-rotated"
+        )
 
     @parameterized.expand(
         [

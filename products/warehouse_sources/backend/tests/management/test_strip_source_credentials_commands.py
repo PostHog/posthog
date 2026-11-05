@@ -240,6 +240,36 @@ class TestStripWarehouseSourceConnectionFields(_StripTestCase):
         assert self._stored(source) == {"hubspot_integration_id": "7"}
         assert self._reference(source) == "7"
 
+    @parameterized.expand(
+        [("from_row", None, "restored_from_row"), ("from_backup", "--prefer-backup", "restored_from_backup")]
+    )
+    def test_a_slack_token_source_stays_typed_in_through_strip_and_restore(
+        self, _name: str, flag: str | None, expected_outcome: str
+    ) -> None:
+        # Without the token, Slack would pick its legacy OAuth pointer and read the row reference as one.
+        inputs = {"slack_access_token": "xoxb-fake"}
+        source = self._source(inputs, source_type="Slack")
+        reference = self._row_for(source, inputs)
+        self._link(source, reference)
+
+        output = self._run("strip_warehouse_source_connection_fields", "--execute")
+
+        assert "stripped=1" in output
+        assert "slack_access_token" not in self._stored(source)
+        assert SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk)) == inputs
+
+        output = self._run(
+            "restore_warehouse_source_connection_fields",
+            "--execute",
+            "--source-id",
+            str(source.id),
+            *([flag] if flag else []),
+        )
+
+        assert f"{expected_outcome}=1" in output
+        assert self._stored(source) == inputs
+        assert self._reference(source) == reference
+
     def test_a_strip_after_a_restore_replaces_the_backup(self) -> None:
         source = self._backfilled_source()
         first_strip = datetime(2026, 1, 1, tzinfo=UTC)
