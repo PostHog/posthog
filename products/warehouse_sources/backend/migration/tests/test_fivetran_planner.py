@@ -6,9 +6,8 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.dataclasses import frozen
-
 from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
+from products.warehouse_sources.backend.migration.catalog import MatchConfidence, PostHogTables, TableMatch
 from products.warehouse_sources.backend.migration.fivetran.planner import PlannedItem, plan_items
 from products.warehouse_sources.backend.migration.types import (
     MigrationProvider,
@@ -30,23 +29,14 @@ from products.warehouse_sources.backend.models.util import validate_source_prefi
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
-@frozen
-class _Tables:
-    names: frozenset[str]
-    complete: bool = True
-
-
-@frozen
-class _TableMatch:
-    vendor_table: str
-    posthog_table: str | None
-    confidence: str | None
+def _tables(names: frozenset[str], complete: bool = True) -> PostHogTables:
+    return PostHogTables(names=names, complete=complete)
 
 
 class _Catalog:
     """Implements the catalog Protocol: exact means equal ignoring case, and `inferred` lists the rule pairs."""
 
-    def __init__(self, hubspot_tables: _Tables | None, inferred: Mapping[str, str] | None = None) -> None:
+    def __init__(self, hubspot_tables: PostHogTables | None, inferred: Mapping[str, str] | None = None) -> None:
         self._tables = {ExternalDataSourceType.HUBSPOT: hubspot_tables, ExternalDataSourceType.POSTGRES: None}
         self._inferred = inferred or {}
 
@@ -58,12 +48,12 @@ class _Catalog:
     def match_destination(self, provider: str, vendor_service: str) -> str | None:
         return {"snowflake": "Snowflake"}.get(vendor_service)
 
-    def posthog_tables(self, source_type: ExternalDataSourceType) -> _Tables | None:
+    def posthog_tables(self, source_type: ExternalDataSourceType) -> PostHogTables | None:
         return self._tables[source_type]
 
     def match_tables(
         self, provider: str, vendor_tables: Iterable[str], posthog_table_names: Collection[str]
-    ) -> tuple[_TableMatch, ...]:
+    ) -> tuple[TableMatch, ...]:
         vendor_tables = list(vendor_tables)
         by_lower = {name.lower(): name for name in posthog_table_names}
         exact_targets = {by_lower[t.lower()] for t in vendor_tables if t.lower() in by_lower}
@@ -72,12 +62,16 @@ class _Catalog:
             inferred = self._inferred.get(table)
             if table.lower() in by_lower:
                 matches.append(
-                    _TableMatch(vendor_table=table, posthog_table=by_lower[table.lower()], confidence="exact")
+                    TableMatch(
+                        vendor_table=table, posthog_table=by_lower[table.lower()], confidence=MatchConfidence.EXACT
+                    )
                 )
             elif inferred in posthog_table_names and inferred not in exact_targets:
-                matches.append(_TableMatch(vendor_table=table, posthog_table=inferred, confidence="inferred"))
+                matches.append(
+                    TableMatch(vendor_table=table, posthog_table=inferred, confidence=MatchConfidence.INFERRED)
+                )
             else:
-                matches.append(_TableMatch(vendor_table=table, posthog_table=None, confidence=None))
+                matches.append(TableMatch(vendor_table=table, posthog_table=None, confidence=None))
         return tuple(matches)
 
     def prefill_config(
@@ -87,7 +81,7 @@ class _Catalog:
         return {keys[key]: value for key, value in vendor_config.items() if key in keys}
 
 
-_HUBSPOT_TABLES = _Tables(names=frozenset({"contacts", "deals"}))
+_HUBSPOT_TABLES = _tables(names=frozenset({"contacts", "deals"}))
 
 
 def _caps(**overrides: Any) -> SourceCapabilities:
@@ -291,7 +285,7 @@ class TestTables(SimpleTestCase):
             (
                 "partial_list_keeps_the_vendor_name",
                 ("contacts", "users"),
-                _Tables(names=frozenset({"contacts"}), complete=False),
+                _tables(names=frozenset({"contacts"}), complete=False),
                 ["contacts", "users"],
                 (),
                 (),
@@ -304,7 +298,7 @@ class TestTables(SimpleTestCase):
         self,
         _name: str,
         tables: tuple[str, ...],
-        known: _Tables,
+        known: PostHogTables,
         expected: list[str],
         inferred: tuple[tuple[str, str], ...],
         unmatched: tuple[str, ...],
@@ -539,24 +533,46 @@ class TestDestination(SimpleTestCase):
     @parameterized.expand(
         [
             (
-                "supported",
+                "supported_moves_as_is",
                 "snowflake",
-                ProposedDestination(type="Snowflake", config={"database": "ANALYTICS"}),
-                "`Hubspot-Main` schema",
+                {},
+                ProposedDestination(
+                    type="Snowflake", config={"database": "ANALYTICS"}, vendor_schemas=("Hubspot-Main",)
+                ),
+                None,
             ),
-            ("unsupported", "oracle_warehouse", None, "PostHog warehouse"),
+            (
+                # Fivetran writes a database connection into one schema per source schema.
+                "database_schemas",
+                "snowflake",
+                {
+                    "service": "postgres",
+                    "name": "pg",
+                    "tables": (_table("orders", schema_name="public"), _table("events", schema_name="analytics")),
+                },
+                ProposedDestination(
+                    type="Snowflake", config={"database": "ANALYTICS"}, vendor_schemas=("pg_analytics", "pg_public")
+                ),
+                None,
+            ),
+            ("unsupported", "oracle_warehouse", {}, None, "PostHog warehouse"),
         ]
     )
     def test_destination(
-        self, _name: str, service: str, expected: ProposedDestination | None, expected_caveat: str | None
+        self,
+        _name: str,
+        service: str,
+        connection_overrides: dict[str, Any],
+        expected: ProposedDestination | None,
+        expected_caveat: str | None,
     ) -> None:
         destination = VendorDestination(
             id="grp_example", name="Warehouse", service=service, region=None, config={"database": "ANALYTICS"}
         )
-        item = _plan(_connection(destination_id="grp_example"), destinations=(destination,))
+        item = _plan(_connection(destination_id="grp_example", **connection_overrides), destinations=(destination,))
         assert item.proposal is not None
         assert item.proposal.destination == expected
         if expected_caveat:
             assert any(expected_caveat in caveat for caveat in item.caveats)
         else:
-            assert item.caveats == ()
+            assert (item.verdict, item.caveats) == (Verdict.AS_IS, ())

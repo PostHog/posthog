@@ -68,7 +68,7 @@ def parse_destination(raw: Mapping[str, Any], *, name: str) -> VendorDestination
         name=name,
         service=raw.get("service") or "",
         region=raw.get("region"),
-        config=strip_secrets(raw.get("config") or {}),
+        config=_kept_destination_config(raw.get("service") or "", raw.get("config") or {}),
     )
 
 
@@ -94,10 +94,16 @@ def parse_connection(
 
 def _kept_config(service: str, config: Mapping[str, Any]) -> dict[str, Any]:
     """Only the keys the plan uses. Fivetran marks secrets per connector, so no name rule alone can find them all."""
-    source_type = catalog.match_source(MigrationProvider.FIVETRAN, service)
+    # The planner matches and logs the source again, so this lookup stays quiet.
+    source_type = catalog.match_source(MigrationProvider.FIVETRAN, service, log_unmatched=False)
     used = _PLANNED_CONFIG_KEYS | (
         catalog.prefill_vendor_keys(MigrationProvider.FIVETRAN, source_type) if source_type else frozenset()
     )
+    return strip_secrets({key: value for key, value in config.items() if key in used})
+
+
+def _kept_destination_config(service: str, config: Mapping[str, Any]) -> dict[str, Any]:
+    used = catalog.destination_vendor_keys(MigrationProvider.FIVETRAN, service)
     return strip_secrets({key: value for key, value in config.items() if key in used})
 
 

@@ -317,6 +317,13 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
         )
         create_step = 'call data-warehouse-source-setup with {"credential_id": <id>} in the payload'
         migration_item_id = request.query_params.get("migration_item_id")
+        if migration_item_id and not migrations.is_migration_import_enabled(
+            self.team, getattr(request.user, "distinct_id", None)
+        ):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Importing from Fivetran is not available to this project."},
+            )
         if migration_item_id:
             try:
                 item = migrations.find_migration_item(self.team_id, uuid.UUID(migration_item_id))
