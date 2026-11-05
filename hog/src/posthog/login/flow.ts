@@ -1,12 +1,13 @@
-import { clearPending, type ApprovalFlow } from '@/core/approval'
+import { clearPending, type ApprovalFlow, type ApprovalWait } from '@/core/approval'
 import { HogError } from '@/core/errors'
 import type { Runtime } from '@/core/runtime'
-import type { AccessKey } from '@/posthog/access-key'
+import type { AccessKey, AccessKeyStatus } from '@/posthog/access-key'
 import { FileStore } from '@/posthog/credential-store/file'
 import { probeKeychain } from '@/posthog/credential-store/keychain'
 import { openStore } from '@/posthog/credential-store/open'
 import type { StoreChoice } from '@/posthog/credential-store/types'
-import { pollDeviceLogin, startDeviceLogin, type Approval, type PendingLogin } from '@/posthog/device-auth'
+import { pollDeviceLogin, startDeviceLogin, type PendingLogin } from '@/posthog/device-auth'
+import { withLoginLock, type OAuthLogin } from '@/posthog/oauth'
 import { loginFor, readSettings } from '@/posthog/settings'
 
 import { writeLogin } from './stored'
@@ -21,23 +22,29 @@ export interface LoggedIn {
     credentialsPath: string | null
     // Why hog couldn't use the keychain, when it stored the credentials in a file.
     keychainError: string | null
-    scopes: string[]
+    status: AccessKeyStatus
 }
 
-// An agent that retries `hog auth login` for the same host gets the same code back, so the link it
-// already shared keeps working. `host` is only needed to start a new login.
-export function loginFlow(runtime: Runtime, host?: string): ApprovalFlow<PendingLogin, Approval> {
+// What `hog auth login --wait` needs to finish the login a previous run started.
+export function loginWait(runtime: Runtime): ApprovalWait<PendingLogin, OAuthLogin> {
     return {
         command: LOGIN_COMMAND,
         noun: 'login',
-        start: () => {
-            if (host === undefined) {
-                throw new Error('A new login needs a host')
-            }
-            return startDeviceLogin(runtime, host)
-        },
-        reuse: (existing) => existing.host === host,
         poll: (pending, timeoutMs) => pollDeviceLogin(runtime, pending, timeoutMs),
+    }
+}
+
+// An agent that retries `hog auth login` for the same host gets the same code back, so the link it
+// already shared keeps working.
+export function loginFlow(
+    runtime: Runtime,
+    host: string,
+    scopes: readonly string[]
+): ApprovalFlow<PendingLogin, OAuthLogin> {
+    return {
+        ...loginWait(runtime),
+        start: () => startDeviceLogin(runtime, host, scopes),
+        reuse: (existing) => existing.host === host && existing.scopes?.join(' ') === scopes.join(' '),
     }
 }
 
@@ -50,24 +57,28 @@ export async function saveLogin(runtime: Runtime, unverified: AccessKey): Promis
     let store = openStore(runtime, probe.usable ? 'keychain' : 'file')
     let keychainError = probe.usable ? null : probe.reason
     const { host, projectId } = key
-    try {
-        // A keychain that times out sends the login to the file below.
-        await writeLogin(runtime, store, key, { lastLogin: true, removeIfLate: true })
-    } catch (error) {
-        // The probe writes an item of its own, so the keychain can still refuse this host's item,
-        // such as one an older hog build saved.
-        if (store.kind !== 'keychain' || !(error instanceof HogError) || !error.code.startsWith('keychain_')) {
-            throw error
+    // Under the renewal lock, so a renewal of the previous login that is still in flight can't
+    // store that login over this one.
+    await withLoginLock(runtime, host, async () => {
+        try {
+            // A keychain that times out sends the login to the file below.
+            await writeLogin(runtime, store, key, { lastLogin: true, removeIfLate: true })
+        } catch (error) {
+            // The probe writes an item of its own, so the keychain can still refuse this host's item,
+            // such as one an older hog build saved.
+            if (store.kind !== 'keychain' || !(error instanceof HogError) || !error.code.startsWith('keychain_')) {
+                throw error
+            }
+            keychainError = error.message
+            store = new FileStore(runtime)
+            // The failed keychain write can still land after hog gave up on it.
+            await writeLogin(runtime, store, key, { lastLogin: true, keychainLeftover: true })
         }
-        keychainError = error.message
-        store = new FileStore(runtime)
-        // The failed keychain write can still land after hog gave up on it.
-        await writeLogin(runtime, store, key, { lastLogin: true, keychainLeftover: true })
-    }
-    // Only an old file login is removed. Removing a keychain login after a failed probe would wait for the keychain again.
-    if (loginFor(previous, host)?.store === 'file' && store.kind === 'keychain') {
-        await new FileStore(runtime).remove(host)
-    }
+        // Only an old file login is removed. Removing a keychain login after a failed probe would wait for the keychain again.
+        if (loginFor(previous, host)?.store === 'file' && store.kind === 'keychain') {
+            await new FileStore(runtime).remove(host)
+        }
+    })
     await clearPending(runtime, LOGIN_COMMAND)
     return {
         host,
@@ -75,6 +86,6 @@ export async function saveLogin(runtime: Runtime, unverified: AccessKey): Promis
         store: store.kind,
         credentialsPath: store.path,
         keychainError,
-        scopes: [],
+        status: key.status(),
     }
 }

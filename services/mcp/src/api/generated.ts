@@ -771,6 +771,7 @@ export namespace Schemas {
      * * `insight` - insight
      * * `insight_variable` - insight_variable
      * * `integration` - integration
+     * * `knowledge_writer` - knowledge_writer
      * * `legal_document` - legal_document
      * * `link` - link
      * * `live_debugger` - live_debugger
@@ -837,6 +838,7 @@ export namespace Schemas {
      * * `wizard_session` - wizard_session
      * * `wizard_run` - wizard_run
      * * `workload_trust_policy` - workload_trust_policy
+     * * `workload_trust_policy_request` - workload_trust_policy_request
      */
     export type ScopeObjectEnum = typeof ScopeObjectEnum[keyof typeof ScopeObjectEnum];
 
@@ -897,6 +899,7 @@ export namespace Schemas {
       Insight: 'insight',
       InsightVariable: 'insight_variable',
       Integration: 'integration',
+      KnowledgeWriter: 'knowledge_writer',
       LegalDocument: 'legal_document',
       Link: 'link',
       LiveDebugger: 'live_debugger',
@@ -963,6 +966,7 @@ export namespace Schemas {
       WizardSession: 'wizard_session',
       WizardRun: 'wizard_run',
       WorkloadTrustPolicy: 'workload_trust_policy',
+      WorkloadTrustPolicyRequest: 'workload_trust_policy_request',
     } as const;
 
     export interface AccessControlObjectRuleResource {
@@ -1023,6 +1027,7 @@ export namespace Schemas {
        * * `insight` - insight
        * * `insight_variable` - insight_variable
        * * `integration` - integration
+       * * `knowledge_writer` - knowledge_writer
        * * `legal_document` - legal_document
        * * `link` - link
        * * `live_debugger` - live_debugger
@@ -1088,7 +1093,8 @@ export namespace Schemas {
        * * `webhook` - webhook
        * * `wizard_session` - wizard_session
        * * `wizard_run` - wizard_run
-       * * `workload_trust_policy` - workload_trust_policy */
+       * * `workload_trust_policy` - workload_trust_policy
+       * * `workload_trust_policy_request` - workload_trust_policy_request */
       resource: ScopeObjectEnum;
       /** The levels an object rule on this resource type accepts, lowest first. */
       available_access_levels: string[];
@@ -1272,6 +1278,7 @@ export namespace Schemas {
        * * `insight` - insight
        * * `insight_variable` - insight_variable
        * * `integration` - integration
+       * * `knowledge_writer` - knowledge_writer
        * * `legal_document` - legal_document
        * * `link` - link
        * * `live_debugger` - live_debugger
@@ -1337,7 +1344,8 @@ export namespace Schemas {
        * * `webhook` - webhook
        * * `wizard_session` - wizard_session
        * * `wizard_run` - wizard_run
-       * * `workload_trust_policy` - workload_trust_policy */
+       * * `workload_trust_policy` - workload_trust_policy
+       * * `workload_trust_policy_request` - workload_trust_policy_request */
       source_resource: ScopeObjectEnum;
       /**
          * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).
@@ -1687,6 +1695,7 @@ export namespace Schemas {
        * * `insight` - insight
        * * `insight_variable` - insight_variable
        * * `integration` - integration
+       * * `knowledge_writer` - knowledge_writer
        * * `legal_document` - legal_document
        * * `link` - link
        * * `live_debugger` - live_debugger
@@ -1752,7 +1761,8 @@ export namespace Schemas {
        * * `webhook` - webhook
        * * `wizard_session` - wizard_session
        * * `wizard_run` - wizard_run
-       * * `workload_trust_policy` - workload_trust_policy */
+       * * `workload_trust_policy` - workload_trust_policy
+       * * `workload_trust_policy_request` - workload_trust_policy_request */
       resource: ScopeObjectEnum;
       /** The object's primary key. */
       resource_id: string;
@@ -5564,6 +5574,7 @@ export namespace Schemas {
      * * `project_secret_key` - project_secret_key
      * * `team_secret_token` - team_secret_token
      * * `id_jag` - id_jag
+     * * `oidc_workload` - oidc_workload
      * * `internal_jwt` - internal_jwt
      * * `service_jwt` - service_jwt
      * * `internal_api_secret` - internal_api_secret
@@ -5590,6 +5601,7 @@ export namespace Schemas {
       ProjectSecretKey: 'project_secret_key',
       TeamSecretToken: 'team_secret_token',
       IdJag: 'id_jag',
+      OidcWorkload: 'oidc_workload',
       InternalJwt: 'internal_jwt',
       ServiceJwt: 'service_jwt',
       InternalApiSecret: 'internal_api_secret',
@@ -5639,6 +5651,7 @@ export namespace Schemas {
        * * `project_secret_key` - project_secret_key
        * * `team_secret_token` - team_secret_token
        * * `id_jag` - id_jag
+       * * `oidc_workload` - oidc_workload
        * * `internal_jwt` - internal_jwt
        * * `service_jwt` - service_jwt
        * * `internal_api_secret` - internal_api_secret
@@ -21398,11 +21411,46 @@ export namespace Schemas {
       Zip: 'zip',
     } as const;
 
+    /**
+     * * `running` - Reading past tickets
+     * * `completed` - Read every past ticket
+     */
+    export type LearningBackfillStatusEnum = typeof LearningBackfillStatusEnum[keyof typeof LearningBackfillStatusEnum];
+
+
+    export const LearningBackfillStatusEnum = {
+      Running: 'running',
+      Completed: 'completed',
+    } as const;
+
+    export interface LearningBackfillProgress {
+      /** `running` while PostHog reads past tickets. `completed` once every ticket in the window is read.
+       *
+       * * `running` - Reading past tickets
+       * * `completed` - Read every past ticket */
+      status: LearningBackfillStatusEnum;
+      /** When someone started learning from past tickets. */
+      started_at: string;
+      /**
+         * When every past ticket was read. Null while the run continues.
+         * @nullable
+         */
+      finished_at: string | null;
+      /** Tickets analyzed since the run started, including tickets from the regular 7-day pass. */
+      tickets_read: number;
+      /** Tickets that are being analyzed now. */
+      tickets_in_progress: number;
+      /** Analyzed tickets that added a learned source to business knowledge. */
+      knowledge_created: number;
+    }
+
     export interface BusinessKnowledgeSettings {
       /** When true, PostHog learns reusable knowledge from public human replies on resolved support tickets. Requires Support to be enabled for this environment. */
       learn_from_support_enabled: boolean;
       /** Whether Support is enabled for this environment. Learning cannot be turned on while this is false. */
       readonly support_enabled: boolean;
+      /** The last run of learning from past tickets. Null when none ran since learning was turned on. */
+      readonly learning_backfill: LearningBackfillProgress | null;
     }
 
     /**
@@ -33914,6 +33962,13 @@ export namespace Schemas {
       readonly tags: readonly string[];
       readonly archived: boolean;
       /**
+         * Earliest cleanup time if the dataset remains unused.
+         * @nullable
+         */
+      readonly expires_at: string | null;
+      /** Whether the dataset is within seven days of expiry. */
+      readonly expiring_soon: boolean;
+      /**
          * Latest dataset revision, or null before the first item is added.
          * @nullable
          */
@@ -33945,6 +34000,13 @@ export namespace Schemas {
       readonly created_by: UserBasic | null;
       /** Project that owns the revision. */
       readonly team_id: number;
+      /**
+         * Earliest expiry time of this dataset snapshot if unused.
+         * @nullable
+         */
+      readonly expires_at: string | null;
+      /** Whether this snapshot is within seven days of expiry. */
+      readonly expiring_soon: boolean;
     }
 
     export interface DayItem {
@@ -34986,6 +35048,8 @@ export namespace Schemas {
       user_code: string;
       /** The project the token is scoped to. */
       project_id: number;
+      /** The requested scopes the person kept. Leave it out to grant every requested scope. It must include every scope in `required_scopes`, and nothing outside the requested scopes. */
+      scopes?: string[];
     }
 
     /**
@@ -35039,6 +35103,8 @@ export namespace Schemas {
       is_verified: boolean;
       /** The scopes the token will carry if the person approves. */
       scopes: string[];
+      /** The requested scopes the person can't leave out: the client's required scopes and identity scopes such as `openid`. */
+      required_scopes: string[];
       /** The scopes the person already gave this client, per project. A step-up in a project asks for these plus new ones, and the page lists only the new ones. */
       granted_scopes: GrantedScopes[];
       /** When the code expires. */
@@ -36429,6 +36495,17 @@ export namespace Schemas {
     }
 
     /**
+     * One external issue the report is about.
+     */
+    export interface SourceIssueWrite {
+      /**
+         * The issue's URL, `https://github.com/<owner>/<repo>/issues/<number>`. Only GitHub issues are accepted today. Pull request URLs are rejected.
+         * @maxLength 500
+         */
+      url: string;
+    }
+
+    /**
      * Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones.
      */
     export interface EditReportRequest {
@@ -36445,6 +36522,11 @@ export namespace Schemas {
          * @maxLength 500
          */
       reviewer_retry_reason?: string;
+      /**
+         * Why no suitable owner exists, with `reviewer_outcome: no_suitable_owner`. Required to clear a report that already has suggested reviewers: without it the current reviewers stay and the response carries a warning. The reason is recorded in the report's work log.
+         * @maxLength 500
+         */
+      reviewer_outcome_reason?: string;
       /** Id of the report to edit (must belong to this project). */
       report_id: string;
       /**
@@ -36460,12 +36542,12 @@ export namespace Schemas {
          */
       summary?: string | null;
       /**
-         * Optional free-form note to append to the report's work log (attributed to this scout).
+         * Optional free-form note to append to the report's work log, attributed to this scout. Prefer it over rewriting a report you did not author: a note is additive and keeps the audit trail.
          * @maxLength 10000
          * @nullable
          */
       append_note?: string | null;
-      /** Set only when append_note confirms the finding with no new information. After four confirmations, store only the count. Other notes remain in the work log. */
+      /** Set only when `append_note` confirms the finding with no new information. The first four confirmations stay in the work log as entries; later ones only raise the report's corroboration count. Other notes always stay in the work log. */
       corroboration_only?: boolean;
       /**
          * Optional observations to add to the report's evidence rail, each becoming a bound signal attributed to this scout — adds to the report's evidence rather than replacing it. Use this for a new observation a reader should be able to check, and `append_note` for commentary (the owning team knows, a deploy fixed it). The report's signal count and weight move with the appended rows. Emit plus every append share a cap of 50 signals per report.
@@ -36479,18 +36561,18 @@ export namespace Schemas {
          */
       suggested_reviewers?: SuggestedReviewer[];
       /**
-         * Optional repository to point the report at, as `owner/repo` — the fix for a report that surfaced against the wrong codebase, so you correct it in place instead of filing a duplicate. It replaces the report's current target and re-runs autostart, so a report that had no repository to open a PR against can now open a draft PR. Omit the field to leave the target as it is, and pass the `NO_REPO` sentinel for a report where nothing under version control could change.
+         * Optional repository to point the report at, as `owner/repo` — the fix for a report that surfaced against the wrong codebase, so you correct it in place instead of filing a duplicate. It replaces the report's current target and re-runs autostart, so a report that had no repository to open a PR against can now open a draft PR. Omit the field to leave the target as it is, and pass the `NO_REPO` sentinel for a report where nothing under version control could change. The response's `repository` reads the target back from the report, and the call fails when the target you named did not land.
          * @nullable
          */
       repository?: string | null;
       /**
-         * The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so send every chart you want kept. Omit the field (or send null) to leave the report's existing charts untouched, and send an empty list to take them all down.
+         * The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so read the report first and send every chart you want kept. Omit the field (or send null) to leave the report's existing charts untouched, and send an empty list to take them all down.
          * @maxItems 20
          * @nullable
          */
       charts?: ReportChart[] | null;
       /**
-         * The report's full impact-metric set. Omit or send null to preserve it; send an empty list to clear it. Every metric requires a bounded live InsightVizNode/TrendsQuery built only from EventsNode or ActionsNode sources and capped at 1,000 estimated longitudinal points. Consumers derive BoldNumber and ActionsBar shapes; a snapshot is only an optional cached fallback. Snapshot-only/queryless payloads are invalid, and legacy rows of that shape are always redacted.
+         * The report's full impact-metric set, at most 6. Omit it or send null to keep the current set, send an empty list to clear it, or send the complete replacement. Mark one metric `primary` for the key observation and the rest `supporting`, for users, sessions, occurrences, conversion, latency, or revenue. Every metric needs a live `query`: an InsightVizNode wrapping one bounded TrendsQuery built only from EventsNode or ActionsNode sources, with at most 1000 estimated longitudinal points. An affected-users metric counts distinct people through one series with `math: dau`; never sum its buckets. A `value`/`value_at` snapshot is only an optional cached fallback, and a metric without a query is invalid.
          * @maxItems 6
          * @nullable
          */
@@ -36508,12 +36590,17 @@ export namespace Schemas {
          */
       links?: ReportLinkWrite[];
       /**
+         * The GitHub issues this report is about, when the finding came from an issue tracker. Pass the issue whenever the report is about one, so the report links back to it: a GitHub issue signal for the same issue then joins this report instead of opening a second one. When the project turned on GitHub issue comments, the issue gets one comment that links the report once its GitHub source ingests the issue. At most 5 per call. Additive: issues join the ones the report already names, and an issue it already names is skipped. Only a newly added issue gets a comment.
+         * @maxItems 5
+         */
+      source_issues?: SourceIssueWrite[];
+      /**
          * The report's full set of slug tags, at most 10. Replaces the report's tags rather than adding to them, so send every tag you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to remove them. Reuse a slug the project already uses before you coin a new one.
          * @maxItems 10
          * @nullable
          */
       tags?: string[] | null;
-      /** Set this only when your rewrite changes what the fix should be: a different root cause, a different file or layer, a materially wider or narrower scope. More evidence for the same fix is not a reason, because the report's open pull request already implements it. Setting it true records a replacement decision for a ready report. Policy and eligibility checks gate the replacement. The existing pull request closes only after a successful, verified replacement. Technical failures retry automatically; policy blocks wait for a new edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, and only within the first four content revisions, including revisions that did not request replacement. When the flag is not applied, `warnings` says why. */
+      /** Set this only when your rewrite changes what the fix should be: a different root cause, a different file or layer, a materially wider or narrower scope. More evidence for the same fix is not a reason, because the report's open pull request already implements it: put that in `append_note`. Setting it true records a replacement decision for a ready report. Policy and eligibility checks gate the replacement. The existing pull request closes only after a successful, verified replacement. Technical failures retry automatically; policy blocks wait for a new edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, and only within the first four content revisions, including revisions that did not request replacement. When the flag is not applied, `warnings` says why. */
       supersedes_implementation?: boolean;
       /** Optional new actionability call, for when new evidence changed your judgment. Replaces the report's actionability decision and re-runs autostart: `immediately_actionable` can open a draft PR, `requires_human_input` and `not_actionable` stop autostart from opening one. The report's inbox status does not change. Send it with `actionability_explanation`, and with `already_addressed` when the issue is handled, since the three replace the decision as one unit.
        *
@@ -36564,6 +36651,8 @@ export namespace Schemas {
       evidence_appended: number;
       /** How many typed report-to-report links this edit wrote; 0 if none. */
       links_appended: number;
+      /** How many source issues this edit added that the report did not name yet; 0 if none. */
+      source_issues_appended: number;
       /** Whether the report's suggested reviewers were replaced. */
       reviewers_set: boolean;
       /** Whether the report's repository was replaced (true for a cleared target too). */
@@ -36745,6 +36834,26 @@ export namespace Schemas {
     export interface ElementValue {
       /** A distinct value of the requested element property */
       name: string;
+    }
+
+    export interface EmailAttachment {
+      /**
+         * File name the recipient sees, such as `invoice.pdf`. No path and no line breaks. A file type mailbox providers block, such as `.exe`, is refused.
+         * @maxLength 255
+         */
+      filename: string;
+      /** The file's bytes as standard base64, without line breaks. */
+      content: string;
+      /**
+         * MIME type of the file, such as `application/pdf`. Without it, the type follows from the file name.
+         * @maxLength 78
+         */
+      content_type?: string;
+      /**
+         * Content ID that the HTML body references as `cid:<content_id>` to show the file inline, such as `logo`. Without `<` or `>`.
+         * @maxLength 78
+         */
+      content_id?: string;
     }
 
     /**
@@ -37093,6 +37202,30 @@ export namespace Schemas {
     }
 
     /**
+     * * `queued` - Queued
+     * * `failed` - Failed
+     * * `sent` - Sent
+     * * `delivered` - Delivered
+     * * `bounced` - Bounced
+     * * `complained` - Complained
+     * * `opened` - Opened
+     * * `clicked` - Clicked
+     */
+    export type EmailLogEventKindEnum = typeof EmailLogEventKindEnum[keyof typeof EmailLogEventKindEnum];
+
+
+    export const EmailLogEventKindEnum = {
+      Queued: 'queued',
+      Failed: 'failed',
+      Sent: 'sent',
+      Delivered: 'delivered',
+      Bounced: 'bounced',
+      Complained: 'complained',
+      Opened: 'opened',
+      Clicked: 'clicked',
+    } as const;
+
+    /**
      * How much workflow email this project may send, and how much of that it has used.
      */
     export interface EmailSendingAllowance {
@@ -37100,14 +37233,10 @@ export namespace Schemas {
       readonly tier: number;
       /** The highest tier there is, so the current tier can be shown as progress. */
       readonly max_tier: number;
-      /** How many emails this tier allows per hour. */
-      readonly emails_per_hour: number;
       /** How many emails this tier allows per day. */
       readonly emails_per_day: number;
       /** The largest audience this tier allows for a single batch send. */
       readonly max_batch_audience: number;
-      /** Emails sent by this project's workflows in the last hour. */
-      readonly emails_sent_last_hour: number;
       /** Emails sent by this project's workflows in the last 24 hours. */
       readonly emails_sent_last_day: number;
       /** True when these allowances are applied to sends. False while they are only being measured. */
@@ -37189,7 +37318,8 @@ export namespace Schemas {
       footers?: EmailTemplateDesignBodyFootersItem[];
       /** Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor. */
       values?: EmailTemplateDesignBodyValues;
-    };
+      [key: string]: unknown;
+     };
 
     /**
      * Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill.
@@ -37200,7 +37330,8 @@ export namespace Schemas {
       /** Design schema version, e.g. 16. */
       schemaVersion: number;
       body: EmailTemplateDesignBody;
-    };
+      [key: string]: unknown;
+     };
 
     export interface EmailTemplateSender {
       /**
@@ -37444,12 +37575,12 @@ export namespace Schemas {
          */
       suggested_reviewers?: SuggestedReviewer[];
       /**
-         * Optional charts to attach to the report — the inbox renders them inline, so a metric move is something the reader sees rather than a number they take on trust. Attach one whenever the finding rests on a trend, a spike, or a comparison you already queried.
+         * Optional charts to attach to the report — the inbox renders them inline, so a metric move is something the reader sees rather than a number they take on trust. Attach one whenever the finding rests on a trend, a spike, or a comparison you already queried. Reference a chart from `summary` as `[label](chart:<chart_id>)` to place it in the body; an unreferenced chart renders below the summary.
          * @maxItems 20
          */
       charts?: ReportChart[];
       /**
-         * Optional typed impact measurements. Use one primary metric for the key observation and supporting metrics for users, sessions, occurrences, conversion, latency, or revenue. Every metric requires a bounded live InsightVizNode/TrendsQuery built only from EventsNode or ActionsNode sources and capped at 1,000 estimated longitudinal points. Consumers derive BoldNumber and ActionsBar shapes. A value/value_at snapshot is an optional cached fallback. Affected users must use one series with `math: dau`. Snapshot-only/queryless payloads are invalid; legacy rows of that shape are always redacted.
+         * Optional typed impact measurements, at most 6. Mark one metric `primary` for the key observation and the rest `supporting`, for users, sessions, occurrences, conversion, latency, or revenue. Every metric needs a live `query`: an InsightVizNode wrapping one bounded TrendsQuery built only from EventsNode or ActionsNode sources, with at most 1000 estimated longitudinal points. An affected-users metric counts distinct people through one series with `math: dau`; never sum its buckets. A `value`/`value_at` snapshot is only an optional cached fallback, and a metric without a query is invalid.
          * @maxItems 6
          */
       metrics?: ReportMetricWrite[];
@@ -37464,6 +37595,11 @@ export namespace Schemas {
          * @maxItems 10
          */
       links?: ReportLinkWrite[];
+      /**
+         * The GitHub issues this report is about, when the finding came from an issue tracker. Pass the issue whenever the report is about one, so the report links back to it: a GitHub issue signal for the same issue then joins this report instead of opening a second one. When the project turned on GitHub issue comments, the issue gets one comment that links the report once its GitHub source ingests the issue. At most 5 per call.
+         * @maxItems 5
+         */
+      source_issues?: SourceIssueWrite[];
       /**
          * Optional slug tags that group the report with related ones, at most 10. Write lowercase kebab-case slugs that name the category of the report (`cost-spike`, `tracking-gap`), not the specific entity. Reuse a slug the project already uses before you coin a new one. Near-miss formats are normalized to slugs, and a tag that is empty or longer than 50 characters after normalization is rejected.
          * @maxItems 10
@@ -43011,6 +43147,60 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `flag_state` - Flag State
+     * * `flag_shared` - Flag Shared
+     * * `flag_history` - Flag History
+     * * `split_changed_mid_run` - Split Changed Mid Run
+     * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+     * * `flag_variants_mismatch` - Flag Variants Mismatch
+     * * `forced_variant_release_condition` - Forced Variant Release Condition
+     * * `new_flag_no_traffic` - New Flag No Traffic
+     * * `no_metric` - No Metric
+     * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_cannot_compile` - Metric Cannot Compile
+     * * `metric_calculation_failed` - Metric Calculation Failed
+     * * `metric_all_zero` - Metric All Zero
+     * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `exposure_filters` - Exposure Filters
+     * * `early_significance` - Early Significance
+     * * `metrics_not_matured` - Metrics Not Matured
+     * * `zero_exposures` - Zero Exposures
+     * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
+     * * `srm` - Srm
+     * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+     * * `multiple_variants_share` - Multiple Variants Share
+     */
+    export type ExperimentHealthCheckKeyEnum = typeof ExperimentHealthCheckKeyEnum[keyof typeof ExperimentHealthCheckKeyEnum];
+
+
+    export const ExperimentHealthCheckKeyEnum = {
+      FlagState: 'flag_state',
+      FlagShared: 'flag_shared',
+      FlagHistory: 'flag_history',
+      SplitChangedMidRun: 'split_changed_mid_run',
+      BucketingChangedMidRun: 'bucketing_changed_mid_run',
+      ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
+      FlagVariantsMismatch: 'flag_variants_mismatch',
+      ForcedVariantReleaseCondition: 'forced_variant_release_condition',
+      NewFlagNoTraffic: 'new_flag_no_traffic',
+      NoMetric: 'no_metric',
+      MetricEventNotIngested: 'metric_event_not_ingested',
+      MetricCannotCompile: 'metric_cannot_compile',
+      MetricCalculationFailed: 'metric_calculation_failed',
+      MetricAllZero: 'metric_all_zero',
+      ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
+      ExposureFilters: 'exposure_filters',
+      EarlySignificance: 'early_significance',
+      MetricsNotMatured: 'metrics_not_matured',
+      ZeroExposures: 'zero_exposures',
+      TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
+      Srm: 'srm',
+      BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
+      MultipleVariantsShare: 'multiple_variants_share',
+    } as const;
+
+    /**
      * The values behind the finding, such as the key of a shipped variant or the share of users exposed to multiple variants. The keys depend on the code.
      */
     export type ExperimentHealthFindingEvidence = {[key: string]: string | number | boolean | null};
@@ -43073,61 +43263,33 @@ export namespace Schemas {
          * @nullable
          */
       diagnostic_ref: string | null;
+      /** The key of the check in `checks` that reported the finding. A check can report several codes, so the code doesn't name the check.
+       *
+       * * `flag_state` - Flag State
+       * * `flag_shared` - Flag Shared
+       * * `flag_history` - Flag History
+       * * `split_changed_mid_run` - Split Changed Mid Run
+       * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+       * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+       * * `flag_variants_mismatch` - Flag Variants Mismatch
+       * * `forced_variant_release_condition` - Forced Variant Release Condition
+       * * `new_flag_no_traffic` - New Flag No Traffic
+       * * `no_metric` - No Metric
+       * * `metric_event_not_ingested` - Metric Event Not Ingested
+       * * `metric_cannot_compile` - Metric Cannot Compile
+       * * `metric_calculation_failed` - Metric Calculation Failed
+       * * `metric_all_zero` - Metric All Zero
+       * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+       * * `exposure_filters` - Exposure Filters
+       * * `early_significance` - Early Significance
+       * * `metrics_not_matured` - Metrics Not Matured
+       * * `zero_exposures` - Zero Exposures
+       * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
+       * * `srm` - Srm
+       * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+       * * `multiple_variants_share` - Multiple Variants Share */
+      check: ExperimentHealthCheckKeyEnum;
     }
-
-    /**
-     * * `flag_state` - Flag State
-     * * `flag_shared` - Flag Shared
-     * * `flag_history` - Flag History
-     * * `split_changed_mid_run` - Split Changed Mid Run
-     * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
-     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
-     * * `flag_variants_mismatch` - Flag Variants Mismatch
-     * * `forced_variant_release_condition` - Forced Variant Release Condition
-     * * `new_flag_no_traffic` - New Flag No Traffic
-     * * `no_metric` - No Metric
-     * * `metric_event_not_ingested` - Metric Event Not Ingested
-     * * `metric_cannot_compile` - Metric Cannot Compile
-     * * `metric_calculation_failed` - Metric Calculation Failed
-     * * `metric_all_zero` - Metric All Zero
-     * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
-     * * `exposure_filters` - Exposure Filters
-     * * `early_significance` - Early Significance
-     * * `metrics_not_matured` - Metrics Not Matured
-     * * `zero_exposures` - Zero Exposures
-     * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
-     * * `srm` - Srm
-     * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
-     * * `multiple_variants_share` - Multiple Variants Share
-     */
-    export type ExperimentHealthCheckKeyEnum = typeof ExperimentHealthCheckKeyEnum[keyof typeof ExperimentHealthCheckKeyEnum];
-
-
-    export const ExperimentHealthCheckKeyEnum = {
-      FlagState: 'flag_state',
-      FlagShared: 'flag_shared',
-      FlagHistory: 'flag_history',
-      SplitChangedMidRun: 'split_changed_mid_run',
-      BucketingChangedMidRun: 'bucketing_changed_mid_run',
-      ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
-      FlagVariantsMismatch: 'flag_variants_mismatch',
-      ForcedVariantReleaseCondition: 'forced_variant_release_condition',
-      NewFlagNoTraffic: 'new_flag_no_traffic',
-      NoMetric: 'no_metric',
-      MetricEventNotIngested: 'metric_event_not_ingested',
-      MetricCannotCompile: 'metric_cannot_compile',
-      MetricCalculationFailed: 'metric_calculation_failed',
-      MetricAllZero: 'metric_all_zero',
-      ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
-      ExposureFilters: 'exposure_filters',
-      EarlySignificance: 'early_significance',
-      MetricsNotMatured: 'metrics_not_matured',
-      ZeroExposures: 'zero_exposures',
-      TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
-      Srm: 'srm',
-      BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
-      MultipleVariantsShare: 'multiple_variants_share',
-    } as const;
 
     /**
      * * `passed` - Passed
@@ -43144,6 +43306,148 @@ export namespace Schemas {
       NotApplicable: 'not_applicable',
       NotChecked: 'not_checked',
     } as const;
+
+    /**
+     * * `exposed_count` - Users or groups exposed since launch, as the exposure criteria count them, including those exposed to multiple variants
+     * * `compared_count` - Exposed users or groups in the variants that the sample ratio test compares, without those exposed to multiple variants
+     * * `multiple_variant_count` - Users or groups exposed to more than one variant
+     * * `multiple_variant_percentage` - multiple_variant_count as a share of exposed_count
+     * * `multiple_variant_handling` - What the results do with users exposed to more than one variant: exclude or first_seen
+     * * `p_value` - P-value of the sample ratio test
+     * * `since_launch_hours` - Hours since launch
+     * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
+     * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+     * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
+     * * `primary_metric_count` - Primary metrics that the calculation computes
+     * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
+     * * `metric_count` - Metrics that the calculation computes
+     * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
+     * * `failed_metric_count` - Metrics whose latest calculation failed
+     * * `calculated_at` - When the latest calculation of the metrics finished
+     * * `flag_active` - Whether the feature flag is enabled
+     * * `flag_deleted` - Whether the feature flag is deleted
+     * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
+     * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+     */
+    export type ExperimentHealthValueKeyEnum = typeof ExperimentHealthValueKeyEnum[keyof typeof ExperimentHealthValueKeyEnum];
+
+
+    export const ExperimentHealthValueKeyEnum = {
+      ExposedCount: 'exposed_count',
+      ComparedCount: 'compared_count',
+      MultipleVariantCount: 'multiple_variant_count',
+      MultipleVariantPercentage: 'multiple_variant_percentage',
+      MultipleVariantHandling: 'multiple_variant_handling',
+      PValue: 'p_value',
+      SinceLaunchHours: 'since_launch_hours',
+      ExposedWithoutTestAccountFilterCount: 'exposed_without_test_account_filter_count',
+      KeptByTestAccountFilterPercentage: 'kept_by_test_account_filter_percentage',
+      OnlyCountMaturedUsers: 'only_count_matured_users',
+      PrimaryMetricCount: 'primary_metric_count',
+      WaitingMetricCount: 'waiting_metric_count',
+      MetricCount: 'metric_count',
+      CompletedMetricCount: 'completed_metric_count',
+      FailedMetricCount: 'failed_metric_count',
+      CalculatedAt: 'calculated_at',
+      FlagActive: 'flag_active',
+      FlagDeleted: 'flag_deleted',
+      FlagRolledOut: 'flag_rolled_out',
+      ShippedVariant: 'shipped_variant',
+    } as const;
+
+    /**
+     * * `above` - Finding above the threshold
+     * * `below` - Finding below the threshold
+     */
+    export type ExperimentHealthRuleSideEnum = typeof ExperimentHealthRuleSideEnum[keyof typeof ExperimentHealthRuleSideEnum];
+
+
+    export const ExperimentHealthRuleSideEnum = {
+      Above: 'above',
+      Below: 'below',
+    } as const;
+
+    /**
+     * * `chi_squared` - Chi-squared goodness-of-fit test
+     */
+    export type ExperimentHealthRuleTestEnum = typeof ExperimentHealthRuleTestEnum[keyof typeof ExperimentHealthRuleTestEnum];
+
+
+    export const ExperimentHealthRuleTestEnum = {
+      ChiSquared: 'chi_squared',
+    } as const;
+
+    export interface ExperimentHealthRuleMinimum {
+      /** The key in `values` that must reach the threshold before the check judges.
+       *
+       * * `exposed_count` - Users or groups exposed since launch, as the exposure criteria count them, including those exposed to multiple variants
+       * * `compared_count` - Exposed users or groups in the variants that the sample ratio test compares, without those exposed to multiple variants
+       * * `multiple_variant_count` - Users or groups exposed to more than one variant
+       * * `multiple_variant_percentage` - multiple_variant_count as a share of exposed_count
+       * * `multiple_variant_handling` - What the results do with users exposed to more than one variant: exclude or first_seen
+       * * `p_value` - P-value of the sample ratio test
+       * * `since_launch_hours` - Hours since launch
+       * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
+       * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+       * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
+       * * `primary_metric_count` - Primary metrics that the calculation computes
+       * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
+       * * `metric_count` - Metrics that the calculation computes
+       * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
+       * * `failed_metric_count` - Metrics whose latest calculation failed
+       * * `calculated_at` - When the latest calculation of the metrics finished
+       * * `flag_active` - Whether the feature flag is enabled
+       * * `flag_deleted` - Whether the feature flag is deleted
+       * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
+       * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one */
+      value: ExperimentHealthValueKeyEnum;
+      /** The value that the key must reach. Below it, the check reports no finding. */
+      threshold: number;
+    }
+
+    export interface ExperimentHealthCheckRule {
+      /** The key in `values` that the check compares with the threshold.
+       *
+       * * `exposed_count` - Users or groups exposed since launch, as the exposure criteria count them, including those exposed to multiple variants
+       * * `compared_count` - Exposed users or groups in the variants that the sample ratio test compares, without those exposed to multiple variants
+       * * `multiple_variant_count` - Users or groups exposed to more than one variant
+       * * `multiple_variant_percentage` - multiple_variant_count as a share of exposed_count
+       * * `multiple_variant_handling` - What the results do with users exposed to more than one variant: exclude or first_seen
+       * * `p_value` - P-value of the sample ratio test
+       * * `since_launch_hours` - Hours since launch
+       * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
+       * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+       * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
+       * * `primary_metric_count` - Primary metrics that the calculation computes
+       * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
+       * * `metric_count` - Metrics that the calculation computes
+       * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
+       * * `failed_metric_count` - Metrics whose latest calculation failed
+       * * `calculated_at` - When the latest calculation of the metrics finished
+       * * `flag_active` - Whether the feature flag is enabled
+       * * `flag_deleted` - Whether the feature flag is deleted
+       * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
+       * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one */
+      value: ExperimentHealthValueKeyEnum;
+      /** The threshold, in the unit that the suffix of the key gives. */
+      threshold: number;
+      /** above: the check reports a finding when the value is above the threshold. below: when the value is below it. A value at the threshold passes.
+       *
+       * * `above` - Finding above the threshold
+       * * `below` - Finding below the threshold */
+      warns: ExperimentHealthRuleSideEnum;
+      /** The statistical test that computes the value, for example chi_squared. Null for a count or a share.
+       *
+       * * `chi_squared` - Chi-squared goodness-of-fit test */
+      test: ExperimentHealthRuleTestEnum | null;
+      /** What the check needs before it judges. Null when the check judges from the first value. */
+      minimum: ExperimentHealthRuleMinimum | null;
+    }
+
+    /**
+     * What the check read on the experiment, for every status, as numbers, strings, booleans or null. Empty when the check read nothing or shows nothing. The suffix of a key gives the unit: _count is a count, _percentage is on the 0-100 scale, _hours is hours and _at is an ISO 8601 time in UTC. A key without a suffix is a setting or a state. A key means the same thing in every check. `rule.value` names the key that decides.
+     */
+    export type ExperimentHealthCheckResultValues = {[key: string]: string | number | boolean | null};
 
     export interface ExperimentHealthCheckResult {
       /** Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
@@ -43174,6 +43478,8 @@ export namespace Schemas {
       key: ExperimentHealthCheckKeyEnum;
       /** The problem the check looks for, for example 'Metrics not set up'. */
       name: string;
+      /** What the check looks for and why it matters. The same for every experiment and every status. */
+      description: string;
       /** passed: the check found no problem. finding: the check reported a finding in `findings`. not_applicable: the check does not cover the experiment's current state, for example a check of the changes since launch on a draft. not_checked: the check covers the experiment, but it could not read an input or it failed, so a problem it looks for can be present without a finding.
        *
        * * `passed` - Passed
@@ -43186,6 +43492,10 @@ export namespace Schemas {
          * @nullable
          */
       reason: string | null;
+      /** What the check read on the experiment, for every status, as numbers, strings, booleans or null. Empty when the check read nothing or shows nothing. The suffix of a key gives the unit: _count is a count, _percentage is on the 0-100 scale, _hours is hours and _at is an ISO 8601 time in UTC. A key without a suffix is a setting or a state. A key means the same thing in every check. `rule.value` names the key that decides. */
+      values: ExperimentHealthCheckResultValues;
+      /** How the check decides. The same for every experiment and every status. Null for a check without a numeric rule. */
+      rule: ExperimentHealthCheckRule | null;
     }
 
     export interface ExperimentHealth {
@@ -43441,6 +43751,11 @@ export namespace Schemas {
       multiple_variant_handling?: MultipleVariantHandling | null;
     }
 
+    /**
+     * What the check read on the experiment, for every status. The suffix of a key gives the unit: _count is a count, _percentage is on the 0-100 scale, _hours is hours. A key without a suffix is a setting. Missing on an answer cached before the field existed.
+     */
+    export type ExperimentExposureHealthCheckValues = {[key: string]: string | number | boolean | null} | null;
+
     export type ExperimentExposureHealthCheckKey = typeof ExperimentExposureHealthCheckKey[keyof typeof ExperimentExposureHealthCheckKey];
 
 
@@ -43451,6 +43766,49 @@ export namespace Schemas {
       MultipleVariantsShare: 'multiple_variants_share',
       TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
     } as const;
+
+    export type ExperimentExposureHealthValueKey = typeof ExperimentExposureHealthValueKey[keyof typeof ExperimentExposureHealthValueKey];
+
+
+    export const ExperimentExposureHealthValueKey = {
+      ExposedCount: 'exposed_count',
+      ComparedCount: 'compared_count',
+      MultipleVariantCount: 'multiple_variant_count',
+      MultipleVariantPercentage: 'multiple_variant_percentage',
+      MultipleVariantHandling: 'multiple_variant_handling',
+      PValue: 'p_value',
+      SinceLaunchHours: 'since_launch_hours',
+      ExposedWithoutTestAccountFilterCount: 'exposed_without_test_account_filter_count',
+      KeptByTestAccountFilterPercentage: 'kept_by_test_account_filter_percentage',
+    } as const;
+
+    export interface ExperimentExposureHealthRuleMinimum {
+      /** The value that the key must reach. Below it, the check reports no finding. */
+      threshold: number;
+      /** The key in `values` that must reach the threshold before the check judges. */
+      value: ExperimentExposureHealthValueKey;
+    }
+
+    export type ExperimentExposureHealthRuleSide = typeof ExperimentExposureHealthRuleSide[keyof typeof ExperimentExposureHealthRuleSide];
+
+
+    export const ExperimentExposureHealthRuleSide = {
+      Above: 'above',
+      Below: 'below',
+    } as const;
+
+    export interface ExperimentExposureHealthCheckRule {
+      /** What the check needs before it judges. Null when the check judges from the first value. */
+      minimum: ExperimentExposureHealthRuleMinimum | null;
+      /** The statistical test that computes the value. Null for a count or a share. */
+      test: 'chi_squared' | null;
+      /** The threshold, in the unit that the suffix of the key gives. */
+      threshold: number;
+      /** The key in `values` that the check compares with the threshold. */
+      value: ExperimentExposureHealthValueKey;
+      /** above: the check reports a finding when the value is above the threshold. below: when the value is below it. A value at the threshold passes. */
+      warns: ExperimentExposureHealthRuleSide;
+    }
 
     export type ExperimentExposureHealthCheckStatus = typeof ExperimentExposureHealthCheckStatus[keyof typeof ExperimentExposureHealthCheckStatus];
 
@@ -43463,14 +43821,20 @@ export namespace Schemas {
     } as const;
 
     export interface ExperimentExposureHealthCheck {
+      /** What the check looks for and why it matters. Missing on an answer cached before the field existed. */
+      description?: string | null;
       /** Stable identifier of the check. */
       key: ExperimentExposureHealthCheckKey;
       /** The problem the check looks for, as the health panel lists it. */
       name: string;
       /** Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding. */
       reason: string | null;
+      /** How the check decides, the same for every experiment. Null for a check without a numeric rule. Missing on an answer cached before the field existed. */
+      rule?: ExperimentExposureHealthCheckRule | null;
       /** passed: no problem found. finding: a finding in `health_findings`. not_applicable: the check doesn't cover the experiment's state. not_checked: an input was missing or the check failed. */
       status: ExperimentExposureHealthCheckStatus;
+      /** What the check read on the experiment, for every status. The suffix of a key gives the unit: _count is a count, _percentage is on the 0-100 scale, _hours is hours. A key without a suffix is a setting. Missing on an answer cached before the field existed. */
+      values?: ExperimentExposureHealthCheckValues;
     }
 
     /**
@@ -43511,6 +43875,8 @@ export namespace Schemas {
     export interface ExperimentExposureHealthFinding {
       /** The actions that fix the problem, in order of preference. */
       actions: ExperimentExposureHealthFindingActionKind[];
+      /** The key of the check in `health_checks` that reported the finding. Missing on an answer cached before the field existed. */
+      check?: ExperimentExposureHealthCheckKey | null;
       /** Stable identifier of the problem. Each code has one meaning across every surface that reports it. */
       code: ExperimentExposureHealthFindingCode;
       /** What is wrong, what it does to the experiment, and how to fix it. */
@@ -47108,11 +47474,18 @@ export namespace Schemas {
        * * `missing_primary_key` - Missing primary key
        * * `duplicate_primary_key` - Duplicate primary key */
       readonly incremental_sync_blocked: IncrementalSyncBlockedReasonEnum | null;
+      /** Whether this table uses webhook sync, but its source has no enabled webhook. Such a table gets no webhook updates. Each sync polls the source API instead, which is slower and can read the whole table. Set up the webhook on the source, or change `sync_type`. */
+      readonly webhook_not_registered: boolean;
       /**
          * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /**
+         * Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key, partition and incremental columns can't be masked, and direct query sources don't support masking. Any change to this list starts a full resync of the table (CDC tables take a new snapshot), or stages it until syncing is turned on. A synced webhook table can't change its masked columns, because its data can't be fetched again.
+         * @nullable
+         */
+      masked_columns?: string[] | null;
       /**
          * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.
          * @nullable
@@ -47234,6 +47607,11 @@ export namespace Schemas {
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /**
+         * Columns whose values are replaced with a one-way digest at sync time. Null means mask nothing. Any change starts a full resync of the table.
+         * @nullable
+         */
+      masked_columns?: string[] | null;
       /**
          * Row-filter predicates ANDed onto the source query. Null/empty means sync all rows.
          * @nullable
@@ -47459,6 +47837,8 @@ export namespace Schemas {
          */
       readonly user_access_level: string | null;
       readonly supports_webhooks: boolean;
+      /** Whether at least one table of this source uses webhook sync, but the source has no enabled webhook. Those tables get no webhook updates. Each of their syncs polls the source API instead, which is slower and can read the whole table. Set up the webhook, or change the sync method of those tables. */
+      readonly webhook_not_registered: boolean;
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection: boolean;
       /**
@@ -51640,6 +52020,8 @@ export namespace Schemas {
      * * `dashboard` - On a dashboard you open often
      * * `key_metric` - Project key metric
      * * `popular` - Opened often in this project
+     * * `watched` - You get updates on this
+     * * `built` - You created or edited this
      */
     export type HighlightMetricReasonEnum = typeof HighlightMetricReasonEnum[keyof typeof HighlightMetricReasonEnum];
 
@@ -51649,6 +52031,8 @@ export namespace Schemas {
       Dashboard: 'dashboard',
       KeyMetric: 'key_metric',
       Popular: 'popular',
+      Watched: 'watched',
+      Built: 'built',
     } as const;
 
     export interface HighlightMover {
@@ -51698,12 +52082,14 @@ export namespace Schemas {
       value_format: HighlightValueFormat | null;
       /** The first day of the period each value in `series` covers, in the project's timezone. Same length and order as `series`. */
       period_starts: string[];
-      /** Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project, `popular` for an insight that many people in the project open. Null for metrics computed before this field existed.
+      /** Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project, `popular` for an insight that many people in the project open, `watched` for an insight the person gets an alert or a subscription for, `built` for an insight the person created or edited recently. Null for metrics computed before this field existed.
        *
        * * `routine` - You open this often
        * * `dashboard` - On a dashboard you open often
        * * `key_metric` - Project key metric
-       * * `popular` - Opened often in this project */
+       * * `popular` - Opened often in this project
+       * * `watched` - You get updates on this
+       * * `built` - You created or edited this */
       reason: HighlightMetricReasonEnum | null;
       /**
          * Name of the dashboard the tile comes from when `reason` is `dashboard`, else null.
@@ -51792,7 +52178,9 @@ export namespace Schemas {
        * * `routine` - You open this often
        * * `dashboard` - On a dashboard you open often
        * * `key_metric` - Project key metric
-       * * `popular` - Opened often in this project */
+       * * `popular` - Opened often in this project
+       * * `watched` - You get updates on this
+       * * `built` - You created or edited this */
       reason?: HighlightMetricReasonEnum | null;
       /** Stable key of the selected number. */
       key: string;
@@ -61041,6 +61429,11 @@ export namespace Schemas {
       readonly user_tag: string | null;
       /** @nullable */
       readonly sync_interval: string | null;
+      /**
+         * How often this node actually refreshes. A downstream view can make an unpinned view refresh more often than `sync_interval`, and a slow source can make it refresh less often. Null when the node is not scheduled.
+         * @nullable
+         */
+      readonly effective_sync_interval: string | null;
       /** How often this view refreshes. 'never' clears the cadence, and with it the pin. Read the stored cadence back from `sync_interval`. Only views and endpoints the team owns accept it.
        *
        * * `never` - never
@@ -61160,6 +61553,26 @@ export namespace Schemas {
       model?: string | null;
       provider?: string | null;
     }
+
+    /**
+     * * `single_candidate` - Single candidate
+     * * `fork` - Fork
+     * * `nothing_cuttable` - Nothing cuttable
+     * * `no_answer` - No answer
+     * * `stamphog_approved` - Stamphog approved
+     * * `files_truncated` - Files truncated
+     */
+    export type LlmSkipReasonEnum = typeof LlmSkipReasonEnum[keyof typeof LlmSkipReasonEnum];
+
+
+    export const LlmSkipReasonEnum = {
+      SingleCandidate: 'single_candidate',
+      Fork: 'fork',
+      NothingCuttable: 'nothing_cuttable',
+      NoAnswer: 'no_answer',
+      StamphogApproved: 'stamphog_approved',
+      FilesTruncated: 'files_truncated',
+    } as const;
 
     export interface LlmsTxtFetchRequest {
       /**
@@ -63849,6 +64262,11 @@ export namespace Schemas {
       readonly id: string;
       /** @nullable */
       readonly template_id: string | null;
+      /**
+         * ID of the MCP server this connection belongs to. The MCP server page takes this ID, not the connection id. Null for older connections that are not linked to a server yet.
+         * @nullable
+         */
+      readonly gateway_server_id: string | null;
       readonly name: string;
       /** Deprecated: use icon_domain instead. Lowercase key from the linked template for clients that still render bundled icon assets. Empty if custom install (no template). */
       readonly icon_key: string;
@@ -65279,6 +65697,7 @@ export namespace Schemas {
        * * `insight` - insight
        * * `insight_variable` - insight_variable
        * * `integration` - integration
+       * * `knowledge_writer` - knowledge_writer
        * * `legal_document` - legal_document
        * * `link` - link
        * * `live_debugger` - live_debugger
@@ -65344,7 +65763,8 @@ export namespace Schemas {
        * * `webhook` - webhook
        * * `wizard_session` - wizard_session
        * * `wizard_run` - wizard_run
-       * * `workload_trust_policy` - workload_trust_policy */
+       * * `workload_trust_policy` - workload_trust_policy
+       * * `workload_trust_policy_request` - workload_trust_policy_request */
       source_resource: ScopeObjectEnum;
       /**
          * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).
@@ -65384,6 +65804,19 @@ export namespace Schemas {
     export interface MemberProjectAccessResponse {
       /** One entry per visible organization member. */
       results: MemberProjectAccess[];
+    }
+
+    export interface MergePush {
+      /**
+         * The 40-character SHA of the master merge commit.
+         * @pattern ^[0-9a-f]{40}$
+         */
+      commit_sha: string;
+    }
+
+    export interface MergePushResponse {
+      /** Always accepted; the merge check runs in the background. */
+      status: string;
     }
 
     export type MessageContextualTools = { [key: string]: unknown };
@@ -68754,18 +69187,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `legacy` - Default onboarding
-     * * `simple` - Simple onboarding
-     */
-    export type OnboardingFlowVariantEnum = typeof OnboardingFlowVariantEnum[keyof typeof OnboardingFlowVariantEnum];
-
-
-    export const OnboardingFlowVariantEnum = {
-      Legacy: 'legacy',
-      Simple: 'simple',
-    } as const;
-
-    /**
      * The first-run session that was started for the requester.
      */
     export interface OnboardingSession {
@@ -68857,11 +69278,6 @@ export namespace Schemas {
          * @maxLength 64
          */
       step_at_skip?: string;
-      /** Which onboarding flow the user skipped from, for analytics only.
-       *
-       * * `legacy` - Default onboarding
-       * * `simple` - Simple onboarding */
-      flow_variant?: OnboardingFlowVariantEnum;
     }
 
     /**
@@ -69674,6 +70090,18 @@ export namespace Schemas {
     export const OverallHealthEnum = {
       Healthy: 'healthy',
       NeedsAttention: 'needs_attention',
+    } as const;
+
+    /**
+     * * `team` - Team
+     * * `person` - Person
+     */
+    export type OwnerKindEnum = typeof OwnerKindEnum[keyof typeof OwnerKindEnum];
+
+
+    export const OwnerKindEnum = {
+      Team: 'team',
+      Person: 'person',
     } as const;
 
     /**
@@ -73268,11 +73696,13 @@ export namespace Schemas {
      * * `commit` - Commit
      * * `task_run` - Task Run
      * * `note` - Note
+     * * `scout_note_left` - Scout Note Left
      * * `title_change` - Title Change
      * * `summary_change` - Summary Change
      * * `code_review` - Code Review
      * * `related_to` - Related To
      * * `report_link` - Report Link
+     * * `source_issue` - Source Issue
      * * `autostart_skip` - Autostart Skip
      * * `work_claim` - Work Claim
      * * `work_release` - Work Release
@@ -73310,11 +73740,13 @@ export namespace Schemas {
       Commit: 'commit',
       TaskRun: 'task_run',
       Note: 'note',
+      ScoutNoteLeft: 'scout_note_left',
       TitleChange: 'title_change',
       SummaryChange: 'summary_change',
       CodeReview: 'code_review',
       RelatedTo: 'related_to',
       ReportLink: 'report_link',
+      SourceIssue: 'source_issue',
       AutostartSkip: 'autostart_skip',
       WorkClaim: 'work_claim',
       WorkRelease: 'work_release',
@@ -74298,6 +74730,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly tracker_issue_error: string | null;
+      /** URLs of the external issues this report is about, as recorded by the scout or person that filed it, oldest first. Normalized to `https://github.com/<owner>/<repo>/issues/<number>`. Empty when the report names none. Issues the report learned about from a GitHub issue signal are not listed here. */
+      readonly source_issues: readonly string[];
       /** Derived remediation state: unclaimed, working, in_review, or done. */
       readonly work_state: SignalReportWorkStateEnum;
       /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
@@ -74357,7 +74791,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. Other sources reject this key.
+     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys.
      */
     export type SignalSourceConfigConfig = { [key: string]: unknown };
 
@@ -74371,7 +74805,7 @@ export namespace Schemas {
       source_product: SignalSourceProductEnum;
       source_type: SignalSourceConfigSourceTypeEnum;
       enabled?: boolean;
-      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. Other sources reject this key. */
+      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys. */
       config?: SignalSourceConfigConfig;
       /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
       config_set?: SignalSourceConfigConfigSet;
@@ -74613,6 +75047,181 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: StamphogRepoConfig[];
+    }
+
+    /**
+     * * `full` - Every owner
+     * * `pinned` - Pinned owners only
+     */
+    export type RoutingScopeEnum = typeof RoutingScopeEnum[keyof typeof RoutingScopeEnum];
+
+
+    export const RoutingScopeEnum = {
+      Full: 'full',
+      Pinned: 'pinned',
+    } as const;
+
+    /**
+     * * `requested` - Requested
+     * * `labeled` - Labeled
+     * * `refused` - Refused by GitHub
+     * * `cut` - Cut
+     * * `not_requested` - Not requested
+     * * `already_requested` - Already requested
+     */
+    export type RoutingOwnerOutcomeEnum = typeof RoutingOwnerOutcomeEnum[keyof typeof RoutingOwnerOutcomeEnum];
+
+
+    export const RoutingOwnerOutcomeEnum = {
+      Requested: 'requested',
+      Labeled: 'labeled',
+      Refused: 'refused',
+      Cut: 'cut',
+      NotRequested: 'not_requested',
+      AlreadyRequested: 'already_requested',
+    } as const;
+
+    /**
+     * * `sensitive` - Owns a sensitive path
+     * * `new_path` - Owns a new path
+     * * `largest_owner` - Has the largest part
+     * * `diff_not_seen` - Diff not shown to the model
+     * * `cut_skipped` - Cut step skipped
+     * * `model_kept` - Kept by the model
+     * * `model_cut` - Cut by the model
+     * * `stamphog_approved` - Stamphog approved
+     */
+    export type RoutingOwnerReasonEnum = typeof RoutingOwnerReasonEnum[keyof typeof RoutingOwnerReasonEnum];
+
+
+    export const RoutingOwnerReasonEnum = {
+      Sensitive: 'sensitive',
+      NewPath: 'new_path',
+      LargestOwner: 'largest_owner',
+      DiffNotSeen: 'diff_not_seen',
+      CutSkipped: 'cut_skipped',
+      ModelKept: 'model_kept',
+      ModelCut: 'model_cut',
+      StamphogApproved: 'stamphog_approved',
+    } as const;
+
+    /**
+     * * `sensitive` - Sensitive path
+     * * `new_path` - New path
+     */
+    export type PinReasonEnum = typeof PinReasonEnum[keyof typeof PinReasonEnum];
+
+
+    export const PinReasonEnum = {
+      Sensitive: 'sensitive',
+      NewPath: 'new_path',
+    } as const;
+
+    export interface StamphogRoutingPin {
+      /** Why the path pins its owner.
+       *
+       * * `sensitive` - Sensitive path
+       * * `new_path` - New path */
+      readonly reason: PinReasonEnum;
+      /** The changed path, or the new directory, that pinned the owner. */
+      path: string;
+    }
+
+    export interface StamphogRoutingRunOwner {
+      /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved and the owner is not pinned) or 'already_requested' (an earlier run asked this pinned owner).
+       *
+       * * `requested` - Requested
+       * * `labeled` - Labeled
+       * * `refused` - Refused by GitHub
+       * * `cut` - Cut
+       * * `not_requested` - Not requested
+       * * `already_requested` - Already requested */
+      readonly outcome: RoutingOwnerOutcomeEnum;
+      /** Why: 'sensitive' or 'new_path' (pinned, never cut), 'largest_owner' (a pull request keeps at least one reviewer), 'diff_not_seen' (the model did not see all of the owner's diff), 'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut' or 'stamphog_approved'.
+       *
+       * * `sensitive` - Owns a sensitive path
+       * * `new_path` - Owns a new path
+       * * `largest_owner` - Has the largest part
+       * * `diff_not_seen` - Diff not shown to the model
+       * * `cut_skipped` - Cut step skipped
+       * * `model_kept` - Kept by the model
+       * * `model_cut` - Cut by the model
+       * * `stamphog_approved` - Stamphog approved */
+      readonly reason: RoutingOwnerReasonEnum;
+      /** The changed paths that pinned the owner, so no cut could remove them. */
+      readonly pins: readonly StamphogRoutingPin[];
+      /** Whether the owner is a GitHub team or a person.
+       *
+       * * `team` - Team
+       * * `person` - Person */
+      readonly kind: OwnerKindEnum;
+      /** The owner as owners.yaml spells it: a team slug such as 'team-devex', or a GitHub login such as '@octocat'. */
+      owner: string;
+      /** The model's one-line reason to cut this owner. Also set when a guard kept the owner anyway. Blank when the model proposed no cut for them. */
+      model_reason?: string;
+      /** Changed lines in the files this owner owns. */
+      lines?: number;
+      /** Changed files this owner owns. */
+      file_count?: number;
+    }
+
+    export interface StamphogRoutingRun {
+      /** ID of the routing run. */
+      id: string;
+      /** Full name of the repository. */
+      repository: string;
+      /** Pull request number. */
+      pr_number: number;
+      /** The head commit the run routed. */
+      head_sha: string;
+      /** The repository's routing_mode when the run made its requests.
+       *
+       * * `off` - Off
+       * * `always` - Always
+       * * `fallback` - When stamphog does not approve */
+      readonly mode: RoutingModeEnum;
+      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>' or 'safety_net'. */
+      trigger: string;
+      /** 'full', or 'pinned' when a stamphog approval asked only the owners of sensitive and new paths.
+       *
+       * * `full` - Every owner
+       * * `pinned` - Pinned owners only */
+      readonly scope: RoutingScopeEnum;
+      /** Whether the pull request came from a fork, which skips the model. */
+      fork?: boolean;
+      /** Why the cut step made no model call. Null when it made one.
+       *
+       * * `single_candidate` - Single candidate
+       * * `fork` - Fork
+       * * `nothing_cuttable` - Nothing cuttable
+       * * `no_answer` - No answer
+       * * `stamphog_approved` - Stamphog approved
+       * * `files_truncated` - Files truncated */
+      readonly llm_skipped: LlmSkipReasonEnum | null;
+      /** The model the cut request reached. Blank when no request reached the gateway. */
+      model?: string;
+      /** Whether GitHub listed fewer files than the pull request changes, so owners may be missing. */
+      files_truncated?: boolean;
+      /** Whether the new-path lookup worked. When false, owners of new paths may not be pinned. */
+      additions_resolved?: boolean;
+      /** The default-branch commit whose owners.yaml files decided the owners. Blank when unknown. */
+      owners_sha?: string;
+      /** The run's decision for every owner of the changed code. */
+      readonly owners: readonly StamphogRoutingRunOwner[];
+      /**
+         * When the run made its requests.
+         * @nullable
+         */
+      created_at?: string | null;
+    }
+
+    export interface PaginatedStamphogRoutingRunList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: StamphogRoutingRun[];
     }
 
     /**
@@ -78323,6 +78932,114 @@ export namespace Schemas {
       results: WorkloadTrustPolicy[];
     }
 
+    export type WorkloadTrustPolicyRequestStatusEnum = typeof WorkloadTrustPolicyRequestStatusEnum[keyof typeof WorkloadTrustPolicyRequestStatusEnum];
+
+
+    export const WorkloadTrustPolicyRequestStatusEnum = {
+      Pending: 'pending',
+      Approved: 'approved',
+      Rejected: 'rejected',
+      Expired: 'expired',
+    } as const;
+
+    /**
+     * Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition.
+     */
+    export type WorkloadTrustPolicyRequestConditions = {[key: string]: string};
+
+    /**
+     * What each risky scope in the request lets a token do, keyed by scope. Show it before approving.
+     */
+    export type WorkloadTrustPolicyRequestRiskyScopes = {[key: string]: string};
+
+    export interface WorkloadTrustPolicyRequest {
+      readonly id: string;
+      /**
+         * The name the policy gets once approved.
+         * @maxLength 200
+         */
+      name: string;
+      /**
+         * The OIDC issuer of the workload provider, from the list of supported providers.
+         * @maxLength 255
+         */
+      issuer: string;
+      /**
+         * The key of the workload provider the issuer belongs to.
+         * @nullable
+         */
+      readonly provider: string | null;
+      /**
+         * The display name of the workload provider, or null.
+         * @nullable
+         */
+      readonly provider_name: string | null;
+      /**
+         * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
+         * @maxLength 255
+         */
+      subject_name: string;
+      /**
+         * The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match.
+         * @maxLength 255
+         */
+      subject: string;
+      /** Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition. */
+      conditions?: WorkloadTrustPolicyRequestConditions;
+      /** How the provider names the subject, the subject name and each condition claim, for display. */
+      readonly claim_labels: WorkloadClaimLabels;
+      /**
+         * The scopes the policy's tokens would carry.
+         * @items.maxLength 100
+         */
+      scopes: string[];
+      /** What each risky scope in the request lets a token do, keyed by scope. Show it before approving. */
+      readonly risky_scopes: WorkloadTrustPolicyRequestRiskyScopes;
+      /** Where the request stands. A request expires after 24 hours. */
+      readonly status: WorkloadTrustPolicyRequestStatusEnum;
+      /** The link to send to an admin to approve the request. */
+      readonly approval_url: string;
+      /** Whether the current user's role lets them approve the request, in the browser. */
+      readonly can_approve: boolean;
+      /** Names of the organization admins and owners who can approve, when the current user cannot. */
+      readonly approvers: readonly string[];
+      readonly requested_by: UserBasic | null;
+      /**
+         * The name of the OAuth app the request came through, or null for other credentials.
+         * @nullable
+         */
+      readonly requested_via: string | null;
+      /**
+         * Whether PostHog verified the OAuth app the request came through, or null for other credentials.
+         * @nullable
+         */
+      readonly requested_via_verified: boolean | null;
+      /** When the request was made. */
+      readonly created_at: string;
+      /** When a pending request stops being approvable. */
+      readonly expires_at: string;
+      readonly resolved_by: UserBasic | null;
+      /**
+         * When an admin approved or rejected the request.
+         * @nullable
+         */
+      readonly resolved_at: string | null;
+      /**
+         * The policy created on approval.
+         * @nullable
+         */
+      readonly policy_id: string | null;
+    }
+
+    export interface PaginatedWorkloadTrustPolicyRequestList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: WorkloadTrustPolicyRequest[];
+    }
+
     /**
      * * `sum` - Sum
      * * `avg` - Avg
@@ -81568,11 +82285,18 @@ export namespace Schemas {
        * * `missing_primary_key` - Missing primary key
        * * `duplicate_primary_key` - Duplicate primary key */
       readonly incremental_sync_blocked?: IncrementalSyncBlockedReasonEnum | null;
+      /** Whether this table uses webhook sync, but its source has no enabled webhook. Such a table gets no webhook updates. Each sync polls the source API instead, which is slower and can read the whole table. Set up the webhook on the source, or change `sync_type`. */
+      readonly webhook_not_registered?: boolean;
       /**
          * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
          * @nullable
          */
       enabled_columns?: string[] | null;
+      /**
+         * Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key, partition and incremental columns can't be masked, and direct query sources don't support masking. Any change to this list starts a full resync of the table (CDC tables take a new snapshot), or stages it until syncing is turned on. A synced webhook table can't change its masked columns, because its data can't be fetched again.
+         * @nullable
+         */
+      masked_columns?: string[] | null;
       /**
          * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.
          * @nullable
@@ -81681,6 +82405,8 @@ export namespace Schemas {
          */
       readonly user_access_level?: string | null;
       readonly supports_webhooks?: boolean;
+      /** Whether at least one table of this source uses webhook sync, but the source has no enabled webhook. Those tables get no webhook updates. Each of their syncs polls the source API instead, which is slower and can read the whole table. Set up the webhook, or change the sync method of those tables. */
+      readonly webhook_not_registered?: boolean;
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection?: boolean;
       /**
@@ -83556,6 +84282,11 @@ export namespace Schemas {
       readonly user_tag?: string | null;
       /** @nullable */
       readonly sync_interval?: string | null;
+      /**
+         * How often this node actually refreshes. A downstream view can make an unpinned view refresh more often than `sync_interval`, and a slow source can make it refresh less often. Null when the node is not scheduled.
+         * @nullable
+         */
+      readonly effective_sync_interval?: string | null;
       /** How often this view refreshes. 'never' clears the cadence, and with it the pin. Read the stored cadence back from `sync_interval`. Only views and endpoints the team owns accept it.
        *
        * * `never` - never
@@ -84391,6 +85122,11 @@ export namespace Schemas {
     export interface PatchedProjectBackwardCompat {
       readonly id?: number;
       readonly organization?: string;
+      /**
+         * Whether the project's organization approved AI data processing. AI features need this approval.
+         * @nullable
+         */
+      readonly is_ai_data_processing_approved?: boolean | null;
       /**
          * Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.
          * @minLength 1
@@ -86374,7 +87110,7 @@ export namespace Schemas {
     }
 
     /**
-     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. Other sources reject this key.
+     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys.
      */
     export type PatchedSignalSourceConfigConfig = { [key: string]: unknown };
 
@@ -86388,7 +87124,7 @@ export namespace Schemas {
       source_product?: SignalSourceProductEnum;
       source_type?: SignalSourceConfigSourceTypeEnum;
       enabled?: boolean;
-      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. Other sources reject this key. */
+      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys. */
       config?: PatchedSignalSourceConfigConfig;
       /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
       config_set?: PatchedSignalSourceConfigConfigSet;
@@ -89199,7 +89935,7 @@ export namespace Schemas {
       personalized: boolean;
       /** True when the list is a stored one. False when it is the inbox order fallback or the new list that `wait_seconds` waited for. */
       cached: boolean;
-      /** True when the list does not match your current inbox or focus. When `building` is true, a newer list is on the way. Otherwise a build limit was reached, so try again later. */
+      /** True when the list does not match your current inbox or focus. When `building` is true, a newer list is on the way. Otherwise a report in the list changed since the build, and the next scheduled build updates it. Pass `refresh` for a new list now. */
       stale: boolean;
       /** True when a new list is being built in the background. Call again in a few seconds, or pass `wait_seconds`, to get it. */
       building: boolean;
@@ -89213,6 +89949,11 @@ export namespace Schemas {
          * @nullable
          */
       generated_at: string | null;
+      /**
+         * When a build or a check last compared the list with your full inbox. The list is current as at this time. Null when no list is stored.
+         * @nullable
+         */
+      checked_at: string | null;
       /**
          * How long the model call of the build took, in ms. Null when there was no model call.
          * @nullable
@@ -90460,6 +91201,11 @@ export namespace Schemas {
     export interface ProjectBackwardCompat {
       readonly id: number;
       readonly organization: string;
+      /**
+         * Whether the project's organization approved AI data processing. AI features need this approval.
+         * @nullable
+         */
+      readonly is_ai_data_processing_approved: boolean | null;
       /**
          * Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.
          * @minLength 1
@@ -93543,14 +94289,156 @@ export namespace Schemas {
       pins: PulsePin[];
     }
 
+    /**
+     * * `running` - Import running
+     * * `completed` - Import completed
+     * * `cancelled` - Import cancelled
+     * * `failed` - Import failed
+     */
+    export type PushTokenImportStatusEnum = typeof PushTokenImportStatusEnum[keyof typeof PushTokenImportStatusEnum];
+
+
+    export const PushTokenImportStatusEnum = {
+      Running: 'running',
+      Completed: 'completed',
+      Cancelled: 'cancelled',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * * `invalid_row` - The line is missing a value or a value is too long
+     * * `unknown_person` - No person has this distinct ID
+     * * `token_mismatch` - The token does not fit this channel
+     * * `not_stored` - The device was not stored
+     * * `person_processing_disabled` - Person processing is off for this person
+     */
+    export type PushTokenImportRowFailureReasonEnum = typeof PushTokenImportRowFailureReasonEnum[keyof typeof PushTokenImportRowFailureReasonEnum];
+
+
+    export const PushTokenImportRowFailureReasonEnum = {
+      InvalidRow: 'invalid_row',
+      UnknownPerson: 'unknown_person',
+      TokenMismatch: 'token_mismatch',
+      NotStored: 'not_stored',
+      PersonProcessingDisabled: 'person_processing_disabled',
+    } as const;
+
+    export interface PushTokenImportRowFailure {
+      /** Line of the file, counting the column names as line 1. */
+      line: number;
+      /** The distinct ID on the line. */
+      distinct_id: string;
+      /** The last characters of the line's device token. */
+      device_token_suffix: string;
+      /** Why the device on this line was not imported.
+       *
+       * * `invalid_row` - The line is missing a value or a value is too long
+       * * `unknown_person` - No person has this distinct ID
+       * * `token_mismatch` - The token does not fit this channel
+       * * `not_stored` - The device was not stored
+       * * `person_processing_disabled` - Person processing is off for this person */
+      reason: PushTokenImportRowFailureReasonEnum;
+      /** A sentence a person can act on. */
+      detail: string;
+    }
+
+    export interface PushTokenImport {
+      /** The import's ID. */
+      id: string;
+      /** The push channel the devices are added to. */
+      integration_id: number;
+      /** `running` while devices are sent. `completed`, `cancelled` and `failed` are final.
+       *
+       * * `running` - Import running
+       * * `completed` - Import completed
+       * * `cancelled` - Import cancelled
+       * * `failed` - Import failed */
+      status: PushTokenImportStatusEnum;
+      /** Whether the import creates missing persons. */
+      create_missing_persons: boolean;
+      /** Devices in the file that the import sends. */
+      total_devices: number;
+      /** Devices sent so far. */
+      processed_devices: number;
+      /** Devices stored on their person. */
+      imported_devices: number;
+      /** Lines that were not imported, for any reason. */
+      failed_devices: number;
+      /** Devices whose distinct ID had no person. */
+      unknown_person_devices: number;
+      /** Repeated lines that were left out. */
+      duplicate_lines: number;
+      /** The first 1,000 lines that were not imported, with the reason for each. */
+      failures: PushTokenImportRowFailure[];
+      /** True when the devices of unknown people can still be imported with new persons. */
+      can_import_unknown_persons: boolean;
+      /** Why a failed import stopped. Empty otherwise. */
+      error: string;
+      /** When the file was uploaded. */
+      created_at: string;
+      /**
+         * When the import ended. Empty while it runs, and while a stopped import finishes its last batch.
+         * @nullable
+         */
+      finished_at: string | null;
+    }
+
+    export interface PushTokenImportCreate {
+      /** The APNs or Firebase push channel to add the devices to. */
+      integration_id: number;
+      /** A UTF-8 CSV file of up to 20 MB. The first line names the columns: `distinct_id` (the ID your app passes to identify) and `device_token` (the APNs device token or FCM registration token). Other columns are ignored. */
+      device_token_file: Blob;
+      /** Create a person for a distinct ID that has none. Off by default, so devices of unknown people are listed as failed and can be imported later with new persons. */
+      create_missing_persons?: boolean;
+    }
+
+    /**
+     * * `unknown_person` - No person has this distinct ID
+     * * `token_mismatch` - The token does not fit this channel
+     * * `not_stored` - The device was not stored
+     * * `person_processing_disabled` - Person processing is off for this person
+     */
+    export type PushTokenImportFailureReasonEnum = typeof PushTokenImportFailureReasonEnum[keyof typeof PushTokenImportFailureReasonEnum];
+
+
+    export const PushTokenImportFailureReasonEnum = {
+      UnknownPerson: 'unknown_person',
+      TokenMismatch: 'token_mismatch',
+      NotStored: 'not_stored',
+      PersonProcessingDisabled: 'person_processing_disabled',
+    } as const;
+
+    export interface PushTokenImportFailure {
+      /** Position of the row in the request's `subscriptions`, from 0. */
+      index: number;
+      /** The distinct ID of the row. */
+      distinct_id: string;
+      /** The last 6 characters of the row's device token, to find the row. */
+      device_token_suffix: string;
+      /** Why the device was not stored. `unknown_person`: no person has this distinct ID, so check the ID or set `create_missing_persons`. `token_mismatch`: the token is the wrong kind for this channel, for example an Expo token, or an APNs token on a Firebase channel. `not_stored` and `person_processing_disabled`: ingestion did not store the device.
+       *
+       * * `unknown_person` - No person has this distinct ID
+       * * `token_mismatch` - The token does not fit this channel
+       * * `not_stored` - The device was not stored
+       * * `person_processing_disabled` - Person processing is off for this person */
+      reason: PushTokenImportFailureReasonEnum;
+      /** A sentence a person can act on. */
+      detail: string;
+    }
+
+    export interface PushTokenImportLatest {
+      /** The newest import into the channel, if any. */
+      latest: PushTokenImport | null;
+    }
+
     export interface PushTokenSubscription {
       /**
-         * The person's distinct ID in this project.
+         * The person's distinct ID in this project: the ID your app passes to `identify`.
          * @maxLength 200
          */
       distinct_id: string;
       /**
-         * The APNs device token or FCM registration token of one device.
+         * The token of one device. An APNs channel takes the hex APNs device token. A Firebase channel takes the FCM registration token. Expo push tokens are not accepted.
          * @maxLength 4096
          */
       device_token: string;
@@ -93559,12 +94447,25 @@ export namespace Schemas {
     export interface PushTokenImportRequest {
       /** Up to 1000 devices to register on this push channel. List a person once per device. */
       subscriptions: PushTokenSubscription[];
+      /** Check every row and report what would fail, without storing anything. Run this first and fix the failed rows before importing. */
+      dry_run?: boolean;
+      /**
+         * A new UUID for each batch. Send the same value when you retry that batch, so a retried batch can be recognized as a repeat.
+         * @nullable
+         */
+      import_id?: string | null;
+      /** Create a person for a distinct ID that has none. Off by default, because a distinct ID that does not match your app's identify call creates a person that never gets a push. */
+      create_missing_persons?: boolean;
     }
 
     export interface PushTokenImportResponse {
-      /** Number of devices stored on their person. */
+      /** Number of devices stored on their person. On a dry run, the number that would be stored. */
       imported: number;
-      /** Distinct IDs with at least one device that was not stored. Send those rows again. */
+      /** True when nothing was stored. */
+      dry_run: boolean;
+      /** One entry per device that was not stored. */
+      failed: PushTokenImportFailure[];
+      /** Distinct IDs with at least one device that was not stored. Prefer `failed`, which says why. */
       failed_distinct_ids: string[];
     }
 
@@ -97935,6 +98836,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly tracker_issue_error: string | null;
+      /** URLs of the external issues this report is about, as recorded by the scout or person that filed it, oldest first. Normalized to `https://github.com/<owner>/<repo>/issues/<number>`. Empty when the report names none. Issues the report learned about from a GitHub issue signal are not listed here. */
+      readonly source_issues: readonly string[];
       /** Derived remediation state: unclaimed, working, in_review, or done. */
       readonly work_state: SignalReportWorkStateEnum;
       /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
@@ -100433,6 +101336,8 @@ export namespace Schemas {
        * * `listed` - Automatic Flash for these people
        * * `off` - Automatic Flash opt-in only */
       readonly flash_for: AutomaticFlashForEnum | null;
+      /** Whether draft pull requests in this repository get their automatic review when they open. */
+      readonly review_drafts: boolean;
       /** The people on the exception's two lists. Only the list that matches flash_for has an effect. */
       readonly people: readonly ReviewRepositoryPerson[];
       /** Who added the repository. */
@@ -100540,6 +101445,8 @@ export namespace Schemas {
       repository_id: string | null;
       /** This project's repository exception. Null when the repository follows the project. */
       exception: ReviewRepositoryException | null;
+      /** Whether draft pull requests in this repository get their automatic review when they open. Authors who turned off reviews of their drafts still get none. */
+      review_drafts: boolean;
       /** The requesting user's own choice for this repository: 'flash', 'off', or null.
        *
        * * `flash` - Flash
@@ -100577,7 +101484,7 @@ export namespace Schemas {
          * @nullable
          */
       next_offset: number | null;
-      /** With view 'differs', or 'all' without a search: how many repositories 'differs' leaves out because this project reviews them with no exception and no own choice. 0 otherwise. */
+      /** With view 'differs', or 'all' without a search: how many repositories 'differs' leaves out because this project reviews them with no exception, no draft reviews and no own choice. 0 otherwise. */
       folded: number;
       /** With view 'differs', or 'all' without a search: the names of the first left-out repositories, at most 3. Empty otherwise. */
       folded_preview: string[];
@@ -100621,6 +101528,8 @@ export namespace Schemas {
        * * `listed` - Automatic Flash for these people
        * * `off` - Automatic Flash opt-in only */
       flash_for?: AutomaticFlashForEnum | null;
+      /** True lets draft pull requests in this repository get their automatic review when they open. False waits until they are ready for review. Omit it to keep the current value. */
+      review_drafts?: boolean;
     }
 
     export interface ReviewRepositoryWriteResponse {
@@ -102559,6 +103468,37 @@ export namespace Schemas {
       is_maintainer: boolean;
     }
 
+    export interface ScoutMemberActivityObject {
+      /** The object type in snake case, such as `dashboard` or `feature_flag`. */
+      type: string;
+      /** The latest name of the object. */
+      name: string;
+    }
+
+    /**
+     * What one member worked on recently, from their activity summary.
+     */
+    export interface ScoutMemberActivity {
+      /**
+         * One line about the member's recent work.
+         * @nullable
+         */
+      headline: string | null;
+      /** The labels of the main threads of the member's recent work. */
+      themes: string[];
+      /** Up to 5 objects the member created or changed, the most edited first. */
+      owned: ScoutMemberActivityObject[];
+      /** Up to 5 objects the member opened on several days, the most opened first. A member who only reads the work shows up here. A specific object here can support a reviewer pick when the pick's `reason` names it. */
+      watched: ScoutMemberActivityObject[];
+      /**
+         * When the summary was written.
+         * @nullable
+         */
+      generated_at: string | null;
+      /** True when the summary waits for a rebuild in a newer format. Give a stale summary less weight. */
+      stale: boolean;
+    }
+
     /**
      * One project member's routing identity, for picking a `suggested_reviewers` entry on a report.
      */
@@ -102578,6 +103518,8 @@ export namespace Schemas {
       github_login: string | null;
       /** The teams this member is on, from the project's synced team roster. Empty when no roster is synced, or when the member has no linked GitHub account, since the roster is keyed on that login. The roster is a periodic snapshot, so it can lag the live team. */
       teams: ScoutMemberTeam[];
+      /** What the member worked on recently. Use it as context to check against the report, not as proof: general activity is not evidence that the member owns the affected work. Filled only when the call passes `search` or `team` and returns at most 10 members. Null when the member has no ready summary, or when activity summaries are not available for this project. */
+      activity?: ScoutMemberActivity | null;
     }
 
     /**
@@ -102622,7 +103564,7 @@ export namespace Schemas {
          * @nullable
          */
       created_by_name: string | null;
-      /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. `report_feedback` for the note someone left when rating a report useful or not: one reader's rating of the named report, context to weigh rather than a directive. `report_reviewer_correction` for a suggested reviewer someone added or removed on a report: evidence about who owns that surface, and a prompt to revisit the routing memory it corrects, rather than a directive. */
+      /** Where the note came from. `human`: left directly through this API. `report_note`: left through this API with `report_id` set, about the report its content names. `report_dismissal`: the note someone typed when they dismissed, snoozed, or restored one or more inbox reports. `report_discussion`: the question someone asked when they opened a discussion on a report. `report_feedback`: the note someone left when they rated a report useful or not. `report_reviewer_correction`: someone added or removed a suggested reviewer on a report, or a person or their agent claimed a report. The `scout-notes-list` tool description says how a scout reads each origin. */
       origin: string;
     }
 
@@ -102640,6 +103582,11 @@ export namespace Schemas {
          * @maxLength 200
          */
       skill_name?: string;
+      /**
+         * Optional id of the inbox report this note is about. The note then names the report so a scout can fetch it, and the report's activity log records that the note was left. Requires edit access to inbox reports, and the report must belong to this project. The report reference shares the note's character budget, so `content` is capped at 9938 characters when this is set.
+         * @nullable
+         */
+      report_id?: string | null;
       /**
          * Optional ISO-8601 expiry. After this time the note drops out of the default list view, so time-boxed steering ('watch closely this week') retires itself. Omit for a note that stays active until deleted. Best-effort — a value that can't be parsed or is already in the past is dropped (the note stays active), not rejected, so the note is never lost.
          * @nullable
@@ -104128,6 +105075,16 @@ export namespace Schemas {
          * @maxItems 10
          */
       reply_to?: string[];
+      /** Addresses that get a visible copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here. */
+      cc?: string | string[] | null;
+      /** Addresses that get a hidden copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here. */
+      bcc?: string | string[] | null;
+      /**
+         * Files attached to the email your code rendered: up to 10, and at most 512 KB in total after decoding. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here.
+         * @maxItems 10
+         * @nullable
+         */
+      attachments?: EmailAttachment[] | null;
       /** Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says. */
       capture_engagement?: boolean;
       /**
@@ -106168,9 +107125,9 @@ export namespace Schemas {
          * @items.maxLength 255
          */
       implementation_repositories?: string[];
-      /** Whether anomaly scoring scores this project's active trends insights every hour and writes the results as $anomaly_score events, which are not billed. True by default. Set false to stop new scores; events written before stay. Turning it on does not enroll a project that anomaly_scoring_available reports as not covered. */
+      /** Legacy off switch for anomaly scoring. The Product analytics source (analytics / anomaly_investigation) now controls scoring: when that source is on, anomaly scoring scores this project's active trends insights and writes the results as $anomaly_score events, which are not billed. True by default. False still stops new scores; events written before stay. Turning it on does not enroll a project that anomaly_scoring_available reports as not covered. */
       anomaly_scoring_enabled?: boolean;
-      /** Whether anomaly scoring covers this project, so anomaly_scoring_enabled has an effect. PostHog decides which projects anomaly scoring covers. */
+      /** Whether the anomaly scoring rollout covers this project. PostHog decides which projects it covers. A covered project is scored only while its Product analytics source is on. */
       readonly anomaly_scoring_available: boolean;
       /**
          * How many reports first became visible in the inbox during the current project-timezone day. This is the count the daily report limit compares against.
@@ -107542,6 +108499,112 @@ export namespace Schemas {
        * * `always` - Always
        * * `fallback` - When stamphog does not approve */
       routing_mode?: RoutingModeEnum;
+    }
+
+    export interface StamphogRoutingFile {
+      /** The changed path. */
+      path: string;
+      /**
+         * The path before a rename. Null for any other change.
+         * @nullable
+         */
+      previous_path?: string | null;
+      /** GitHub's file status, such as 'added', 'modified', 'removed' or 'renamed'. */
+      status?: string;
+      /** Added lines. */
+      additions?: number;
+      /** Deleted lines. */
+      deletions?: number;
+    }
+
+    export interface StamphogRoutingRunOwnerDetail {
+      /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved and the owner is not pinned) or 'already_requested' (an earlier run asked this pinned owner).
+       *
+       * * `requested` - Requested
+       * * `labeled` - Labeled
+       * * `refused` - Refused by GitHub
+       * * `cut` - Cut
+       * * `not_requested` - Not requested
+       * * `already_requested` - Already requested */
+      readonly outcome: RoutingOwnerOutcomeEnum;
+      /** Why: 'sensitive' or 'new_path' (pinned, never cut), 'largest_owner' (a pull request keeps at least one reviewer), 'diff_not_seen' (the model did not see all of the owner's diff), 'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut' or 'stamphog_approved'.
+       *
+       * * `sensitive` - Owns a sensitive path
+       * * `new_path` - Owns a new path
+       * * `largest_owner` - Has the largest part
+       * * `diff_not_seen` - Diff not shown to the model
+       * * `cut_skipped` - Cut step skipped
+       * * `model_kept` - Kept by the model
+       * * `model_cut` - Cut by the model
+       * * `stamphog_approved` - Stamphog approved */
+      readonly reason: RoutingOwnerReasonEnum;
+      /** The changed paths that pinned the owner, so no cut could remove them. */
+      readonly pins: readonly StamphogRoutingPin[];
+      /** Whether the owner is a GitHub team or a person.
+       *
+       * * `team` - Team
+       * * `person` - Person */
+      readonly kind: OwnerKindEnum;
+      /** Every changed file this owner owns, which is what made them a candidate. Patches are not kept. */
+      readonly files: readonly StamphogRoutingFile[];
+      /** The owner as owners.yaml spells it: a team slug such as 'team-devex', or a GitHub login such as '@octocat'. */
+      owner: string;
+      /** The model's one-line reason to cut this owner. Also set when a guard kept the owner anyway. Blank when the model proposed no cut for them. */
+      model_reason?: string;
+      /** Changed lines in the files this owner owns. */
+      lines?: number;
+      /** Changed files this owner owns. */
+      file_count?: number;
+    }
+
+    export interface StamphogRoutingRunDetail {
+      /** ID of the routing run. */
+      id: string;
+      /** Full name of the repository. */
+      repository: string;
+      /** Pull request number. */
+      pr_number: number;
+      /** The head commit the run routed. */
+      head_sha: string;
+      /** The repository's routing_mode when the run made its requests.
+       *
+       * * `off` - Off
+       * * `always` - Always
+       * * `fallback` - When stamphog does not approve */
+      readonly mode: RoutingModeEnum;
+      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>' or 'safety_net'. */
+      trigger: string;
+      /** 'full', or 'pinned' when a stamphog approval asked only the owners of sensitive and new paths.
+       *
+       * * `full` - Every owner
+       * * `pinned` - Pinned owners only */
+      readonly scope: RoutingScopeEnum;
+      /** Whether the pull request came from a fork, which skips the model. */
+      fork?: boolean;
+      /** Why the cut step made no model call. Null when it made one.
+       *
+       * * `single_candidate` - Single candidate
+       * * `fork` - Fork
+       * * `nothing_cuttable` - Nothing cuttable
+       * * `no_answer` - No answer
+       * * `stamphog_approved` - Stamphog approved
+       * * `files_truncated` - Files truncated */
+      readonly llm_skipped: LlmSkipReasonEnum | null;
+      /** The model the cut request reached. Blank when no request reached the gateway. */
+      model?: string;
+      /** Whether GitHub listed fewer files than the pull request changes, so owners may be missing. */
+      files_truncated?: boolean;
+      /** Whether the new-path lookup worked. When false, owners of new paths may not be pinned. */
+      additions_resolved?: boolean;
+      /** The default-branch commit whose owners.yaml files decided the owners. Blank when unknown. */
+      owners_sha?: string;
+      /** The run's decision for every owner of the changed code, with the files each owner owns. */
+      readonly owners: readonly StamphogRoutingRunOwnerDetail[];
+      /**
+         * When the run made its requests.
+         * @nullable
+         */
+      created_at?: string | null;
     }
 
     /**
@@ -112471,6 +113534,164 @@ export namespace Schemas {
       runs: TrainingRunHistoryEntry[];
     }
 
+    export interface TransactionalEmailLogEvent {
+      /** What happened. The delivery statuses, plus `opened` and `clicked` for what the recipient did.
+       *
+       * * `queued` - Queued
+       * * `failed` - Failed
+       * * `sent` - Sent
+       * * `delivered` - Delivered
+       * * `bounced` - Bounced
+       * * `complained` - Complained
+       * * `opened` - Opened
+       * * `clicked` - Clicked */
+      kind: EmailLogEventKindEnum;
+      /** When it happened. */
+      at: string;
+      /**
+         * Why a send failed, or the bounce type. Null otherwise.
+         * @nullable
+         */
+      reason: string | null;
+    }
+
+    export interface TransactionalEmailLogDetail {
+      /** The `message_id` that the send returned. */
+      message_id: string;
+      /** When the send was queued. */
+      created_at: string;
+      /** The email's delivery status. `queued` waits to go out, `sent` reached the email provider, `delivered` was accepted by the recipient's mail server, `bounced` and `complained` came back later, and `failed` was not sent.
+       *
+       * * `queued` - Queued
+       * * `failed` - Failed
+       * * `sent` - Sent
+       * * `delivered` - Delivered
+       * * `bounced` - Bounced
+       * * `complained` - Complained */
+      status: EmailDeliveryStatusEnum;
+      /** When the email reached its delivery status. */
+      status_at: string;
+      /**
+         * Why a failed email was not sent, or the bounce type. Null otherwise.
+         * @nullable
+         */
+      reason: string | null;
+      /** The address the email was sent to. */
+      recipient: string;
+      /** The workflow behind the transactional email. */
+      workflow_id: string;
+      /**
+         * The transactional email template. Null when it no longer exists.
+         * @nullable
+         */
+      template_id: string | null;
+      /** The template's name. Empty when it was deleted. */
+      template_name: string;
+      /** The domain the email was sent from. Empty before it was sent. */
+      sending_domain: string;
+      /** Whether the recipient opened the email. */
+      opened: boolean;
+      /** Whether the recipient clicked a link in the email. */
+      clicked: boolean;
+      /** Everything that happened, oldest first. */
+      timeline: TransactionalEmailLogEvent[];
+      /** The subject the email went out with. Empty when it was never sent. */
+      subject: string;
+      /** The distinct ID the send named. Empty when it named none. */
+      distinct_id: string;
+      /** The workflow step that sent the email, which the rendered email is stored under. Empty when no rendered email was stored. */
+      action_id: string;
+      /** True when the template is marked sensitive, so no rendered body or subject values are kept. */
+      sensitive: boolean;
+    }
+
+    export interface TransactionalEmailLogEntry {
+      /** The `message_id` that the send returned. */
+      message_id: string;
+      /** When the send was queued. */
+      created_at: string;
+      /** The email's delivery status. `queued` waits to go out, `sent` reached the email provider, `delivered` was accepted by the recipient's mail server, `bounced` and `complained` came back later, and `failed` was not sent.
+       *
+       * * `queued` - Queued
+       * * `failed` - Failed
+       * * `sent` - Sent
+       * * `delivered` - Delivered
+       * * `bounced` - Bounced
+       * * `complained` - Complained */
+      status: EmailDeliveryStatusEnum;
+      /** When the email reached its delivery status. */
+      status_at: string;
+      /**
+         * Why a failed email was not sent, or the bounce type. Null otherwise.
+         * @nullable
+         */
+      reason: string | null;
+      /** The address the email was sent to. */
+      recipient: string;
+      /** The workflow behind the transactional email. */
+      workflow_id: string;
+      /**
+         * The transactional email template. Null when it no longer exists.
+         * @nullable
+         */
+      template_id: string | null;
+      /** The template's name. Empty when it was deleted. */
+      template_name: string;
+      /** The domain the email was sent from. Empty before it was sent. */
+      sending_domain: string;
+      /** Whether the recipient opened the email. */
+      opened: boolean;
+      /** Whether the recipient clicked a link in the email. */
+      clicked: boolean;
+    }
+
+    export interface TransactionalEmailLogList {
+      /** Sends, newest first. */
+      results: TransactionalEmailLogEntry[];
+      /** Whether another page follows. */
+      has_more: boolean;
+    }
+
+    export interface TransactionalEmailResults {
+      /** People the email was sent to in the date range. */
+      recipients: number;
+      /** Of those, people who did the event within the window. */
+      converted: number;
+      /** The sum of the revenue property on those events. */
+      revenue: number;
+      /**
+         * Median hours from the first send to the first conversion. Null when none converted.
+         * @nullable
+         */
+      median_hours_to_convert: number | null;
+    }
+
+    export interface TransactionalEmailStatsRow {
+      /** The template ID or the sending domain. */
+      key: string;
+      /** The template name or the sending domain. Empty for a deleted template. */
+      label: string;
+      /** Emails that reached the email provider. */
+      sent: number;
+      /** Emails the recipient's mail server accepted. */
+      delivered: number;
+      /** Emails that bounced. */
+      bounced: number;
+      /** Emails the recipient marked as spam. */
+      complained: number;
+      /** Emails the recipient opened. */
+      opened: number;
+      /** Emails where the recipient clicked a link. */
+      clicked: number;
+      /** Emails that were not sent. */
+      failed: number;
+    }
+
+    export interface TransactionalEmailStats {
+      /** One row per group, busiest first. */
+      results: TransactionalEmailStatsRow[];
+    }
+
     export interface TranslateRequest {
       /**
          * The text to translate
@@ -117356,6 +118577,20 @@ export namespace Schemas {
       dateTo?: string;
     }
 
+    export interface _MetricQueryCount {
+      /** Metric name as it appears in the team's data. */
+      metric_name: string;
+      /** Number of builder and PromQL queries that read the metric in the window. SQL mode queries do not count. */
+      query_count: number;
+      /** When a query last read the metric, ISO 8601. */
+      last_queried_at: string;
+    }
+
+    export interface _MetricQueryCountsResponse {
+      /** Metrics that queries read in the window, the most queried first. */
+      results: _MetricQueryCount[];
+    }
+
     export interface _MetricQueryRequest {
       /** The metric query to execute. */
       query: _MetricQueryBody;
@@ -120119,6 +121354,7 @@ export namespace Schemas {
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
      * * `OAuthApplication` - OAuthApplication
      * * `WorkloadTrustPolicy` - WorkloadTrustPolicy
+     * * `WorkloadTrustPolicyRequest` - WorkloadTrustPolicyRequest
      * * `User` - User
      * * `Action` - Action
      * * `AccountView` - AccountView
@@ -120239,6 +121475,7 @@ export namespace Schemas {
       ProjectSecretAPIKey: 'ProjectSecretAPIKey',
       OAuthApplication: 'OAuthApplication',
       WorkloadTrustPolicy: 'WorkloadTrustPolicy',
+      WorkloadTrustPolicyRequest: 'WorkloadTrustPolicyRequest',
       User: 'User',
       Action: 'Action',
       AccountView: 'AccountView',
@@ -120345,6 +121582,7 @@ export namespace Schemas {
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
      * * `OAuthApplication` - OAuthApplication
      * * `WorkloadTrustPolicy` - WorkloadTrustPolicy
+     * * `WorkloadTrustPolicyRequest` - WorkloadTrustPolicyRequest
      * * `User` - User
      * * `Action` - Action
      * * `AccountView` - AccountView
@@ -120453,6 +121691,7 @@ export namespace Schemas {
       ProjectSecretAPIKey: 'ProjectSecretAPIKey',
       OAuthApplication: 'OAuthApplication',
       WorkloadTrustPolicy: 'WorkloadTrustPolicy',
+      WorkloadTrustPolicyRequest: 'WorkloadTrustPolicyRequest',
       User: 'User',
       Action: 'Action',
       AccountView: 'AccountView',
@@ -123896,6 +125135,7 @@ export namespace Schemas {
     dataset: string;
     /**
      * Number of results to return per page.
+     * @maximum 25
      */
     limit?: number;
     /**
@@ -123949,6 +125189,7 @@ export namespace Schemas {
     export type DatasetItemsVersionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -123970,6 +125211,7 @@ export namespace Schemas {
     id__in?: string[];
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -124016,6 +125258,7 @@ export namespace Schemas {
     export type DatasetsRevisionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -127185,6 +128428,10 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * Only workflows whose name contains this text, ignoring case. Unlike `search`, it never reads descriptions, tags or step content.
+     */
+    name?: string;
+    /**
      * The initial index from which to return the results.
      */
     offset?: number;
@@ -129724,6 +130971,7 @@ export namespace Schemas {
     export type McpAnalyticsFeedbackListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number;
     /**
@@ -129742,6 +130990,7 @@ export namespace Schemas {
     export type McpAnalyticsMissingCapabilitiesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number;
     /**
@@ -130224,6 +131473,21 @@ export namespace Schemas {
      * @maxLength 255
      */
     value?: string;
+    };
+
+    export type MetricsQueryCountsRetrieveParams = {
+    /**
+     * Number of UTC days to count, today included.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number;
+    /**
+     * Maximum number of metrics to return.
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number;
     };
 
     export type MetricsValuesRetrieveParams = {
@@ -130990,6 +132254,13 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type PushTokenImportsLatestRetrieveParams = {
+    /**
+     * The push channel whose newest import to return.
+     */
+    integration_id: number;
     };
 
     export type QueryLogRetrieve200 = { [key: string]: unknown };
@@ -132025,6 +133296,12 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * The oldest `checked_at` you accept. When the stored list is older, the request reads every candidate report, which can take some seconds, and starts a build if your inbox changed. Leave it out to get the stored list quickly. A new report then joins the list at the next scheduled build.
+     * @minimum 0
+     * @maximum 10080
+     */
+    max_age_minutes?: number;
+    /**
      * Start a new build even when the stored one is current. The build runs in the background, so the response has `building: true`. Pass `wait_seconds` to wait for it.
      */
     refresh?: boolean;
@@ -132276,6 +133553,10 @@ export namespace Schemas {
      * @maximum 500
      */
     limit?: number;
+    /**
+     * Return only the standing notes, which have no `expires_at`. Pair it with `date_from` to re-read the standing notes of a recent window that the newest-first cap would hide.
+     */
+    only_without_expiry?: boolean;
     /**
      * Return the notes addressed to this target plus the general (blank-target) notes for the whole fleet. Pass a configured scout's skill name or a pipeline audience (`pipeline:report-research`). Omit to browse every note on the project.
      * @minLength 1
@@ -132575,6 +133856,31 @@ export namespace Schemas {
       Manual: 'manual',
       SelfDriving: 'self_driving',
     } as const;
+
+    export type StamphogRoutingRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Keep only runs that decided about this owner, spelled as in owners.yaml: a team slug such as 'team-devex', or a GitHub login such as '@octocat'.
+     * @minLength 1
+     */
+    owner?: string;
+    /**
+     * Filter by pull request number.
+     */
+    pr_number?: number;
+    /**
+     * Filter by repository full name, e.g. 'PostHog/posthog'.
+     * @minLength 1
+     */
+    repository?: string;
+    };
 
     export type StreamlitAppsListParams = {
     /**
@@ -133548,7 +134854,7 @@ export namespace Schemas {
 
     export type TodayHighlightsRetrieveParams = {
     /**
-     * Retry failed sources when progressive loading is enabled. An active computation is reused.
+     * Retry failed sources. An active computation is reused.
      */
     refresh?: boolean;
     };
@@ -133724,6 +135030,117 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type TransactionalEmailLogListParams = {
+    /**
+     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
+     */
+    date_from?: string;
+    /**
+     * Only sends queued before this time. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Page size.
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number;
+    /**
+     * Sends to skip.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * A `message_id` for an exact match, or part of the recipient's email address.
+     */
+    search?: string;
+    /**
+     * Only sends in this delivery status.
+     *
+     * * `queued` - Queued
+     * * `failed` - Failed
+     * * `sent` - Sent
+     * * `delivered` - Delivered
+     * * `bounced` - Bounced
+     * * `complained` - Complained
+     * @minLength 1
+     */
+    status?: TransactionalEmailLogListStatus;
+    /**
+     * Only sends of the transactional email backed by this workflow.
+     */
+    workflow_id?: string;
+    };
+
+    export type TransactionalEmailLogListStatus = typeof TransactionalEmailLogListStatus[keyof typeof TransactionalEmailLogListStatus];
+
+
+    export const TransactionalEmailLogListStatus = {
+      Queued: 'queued',
+      Failed: 'failed',
+      Sent: 'sent',
+      Delivered: 'delivered',
+      Bounced: 'bounced',
+      Complained: 'complained',
+    } as const;
+
+    export type TransactionalEmailLogResultsRetrieveParams = {
+    /**
+     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
+     */
+    date_from?: string;
+    /**
+     * Only sends queued before this time. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * The event that counts as a conversion, such as `signed_up`.
+     * @minLength 1
+     */
+    event: string;
+    /**
+     * An event property holding a revenue amount to add up.
+     */
+    revenue_property?: string;
+    /**
+     * How many days after the first send the event still counts.
+     * @minimum 1
+     * @maximum 30
+     */
+    window_days?: number;
+    /**
+     * The workflow behind the transactional email.
+     */
+    workflow_id: string;
+    };
+
+    export type TransactionalEmailLogStatsRetrieveParams = {
+    /**
+     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
+     */
+    date_from?: string;
+    /**
+     * Only sends queued before this time. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Count per template or per sending domain.
+     *
+     * * `template` - Template
+     * * `sending_domain` - Sending domain
+     * @minLength 1
+     */
+    group_by?: TransactionalEmailLogStatsRetrieveGroupBy;
+    };
+
+    export type TransactionalEmailLogStatsRetrieveGroupBy = typeof TransactionalEmailLogStatsRetrieveGroupBy[keyof typeof TransactionalEmailLogStatsRetrieveGroupBy];
+
+
+    export const TransactionalEmailLogStatsRetrieveGroupBy = {
+      Template: 'template',
+      SendingDomain: 'sending_domain',
+    } as const;
 
     export type TurnSuggestionsStateRetrieveParams = {
     /**
@@ -135225,6 +136642,7 @@ export namespace Schemas {
     export type WizardRegistryListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -135267,6 +136685,7 @@ export namespace Schemas {
     export type WizardRunsArtifactsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -135330,6 +136749,17 @@ export namespace Schemas {
     };
 
     export type WorkloadTrustPoliciesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type WorkloadTrustPolicyRequestsListParams = {
     /**
      * Number of results to return per page.
      */

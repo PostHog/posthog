@@ -160,6 +160,10 @@ class ReviewRepositorySerializer(serializers.Serializer):
         help_text="The repository exception: 'everyone', 'listed', or 'off' (opt-in only). Null when the "
         "repository follows the project rule.",
     )
+    review_drafts = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether draft pull requests in this repository get their automatic review when they open.",
+    )
     people = serializers.SerializerMethodField(
         help_text="The people on the exception's two lists. Only the list that matches flash_for has an effect."
     )
@@ -192,6 +196,11 @@ class ReviewRepositoryWriteSerializer(serializers.Serializer):
         allow_null=True,
         help_text="The repository exception: 'everyone', 'listed', or 'off'. Null clears it, so the repository "
         "follows the project rule again. Omit it to keep the current value.",
+    )
+    review_drafts = serializers.BooleanField(
+        required=False,
+        help_text="True lets draft pull requests in this repository get their automatic review when they open. "
+        "False waits until they are ready for review. Omit it to keep the current value.",
     )
 
     def validate_full_name(self, value: str) -> str:
@@ -424,7 +433,8 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
             ),
         },
         summary="Save a repository's settings",
-        description="Include a repository into this project, remove it, or set or clear its exception. Only the "
+        description="Include a repository into this project, remove it, set or clear its exception, or turn its "
+        "draft reviews on or off. Only the "
         "provided fields change. Including a repository that another project's 'all repositories' claim covers "
         "takes it from that project; the response names it.",
     )
@@ -444,6 +454,7 @@ class ReviewRepositoryViewSet(ReviewHogProjectViewSetMixin, viewsets.GenericView
                 github_repo_id=data.get("github_repo_id"),
                 selected=data.get("selected"),
                 flash_for=flash_for,
+                review_drafts=data.get("review_drafts"),
             )
         except OwnershipConflict as error:
             return conflict_response(error)

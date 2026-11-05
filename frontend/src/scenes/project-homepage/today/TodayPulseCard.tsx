@@ -25,6 +25,7 @@ import { todayNumber } from './todayNumbers'
 import { pulseChange, pulsePeriodCaption, pulsePriorLabel, pulseWhy } from './todayPulseFacts'
 import { TodayPulseMovers } from './TodayPulseMovers'
 import { pulseOpenHandlers } from './todayPulseOpenHandlers'
+import { TodayPulsePinButton } from './TodayPulsePinButton'
 import type { TodayTone } from './todayTone'
 
 function openLabel(metric: HighlightMetricApi): string {
@@ -36,16 +37,22 @@ export function TodayPulseCard({
     tone,
     formatValue,
     onOpen,
+    pinned,
+    pinDisabledReason,
+    onTogglePin,
     onHide,
 }: {
     metric: HighlightMetricApi
     tone: TodayTone
     formatValue: (value: number) => string
     onOpen: () => void
+    pinned: boolean
+    pinDisabledReason?: string
+    onTogglePin: () => void
     onHide: () => void
 }): JSX.Element {
     const [whyOpen, setWhyOpen] = useState(false)
-    const why = pulseWhy(metric)
+    const why = pinned ? 'You keep this number on your home. Change it with Edit.' : pulseWhy(metric)
     const change = pulseChange(metric)
     return (
         <div className="TodayPulseCard flex flex-col" data-attr="today-pulse-card">
@@ -104,16 +111,23 @@ export function TodayPulseCard({
                         <span />
                     )}
                     <div className="-me-1.5 flex items-center">
-                        <Button
-                            size="icon-xs"
-                            aria-label="Hide from Today"
-                            tooltip="Hide from Today"
-                            onClick={onHide}
-                            className="text-muted-foreground"
-                            data-attr="today-pulse-card-hide"
-                        >
-                            <IconHide />
-                        </Button>
+                        <TodayPulsePinButton
+                            pinned={pinned}
+                            disabledReason={pinDisabledReason}
+                            onToggle={onTogglePin}
+                        />
+                        {!pinned && (
+                            <Button
+                                size="icon-xs"
+                                aria-label="Hide from Today"
+                                tooltip="Hide from Today"
+                                onClick={onHide}
+                                className="text-muted-foreground"
+                                data-attr="today-pulse-card-hide"
+                            >
+                                <IconHide />
+                            </Button>
+                        )}
                         {why && (
                             <Tooltip>
                                 <TooltipTrigger

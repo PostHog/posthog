@@ -30,6 +30,7 @@ export enum Scene {
     BillingSection = 'BillingSection',
     BusinessIntelligence = 'BusinessIntelligence',
     Canvas = 'Canvas',
+    WorkloadTrustPolicyRequest = 'WorkloadTrustPolicyRequest',
     CLIAuthorize = 'CLIAuthorize',
     OAuthDeviceAuthorize = 'OAuthDeviceAuthorize',
     CLILive = 'CLILive',
