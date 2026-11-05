@@ -117,6 +117,9 @@ database "posthog" {
     column "sending_domain" {
       type = "LowCardinality(String)"
     }
+    column "scheduled_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
+    }
   }
   table "_experiment_metric_events_preaggregated_columns" {
     abstract = true
