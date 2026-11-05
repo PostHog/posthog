@@ -1,6 +1,6 @@
 from posthog.test.base import BaseTest
 
-from parameterized import parameterized
+from parameterized import param, parameterized
 
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import Organization
@@ -44,24 +44,29 @@ class TestOrganizationFeatureFlagsConfig(BaseTest):
 class TestFlagEvaluationsTableGate(BaseTest):
     @parameterized.expand(
         [
-            ("self_hosted_events", FlagEvaluationsMode.EVENTS, False, False, False),
-            ("self_hosted_read_flag_evaluations", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False, False, True),
-            ("self_hosted_flag_evaluations_only", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False, False, True),
-            ("self_hosted_no_config_row", None, False, False, False),
-            (
+            param("self_hosted_events", FlagEvaluationsMode.EVENTS, expected=False),
+            param("self_hosted_read_flag_evaluations", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, expected=True),
+            param("self_hosted_flag_evaluations_only", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, expected=True),
+            param("self_hosted_no_config_row", None, expected=False),
+            param(
                 "self_hosted_read_flag_evaluations_while_reads_are_forced_to_events",
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
-                False,
-                True,
-                True,
+                expected=True,
+                reads_forced_to_events=True,
             ),
-            ("cloud_events", FlagEvaluationsMode.EVENTS, True, False, True),
-            ("cloud_no_config_row", None, True, False, True),
+            param("cloud_events", FlagEvaluationsMode.EVENTS, expected=True, cloud=True),
+            param("cloud_no_config_row", None, expected=True, cloud=True),
         ]
     )
     def test_table_is_enabled_on_cloud_or_by_the_organization_mode(
-        self, _name, mode, cloud, reads_forced_to_events, expected
-    ):
+        self,
+        _name: str,
+        mode: FlagEvaluationsMode | None,
+        *,
+        expected: bool,
+        cloud: bool = False,
+        reads_forced_to_events: bool = False,
+    ) -> None:
         config = OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization)
         if mode is None:
             config.delete()
