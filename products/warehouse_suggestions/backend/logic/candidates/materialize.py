@@ -41,6 +41,7 @@ from .base import (
     Candidate,
     CandidateContext,
     CandidateResult,
+    MeasurementRequest,
     QueryCost,
     RealizedSavings,
     Rejection,
@@ -565,9 +566,12 @@ def _read_seconds(reads: SubjectReads | None) -> float | None:
     return reads.alone_duration_ms_median / MILLISECONDS_PER_SECOND
 
 
-def _most_recomputed(unmeasured: list[tuple[Subject, Recomputations]], limit: int) -> tuple[Subject, ...]:
+def _most_recomputed(unmeasured: list[tuple[Subject, Recomputations]], limit: int) -> tuple[MeasurementRequest, ...]:
     ranked = sorted(unmeasured, key=lambda pair: pair[1].consumer_runs_per_month, reverse=True)
-    return tuple(subject for subject, _ in ranked[:limit])
+    return tuple(
+        MeasurementRequest(subject=subject, consumer_runs_per_month=recomputations.consumer_runs_per_month)
+        for subject, recomputations in ranked[:limit]
+    )
 
 
 def _read_cost_before_at(score_inputs: Mapping[str, float], reads_per_month: float) -> QueryCost | None:

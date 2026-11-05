@@ -9,6 +9,7 @@ dataclasses. Never return ORM instances or import DRF.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
+from datetime import datetime
 from typing import Any, TypeVar, overload
 from uuid import UUID
 
@@ -694,10 +695,16 @@ def list_routing_runs(
     repository: str | None = None,
     pr_number: int | None = None,
     owner: str | None = None,
+    outcome: RoutingOwnerOutcome | None = None,
+    reason: RoutingOwnerReason | None = None,
+    head_sha: str | None = None,
+    created_after: datetime | None = None,
+    created_before: datetime | None = None,
 ) -> LazyDTOList[contracts.RoutingRunDTO]:
     """The team's reviewer routing runs, newest first, each with its decision for every owner but no file lists.
 
     `owner` keeps the runs that decided about that owner, as owners.yaml spells it (`team-devex`, `@alice`).
+    `outcome` and `reason` keep the runs where one owner row has them, the same row as `owner` when it is set.
     `team_id` must be canonical, as every view passes it, so the reads skip the team lookup.
     """
     # Run ids are uuid7, so the id breaks a created_at tie in time order and a page boundary never splits a tie.
@@ -706,9 +713,22 @@ def list_routing_runs(
         qs = qs.filter(pull_request__repo_config__repository=repository)
     if pr_number is not None:
         qs = qs.filter(pull_request__pr_number=pr_number)
-    if owner:
-        # A subquery on the owners table, so the (team_id, owner) index answers it.
-        owners = RoutingRunOwner.objects.for_team(team_id, canonical=True).filter(owner=owner)
+    if head_sha:
+        qs = qs.filter(head_sha=head_sha)
+    if created_after is not None:
+        qs = qs.filter(created_at__gte=created_after)
+    if created_before is not None:
+        qs = qs.filter(created_at__lt=created_before)
+    if owner or outcome or reason:
+        # One subquery on the owners table, so a run that cut one owner and requested another never
+        # matches `owner` plus `outcome` across two rows. The (team_id, owner) index answers `owner`.
+        owners = RoutingRunOwner.objects.for_team(team_id, canonical=True)
+        if owner:
+            owners = owners.filter(owner=owner)
+        if outcome:
+            owners = owners.filter(outcome=outcome)
+        if reason:
+            owners = owners.filter(reason=reason)
         qs = qs.filter(id__in=owners.values("run_id"))
     return LazyDTOList(qs, _routing_run_to_dto)
 
