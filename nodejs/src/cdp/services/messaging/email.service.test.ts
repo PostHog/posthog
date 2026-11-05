@@ -1521,11 +1521,23 @@ describe('EmailService', () => {
                     { finished: true, error: expect.stringMatching(/^attachments_unavailable: /) },
                 ],
             ])(
-                'spends no pacing token when the attachment store fails to answer, and %s',
+                'spends one pacing token and no team cap token when the attachment store fails to answer, and %s',
                 async (_name, priorTries, expected) => {
                     const claimOrReserve = jest.fn().mockResolvedValue({ granted: 1, retryAfterMs: null })
                     service['workflowEmailRateLimiter'] = { claimOrReserve } as unknown as RateLimiterService
                     invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 120, period: 'minute' } }
+                    const teamCap = {
+                        claimAllOrNothingPair: jest.fn().mockResolvedValue({ granted: true }),
+                        claimUpTo: jest.fn().mockResolvedValue(1),
+                    }
+                    service['teamEmailRateLimiter'] = teamCap as unknown as RateLimiterService
+                    service['sesConfig'] = {
+                        ...service['sesConfig'],
+                        teamEmailCapMode: 'enforce',
+                        teamEmailTierHourlyCaps: [100],
+                        teamEmailTierDailyCaps: [200],
+                    }
+                    jest.spyOn(service['teamWorkflowsConfigService'], 'getEmailSendingTier').mockResolvedValue(0)
                     invocation.queueMetadata = { attachmentLoadTries: priorTries }
                     jest.spyOn(attachments, 'load').mockRejectedValue(
                         new Error('timeout exceeded when trying to connect')
@@ -1536,7 +1548,9 @@ describe('EmailService', () => {
 
                     expect(result).toMatchObject(expected)
                     expect(sendEmailSpy).not.toHaveBeenCalled()
-                    expect(claimOrReserve).not.toHaveBeenCalled()
+                    expect(claimOrReserve).toHaveBeenCalledTimes(1)
+                    expect(teamCap.claimAllOrNothingPair).not.toHaveBeenCalled()
+                    expect(teamCap.claimUpTo).not.toHaveBeenCalled()
                 }
             )
 
