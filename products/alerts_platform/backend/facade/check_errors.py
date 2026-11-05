@@ -7,11 +7,11 @@ Sentry via `capture_exception`; this module only produces UI/Slack-safe strings.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Literal
 
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
 
 AlertErrorCode = Literal["server_busy", "query_performance", "invalid_query", "cancelled", "unknown"]
@@ -21,7 +21,7 @@ AlertErrorCode = Literal["server_busy", "query_performance", "invalid_query", "c
 TRANSIENT_ERROR_CODES: frozenset[AlertErrorCode] = frozenset({"server_busy", "cancelled", "unknown"})
 
 
-@dataclass(frozen=True)
+@frozen
 class ClassifiedAlertError:
     code: AlertErrorCode
     user_message: str

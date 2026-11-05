@@ -58,9 +58,7 @@ def derive_breaches(
 
     `counts` holds one value per window from `rolling_check_ranges`, or nothing when the
     query returned no row for the alert or group. The state machine needs M data points
-    regardless — so we pad the result to `evaluation_periods` with the implicit count=0 outcome:
-    `False` for `above` (0 is never above a non-negative threshold), `True` for `below`
-    (0 is below any threshold above 0).
+    regardless — so we pad the result to `evaluation_periods` with the implicit count=0 outcome.
 
     Without this pad, a `below` alert on a truly silent service would never
     fire — the query returns no row, the breach tuple is empty, and the N-of-M
@@ -68,11 +66,10 @@ def derive_breaches(
     """
     if threshold_operator not in _THRESHOLD_OPERATORS:
         raise ValueError(f"Unknown threshold operator {threshold_operator!r}")
-    if threshold_operator == "above":
-        actual = tuple(count > threshold for count in reversed(counts))
-        missing_breach = False
-    else:
-        actual = tuple(count < threshold for count in reversed(counts))
-        missing_breach = True
-    pad = (missing_breach,) * max(0, evaluation_periods - len(actual))
+
+    def breached(count: float) -> bool:
+        return count > threshold if threshold_operator == "above" else count < threshold
+
+    actual = tuple(breached(count) for count in reversed(counts))
+    pad = (breached(0),) * max(0, evaluation_periods - len(actual))
     return actual + pad

@@ -159,8 +159,7 @@ class LogsAlertCondition:
     window_minutes: int
 
     def __post_init__(self) -> None:
-        # `derive_breaches` reads any operator but `above` as `below`, so an unknown one would
-        # decide the alert against the wrong side of its bound instead of failing.
+        # Checked at parse so an unknown operator marks the alert broken instead of failing its query.
         if self.threshold_operator not in LogsAlertConfiguration.ThresholdOperator.values:
             raise ValueError(f"Unknown threshold operator {self.threshold_operator!r}")
         # A threshold of 0 is valid: with `above` it fires on any matching log, as the logs API documents.

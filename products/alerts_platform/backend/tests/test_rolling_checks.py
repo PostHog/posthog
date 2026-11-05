@@ -52,6 +52,10 @@ class TestDeriveBreachesProperties(unittest.TestCase):
         with self.assertRaises(ValueError):
             derive_breaches([5], 1, operator, 1)
 
+    @parameterized.expand([("above", 0, False), ("below", 0, False), ("below", 1, True)])
+    def test_padding_is_the_outcome_of_a_zero_count(self, operator: str, threshold: int, expected: bool) -> None:
+        assert derive_breaches([], threshold, operator, 3) == (expected,) * 3
+
     @given(
         bucket_counts=st.lists(st.integers(min_value=0, max_value=10_000), min_size=0, max_size=10),
         threshold=st.integers(min_value=1, max_value=5_000),
