@@ -1,4 +1,7 @@
+import { z } from 'zod'
+
 import { HogError } from '@/core/errors'
+import { parseJson, parseJsonOrUndefined } from '@/core/json'
 import type { Runtime } from '@/core/runtime'
 import { USER_AGENT } from '@/posthog/api'
 import { hostUrl } from '@/posthog/host'
@@ -45,6 +48,12 @@ function transferTimeout(bytes: number): number {
 }
 const RATE_LIMIT_PER_MINUTE = 480
 
+const ErrorBody = z.looseObject({ code: z.unknown() })
+
+export function errorCode(body: string): unknown {
+    return parseJsonOrUndefined(body, ErrorBody)?.code
+}
+
 class ApiFailure extends Error {
     constructor(
         readonly status: number | undefined,
@@ -60,12 +69,7 @@ class ApiFailure extends Error {
 
     // posthog-cli matches error codes in the parsed body, or anywhere in the raw text as a fallback.
     hasCode(code: string): boolean {
-        try {
-            if ((JSON.parse(this.body) as { code?: unknown }).code === code) {
-                return true
-            }
-        } catch {}
-        return this.body.includes(code)
+        return errorCode(this.body) === code || this.body.includes(code)
     }
 }
 
@@ -184,7 +188,12 @@ export class SymbolSetClient {
         if (!response.ok) {
             throw new ApiFailure(response.status, text, url.toString())
         }
-        return text ? JSON.parse(text) : undefined
+        return text
+            ? parseJson(text, z.unknown(), {
+                  code: 'unexpected_response',
+                  context: `PostHog answered ${url} with a body hog can't read.`,
+              })
+            : undefined
     }
 
     async upload(uploads: SymbolSetUpload[], options: UploadOptions): Promise<UploadOutcome> {

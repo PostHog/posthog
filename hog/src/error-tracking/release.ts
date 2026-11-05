@@ -2,7 +2,7 @@ import { HogError } from '@/core/errors'
 
 import { contentHash } from './container'
 import type { GitInfo } from './git'
-import { ApiFailure, type SymbolSetClient } from './upload'
+import { ApiFailure, errorCode, type SymbolSetClient } from './upload'
 
 export interface Release {
     id: string
@@ -108,9 +108,5 @@ export async function fetchOrCreateRelease(
 }
 
 function isStructuredCode(body: string, code: string): boolean {
-    try {
-        return (JSON.parse(body) as { code?: unknown }).code === code
-    } catch {
-        return false
-    }
+    return errorCode(body) === code
 }

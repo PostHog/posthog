@@ -5,15 +5,7 @@ import { OAuthAccessTokenSchema, OAuthRefreshTokenSchema, PersonalApiKeySchema }
 
 import type { StoredSecret } from './types'
 
-export function parseJson(text: string): unknown {
-    try {
-        return JSON.parse(text)
-    } catch {
-        return undefined
-    }
-}
-
-const StoredSecretSchema = z.union([
+export const StoredSecretSchema = z.union([
     z.object({ apiKey: PersonalApiKeySchema }),
     z.object({ accessToken: OAuthAccessTokenSchema, refreshToken: OAuthRefreshTokenSchema }),
 ])

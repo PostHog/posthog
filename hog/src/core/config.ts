@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { HostSchema } from '@/posthog/host'
 
 import { HogError } from './errors'
+import { decodeJson, parseJson } from './json'
 import type { Runtime } from './runtime'
 
 export const CONFIG_FILE = 'posthog.json'
@@ -154,20 +155,15 @@ export async function findConfig(runtime: Runtime): Promise<string | undefined> 
 
 // Returns every problem with the file instead of the first, so `hog config check` can list them all.
 export function validateConfig(contents: string): { config?: PostHogConfig; problems: ConfigProblem[] } {
-    let raw: unknown
-    try {
-        raw = JSON.parse(contents)
-    } catch (error) {
-        return {
-            problems: [{ path: '', message: `Not valid JSON: ${error instanceof Error ? error.message : error}` }],
-        }
+    const decoded = decodeJson(contents, PostHogConfig)
+    if (decoded.ok) {
+        return { config: decoded.value, problems: [] }
     }
-    const parsed = PostHogConfig.safeParse(raw)
-    if (parsed.success) {
-        return { config: parsed.data, problems: [] }
+    if (decoded.issues.length === 0) {
+        return { problems: [{ path: '', message: decoded.problem }] }
     }
     return {
-        problems: parsed.error.issues.map((issue) => ({
+        problems: decoded.issues.map((issue) => ({
             path: issue.path
                 .map((part) => (typeof part === 'number' ? `[${part}]` : `.${String(part)}`))
                 .join('')
@@ -202,7 +198,12 @@ export async function updateConfig(
     change: (raw: Record<string, unknown>) => void
 ): Promise<string> {
     const path = loaded?.path ?? join(runtime.cwd(), CONFIG_FILE)
-    const raw: Record<string, unknown> = loaded ? JSON.parse(await runtime.readFile(path)) : { $schema: SCHEMA_URL }
+    const raw = loaded
+        ? parseJson(await runtime.readFile(path), z.record(z.string(), z.unknown()), {
+              code: 'invalid_config',
+              context: `${path} is not valid.`,
+          })
+        : { $schema: SCHEMA_URL }
     change(raw)
     await runtime.writeFile(path, `${JSON.stringify(raw, null, 2)}\n`)
     return path

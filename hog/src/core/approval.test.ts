@@ -3,7 +3,13 @@ import { describe, expect, test } from 'bun:test'
 import { COMMANDS } from '@/commands'
 import { fakeRuntime } from '@/testing'
 
-import { resumeApproval, type ApprovalFlow, type PendingApproval, type PollOutcome } from './approval'
+import {
+    PendingApprovalSchema,
+    resumeApproval,
+    type ApprovalFlow,
+    type PendingApproval,
+    type PollOutcome,
+} from './approval'
 import { Context } from './context'
 import { HogError } from './errors'
 import type { GlobalOptions } from './globals'
@@ -38,6 +44,7 @@ describe('resumeApproval', () => {
         const flow: ApprovalFlow<PendingApproval, string> = {
             command: 'hog thing start',
             noun: 'thing',
+            pending: PendingApprovalSchema,
             start: async () => PENDING,
             poll: async () => {
                 polledAt.push(runtime.now() - START)

@@ -1,7 +1,9 @@
+import { z } from 'zod'
+
 import { defineCommand } from '@/core/command'
+import { parseJsonOrUndefined } from '@/core/json'
 import { escapeControls } from '@/core/output'
 import { PersonalAPIKey } from '@/posthog/access-key'
-import { parseJson } from '@/posthog/credential-store/helpers'
 import type { StoreChoice } from '@/posthog/credential-store/types'
 import { DEFAULT_HOST, posthogFile } from '@/posthog/credentials'
 import { parseHost } from '@/posthog/host'
@@ -21,6 +23,9 @@ type MigrateResult =
           legacyFile: string
       }
     | { status: 'nothing_to_migrate'; legacyFile: string; next: string }
+
+// The fields go through the brand factories below, so a bad value names what is wrong with it.
+const LegacyCredentials = z.looseObject({ token: z.unknown(), env_id: z.unknown(), host: z.unknown() })
 
 // TODO(v1.1): drop this command. It exists so people moving from posthog-cli keep their key
 // without logging in again, and hog reads the old file nowhere else.
@@ -45,7 +50,7 @@ export default defineCommand({
             }
             throw error
         }
-        const stored = parseJson(text) as { token?: unknown; env_id?: unknown; host?: unknown } | null | undefined
+        const stored = parseJsonOrUndefined(text, LegacyCredentials)
         const failure = {
             code: 'invalid_legacy_credentials',
             context: `hog couldn't move the key in ${legacyFile}.`,

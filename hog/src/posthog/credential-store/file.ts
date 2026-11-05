@@ -1,9 +1,12 @@
+import { z } from 'zod'
+
+import { parseJsonOrUndefined } from '@/core/json'
 import { hogFile } from '@/core/paths'
 import type { Runtime } from '@/core/runtime'
 import { parseOrUndefined } from '@/core/schema'
 import { hostKey, HostSchema, type Host } from '@/posthog/host'
 
-import { parseJson, parseSecret } from './helpers'
+import { parseSecret } from './helpers'
 import type { CredentialStore, StoredSecret } from './types'
 
 // One JSON file, readable only by its owner, for machines without a keychain hog can use.
@@ -26,10 +29,7 @@ export class FileStore implements CredentialStore {
             }
             throw error
         }
-        const parsed = parseJson(text)
-        return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
-            ? (parsed as Record<string, unknown>)
-            : {}
+        return parseJsonOrUndefined(text, z.record(z.string(), z.unknown())) ?? {}
     }
 
     async hosts(): Promise<Host[]> {

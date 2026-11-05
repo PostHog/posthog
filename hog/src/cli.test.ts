@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { z } from 'zod'
 
 import { LEGACY_COMMANDS } from '@/commands/legacy'
 import { VERSION } from '@/version'
@@ -85,7 +86,12 @@ describe('hog', () => {
     test('commands lists every command for agents', async () => {
         const result = await runHog(['commands'], { env: { CLAUDECODE: '1' } })
         expect(result.exitCode).toBe(0)
-        const manifest = result.json()
+        const manifest = result.json(
+            z.looseObject({
+                globalOptions: z.array(z.unknown()),
+                commands: z.array(z.looseObject({ name: z.string() })),
+            })
+        )
         expect(manifest).toMatchObject({ cli: 'hog', agent: 'claude-code', aliases: { et: 'error-tracking' } })
         expect(manifest.globalOptions).toContainEqual(expect.objectContaining({ flags: '-o, --output <format>' }))
         expect(manifest.commands.find((command: { name: string }) => command.name === 'query run')).toMatchObject({

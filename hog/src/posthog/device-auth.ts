@@ -1,9 +1,11 @@
-import type { PendingApproval, PollOutcome } from '@/core/approval'
+import { z } from 'zod'
+
+import { PendingApprovalSchema, type PollOutcome } from '@/core/approval'
 import { HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
 import type { Runtime } from '@/core/runtime'
 
-import { hostKey, hostUrl, type Host } from './host'
+import { hostKey, HostSchema, hostUrl, type Host } from './host'
 import { parseProjectId } from './ids'
 import { HOG_CLIENT_ID, OAuthLogin, oauthPost, type TokenResponse } from './oauth'
 
@@ -86,12 +88,14 @@ export const READ_ONLY_LOGIN_SCOPES: readonly string[] = [
 
 // A login the person still has to approve in the browser. `deviceCode` redeems the tokens once
 // they approve, so it stays in a private file and never reaches the output.
-export interface PendingLogin extends PendingApproval {
-    host: Host
-    deviceCode: string
-    userCode: string
-    scopes: string[]
-}
+export const PendingLoginSchema = PendingApprovalSchema.extend({
+    host: HostSchema,
+    deviceCode: z.string(),
+    userCode: z.string(),
+    scopes: z.array(z.string()),
+})
+
+export type PendingLogin = z.output<typeof PendingLoginSchema>
 
 // PostHog refuses a client it hasn't verified with `unauthorized_client`, and its description says why.
 function unauthorizedClient(host: Host, body: { error?: string; error_description?: unknown }): HogError | undefined {

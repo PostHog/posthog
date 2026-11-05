@@ -172,7 +172,7 @@ describe('resolveCredentials', () => {
             'a login in the file store',
             {
                 ...settings(EU, { [EU]: 'file' }),
-                '/home/test/.config/hog/credentials.json': JSON.stringify({ [EU]: JSON.parse(login('phx_file')) }),
+                '/home/test/.config/hog/credentials.json': JSON.stringify({ [EU]: { apiKey: 'phx_file' } }),
             },
             {},
             {},

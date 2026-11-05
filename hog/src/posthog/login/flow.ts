@@ -6,7 +6,7 @@ import { FileStore } from '@/posthog/credential-store/file'
 import { probeKeychain } from '@/posthog/credential-store/keychain'
 import { openStore } from '@/posthog/credential-store/open'
 import type { StoreChoice } from '@/posthog/credential-store/types'
-import { pollDeviceLogin, startDeviceLogin, type PendingLogin } from '@/posthog/device-auth'
+import { pollDeviceLogin, PendingLoginSchema, startDeviceLogin, type PendingLogin } from '@/posthog/device-auth'
 import type { Host } from '@/posthog/host'
 import type { ProjectId } from '@/posthog/ids'
 import { withLoginLock, type OAuthLogin } from '@/posthog/oauth'
@@ -32,6 +32,7 @@ export function loginWait(runtime: Runtime): ApprovalWait<PendingLogin, OAuthLog
     return {
         command: LOGIN_COMMAND,
         noun: 'login',
+        pending: PendingLoginSchema,
         poll: (pending, timeoutMs) => pollDeviceLogin(runtime, pending, timeoutMs),
     }
 }
@@ -46,7 +47,7 @@ export function loginFlow(
     return {
         ...loginWait(runtime),
         start: () => startDeviceLogin(runtime, host, scopes),
-        reuse: (existing) => existing.host === host && existing.scopes?.join(' ') === scopes.join(' '),
+        reuse: (existing) => existing.host === host && existing.scopes.join(' ') === scopes.join(' '),
     }
 }
 

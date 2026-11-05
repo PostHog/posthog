@@ -2,9 +2,11 @@ import { createHash } from 'node:crypto'
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
+import { z } from 'zod'
 
 import { run } from '@/cli'
 import { processRuntime } from '@/core/runtime'
+import { readJson } from '@/testing'
 
 import { startFakeServer } from './fake-server'
 import { write } from './fixtures'
@@ -16,6 +18,33 @@ export interface ParityResult {
     requests: NormalizedRequest[]
     // The files the run created or changed, and null for the ones it deleted.
     files?: Record<string, string | null>
+}
+
+// Strict, so a golden with a field hog doesn't produce fails the comparison instead of losing it.
+const ParityResultSchema = z.strictObject({
+    exitCode: z.number(),
+    requests: z.array(
+        z.strictObject({
+            method: z.string(),
+            path: z.string(),
+            headers: z.record(z.string(), z.string()),
+            body: z.string().optional(),
+            upload: z
+                .strictObject({
+                    sha512: z.string(),
+                    length: z.number(),
+                    fields: z.record(z.string(), z.string()).optional(),
+                    filename: z.string().optional(),
+                })
+                .optional(),
+            status: z.number(),
+        })
+    ),
+    files: z.record(z.string(), z.string().nullable()).optional(),
+})
+
+export function readGolden(name: string): ParityResult {
+    return readJson(readFileSync(join(import.meta.dir, 'golden', 'e2e', `${name}.json`), 'utf8'), ParityResultSchema)
 }
 
 // posthog-cli reads the POSTHOG_CLI_ names and hog the HOG_ ones, so both CLIs get the same credentials.

@@ -1,32 +1,22 @@
+import { z } from 'zod'
+
 import { defineCommand } from '@/core/command'
 import { EXIT_USAGE, HogError } from '@/core/errors'
+import { parseJson } from '@/core/json'
 import { findTool, grantedScopes, missingScopesError, toHogError, withApiConnection } from '@/posthog/api-tools'
 import { parseOrganizationId, parseProjectId } from '@/posthog/ids'
+
+const ToolInput = z.record(z.string(), z.unknown(), { error: 'The input must be a JSON object.' })
 
 function parseInput(text: string | undefined): Record<string, unknown> {
     if (text === undefined) {
         return {}
     }
-    let input: unknown
-    try {
-        input = JSON.parse(text)
-    } catch (error) {
-        throw new HogError(
-            'invalid_json',
-            `The input isn't valid JSON: ${(error as Error).message}`,
-            'Pass one JSON object, like \'{"limit": 10}\'.',
-            EXIT_USAGE
-        )
-    }
-    if (input === null || typeof input !== 'object' || Array.isArray(input)) {
-        throw new HogError(
-            'invalid_json',
-            'The input must be a JSON object.',
-            'Pass one JSON object, like \'{"limit": 10}\'.',
-            EXIT_USAGE
-        )
-    }
-    return input as Record<string, unknown>
+    return parseJson(text, ToolInput, {
+        code: 'invalid_json',
+        hint: 'Pass one JSON object, like \'{"limit": 10}\'.',
+        exitCode: EXIT_USAGE,
+    })
 }
 
 export default defineCommand({

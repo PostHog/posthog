@@ -130,7 +130,7 @@ export class Output {
 // posthog-cli prints JSON through serde_json without `preserve_order`, so object keys come
 // out sorted. Sorting here keeps hog's JSON the same for nested objects.
 function sortKeys(value: unknown): unknown {
-    // Integers too large for a JS number stay as their source text (see parseLossless).
+    // Integers too large for a JS number stay as their source text (see the lossless option in core/json.ts).
     if (JSON.isRawJSON(value)) {
         return value
     }

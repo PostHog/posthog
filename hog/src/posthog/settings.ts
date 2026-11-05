@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { parseJsonOrUndefined } from '@/core/json'
 import { hogFile } from '@/core/paths'
 import type { Runtime } from '@/core/runtime'
 import { parseOrUndefined } from '@/core/schema'
@@ -43,6 +44,12 @@ export interface HogSettings {
     host?: Host
 }
 
+// Each part of the file is read on its own, so one entry hog doesn't recognize loses only itself.
+const SettingsFileSchema = z.looseObject({
+    logins: z.record(z.string(), z.unknown()).optional().catch(undefined),
+    host: HostSchema.optional().catch(undefined),
+})
+
 const SETTINGS_FILE = 'settings.json'
 
 function settingsPath(runtime: Runtime): string {
@@ -69,23 +76,15 @@ export async function readSettings(runtime: Runtime): Promise<HogSettings> {
         }
         throw error
     }
-    let parsed: unknown
-    try {
-        parsed = JSON.parse(text)
-    } catch {
-        return {}
-    }
-    const raw = (typeof parsed === 'object' && parsed !== null ? parsed : {}) as Record<string, unknown>
+    const raw = parseJsonOrUndefined(text, SettingsFileSchema) ?? {}
     const logins: Partial<Record<HostKey, LoginRecord>> = {}
-    if (typeof raw.logins === 'object' && raw.logins !== null) {
-        for (const [host, value] of Object.entries(raw.logins)) {
-            const record = parseLoginRecord(host, value)
-            if (record) {
-                logins[hostKey(record.host)] = record
-            }
+    for (const [host, value] of Object.entries(raw.logins ?? {})) {
+        const record = parseLoginRecord(host, value)
+        if (record) {
+            logins[hostKey(record.host)] = record
         }
     }
-    return { logins, host: parseOrUndefined(HostSchema, raw.host) }
+    return { logins, host: raw.host }
 }
 
 export function loginFor(settings: HogSettings, host: Host): LoginRecord | undefined {

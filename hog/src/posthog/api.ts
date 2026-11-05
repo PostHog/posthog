@@ -1,5 +1,7 @@
+import { z } from 'zod'
+
 import { HogError } from '@/core/errors'
-import { parseLossless } from '@/core/raw-json'
+import { parseJsonOrUndefined } from '@/core/json'
 import type { RuntimeFetch } from '@/core/runtime'
 import { VERSION } from '@/version'
 
@@ -59,12 +61,8 @@ export async function sendRequest(fetchFn: RuntimeFetch, url: URL, request: Http
             'Check the host and your network connection.'
         )
     }
-    let json: unknown
-    try {
-        json = text ? parseLossless(text) : undefined
-    } catch {
-        json = undefined
-    }
+    // Callers check `json` against a schema of their own. A body that isn't JSON leaves it undefined.
+    const json = text ? parseJsonOrUndefined(text, z.unknown(), { lossless: true }) : undefined
     return { status: response.status, ok: response.ok, json, text }
 }
 
