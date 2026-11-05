@@ -15,7 +15,13 @@ const TITLE = 'Lifecycle'
 
 const LIFECYCLE_TOOLTIP_CONFIG = { pinnable: true, placement: 'top' as const }
 
-export function LifecycleVisualizer({ query, results }: LifecycleVisualizerProps): ReactElement {
+export function LifecycleVisualizer({
+    query,
+    results,
+    overlay,
+    chartClassName = 'h-[400px]',
+    showTitle = true,
+}: LifecycleVisualizerProps): ReactElement {
     const showLegend = query?.lifecycleFilter?.showLegend ?? true
     const theme = useMcpChartTheme()
 
@@ -61,14 +67,16 @@ export function LifecycleVisualizer({ query, results }: LifecycleVisualizerProps
     // leaving the canvas measured at 0 and unpainted. Funnels/trends render the chart this way too.
     return (
         <div className="w-full">
-            <ChartHeader title={TITLE} />
+            {showTitle && <ChartHeader title={TITLE} />}
             {showLegend && legendItems.length > 0 && (
                 <div className="mb-2">
                     <Legend items={legendItems} orientation="horizontal" align="center" />
                 </div>
             )}
-            <div className="flex flex-col w-full h-[400px]">
-                <TimeSeriesBarChart series={series} labels={labels} theme={theme} config={config} />
+            <div className={`flex flex-col w-full ${chartClassName}`}>
+                <TimeSeriesBarChart series={series} labels={labels} theme={theme} config={config}>
+                    {overlay}
+                </TimeSeriesBarChart>
             </div>
         </div>
     )

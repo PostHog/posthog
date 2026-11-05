@@ -268,6 +268,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
             onError={handleChartError}
         >
             {showAnnotations && <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationsDates} />}
+            {context?.chartOverlay}
         </TimeSeriesBarChart>
     )
 }

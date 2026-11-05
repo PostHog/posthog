@@ -87,6 +87,13 @@ class TestInsightExplanationCreateSerializer(SimpleTestCase):
         assert not serializer.is_valid()
         assert "data" in serializer.errors
 
+    def test_accepts_a_lifecycle_chart_as_a_time_series(self) -> None:
+        data = _explanation(query={"kind": "LifecycleQuery", "series": [], "interval": "day"})
+        data["results"][0]["status"] = "dormant"
+        serializer = InsightExplanationCreateSerializer(data={"data": data})
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["data"]["results"][0]["status"] == "dormant"
+
     def test_keeps_a_funnel_explanation_without_trends_fields(self) -> None:
         serializer = InsightExplanationCreateSerializer(data={"data": _funnel_explanation()})
         assert serializer.is_valid(), serializer.errors

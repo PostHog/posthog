@@ -3,13 +3,21 @@ import { within } from '@testing-library/dom'
 import type { ReactElement, ReactNode } from 'react'
 
 import { McpThemeDecorator } from '@posthog/mcp-ui/storybook/decorator'
-import { BarChart, DEFAULT_CHART_COLORS, type Series, TimeSeriesLineChart, useChartTheme } from '@posthog/quill-charts'
+import {
+    BarChart,
+    DEFAULT_CHART_COLORS,
+    type Series,
+    TimeSeriesBarChart,
+    TimeSeriesLineChart,
+    useChartTheme,
+} from '@posthog/quill-charts'
 
 import {
     buildFunnelStepsBarConfig,
     buildSingleSeriesFunnelStepsBars,
     FUNNEL_STEPS_BAR_SERIES_KEY,
 } from 'products/product_analytics/frontend/insights/funnels/shared/funnelStepsBarShared'
+import { buildLifecycleChartModel } from 'products/product_analytics/frontend/insights/trends/TrendsLifecycleChart/trendsLifecycleChartTransforms'
 
 import { userEvent } from 'storybook/test'
 
@@ -182,6 +190,57 @@ function FunnelStoryChart({ overlay }: { overlay: ReactNode }): ReactElement {
     )
 }
 
+const LIFECYCLE_DAYS = DAYS.slice(0, 14)
+const LIFECYCLE_RESULTS = [
+    { status: 'new', data: [42, 38, 45, 40, 44, 39, 41, 43, 40, 42, 38, 44, 41, 40] },
+    { status: 'returning', data: [120, 118, 125, 122, 119, 121, 124, 98, 96, 99, 97, 95, 98, 96] },
+    { status: 'resurrecting', data: [12, 14, 11, 13, 12, 15, 13, 12, 14, 11, 13, 12, 14, 13] },
+    { status: 'dormant', data: [-30, -28, -32, -29, -31, -30, -33, -61, -58, -34, -31, -30, -32, -29] },
+].map((result, id) => ({ ...result, id, label: `signed_up - ${result.status}`, days: LIFECYCLE_DAYS }))
+const LIFECYCLE_COLORS: Record<string, string> = {
+    new: DEFAULT_CHART_COLORS[0]!,
+    returning: DEFAULT_CHART_COLORS[1]!,
+    resurrecting: DEFAULT_CHART_COLORS[2]!,
+    dormant: DEFAULT_CHART_COLORS[3]!,
+}
+
+const lifecycleStory: ExplainChartData = {
+    shape: 'time_series',
+    query: { kind: 'LifecycleQuery', interval: 'day', series: [] },
+    results: LIFECYCLE_RESULTS,
+    seriesIndex: 3,
+    insightName: 'Active users',
+    lastPointInProgress: false,
+    headline: 'Users went **dormant** after the **mobile login** change, and fewer returned since.',
+    chapters: [
+        {
+            title: 'More users going dormant',
+            range: [7, 8],
+            summary: 'Twice as many users stopped coming back for two days.',
+            cause: 'A **mobile login** change logged people out on update.',
+            confidence: 'medium',
+            confidenceReason: 'The timing matches the release, and mobile users make up most of the drop.',
+            evidence: [],
+        },
+    ],
+}
+
+function LifecycleStoryChart({ overlay }: { overlay: ReactNode }): ReactElement {
+    const theme = useChartTheme()
+    const { series, labels, config } = buildLifecycleChartModel(LIFECYCLE_RESULTS, {
+        labels: LIFECYCLE_DAYS,
+        getColor: (status) => LIFECYCLE_COLORS[status ?? ''] ?? DEFAULT_CHART_COLORS[4]!,
+        isStacked: true,
+    })
+    return (
+        <div className="flex h-[260px] flex-col @3xl/story:h-[400px]">
+            <TimeSeriesBarChart series={series} labels={labels} theme={theme} config={config}>
+                {overlay}
+            </TimeSeriesBarChart>
+        </div>
+    )
+}
+
 const renderStory = (data: ExplainChartData = story): ReactElement => (
     <ExplainChartView
         data={data}
@@ -263,6 +322,23 @@ export const FunnelChapter: Story = {
     play: async ({ canvasElement }) => {
         const [chapter] = await within(canvasElement).findAllByRole('button', {
             name: 'Chapter 2: The drop to paying',
+        })
+        await userEvent.click(chapter!)
+    },
+}
+
+export const LifecycleChapter: Story = {
+    decorators: [width('w-[1100px]')],
+    render: () => (
+        <ExplainChartView
+            data={lifecycleStory}
+            renderChart={(overlay) => <LifecycleStoryChart overlay={overlay} />}
+            openLink={() => {}}
+        />
+    ),
+    play: async ({ canvasElement }) => {
+        const [chapter] = await within(canvasElement).findAllByRole('button', {
+            name: 'Chapter 1: More users going dormant',
         })
         await userEvent.click(chapter!)
     },

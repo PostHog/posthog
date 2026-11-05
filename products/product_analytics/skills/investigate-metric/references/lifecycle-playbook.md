@@ -43,3 +43,4 @@ posthog:query-lifecycle
 ## Next
 
 Return to SKILL.md for Step 4 (cross-check) and Step 5 (write findings), in the format you chose in Step 1.
+In a chart explanation, pass the index of the status that moved as `series`, such as dormant for a churn spike.

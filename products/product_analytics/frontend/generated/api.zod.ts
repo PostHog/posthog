@@ -232,6 +232,8 @@ export const insightsExplanationsCreateBodyDataOneResultsItemDataMax = 5000
 
 export const insightsExplanationsCreateBodyDataOneResultsItemDaysMax = 5000
 
+export const insightsExplanationsCreateBodyDataOneResultsItemStatusMax = 40
+
 export const insightsExplanationsCreateBodyDataOneStepsItemNameMax = 400
 
 export const insightsExplanationsCreateBodyDataOneStepsItemCountMin = 0
@@ -287,7 +289,7 @@ export const InsightsExplanationsCreateBody = /* @__PURE__ */ zod.object({
             query: zod
                 .record(zod.string(), zod.unknown())
                 .describe(
-                    'The insight query the explanation follows: a TrendsQuery for a time series, a FunnelsQuery for funnel steps.'
+                    'The insight query the explanation follows: a TrendsQuery or LifecycleQuery for a time series, a FunnelsQuery for funnel steps.'
                 ),
             results: zod
                 .array(
@@ -308,6 +310,13 @@ export const InsightsExplanationsCreateBody = /* @__PURE__ */ zod.object({
                             .optional()
                             .describe(
                                 "The date of each point, in the query's timezone. Saved for the followed series only."
+                            ),
+                        status: zod
+                            .string()
+                            .max(insightsExplanationsCreateBodyDataOneResultsItemStatusMax)
+                            .optional()
+                            .describe(
+                                'The lifecycle status the series counts, such as dormant. Lifecycle charts only.'
                             ),
                     })
                 )
@@ -513,6 +522,8 @@ export const insightsExplanationsUpdateBodyDataOneResultsItemDataMax = 5000
 
 export const insightsExplanationsUpdateBodyDataOneResultsItemDaysMax = 5000
 
+export const insightsExplanationsUpdateBodyDataOneResultsItemStatusMax = 40
+
 export const insightsExplanationsUpdateBodyDataOneStepsItemNameMax = 400
 
 export const insightsExplanationsUpdateBodyDataOneStepsItemCountMin = 0
@@ -568,7 +579,7 @@ export const InsightsExplanationsUpdateBody = /* @__PURE__ */ zod.object({
             query: zod
                 .record(zod.string(), zod.unknown())
                 .describe(
-                    'The insight query the explanation follows: a TrendsQuery for a time series, a FunnelsQuery for funnel steps.'
+                    'The insight query the explanation follows: a TrendsQuery or LifecycleQuery for a time series, a FunnelsQuery for funnel steps.'
                 ),
             results: zod
                 .array(
@@ -589,6 +600,13 @@ export const InsightsExplanationsUpdateBody = /* @__PURE__ */ zod.object({
                             .optional()
                             .describe(
                                 "The date of each point, in the query's timezone. Saved for the followed series only."
+                            ),
+                        status: zod
+                            .string()
+                            .max(insightsExplanationsUpdateBodyDataOneResultsItemStatusMax)
+                            .optional()
+                            .describe(
+                                'The lifecycle status the series counts, such as dormant. Lifecycle charts only.'
                             ),
                     })
                 )

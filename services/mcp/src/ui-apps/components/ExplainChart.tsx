@@ -18,6 +18,12 @@ import type { TrendsQuery } from './types'
 // The render-ui dispatch imports the data type from this module.
 export type { ExplainChartData }
 
+const FALLBACK_TITLES: Record<ExplainChartData['query']['kind'], string> = {
+    TrendsQuery: 'Trends',
+    LifecycleQuery: 'Lifecycle',
+    FunnelsQuery: 'Funnel',
+}
+
 const CHART_CLASS_NAME = 'h-[260px] @3xl/story:h-[400px]'
 
 export interface ExplainChartProps {
@@ -56,7 +62,7 @@ export function ExplainChart({ data, openLink, app = null }: ExplainChartProps):
                     // The host updates `data` in place, so key on the story to start each new one at its summary.
                     key={`${JSON.stringify(data.query)}:${data.headline}`}
                     data={data}
-                    title={data.insightName ?? (data.shape === 'funnel_steps' ? 'Funnel' : 'Trends')}
+                    title={data.insightName ?? FALLBACK_TITLES[data.query.kind]}
                     renderChart={(overlay) => (
                         <ExplainChartStoryChart data={data} overlay={overlay} chartClassName={CHART_CLASS_NAME} />
                     )}

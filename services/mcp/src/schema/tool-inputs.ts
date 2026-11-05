@@ -656,7 +656,7 @@ export const ExplainChartInputSchema = z.preprocess(
                 .record(z.string(), z.unknown())
                 .optional()
                 .describe(
-                    'A TrendsQuery, or a FunnelsQuery that shows steps, to explain when the chart is not a saved insight. Pass this or `insightId`.'
+                    'A TrendsQuery, a LifecycleQuery, or a FunnelsQuery that shows steps, to explain when the chart is not a saved insight. Pass this or `insightId`.'
                 ),
             series: z
                 .number()
@@ -665,7 +665,7 @@ export const ExplainChartInputSchema = z.preprocess(
                 .optional()
                 .default(0)
                 .describe(
-                    "Index of the series in the chart's results that the story follows, or of the breakdown value on a funnel with a breakdown. Defaults to the first one."
+                    "Index of the series in the chart's results that the story follows: a status on a lifecycle chart, or the breakdown value on a funnel with a breakdown. Defaults to the first one."
                 ),
             headline: z
                 .string()
