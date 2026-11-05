@@ -9,6 +9,9 @@ from posthog.dataclasses import frozen
 RAW_TRINO_MATERIALIZE_REASON = "Views that run raw Trino SQL cannot be materialized yet."
 RAW_TRINO_LINEAGE_REASON = "Views that run raw Trino SQL have no lineage, because only hosted Trino can parse them."
 RAW_TRINO_HOGQL_REFERENCE_REASON = "HogQL queries cannot reference a view that runs raw Trino SQL."
+CONNECTION_MATERIALIZE_REASON = "Views that run on a direct connection cannot be materialized yet."
+CONNECTION_LINEAGE_REASON = "Views that run on a direct connection have no lineage yet."
+CONNECTION_HOGQL_REFERENCE_REASON = "HogQL queries cannot reference a view that runs on a direct connection."
 
 _ANNOTATED_QUERY_KEYS = {
     "executionTarget": "engine_execution_target",
@@ -103,22 +106,31 @@ class ViewEngine:
 
     @property
     def can_materialize(self) -> ViewCapability:
-        return ViewCapability(available=False, reason=RAW_TRINO_MATERIALIZE_REASON) if self.is_raw_trino else _AVAILABLE
+        return self._capability(raw_trino=RAW_TRINO_MATERIALIZE_REASON, connection=CONNECTION_MATERIALIZE_REASON)
 
     @property
     def has_lineage(self) -> ViewCapability:
         """Whether the view gets parsed for lineage and a node in the team's DAG."""
-        return ViewCapability(available=False, reason=RAW_TRINO_LINEAGE_REASON) if self.is_raw_trino else _AVAILABLE
+        return self._capability(raw_trino=RAW_TRINO_LINEAGE_REASON, connection=CONNECTION_LINEAGE_REASON)
 
     @property
     def referenceable_from_hogql(self) -> ViewCapability:
-        return (
-            ViewCapability(available=False, reason=RAW_TRINO_HOGQL_REFERENCE_REASON)
-            if self.is_raw_trino
-            else _AVAILABLE
+        return self._capability(
+            raw_trino=RAW_TRINO_HOGQL_REFERENCE_REASON, connection=CONNECTION_HOGQL_REFERENCE_REASON
         )
 
     @property
     def column_source(self) -> ViewColumnSource:
-        """ClickHouse cannot run Trino SQL to infer the columns, so the client's result types are used instead."""
-        return ViewColumnSource.CLIENT_TYPES if self.is_raw_trino else ViewColumnSource.CLICKHOUSE_PROBE
+        """ClickHouse cannot run Trino SQL or a direct connection's SQL, so the client's result types are used instead."""
+        if self.is_raw_trino or self.target == ViewEngineTarget.CONNECTION:
+            return ViewColumnSource.CLIENT_TYPES
+        return ViewColumnSource.CLICKHOUSE_PROBE
+
+    def _capability(self, *, raw_trino: str, connection: str) -> ViewCapability:
+        if self.is_raw_trino:
+            return ViewCapability(available=False, reason=raw_trino)
+        # Materialization, the DAG sync and the HogQL database read only `query["query"]` and run it on
+        # ClickHouse or hosted Trino. They drop the connection id, so they would run the SQL against the wrong database.
+        if self.target == ViewEngineTarget.CONNECTION:
+            return ViewCapability(available=False, reason=connection)
+        return _AVAILABLE
