@@ -28,7 +28,11 @@ export function TraceDrawerToolbar({
             <LemonButton
                 size="small"
                 icon={<IconChevronDown className="rotate-180" />}
-                tooltip="Previous trace"
+                tooltip={
+                    <>
+                        Previous trace <KeyboardShortcut p />
+                    </>
+                }
                 aria-label="Previous trace"
                 data-attr="trace-drawer-previous"
                 onClick={onPrevious ?? undefined}
@@ -37,14 +41,18 @@ export function TraceDrawerToolbar({
             <LemonButton
                 size="small"
                 icon={<IconChevronDown />}
-                tooltip="Next trace"
+                tooltip={
+                    <>
+                        Next trace <KeyboardShortcut n />
+                    </>
+                }
                 aria-label="Next trace"
                 data-attr="trace-drawer-next"
                 onClick={onNext ?? undefined}
                 disabledReason={onNext ? undefined : position ? 'This is the last loaded trace' : NOT_IN_LIST_REASON}
             />
             {position ? (
-                <span className="ml-1 whitespace-nowrap text-xs text-secondary">
+                <span className="ml-1 whitespace-nowrap text-xs text-secondary" aria-live="polite">
                     {`${position.index + 1} of ${position.total}`}
                 </span>
             ) : null}

@@ -1,6 +1,5 @@
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use posthog_replay_anonymizer::v4_image_refs::{image_ref, image_url_ref};
 use replay_core_v4::envelope::{
     open_frame, seal_frame_with_nonce, seal_json_envelope_with_nonce, Codec, Context, Version,
 };
@@ -10,6 +9,7 @@ use replay_core_v4::seal::{
     image_content_key, image_url_key, open_session_key, seal_session_key_with_nonce,
     url_fingerprint_key, SealedKey, WrappingContext,
 };
+use replay_core_v4::v4_image_refs::{image_ref, image_url_ref};
 use serde_json::Value;
 
 // Written with Node's crypto from the spec in replay-data.md, so this checks the Rust code against an independent

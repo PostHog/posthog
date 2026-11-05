@@ -166,6 +166,50 @@ class TestGetRowsKeyset:
         assert result.params("lastId") == [None]
 
 
+class TestGetRowsTimeSeries:
+    @pytest.mark.parametrize(
+        "endpoint, expected_path, expected_params",
+        [
+            (
+                "occurrence_counts",
+                "/api/1/reports/occurrence_counts",
+                {"bucket_size": ("86400",), "min_level": ("debug",)},
+            ),
+            (
+                "activated_item_counts",
+                "/api/1/reports/activated_counts",
+                {"bucket_size": ("86400",), "buckets": ("366",)},
+            ),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "incremental_inputs",
+        [
+            {},
+            # The window is one request, so an incremental run reads and merges all of it.
+            {"incremental_field": "timestamp", "db_incremental_field_last_value": 1728561200},
+        ],
+    )
+    def test_reads_one_window_as_sorted_rows(self, endpoint, expected_path, expected_params, incremental_inputs):
+        body = ScriptedResponse(
+            json={
+                "err": 0,
+                "result": [[1728647600, "4"], [1728561200, 0], "bad", [None, 3], [1728604400], [1728604400, 6]],
+            }
+        )
+
+        result = _driver().run(endpoint, always(body), **incremental_inputs)
+
+        assert result.raised is None
+        assert result.paths == [expected_path]
+        assert result.queries == [expected_params]
+        assert result.rows == [
+            {"timestamp": 1728561200, "count": 0},
+            {"timestamp": 1728604400, "count": 6},
+            {"timestamp": 1728647600, "count": 4},
+        ]
+
+
 class TestRollbarSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint):

@@ -1360,6 +1360,12 @@ export interface ReplayScannerApi {
      * * `template` - Template
      * * `scratch` - From scratch */
     creation_method?: ScannerCreationMethodEnumApi | null
+    /**
+     * The app surface the creator started from, such as `replay_filters`. Reported to product analytics at creation so a scanner can be attributed to its entry point, and not stored on the scanner. Only the app's value is kept: any other caller is reported as its own source, such as `mcp`. Ignored on update.
+     * @nullable
+     * @pattern ^[a-z0-9_]{1,64}$
+     */
+    entry_point?: string | null
     /** Set with `enabled: true` to turn on a scanner whose creator can no longer view recordings. The caller becomes the scanner's creator, and scheduled scans then run as the caller. Without it, that request fails with code `scanner_creator_lost_access`. */
     take_over_as_creator?: boolean
     /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */
@@ -1513,6 +1519,12 @@ export interface PatchedReplayScannerApi {
      * * `template` - Template
      * * `scratch` - From scratch */
     creation_method?: ScannerCreationMethodEnumApi | null
+    /**
+     * The app surface the creator started from, such as `replay_filters`. Reported to product analytics at creation so a scanner can be attributed to its entry point, and not stored on the scanner. Only the app's value is kept: any other caller is reported as its own source, such as `mcp`. Ignored on update.
+     * @nullable
+     * @pattern ^[a-z0-9_]{1,64}$
+     */
+    entry_point?: string | null
     /** Set with `enabled: true` to turn on a scanner whose creator can no longer view recordings. The caller becomes the scanner's creator, and scheduled scans then run as the caller. Without it, that request fails with code `scanner_creator_lost_access`. */
     take_over_as_creator?: boolean
     /** Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`. */

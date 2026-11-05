@@ -11,7 +11,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.event_usage import report_user_action
-from posthog.permissions import is_authenticated_via_project_secret_api_key
+from posthog.permissions import is_authenticated_via_project_secret_api_key, legacy_scope_object_used
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
 from products.messaging.backend.facade.preferences import TopicsNotFound, set_preferences
@@ -83,7 +83,8 @@ class TopicPreferencesTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle)
 
 
 class TopicPreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
-    scope_object = "hog_flow"
+    # LEGACY_SCOPE_FALLBACKS lets `hog_flow:write` satisfy this scope too, with no end date.
+    scope_object = "messaging_preference"
     permission_classes = [IsAuthenticated]
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
     psak_allowed_actions = ["create"]
@@ -113,8 +114,9 @@ class TopicPreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "Opt one recipient out of topics, or back in, in one call. `all_marketing` applies first, then each "
             "topic in order, and the whole change is saved at once. The same change twice ends the same, but a retry "
             "that lands after a newer change undoes that change. Workflows sends skip a marketing topic the "
-            "recipient opted out of. Needs a project secret API key with the `hog_flow:write` scope, which can also "
-            "send transactional email."
+            "recipient opted out of. Needs a project secret API key with the `messaging_preference:write` scope, "
+            "which cannot send email. A key with `hog_flow:write` also works, but that scope can send transactional "
+            "email too."
         ),
     )
     def create(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
@@ -145,9 +147,13 @@ class TopicPreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     "outcome": outcome,
                     "topic_count": len(data.get("topics") or {}),
                     "sets_all_marketing": "all_marketing" in data,
+                    "authorized_by": self._authorized_by(request),
                 },
                 team=self.team,
                 organization=self.organization,
             )
         except Exception as e:
             logger.warning("Failed to capture messaging preferences api event", error=str(e))
+
+    def _authorized_by(self, request: ValidatedRequest) -> str:
+        return legacy_scope_object_used(request, f"{self.scope_object}:write") or self.scope_object
