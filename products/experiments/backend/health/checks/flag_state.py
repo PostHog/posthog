@@ -27,6 +27,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthValueKey,
 )
 from products.experiments.backend.health.context import (
     ConditionSetTraffic,
@@ -37,7 +38,7 @@ from products.experiments.backend.health.context import (
     PauseHistory,
 )
 from products.experiments.backend.health.delays import ENDED_FLAG_QUIET_PERIOD
-from products.experiments.backend.health.skips import NO_FLAG, CheckOutcome, CheckSkip, not_applicable
+from products.experiments.backend.health.skips import NO_FLAG, CheckOutcome, CheckSkip, CheckValues, not_applicable
 from products.experiments.backend.health.split_changes import (
     SplitChangeShape,
     describe_split,
@@ -78,6 +79,20 @@ _OUTSIDE_ASSIGNMENT_SETTLED_AFTER = timedelta(days=1)
 
 _NOT_RUNNING_BUT_EXPOSED_TITLE = "The experiment is not running, but users are exposed to multiple variants"
 OTHER_EXPERIMENT_DECIDES = "Another experiment on the same feature flag decides the flag's state"
+
+
+def flag_state_values(ctx: HealthContext) -> CheckValues:
+    flag = ctx.flag
+    if flag is None:
+        return {}
+    return {
+        ExperimentHealthValueKey.FLAG_ACTIVE: flag.active,
+        ExperimentHealthValueKey.FLAG_DELETED: flag.deleted,
+        ExperimentHealthValueKey.FLAG_ROLLED_OUT: not _has_zero_rollout(flag),
+        ExperimentHealthValueKey.SHIPPED_VARIANT: shipped_variant_key(flag)
+        if is_single_variant_shipped(flag)
+        else None,
+    }
 
 
 def flag_state(ctx: HealthContext) -> CheckOutcome:

@@ -429,7 +429,10 @@ class LoginSerializer(serializers.Serializer):
                 code="verified_domain_required",
             )
 
-        clear_two_factor_session_flags(request)
+        # A re-auth keeps the 2FA flag so that the signed-in session works while the user enters
+        # the second factor. Without the flag, enforced 2FA refuses every other request until logout.
+        if not was_authenticated_before_login_attempt:
+            clear_two_factor_session_flags(request)
 
         if self._check_if_2fa_required(user):
             request.session["user_authenticated_but_no_2fa"] = user.pk

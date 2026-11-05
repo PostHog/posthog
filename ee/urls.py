@@ -10,6 +10,7 @@ from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from posthog.admin import register_all_admin
+from posthog.admin.console.moved import MovedToConsole
 from posthog.admin.oauth2 import admin_oauth2_callback
 from posthog.admin.oauth_views import admin_auth_check, admin_oauth_success
 from posthog.api.sso import saml_metadata_view
@@ -66,7 +67,6 @@ if settings.ADMIN_PORTAL_ENABLED:
             pass
 
     from posthog.admin.admins.distinct_id_usage_admin import distinct_id_usage_view
-    from posthog.admin.admins.events_retention_admin import events_retention_view
     from posthog.admin.admins.health_check_admin import (
         health_check_list_view,
         health_check_runs_fragment_view,
@@ -79,6 +79,7 @@ if settings.ADMIN_PORTAL_ENABLED:
     )
     from posthog.admin.admins.resave_cohorts_admin import resave_cohorts_view
     from posthog.admin.admins.tophog_admin import tophog_dashboard_view, tophog_restrictions_view
+    from posthog.admin.console.urls import urlpatterns as console_urlpatterns
 
     admin_urlpatterns = [
         # APPEND_SLASH is disabled globally, so redirect /admin to /admin/ explicitly
@@ -101,7 +102,7 @@ if settings.ADMIN_PORTAL_ENABLED:
         ),
         path(
             "admin/events-retention/",
-            admin.site.admin_view(events_retention_view),
+            MovedToConsole.page_redirect("Events retention", "/admin/console/tools/events-retention/"),
             name="events-retention",
         ),
         path(
@@ -164,6 +165,8 @@ if settings.ADMIN_PORTAL_ENABLED:
                 query_string=True,
             ),
         ),
+        # Before admin.site.urls, whose `<app_label>/` pattern would claim /admin/console/.
+        *console_urlpatterns,
         path("admin/", include("loginas.urls")),
         path("admin/", admin.site.urls),
     ]

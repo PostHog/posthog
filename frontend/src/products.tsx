@@ -402,6 +402,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/transactional/reputation': ['Transactional', 'transactional'],
     '/transactional/settings': ['Transactional', 'transactional'],
     '/transactional/new': ['Transactional', 'transactional'],
+    '/transactional/log': ['Transactional', 'transactional'],
     '/transactional/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
     '/broadcasts/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
     '/broadcasts/new': ['Broadcast', 'broadcast'],
@@ -1853,11 +1854,13 @@ export const productUrls = {
     insightNew: ({
         type,
         dashboardId,
+        tileGroupKey,
         query,
         sceneSource,
     }: {
         type?: InsightType
         dashboardId?: DashboardType['id'] | null
+        tileGroupKey?: string | null
         query?: Node
         sceneSource?: InsightSceneSource
     } = {}): string => {
@@ -1872,11 +1875,15 @@ export const productUrls = {
         if ((isDataVisualizationNode(query) || isDataTableNode(query)) && isHogQLQuery(query.source)) {
             return urls.sqlEditor({ query })
         }
-        return combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, {
-            ...(type ? { insight: type } : {}),
-            ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
-            ...(sceneSource ? { sceneSource } : {}),
-        }).url
+        return combineUrl(
+            '/insights/new',
+            dashboardId ? { dashboard: dashboardId, ...(tileGroupKey ? { tile_group: tileGroupKey } : {}) } : {},
+            {
+                ...(type ? { insight: type } : {}),
+                ...(query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}),
+                ...(sceneSource ? { sceneSource } : {}),
+            }
+        ).url
     },
     insightNewHogQL: ({ query, filters }: { query: string; filters?: HogQLFilters }): string =>
         urls.insightNew({
@@ -2062,6 +2069,7 @@ export const productUrls = {
     broadcastNew: (): string => '/broadcasts/new',
     transactional: (tab?: MessagingNavTabKey): string => `/transactional${tab ? `/${tab}` : ''}`,
     transactionalNew: (): string => '/transactional/new',
+    transactionalLog: (): string => '/transactional/log',
     transactionalTemplate: (id: string): string => `/transactional/library/templates/${id}`,
     broadcastsTemplate: (id: string): string => `/broadcasts/library/templates/${id}`,
 }
