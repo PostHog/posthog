@@ -11,8 +11,7 @@ from temporalio import activity
 if TYPE_CHECKING:
     import modal
 
-    from posthog.llm.gateway_client import Product
-
+from posthog.integrations import IntegrationManager
 from posthog.temporal.common.utils import asyncify
 from posthog.temporal.oauth import create_oauth_access_token_for_user
 
@@ -22,14 +21,15 @@ from products.tasks.backend.logic.services.image_spec import (
     validate_image_repository,
     validate_spec_buildable,
 )
+from products.tasks.backend.logic.services.task_filesystem import TASK_FILESYSTEM_LOCAL_SCRIPT, TASK_FILESYSTEM_SCRIPT
 from products.tasks.backend.metrics import observe_custom_image_build
 from products.tasks.backend.models import SandboxCustomImage
 from products.tasks.backend.temporal.observability import log_activity_execution
 
 logger = logging.getLogger(__name__)
 
-SCAN_JUDGE_MODEL = "@cf/zai-org/glm-5.2"
-SCAN_JUDGE_PRODUCT: "Product" = "custom_image_scans"
+SCAN_JUDGE_MODEL = "zai-org/glm-5.2"
+SCAN_JUDGE_AI_PRODUCT = "custom_image_scans"
 
 SCAN_JUDGE_SYSTEM_PROMPT = """You are a security judge reviewing a declarative sandbox image spec before it is built and published.
 
@@ -103,10 +103,11 @@ def _get_image(input: ImageBuildActivityInput) -> SandboxCustomImage:
     return SandboxCustomImage.objects.for_team(input.team_id).get(id=input.image_id)
 
 
-def _judge_spec_safety(
-    spec_yaml: str, team_id: int, repository: str = "", gateway_token: str | None = None
-) -> ScanImageSpecOutput:
-    from posthog.llm.gateway_client import get_llm_client  # noqa: PLC0415 — keeps the OpenAI SDK off startup paths
+def _judge_spec_safety(spec_yaml: str, team_id: int, gateway_token: str, repository: str = "") -> ScanImageSpecOutput:
+    from posthog.llm.gateway_client import (  # noqa: PLC0415 — keeps the OpenAI SDK off startup paths
+        build_ai_gateway_openai_client,
+        team_distinct_id,
+    )
 
     repo_context = (
         f"This image is linked to the GitHub repository {repository}; the spec's purpose is to prepare "
@@ -114,7 +115,12 @@ def _judge_spec_safety(
         if repository
         else ""
     )
-    client = get_llm_client(product=SCAN_JUDGE_PRODUCT, team_id=team_id, api_key=gateway_token)
+    client = build_ai_gateway_openai_client(
+        api_key=gateway_token,
+        ai_product=SCAN_JUDGE_AI_PRODUCT,
+        properties={"team_id": str(team_id)},
+        distinct_id=team_distinct_id(team_id),
+    )
     response = client.chat.completions.create(
         model=SCAN_JUDGE_MODEL,
         messages=[
@@ -127,7 +133,7 @@ def _judge_spec_safety(
         temperature=0.0,
         max_completion_tokens=1024,
         response_format={"type": "json_object"},
-        user=f"team-{team_id}",
+        user=team_distinct_id(team_id),
     )
     content = response.choices[0].message.content
     try:
@@ -157,9 +163,7 @@ def scan_image_spec(input: ImageBuildActivityInput) -> ScanImageSpecOutput:
             scopes=["llm_gateway:read", "internal_run:read"],
             include_internal_scopes=False,
         )
-        result = _judge_spec_safety(
-            spec.to_yaml(), input.team_id, repository=image.repository, gateway_token=gateway_token
-        )
+        result = _judge_spec_safety(spec.to_yaml(), input.team_id, gateway_token, repository=image.repository)
 
         image.scan_result = {"passed": result.passed, "findings": result.findings}
         if result.passed:
@@ -192,15 +196,13 @@ def _sanitized_build_log(raw: str) -> str:
 
 
 def _resolve_build_github_token(team_id: int) -> str | None:
-    from posthog.models.integration import Integration  # noqa: PLC0415
-
     from products.tasks.backend.temporal.create_snapshot.utils import get_github_token  # noqa: PLC0415
 
-    integration = Integration.objects.filter(team_id=team_id, kind="github").first()
+    integration = IntegrationManager.github.oauth.find(team_id)
     if integration is None:
         return None
     try:
-        return get_github_token(integration.id)
+        return get_github_token(team_id, integration.id)
     except Exception as e:
         logger.warning("custom_image_build_github_token_failed", extra={"team_id": team_id, "error": str(e)})
         return None
@@ -270,6 +272,10 @@ def _compose_modal_image(
 
     if spec.repo_setup_commands:
         image = _attach_repo_warm_layer(image, spec)
+
+    image = image.add_local_file(TASK_FILESYSTEM_LOCAL_SCRIPT, TASK_FILESYSTEM_SCRIPT, copy=True).run_commands(
+        f"/usr/bin/python3 -I {TASK_FILESYSTEM_SCRIPT} seed-home"
+    )
 
     return image, app, base_image_reference
 

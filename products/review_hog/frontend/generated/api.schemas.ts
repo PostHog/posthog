@@ -336,6 +336,8 @@ export interface ReviewRepositoryApi {
      * * `listed` - Automatic Flash for these people
      * * `off` - Automatic Flash opt-in only */
     readonly flash_for: AutomaticFlashForEnumApi | null
+    /** Whether draft pull requests in this repository get their automatic review when they open. */
+    readonly review_drafts: boolean
     /** The people on the exception's two lists. Only the list that matches flash_for has an effect. */
     readonly people: readonly ReviewRepositoryPersonApi[]
     /** Who added the repository. */
@@ -368,6 +370,8 @@ export interface ReviewRepositoryWriteApi {
      * * `listed` - Automatic Flash for these people
      * * `off` - Automatic Flash opt-in only */
     flash_for?: AutomaticFlashForEnumApi | null
+    /** True lets draft pull requests in this repository get their automatic review when they open. False waits until they are ready for review. Omit it to keep the current value. */
+    review_drafts?: boolean
 }
 
 export interface ReviewRepositoryWriteResponseApi {
@@ -550,6 +554,8 @@ export interface ReviewRepositoryOverviewEntryApi {
     repository_id: string | null
     /** This project's repository exception. Null when the repository follows the project. */
     exception: ReviewRepositoryExceptionApi | null
+    /** Whether draft pull requests in this repository get their automatic review when they open. Authors who turned off reviews of their drafts still get none. */
+    review_drafts: boolean
     /** The requesting user's own choice for this repository: 'flash', 'off', or null.
      *
      * * `flash` - Flash
@@ -587,7 +593,7 @@ export interface ReviewRepositoryOverviewApi {
      * @nullable
      */
     next_offset: number | null
-    /** With view 'differs', or 'all' without a search: how many repositories 'differs' leaves out because this project reviews them with no exception and no own choice. 0 otherwise. */
+    /** With view 'differs', or 'all' without a search: how many repositories 'differs' leaves out because this project reviews them with no exception, no draft reviews and no own choice. 0 otherwise. */
     folded: number
     /** With view 'differs', or 'all' without a search: the names of the first left-out repositories, at most 3. Empty otherwise. */
     folded_preview: string[]
@@ -687,6 +693,11 @@ export interface ReviewProgressApi {
      * @nullable
      */
     total: number | null
+    /** What the in-flight turn runs: 'full' (Deep) or 'flash' (Standard). The row's `review_mode` describes the last completed turn, which can differ. Null until the turn records its mode, shortly before its review sessions start.
+     *
+     * * `full` - Deep
+     * * `flash` - Standard */
+    review_mode: ReviewTriggerReviewModeEnumApi | null
 }
 
 /**
@@ -1048,7 +1059,7 @@ export interface ReviewDroppedFindingApi {
      * @nullable
      */
     source_perspective: string | null
-    /** Why the turn did not post the finding. `old_code`: a follow-up turn's P3 finding on code that did not change since the last reviewed head (turns before reviewhog-flash-2-3 dropped P2 findings this way too). `dedup_prior`: repeats an earlier turn's finding. `dedup_comment`: repeats a PR comment. `dedup_anchor`: repeats a main-review finding at the same spot. `dedup_sibling`: repeats another finding from the same session or lens. `cap`: ranked below the per-review finding limit.
+    /** Why the turn did not post the finding. `old_code`: a follow-up turn's finding on code that did not change since the last reviewed head. An automatic follow-up (run 2 and later) drops P2 and P3 findings this way, a requested review drops only P3, and a first review drops none. `dedup_prior`: repeats an earlier turn's finding. `dedup_comment`: repeats a PR comment. `dedup_anchor`: repeats a main-review finding at the same spot. `dedup_sibling`: repeats another finding from the same session or lens. `cap`: ranked below the per-review finding limit.
      *
      * * `old_code` - On unchanged code
      * * `dedup_prior` - Repeat of an earlier review
@@ -1356,7 +1367,20 @@ export interface ReviewPRStatusApi {
     request_outcome: ReviewPRStatusRequestOutcomeApi | null
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface ReviewReviewsTablePageApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** How many reviews match the scope and every filter, across all pages. */
     count: number
     /** How many reviews have a run in flight under the scope and filters, ignoring `status`. Labels the running quick filter without a second request. */
@@ -1552,7 +1576,7 @@ export interface ReviewUserSettingsApi {
      * * `flash` - On everywhere
      * * `off` - Off everywhere */
     default_review_mode?: DefaultReviewModeEnumApi
-    /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: the posthog-review label, an @posthog review comment, and the Review button still review drafts. */
+    /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: an @posthog review comment and the Review button still review drafts. */
     review_drafts?: boolean
     /** After a Deep review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */
     resolve_comments?: boolean
@@ -1583,7 +1607,7 @@ export interface PatchedReviewUserSettingsApi {
      * * `flash` - On everywhere
      * * `off` - Off everywhere */
     default_review_mode?: DefaultReviewModeEnumApi
-    /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: the posthog-review label, an @posthog review comment, and the Review button still review drafts. */
+    /** Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: an @posthog review comment and the Review button still review drafts. */
     review_drafts?: boolean
     /** After a Deep review of the user's pull requests is published, run the resolution stage: triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. Off by default. Personal only: no project default applies. */
     resolve_comments?: boolean

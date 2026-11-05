@@ -50,7 +50,7 @@ import {
     visibleDurationRange,
 } from './durationBuckets'
 import { type HeatmapBrushSelection, heatmapBrushToFilters } from './heatmapBrush'
-import { traceLookupDateRange } from './traceLinks'
+import { resolveTraceLookupRange } from './traceLinks'
 import { traceRows } from './traceRows'
 import {
     type TracingFilters,
@@ -96,19 +96,17 @@ const DEFAULT_PAGE_SIZE = 100
 const OPERATIONS_AGGREGATION_LIMIT = 5000
 export const PREFETCH_SPANS = 20
 
-// A ts hint (from a shared/cold link) bounds the lookup tightly around the trace. Without one, the
-// lookup sends no date range, so the backend finds the trace by id in all retained spans instead of
-// only in the scene's current window. Guard validity: a hand-edited/corrupted ts would otherwise make
-// dayjs throw on toISOString().
-function resolveTraceLookupRange(ts: string | null | undefined): { date_from: string; date_to: string } | undefined {
-    return ts && dayjs(ts).isValid() ? traceLookupDateRange(ts) : undefined
-}
-
 function captureTracingResults(count: number, queryType: 'spans' | 'aggregation'): void {
     if (count === 0) {
         posthog.capture('tracing no results returned', { query_type: queryType })
     } else {
         posthog.capture('tracing results returned', { count, query_type: queryType })
+        // $set_once keeps the first value, so one send per browser is enough for survey targeting.
+        const stampKey = `ph_first_used_tracing_stamp_${posthog.get_distinct_id()}`
+        if (!localStorage.getItem(stampKey)) {
+            posthog.setPersonProperties(undefined, { first_used_tracing_at: new Date().toISOString() })
+            localStorage.setItem(stampKey, Date.now().toString())
+        }
     }
 }
 
@@ -163,6 +161,7 @@ export interface tracingDataLogicValues {
         traceCount: number
     }
     matchingCountsAbortController: AbortController | null
+    matchingCountsFailed: boolean
     matchingCountsLoading: boolean
     nextCursor: string | null
     rawDurationHistogram: DurationHistogramRow[]
@@ -310,9 +309,11 @@ export interface tracingDataLogicActions {
     fetchAggregation: (
         options?: {
             fullRange?: boolean
+            groupByEndpoint?: boolean
         } | null
     ) => {
         fullRange?: boolean
+        groupByEndpoint?: boolean
     } | null
     fetchAggregationFailure: (
         error: string,
@@ -328,6 +329,7 @@ export interface tracingDataLogicActions {
         },
         payload?: {
             fullRange?: boolean
+            groupByEndpoint?: boolean
         } | null
     ) => {
         aggregation: {
@@ -336,6 +338,7 @@ export interface tracingDataLogicActions {
         }
         payload?: {
             fullRange?: boolean
+            groupByEndpoint?: boolean
         } | null
     }
     fetchDurationHistogram: () => any
@@ -626,6 +629,7 @@ export interface tracingDataLogicMeta {
                 count: number
                 traceCount: number
             },
+            matchingCountsFailed: boolean,
             filters: TracingFilters
         ) => number
         durationHistogramData: (rawDurationHistogram: DurationHistogramRow[]) => TracingDurationHistogramData
@@ -824,6 +828,15 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 fetchSpans: () => null,
                 fetchSpansSuccess: () => null,
                 fetchSpansFailure: (state, { error }) => (isUserInitiatedError(error) ? state : error),
+            },
+        ],
+        // The count is a secondary label, so a failed count hides the label instead of raising a toast.
+        // Without this flag the label keeps the previous scope's count, which no longer matches the filters.
+        matchingCountsFailed: [
+            false as boolean,
+            {
+                fetchMatchingCountsSuccess: () => false,
+                fetchMatchingCountsFailure: (state, { error }) => (isUserInitiatedError(error) ? state : true),
             },
         ],
         sparklineError: [
@@ -1124,11 +1137,12 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                 // `fullRange` (the Operations tab) ignores any active comparison: the aggregate
                 // covers the whole selected range with no compare period, matching the rate
                 // denominator the OperationsTable divides by.
-                fetchAggregation: async (options?: { fullRange?: boolean } | null) => {
+                fetchAggregation: async (options?: { fullRange?: boolean; groupByEndpoint?: boolean } | null) => {
                     const controller = new AbortController()
                     actions.cancelInProgressAggregation(controller)
 
                     const fullRange = options?.fullRange ?? false
+                    const groupByEndpoint = options?.groupByEndpoint || undefined
                     const currentWindow = fullRange ? values.sparklineWindowMs : values.currentWindowMs
                     const compare = !fullRange && values.timeComparison !== null
 
@@ -1169,6 +1183,8 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                             // Only the Operations table renders the Sessions and Users columns, and
                             // the aggregates read attribute maps the rest of the query never touches.
                             includeImpact: fullRange && !!values.featureFlags[FEATURE_FLAGS.TRACING_IMPACT_STRIP],
+                            groupByEndpoint,
+                            includeHealth: groupByEndpoint,
                         },
                         controller.signal
                     )
@@ -1365,9 +1381,17 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         // Total matching the filters, in the unit the list is showing: distinct traces in 'traces'
         // mode, individual spans in 'spans' mode. Fed by the count endpoint, which returns both.
         totalMatchingFilters: [
-            (s) => [s.matchingCounts, s.filters],
-            (matchingCounts: { count: number; traceCount: number }, filters: TracingFilters): number =>
-                filters.viewMode === 'spans' ? matchingCounts.count : matchingCounts.traceCount,
+            (s) => [s.matchingCounts, s.matchingCountsFailed, s.filters],
+            (
+                matchingCounts: { count: number; traceCount: number },
+                matchingCountsFailed: boolean,
+                filters: TracingFilters
+            ): number => {
+                if (matchingCountsFailed) {
+                    return 0
+                }
+                return filters.viewMode === 'spans' ? matchingCounts.count : matchingCounts.traceCount
+            },
         ],
         durationHistogramData: [
             (s) => [s.rawDurationHistogram],
@@ -1623,7 +1647,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         },
         fetchMatchingCountsFailure: ({ error }) => {
             if (!isUserInitiatedError(error)) {
-                lemonToast.error(`Failed to load the matching count: ${error}`)
+                posthog.capture('tracing query failed', { query_type: 'count', error_message: String(error) })
             }
         },
         fetchAggregationFailure: ({ error }) => {

@@ -319,11 +319,20 @@ class TestFunnelResultsFormatter(BaseTest):
             dateRange=AssistantDateRange(date_from="2025-01-20", date_to="2025-01-22"),
             funnelsFilter=AssistantFunnelsFilter(funnelVizType=FunnelVizType.TIME_TO_CONVERT),
         )
-        results = {"average_conversion_time": 600, "bins": [[600, 1], [601, 0]]}
+        results = {"average_conversion_time": 600, "bins": [[600, 15], [601, 0], [602, 5]]}
         self.assertEqual(
             FunnelResultsFormatter(query, results, self.team, datetime.now()).format(),
-            "Date range: 2025-01-20 00:00:00 to 2025-01-22 23:59:59 (UTC)\n\nEvents: $pageview (custom) -> $ai_trace\nAverage time to convert|User distribution\n10m|100%\n10m 1s|0%\n\nThe user distribution is the percentage of users who completed the funnel in the given period.",
+            "Date range: 2025-01-20 00:00:00 to 2025-01-22 23:59:59 (UTC)\n\nEvents: $pageview (custom) -> $ai_trace\nAverage time to convert|User distribution\n10m|75%\n10m 1s|0%\n10m 2s|25%\n\nThe user distribution is the percentage of users who completed the funnel in the given period.",
         )
+
+    def test_funnels_time_to_convert_with_only_empty_bins(self):
+        query = AssistantFunnelsQuery(
+            series=[AssistantFunnelsEventsNode(event="$pageview"), AssistantFunnelsEventsNode(event="signup")],
+            funnelsFilter=AssistantFunnelsFilter(funnelVizType=FunnelVizType.TIME_TO_CONVERT),
+        )
+        results = {"average_conversion_time": None, "bins": [[600, 0], [601, 0]]}
+        output = FunnelResultsFormatter(query, results, self.team, datetime.now()).format()
+        self.assertIn("Average time to convert|User distribution\n10m|0%\n10m 1s|0%", output)
 
     def test_funnel_trends(self):
         results = [

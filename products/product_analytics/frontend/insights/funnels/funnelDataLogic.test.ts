@@ -16,7 +16,6 @@ import {
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
-    EntityType,
     FilterLogicalOperator,
     FunnelConversionWindowTimeUnit,
     FunnelStep,
@@ -541,20 +540,15 @@ describe('funnelDataLogic', () => {
                 }
             )
 
-            // A group step as the backend serializes it: `name` and `action_id` both hold the joined
-            // member list, so a group's own label is machine-composed rather than typed by a person.
+            // A group step as the backend serializes it: `name` holds the joined member list, so a
+            // group's own label is machine-composed rather than typed by a person.
             const groupStep: FunnelStep = {
                 ...(funnelResult.result as FunnelStep[])[0],
-                action_id: '$pageview, $autocapture',
                 name: '$pageview, $autocapture',
-                // The backend labels a group step `group`, which `EntityType` spells `groups`.
-                type: 'group' as EntityType,
             }
             const warehouseStep: FunnelStep = {
                 ...(funnelResult.result as FunnelStep[])[0],
-                action_id: '',
                 name: 'stripe_invoices',
-                type: 'data_warehouse',
             }
 
             const exemptCases: [string, FunnelsQuerySeriesNodeUnion, FunnelStep | null, string | null][] = [
@@ -687,9 +681,9 @@ describe('funnelDataLogic', () => {
                         { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
                     ],
                 }
-                // The backend serializes an all-events step with a null name and action_id.
+                // The backend serializes an all-events step with a null name.
                 const result = [...(funnelResult.result as FunnelStep[])]
-                result[0] = { ...result[0], action_id: null as unknown as string, name: null as unknown as string }
+                result[0] = { ...result[0], name: null as unknown as string }
                 const insight: Partial<InsightModel> = {
                     result,
                 }
@@ -1114,6 +1108,39 @@ describe('funnelDataLogic', () => {
                             ],
                         }),
                     ],
+                })
+            })
+
+            it('sums step totals over the selected breakdown values when the baseline is hidden', async () => {
+                const insight: Partial<InsightModel> = {
+                    result: funnelResultWithBreakdown.result,
+                }
+                const query: FunnelsQuery = {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [],
+                    funnelsFilter: {
+                        hiddenLegendBreakdowns: ['Baseline', 'Firefox'],
+                    },
+                }
+
+                await expectLogic(logic, () => {
+                    logic.actions.updateQuerySource(query)
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
+                }).toMatchValues({
+                    hasPartialBreakdownSelection: true,
+                    visibleStepsWithConversionMetrics: [
+                        expect.objectContaining({ count: 148 }),
+                        expect.objectContaining({
+                            count: 72,
+                            droppedOffFromPrevious: 76,
+                            conversionRates: expect.objectContaining({ fromPrevious: 72 / 148, total: 72 / 148 }),
+                            nested_breakdown: [
+                                expect.objectContaining({ breakdown_value: ['Chrome'], count: 66 }),
+                                expect.objectContaining({ breakdown_value: ['Safari'], count: 6 }),
+                            ],
+                        }),
+                    ],
+                    conversionMetrics: expect.objectContaining({ totalRate: 72 / 148 }),
                 })
             })
 

@@ -235,7 +235,6 @@ class TestUsage(BaseTest):
             },
             "billing_plan": "paid",
             "has_active_subscription": True,
-            "is_deactivated": False,
             "products": [],
             "settings": {"autocapture_on": True, "active_destinations": 0},
             "subscription_level": "paid",

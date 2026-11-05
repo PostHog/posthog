@@ -11,7 +11,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mongodb import (
     MongoDBSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import DATABASE_NAME_REQUIRED_ERROR
+from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
+    DATABASE_NAME_REQUIRED_ERROR,
+    UNSUPPORTED_FILE_OPTION_ERROR,
+    UnsupportedConnectionOptionError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source import (
     _DNS_RESOLUTION_FAILURE_MARKERS,
     _MONGO_AUTHENTICATION_FAILED_MESSAGE,
@@ -23,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.so
     _MONGO_SERVER_TOO_OLD_MESSAGE,
     _MONGO_UNESCAPED_CREDENTIALS_MESSAGE,
     _MONGO_UNREACHABLE_MESSAGE,
+    _MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE,
     MongoDBSource,
 )
 
@@ -218,6 +223,11 @@ class TestMongoValidateCredentialsErrorTrackingNoise:
                 True,
             ),
             (Exception("some-internal-driver-detail"), _MONGO_CONNECT_FAILED_MESSAGE, True),
+            (
+                UnsupportedConnectionOptionError(UNSUPPORTED_FILE_OPTION_ERROR),
+                _MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE,
+                False,
+            ),
         ],
     )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.capture_exception")

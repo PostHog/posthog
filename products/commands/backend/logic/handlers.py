@@ -9,19 +9,27 @@ data.
 """
 
 from collections.abc import Collection
+from uuid import UUID
 
 import structlog
 
+from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.utils import absolute_uri
 
+from products.error_tracking.backend.facade import issues as error_tracking_issues
+from products.knowledge_writer.backend.facade import (
+    api as knowledge_writer_facade,
+    contracts as knowledge_writer_contracts,
+)
 from products.review_hog.backend.facade import (
     github as review_hog_github,
     reviews as review_hog_facade,
 )
 from products.stamphog.backend.facade import (
     contracts as stamphog_contracts,
+    enums as stamphog_enums,
     review_requests as stamphog_requests,
 )
 from products.tasks.backend.facade import (
@@ -30,8 +38,10 @@ from products.tasks.backend.facade import (
     usage as tasks_usage,
 )
 
-from .commands import Answer, CommandContext, CommandOutcome, CommandTarget, PullRequestRef
-from .schema import LoopArgs, QaArgs, ReviewArgs, StampArgs
+from . import follow_ups
+from .commands import Answer, CommandContext, CommandOutcome, CommandTarget, PullRequestRef, SubjectRef
+from .schema import AssignArgs, DocsArgs, LoopArgs, QaArgs, ResolveArgs, ReviewArgs, StampArgs
+from .subjects import candidate_team_ids
 
 logger = structlog.get_logger(__name__)
 
@@ -42,8 +52,16 @@ def _project_ids(team_ids: Collection[int]) -> dict[int, int]:
     return {team_id: parent_team_id or team_id for team_id, parent_team_id in rows}
 
 
-def review_target(ref: PullRequestRef, team_ids: tuple[int, ...]) -> CommandTarget | Answer:
+def _pull_request_ref(ref: SubjectRef) -> PullRequestRef:
+    # Dispatch runs a target hook only for a command that accepts the subject's kind.
+    if not isinstance(ref, PullRequestRef):
+        raise TypeError(f"Expected a pull request, got {type(ref).__name__}")
+    return ref
+
+
+def review_target(subject: SubjectRef, team_ids: tuple[int, ...]) -> CommandTarget | Answer:
     """The project that owns the repository in PostHog Review, and its environments."""
+    ref = _pull_request_ref(subject)
     owner_team_id = review_hog_github.owning_team_id(ref.installation_id, ref.repository)
     if owner_team_id is None:
         return Answer(outcome="refused", message="PostHog Review isn't set up for this repository.")
@@ -54,14 +72,83 @@ def review_target(ref: PullRequestRef, team_ids: tuple[int, ...]) -> CommandTarg
     )
 
 
-def stamp_target(ref: PullRequestRef, team_ids: tuple[int, ...]) -> CommandTarget | Answer:
+def stamp_target(subject: SubjectRef, team_ids: tuple[int, ...]) -> CommandTarget | Answer:
     """The projects where Stamphog reviews the repository, and their environments."""
+    ref = _pull_request_ref(subject)
     reviewing = stamphog_requests.reviewing_team_ids(ref.repository, team_ids)
     if not reviewing:
         return Answer(outcome="refused", message="Stamphog is not set up for this repository.")
     return CommandTarget(
         team_ids=tuple(reviewing),
         not_member_message="You aren't a member of the PostHog project where Stamphog reviews this repository.",
+    )
+
+
+def docs_listed(subject: SubjectRef) -> bool:
+    writer_team_id = knowledge_writer_facade.writer_team_id()
+    return writer_team_id is not None and writer_team_id in candidate_team_ids(subject)
+
+
+def docs_target(subject: SubjectRef, team_ids: tuple[int, ...]) -> CommandTarget | Answer:
+    _pull_request_ref(subject)
+    writer_team_id = knowledge_writer_facade.writer_team_id()
+    if writer_team_id is None:
+        return Answer(outcome="refused", message="The knowledge writer isn't set up.")
+    return CommandTarget(
+        team_ids=tuple(team_id for team_id in team_ids if team_id == writer_team_id),
+        not_member_message="You aren't a member of the PostHog project the knowledge writer runs in.",
+    )
+
+
+DOCS_REPLIES: dict[knowledge_writer_contracts.IntakeStatus, CommandOutcome] = {
+    "started": CommandOutcome(
+        accepted=True, message="Queued. The knowledge writer will open a docs pull request for this change."
+    ),
+    "joined": CommandOutcome(
+        accepted=True, message="Queued. The knowledge writer will add this change to its open docs pull request."
+    ),
+    "duplicate": CommandOutcome(accepted=True, message="The knowledge writer already has this pull request."),
+    "shadow": CommandOutcome(accepted=False, message="The knowledge writer isn't starting runs yet."),
+    "capped": CommandOutcome(accepted=False, message="The knowledge writer hit its run limit. Try again tomorrow."),
+    "section_busy": CommandOutcome(
+        accepted=False,
+        message="The knowledge writer is already updating that docs section. Try again once its pull request is up.",
+    ),
+    "docs_in_source_repo": CommandOutcome(
+        accepted=False,
+        message="Those docs pages live in this repository, so update them in this pull request.",
+    ),
+    "unconfigured": CommandOutcome(accepted=False, message="The knowledge writer isn't set up."),
+    "no_docs": CommandOutcome(accepted=False, message="The knowledge writer found no docs to change."),
+}
+
+
+def handle_docs(context: CommandContext, args: DocsArgs) -> CommandOutcome:
+    pull_request = context.pull_request
+    if pull_request.is_private:
+        return CommandOutcome(accepted=False, message="The knowledge writer only runs on public repositories.")
+    outcome = knowledge_writer_facade.request_docs_for_pull_request(
+        knowledge_writer_contracts.DocsCommandRequest(
+            repository=pull_request.repository,
+            pull_request_number=pull_request.number,
+            pull_request_url=pull_request.url,
+            head_sha=pull_request.head_sha,
+            note=args.note,
+            requested_by=context.request.requester,
+            requested_by_user_id=context.members[0].user_id,
+        ),
+        team_id=context.members[0].team_id,
+    )
+    return DOCS_REPLIES[outcome.status]
+
+
+def _follow_up(context: CommandContext) -> follow_ups.FollowUp | None:
+    if context.follow_up is None:
+        return None
+    return follow_ups.FollowUp(
+        address=context.follow_up,
+        subject_label=context.request.subject.describe(),
+        subject_url=context.subject.url,
     )
 
 
@@ -79,6 +166,9 @@ def handle_stamp(context: CommandContext, args: StampArgs) -> CommandOutcome:
     except stamphog_contracts.ReviewRequestRefusedError as error:
         # Stamphog writes its refusals for the requester, from the repository name and PR number only.
         return CommandOutcome(accepted=False, message=error.message)
+    follow_up = _follow_up(context)
+    if follow_up is not None and result.run.status not in stamphog_enums.TERMINAL_STATUSES:
+        follow_ups.remember(follow_ups.stamphog_run_key(str(result.run.id)), follow_up)
     if result.created:
         return CommandOutcome(accepted=True, message="Stamphog is reviewing this pull request.")
     return CommandOutcome(
@@ -112,6 +202,11 @@ def handle_review(context: CommandContext, args: ReviewArgs) -> CommandOutcome:
     if outcome.status == review_hog_facade.PRReviewRequestStatus.ALREADY_REVIEWED:
         return CommandOutcome(accepted=True, message="PostHog Review already reviewed the current commit.")
     if outcome.started:
+        follow_up = _follow_up(context)
+        if follow_up is not None and outcome.review_mode:
+            project_id = resolve_effective_team_id(member.team_id)
+            key = follow_ups.review_key(project_id, pull_request.repository, pull_request.number, outcome.review_mode)
+            follow_ups.remember(key, follow_up)
         return CommandOutcome(accepted=True, message="PostHog Review is reviewing this pull request.")
     # PostHog Review writes its refusals from the repository name, the PR number and fixed text.
     return CommandOutcome(accepted=False, message=outcome.error)
@@ -151,6 +246,9 @@ def handle_qa(context: CommandContext, args: QaArgs) -> CommandOutcome:
         branch=pull_request.head_branch,
         create_pr=False,
     )
+    follow_up = _follow_up(context)
+    if follow_up is not None and created.latest_run is not None:
+        follow_ups.remember(follow_ups.task_run_key(str(created.latest_run.id)), follow_up)
     task_url = absolute_uri(f"/project/{team_id}/tasks/{created.task_id}")
     return CommandOutcome(accepted=True, message=f"Started a QA run. Follow it in [PostHog Code]({task_url}).")
 
@@ -170,6 +268,35 @@ def build_qa_instructions(context: CommandContext, focus: str) -> str:
         # The requester's own words, as their instruction. They run with their own access.
         lines.append(f"Focus requested by {context.request.requester}: {focus}")
     return "\n\n".join(lines)
+
+
+def handle_resolve(context: CommandContext, args: ResolveArgs) -> CommandOutcome:
+    """Resolve the error tracking issue as the requester, through the same write the issue API makes."""
+    issue = context.issue
+    member = context.members[0]
+    user = User.objects.get(id=member.user_id)
+    # The write reads the status under a lock, so it, not the earlier read, says whether anything changed.
+    update = error_tracking_issues.update_issue(
+        issue.team_id, UUID(issue.issue_id), fields={"status": "resolved"}, user=user, was_impersonated=False
+    )
+    if "status" not in update.changed_fields:
+        return CommandOutcome(accepted=True, message=f"[The issue]({issue.url}) is already resolved.")
+    return CommandOutcome(accepted=True, message=f"Resolved [the issue]({issue.url}).")
+
+
+def handle_assign(context: CommandContext, args: AssignArgs) -> CommandOutcome:
+    """Assign the error tracking issue to the requester's account that acts in its project."""
+    issue = context.issue
+    member = context.members[0]
+    user = User.objects.get(id=member.user_id)
+    error_tracking_issues.assign_issue(
+        issue.team_id,
+        UUID(issue.issue_id),
+        {"id": user.id, "type": "user"},
+        user=user,
+        was_impersonated=False,
+    )
+    return CommandOutcome(accepted=True, message=f"Assigned [the issue]({issue.url}) to you.")
 
 
 def handle_loop(context: CommandContext, args: LoopArgs) -> CommandOutcome:

@@ -196,6 +196,7 @@ WIZARD_DEFAULT_PROGRAMS: tuple[str, ...] = (
     "warehouse-source",
     "error-tracking-upload-source-maps",
     "error-tracking",
+    "feature-flags",
     "audit",
     "events-audit",
     "posthog-doctor",

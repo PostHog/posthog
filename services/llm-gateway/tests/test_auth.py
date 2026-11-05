@@ -686,8 +686,15 @@ class TestPersonalApiKeyAuthenticator:
         assert authenticator.matches("random_token") is False
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "expires_at",
+        [
+            pytest.param(None, id="never_expires"),
+            pytest.param(datetime.now(UTC) + timedelta(days=1), id="expires_tomorrow"),
+        ],
+    )
     async def test_valid_key_returns_authenticated_user(
-        self, authenticator: PersonalApiKeyAuthenticator, mock_pool: MagicMock
+        self, authenticator: PersonalApiKeyAuthenticator, mock_pool: MagicMock, expires_at: datetime | None
     ) -> None:
         conn = mock_pool.acquire.return_value
         conn.fetchrow = AsyncMock(
@@ -698,6 +705,7 @@ class TestPersonalApiKeyAuthenticator:
                 "current_team_id": 456,
                 "distinct_id": "test-distinct-id",
                 "is_staff": False,
+                "expires_at": expires_at,
             }
         )
 
@@ -709,6 +717,7 @@ class TestPersonalApiKeyAuthenticator:
         assert result.team_id == 456
         assert result.auth_method == "personal_api_key"
         assert result.is_staff is False
+        assert result.token_expires_at == expires_at
 
     @pytest.mark.asyncio
     async def test_query_requires_verified_email(
@@ -743,6 +752,16 @@ class TestPersonalApiKeyAuthenticator:
             pytest.param(
                 {"id": "k4", "user_id": 101, "scopes": ["*"], "current_team_id": 201},
                 id="wildcard_scope_rejected",
+            ),
+            pytest.param(
+                {
+                    "id": "k5",
+                    "user_id": 102,
+                    "scopes": ["llm_gateway:read"],
+                    "current_team_id": 202,
+                    "expires_at": datetime.now(UTC) - timedelta(minutes=1),
+                },
+                id="expired_key",
             ),
         ],
     )
@@ -846,6 +865,41 @@ class TestOAuthAccessTokenAuthenticator:
         token_hash = authenticator.hash_token("pha_no_app_id")
         result = await authenticator.authenticate(token_hash, mock_pool)
         assert result is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "impersonated_by_id,authenticated",
+        [
+            pytest.param(None, True, id="own_token"),
+            pytest.param(42, False, id="impersonation_token"),
+        ],
+    )
+    async def test_impersonation_token_returns_none(
+        self,
+        authenticator: OAuthAccessTokenAuthenticator,
+        mock_pool: MagicMock,
+        impersonated_by_id: int | None,
+        authenticated: bool,
+    ) -> None:
+        conn = mock_pool.acquire.return_value
+        conn.fetchrow = AsyncMock(
+            return_value={
+                "id": 1,
+                "user_id": 123,
+                "scope": "llm_gateway:read",
+                "expires": datetime.now(UTC) + timedelta(hours=1),
+                "current_team_id": 456,
+                "application_id": 789,
+                "distinct_id": "test-distinct-id",
+                "is_staff": False,
+                "impersonated_by_id": impersonated_by_id,
+            }
+        )
+
+        token_hash = authenticator.hash_token("pha_impersonation")
+        result = await authenticator.authenticate(token_hash, mock_pool)
+        assert (result is not None) is authenticated
+        assert "oat.impersonated_by_id" in conn.fetchrow.call_args.args[0]
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(

@@ -1,6 +1,10 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 from uuid import UUID
+
+from posthog.dataclasses import frozen
+from posthog.enums import LabeledStrEnum
 
 
 class UnlayerError(Exception):
@@ -28,3 +32,281 @@ class EmailTemplateContent:
     name: str
     # The template's email body: subject, html, text and the editor design.
     email: dict[str, Any]
+
+
+class TransactionalEmailError(Exception):
+    """A send the caller has to fix before retrying. `code` is stable for API clients."""
+
+    code = "invalid"
+    attr: str | None = None
+
+
+class TemplateNotSendable(TransactionalEmailError):
+    code = "template_not_sendable"
+
+
+class MarketingTemplate(TransactionalEmailError):
+    code = "marketing_template"
+
+
+class SenderUnavailable(TransactionalEmailError):
+    code = "sender_unavailable"
+
+
+class TemplateNotTransactional(TransactionalEmailError):
+    code = "template_not_transactional"
+
+
+class TransactionalEmailPaused(TransactionalEmailError):
+    code = "transactional_email_paused"
+
+
+class InvalidRecipient(TransactionalEmailError):
+    code = "invalid_recipient"
+
+
+class QuotaLimited(TransactionalEmailError):
+    code = "quota_limited"
+
+
+class InvalidIdempotencyKey(TransactionalEmailError):
+    code = "invalid_idempotency_key"
+
+
+class IdempotencyKeyInFlight(TransactionalEmailError):
+    """The first request with this key is still being queued. Safe to retry shortly."""
+
+    code = "idempotency_key_in_flight"
+
+
+class IdempotencyKeyReused(TransactionalEmailError):
+    code = "idempotency_key_reused"
+
+
+class SendingSuspended(TransactionalEmailError):
+    code = "sending_suspended"
+
+
+class SendingPaused(TransactionalEmailError):
+    code = "sending_paused"
+
+
+class RecipientSuppressed(TransactionalEmailError):
+    code = "recipient_suppressed"
+
+
+class RecipientUnreachable(TransactionalEmailError):
+    code = "recipient_unreachable"
+
+
+class SenderNotVerified(TransactionalEmailError):
+    code = "sender_not_verified"
+
+
+class NamedSenderNotVerified(SenderNotVerified):
+    attr = "from"
+
+
+class FieldNotAccepted(TransactionalEmailError):
+    code = "field_not_accepted"
+
+    def __init__(self, field: str) -> None:
+        super().__init__(f"PostHog doesn't take `{field}` yet.")
+        self.field = field
+
+
+@frozen
+class EmailAttachment:
+    filename: str
+    content: str = field(repr=False)
+    content_type: str | None = None
+    content_id: str | None = None
+
+
+class SenderRequired(TransactionalEmailError):
+    code = "sender_required"
+
+
+class TooManyKeys(TransactionalEmailError):
+    code = "too_many_keys"
+
+
+class ContentTooLarge(TransactionalEmailError):
+    code = "content_too_large"
+
+
+class InvalidRequest(TransactionalEmailError):
+    code = "invalid_request"
+
+
+@frozen
+class CodeEmail:
+    key: str
+    subject: str
+    html: str
+    text: str
+    sender: str | None
+    reply_to: tuple[str, ...]
+    capture_engagement: bool
+    cc: tuple[str, ...] = ()
+    bcc: tuple[str, ...] = ()
+    attachments: tuple[EmailAttachment, ...] = ()
+
+
+class DeliveryUnavailable(Exception):
+    """The email pipeline did not accept the send. Safe to retry."""
+
+
+@frozen
+class QueuedEmail:
+    message_id: str
+    # True when an earlier request with the same idempotency key already queued this email.
+    replayed: bool = False
+
+
+class SupabaseEmailActionType(LabeledStrEnum):
+    """The `email_action_type` values Supabase's Send Email Hook sends."""
+
+    SIGNUP = "signup", "Confirm sign up"
+    INVITE = "invite", "Invite user"
+    MAGICLINK = "magiclink", "Magic link"
+    EMAIL = "email", "Email sign-in code"
+    RECOVERY = "recovery", "Reset password"
+    EMAIL_CHANGE = "email_change", "Change email address"
+    REAUTHENTICATION = "reauthentication", "Reauthentication"
+    PASSWORD_CHANGED_NOTIFICATION = "password_changed_notification", "Password changed"
+    EMAIL_CHANGED_NOTIFICATION = "email_changed_notification", "Email address changed"
+    PHONE_CHANGED_NOTIFICATION = "phone_changed_notification", "Phone number changed"
+    IDENTITY_LINKED_NOTIFICATION = "identity_linked_notification", "Sign-in method linked"
+    IDENTITY_UNLINKED_NOTIFICATION = "identity_unlinked_notification", "Sign-in method removed"
+    MFA_FACTOR_ENROLLED_NOTIFICATION = "mfa_factor_enrolled_notification", "MFA method added"
+    MFA_FACTOR_UNENROLLED_NOTIFICATION = "mfa_factor_unenrolled_notification", "MFA method removed"
+
+
+@frozen
+class SupabaseAuthEmailSettings:
+    supabase_url: str
+    # The secret is write-only, so callers only learn whether one is stored.
+    has_hook_secret: bool
+    # Supabase email action type -> message template id.
+    templates: dict[str, UUID]
+
+
+class SupabaseAuthEmailSettingsInvalid(Exception):
+    """The settings can't be saved as given. The message says which field to fix."""
+
+    def __init__(self, field: str, message: str) -> None:
+        super().__init__(message)
+        self.field = field
+
+
+@frozen
+class SupabaseHookResult:
+    """What to answer Supabase. A `status` of 300 or more fails the user's auth request: Supabase returns that status
+    and `message` to the client."""
+
+    status: int
+    message: str = ""
+    email_action_type: str = ""
+    # True when no email went out on purpose, such as an unmapped notification.
+    skipped: bool = False
+    # Why a send failed, for tracking. The user only sees `message`, which stays neutral.
+    error_code: str = ""
+    # How many emails went out. Email change can send two.
+    sent_count: int = 0
+
+
+class EmailDeliveryStatus(LabeledStrEnum):
+    QUEUED = "queued", "Queued"
+    FAILED = "failed", "Failed"
+    SENT = "sent", "Sent"
+    DELIVERED = "delivered", "Delivered"
+    BOUNCED = "bounced", "Bounced"
+    COMPLAINED = "complained", "Complained"
+
+
+@frozen
+class EmailStatus:
+    message_id: str
+    status: EmailDeliveryStatus
+    created_at: datetime
+    status_at: datetime
+    # Why a send failed, or the bounce type of a bounced email.
+    reason: str | None = None
+
+
+class EmailLogEventKind(LabeledStrEnum):
+    QUEUED = "queued", "Queued"
+    FAILED = "failed", "Failed"
+    SENT = "sent", "Sent"
+    DELIVERED = "delivered", "Delivered"
+    BOUNCED = "bounced", "Bounced"
+    COMPLAINED = "complained", "Complained"
+    OPENED = "opened", "Opened"
+    CLICKED = "clicked", "Clicked"
+
+
+class EmailStatsGroupBy(LabeledStrEnum):
+    TEMPLATE = "template", "Template"
+    SENDING_DOMAIN = "sending_domain", "Sending domain"
+
+
+@frozen
+class TransactionalEmailLogEntry:
+    message_id: str
+    created_at: datetime
+    status: EmailDeliveryStatus
+    status_at: datetime
+    # Why a send failed, or the bounce type of a bounced email.
+    reason: str | None
+    recipient: str
+    workflow_id: str
+    template_id: str | None
+    # Empty when the template was deleted.
+    template_name: str
+    sending_domain: str
+    opened: bool
+    clicked: bool
+
+
+@frozen
+class TransactionalEmailLogEvent:
+    kind: EmailLogEventKind
+    at: datetime
+    reason: str | None
+
+
+@frozen
+class TransactionalEmailLogDetail:
+    entry: TransactionalEmailLogEntry
+    timeline: list[TransactionalEmailLogEvent]
+    # Empty when the send never reached the provider, so nothing was rendered.
+    subject: str
+    distinct_id: str
+    # The step that sent the email, which the rendered email is stored under. Empty when none was stored.
+    action_id: str
+    # True when the template keeps no rendered body.
+    sensitive: bool
+
+
+@frozen
+class TransactionalEmailStatsRow:
+    # The template id or the sending domain.
+    key: str
+    label: str
+    sent: int
+    delivered: int
+    bounced: int
+    complained: int
+    opened: int
+    clicked: int
+    failed: int
+
+
+@frozen
+class TransactionalEmailResults:
+    recipients: int
+    converted: int
+    revenue: float
+    # Hours from the send to the first conversion, for the median converted recipient. None when nobody converted.
+    median_hours_to_convert: float | None

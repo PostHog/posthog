@@ -1,9 +1,17 @@
-import { ExperimentEventExposureConfig, ExperimentExposureCriteria, NodeKind } from '~/queries/schema/schema-general'
+import {
+    ExperimentEventExposureConfig,
+    ExperimentExposureConfig,
+    ExperimentExposureCriteria,
+    HogQLQueryModifiers,
+    NodeKind,
+} from '~/queries/schema/schema-general'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import {
     exposureEventLabel,
     getActivationConfig,
     getExposureEventAndProperty,
+    hasNegatedEventFilter,
     isDefaultExposureConfig,
     resolvedExposureEvent,
 } from './exposureContract'
@@ -178,4 +186,100 @@ describe('exposureContract', () => {
     ])('resolves the activation config for %s', (_name, exposureCriteria, expectActive) => {
         expect(getActivationConfig(exposureCriteria)).toEqual(expectActive ? activationConfig : undefined)
     })
+
+    const eventConfig = (...properties: AnyPropertyFilter[]): ExperimentEventExposureConfig => ({
+        kind: NodeKind.ExperimentEventExposureConfig,
+        event: '$pageview',
+        properties,
+    })
+    const eventFilter = (key: string, operator: PropertyOperator): AnyPropertyFilter => ({
+        type: PropertyFilterType.Event,
+        key,
+        operator,
+        value: 'x',
+    })
+    const negatedPersonFilter: AnyPropertyFilter = {
+        type: PropertyFilterType.Person,
+        key: 'email',
+        operator: PropertyOperator.NotIContains,
+        value: 'x',
+    }
+
+    it.each<
+        [
+            string,
+            ExperimentExposureConfig | undefined,
+            boolean,
+            (number | null)?,
+            HogQLQueryModifiers['personsOnEventsMode']?,
+        ]
+    >([
+        ['no config', undefined, false],
+        ['no filters', eventConfig(), false],
+        ['a negated event filter', eventConfig(eventFilter('$current_url', PropertyOperator.NotIContains)), true],
+        ['a negated filter without a value', eventConfig(eventFilter('step', PropertyOperator.IsNotSet)), true],
+        ['a filter that selects', eventConfig(eventFilter('$current_url', PropertyOperator.IContains)), false],
+        ['a negated filter on the flag key', eventConfig(eventFilter('$feature_flag', PropertyOperator.IsNot)), false],
+        [
+            'a negated filter on the group a group experiment counts',
+            eventConfig(eventFilter('$group_2', PropertyOperator.IsNot)),
+            false,
+            2,
+        ],
+        [
+            'a negated filter on a group key in a person experiment',
+            eventConfig(eventFilter('$group_2', PropertyOperator.IsNot)),
+            true,
+            null,
+        ],
+        ['a negated person filter read from the persons table', eventConfig(negatedPersonFilter), false],
+        [
+            'a negated person filter read from the events',
+            eventConfig(negatedPersonFilter),
+            true,
+            null,
+            'person_id_override_properties_on_events',
+        ],
+        ['a negated person filter in a group experiment', eventConfig(negatedPersonFilter), true, 2],
+        [
+            'a negated session filter',
+            eventConfig({
+                type: PropertyFilterType.Session,
+                key: '$entry_current_url',
+                operator: PropertyOperator.NotIContains,
+                value: 'x',
+            }),
+            true,
+        ],
+        [
+            'an action with a negated event filter',
+            {
+                kind: NodeKind.ActionsNode,
+                id: 1,
+                properties: [eventFilter('$current_url', PropertyOperator.IsNot)],
+            },
+            true,
+        ],
+        [
+            'a warehouse exposure',
+            {
+                kind: NodeKind.ExperimentWarehouseNativeExposureConfig,
+                connection_id: 'x',
+                query: 'SELECT 1',
+                unit: { unit_type: 'customer', id_namespace: 'billing_customer_id' },
+            },
+            false,
+        ],
+    ])(
+        'reads whether the config leaves out events for %s',
+        (
+            _name,
+            config,
+            expected,
+            groupTypeIndex = null,
+            personsOnEventsMode = 'person_id_override_properties_joined'
+        ) => {
+            expect(hasNegatedEventFilter(config, groupTypeIndex, personsOnEventsMode)).toBe(expected)
+        }
+    )
 })

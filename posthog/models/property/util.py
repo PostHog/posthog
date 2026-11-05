@@ -16,9 +16,10 @@ from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import TableWithProperties, get_materialized_column_for_property
 from posthog.models.event import Selector
 from posthog.models.property import Property, PropertyGroup, PropertyIdentifier, PropertyName
+from posthog.models.property.parse import parse_property_group_data
 
-from products.actions.backend.models.action import Action
-from products.actions.backend.models.util import get_action_tables_and_properties
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import Action
 
 
 def get_property_string_expr(
@@ -150,7 +151,7 @@ def _chain_attribute_order(key: str) -> str:
 # A semicolon separates elements only outside a quoted attribute value — an inline
 # style="display: flex; gap: 4px" carries its own. Quotes inside a value are escaped
 # as \" (see _escape in posthog/models/element/element.py), so an escaped quote must
-# not close the span. split_chain_regex draws the boundary the same way. A backslash
+# not close the span. split_elements_chain draws the boundary the same way. A backslash
 # is consumed only together with the character after it, so a long run of backslashes
 # has one way to match and cannot cause catastrophic backtracking.
 _QUOTED_VALUE = r'"(?:\\.|[^"\\])*"'
@@ -221,13 +222,27 @@ class HogQLPropertyChecker(TraversingVisitor):
             self.person_properties.append(str(node.chain[3]))
 
 
+def get_action_tables_and_properties(action: Action) -> TCounter[PropertyIdentifier]:
+    result: TCounter[PropertyIdentifier] = Counter()
+
+    for action_step in action.steps:
+        if action_step.url:
+            result[("$current_url", "event", None)] += 1
+        result += extract_tables_and_properties(
+            parse_property_group_data(action_step.properties or []).flat,
+            team_id=action.team_id,
+        )
+
+    return result
+
+
 def extract_tables_and_properties(props: list[Property], team_id: int) -> TCounter[PropertyIdentifier]:
     counters: list[tuple] = []
     for prop in props:
         if prop.type == "hogql":
             counters.extend(count_hogql_properties(prop.key))
         elif prop.type == "behavioral" and prop.event_type == "actions":
-            action = Action.objects.get(pk=prop.key, team_id=team_id)
+            action = get_action(action_id=int(prop.key), team_id=team_id)
             action_counter = get_action_tables_and_properties(action)
             counters.extend(action_counter)
         else:

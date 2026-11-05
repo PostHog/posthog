@@ -51,6 +51,17 @@ _TRANSIENT_DB_ERROR_MARKERS = (
     # database would. Self-healing: a slot frees the moment another backend connection closes,
     # which happens continuously under normal load.
     "sorry, too many clients already",
+    # getaddrinfo EAI_AGAIN (errno -3): the resolver could not get an answer now, for example during
+    # a short cluster DNS outage. It clears when DNS comes back, so a retry self-heals. EAI_NONAME
+    # (errno -2, "Name or service not known") and EAI_NODATA (errno -5, "No address associated with
+    # hostname") stay unmatched, because both can mean a host that never resolves.
+    "Temporary failure in name resolution",
+    # psycopg's own message when its connect-time deadline elapses while the TCP/TLS handshake is
+    # still polling (psycopg/generators.py::_connect). Raised standalone, with no "connection
+    # failed:" prefix, because libpq never got far enough to report a server-side error — distinct
+    # from the excluded prefix above, which wraps a definite failure response. A handshake that
+    # hasn't finished is a load/network blip that clears on retry, not a configuration problem.
+    "connection timeout expired",
 )
 
 # SQLSTATE class 57P (operator intervention): the server is shutting down or restarting and

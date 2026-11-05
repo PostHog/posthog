@@ -9,6 +9,19 @@ Run these commands from the repository root:
 - Run `pnpm --filter=@posthog/mcp run lint:fix` to apply safe Oxlint fixes. It does not apply suggestion fixes that may change behavior.
 - Run `pnpm --filter=@posthog/mcp run fix` before committing JavaScript, TypeScript, JSON, YAML, CSS, or SCSS changes. It applies safe Oxlint fixes, always runs Oxfmt, and fails if either tool fails.
 
+## Unsolicited elicitation: high risk
+
+> [!CAUTION]
+> **Elicitation can spam users and damage trust in the MCP.**
+> It can interrupt an agent mid-task and put advertising or research questions directly in front of the user.
+> The interview recruitment flow is a narrow exception. It does not establish permission to add more prompts.
+
+- **New unsolicited elicitation requires explicit approval from a human MCP owner before implementation.** `[review]` This includes surveys, recruitment, upsells, promotional questions, and reusing the interview flow for another purpose. A general request to improve the MCP does not authorize these interruptions.
+- **Expanding an existing prompt's reach or frequency, or weakening its opt-out behavior, requires the same approval.** `[review]` Review must justify the interruption's user value, audience, timing, frequency, reliable suppression, and measurement. A feature flag or client capability alone does not justify showing a prompt.
+- Read the [interview recruitment guide](../../docs/published/handbook/engineering/ai/implementing-mcp-tools.md#interview-recruitment-with-url-elicitation) before changing unsolicited elicitation. It documents the existing flow's capability checks, exclusions, warmup, suppression, and analytics. Preserve those protections when fixing or maintaining it.
+
+This policy covers unsolicited interruptions. Elicitation needed to complete the user's requested task, such as a necessary clarification or confirmation, remains a separate use case.
+
 ## MCP Analytics
 
 - Before adding or changing MCP Analytics instrumentation, read the [tracking and observability architecture](ARCHITECTURE.md#tracking-and-observability).

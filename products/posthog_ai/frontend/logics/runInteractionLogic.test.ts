@@ -1,10 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 import { initKeaTests } from '~/test/init'
 
 import {
@@ -17,9 +19,9 @@ import {
 import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import type { PermissionRequestRecord } from '../types/streamTypes'
+import type { StoredLogEntry } from '../types/wireTypes'
 import { uploadRunAttachments, uploadStagedTaskAttachments } from '../utils/artifactUpload'
 import { contextItemLine } from '../utils/posthogContextBlock'
-import { attachedContextLogic } from './attachedContextLogic'
 import { composerAttachmentsLogic } from './composerAttachmentsLogic'
 import { runCancellationLogic } from './runCancellationLogic'
 import { runInteractionLogic } from './runInteractionLogic'
@@ -64,7 +66,7 @@ jest.mock('./runStreamLogic', () => {
             clearPermissionRequest: true,
             reset: true,
             appendEntries: true,
-            ingestAcpFrame: true,
+            ingestAcpFrame: (entry: unknown, source: string = 'live') => ({ entry, source }),
             closeSse: true,
             bootstrapRun: true,
         }),
@@ -213,6 +215,7 @@ describe('runInteractionLogic', () => {
         ;(tasksRunCreate as jest.Mock).mockResolvedValue({ run: { id: 'run-2' }, latest_run: { id: 'run-2' } })
         ;(tasksRunsClearConversationCreate as jest.Mock).mockResolvedValue({})
         ;(tasksWarmResumeCreate as jest.Mock).mockResolvedValue({ task_id: TASK_ID, run_id: 'warm-run' })
+        window.localStorage.clear()
         initKeaTests()
         project = projectLogic()
         project.mount()
@@ -1025,7 +1028,9 @@ describe('runInteractionLogic', () => {
     it('does nothing on an empty queue and keeps unsent context after failed steering', async () => {
         setThinking(true)
         const context = attachedContextLogic()
-        context.actions.registerContext('test', [{ type: 'insight', key: 'fake', value: 'example insight' }])
+        context.actions.registerContext('test', [
+            { type: 'insight', key: 'fake', value: 'example insight', hidden: true },
+        ])
         logic.actions.setComposerFormValues({ draft: 'unsent' })
         logic.actions.steerQueue()
         expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
@@ -1074,6 +1079,42 @@ describe('runInteractionLogic', () => {
         )
         expect(logic.values.queuedMessages).toEqual([])
         expect(logic.values.queueHeld).toBe(false)
+    })
+
+    it.each([
+        ['steer', 'steer'],
+        ['stop', 'user_stop'],
+        ['failed stop then steer', 'steer'],
+        ['failed steer', 'unknown'],
+        ['nothing', 'unknown'],
+    ])('reports what came before a cancelled turn: %s', async (trigger, cause) => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        setThinking(true)
+        if (trigger.includes('stop')) {
+            logic.actions.requestCancellation()
+        }
+        if (trigger.startsWith('failed stop')) {
+            runCancellationLogic({ streamKey: RUN_ID }).actions.cancellationFailed()
+        }
+        if (trigger === 'failed steer') {
+            ;(tasksRunsCommandCreate as jest.Mock).mockRejectedValueOnce(new Error('Connection lost'))
+        }
+        if (trigger.includes('steer')) {
+            logic.actions.enqueueMessage('change course')
+            await expectLogic(logic, () => logic.actions.steerQueue()).toFinishAllListeners()
+        }
+        const turnComplete = (stopReason: string): StoredLogEntry => ({
+            type: 'notification',
+            notification: { method: '_posthog/turn_complete', params: { stopReason } },
+        })
+
+        stream.actions.ingestAcpFrame(turnComplete('cancelled'))
+        stream.actions.ingestAcpFrame(turnComplete('cancelled'))
+
+        const causes = capture.mock.calls
+            .filter(([event]) => event === 'task_run_turn_cancelled')
+            .map(([, properties]) => properties?.cause)
+        expect(causes).toEqual([cause, 'unknown'])
     })
 
     it('holds an unconfirmed send as its own rows until the user asks for it again', async () => {
@@ -1489,7 +1530,9 @@ describe('runInteractionLogic', () => {
                 rejectSend = reject
             })
         )
-        attachedContextLogic().actions.registerContext('scene', [{ type: 'insight', key: 'sig', label: 'Signups' }])
+        attachedContextLogic().actions.registerContext('scene', [
+            { type: 'insight', key: 'sig', label: 'Signups', hidden: true },
+        ])
         setStatus('completed')
         logic.actions.setComposerFormValues({ draft: 'continue from here' })
         logic.actions.submitComposerForm()
@@ -1506,7 +1549,9 @@ describe('runInteractionLogic', () => {
         expect(onRunStarted).not.toHaveBeenCalled()
         expect(logic.values.startingRun).toBe(false)
         expect(logic.values.composerForm.draft).toBe('continue from here')
-        expect(logic.values.pendingContextItems).toEqual([{ type: 'insight', key: 'sig', label: 'Signups' }])
+        expect(logic.values.pendingContextItems).toEqual([
+            { type: 'insight', key: 'sig', label: 'Signups', hidden: true },
+        ])
         expect(toolEvents.values.applyBackTargetClaims[RUN_ID]).toBeUndefined()
 
         await expectLogic(logic, () => logic.actions.submitComposerForm()).toFinishAllListeners()
@@ -1544,7 +1589,7 @@ describe('runInteractionLogic', () => {
                 )
             try {
                 attachedContextLogic().actions.registerContext('scene', [
-                    { type: 'insight', key: 'sig', label: 'Signups' },
+                    { type: 'insight', key: 'sig', label: 'Signups', hidden: true },
                 ])
                 setStatus('completed')
                 logic.actions.setComposerFormValues({ draft: 'continue from here' })
@@ -1596,7 +1641,7 @@ describe('runInteractionLogic', () => {
                     expect(onRunStarted).not.toHaveBeenCalled()
                     expect(logic.values.composerForm.draft).toBe('continue from here')
                     expect(logic.values.pendingContextItems).toEqual([
-                        { type: 'insight', key: 'sig', label: 'Signups' },
+                        { type: 'insight', key: 'sig', label: 'Signups', hidden: true },
                     ])
                     expect(lemonToast.error).toHaveBeenCalledWith("Couldn't start this run yet. Please try again.")
                     resolveRetry({ latest_run: { id: 'late-run' } })
@@ -1611,12 +1656,12 @@ describe('runInteractionLogic', () => {
 
     it.each(['global', 'runner'])('wraps and deduplicates %s context while echoing raw text', async (scope) => {
         const contextItems = [
-            { type: 'insight', key: 'sig', label: 'Signups' },
-            { type: 'text', value: 'always resend me' },
+            { type: 'insight', key: 'sig', label: 'Signups', hidden: true },
+            { type: 'text', value: 'always resend me', hidden: true },
         ]
         attachedContextLogic().actions.registerContext(
             'scene',
-            scope === 'global' ? contextItems : [{ type: 'text', value: 'unrelated scene context' }]
+            scope === 'global' ? contextItems : [{ type: 'text', value: 'unrelated scene context', hidden: true }]
         )
         if (scope === 'runner') {
             logic.unmount()
@@ -1659,11 +1704,52 @@ describe('runInteractionLogic', () => {
         expect(secondSend.params.content.endsWith('follow up')).toBe(true)
     })
 
+    it('sends a pick but not the visible context of the current page, and keeps the pick on a failed send', async () => {
+        const pick = { type: 'dashboard', key: 7, label: 'Weekly' }
+        attachedContextLogic().actions.registerContext('scene', [{ type: 'insight', key: 'nav', label: 'Other page' }])
+        attachedContextLogic().actions.pickItem(pick, TASK_ID)
+        setThinking(false)
+        ;(tasksRunsCommandCreate as jest.Mock).mockRejectedValueOnce(new Error('Connection lost'))
+
+        logic.actions.setComposerFormValues({ draft: 'follow up' })
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        expect(attachedContextLogic().values.pickedByChat[TASK_ID]).toEqual([pick])
+        expect(attachedContextLogic().values.chatChipsByTask[TASK_ID]).toBeUndefined()
+        ;(tasksRunsCommandCreate as jest.Mock).mockClear()
+
+        logic.actions.setComposerFormValues({ draft: 'follow up' })
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        const send = (tasksRunsCommandCreate as jest.Mock).mock.calls[0][3] as { params: { content: string } }
+        expect(send.params.content).toContain('- dashboard 7 ("Weekly")')
+        expect(send.params.content).not.toContain('- insight nav')
+        expect(attachedContextLogic().values.chatChipsByTask[TASK_ID].map((chip) => chip.id)).toEqual(['dashboard:7'])
+        expect(attachedContextLogic().values.pickedByChat[TASK_ID]).toEqual([])
+    })
+
+    it('leaves a pick made in another chat out of this chat', async () => {
+        attachedContextLogic().actions.pickItem({ type: 'dashboard', key: 7, label: 'Weekly' }, 'another-task')
+        setThinking(false)
+
+        logic.actions.setComposerFormValues({ draft: 'follow up' })
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        const send = (tasksRunsCommandCreate as jest.Mock).mock.calls[0][3] as { params: { content: string } }
+        expect(send.params.content).not.toContain('- dashboard 7')
+    })
+
     it('prunes context whose rendered line the run log already carries, even with no sent-key bookkeeping', async () => {
         // The reload scenario: `sentContextKeysByTask` is empty (fresh session), but `runStreamLogic`
         // recorded the block lines it found replaying the resume-chain history — the same ref must not
         // be re-wrapped into the next send.
-        const seenItem = { type: 'insight', key: 'sig', label: 'Signups' }
+        const seenItem = { type: 'insight', key: 'sig', label: 'Signups', hidden: true }
         attachedContextLogic().actions.registerContext('scene', [seenItem])
         attachedContextLogic().actions.markContextLinesSeen(TASK_ID, [contextItemLine(seenItem)])
         setThinking(false)
@@ -1679,7 +1765,7 @@ describe('runInteractionLogic', () => {
     })
 
     it('sends /clear unwrapped so the agent still sees the command at the front, and keeps the context pending', async () => {
-        const item = { type: 'insight', key: 'sig', label: 'Signups' }
+        const item = { type: 'insight', key: 'sig', label: 'Signups', hidden: true }
         attachedContextLogic().actions.registerContext('scene', [item])
         setThinking(false)
 
@@ -1704,7 +1790,9 @@ describe('runInteractionLogic', () => {
     })
 
     it('keeps pruning context sent by a terminal-run send after re-pointing to the fresh run', async () => {
-        attachedContextLogic().actions.registerContext('scene', [{ type: 'insight', key: 'sig', label: 'Signups' }])
+        attachedContextLogic().actions.registerContext('scene', [
+            { type: 'insight', key: 'sig', label: 'Signups', hidden: true },
+        ])
 
         // A send on a finished run starts a fresh run, wrapping the pending context into its seed message.
         setStatus('completed')

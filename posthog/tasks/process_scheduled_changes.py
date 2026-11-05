@@ -1,6 +1,7 @@
 import os
 import json
 import socket
+from collections.abc import Iterator
 from datetime import UTC, datetime, tzinfo
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -13,6 +14,7 @@ from celery import current_task
 from croniter import croniter  # type: ignore[import-untyped,unused-ignore]
 from dateutil.relativedelta import relativedelta
 from prometheus_client import Counter
+from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.exceptions_capture import capture_exception
 
@@ -38,6 +40,17 @@ SCHEDULED_CHANGE_MISSED_EXECUTIONS = Counter(
     "Number of scheduled change executions that were skipped due to delayed processing",
     ["interval"],
 )
+
+
+def _drf_error_codes(codes: object) -> Iterator[str]:
+    if isinstance(codes, str):
+        yield codes
+    elif isinstance(codes, dict):
+        for value in codes.values():
+            yield from _drf_error_codes(value)
+    elif isinstance(codes, list):
+        for value in codes:
+            yield from _drf_error_codes(value)
 
 
 def is_unrecoverable_error(exception: Exception) -> bool:
@@ -77,6 +90,10 @@ def is_unrecoverable_error(exception: Exception) -> bool:
     ]
 
     if any(indicator in error_message for indicator in permanent_error_indicators):
+        return True
+
+    # The flag API rejects a release condition on a missing or deleted cohort with this code.
+    if isinstance(exception, DRFValidationError) and "cohort_does_not_exist" in _drf_error_codes(exception.get_codes()):
         return True
 
     return isinstance(exception, unrecoverable_types)

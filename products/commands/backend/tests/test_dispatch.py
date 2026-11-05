@@ -1,6 +1,8 @@
+import os
 import hmac
 import json
 import hashlib
+import dataclasses
 from datetime import timedelta
 from itertools import count
 from typing import Any
@@ -9,11 +11,14 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 
 from parameterized import parameterized
 from social_django.models import UserSocialAuth
+
+from posthog.schema import ErrorTrackingIssueStatus
 
 from posthog.constants import AvailableFeature
 from posthog.ingress.dispatch.loading import reset_consumer_registry
@@ -31,11 +36,21 @@ from products.commands.backend.channels.github.intake import CommentCommandReque
 from products.commands.backend.channels.slack.mentions import read_slack_command
 from products.commands.backend.facade.api import accept_slack_mention
 from products.commands.backend.facade.contracts import SlackMention
-from products.commands.backend.logic.commands import CommandContext, CommandRequest, ProjectMember, PullRequestFacts
+from products.commands.backend.logic.commands import (
+    CommandContext,
+    CommandRequest,
+    ProjectMember,
+    PullRequestFacts,
+    PullRequestRef,
+)
 from products.commands.backend.logic.github import InstallationGitHub, Reaction, UnsupportedPullRequest
 from products.commands.backend.logic.handlers import handle_loop, handle_qa
 from products.commands.backend.logic.schema import LoopArgs, QaArgs
-from products.commands.backend.tasks.tasks import run_slack_command
+from products.commands.backend.receivers import on_review_finished
+from products.commands.backend.tasks.tasks import deliver_follow_up, run_slack_command
+from products.error_tracking.backend.facade.api import get_issue
+from products.error_tracking.backend.facade.testing import create_issue, create_issue_fingerprint
+from products.review_hog.backend.facade.finished_review_hooks import FinishedReview
 from products.review_hog.backend.facade.reviews import (
     RUN_MODE_FLASH,
     RUN_MODE_REVIEW,
@@ -43,6 +58,7 @@ from products.review_hog.backend.facade.reviews import (
     PRReviewRequestOutcome,
     PRReviewRequestStatus,
 )
+from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import DesktopAccessDecision
 
 INSTALLATION_ID = "31337"
@@ -59,8 +75,14 @@ CLAIM_CACHE = "products.commands.backend.logic.admission.cache"
 CONSUME_BUDGET = "products.commands.backend.logic.admission.consume"
 RUN_COMMENT_COMMAND = "products.commands.backend.tasks.tasks.run_comment_command.delay"
 RUN_SLACK_COMMAND = "products.commands.backend.tasks.tasks.run_slack_command.delay"
-SLACK_INSTALLATION_GITHUB = "products.commands.backend.channels.slack.mentions.InstallationGitHub.for_installation"
+DELIVER_FOLLOW_UP = "products.commands.backend.tasks.tasks.deliver_follow_up.delay"
+SLACK_INSTALLATION_GITHUB = "products.commands.backend.logic.subjects.InstallationGitHub.for_installation"
 SLACK_POST = "products.commands.backend.channels.slack.mentions.post_message"
+KNOWLEDGE_WRITER_LAUNCH_FLAG = "products.knowledge_writer.backend.feature_flags.posthoganalytics.feature_enabled"
+KNOWLEDGE_WRITER_ENABLED = "products.knowledge_writer.backend.settings.is_writer_enabled"
+KNOWLEDGE_WRITER_CAPTURE = "products.knowledge_writer.backend.logic.intake.ph_scoped_capture"
+START_TASK_WORKFLOW = "products.tasks.backend.logic.services.workflow_dispatch.enqueue_or_start_workflow"
+KNOWLEDGE_WRITER_OPEN_PULL_REQUESTS = "products.knowledge_writer.backend.logic.intake.open_writer_pull_requests"
 
 # Each test gets its own commenter, so the per-commenter rate limit in Redis never carries over.
 _github_ids = count(10_000)
@@ -98,6 +120,7 @@ def _pull_request(**overrides: Any) -> PullRequestFacts:
         "head_sha": "abc123",
         "head_branch": "feature/thing",
         "is_fork": False,
+        "is_private": False,
     }
     values.update(overrides)
     return PullRequestFacts(**values)
@@ -110,6 +133,7 @@ class TestDispatchCommentCommand(BaseTest):
         self.github_id = next(_github_ids)
         Integration.objects.create(team=self.team, kind="github", integration_id=INSTALLATION_ID, config={})
         self.flag = self.enterContext(patch(FLAG, return_value=True))
+        self.enterContext(patch(KNOWLEDGE_WRITER_ENABLED, return_value=True))
         self.stamphog_reviewing = self.enterContext(
             patch(STAMPHOG_REVIEWING, side_effect=lambda repository, team_ids: list(team_ids))
         )
@@ -129,6 +153,13 @@ class TestDispatchCommentCommand(BaseTest):
 
     def _command_request(self, verb: str, argument: str = "") -> CommandRequest:
         return GitHubCommentChannel(self._request(verb=verb, argument=argument)).request
+
+    def _knowledge_writer_env(self) -> dict[str, str]:
+        return {
+            "KNOWLEDGE_WRITER_TEAM_ID": str(self.team.id),
+            "KNOWLEDGE_WRITER_USER_ID": str(self.user.id),
+            "KNOWLEDGE_WRITER_DOCS_REPOSITORY": "PostHog/posthog.com",
+        }
 
     def _link_github_login(self) -> None:
         UserSocialAuth.objects.create(user=self.user, provider="github", uid=str(self.github_id))
@@ -243,7 +274,9 @@ class TestDispatchCommentCommand(BaseTest):
                 Integration.objects.create(team=owner_team, kind="github", integration_id=INSTALLATION_ID, config={})
         self._link_github_account(self.user, days_ago=10)
         self._link_github_account(second_user, days_ago=1 if second_linked_last else 30)
-        started = PRReviewRequestOutcome(status=PRReviewRequestStatus.STARTED, workflow_id="wf-1")
+        started = PRReviewRequestOutcome(
+            status=PRReviewRequestStatus.STARTED, workflow_id="wf-1", head_sha="abc123", review_mode="flash"
+        )
 
         with (
             patch(
@@ -304,20 +337,88 @@ class TestDispatchCommentCommand(BaseTest):
 
     @parameterized.expand(
         [
-            ("fork", _pull_request(is_fork=True), "fork_refused"),
-            ("closed", _pull_request(state="closed"), "pull_request_closed"),
+            ("fork", "stamp", _pull_request(is_fork=True), "fork_refused"),
+            ("closed", "stamp", _pull_request(state="closed"), "pull_request_closed"),
+            ("docs_on_an_unmerged_close", "docs", _pull_request(state="closed"), "pull_request_closed"),
+            ("docs_before_merge", "docs", _pull_request(state="open"), "pull_request_closed"),
         ]
     )
     def test_refuses_pull_requests_a_command_must_not_touch(
-        self, _name: str, pull_request: PullRequestFacts, expected: str
+        self, _name: str, verb: str, pull_request: PullRequestFacts, expected: str
     ) -> None:
         self._link_github_login()
 
-        with patch(REQUEST_STAMPHOG_REVIEW) as request_review:
-            outcome = dispatch_comment_command(self._request(), github=FakeGitHub(pull_request=pull_request))
+        with (
+            patch.dict(os.environ, self._knowledge_writer_env()),
+            patch(REQUEST_STAMPHOG_REVIEW) as request_review,
+            patch(START_TASK_WORKFLOW) as start_workflow,
+        ):
+            outcome = dispatch_comment_command(self._request(verb=verb), github=FakeGitHub(pull_request=pull_request))
 
         assert outcome == expected
         request_review.assert_not_called()
+        start_workflow.assert_not_called()
+
+    def test_docs_on_a_merged_pull_request_starts_the_knowledge_writer_without_its_judge(self) -> None:
+        self._link_github_login()
+        github = FakeGitHub(pull_request=_pull_request(state="merged"))
+
+        with (
+            patch.dict(os.environ, self._knowledge_writer_env()),
+            patch(KNOWLEDGE_WRITER_LAUNCH_FLAG, return_value=True),
+            patch(KNOWLEDGE_WRITER_OPEN_PULL_REQUESTS, return_value=[]),
+            patch(START_TASK_WORKFLOW),
+            patch(KNOWLEDGE_WRITER_CAPTURE) as scoped_capture,
+        ):
+            outcome = dispatch_comment_command(
+                self._request(verb="docs", argument="Mention the new flag"), github=github
+            )
+
+        assert outcome == "accepted"
+        verdict_properties = scoped_capture.return_value.__enter__.return_value.call_args.kwargs["properties"]
+        assert (verdict_properties["requested_by"], verdict_properties["requested_by_user_id"]) == (
+            "@octo",
+            self.user.id,
+        )
+        assert github.replies[-1].endswith(
+            "Queued. The knowledge writer will open a docs pull request for this change."
+        )
+        task = tasks_facade.get_task_by_origin_key(
+            self.team.id, f"knowledge_writer:command_tag:{hashlib.sha256(b'acme.widgets#7').hexdigest()}"
+        )
+        assert task is not None
+        assert "@octo asked: Mention the new flag" in task.description
+
+    def test_docs_on_a_private_repository_starts_no_writer(self) -> None:
+        self._link_github_login()
+        github = FakeGitHub(pull_request=_pull_request(state="merged", is_private=True))
+
+        with (
+            patch.dict(os.environ, self._knowledge_writer_env()),
+            patch(KNOWLEDGE_WRITER_LAUNCH_FLAG, return_value=True),
+            patch(START_TASK_WORKFLOW) as start_workflow,
+        ):
+            dispatch_comment_command(self._request(verb="docs"), github=github)
+
+        assert github.replies[-1].endswith("The knowledge writer only runs on public repositories.")
+        start_workflow.assert_not_called()
+        assert not tasks_facade.get_task_by_origin_key(
+            self.team.id, f"knowledge_writer:command_tag:{hashlib.sha256(b'acme.widgets#7').hexdigest()}"
+        )
+
+    @parameterized.expand([("writer_project", True), ("another_project", False)])
+    def test_help_lists_docs_only_where_the_knowledge_writer_runs(self, _name: str, is_writer_project: bool) -> None:
+        github = FakeGitHub()
+        writer_env = self._knowledge_writer_env()
+        if not is_writer_project:
+            writer_env["KNOWLEDGE_WRITER_TEAM_ID"] = str(self.team.id + 1000)
+
+        with patch.dict(os.environ, writer_env):
+            outcome = dispatch_comment_command(self._request(verb="help"), github=github)
+
+        assert outcome == "help"
+        assert ("`@posthog docs" in github.replies[-1]) is is_writer_project
+        assert "`@posthog stamp" in github.replies[-1]
 
     def test_invalid_arguments_reply_with_the_usage_and_run_nothing(self) -> None:
         self._link_github_login()
@@ -347,7 +448,7 @@ class TestDispatchCommentCommand(BaseTest):
     def test_loop_reports_retirement(self) -> None:
         context = CommandContext(
             request=self._command_request(verb="loop", argument="Triage PR"),
-            pull_request=_pull_request(),
+            subject=_pull_request(),
             members=(ProjectMember(team_id=self.team.id, user_id=self.user.id),),
         )
 
@@ -367,7 +468,7 @@ class TestDispatchCommentCommand(BaseTest):
     ) -> None:
         context = CommandContext(
             request=self._command_request(verb="qa"),
-            pull_request=_pull_request(),
+            subject=_pull_request(),
             members=(ProjectMember(team_id=self.team.id, user_id=self.user.id),),
         )
 
@@ -413,7 +514,9 @@ class TestDispatchCommentCommand(BaseTest):
             None: None,
         }
         github = FakeGitHub()
-        started = PRReviewRequestOutcome(status=PRReviewRequestStatus.STARTED, workflow_id="wf-1")
+        started = PRReviewRequestOutcome(
+            status=PRReviewRequestStatus.STARTED, workflow_id="wf-1", head_sha="abc123", review_mode="flash"
+        )
 
         with (
             patch(OWNING_TEAM_ID, return_value=owner_team_ids[owner]),
@@ -491,9 +594,15 @@ class TestDispatchCommentCommand(BaseTest):
             config={"account": {"name": account}}
         )
 
-    def _slack_mention(self, text: str, organization_ids: tuple[str, ...], integration_id: int = 0) -> SlackMention:
+    def _slack_mention(
+        self,
+        text: str,
+        organization_ids: tuple[str, ...],
+        integration_id: int = 0,
+        url: str = f"https://github.com/{REPOSITORY}/pull/7",
+    ) -> SlackMention:
         return SlackMention(
-            text=f"{text} https://github.com/{REPOSITORY}/pull/7",
+            text=f"{text} {url}",
             slack_team_id="T1",
             slack_user_id="U1",
             channel="C1",
@@ -527,7 +636,8 @@ class TestDispatchCommentCommand(BaseTest):
 
         assert (command.verb if command else None) == expected_verb
         if command is not None:
-            assert (command.installation_id, command.team_ids) == (INSTALLATION_ID, (self.team.id,))
+            assert command.subject == PullRequestRef(installation_id=INSTALLATION_ID, repository=REPOSITORY, number=7)
+            assert command.team_ids == (self.team.id,)
         # Inside the Slack webhook, a flag that needs a remote call reads as off.
         assert all(call.kwargs["only_evaluate_locally"] for call in self.flag.call_args_list)
 
@@ -547,7 +657,9 @@ class TestDispatchCommentCommand(BaseTest):
             team=self.team, kind="slack", integration_id="T1", config={}, sensitive_config={"access_token": "xoxb-x"}
         )
         mention = self._slack_mention("review", (str(self.organization.id),), integration_id=slack.id)
-        started = PRReviewRequestOutcome(status=PRReviewRequestStatus.STARTED, workflow_id="wf-1")
+        started = PRReviewRequestOutcome(
+            status=PRReviewRequestStatus.STARTED, workflow_id="wf-1", head_sha="abc123", review_mode="flash"
+        )
         budget = BucketDecision(allowed=within_budget, remaining=0, limit=5, retry_after=60, reset=600)
 
         with (
@@ -570,7 +682,88 @@ class TestDispatchCommentCommand(BaseTest):
         else:
             request_pr_review.assert_not_called()
 
-    @patch("posthog.ingress.github.provider.get_instance_setting", return_value="test-webhook-secret")
+        finished = FinishedReview(
+            team_id=self.team.id,
+            report_id="r1",
+            repository=REPOSITORY,
+            pr_number=7,
+            review_mode="flash",
+            failed=False,
+            findings_count=2,
+            published=True,
+            review_url="https://example.com/review",
+        )
+        with (
+            patch(DELIVER_FOLLOW_UP, side_effect=lambda **kwargs: deliver_follow_up(**kwargs)),
+            patch(SLACK_POST) as follow_up_post,
+        ):
+            # A Deep turn that was already running is not the review this thread asked for, and neither
+            # is the same review in another project.
+            on_review_finished(dataclasses.replace(finished, review_mode="full"))
+            other_project = Team.objects.create(organization=self.organization, name="Other project")
+            on_review_finished(dataclasses.replace(finished, team_id=other_project.id))
+            on_review_finished(finished)
+            on_review_finished(finished)
+        if within_budget and github_reachable:
+            follow_up_post.assert_called_once()
+            assert follow_up_post.call_args.kwargs["thread_ts"] == "100.1"
+            assert "found 2 issues" in follow_up_post.call_args.args[3]
+        else:
+            follow_up_post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("resolve", "resolve", False, "active", "Resolved [the issue]", "resolved", None),
+            ("assign", "assign", False, "active", "Assigned [the issue]", "active", "user"),
+            # Error tracking's Slack alerts link the issue by its fingerprint.
+            ("resolve_by_fingerprint", "resolve", True, "active", "Resolved [the issue]", "resolved", None),
+            ("resolve_again", "resolve", False, "resolved", "[The issue](", "resolved", None),
+            # A pull request command answers instead of acting on an issue.
+            (
+                "pull_request_command",
+                "review",
+                False,
+                "active",
+                "`review` doesn't run on error tracking issues.",
+                "active",
+                None,
+            ),
+        ]
+    )
+    def test_a_slack_command_acts_on_an_error_tracking_issue_url(
+        self,
+        _name: str,
+        verb: str,
+        by_fingerprint: bool,
+        initial_status: str,
+        expected_answer: str,
+        expected_status: str,
+        expected_assignee: str | None,
+    ) -> None:
+        issue_id = create_issue(
+            team_id=self.team.id, name="TypeError: boom", status=ErrorTrackingIssueStatus(initial_status)
+        )
+        create_issue_fingerprint(team_id=self.team.id, issue_id=issue_id, fingerprint="fp-1")
+        slack = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T1", config={}, sensitive_config={"access_token": "xoxb-x"}
+        )
+        path = "error-tracking/fingerprint/fp-1" if by_fingerprint else f"error_tracking/{issue_id}"
+        url = f"{settings.SITE_URL}/project/{self.team.id}/{path}"
+        mention = self._slack_mention(verb, (str(self.organization.id),), integration_id=slack.id, url=url)
+
+        with (
+            patch(RUN_SLACK_COMMAND, side_effect=lambda **kwargs: run_slack_command(**kwargs)),
+            patch(SLACK_POST) as post,
+        ):
+            accepted = accept_slack_mention(mention)
+
+        assert accepted == verb
+        assert post.call_args.args[3].startswith(expected_answer)
+        issue = get_issue(issue_id, self.team.id)
+        assert issue.status == expected_status
+        assert (issue.assignee.type if issue.assignee else None) == expected_assignee
+
+    @patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value="test-webhook-secret")
     def test_a_signed_comment_with_a_command_is_queued(self, _secret: MagicMock) -> None:
         reset_consumer_registry()
         self.addCleanup(reset_consumer_registry)

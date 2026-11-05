@@ -691,6 +691,11 @@ def canonical_precheck_query_for(skill_name: str) -> str | None:
     return _canonical_precheck_queries().get(skill_name)
 
 
+def canonical_precheck_queries() -> dict[str, str]:
+    """The default pre-check of every canonical scout that ships one, keyed by scout name."""
+    return dict(_canonical_precheck_queries())
+
+
 @lru_cache(maxsize=1)
 def _canonical_deprecations() -> dict[str, ScoutDeprecation]:
     """The retirement marker per canonical scout name, for the scouts PostHog is retiring.

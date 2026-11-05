@@ -41,6 +41,11 @@
                         "description": "Optional context for AI agents. Maximum 10000 characters.",
                         "type": ["string", "null"],
                         "maxLength": 10000
+                    },
+                    "group_key": {
+                        "description": "Key of the tile group this tile joins. Tiles with the same key belong together.",
+                        "type": ["string", "null"],
+                        "maxLength": 100
                     }
                 }
             }
@@ -85,6 +90,10 @@
                     "type": "null"
                 }
             ]
+        },
+        "customization": {
+            "description": "Display settings that the new dashboard starts with, such as tile spacing and tile groups",
+            "type": ["object", "null"]
         },
         "tags": {
             "description": "The tags of the dashboard template",

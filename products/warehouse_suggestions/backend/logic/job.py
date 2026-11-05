@@ -1,5 +1,7 @@
-from datetime import date, datetime
+from collections import defaultdict
+from datetime import date, datetime, timedelta
 from enum import StrEnum
+from uuid import UUID
 
 from django.db import transaction
 from django.utils import timezone
@@ -8,16 +10,17 @@ from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
 
-from ..facade.contracts import SuggestionDraft
 from ..facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus
 from ..models import WarehouseSuggestion, WarehouseSuggestionTeamConfig
 from .analytics import report_candidates
 from .candidates.base import CandidateContext, CandidateResult
 from .candidates.registry import evaluate_candidates
 from .inventory import load_inventory
-from .lifecycle import LifecycleResult, apply_run
-from .reads import ReadWindow, RollupDays, TeamReads, read_rollup_days, read_team_reads
+from .lifecycle import FLIP_KINDS, LifecycleResult, apply_run
+from .reads import ReadWindow, RollupDays, Subject, TeamReads, read_rollup_days, read_team_reads
 from .rules import RULES, EligibilityRules, Rules
+
+MAINTAINED_STATUSES = (WarehouseSuggestionStatus.PROPOSED, WarehouseSuggestionStatus.ACCEPTED)
 
 
 class TeamRunStatus(StrEnum):
@@ -32,6 +35,7 @@ class TeamRunResult:
     status: TeamRunStatus
     drafts: int = 0
     lifecycle: LifecycleResult | None = None
+    measurement_requests: tuple[Subject, ...] = ()
 
 
 def run_team(
@@ -54,13 +58,20 @@ def run_team(
         with transaction.atomic():
             _record_run(_locked_config(team_id), reads, eligible=False, now=now)
         return TeamRunResult(team_id=team_id, status=status)
-    context = build_context(team, reads, run_id=run_id, rules=rules)
-    drafts = _evaluate_and_report(context) if eligible else []
+    context = build_context(team, reads, run_id=run_id, rules=rules, now=now)
+    results = _evaluate_and_report(context) if eligible else {}
+    drafts = [draft for result in results.values() for draft in result.drafts]
     with transaction.atomic():
         config = _locked_config(team_id)
         _record_run(config, reads, eligible=eligible, now=now)
         lifecycle = apply_run(context, team, drafts, now, surface=eligible and config.paused_reason is None)
-    return TeamRunResult(team_id=team_id, status=status, drafts=len(drafts), lifecycle=lifecycle)
+    return TeamRunResult(
+        team_id=team_id,
+        status=status,
+        drafts=len(drafts),
+        lifecycle=lifecycle,
+        measurement_requests=tuple(subject for result in results.values() for subject in result.measurement_requests),
+    )
 
 
 def explain_team(
@@ -69,31 +80,56 @@ def explain_team(
     team = Team.objects.get(id=team_id)
     window = ReadWindow.ending(today, rules)
     reads = read_team_reads(team_id, window, rules, read_rollup_days(window))
-    context = build_context(team, reads, run_id="explain", rules=rules)
+    context = build_context(team, reads, run_id="explain", rules=rules, now=timezone.now())
     return context, evaluate_candidates(context)
 
 
-def _evaluate_and_report(context: CandidateContext) -> list[SuggestionDraft]:
+def _evaluate_and_report(context: CandidateContext) -> dict[WarehouseSuggestionKind, CandidateResult]:
     results = evaluate_candidates(context)
     for kind, result in results.items():
         report_candidates(kind, len(result.drafts))
-    return [draft for result in results.values() for draft in result.drafts]
+    return results
 
 
 def is_eligible(reads: TeamReads, rules: EligibilityRules) -> bool:
     return reads.view_reads >= rules.min_view_reads or bool(reads.refreshes)
 
 
-def build_context(team: Team, reads: TeamReads, *, run_id: str, rules: Rules) -> CandidateContext:
-    return CandidateContext(team_id=team.pk, reads=reads, inventory=load_inventory(team), rules=rules, run_id=run_id)
+def build_context(team: Team, reads: TeamReads, *, run_id: str, rules: Rules, now: datetime) -> CandidateContext:
+    return CandidateContext(
+        team_id=team.pk,
+        reads=reads,
+        inventory=load_inventory(team),
+        rules=rules,
+        run_id=run_id,
+        recent_accepts=_recent_flip_accepts(team.pk, rules, now),
+    )
+
+
+def _recent_flip_accepts(team_id: int, rules: Rules, now: datetime) -> dict[WarehouseSuggestionKind, frozenset[UUID]]:
+    since = now - timedelta(days=rules.lifecycle.flip_cooldown_days)
+    accepted = (
+        WarehouseSuggestion.objects.for_team(team_id)
+        .filter(status=WarehouseSuggestionStatus.ACCEPTED, kind__in=FLIP_KINDS, reviewed_at__gte=since)
+        .values_list("kind", "subject_id")
+    )
+    subject_ids: defaultdict[WarehouseSuggestionKind, set[UUID]] = defaultdict(set)
+    for kind, subject_id in accepted:
+        subject_ids[WarehouseSuggestionKind(kind)].add(subject_id)
+    return {kind: frozenset(ids) for kind, ids in subject_ids.items()}
+
+
+def team_ids_with_suggestions_to_maintain() -> set[int]:
+    return set(
+        WarehouseSuggestion.objects.unscoped()
+        .filter(status__in=MAINTAINED_STATUSES)
+        .values_list("team_id", flat=True)
+        .distinct()
+    )
 
 
 def _has_suggestions_to_maintain(team_id: int) -> bool:
-    return (
-        WarehouseSuggestion.objects.for_team(team_id)
-        .filter(status__in=[WarehouseSuggestionStatus.PROPOSED, WarehouseSuggestionStatus.ACCEPTED])
-        .exists()
-    )
+    return WarehouseSuggestion.objects.for_team(team_id).filter(status__in=MAINTAINED_STATUSES).exists()
 
 
 def _locked_config(team_id: int) -> WarehouseSuggestionTeamConfig:

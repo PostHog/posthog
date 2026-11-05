@@ -1,0 +1,96 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "The create body, where the subject is named for the only time in a check's life.",
+    "properties": {
+        "ai_model": {
+            "description": "Model that generated the check, if AI-authored.",
+            "maxLength": 128,
+            "type": "string"
+        },
+        "check_type": {
+            "description": "Which assertion to make. Determines the shape of config; see /check_types/.\n\n* `not_null` - not_null\n* `unique` - unique\n* `accepted_values` - accepted_values\n* `relationships` - relationships\n* `row_count` - row_count\n* `freshness` - freshness\n* `custom_sql` - custom_sql",
+            "enum": ["not_null", "unique", "accepted_values", "relationships", "row_count", "freshness", "custom_sql"],
+            "type": "string"
+        },
+        "column_name": {
+            "description": "Column the check applies to. Omit for table-scoped types like row_count.",
+            "maxLength": 400,
+            "type": "string"
+        },
+        "confidence": {
+            "anyOf": [
+                {
+                    "maximum": 1,
+                    "minimum": 0,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "AI author's confidence in the check, 0-1."
+        },
+        "config": {
+            "additionalProperties": {},
+            "description": "Type-specific configuration, validated against the check type's JSON schema.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "created_source": {
+            "description": "Whether a human ('user') or an agent ('ai_generated') authored this check.\n\n* `user` - user\n* `ai_generated` - ai_generated",
+            "enum": ["user", "ai_generated"],
+            "type": "string"
+        },
+        "description": {
+            "description": "Why this check exists and what a failure means.",
+            "type": "string"
+        },
+        "enabled": {
+            "description": "Disabled checks are never run by any trigger.",
+            "type": "boolean"
+        },
+        "name": {
+            "anyOf": [
+                {
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z][A-Za-z0-9_]*$",
+                    "type": "string"
+                },
+                {
+                    "maxLength": 0,
+                    "type": "string"
+                }
+            ],
+            "description": "Optional identifier-safe handle, unique per project. Omit to address the check by id."
+        },
+        "reasoning": {
+            "description": "AI author's reasoning, surfaced as review context.",
+            "type": "string"
+        },
+        "severity": {
+            "description": "'error' failures mark the subject failing and notify; 'warn' failures only surface.\n\n* `error` - error\n* `warn` - warn",
+            "enum": ["error", "warn"],
+            "type": "string"
+        },
+        "subject_type": {
+            "description": "Kind of object to check: 'table', 'view', 'metric', or 'posthog_table'.\n\n* `table` - table\n* `view` - view\n* `metric` - metric\n* `posthog_table` - posthog_table",
+            "enum": ["table", "view", "metric", "posthog_table"],
+            "type": "string"
+        },
+        "subject_uuid": {
+            "description": "Id of the table, view, metric, or PostHog table to check.",
+            "type": "string"
+        },
+        "tags": {
+            "description": "Free-form string labels for grouping and filtering.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        }
+    },
+    "required": ["subject_type", "subject_uuid", "check_type"],
+    "type": "object"
+}

@@ -1,7 +1,7 @@
 import { IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { EnrichedReviewer } from '../../types'
+import { EnrichedReviewer, ReviewerRemoval } from '../../types'
 import { SuggestedReviewersSectionView } from './SuggestedReviewersSectionView'
 
 export function SuggestedReviewersSectionMockup({
@@ -11,7 +11,7 @@ export function SuggestedReviewersSectionMockup({
 }: {
     suggestions: EnrichedReviewer[]
     onAdd: () => void
-    onRemove: (suggestions: EnrichedReviewer[]) => void
+    onRemove: (suggestions: EnrichedReviewer[], removal?: ReviewerRemoval) => void
 }): JSX.Element {
     return (
         <SuggestedReviewersSectionView

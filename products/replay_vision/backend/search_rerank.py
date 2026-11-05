@@ -26,7 +26,7 @@ from products.replay_vision.backend.temporal.metrics import record_search_rerank
 
 logger = structlog.get_logger(__name__)
 
-RERANK_MODEL = "posthog/hogference/jevk5-fp8-0.2"
+RERANK_MODEL = "posthog/hogference/jeeves-0.1"
 RERANK_CANDIDATES = 20
 RERANK_TEXT_CHARS = 500
 RERANK_REQUESTS = 2

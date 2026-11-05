@@ -1,4 +1,6 @@
-import { RE2JS } from 're2js'
+import type { RE2JS } from 're2js'
+
+import { retryImport } from 'lib/utils/retryImport'
 
 export const isValidRegexp = (regex: string): boolean => {
     try {
@@ -9,9 +11,34 @@ export const isValidRegexp = (regex: string): boolean => {
     }
 }
 
-export const isValidRE2 = (regex: string): boolean => {
+export type RE2Engine = typeof RE2JS
+
+let loadedRE2: RE2Engine | null = null
+let pendingRE2: Promise<RE2Engine> | null = null
+
+/** The RE2 engine is large and only checks regex filters, so it loads on first use. */
+export function loadRE2(): Promise<RE2Engine> {
+    pendingRE2 ??= retryImport(() => import('re2js')).then(
+        (module) => {
+            loadedRE2 = module.RE2JS
+            return module.RE2JS
+        },
+        (error: unknown) => {
+            pendingRE2 = null
+            throw error
+        }
+    )
+    return pendingRE2
+}
+
+export function getLoadedRE2(): RE2Engine | null {
+    return loadedRE2
+}
+
+export async function isValidRE2(regex: string): Promise<boolean> {
+    const engine = await loadRE2()
     try {
-        RE2JS.compile(regex)
+        engine.compile(regex)
         return true
     } catch {
         return false

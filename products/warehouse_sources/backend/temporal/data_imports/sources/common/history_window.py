@@ -16,6 +16,8 @@ from django.utils import timezone
 
 import structlog
 
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
+
 logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
@@ -34,10 +36,9 @@ def history_start_for_schema(
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import (  # noqa: PLC0415
         SourceRegistry,
     )
-    from products.warehouse_sources.backend.types import ExternalDataSourceType  # noqa: PLC0415
 
     try:
-        source = SourceRegistry.get_source(ExternalDataSourceType(schema.source.source_type))
+        source = SourceRegistry.get_source(schema.source.source_type)
     except ValueError:
         # An unknown type means the source's module failed to import, not that it reads everything.
         # Both answer None here, so say which one this was rather than leave a widened range
@@ -49,7 +50,7 @@ def history_start_for_schema(
     # leave the source on its declared default rather than failing every sync's history resolution.
     config = None
     try:
-        config = source.parse_config(schema.source.job_inputs or {})
+        config = source.parse_config(SourceInputsStore.load(schema.source))
     except Exception:
         logger.warning("history_window.config_unreadable", source_type=schema.source.source_type)
 

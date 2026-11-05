@@ -3,24 +3,17 @@
 A curated marketplace of third-party MCP servers (Linear, Notion, Sentry, ...) that users browse and connect from Settings → MCP servers (behind the `mcp-gateway` feature flag).
 Connected servers are consumed by agent surfaces via the `backend/facade/` package.
 
+Store connections to PostHog MCP use individual tools so each call receives its own policy check. They cannot invoke the `exec` wrapper or expand nested connections. Direct PostHog MCP clients retain CLI mode and access to their own connected tools.
+
+Tool names missing from the cached registry are re-listed before use and refused if the server still does not advertise them. OAuth responses are limited to 1 MiB. Buffered MCP handshakes and calls allow 8 MiB for full tool schemas and results. Both paths enforce a total response deadline. Upstream servers must honor `Accept-Encoding: identity`.
+
 This is unrelated to `products/*/mcp/tools.yaml`, which exposes PostHog's own endpoints as MCP tools.
 
-## Keep the desktop UI in sync
+## PostHog Desktop
 
-PostHog Desktop ships its own, independently written frontend for this product — same backend, same feature flags, no shared UI code:
-
-| This product (web app)                                | PostHog Desktop equivalent                                      |
-| ----------------------------------------------------- | --------------------------------------------------------------- |
-| `frontend/scene/` (marketplace)                       | `products/desktop/packages/ui/src/features/mcp-servers/`        |
-| `frontend/gateway/` + `frontend/settings/` (gateway)  | `products/desktop/packages/ui/src/features/mcp-gateway/`        |
-| `frontend/scene/AddCustomServerForm.tsx` (custom add) | `products/desktop/packages/ui/src/features/mcp-server-manager/` |
-
-The implementations are parallel, not shared: web uses Kea + LemonUI, desktop uses TanStack Query + quill.
-The desktop also hand-writes its gateway API types in `products/desktop/packages/api-client/src/mcp-gateway.ts` as mirrors of the serializers in `backend/presentation/gateway_views.py`.
-
-The MCP store feature set always changes for both apps together.
-When you change the frontend here — a new workflow, control, state, or flag gate — make the equivalent change in the desktop features above in the same PR, or open an explicitly linked follow-up.
-When you change a serializer the gateway UI consumes, update the desktop's hand-written mirrors too.
+PostHog Desktop is no longer maintained, so web app changes here do not need a Desktop counterpart.
+Desktop still builds against this backend in CI: it hand-writes its gateway API types in `products/desktop/packages/api-client/src/mcp-gateway.ts` as mirrors of the serializers in `backend/presentation/gateway_views.py`.
+When you change a serializer the gateway UI consumes, keep those mirrors compiling.
 
 ## Settings experience and rollout
 

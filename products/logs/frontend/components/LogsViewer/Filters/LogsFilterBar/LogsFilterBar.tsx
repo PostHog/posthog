@@ -63,7 +63,8 @@ export const LogsQueryControls = (): JSX.Element => {
     const { dateRange } = filters
 
     return (
-        <div className="flex shrink-0 gap-1.5">
+        // Shrinks rather than overflowing, so a long absolute range fits a narrow pane by truncating.
+        <div className="flex gap-1.5 min-w-0">
             <LogsDateRangePicker dateRange={dateRange} setDateRange={setDateRange} />
 
             <LemonButton
@@ -153,7 +154,7 @@ export function addLogsValueFilter(
     return mergeFilterIntoValues(currentValues, newPropertyFilter)
 }
 
-export const LogsFilterSearch = (): JSX.Element => {
+export const LogsFilterSearch = ({ autoFocus = true }: { autoFocus?: boolean }): JSX.Element => {
     const [visible, setVisible] = useState<boolean>(false)
     const { utcDateRange, queryFilterGroup } = useValues(logsViewerFiltersLogic)
     const { focusFilter } = useActions(logsViewerFiltersLogic)
@@ -215,6 +216,7 @@ export const LogsFilterSearch = (): JSX.Element => {
                 <TaxonomicFilterSearchInput
                     onClick={() => setVisible(true)}
                     searchInputRef={searchInputRef}
+                    autoFocus={autoFocus}
                     onClose={() => onClose()}
                     onChange={() => setVisible(true)}
                 />

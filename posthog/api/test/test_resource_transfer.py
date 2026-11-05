@@ -13,7 +13,7 @@ from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
 from posthog.models.scoping import team_scope
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -168,7 +168,7 @@ class TestResourceTransferPreview(APIBaseTest):
 
     def test_preview_survey_includes_insight_and_dependencies(self) -> None:
         insight = Insight.objects.create(team=self.team, name="Survey insight")
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="survey trigger",
             steps_json=[{"event": "$pageview"}],
@@ -180,7 +180,7 @@ class TestResourceTransferPreview(APIBaseTest):
             questions=[{"id": "q1", "type": "open", "question": "Hi"}],
             linked_insight=insight,
         )
-        survey.actions.add(action)
+        survey.actions.add(action.id)
 
         response = self.client.post(
             self._preview_url(),
@@ -336,6 +336,39 @@ class TestResourceTransferTransfer(APIBaseTest):
         assert new_tiles.exists()
         tile_insight_ids = set(new_tiles.values_list("insight_id", flat=True))
         assert dest_insight.pk in tile_insight_ids
+
+    @parameterized.expand(
+        [
+            ("kind_mismatch", "Insight", "Survey", "1"),
+            ("malformed_integer_id", "Insight", "Insight", "not-an-id"),
+            ("malformed_uuid", "Survey", "Survey", "1"),
+        ]
+    )
+    def test_transfer_rejects_a_malformed_substitution(
+        self, _name: str, source_kind: str, dest_kind: str, dest_id: str
+    ) -> None:
+        insight = Insight.objects.create(team=self.team, name="My insight")
+
+        response = self.client.post(
+            self._transfer_url(),
+            {
+                "source_team_id": self.team.pk,
+                "destination_team_id": self.dest_team.pk,
+                "resource_kind": "Insight",
+                "resource_id": str(insight.pk),
+                "substitutions": [
+                    {
+                        "source_resource_kind": source_kind,
+                        "source_resource_id": str(insight.pk),
+                        "destination_resource_kind": dest_kind,
+                        "destination_resource_id": dest_id,
+                    }
+                ],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
     def test_transfer_without_substitutions_copies_everything(self) -> None:
         insight = Insight.objects.create(team=self.team, name="My insight")
@@ -732,11 +765,11 @@ class TestResourceTransferTenantIsolation(APIBaseTest):
         return f"/api/organizations/{self.organization.id}/resource_transfers/transfer/"
 
     def test_preview_rejects_insight_referencing_foreign_org_action(self) -> None:
-        foreign_action = Action.objects.create(team=self.foreign_team, name="Secret action")
+        foreign_action = create_action(team=self.foreign_team, name="Secret action")
         insight = Insight.objects.create(
             team=self.team,
             name="Malicious insight",
-            filters={"actions": [{"id": foreign_action.pk}]},
+            filters={"actions": [{"id": foreign_action.id}]},
         )
 
         response = self.client.post(
@@ -933,3 +966,43 @@ class TestResourceTransferProjectAccessControl(APIBaseTest):
         ids = {r["resource_id"] for r in response.json()["results"]}
         assert str(visible.id) in ids
         assert str(restricted.id) not in ids
+
+    @patch(
+        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
+    )
+    def test_substitution_needs_read_access_to_the_destination_object(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Source dashboard")
+        insight = Insight.objects.create(team=self.team, name="Source insight")
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        restricted = Insight.objects.create(team=self.dest_team, name="Restricted insight", created_by=self.user)
+        AccessControl.objects.create(
+            team=self.dest_team, resource="insight", resource_id=str(restricted.id), access_level="none"
+        )
+        ResourceTransfer.objects.create(
+            source_team=self.team,
+            destination_team=self.dest_team,
+            resource_kind="Insight",
+            resource_id=str(insight.pk),
+            duplicated_resource_id=str(restricted.pk),
+        )
+        payload = {
+            "source_team_id": self.team.pk,
+            "destination_team_id": self.dest_team.pk,
+            "resource_kind": "Dashboard",
+            "resource_id": str(dashboard.pk),
+        }
+        substitution = {
+            "source_resource_kind": "Insight",
+            "source_resource_id": str(insight.pk),
+            "destination_resource_kind": "Insight",
+            "destination_resource_id": str(restricted.pk),
+        }
+
+        self.client.force_login(self.other_user)
+        preview = self.client.post(self._preview_url(), payload)
+        transfer = self.client.post(self._transfer_url(), {**payload, "substitutions": [substitution]}, format="json")
+
+        assert preview.status_code == status.HTTP_200_OK, preview.json()
+        assert all("suggested_substitution" not in resource for resource in preview.json()["resources"])
+        assert transfer.status_code == status.HTTP_403_FORBIDDEN, transfer.json()
+        assert not Dashboard.objects.filter(team=self.dest_team).exists()

@@ -52,7 +52,7 @@ from posthog.hogql.property import action_to_expr
 
 from posthog.dataclasses import frozen
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -711,7 +711,7 @@ def build_target_condition(
         # Scope the lookup to the pipeline's project so a foreign action id can't leak across
         # tenants. Actions live on the project's root team, so a team match would miss them
         # from any other environment of the same project.
-        action = Action.objects.get(id=action_id, team__project_id=team.project_id, deleted=False)
+        action = get_action(action_id=action_id, project_id=team.project_id, include_deleted=False)
         if not action.steps:
             # action_to_expr compiles an empty step list to a constant true, which would label
             # every event in the horizon a positive.
@@ -1305,6 +1305,23 @@ def build_training_features_sql(
     return sql, values
 
 
+def build_fixed_anchors_sql(*, anchor_person_ids: list[str], cutoff_ts: int | None) -> tuple[str, dict[str, Any]]:
+    """
+    Anchors at ``cutoff_ts`` for the persons in ``anchor_person_ids`` that are still live.
+
+    The live filter is the one every population uses (``_person_rows_sql``). A person deleted since
+    the ids were stored, including the losing side of a merge, drops out, so nothing scores a
+    deleted person or an obsolete id that events no longer resolve to.
+    """
+    if cutoff_ts is None:
+        raise ValueError("Fixed anchors need an explicit cutoff_ts")
+    live = _person_rows_sql("SELECT toUUID(arrayJoin({anchor_person_ids}))", [])
+    return (
+        f"SELECT id AS person_id, toInt({{cutoff_ts}}) AS cutoff_ts FROM ({live})",
+        {"anchor_person_ids": anchor_person_ids, "cutoff_ts": cutoff_ts},
+    )
+
+
 def build_inference_features_sql(
     *,
     feature_sql: str,
@@ -1315,6 +1332,7 @@ def build_inference_features_sql(
     target_definition: dict[str, Any] | None = None,
     team: "Team | None" = None,
     rolling: RollingSelection | None = None,
+    anchor_person_ids: list[str] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """
     Build the inference-time query: the agent's feature_sql with {anchors}
@@ -1325,16 +1343,22 @@ def build_inference_features_sql(
 
     Caller substitutes {lookback_days} in feature_sql before calling.
     ``rolling`` selects a rolling subset of the anchors, as in ``build_inference_anchors_sql``.
+    ``anchor_person_ids`` replaces the population with those of these persons who are still live
+    (``build_fixed_anchors_sql``), so a later query scores the people an earlier run scored even if
+    population data changed since.
     """
-    anchors_sql, anchors_values = build_inference_anchors_sql(
-        lookback_days=lookback_days,
-        inference_population=inference_population,
-        cutoff_ts=cutoff_ts,
-        target_event=target_event,
-        target_definition=target_definition,
-        team=team,
-        rolling=rolling,
-    )
+    if anchor_person_ids is not None:
+        anchors_sql, anchors_values = build_fixed_anchors_sql(anchor_person_ids=anchor_person_ids, cutoff_ts=cutoff_ts)
+    else:
+        anchors_sql, anchors_values = build_inference_anchors_sql(
+            lookback_days=lookback_days,
+            inference_population=inference_population,
+            cutoff_ts=cutoff_ts,
+            target_event=target_event,
+            target_definition=target_definition,
+            team=team,
+            rolling=rolling,
+        )
     # Wrap the inference anchors query as the {anchors} subquery — agent's
     # feature_sql references columns (person_id, cutoff_ts) just like training.
     anchors_subquery = f"({anchors_sql.strip()})"

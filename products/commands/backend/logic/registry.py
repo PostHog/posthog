@@ -9,12 +9,27 @@ from typing import Any
 
 from posthog.dataclasses import frozen
 
-from .commands import Answer, CommandContext, CommandOutcome, CommandTarget, PullRequestRef
-from .handlers import handle_loop, handle_qa, handle_review, handle_stamp, review_target, stamp_target
+from .commands import SUBJECT_NAMES, Answer, CommandContext, CommandOutcome, CommandTarget, SubjectRef
+from .handlers import (
+    docs_listed,
+    docs_target,
+    handle_assign,
+    handle_docs,
+    handle_loop,
+    handle_qa,
+    handle_resolve,
+    handle_review,
+    handle_stamp,
+    review_target,
+    stamp_target,
+)
 from .schema import (
+    ASSIGN,
     COMMAND_DECLARATIONS,
+    DOCS,
     LOOP,
     QA,
+    RESOLVE,
     REVIEW,
     STAMP,
     ArgumentError,
@@ -41,7 +56,8 @@ class CommandSpec[A]:
     handler: Callable[[CommandContext, A], CommandOutcome]
     # Names the projects the command's product acts in, out of the rolled-out candidates, before
     # dispatch checks membership and access. Without one, every candidate counts.
-    target: Callable[[PullRequestRef, tuple[int, ...]], CommandTarget | Answer] | None = None
+    target: Callable[[SubjectRef, tuple[int, ...]], CommandTarget | Answer] | None = None
+    listed: Callable[[SubjectRef], bool] | None = None
 
     def parse(self, raw_argument: str) -> Invocation[A] | ArgumentError:
         args = parse_arguments(self.declaration, raw_argument)
@@ -64,10 +80,18 @@ COMMANDS: Mapping[str, CommandSpec[Any]] = _index(
         CommandSpec(declaration=REVIEW, handler=handle_review, target=review_target),
         CommandSpec(declaration=STAMP, handler=handle_stamp, target=stamp_target),
         CommandSpec(declaration=QA, handler=handle_qa),
+        CommandSpec(declaration=DOCS, handler=handle_docs, target=docs_target, listed=docs_listed),
         CommandSpec(declaration=LOOP, handler=handle_loop),
+        CommandSpec(declaration=RESOLVE, handler=handle_resolve),
+        CommandSpec(declaration=ASSIGN, handler=handle_assign),
     )
 )
 
 
-def help_text() -> str:
-    return f"Commands you can use on a pull request:\n\n{help_table()}"
+def help_text(subject: SubjectRef) -> str:
+    hidden_verbs = {
+        verb
+        for verb, spec in COMMANDS.items()
+        if spec.listed is not None and subject.kind in spec.declaration.subject_kinds and not spec.listed(subject)
+    }
+    return f"Commands you can use on {SUBJECT_NAMES[subject.kind]}:\n\n{help_table(subject.kind, hidden_verbs)}"

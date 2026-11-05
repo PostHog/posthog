@@ -3,6 +3,7 @@ from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     _create_event,
+    _create_person,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
@@ -18,6 +19,7 @@ from posthog.schema import (
     WebVitalsPathBreakdownResultItem,
 )
 
+from products.cohorts.backend.models.cohort import Cohort
 from products.web_analytics.backend.hogql_queries.web_vitals_path_breakdown import WebVitalsPathBreakdownQueryRunner
 
 
@@ -49,6 +51,7 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
         metric: WebVitalsMetric = WebVitalsMetric.INP,
         percentile: PropertyMathType = PropertyMathType.P75,
         properties=None,
+        filter_test_accounts: bool = False,
     ):
         with time_machine.travel(self.QUERY_TIMESTAMP, tick=False):
             query = WebVitalsPathBreakdownQuery(
@@ -57,6 +60,7 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 percentile=percentile,
                 thresholds=thresholds,
                 properties=properties or [],
+                filterTestAccounts=filter_test_accounts,
             )
 
             runner = WebVitalsPathBreakdownQueryRunner(team=self.team, query=query)
@@ -279,6 +283,48 @@ class TestWebVitalsPathBreakdownQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 )
             ],
             results,
+        )
+
+    def test_test_account_cohort_filter_is_applied(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["visitor"])
+        _create_person(team_id=self.team.pk, distinct_ids=["scanner"])
+        self._create_events(
+            [
+                ("visitor", [("2025-01-10", "/path1", 50)]),
+                ("scanner", [("2025-01-10", "/path1", 500), ("2025-01-10", "/path2", 500)]),
+            ],
+            WebVitalsMetric.INP,
+        )
+        cohort = Cohort.objects.create(team=self.team, name="scanners", groups=[], is_static=True)
+        cohort.insert_users_by_list(["scanner"])
+        self.team.test_account_filters = [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "not_in"}]
+        self.team.save()
+
+        unfiltered = self._run_web_vitals_path_breakdown_query("2025-01-08", "2025-01-15", (100, 200)).results
+        filtered = self._run_web_vitals_path_breakdown_query(
+            "2025-01-08", "2025-01-15", (100, 200), filter_test_accounts=True
+        ).results
+
+        self.assertEqual(
+            [
+                WebVitalsPathBreakdownResult(
+                    good=[],
+                    needs_improvements=[],
+                    poor=[
+                        WebVitalsPathBreakdownResultItem(path="/path1", value=387.5),
+                        WebVitalsPathBreakdownResultItem(path="/path2", value=500),
+                    ],
+                )
+            ],
+            unfiltered,
+        )
+        self.assertEqual(
+            [
+                WebVitalsPathBreakdownResult(
+                    good=[WebVitalsPathBreakdownResultItem(path="/path1", value=50)], needs_improvements=[], poor=[]
+                )
+            ],
+            filtered,
         )
 
     def test_path_cleaning_filters(self):

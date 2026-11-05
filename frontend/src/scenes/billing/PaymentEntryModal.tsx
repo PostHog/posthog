@@ -7,8 +7,8 @@ import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { SupportFormFields, supportLogic } from 'lib/components/Support/supportLogic'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { urls } from 'scenes/urls'
 
+import { PaymentCompletion } from './PaymentCompletion'
 import { paymentEntryLogic } from './paymentEntryLogic'
 
 const stripeJs = async (): Promise<typeof import('@stripe/stripe-js')> => await import('@stripe/stripe-js')
@@ -30,16 +30,15 @@ const supportRequestForError = (error: string): Partial<SupportFormFields> => ({
 })
 
 export const PaymentForm = (): JSX.Element => {
-    const { stripeError, isLoading, redirectPath } = useValues(paymentEntryLogic)
-    const { setStripeError, clearErrors, hidePaymentEntryModal, pollAuthorizationStatus, setLoading } =
-        useActions(paymentEntryLogic)
+    const { stripeError, isLoading } = useValues(paymentEntryLogic)
+    const { setStripeError, clearErrors, hidePaymentEntryModal, confirmPayment } = useActions(paymentEntryLogic)
     const { openSupportForm } = useActions(supportLogic)
     const showContactSupport = useFeatureFlag('PAYMENT_ENTRY_CONTACT_SUPPORT')
 
     const stripe = useStripe()
     const elements = useElements()
 
-    const handleSubmit = async (event: React.MouseEvent<HTMLElement>): Promise<void> => {
+    const handleSubmit = (event: React.MouseEvent<HTMLElement>): void => {
         clearErrors()
         event.preventDefault()
         // Stripe.js never became usable: no publishable key, a blocked script, or a load failure.
@@ -54,23 +53,7 @@ export const PaymentForm = (): JSX.Element => {
             })
             return
         }
-        setLoading(true)
-
-        const returnUrl = `${window.location.origin}${urls.billingAuthorizationStatus()}`
-        const queryParams = redirectPath ? `?postRedirectPath=${encodeURIComponent(redirectPath)}` : ''
-        const result = await stripe.confirmPayment({
-            elements,
-            confirmParams: { return_url: `${returnUrl}${queryParams}` },
-            redirect: 'if_required',
-        })
-
-        if (result.error) {
-            setLoading(false)
-            setStripeError(result.error.message)
-            posthog.captureException(new Error('payment entry stripe error', { cause: result.error }))
-        } else {
-            pollAuthorizationStatus(result.paymentIntent.id)
-        }
+        confirmPayment(stripe, elements)
     }
 
     return (
@@ -97,7 +80,7 @@ export const PaymentForm = (): JSX.Element => {
                 <LemonButton disabled={isLoading} type="secondary" onClick={hidePaymentEntryModal}>
                     Cancel
                 </LemonButton>
-                <LemonButton loading={isLoading} type="primary" onClick={(event) => void handleSubmit(event)}>
+                <LemonButton loading={isLoading || !stripe || !elements} type="primary" onClick={handleSubmit}>
                     Submit
                 </LemonButton>
             </div>
@@ -106,7 +89,8 @@ export const PaymentForm = (): JSX.Element => {
 }
 
 export const PaymentEntryModal = (): JSX.Element => {
-    const { clientSecret, paymentEntryModalOpen, apiError } = useValues(paymentEntryLogic)
+    const { clientSecret, paymentEntryModalOpen, apiError, paymentFlow, completedPaymentOrganization } =
+        useValues(paymentEntryLogic)
     const { hidePaymentEntryModal, initiateAuthorization, setStripeError } = useActions(paymentEntryLogic)
     const { openSupportForm } = useActions(supportLogic)
     const showContactSupport = useFeatureFlag('PAYMENT_ENTRY_CONTACT_SUPPORT')
@@ -114,7 +98,7 @@ export const PaymentEntryModal = (): JSX.Element => {
 
     useEffect(() => {
         // Only load Stripe.js when the modal is opened
-        if (paymentEntryModalOpen && !stripePromise) {
+        if (paymentEntryModalOpen && !completedPaymentOrganization && !stripePromise) {
             const loadStripeJs = async (): Promise<void> => {
                 const { loadStripe } = await stripeJs()
                 const publicKey = window.STRIPE_PUBLIC_KEY!
@@ -130,24 +114,26 @@ export const PaymentEntryModal = (): JSX.Element => {
                 setStripeError(STRIPE_UNAVAILABLE_MESSAGE)
             })
         }
-    }, [paymentEntryModalOpen, stripePromise, setStripeError])
+    }, [paymentEntryModalOpen, completedPaymentOrganization, stripePromise, setStripeError])
 
     useEffect(() => {
-        if (paymentEntryModalOpen) {
+        if (paymentEntryModalOpen && !completedPaymentOrganization) {
             initiateAuthorization()
         }
-    }, [paymentEntryModalOpen, initiateAuthorization])
+    }, [paymentEntryModalOpen, paymentFlow, completedPaymentOrganization, initiateAuthorization])
 
     return (
         <LemonModal
             onClose={hidePaymentEntryModal}
             width="max(44vw)"
             isOpen={paymentEntryModalOpen}
-            title="Add your payment details to subscribe"
+            title={completedPaymentOrganization ? 'Payment setup completed' : 'Add your payment details to subscribe'}
             description=""
         >
             <div>
-                {clientSecret ? (
+                {completedPaymentOrganization ? (
+                    <PaymentCompletion />
+                ) : clientSecret ? (
                     <Elements stripe={stripePromise} options={{ clientSecret }}>
                         <PaymentForm />
                     </Elements>

@@ -1,10 +1,13 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 from products.tasks.backend.temporal.process_task.activities.post_slack_update import (
     SLACK_DENIAL_STOP_MESSAGE,
     SLACK_PERMISSION_REJECTION_ERROR_FRAGMENT,
     SLACK_RECOVERY_STRATEGY_CONNECT_THEN_REPLAN,
+    SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB,
     SLACK_RECOVERY_STRATEGY_RETRY,
     SLACK_RECOVERY_STRATEGY_UNBLOCK_AND_REPLAN,
     _classify_failure_recovery,
@@ -42,11 +45,27 @@ from products.tasks.backend.temporal.process_task.activities.post_slack_update i
             SLACK_RECOVERY_STRATEGY_RETRY,
             "retry",
         ),
+        (
+            "GitHub user integration for this run requires reauthorization",
+            SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB,
+            "<http://localhost:8000/project/42/settings/user-personal-integrations|Connect your GitHub in PostHog settings>",
+        ),
+        (
+            "GitHub user integration requires reauthorization and no team installation is available",
+            SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB,
+            "<http://localhost:8000/project/42/settings/user-personal-integrations|Connect your GitHub in PostHog settings>",
+        ),
+        (
+            "Linear integration requires reauthorization",
+            SLACK_RECOVERY_STRATEGY_RETRY,
+            "retry",
+        ),
     ],
 )
+@override_settings(SITE_URL="http://localhost:8000")
 def test_classify_failure_recovery(error: str, expected_strategy: str, expected_prompt_fragment: str) -> None:
     assert _classify_failure_recovery(error) == expected_strategy
-    assert expected_prompt_fragment in _failure_recovery_prompt(error)
+    assert expected_prompt_fragment in _failure_recovery_prompt(error, team_id=42)
 
 
 @patch("products.tasks.backend.models.TaskRun.update_state_atomic")
@@ -75,6 +94,6 @@ def test_cancelled_run_clears_progress_without_posting(mock_update_state: MagicM
 
     _post_cancelled_once(task_run, handler)
 
-    handler.update_reaction.assert_called_once_with("hedgehog")
+    handler.update_reaction.assert_not_called()
     handler.delete_progress.assert_called_once_with()
     mock_update_state.assert_called_once()

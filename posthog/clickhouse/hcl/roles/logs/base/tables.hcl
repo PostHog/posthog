@@ -193,6 +193,48 @@ database "posthog" {
     column "severity_text" {
       type = "LowCardinality(String)"
     }
+    column "internal_source" {
+      type = "LowCardinality(String)"
+    }
+    column "retention_days" {
+      type = "SimpleAggregateFunction(max, UInt16)"
+    }
+    column "log_count" {
+      type = "SimpleAggregateFunction(sum, UInt64)"
+    }
+  }
+
+  materialized_view "logs34_to_pattern_buckets" {
+    to_table = "posthog.logs_pattern_buckets"
+    query    = file("sql/logs34_to_pattern_buckets.sql")
+
+    column "team_id" {
+      type = "Int32"
+    }
+    column "time_bucket" {
+      type = "DateTime('UTC')"
+    }
+    column "service_name" {
+      type = "LowCardinality(String)"
+    }
+    column "namespace" {
+      type = "LowCardinality(String)"
+    }
+    column "environment" {
+      type = "LowCardinality(String)"
+    }
+    column "severity_text" {
+      type = "LowCardinality(String)"
+    }
+    column "pattern_version" {
+      type = "UInt8"
+    }
+    column "pattern" {
+      type = "String"
+    }
+    column "internal_source" {
+      type = "LowCardinality(String)"
+    }
     column "retention_days" {
       type = "SimpleAggregateFunction(max, UInt16)"
     }
@@ -595,6 +637,10 @@ database "posthog" {
     column "pattern_version" {
       type = "UInt8"
     }
+    column "internal_source" {
+      type    = "LowCardinality(String)"
+      default = "''"
+    }
     engine "distributed" {
       cluster_name    = "posthog_single_shard"
       remote_database = "posthog"
@@ -664,7 +710,8 @@ database "posthog" {
   }
 
   table "logs_volume_buckets" {
-    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text"]
+    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "internal_source"]
+    primary_key  = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text"]
     partition_by = "toDate(time_bucket)"
     ttl          = "time_bucket + toIntervalDay(greatest(42, retention_days))"
     settings = {
@@ -688,6 +735,9 @@ database "posthog" {
       type = "LowCardinality(String)"
     }
     column "severity_text" {
+      type = "LowCardinality(String)"
+    }
+    column "internal_source" {
       type = "LowCardinality(String)"
     }
     column "retention_days" {
@@ -722,6 +772,9 @@ database "posthog" {
     column "severity_text" {
       type = "LowCardinality(String)"
     }
+    column "internal_source" {
+      type = "LowCardinality(String)"
+    }
     column "retention_days" {
       type = "SimpleAggregateFunction(max, UInt16)"
     }
@@ -736,13 +789,13 @@ database "posthog" {
   }
 
   table "logs_pattern_buckets" {
-    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "pattern_version", "pattern"]
+    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "pattern_version", "pattern", "internal_source"]
     primary_key  = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "pattern_version"]
     partition_by = "toDate(time_bucket)"
-    ttl          = "time_bucket + toIntervalDay(42)"
+    ttl          = "time_bucket + toIntervalDay(greatest(42, retention_days))"
     settings = {
       index_granularity   = "8192"
-      ttl_only_drop_parts = "1"
+      ttl_only_drop_parts = "0"
     }
     column "team_id" {
       type = "Int32"
@@ -768,6 +821,12 @@ database "posthog" {
     }
     column "pattern" {
       type = "String"
+    }
+    column "internal_source" {
+      type = "LowCardinality(String)"
+    }
+    column "retention_days" {
+      type = "SimpleAggregateFunction(max, UInt16)"
     }
     column "log_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"
@@ -803,6 +862,12 @@ database "posthog" {
     }
     column "pattern" {
       type = "String"
+    }
+    column "internal_source" {
+      type = "LowCardinality(String)"
+    }
+    column "retention_days" {
+      type = "SimpleAggregateFunction(max, UInt16)"
     }
     column "log_count" {
       type = "SimpleAggregateFunction(sum, UInt64)"
@@ -1023,6 +1088,10 @@ database "posthog" {
     }
     column "pattern_version" {
       type = "UInt8"
+    }
+    column "internal_source" {
+      type    = "LowCardinality(String)"
+      default = "''"
     }
     index "idx_severity_text_set" {
       expr        = "severity_text"

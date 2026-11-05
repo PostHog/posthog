@@ -24,8 +24,10 @@ from products.review_hog.backend.reviewer.constants import (
     REVIEW_HOG_FINDING_MARKER,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
+    SINGLE_AGENT_ARM_SETS,
+    SINGLE_AGENT_FLASH_ARM,
     ReviewArm,
-    review_arm_for_mode,
+    SingleAgentArms,
 )
 from products.review_hog.backend.reviewer.finding_budget import FINDING_BUDGET, FindingBudget
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
@@ -36,6 +38,7 @@ from products.review_hog.backend.reviewer.models.perspective_selection import (
 )
 from products.review_hog.backend.reviewer.models.single_agent_review import SingleAgentFinding, SingleAgentReview
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
+from products.review_hog.backend.reviewer.persistence import SingleAgentResults
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.tools.coordinator_review import CoordinatorResult, CoordinatorReview
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import AlreadyRaised, DedupOutcome, Duplicate
@@ -327,6 +330,16 @@ async def test_review_chunk_activity_runs_on_the_reports_persisted_arm() -> None
     assert kwargs["workflow_id_prefix"] == f"{env.info.workflow_id}:issues-review-p1-c3".lower()
 
 
+# Not a production arm set, so the tests keep working when the table's trial rows come and go.
+_TRIAL_ARMS = SingleAgentArms(
+    main=replace(SINGLE_AGENT_FLASH_ARM, model="gpt-6-luna", reasoning_effort=ReasoningEffort.HIGH),
+    lens=replace(SINGLE_AGENT_FLASH_ARM, model="gpt-6-luna"),
+)
+
+
+_NO_RESULTS = SingleAgentResults(reviews={}, fallbacks=frozenset())
+
+
 def _single_agent_stage(**extra: object) -> dict:
     return {
         "team_id": 1,
@@ -377,6 +390,7 @@ async def test_review_activity_fails_non_retryably_only_on_non_retryable_agent_c
         patch(f"{_MODULE}._prepare_single_agent_prompt", MagicMock(return_value="review-prompt")),
         patch(f"{_MODULE}.load_review_arm", return_value=DEFAULT_REVIEW_ARM),
         patch(f"{_MODULE}.load_perspective_results", return_value={}),
+        patch(f"{_MODULE}.load_single_agent_results", return_value=_NO_RESULTS),
         patch(f"{_MODULE}.persist_perspective_results"),
         patch(f"{_MODULE}.run_sandbox_review", AsyncMock(side_effect=failure)),
     ):
@@ -389,6 +403,86 @@ async def test_review_activity_fails_non_retryably_only_on_non_retryable_agent_c
         assert excinfo.value.__cause__ is failure
     else:
         assert excinfo.value is failure
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "activity_fn,stage_extra,trial_arm",
+    [
+        pytest.param(single_agent_review_activity, {}, _TRIAL_ARMS.main, id="main_session"),
+        pytest.param(
+            lens_review_activity, {"lens": "contracts-security", "chunk_id": 2}, _TRIAL_ARMS.lens, id="lens_session"
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "first_failure,control_fails,falls_back",
+    [
+        (AgentTurnFailed("rejected", category="upstream_request_rejected", agent_message="rejected"), False, True),
+        (AgentTurnFailed("rejected", category="upstream_request_rejected", agent_message="rejected"), True, True),
+        (ValueError("no valid findings after the JSON retry"), False, True),
+        (AgentTurnFailed("limit", category="task_spend_limit", agent_message="limit"), False, False),
+    ],
+)
+async def test_single_agent_session_on_a_trial_arm_runs_again_on_the_control_arm_when_its_agent_fails(
+    activity_fn: Callable[..., Awaitable[bool | None]],
+    stage_extra: dict,
+    trial_arm: ReviewArm,
+    first_failure: Exception,
+    control_fails: bool,
+    falls_back: bool,
+) -> None:
+    # A gateway that rejects the trial model fails non-retryably, so without the second run on the control
+    # arm a trial model outage would fail every main session of the trial's PRs.
+    rejected = AgentTurnFailed("model rejected", category="upstream_request_rejected", agent_message="rejected")
+    mock_review = AsyncMock(side_effect=[first_failure, rejected if control_fails else SingleAgentReview(findings=[])])
+    mock_persist = MagicMock()
+    input_type = LensReviewInput if stage_extra else SandboxStageInput
+    with (
+        patch(f"{_MODULE}.ReviewActivityHeartbeater"),
+        patch(f"{_MODULE}.load_single_agent_results", return_value=_NO_RESULTS),
+        patch(f"{_MODULE}._prepare_single_agent_prompt", return_value="prompt"),
+        patch(f"{_MODULE}.persist_perspective_results", mock_persist),
+        patch(f"{_MODULE}.run_sandbox_review", mock_review),
+        patch.dict(SINGLE_AGENT_ARM_SETS, {"trial": _TRIAL_ARMS}),
+    ):
+        run = ActivityEnvironment().run(activity_fn, input_type(**_single_agent_stage(arm_set="trial", **stage_extra)))
+        if control_fails or not falls_back:
+            with pytest.raises(ApplicationError) as excinfo:
+                await run
+            assert excinfo.value.non_retryable is True
+        else:
+            assert await run is True
+
+    expected_models = [trial_arm.model, "gpt-6.1-sol"] if falls_back else [trial_arm.model]
+    assert [call.kwargs["model"] for call in mock_review.call_args_list] == expected_models
+    if control_fails or not falls_back:
+        mock_persist.assert_not_called()
+    else:
+        assert mock_persist.call_args.kwargs["review_arm"] == SINGLE_AGENT_FLASH_ARM
+        assert mock_persist.call_args.kwargs["fallback_for"] == trial_arm
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("persisted_as_fallback", [False, True])
+async def test_reused_single_agent_session_reports_whether_its_result_fell_back(persisted_as_fallback: bool) -> None:
+    # A workflow retry reuses the persisted result, so the completed event must still count a fallback that ran.
+    key = (2000, 1)
+    done = SingleAgentResults(
+        reviews={key: IssuesReview(issues=[])}, fallbacks=frozenset({key}) if persisted_as_fallback else frozenset()
+    )
+    mock_review = AsyncMock()
+    with (
+        patch(f"{_MODULE}.load_single_agent_results", return_value=done),
+        patch(f"{_MODULE}.run_sandbox_review", mock_review),
+        patch.dict(SINGLE_AGENT_ARM_SETS, {"trial": _TRIAL_ARMS}),
+    ):
+        fell_back = await ActivityEnvironment().run(
+            single_agent_review_activity, SandboxStageInput(**_single_agent_stage(arm_set="trial"))
+        )
+
+    assert fell_back is persisted_as_fallback
+    mock_review.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -533,19 +627,14 @@ async def test_select_perspectives_activity_skips_the_llm_when_nothing_is_prunab
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("arm_set,arms", [("control", SINGLE_AGENT_ARM_SETS["control"]), ("trial", _TRIAL_ARMS)])
 @pytest.mark.parametrize(
-    "activity_fn,activity_input,expected_key,expected_source",
+    "activity_fn,stage_extra,expected_key,expected_source",
     [
-        pytest.param(
-            single_agent_review_activity,
-            SandboxStageInput(**_single_agent_stage()),
-            (2000, 1),
-            "flash-single-agent",
-            id="main_session",
-        ),
+        pytest.param(single_agent_review_activity, {}, (2000, 1), "flash-single-agent", id="main_session"),
         pytest.param(
             lens_review_activity,
-            LensReviewInput(**_single_agent_stage(lens="contracts-security", chunk_id=2)),
+            {"lens": "contracts-security", "chunk_id": 2},
             (2002, 2),
             "flash-lens-contracts-security",
             id="lens_session",
@@ -553,13 +642,17 @@ async def test_select_perspectives_activity_skips_the_llm_when_nothing_is_prunab
     ],
 )
 async def test_single_agent_session_persists_mapped_findings_under_the_arm_dedup_reads(
-    activity_fn: Callable[..., Awaitable[None]],
-    activity_input: SandboxStageInput,
+    activity_fn: Callable[..., Awaitable[bool | None]],
+    stage_extra: dict,
     expected_key: tuple[int, int],
     expected_source: str,
+    arm_set: str,
+    arms: SingleAgentArms,
 ) -> None:
-    # Dedup combines only the results stamped with the turn's arm, so a stamp that differs from what
-    # dedup asks for drops every finding of that session without an error.
+    # Dedup reads each session's result under that session's arm in the turn's arm set, so a stamp that
+    # differs from it drops every finding of that session without an error.
+    input_type = LensReviewInput if stage_extra else SandboxStageInput
+    activity_input = input_type(**_single_agent_stage(arm_set=arm_set, **stage_extra))
     review = SingleAgentReview(
         findings=[
             SingleAgentFinding(
@@ -584,18 +677,19 @@ async def test_single_agent_session_persists_mapped_findings_under_the_arm_dedup
     env = ActivityEnvironment()
     with (
         patch(f"{_MODULE}.ReviewActivityHeartbeater"),
-        patch(f"{_MODULE}.load_perspective_results", return_value={}),
+        patch(f"{_MODULE}.load_single_agent_results", return_value=_NO_RESULTS),
         patch(f"{_MODULE}._prepare_single_agent_prompt", return_value="prompt"),
         patch(f"{_MODULE}.persist_perspective_results", mock_persist),
         patch(f"{_MODULE}.run_sandbox_review", mock_review),
+        patch.dict(SINGLE_AGENT_ARM_SETS, {"trial": _TRIAL_ARMS}),
     ):
-        await env.run(activity_fn, activity_input)
+        assert await env.run(activity_fn, activity_input) is False
 
-    dedup_arm = review_arm_for_mode(REVIEW_MODE_FLASH, DEFAULT_REVIEW_ARM, review_design=REVIEW_DESIGN_SINGLE_AGENT)
-    assert mock_persist.call_args.kwargs["review_arm"] == dedup_arm
+    session_arm = arms.for_pass(expected_key[0])
+    assert mock_persist.call_args.kwargs["review_arm"] == session_arm
     assert (mock_review.call_args.kwargs["model"], mock_review.call_args.kwargs["reasoning_effort"]) == (
-        "gpt-6.1-sol",
-        ReasoningEffort.MEDIUM,
+        session_arm.model,
+        session_arm.reasoning_effort,
     )
     [(key, persisted)] = mock_persist.call_args.kwargs["results"].items()
     assert key == expected_key
@@ -751,8 +845,9 @@ async def test_full_dedup_lists_other_reviewers_comments_when_the_app_login_is_n
     "trigger_source,run_index,expected_budget_left,expected_changed_code_only",
     [
         pytest.param("automatic", 1, 2, False, id="first_review"),
-        pytest.param("automatic", 2, 2, False, id="second_automatic_turn_reviews_the_whole_pr"),
+        pytest.param("automatic", 2, 2, True, id="second_automatic_turn_reviews_the_push"),
         pytest.param("automatic", 3, 2, True, id="later_automatic_turn_reviews_the_push"),
+        pytest.param("comment", 2, None, False, id="requested_second_review"),
         pytest.param("comment", 3, None, False, id="requested_review"),
         pytest.param(None, 3, None, False, id="payload_from_before_the_field"),
     ],
@@ -761,7 +856,7 @@ async def test_a_standard_turn_scope_follows_its_trigger_and_run(
     trigger_source: str | None, run_index: int, expected_budget_left: int | None, expected_changed_code_only: bool
 ) -> None:
     # Automatic reviews are the safeguard that stops at must-fix findings once the budget is spent, and after
-    # the first whole-PR turns they only comment on what a push changed. A review someone asks for surfaces
+    # the first review they only comment on what a push changed. A review someone asks for surfaces
     # everything the turn keeps, across the pull request.
     dedupe = AsyncMock(return_value=FlashSelection(kept=[], dropped=[], cap=4, lens_part_count=1))
     with (
@@ -792,17 +887,18 @@ async def test_a_standard_turn_scope_follows_its_trigger_and_run(
 
 
 @pytest.mark.parametrize(
-    "trigger_source,commands_on,expected_hint",
+    "trigger_source,commands_on,review_mode,note_names_deep",
     [
-        pytest.param("label", True, "@posthog review --deep", id="label_with_commands"),
-        pytest.param("label", False, None, id="label_without_commands"),
-        pytest.param("automatic", True, None, id="other_trigger"),
+        pytest.param("stamphog", True, REVIEW_MODE_FLASH, True, id="stamphog_standard"),
+        pytest.param("automatic", True, REVIEW_MODE_FLASH, True, id="automatic_standard"),
+        pytest.param("automatic", False, REVIEW_MODE_FLASH, False, id="automatic_without_commands"),
+        pytest.param("comment", True, REVIEW_MODE_FULL, False, id="deep_review"),
     ],
 )
-def test_a_label_review_points_to_the_comment_commands(
-    trigger_source: str, commands_on: bool, expected_hint: str | None
+def test_a_review_points_to_the_review_ui_and_the_comment_commands(
+    trigger_source: str, commands_on: bool, review_mode: str, note_names_deep: bool
 ) -> None:
-    # The hint advertises `@posthog` commands, so it must not appear where they do not run or where nobody used the label.
+    # The note advertises `@posthog` commands, so it must not appear where they do not run.
     publish = MagicMock(return_value=PublishOutcome(posted=True))
     with (
         patch(f"{_MODULE}._installation_auth", return_value=("token", "1")),
@@ -819,10 +915,11 @@ def test_a_label_review_points_to_the_comment_commands(
                 owner="o",
                 repo="r",
                 pr_number=1,
-                review_mode=REVIEW_MODE_FLASH,
+                review_mode=review_mode,
                 trigger_source=trigger_source,
             )
         )
 
-    footer = publish.call_args.kwargs["footer"]
-    assert (expected_hint in footer) if expected_hint else footer == ""
+    note = publish.call_args.kwargs["first_review_note"]
+    assert "/project/1/code-review?review=rep-1" in note
+    assert ("@posthog review --deep" in note) is note_names_deep

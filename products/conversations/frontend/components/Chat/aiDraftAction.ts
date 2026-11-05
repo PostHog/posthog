@@ -18,9 +18,9 @@ export function firstClarifyingQuestion(questions: unknown): string | null {
 }
 
 export function aiDraftAction(
-    message: Pick<ChatMessage, 'authorType' | 'isPrivate' | 'persistAs' | 'clarifyingQuestions'>
+    message: Pick<ChatMessage, 'authorType' | 'isPrivate' | 'persistAs' | 'clarifyingQuestions' | 'automatedUpdate'>
 ): AiDraftActionKind | null {
-    if (message.authorType !== 'AI' || !message.isPrivate) {
+    if (message.authorType !== 'AI' || !message.isPrivate || message.automatedUpdate) {
         return null
     }
     if (message.persistAs === 'clarification') {

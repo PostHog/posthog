@@ -21,6 +21,7 @@ import { Spinner } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { LemonTreeSelectMode, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getEntryAccessDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
@@ -28,15 +29,17 @@ import { PAGINATION_LIMIT, projectTreeDataLogic } from '~/layout/panel-layout/Pr
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { ProjectTreeRef } from '~/types'
 
+import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { Breadcrumb, UserBasicType } from '../../../types'
 import { panelLayoutLogic } from '../panelLayoutLogic'
 import type { PanelLayoutNavIdentifier } from '../panelLayoutLogic'
 import type { FolderState, ProjectTreeAction } from './types'
 import {
+    calculateMovePath,
     convertFileSystemEntryToTreeDataItem,
     findInProjectTree,
     formatUrlAsName,
-    calculateMovePath,
+    isFileSystemEntryTypeEnabled,
     joinPath,
     matchesRefType,
     sortFilesAndFolders,
@@ -87,11 +90,11 @@ export interface projectTreeLogicValues {
     appBreadcrumbs: Breadcrumb[] // breadcrumbsLogic
     projectTreeRef: ProjectTreeRef | null // breadcrumbsLogic
     sceneBreadcrumbs: Breadcrumb[] // breadcrumbsLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     activePanelIdentifier: string // panelLayoutLogic
     folderLoadOffset: Record<string, number> // projectTreeDataLogic
     folderStates: Record<string, FolderState> // projectTreeDataLogic
     folders: Record<string, FileSystemEntry[]> // projectTreeDataLogic
-    getCustomProductTreeItems: (searchTerm: string) => TreeDataItem[] // projectTreeDataLogic
     getStaticTreeItems: (searchTerm: string, onlyFolders: boolean) => TreeDataItem[] // projectTreeDataLogic
     lastNewFolder: string | null // projectTreeDataLogic
     loadingPaths: Record<string, boolean> // projectTreeDataLogic
@@ -472,7 +475,8 @@ export interface projectTreeLogicMeta {
             recentResultsLoading: boolean,
             folderStates: Record<string, FolderState>,
             checkedItems: Record<string, boolean>,
-            users: Record<string, UserBasicType>
+            users: Record<string, UserBasicType>,
+            featureFlags: FeatureFlagsSet
         ) => TreeDataItem[]
         searchTreeItems: (
             searchResults: SearchResults,
@@ -481,7 +485,8 @@ export interface projectTreeLogicMeta {
             checkedItems: Record<string, boolean>,
             sortMethod: ProjectTreeSortMethod,
             onlyFolders: boolean,
-            users: Record<string, UserBasicType>
+            users: Record<string, UserBasicType>,
+            featureFlags: FeatureFlagsSet
         ) => TreeDataItem[]
         projectTreeItems: (
             searchTerm: string,
@@ -501,9 +506,7 @@ export interface projectTreeLogicMeta {
             recentResultsLoading: boolean,
             sortMethod: ProjectTreeSortMethod,
             onlyFolders: boolean,
-            getStaticTreeItems: (searchTerm: string, onlyFolders: boolean) => TreeDataItem[], // projectTreeDataLogic
-            getCustomProductTreeItems: (searchTerm: string) => TreeDataItem[], // projectTreeDataLogic
-            arg: any
+            getStaticTreeItems: (searchTerm: string, onlyFolders: boolean) => TreeDataItem[] // projectTreeDataLogic
         ) => TreeDataItem[]
         fullFileSystemFiltered: (
             fullFileSystem: TreeDataItem[],
@@ -558,6 +561,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             ['activePanelIdentifier'],
             breadcrumbsLogic,
             ['projectTreeRef', 'appBreadcrumbs', 'sceneBreadcrumbs'],
+            featureFlagLogic,
+            ['featureFlags'],
             projectTreeDataLogic,
             [
                 'folders',
@@ -570,7 +575,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 'loadingPaths',
                 'lastNewFolder',
                 'getStaticTreeItems',
-                'getCustomProductTreeItems',
                 'shortcutData',
                 'unfiledItems',
                 'unfiledItemsLoading',
@@ -964,16 +968,19 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         recentTreeItems: [
-            (s) => [s.recentResults, s.recentResultsLoading, s.folderStates, s.checkedItems, s.users],
+            (s) => [s.recentResults, s.recentResultsLoading, s.folderStates, s.checkedItems, s.users, s.featureFlags],
             (
                 recentResults: RecentResults,
                 recentResultsLoading: boolean,
                 folderStates: Record<string, import('./types').FolderState>,
                 checkedItems: Record<string, boolean>,
-                users: Record<string, import('~/types').UserBasicType>
+                users: Record<string, import('~/types').UserBasicType>,
+                featureFlags: Record<string, unknown>
             ): TreeDataItem[] => {
                 const results = convertFileSystemEntryToTreeDataItem({
-                    imports: recentResults.results.map((i) => ({ ...i, protocol: 'project://' })),
+                    imports: recentResults.results
+                        .filter((entry) => isFileSystemEntryTypeEnabled(entry, featureFlags))
+                        .map((i) => ({ ...i, protocol: 'project://' })),
                     folderStates,
                     checkedItems,
                     root: 'project://',
@@ -1013,6 +1020,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 s.sortMethod,
                 s.onlyFolders,
                 s.users,
+                s.featureFlags,
             ],
             (
                 searchResults: SearchResults,
@@ -1021,10 +1029,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 checkedItems: Record<string, boolean>,
                 sortMethod: ProjectTreeSortMethod,
                 onlyFolders: boolean,
-                users: Record<string, import('~/types').UserBasicType>
+                users: Record<string, import('~/types').UserBasicType>,
+                featureFlags: Record<string, unknown>
             ): TreeDataItem[] => {
                 const results = convertFileSystemEntryToTreeDataItem({
-                    imports: searchResults.results.map((i) => ({ ...i, protocol: 'project://' })),
+                    imports: searchResults.results
+                        .filter((entry) => isFileSystemEntryTypeEnabled(entry, featureFlags))
+                        .map((i) => ({ ...i, protocol: 'project://' })),
                     folderStates,
                     checkedItems,
                     root: 'project://',
@@ -1097,8 +1108,6 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 s.sortMethod,
                 s.onlyFolders,
                 s.getStaticTreeItems,
-                s.getCustomProductTreeItems,
-                (_, props) => props.root,
             ],
             (
                 searchTerm: string,
@@ -1110,14 +1119,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 recentResultsLoading: boolean,
                 sortMethod: ProjectTreeSortMethod,
                 onlyFolders: boolean,
-                getStaticTreeItems: (searchTerm: string, onlyFolders: boolean) => TreeDataItem[],
-                getCustomProductTreeItems: (searchTerm: string) => TreeDataItem[],
-                root
+                getStaticTreeItems: (searchTerm: string, onlyFolders: boolean) => TreeDataItem[]
             ): TreeDataItem[] => {
-                if (root === 'custom-products://') {
-                    return getCustomProductTreeItems(searchTerm)
-                }
-
                 const rootItems: TreeDataItem[] = [
                     {
                         id: 'project://',
@@ -1169,9 +1172,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 const rootWithProtocol =
                     rootFolders.length > 0 && rootFolders[0].endsWith(':') && root.startsWith(`${rootFolders[0]}//`)
 
-                // We can skip all of this and consider only the `fullFileSystem` if we're not on the custom products root
-                // since we don't need to do any filtering as this is coming from the backend
-                if (rootWithProtocol && root !== 'custom-products://') {
+                if (rootWithProtocol) {
                     const protocol = rootFolders[0] + '//'
                     const ref = joinPath(rootFolders.slice(1))
                     const firstFolder = fullFileSystem.find((item) => item.id === protocol)
@@ -1212,8 +1213,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                     return tree
                 }
 
-                // no client side filtering under project:// or custom-products://
-                if (!searchTerm || !root || root.startsWith('project://') || root.startsWith('custom-products://')) {
+                // no client side filtering under project://
+                if (!searchTerm || !root || root.startsWith('project://')) {
                     return addRoot(firstFolders)
                 }
                 const term = searchTerm.toLowerCase()
@@ -1724,7 +1725,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
     subscriptions(({ actions, values, props }) => ({
         projectTreeRef: (newRef: ProjectTreeRef | null) => {
             // Only the project:// tree navigates to breadcrumb-driven items. Other roots
-            // (data-and-people, products, shortcuts) don't contain project file-system items,
+            // (products, shortcuts) don't contain project file-system items,
             // so subscribing on those instances would fire duplicate api.fileSystem.list calls
             // for every navigation when those panels are keep-mounted.
             // undefined root means the panel loads the project root (''), so it is project-equivalent.

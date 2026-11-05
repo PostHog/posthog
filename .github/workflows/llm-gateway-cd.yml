@@ -39,7 +39,7 @@ jobs:
                   image-name: llm-gateway
                   # Publishes only from the default branch — assume the role and touch ECR only there
                   # (a non-default-branch workflow_dispatch builds nothing to push).
-                  aws-role-to-assume: ${{ vars.AWS_ECR_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+                  aws-role-to-assume: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
                   push-to-ecr: ${{ github.ref == 'refs/heads/master' }}
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
@@ -95,7 +95,7 @@ jobs:
                         },
                         "release": "llm-gateway",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": [],
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator, MutableMapping
+from collections.abc import Collection, Iterator, MutableMapping
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -9,9 +9,17 @@ from threading import Lock
 from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
+from django.conf import settings
+
 import requests
+import structlog
 from requests.auth import HTTPBasicAuth
 from requests.utils import resolve_proxies
+
+from posthog.hogql.constants import LimitContext
+
+from posthog.clickhouse.query_tagging import Feature, get_query_tags
+from posthog.ph_client import feature_enabled_or_false
 
 from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTrinoConnection,
@@ -20,26 +28,93 @@ from products.managed_warehouse.backend.facade.contracts import (
     ServiceCredentialTrinoConnect,
     ServiceCredentialUnavailable,
 )
+from products.managed_warehouse.backend.facade.feature_flags import MANAGED_WAREHOUSE_TRINO_CANARY_FLAG
 from products.managed_warehouse.backend.service_credentials import mint_service_credential, renew_service_credential
 
 if TYPE_CHECKING:
     from trino.dbapi import Connection
 
+LOGGER = structlog.get_logger(__name__)
+
 _CREDENTIAL_REFRESH_MARGIN = timedelta(minutes=2)
 _CREDENTIAL_REQUEST_TIMEOUT_SECONDS = 10
+_HOSTED_SERVICE_DOMAINS = frozenset({"dw.us.postwh.com", "dw.eu.postwh.com", "dw.dev.postwh.com"})
+_AUTOMATED_LIMIT_CONTEXTS = frozenset({LimitContext.EXPORT, LimitContext.SQL_ALERT, LimitContext.POSTHOG_AI})
 
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
+def _canary_domain() -> str:
+    return settings.MANAGED_WAREHOUSE_TRINO_CANARY_DOMAIN.strip().lower().strip(".")
+
+
+def _require_canary_domain() -> str:
+    domain = _canary_domain()
+    if not domain:
+        raise ManagedWarehouseTrinoConnectionUnavailable("The Trino canary domain is not configured")
+    return domain
+
+
+def _is_single_label_under(host: str, domains: Collection[str]) -> bool:
+    label, _, domain = host.lower().removesuffix(".").partition(".")
+    return domain in domains and re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label) is not None
+
+
 def _is_hosted_service_target(host: str) -> bool:
     # Tenant endpoints are trusted only when issued by the control plane, never from external-source configuration.
-    label, _, domain = host.lower().removesuffix(".").partition(".")
+    canary_domain = _canary_domain()
+    # An empty canary domain must stay out of the set, because a host without a domain would match it.
+    return _is_single_label_under(host, _HOSTED_SERVICE_DOMAINS | ({canary_domain} if canary_domain else set()))
+
+
+def _with_canary_host(connection: ManagedWarehouseTrinoConnection, canary: bool) -> ManagedWarehouseTrinoConnection:
+    if not canary:
+        return connection
+    domain = _require_canary_domain()
+    # Only a host that the control plane issued under a normal domain has a canary equivalent.
+    if not _is_single_label_under(connection.host, _HOSTED_SERVICE_DOMAINS):
+        raise ManagedWarehouseTrinoConnectionUnavailable("The Trino canary route needs a hosted warehouse host")
+    # The canary host keeps the database label of the minted host, so the same service credential applies.
+    label = connection.host.lower().removesuffix(".").partition(".")[0]
+    return replace(connection, host=f"{label}.{domain}")
+
+
+def _is_automated_run(limit_context: LimitContext | None) -> bool:
+    # The alert and warming code sets these tags before it calls any query runner, so they are visible in every
+    # layer. Exports and subscriptions run as their creator and carry no tag, so the limit context identifies them.
+    tags = get_query_tags()
     return (
-        domain in {"dw.us.postwh.com", "dw.dev.postwh.com"}
-        and re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label) is not None
+        limit_context in _AUTOMATED_LIMIT_CONTEXTS
+        or tags.alert_config_id is not None
+        or tags.feature in (Feature.ALERTING, Feature.CACHE_WARMUP)
+        or (tags.trigger or "").startswith("warming")
     )
+
+
+def use_trino_canary(
+    distinct_id: str | None, organization_id: str, *, limit_context: LimitContext | None = None
+) -> bool:
+    """Whether an interactive run for this user connects through the canary hostname.
+
+    The cheap checks come first, so the remote flag evaluation runs only for a user who could reach the canary.
+    A caller decides once per query and reuses the result, because each call evaluates the flag again.
+    """
+    if not _canary_domain() or not distinct_id or _is_automated_run(limit_context):
+        return False
+    try:
+        return feature_enabled_or_false(
+            MANAGED_WAREHOUSE_TRINO_CANARY_FLAG,
+            distinct_id,
+            groups={"organization": organization_id},
+            group_properties={"organization": {"id": organization_id}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    except Exception:
+        LOGGER.warning("Failed to evaluate the Trino canary feature flag", organization_id=organization_id)
+        return False
 
 
 def _connection_from_credential(credential: ServiceCredential) -> ManagedWarehouseTrinoConnection:
@@ -81,10 +156,13 @@ def resolve_managed_warehouse_trino_connection(
 
 
 class _TrinoServiceSession(requests.Session):
-    def __init__(self, organization_id: str, connection: ManagedWarehouseTrinoConnection) -> None:
+    def __init__(
+        self, organization_id: str, connection: ManagedWarehouseTrinoConnection, *, canary: bool = False
+    ) -> None:
         super().__init__()
         self._organization_id = organization_id
         self._connection = connection
+        self._canary = canary
         self._lock = Lock()
         # Defer authentication until send so queued requests also check credential expiry.
         self.auth = self._defer_authentication
@@ -129,7 +207,8 @@ class _TrinoServiceSession(requests.Session):
                         credential_secret=connection.password,
                         timeout_seconds=_CREDENTIAL_REQUEST_TIMEOUT_SECONDS,
                     )
-                    if credential.trino_connect is None:
+                    reused_target = credential.trino_connect is None
+                    if reused_target:
                         # Readiness can hide dial targets during renewal without invalidating an existing query's grant.
                         credential = replace(
                             credential,
@@ -146,6 +225,9 @@ class _TrinoServiceSession(requests.Session):
                     raise ManagedWarehouseTrinoConnectionUnavailable(
                         "Could not renew the Trino service credential"
                     ) from error
+                # The control plane returns the normal host again. A reused target already holds the canary host.
+                if not reused_target:
+                    refreshed = _with_canary_host(refreshed, self._canary)
                 if (
                     refreshed.credential_id != connection.credential_id
                     or refreshed.host != connection.host
@@ -174,11 +256,15 @@ class _TrinoServiceSession(requests.Session):
 
 
 @contextmanager
-def connect_managed_warehouse_trino(organization_id: str, *, principal: str = "posthog:trino") -> Iterator[Connection]:
+def connect_managed_warehouse_trino(
+    organization_id: str, *, principal: str = "posthog:trino", canary: bool = False
+) -> Iterator[Connection]:
     from trino.dbapi import connect  # noqa: PLC0415 -- keeps the optional driver off startup paths
 
-    config = resolve_managed_warehouse_trino_connection(organization_id, principal=principal)
-    with _TrinoServiceSession(organization_id, config) as http_session:
+    if canary:
+        _require_canary_domain()
+    config = _with_canary_host(resolve_managed_warehouse_trino_connection(organization_id, principal=principal), canary)
+    with _TrinoServiceSession(organization_id, config, canary=canary) as http_session:
         if _is_hosted_service_target(config.host) and config.port == 443:
             http_session.trust_env = False
         connection = connect(

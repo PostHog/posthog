@@ -1,36 +1,7 @@
-import {
-    AccessControlLevel,
-    BaseMathType,
-    ExperimentConclusion,
-    GroupMathType,
-    HogQLMathType,
-    PropertyMathType,
-} from '~/types'
+import { AccessControlLevel, ExperimentConclusion } from '~/types'
 import type { Experiment } from '~/types'
 
-export enum MetricInsightId {
-    Trends = 'new-experiment-trends-metric',
-    TrendsExposure = 'new-experiment-trends-exposure',
-    Funnels = 'new-experiment-funnels-metric',
-    SecondaryTrends = 'new-experiment-secondary-trends',
-    SecondaryFunnels = 'new-experiment-secondary-funnels',
-}
-
-export const LEGACY_EXPERIMENT_ALLOWED_MATH_TYPES = [
-    BaseMathType.TotalCount,
-    BaseMathType.UniqueUsers,
-    BaseMathType.UniqueSessions,
-    BaseMathType.WeeklyActiveUsers,
-    BaseMathType.MonthlyActiveUsers,
-    BaseMathType.FirstTimeForUser,
-    GroupMathType.UniqueGroup,
-    PropertyMathType.Sum,
-    HogQLMathType.HogQL,
-] as const
-
 export const EXPERIMENT_VARIANT_MULTIPLE = '$multiple'
-
-export const EXPERIMENT_HEALTH_PANEL_ELEMENT_ID = 'experiment-health-panel'
 
 export const CONFIDENCE_LEVEL_OPTIONS = [
     { value: 0.9, label: '90%' },
@@ -39,7 +10,6 @@ export const CONFIDENCE_LEVEL_OPTIONS = [
 ]
 
 export const EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS = 50
-export const EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS = 10
 
 // CUPED lookback window (days)
 export const DEFAULT_LOOKBACK_DAYS = 14

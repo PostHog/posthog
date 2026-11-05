@@ -806,4 +806,6 @@ class SnowflakeImplementation(
             # `supports_resume` defaults to True. A run with no order column saves no checkpoint,
             # so a hand-off would start it again from the first row, on each attempt.
             supports_resume=order_column is not None,
+            # One statement with `ORDER BY <incremental field>`, read as one stream.
+            sort_mode="asc" if should_use_incremental_field and incremental_field is not None else None,
         )

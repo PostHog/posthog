@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -242,6 +243,7 @@ describe('surveyWizardLogic', () => {
         })
 
         it('should move to questions step after selecting template', async () => {
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
             const logic = surveyWizardLogic({ id: 'new' })
             logic.mount()
 
@@ -253,6 +255,11 @@ describe('surveyWizardLogic', () => {
                     templateType: 'Net promoter score (NPS)',
                 }),
             })
+            expect(capture).toHaveBeenCalledWith('survey template clicked', {
+                template: SurveyTemplateType.NPS,
+                source: SURVEY_CREATED_SOURCE.SURVEY_WIZARD,
+            })
+            capture.mockRestore()
         })
 
         it('should track step progression through wizard', async () => {

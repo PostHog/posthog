@@ -35,7 +35,8 @@ from posthog.hogql.property import action_to_expr
 from posthog.dataclasses import frozen
 from posthog.models.user import User
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import ActionNotFound
 from products.autoresearch.backend.access import has_report_notebook_access
 from products.autoresearch.backend.dataset.labeling import TrainingSample, build_target_condition
 from products.autoresearch.backend.inference.failures import UnscorableChampion, find_unscorable_champion
@@ -46,6 +47,7 @@ from products.autoresearch.backend.models import (
     AutoresearchSuggestion,
     AutoresearchTrainingRun,
 )
+from products.autoresearch.backend.training.agent_model import agent_run_config_for
 from products.autoresearch.backend.training.explanation import MAX_TOP_FEATURES
 from products.autoresearch.backend.training.realized_context import (
     RealizedContext,
@@ -130,7 +132,7 @@ def _describe_target(pipeline: AutoresearchPipeline) -> _TargetDescription:
     if definition.get("type") == "action":
         action_id = definition.get("action_id")
         try:
-            action = Action.objects.get(id=int(action_id or 0), team__project_id=pipeline.team.project_id)
+            action = get_action(action_id=int(action_id or 0), project_id=pipeline.team.project_id)
             matcher = action_to_expr(action).to_hogql()
             spec_line = (
                 f"action `{_wrap_untrusted(action.name)}` (action_id {action_id}). "
@@ -138,7 +140,7 @@ def _describe_target(pipeline: AutoresearchPipeline) -> _TargetDescription:
             )
             inline_ref = f"the action `{_wrap_untrusted(action.name)}`"
             return _TargetDescription(spec_line=spec_line, inline_ref=inline_ref)
-        except (Action.DoesNotExist, TypeError, ValueError):
+        except (ActionNotFound, TypeError, ValueError):
             logger.warning("autoresearch_target_action_missing", pipeline_id=str(pipeline.pk), action_id=action_id)
     wrapped_event = _wrap_untrusted(pipeline.target_event)
     return _TargetDescription(spec_line=f"event `{wrapped_event}`", inline_ref=f"`{wrapped_event}`")
@@ -232,7 +234,7 @@ def build_agent_description(
     realized_context: RealizedContext | None = None,
     rescue: bool = False,
 ) -> str:
-    """Build the Claude Code agent prompt for the autoresearch training loop."""
+    """Build the agent brief for the autoresearch training loop. It must read the same under every runtime adapter."""
     pop_clause = ""
     if pipeline.training_population:
         pop_clause = (
@@ -890,7 +892,7 @@ def _describe_unscorable_champion(unscorable: UnscorableChampion | None, *, resc
     if rescue:
         rescue_text = """
 
-            **This is a rescue run.** The pipeline has no iteration budget left, so this run gets a
+            **This is a rescue run.** No research run is due for this pipeline, so this run gets a
             small fixed budget only to make scoring work again. Prefer a cheap, simple model whose
             `features.sql` scores today's inference population well inside the query limits over a
             model with a higher `holdout_score`."""
@@ -941,6 +943,7 @@ def run_training(
     iteration_budget: int,
     user_id: int | None,
     rescue: bool = False,
+    kickoff_reason: str = AutoresearchTrainingRun.KickoffReason.MANUAL,
 ) -> AutoresearchTrainingRun:
     """
     Launch a real agent sandbox training run.
@@ -966,14 +969,19 @@ def run_training(
     build_target_condition(
         target_event=pipeline.target_event, target_definition=pipeline.target_definition, team=pipeline.team
     )
+    agent_config = agent_run_config_for(pipeline)
 
     now = django_timezone.now()
     with transaction.atomic():
         training_run = AutoresearchTrainingRun.objects.create(
             pipeline=pipeline,
             status=AutoresearchTrainingRun.Status.RUNNING,
+            kickoff_reason=kickoff_reason,
             iteration_budget=iteration_budget,
             started_at=now,
+            agent_runtime_adapter=agent_config.runtime_adapter,
+            agent_model=agent_config.model,
+            agent_reasoning_effort=agent_config.reasoning_effort,
         )
 
         # Surface the inaugural training run in the pipeline badge. A DRAFT pipeline has no
@@ -1015,6 +1023,11 @@ def run_training(
             create_pr=False,
             mode="background",
             internal=True,
+            # Internal tasks skip team and user run preferences, so without these the run would
+            # take whatever the Tasks default is.
+            runtime_adapter=agent_config.runtime_adapter,
+            model=agent_config.model,
+            reasoning_effort=agent_config.reasoning_effort,
             posthog_mcp_scopes=mcp_scopes,
             # The autoresearch image is the agent-capable base plus pandas/numpy/
             # scikit-learn/pyarrow at system site. The base image lacks the ML libs; the

@@ -11,7 +11,7 @@
 
 use clap::{Parser, ValueEnum};
 
-use personhog_stateright::model::{ClaimDetection, HandoffModel, WarmOrder};
+use personhog_stateright::model::{ClaimDetection, HandoffModel, SealRule, WarmOrder, WarmReplay};
 use stateright::Model;
 
 #[derive(Parser)]
@@ -58,6 +58,17 @@ fn main() {
         cancels: 0,
         chunked_plans: false,
         probes: false,
+        migrations: 0,
+        migrate_to: 1,
+        keys: 1,
+        seal_rule: SealRule::Assignment,
+        warm_replay: WarmReplay::Sources,
+        seal_breaks: 0,
+        seal_grace: true,
+        plan_basis_guard: true,
+        quiet_start: true,
+        freeze_checks_strays: true,
+        park_behind_key: true,
     };
     println!("exploring {:?} at http://localhost:3000 …", args.scenario);
     model.checker().serve("localhost:3000");

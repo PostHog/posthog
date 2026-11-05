@@ -42,8 +42,6 @@ class TestBatchReconcileTeams(BaseTest):
     def _run(self, team_ids: str, *extra_args, existing=(), verify_listing=None):
         out = StringIO()
         with (
-            mock.patch(f"{RECONCILE}.sync_connect"),
-            mock.patch(f"{RECONCILE}.delete_schedule"),
             mock.patch(
                 f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=_temporal_listing(list(existing)))
             ),
@@ -95,9 +93,6 @@ class TestBatchReconcileTeams(BaseTest):
         assert team_record["dags"][0]["verified"] is True
         create.assert_called_once()
         assert create.call_args.kwargs["id"] == expected_tier
-        assert node.saved_query is not None
-        node.saved_query.refresh_from_db()
-        assert node.saved_query.sync_frequency_interval is None
 
     def test_verify_mismatch_halts(self):
         # if the live schedule set after apply is not exactly the planned tier set, the batch
@@ -147,8 +142,6 @@ class TestBatchReconcileTeams(BaseTest):
         out = StringIO()
         with (
             mock.patch(f"{BATCH}.time.sleep") as sleep,
-            mock.patch(f"{RECONCILE}.sync_connect"),
-            mock.patch(f"{RECONCILE}.delete_schedule"),
             mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(side_effect=[rate_limit, listing])),
             mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()),
             mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()),

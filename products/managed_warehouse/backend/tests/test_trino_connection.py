@@ -1,22 +1,32 @@
 import os
+import uuid
 import base64
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from threading import Event
+from urllib.parse import urlsplit
 
 import pytest
 from unittest import mock
 
+from django.test import override_settings
+
 import requests
 from rest_framework.response import Response
+
+from posthog.hogql.constants import LimitContext
+
+from posthog.clickhouse.query_tagging import Feature, tags_context
 
 from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseTrinoConnectionUnavailable
 from products.managed_warehouse.backend.trino_connection import (
     connect_managed_warehouse_trino,
     resolve_managed_warehouse_trino_connection,
+    use_trino_canary,
 )
 
 CREDENTIAL_ID = "svc_0123456789abcdef01234567"
+CANARY_DOMAIN = "canary.dw.us.postwh.com"
 
 
 def _mint_response(**target_overrides: object) -> Response:
@@ -99,8 +109,18 @@ def test_rejects_invalid_trino_targets(target: dict[str, object]) -> None:
             resolve_managed_warehouse_trino_connection("org-1")
 
 
+@pytest.mark.parametrize(
+    "canary,canary_domain,host",
+    [
+        (False, "", "tenant.dw.us.postwh.com"),
+        (False, CANARY_DOMAIN, "tenant.dw.us.postwh.com"),
+        (True, CANARY_DOMAIN, "tenant.canary.dw.us.postwh.com"),
+    ],
+)
 @pytest.mark.parametrize("renewal_target", ["included", "omitted", "null"])
-def test_polling_renews_the_grant_and_preserves_cancellation_ownership(renewal_target: str) -> None:
+def test_polling_renews_the_grant_and_preserves_cancellation_ownership(
+    renewal_target: str, canary: bool, canary_domain: str, host: str
+) -> None:
     minted = _mint_response()
     refreshed = _mint_response()
     refreshed.data.pop("credential_secret")
@@ -119,16 +139,16 @@ def test_polling_renews_the_grant_and_preserves_cancellation_ownership(renewal_t
             return _http_response(
                 request,
                 id="query-1",
-                infoUri="https://tenant.dw.us.postwh.com/query-1",
-                nextUri="https://tenant.dw.us.postwh.com/v1/statement/query-1",
+                infoUri=f"https://{host}/query-1",
+                nextUri=f"https://{host}/v1/statement/query-1",
                 stats={},
             )
         if request.method == "GET":
             return _http_response(
                 request,
                 id="query-1",
-                infoUri="https://tenant.dw.us.postwh.com/query-1",
-                nextUri="https://tenant.dw.us.postwh.com/v1/statement/query-1",
+                infoUri=f"https://{host}/query-1",
+                nextUri=f"https://{host}/v1/statement/query-1",
                 columns=[{"name": "value", "type": "bigint", "typeSignature": {"rawType": "bigint", "arguments": []}}],
                 data=[[1]],
                 stats={},
@@ -138,18 +158,20 @@ def test_polling_renews_the_grant_and_preserves_cancellation_ownership(renewal_t
         return response
 
     with (
+        override_settings(MANAGED_WAREHOUSE_TRINO_CANARY_DOMAIN=canary_domain),
         mock.patch(
             "products.managed_warehouse.backend.presentation.views._request", side_effect=[minted, refreshed]
         ) as cp,
         mock.patch("products.managed_warehouse.backend.trino_connection._utcnow", return_value=issued_at) as now,
         mock.patch("requests.adapters.HTTPAdapter.send", side_effect=send),
     ):
-        with connect_managed_warehouse_trino("org-1") as connection:
+        with connect_managed_warehouse_trino("org-1", canary=canary) as connection:
             cursor = connection.cursor()
             cursor.execute("SELECT 1")
             now.return_value = issued_at + timedelta(minutes=14)
             cursor.cancel()
     assert cp.call_count == 2
+    assert {urlsplit(r.url).hostname for r in sent} == {host}
     assert cp.call_args.args == ("POST", "org-1", "/service-credentials/refresh")
     assert cp.call_args.kwargs["json_body"]["credential_id"] == CREDENTIAL_ID
     assert cp.call_args.kwargs["json_body"]["rotate_secret"] is False
@@ -199,21 +221,67 @@ def test_failed_refresh_does_not_send_a_request(refresh_response: str) -> None:
         send.assert_not_called()
 
 
+def test_canary_without_a_configured_domain_is_refused_before_a_credential_is_minted() -> None:
+    with (
+        override_settings(MANAGED_WAREHOUSE_TRINO_CANARY_DOMAIN=""),
+        mock.patch("products.managed_warehouse.backend.presentation.views._request") as cp,
+        pytest.raises(ManagedWarehouseTrinoConnectionUnavailable, match="canary domain is not configured"),
+    ):
+        with connect_managed_warehouse_trino("org-1", canary=True):
+            pass
+    cp.assert_not_called()
+
+
 @pytest.mark.parametrize(
-    "host,port,bypass_proxy",
+    "host",
     [
-        ("tenant.dw.us.postwh.com", 443, True),
-        ("TENANT.DW.DEV.POSTWH.COM.", 443, True),
-        ("tenant.dw.us.postwh.com", 8443, False),
-        ("trino.example.com", 443, False),
-        ("nested.tenant.dw.us.postwh.com", 443, False),
-        ("dw.us.postwh.com", 443, False),
-        ("tenant.dw.us.postwh.com.example.com", 443, False),
+        "trino.example.com",
+        "tenant",
+        "nested.tenant.dw.us.postwh.com",
+        "tenant.dw.us.postwh.com.example.com",
+        "tenant.canary.dw.us.postwh.com",
     ],
 )
-def test_connection_keeps_verified_tls_and_scoped_proxy_bypass(host: str, port: int, bypass_proxy: bool) -> None:
+def test_canary_route_needs_a_host_that_the_control_plane_issued_under_a_normal_domain(host: str) -> None:
+    with (
+        override_settings(MANAGED_WAREHOUSE_TRINO_CANARY_DOMAIN=CANARY_DOMAIN),
+        mock.patch(
+            "products.managed_warehouse.backend.presentation.views._request", return_value=_mint_response(host=host)
+        ),
+        mock.patch("requests.adapters.HTTPAdapter.send") as send,
+        pytest.raises(ManagedWarehouseTrinoConnectionUnavailable, match="hosted warehouse host"),
+    ):
+        with connect_managed_warehouse_trino("org-1", canary=True):
+            pass
+    send.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "host,port,bypass_proxy,canary_domain",
+    [
+        ("tenant.dw.us.postwh.com", 443, True, ""),
+        ("tenant.dw.eu.postwh.com", 443, True, ""),
+        ("TENANT.DW.DEV.POSTWH.COM.", 443, True, ""),
+        ("tenant.dw.us.postwh.com", 8443, False, ""),
+        ("trino.example.com", 443, False, ""),
+        ("nested.tenant.dw.us.postwh.com", 443, False, ""),
+        ("dw.us.postwh.com", 443, False, ""),
+        ("tenant.dw.us.postwh.com.example.com", 443, False, ""),
+        ("tenant", 443, False, ""),
+        ("tenant.canary.dw.us.postwh.com", 443, False, ""),
+        ("tenant.canary.dw.us.postwh.com", 443, True, CANARY_DOMAIN),
+        ("tenant.canary.dw.us.postwh.com", 8443, False, CANARY_DOMAIN),
+        ("nested.tenant.canary.dw.us.postwh.com", 443, False, CANARY_DOMAIN),
+        ("tenant.canary.dw.eu.postwh.com", 443, False, CANARY_DOMAIN),
+        ("tenant.canary.dw.us.postwh.com.example.com", 443, False, CANARY_DOMAIN),
+    ],
+)
+def test_connection_keeps_verified_tls_and_scoped_proxy_bypass(
+    host: str, port: int, bypass_proxy: bool, canary_domain: str
+) -> None:
     proxy = "http://proxy.example.com:4750"
     with (
+        override_settings(MANAGED_WAREHOUSE_TRINO_CANARY_DOMAIN=canary_domain),
         mock.patch.dict(os.environ, {"HTTPS_PROXY": proxy, "NO_PROXY": ""}, clear=True),
         mock.patch(
             "products.managed_warehouse.backend.presentation.views._request",
@@ -336,3 +404,52 @@ def test_cancellation_does_not_wait_for_a_blocked_poll() -> None:
                 release_poll.set()
             assert poll.result(timeout=5).status_code == 200
     assert cp.call_count == 2
+
+
+@pytest.mark.parametrize(
+    "canary_domain,distinct_id,tags,limit_context,flag_result,evaluates_flag,expected",
+    [
+        (CANARY_DOMAIN, "user-1", {}, None, True, True, True),
+        (CANARY_DOMAIN, "user-1", {}, LimitContext.QUERY, True, True, True),
+        (CANARY_DOMAIN, "user-1", {}, LimitContext.QUERY_ASYNC, True, True, True),
+        (CANARY_DOMAIN, "user-1", {}, None, False, True, False),
+        (CANARY_DOMAIN, "user-1", {}, None, None, True, False),
+        (CANARY_DOMAIN, "user-1", {}, None, RuntimeError("flags unavailable"), True, False),
+        ("", "user-1", {}, None, True, False, False),
+        (CANARY_DOMAIN, None, {}, None, True, False, False),
+        (CANARY_DOMAIN, "", {}, None, True, False, False),
+        (CANARY_DOMAIN, "user-1", {"trigger": "warmingV2"}, None, True, False, False),
+        (CANARY_DOMAIN, "user-1", {"feature": Feature.CACHE_WARMUP}, None, True, False, False),
+        (CANARY_DOMAIN, "user-1", {"alert_config_id": uuid.uuid4()}, None, True, False, False),
+        (CANARY_DOMAIN, "user-1", {"feature": Feature.ALERTING}, None, True, False, False),
+        (CANARY_DOMAIN, "user-1", {}, LimitContext.EXPORT, True, False, False),
+        (CANARY_DOMAIN, "user-1", {}, LimitContext.SQL_ALERT, True, False, False),
+        (CANARY_DOMAIN, "user-1", {}, LimitContext.POSTHOG_AI, True, False, False),
+    ],
+)
+def test_use_trino_canary_needs_a_flagged_user_on_an_interactive_run(
+    canary_domain: str,
+    distinct_id: str | None,
+    tags: dict[str, object],
+    limit_context: LimitContext | None,
+    flag_result: object,
+    evaluates_flag: bool,
+    expected: bool,
+) -> None:
+    clean_tags = {"trigger": None, "feature": None, "alert_config_id": None}
+    with (
+        override_settings(MANAGED_WAREHOUSE_TRINO_CANARY_DOMAIN=canary_domain),
+        tags_context(**{**clean_tags, **tags}),
+        mock.patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=flag_result if isinstance(flag_result, Exception) else None,
+            return_value=flag_result,
+        ) as flag,
+    ):
+        assert use_trino_canary(distinct_id, "org-1", limit_context=limit_context) is expected
+    assert flag.called is evaluates_flag
+    if evaluates_flag:
+        assert flag.call_args.args == ("managed-warehouse-trino-canary", distinct_id)
+        assert flag.call_args.kwargs["groups"] == {"organization": "org-1"}
+        assert flag.call_args.kwargs["only_evaluate_locally"] is False
+        assert flag.call_args.kwargs["send_feature_flag_events"] is False

@@ -2,7 +2,9 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { LemonBanner, LemonButton, LemonTabs } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconFeedback } from 'lib/lemon-ui/icons'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -21,6 +23,7 @@ import { MetricsOverview } from './components/MetricsOverview'
 import { MetricsSqlEditor } from './components/MetricsSqlEditor'
 import { metricsUsageTrackingLogic } from './components/metricsUsageTrackingLogic'
 import { MetricsViewer } from './components/MetricsViewer'
+import { QuillMetricsDashboardActions } from './components/QuillMetricsDashboardActions'
 import { MetricsDashboardImportModal } from './dashboardImport/MetricsDashboardImportModal'
 import { metricsEmptyState } from './emptyState/metricsEmptyState'
 import { metricsFeaturePreviewGate } from './featurePreviewGate'
@@ -79,6 +82,7 @@ const MetricsSceneContent = (): JSX.Element => {
     useOnMountEffect(() => {
         primeItems()
     })
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const onFeedbackClick = (): void => {
         posthog.displaySurvey(METRICS_FEEDBACK_SURVEY_ID)
@@ -93,15 +97,32 @@ const MetricsSceneContent = (): JSX.Element => {
                     type: sceneConfigurations[Scene.Metrics].iconType || 'default_icon_type',
                 }}
                 actions={
-                    <>
-                        {/* In a narrow scene, the tab bar has no space for the import menu. */}
-                        <div className="@min-[48rem]/metrics-scene:hidden">
-                            <MetricsDashboardActions />
+                    todayRailNav ? (
+                        <div className="flex flex-wrap items-center gap-2">
+                            <div className="@min-[48rem]/metrics-scene:hidden">
+                                <QuillMetricsDashboardActions />
+                            </div>
+                            <Button variant="outline" onClick={onFeedbackClick}>
+                                <IconFeedback />
+                                Feedback
+                            </Button>
                         </div>
-                        <LemonButton size="small" type="secondary" icon={<IconFeedback />} onClick={onFeedbackClick}>
-                            Feedback
-                        </LemonButton>
-                    </>
+                    ) : (
+                        <>
+                            {/* In a narrow scene, the tab bar has no space for the import menu. */}
+                            <div className="@min-[48rem]/metrics-scene:hidden">
+                                <MetricsDashboardActions />
+                            </div>
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                icon={<IconFeedback />}
+                                onClick={onFeedbackClick}
+                            >
+                                Feedback
+                            </LemonButton>
+                        </>
+                    )
                 }
             />
             <LemonBanner

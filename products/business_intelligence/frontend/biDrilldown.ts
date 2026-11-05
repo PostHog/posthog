@@ -1,4 +1,5 @@
 import { dayjs } from 'lib/dayjs'
+import { escapeHogQLString } from 'lib/utils/hogql'
 
 import { BIConfig, BIFilter, BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
 import {
@@ -8,7 +9,6 @@ import {
     VisualizationNode,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { escapeHogQLString } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import { decodeBIComparisonCategory, decodeBIComparisonSeries, getBIComparisonDateExpression } from './biComparison'
@@ -18,9 +18,11 @@ import {
     buildBITopMembership,
     fieldExpression,
     getBIResultDimensions,
+    isDateTimeBIField,
 } from './biEditorTypes'
 import { isBIConditionGroup, normalizeBIConditionGroup } from './biFilterGroups'
 import { getBIMemberLabel } from './biMemberAliases'
+import { isBIPivotTable } from './biTableLayout'
 
 export interface BIDrillSelection {
     filters: BIFilter[]
@@ -88,12 +90,7 @@ export function getBIDrillSelection(config: BIConfig, record: Record<string, unk
             continue
         }
         const displayValue = value
-        if (
-            config.chartType === ChartDisplayType.TwoDimensionalHeatmap ||
-            config.totals?.rows ||
-            config.totals?.columns ||
-            config.totals?.subtotals
-        ) {
+        if (isBIPivotTable(config) || config.totals?.rows || config.totals?.columns || config.totals?.subtotals) {
             if (value === 'Total') {
                 continue
             }
@@ -113,7 +110,7 @@ export function getBIDrillSelection(config: BIConfig, record: Record<string, unk
             if (other && typeof value === 'string' && value.startsWith('Other') && value.endsWith(' (category)')) {
                 value = value.slice(0, -11)
             }
-            const shiftedDate = previous && ['date', 'datetime'].includes(field.type)
+            const shiftedDate = previous && isDateTimeBIField(field)
             const expression = fieldExpression(
                 shiftedDate ? { ...field, expression: getBIComparisonDateExpression(field) } : field
             )
@@ -126,7 +123,7 @@ export function getBIDrillSelection(config: BIConfig, record: Record<string, unk
             if (typeof value === 'number' && !Number.isFinite(value)) {
                 continue
             }
-            if (typeof value === 'number' && field.type === 'date') {
+            if (typeof value === 'number' && field.type === 'date' && isDateTimeBIField(field)) {
                 const date = dayjs.unix(value).utc()
                 if (!date.isValid()) {
                     continue

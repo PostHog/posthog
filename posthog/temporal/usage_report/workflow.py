@@ -15,8 +15,11 @@ remains in production until billing migrates to consume the S3 layout.
 """
 
 import json
+import uuid
 import asyncio
 from datetime import UTC, datetime, time, timedelta
+
+from django.conf import settings
 
 from temporalio import common, workflow
 from temporalio.exceptions import ApplicationError
@@ -52,12 +55,61 @@ SANDBOX_COMPUTE_QUERY_PATCH_ID = "usage-report-sandbox-compute-query-2026-08"
 SANDBOX_COMPUTE_QUERY_NAME = "sandbox_compute_usage"
 USAGE_COUNTER_SERVICE_PATCH_ID = "usage-report-counter-service-2026-09"
 PARALLEL_COUNTER_QUERIES_PATCH_ID = "usage-report-parallel-counter-queries-2026-10"
+AGGREGATION_QUEUE_PATCH_ID = "usage-report-aggregation-queue-2026-10"
+LOGS_DISTINCT_PATTERNS_QUERY_PATCH_ID = "usage-report-logs-distinct-patterns-query-2026-10"
+LOGS_DISTINCT_PATTERNS_QUERY_NAME = "teams_with_logs_distinct_patterns_in_period"
+TRANSACTIONAL_EMAILS_QUERY_PATCH_ID = "usage-report-transactional-emails-query-2026-10"
+TRANSACTIONAL_EMAILS_QUERY_NAME = "teams_with_workflow_transactional_emails_sent_in_period"
+MCP_EVENT_COUNT_QUERY_PATCH_ID = "usage-report-mcp-event-count-query-2026-10"
+MCP_EVENT_COUNT_QUERY_NAME = "teams_with_mcp_event_count_in_period"
+REPLAY_VISION_SPEND_PROJECTION_QUERY_PATCH_ID = "usage-report-replay-vision-spend-projection-query-2026-10"
+REPLAY_VISION_SPEND_PROJECTION_QUERY_NAME = "replay_vision_spend_projection"
+BUSINESS_KNOWLEDGE_USAGE_QUERY_PATCH_ID = "usage-report-business-knowledge-usage-query-2026-11"
+BUSINESS_KNOWLEDGE_USAGE_QUERY_NAME = "business_knowledge_usage"
+LOCAL_EVALUATION_NOT_MODIFIED_QUERY_PATCH_ID = "usage-report-local-evaluation-not-modified-query-2026-11"
+LOCAL_EVALUATION_NOT_MODIFIED_QUERY_NAME = UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_NOT_MODIFIED_REQUESTS.value
 
 
 def _queries_for_sandbox_compute_patch(patch_applied: bool) -> list[QuerySpec]:
     if patch_applied:
         return QUERIES
     return [spec for spec in QUERIES if spec.name != SANDBOX_COMPUTE_QUERY_NAME]
+
+
+def _queries_for_logs_distinct_patterns_patch(queries: list[QuerySpec], patch_applied: bool) -> list[QuerySpec]:
+    if patch_applied:
+        return queries
+    return [spec for spec in queries if spec.name != LOGS_DISTINCT_PATTERNS_QUERY_NAME]
+
+
+def _queries_for_transactional_emails_patch(queries: list[QuerySpec], patch_applied: bool) -> list[QuerySpec]:
+    if patch_applied:
+        return queries
+    return [spec for spec in queries if spec.name != TRANSACTIONAL_EMAILS_QUERY_NAME]
+
+
+def _queries_for_mcp_event_count_patch(queries: list[QuerySpec], patch_applied: bool) -> list[QuerySpec]:
+    if patch_applied:
+        return queries
+    return [spec for spec in queries if spec.name != MCP_EVENT_COUNT_QUERY_NAME]
+
+
+def _queries_for_replay_vision_spend_projection_patch(queries: list[QuerySpec], patch_applied: bool) -> list[QuerySpec]:
+    if patch_applied:
+        return queries
+    return [spec for spec in queries if spec.name != REPLAY_VISION_SPEND_PROJECTION_QUERY_NAME]
+
+
+def _queries_for_business_knowledge_usage_patch(queries: list[QuerySpec], patch_applied: bool) -> list[QuerySpec]:
+    if patch_applied:
+        return queries
+    return [spec for spec in queries if spec.name != BUSINESS_KNOWLEDGE_USAGE_QUERY_NAME]
+
+
+def _queries_for_local_evaluation_not_modified_patch(queries: list[QuerySpec], patch_applied: bool) -> list[QuerySpec]:
+    if patch_applied:
+        return queries
+    return [spec for spec in queries if spec.name != LOCAL_EVALUATION_NOT_MODIFIED_QUERY_NAME]
 
 
 def build_context(inputs: RunUsageReportsInputs, run_id: str, now: datetime) -> WorkflowContext:
@@ -86,6 +138,14 @@ def build_context(inputs: RunUsageReportsInputs, run_id: str, now: datetime) -> 
     )
 
 
+def _is_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(value)
+    except ValueError:
+        return False
+    return True
+
+
 @workflow.defn(name="run-usage-reports")
 class RunUsageReportsWorkflow(PostHogWorkflow):
     @staticmethod
@@ -101,11 +161,33 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
             # non_retryable so the schedule's retry policy doesn't re-run a
             # validation error.
             raise ApplicationError(f"day_offset must be >= 0, got {inputs.day_offset}", non_retryable=True)
+        invalid_organization_ids = [value for value in inputs.organization_ids or [] if not _is_uuid(value)]
+        if invalid_organization_ids:
+            # Aggregation reads organization_ids only after every gather query has run.
+            raise ApplicationError(
+                f"organization_ids must be UUIDs, got {invalid_organization_ids}", non_retryable=True
+            )
         started_at = workflow.now()
         status = "FAILED"
         try:
             ctx = build_context(inputs, run_id=workflow.info().run_id, now=started_at)
             queries = _queries_for_sandbox_compute_patch(workflow.patched(SANDBOX_COMPUTE_QUERY_PATCH_ID))
+            queries = _queries_for_logs_distinct_patterns_patch(
+                queries, workflow.patched(LOGS_DISTINCT_PATTERNS_QUERY_PATCH_ID)
+            )
+            queries = _queries_for_transactional_emails_patch(
+                queries, workflow.patched(TRANSACTIONAL_EMAILS_QUERY_PATCH_ID)
+            )
+            queries = _queries_for_mcp_event_count_patch(queries, workflow.patched(MCP_EVENT_COUNT_QUERY_PATCH_ID))
+            queries = _queries_for_replay_vision_spend_projection_patch(
+                queries, workflow.patched(REPLAY_VISION_SPEND_PROJECTION_QUERY_PATCH_ID)
+            )
+            queries = _queries_for_business_knowledge_usage_patch(
+                queries, workflow.patched(BUSINESS_KNOWLEDGE_USAGE_QUERY_PATCH_ID)
+            )
+            queries = _queries_for_local_evaluation_not_modified_patch(
+                queries, workflow.patched(LOCAL_EVALUATION_NOT_MODIFIED_QUERY_PATCH_ID)
+            )
             if workflow.patched(USAGE_COUNTER_SERVICE_PATCH_ID):
                 ctx.usage_counter_plan = await workflow.execute_activity(
                     plan_usage_counters,
@@ -159,6 +241,12 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
             agg = await workflow.execute_activity(
                 aggregate_and_chunk_org_reports,
                 AggregateInputs(ctx=ctx, query_results=query_results, counter_result=counter_result),
+                # Wait for capacity in Temporal, before the activity's start-to-close timer begins.
+                task_queue=(
+                    settings.USAGE_REPORT_AGGREGATION_TASK_QUEUE
+                    if workflow.patched(AGGREGATION_QUEUE_PATCH_ID)
+                    else None
+                ),
                 start_to_close_timeout=timedelta(minutes=60),
                 retry_policy=common.RetryPolicy(
                     maximum_attempts=2,

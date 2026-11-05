@@ -1,7 +1,6 @@
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import patch
 
 from django.core.cache import cache
 from django.db import DatabaseError, connection
@@ -43,11 +42,6 @@ def _fail_queries_for_table(table_name: str):
 class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        flag_patch = patch(
-            "products.data_quality.backend.facade.flags.is_data_quality_checks_enabled", return_value=True
-        )
-        flag_patch.start()
-        self.addCleanup(flag_patch.stop)
         self.subject = self._view("orders")
         self.subject_uuid = self.subject.id
 
@@ -532,16 +526,3 @@ class TestInformationSchemaDataQuality(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert rows == []
-
-    def test_the_tables_are_absent_when_the_catalog_flag_is_off(self) -> None:
-        with patch("products.data_quality.backend.facade.flags.is_data_quality_checks_enabled", return_value=False):
-            listing = self._query(
-                "SELECT table_name FROM system.information_schema.tables WHERE table_name ILIKE '%data_quality%'",
-                context=HogQLContext(
-                    team=self.team,
-                    team_id=self.team.pk,
-                    database=Database.create_for(team=self.team, user=self.user),
-                ),
-            )
-
-        assert listing == []

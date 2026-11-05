@@ -25,6 +25,9 @@ class Command(BaseCommand):
         parser.add_argument("--team-ids", type=str, default=None, help="Comma-separated team ids to limit to")
         parser.add_argument("--limit", type=int, default=None, help="Look at no more than this many destinations")
         parser.add_argument("--batch-size", type=int, default=100, help="Rows per UPDATE (default: 100)")
+        parser.add_argument(
+            "--format-messages", action="store_true", help="Upgrade unchanged stock messages to the formatted layout"
+        )
         parser.add_argument("--apply", action="store_true", default=False, help="Write them (default: report only)")
 
     def handle(self, *args: Any, **options: Any) -> None:
@@ -34,6 +37,7 @@ class Command(BaseCommand):
             limit=options["limit"],
             batch_size=options["batch_size"],
             apply=apply,
+            format_messages=options["format_messages"],
         )
 
         counts = [

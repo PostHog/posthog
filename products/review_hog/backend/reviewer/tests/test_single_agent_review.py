@@ -26,6 +26,7 @@ from products.review_hog.backend.reviewer.tools.single_agent_review import (
     SingleAgentPrompt,
     compose_flash_findings,
     dedupe_flash_findings,
+    delta_files,
     flash_turn_stats,
 )
 
@@ -179,6 +180,56 @@ class TestSingleAgentPrompt:
 
         assert prompt.count(PROMPT_CACHE_MARKER) == 1
         assert prompt.split(PROMPT_CACHE_MARKER)[1].lstrip().startswith("CORE RUBRIC")
+
+
+@pytest.mark.parametrize(
+    "delta_since,expect_section",
+    [
+        pytest.param("b" * 40, True, id="commit_sha"),
+        pytest.param("main$(id)", False, id="not_a_commit_sha"),
+    ],
+)
+def test_a_delta_prompt_shows_only_the_changed_blocks_and_names_the_baseline(
+    pr_metadata: PRMetadata, delta_since: str, expect_section: bool
+) -> None:
+    def blocks(fix: str) -> list[PRFileUpdate]:
+        return [
+            PRFileUpdate(type="addition", new_start_line=10, new_end_line=10, code="limit = 10"),
+            PRFileUpdate(type="context", new_start_line=11, new_end_line=13, code="a = 1\nb = 2\nc = 3"),
+            PRFileUpdate(type="context", new_start_line=38, new_end_line=40, code="d = 4\ne = 5\nf = 6"),
+            PRFileUpdate(type="deletion", old_start_line=41, old_end_line=41, code="old_total()"),
+            PRFileUpdate(type="addition", new_start_line=41, new_end_line=41, code=fix),
+        ]
+
+    earlier = [
+        PRFile(filename="a.py", status="modified", additions=2, deletions=1, changes=blocks("total()")),
+        _file("b.py", "x = 1"),
+    ]
+    removed = PRFileUpdate(type="deletion", old_start_line=1, old_end_line=2, code="import os\nos.getcwd()")
+    current = [
+        PRFile(filename="a.py", status="modified", additions=2, deletions=1, changes=blocks("total(strict=True)")),
+        _file("b.py", "x = 1"),
+        # A push that deletes a whole file leaves only removals, with no head line to be near.
+        PRFile(filename="c.py", status="removed", additions=0, deletions=2, changes=[removed]),
+    ]
+
+    shown = delta_files(current, ChangedSinceReview.between(earlier, current))
+    prompt = SingleAgentPrompt(
+        repository="o/r",
+        pr_metadata=pr_metadata,
+        pr_files=shown,
+        prior_findings=[],
+        guidelines="rubric",
+        merge_base_sha=_MERGE_BASE,
+        delta_since=delta_since,
+    ).render()
+
+    assert [f.filename for f in shown] == ["a.py", "c.py"]
+    assert [u.code for u in shown[0].changes] == ["d = 4\ne = 5\nf = 6", "old_total()", "total(strict=True)"]
+    assert shown[1].changes == [removed]
+    assert ("## Changes since the last review" in prompt) is expect_section
+    assert (f"git diff {delta_since} HEAD" in prompt) is expect_section
+    assert "$(" not in prompt
 
 
 class TestComposeFlashFindings:
@@ -601,13 +652,13 @@ class TestDedupeFlashFindings:
     @pytest.mark.parametrize(
         "line,priority,changed_code_only,posts",
         [
-            pytest.param(30, IssuePriority.SHOULD_FIX, True, False, id="late_automatic_p2_on_unchanged_code"),
-            pytest.param(30, IssuePriority.SHOULD_FIX, False, True, id="whole_pr_p2_on_unchanged_code"),
-            pytest.param(11, IssuePriority.SHOULD_FIX, True, True, id="late_automatic_p2_on_the_fix"),
-            pytest.param(30, IssuePriority.MUST_FIX, True, True, id="late_automatic_p1_on_unchanged_code"),
+            pytest.param(30, IssuePriority.SHOULD_FIX, True, False, id="automatic_follow_up_p2_on_unchanged_code"),
+            pytest.param(30, IssuePriority.SHOULD_FIX, False, True, id="requested_review_p2_on_unchanged_code"),
+            pytest.param(11, IssuePriority.SHOULD_FIX, True, True, id="automatic_follow_up_p2_on_the_fix"),
+            pytest.param(30, IssuePriority.MUST_FIX, True, True, id="automatic_follow_up_p1_on_unchanged_code"),
         ],
     )
-    async def test_a_late_automatic_follow_up_only_comments_on_what_the_push_changed(
+    async def test_an_automatic_follow_up_only_comments_on_what_the_push_changed(
         self, pr_metadata: PRMetadata, line: int, priority: IssuePriority, changed_code_only: bool, posts: bool
     ) -> None:
         # Each fix drew a new P2 on code it never touched, and an open finding keeps stamphog from approving,
@@ -660,3 +711,43 @@ def test_turn_stats_count_every_candidate_once_per_session() -> None:
     assert stats.must_fix == {"main": 0, "performance_reliability": 0, "contracts_security": 1}
     assert (stats.after_dedup, stats.kept, stats.dropped) == (2, 1, {"dedup_anchor": 1, "cap": 1})
     assert sum(stats.candidates.values()) == stats.kept + sum(stats.dropped.values())
+
+
+def test_turn_stats_split_posted_must_fix_by_whether_the_push_changed_its_code() -> None:
+    # The diff-only shadow reads these counts: a must-fix off the change is one a review of the change alone
+    # would put at risk. Only posted must-fix count. The change size uses the units of the PR size, additions
+    # plus deletions: a deleted block counts in full, context lines and lock files do not count, and a file
+    # without a patch counts the change in its line totals.
+    unpatched = PRFile(filename="big.py", status="modified", additions=10, deletions=0, changes=[])
+    earlier = [_patched("a.py", ("addition", 10, ["x = 1"])), _patched("uv.lock", ("addition", 1, ["a"])), unpatched]
+    current = [
+        _patched("a.py", ("addition", 10, ["x = 1", "y = 2"])),
+        _patched("b.py", ("context", 4, ["def f():"]), ("deletion", 5, ["a", "b", "c", "d", "e"])),
+        _patched("uv.lock", ("addition", 1, ["a", "b", "c"])),
+        unpatched.model_copy(update={"additions": 30}),
+    ]
+    on_change = _issue("2000-1-1", IssuePriority.MUST_FIX).model_copy(update={"lines": [LineRange(start=11)]})
+    off_change = _issue("2000-1-2", IssuePriority.MUST_FIX).model_copy(update={"lines": [LineRange(start=40)]})
+    should_fix = _issue("2000-1-3", IssuePriority.SHOULD_FIX).model_copy(update={"lines": [LineRange(start=40)]})
+    cut = _issue("2000-1-4", IssuePriority.MUST_FIX).model_copy(update={"lines": [LineRange(start=60)]})
+    selection = FlashSelection(
+        kept=[on_change, off_change, should_fix],
+        dropped=[DroppedIssue(issue=cut, disposition="cap", rank=4)],
+        cap=4,
+        lens_part_count=1,
+    )
+
+    stats = flash_turn_stats(
+        [on_change, off_change, should_fix, cut],
+        selection,
+        reviewable_lines=120,
+        changed_since=ChangedSinceReview.between(earlier, current),
+    )
+    first_review = flash_turn_stats([on_change], selection, reviewable_lines=120)
+
+    assert (stats.changed_lines, stats.must_fix_on_change, stats.must_fix_off_change) == (26, 1, 1)
+    assert (first_review.changed_lines, first_review.must_fix_on_change, first_review.must_fix_off_change) == (
+        None,
+        None,
+        None,
+    )

@@ -402,8 +402,8 @@ class LoginPrecheckThrottle(IPThrottle):
     """
     Rate limit login precheck requests by IP.
 
-    The response reveals which sign-in methods a passwordless account has, so cap it per-IP to make
-    bulk enumeration expensive. Per-email throttling would be useless here — enumeration uses a
+    The response reveals whether an account exists and which sign-in methods it has, so cap it
+    per-IP to make bulk enumeration expensive. Per-email throttling would be useless here — enumeration uses a
     different email on every request.
     """
 
@@ -451,10 +451,24 @@ class CodexConnectUserThrottle(UserRateThrottle):
     rate = "10/hour"
 
 
-# Each internal feedback post lands in a shared Slack channel, so cap it per user.
-class InternalFeedbackUserThrottle(UserRateThrottle):
-    scope = "internal_feedback_user"
-    rate = "60/hour"
+class _WorkloadTrustPolicyRequestThrottle(SimpleRateThrottle):
+    """One bucket per user and project, because each request asks the organization's admins to act."""
+
+    def get_cache_key(self, request: "Request", view: "APIView") -> str | None:
+        if not request.user.is_authenticated:
+            return None
+        team_id = PersonalApiKeyRateThrottle.safely_get_team_id_from_view(view)
+        return self.cache_format % {"scope": self.scope, "ident": f"{team_id}:{request.user.pk}"}
+
+
+class WorkloadTrustPolicyRequestBurstThrottle(_WorkloadTrustPolicyRequestThrottle):
+    scope = "workload_trust_policy_request_burst"
+    rate = "10/hour"
+
+
+class WorkloadTrustPolicyRequestSustainedThrottle(_WorkloadTrustPolicyRequestThrottle):
+    scope = "workload_trust_policy_request_sustained"
+    rate = "30/day"
 
 
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
@@ -696,6 +710,19 @@ class ErrorTrackingFingerprintProjectionSustainedRateThrottle(_TeamBucketRateThr
     rate = "100/hour"
 
 
+# The source maps examples scan reads the properties of every exception in the last 24 hours, and
+# browser sessions skip the default throttles. A team-wide bucket caps the project's total scans.
+# Each open of the examples dialog runs one scan, so these rates leave room for normal use.
+class ErrorTrackingSourceMapsExamplesBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "error_tracking_source_maps_examples_burst"
+    rate = "10/minute"
+
+
+class ErrorTrackingSourceMapsExamplesSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "error_tracking_source_maps_examples_sustained"
+    rate = "100/hour"
+
+
 # The logs anomaly scan aggregates weeks of baseline slices from ClickHouse in one synchronous
 # request — the heaviest single query the logs product exposes, budgeted at gigabytes of reads
 # per call. A team-wide bucket caps the project's total spend regardless of how many users or
@@ -765,17 +792,36 @@ class ReplayVisionEstimateSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "200/hour"
 
 
-# The watch feed windows, ranks and hydrates a slice of the team's observation history per call, and
+# The highlight feed windows, ranks and hydrates a slice of the team's observation history per call, and
 # its primary caller is the session-authenticated home tab, which the default Burst/Sustained
 # throttles bypass. Team-wide bucket so minting keys doesn't multiply the budget.
-class ReplayVisionWatchFeedBurstRateThrottle(_TeamBucketRateThrottle):
-    scope = "replay_vision_watch_feed_burst"
+class ReplayVisionHighlightFeedBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_highlight_feed_burst"
     rate = "60/minute"
 
 
-class ReplayVisionWatchFeedSustainedRateThrottle(_TeamBucketRateThrottle):
-    scope = "replay_vision_watch_feed_sustained"
+class ReplayVisionHighlightFeedSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_highlight_feed_sustained"
     rate = "600/hour"
+
+
+# Theme and group summaries aggregate a window of observation history per call, and scouts call them on a
+# schedule, so they get their own team bucket and never use up the highlight feed's.
+class ReplayVisionClustersBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_clusters_burst"
+    rate = "60/minute"
+
+
+class ReplayVisionClustersSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_clusters_sustained"
+    rate = "600/hour"
+
+
+# Impression reports arrive while a reader scrolls, so they get their own per-user bucket and never use up the
+# team's feed bucket.
+class ReplayVisionHighlightFeedImpressionsRateThrottle(_UserBucketRateThrottle):
+    scope = "replay_vision_highlight_feed_impressions"
+    rate = "120/minute"
 
 
 # Each observation search makes a synchronous embedding request and a brute-force cosine scan over
@@ -834,45 +880,6 @@ class AIResearchBurstRateThrottle(_AIThrottleBase):
     scope = "ai_research_burst"
     rate = "3/minute"
     action_name = "ai research burst rate limited"
-
-
-# Hands-free throttles are split per-action so a burst on /token/ (e.g. a flapping
-# mobile network triggering the reconnect path) can't lock the user out of /synthesize/
-# and vice versa. Each action's burst/sustained bucket caps a different cost surface:
-# token mints bound Scribe (STT) spend; synthesize calls bound ElevenLabs TTS spend.
-class MaxHandsFreeTokenBurstRateThrottle(_AIThrottleBase):
-    # 10/min covers normal reconnects (network blip, tab refocus) and stays well below
-    # any plausible legitimate flow. Dev gets a far larger ceiling for the dev loop.
-    scope = "max_hands_free_token_burst"
-    rate = "1000/minute" if settings.DEBUG else "10/minute"
-    action_name = "max hands-free token burst rate limited"
-
-
-class MaxHandsFreeTokenSustainedRateThrottle(_AIThrottleBase):
-    # Each token grants ~15 min of Scribe usage. A 2-hour gym session is ~8 tokens at
-    # minimum plus reconnects, call it 15. 60/day covers several long sessions a day
-    # with headroom and bounds worst-case Scribe spend per compromised account.
-    scope = "max_hands_free_token_sustained"
-    rate = "10000/day" if settings.DEBUG else "60/day"
-    action_name = "max hands-free token sustained rate limited"
-
-
-class MaxHandsFreeSynthesizeBurstRateThrottle(_AIThrottleBase):
-    # TTS calls fire once per assistant turn so the burst rate has to keep pace with
-    # rapid back-and-forth. 20/min still well above any natural conversation cadence
-    # but tight enough to slow a runaway client looping on synthesize.
-    scope = "max_hands_free_synthesize_burst"
-    rate = "1000/minute" if settings.DEBUG else "20/minute"
-    action_name = "max hands-free synthesize burst rate limited"
-
-
-class MaxHandsFreeSynthesizeSustainedRateThrottle(_AIThrottleBase):
-    # Bounds TTS spend per account per day. 150 calls * 2000 chars max ~= 300k chars
-    # ceiling/day — comfortable for power users, hard cap on a compromised account's
-    # daily ElevenLabs bill until the broader char-budget kill switch lands.
-    scope = "max_hands_free_synthesize_sustained"
-    rate = "10000/day" if settings.DEBUG else "150/day"
-    action_name = "max hands-free synthesize sustained rate limited"
 
 
 class AIResearchSustainedRateThrottle(_AIThrottleBase):
@@ -1109,12 +1116,19 @@ class LLMPromptPublishBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
     rate = "30/minute"
 
 
-class LLMPromptFetchRateThrottle(PersonalApiKeyRateThrottle):
+class LLMPromptFetchRateThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
     # SDK fleets poll prompt fetches on a fixed interval, so the shared sustained budget
     # (4800/hour) rejects steady polling that the burst budget allows. A per-minute-only
     # bucket keeps prompt fetches out of the general API budget, mirroring the dedicated
-    # feature_flag_remote_config throttle.
+    # feature_flag_remote_config throttle. Project secret keys get the same budget per key.
     scope = "llm_prompt_fetch"
+    rate = "600/minute"
+
+
+class LLMPromptFetchProjectSecretApiKeyTeamRateThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    # One budget for all of a project's secret keys together, the same size as the per-key
+    # budget, so creating more keys does not raise a project's total.
+    scope = "llm_prompt_fetch_psak_team"
     rate = "600/minute"
 
 
@@ -1471,7 +1485,21 @@ class BreakGlassSustainedThrottle(UserOrEmailRateThrottle):
     rate = "75/hour"
 
 
-class WidgetUserBurstThrottle(SimpleRateThrottle):
+class _CountedWidgetThrottle(SimpleRateThrottle):
+    """Each widget view has a bucket per widget session (or client IP) and a bucket per widget token, and a 429
+    response does not say which one is empty. The counter records the scope so that dashboards can tell them apart."""
+
+    def allow_request(self, request: "Request", view: "APIView") -> bool:
+        allowed = super().allow_request(request, view)
+        if not allowed:
+            # WidgetAuthentication returns the team as request.auth, because widget requests have no user
+            team_id = getattr(request.auth, "id", None)
+            route = get_route_from_path(getattr(request, "path", None))
+            RATE_LIMIT_EXCEEDED_COUNTER.labels(team_id=team_id, scope=self.scope, path=route, route=route).inc()
+        return allowed
+
+
+class WidgetUserBurstThrottle(_CountedWidgetThrottle):
     """Rate limit per widget_session_id or IP for POST/GET requests."""
 
     scope = "widget_user_burst"
@@ -1487,7 +1515,7 @@ class WidgetUserBurstThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
-class _WidgetTeamTokenThrottle(SimpleRateThrottle):
+class _WidgetTeamTokenThrottle(_CountedWidgetThrottle):
     rate = "3600/hour"
 
     def get_cache_key(self, request: "Request", view: "APIView") -> str:
@@ -1724,6 +1752,16 @@ class SubscriptionTestDeliveryThrottle(PersonalApiKeyOrUserRateThrottle):
             return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
 
 
+class ContextSelectionBurstThrottle(_TeamBucketRateThrottle):
+    scope = "context_selection_burst"
+    rate = "30/minute"
+
+
+class ContextSelectionSustainedThrottle(_TeamBucketRateThrottle):
+    scope = "context_selection_sustained"
+    rate = "300/hour"
+
+
 class TaskRunChartRenderThrottle(PersonalApiKeyOrUserRateThrottle):
     # A chart render holds a worker for up to 90s, so it needs a far lower ceiling than the
     # ClickHouse throttles. Keyed per team so rotating API keys doesn't split the bucket.
@@ -1879,6 +1917,18 @@ class GitHubRepositoryRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
     # per team to avoid bypass via rotated API keys, sessions, or integrations.
     scope = "github_repository_refresh"
     rate = "10/minute"
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+        return super().get_cache_key(request, view)
+
+
+class PushTokenImportThrottle(PersonalApiKeyOrUserRateThrottle):
+    # Keyed per team, so a large migration cannot flood ingestion by spreading calls across keys.
+    scope = "push_token_import"
+    rate = "60/minute"
 
     def get_cache_key(self, request, view):
         team_id = self.safely_get_team_id_from_view(view)

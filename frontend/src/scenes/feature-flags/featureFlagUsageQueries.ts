@@ -8,9 +8,11 @@
 // names are pinned, while these use sentence case. The interval here follows the user's date range
 // rather than the saved dashboards' fixed "day".
 import { dateMapping, dateStringToDayJs, getDefaultInterval } from 'lib/utils/dateFilters'
+import { escapeHogQLString } from 'lib/utils/hogql'
 import { BREAKDOWN_NULL_DISPLAY } from 'scenes/insights/utils'
 
 import { Noun } from '~/models/groupsModel'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     ChartSettings,
     DataVisualizationNode,
@@ -22,7 +24,6 @@ import {
     TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { escapeHogQLString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     BaseMathType,
@@ -201,12 +202,12 @@ function enrichedSeries(event: '$feature_view' | '$feature_interaction', seriesL
     ]
 }
 
-// The table stores a JSON-null $feature_flag_response as 'null' and a missing one as ''. The events-mode
-// breakdown puts both cases in one bucket labelled BREAKDOWN_NULL_DISPLAY, so these charts do the same.
+// The table reads a null or missing $feature_flag_response as NULL. The events-mode breakdown labels that
+// bucket BREAKDOWN_NULL_DISPLAY, so these charts do the same.
 // The label is in the query because the SQL line chart names a NULL series "[No value]" and the SQL
 // table draws a NULL cell as a dash. A variant whose key equals the label merges into this bucket. The flag
 // editor rejects that key, but the API accepts it.
-const FLAG_EVALUATIONS_VARIANT = `if(response IN ('', 'null'), ${escapeHogQLString(BREAKDOWN_NULL_DISPLAY)}, response)`
+const FLAG_EVALUATIONS_VARIANT = `ifNull(response, ${escapeHogQLString(BREAKDOWN_NULL_DISPLAY)})`
 
 /** Pulls a range back inside the retention window, where it cannot quietly show fewer rows than the events table. */
 export function clampToFlagEvaluationsRetention(dateRange: DateRange): DateRange {

@@ -40,6 +40,7 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseQueryStatus,
     ClickHouseQueryTimeoutError,
     ClickHouseTooManyBytesError,
+    ClickHouseUnknownTableError,
     get_client,
 )
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -50,8 +51,9 @@ from products.batch_exports.backend.models.batch_export import BatchExport
 from products.batch_exports.backend.service import (
     BackfillDetails,
     BatchExportField,
-    BatchExportModel,
+    BatchExportModelInput,
     afetch_last_run_records_completed,
+    migrate_batch_export_model,
 )
 from products.batch_exports.backend.temporal.batch_exports import default_fields
 from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
@@ -104,6 +106,10 @@ class HogQLQueryResourceLimitExceededError(Exception):
     """
 
 
+class HogQLTableNotSupportedError(Exception):
+    """A user tried to select a table with HogQL that batch exports does not support."""
+
+
 # Staging failures the user has to resolve; retrying them ourselves would achieve nothing.
 # The activity returns these as an `InternalStageResult.error` instead of raising, which fails the
 # run without failing the activity. This mirrors how the destination activities treat their own
@@ -111,6 +117,7 @@ class HogQLQueryResourceLimitExceededError(Exception):
 NON_RETRYABLE_ERRORS: tuple[type[Exception], ...] = (
     DataIntervalInFutureError,
     HogQLQueryResourceLimitExceededError,
+    HogQLTableNotSupportedError,
     InvalidFilterError,
     UnsupportedHogQLQueryError,
 )
@@ -292,7 +299,7 @@ class BatchExportInsertIntoInternalStageInputs:
     include_events: list[str] | None = None
     run_id: str | None = None
     backfill_details: BackfillDetails | None = None
-    batch_export_model: BatchExportModel | None = None
+    batch_export_model: BatchExportModelInput | None = None
     is_workflows: bool = False
     on_demand: bool = False
     destination_default_fields: list[BatchExportField] | None = None
@@ -368,6 +375,7 @@ async def insert_into_internal_stage_activity(
         logger.info("Computed staging partitions", num_partitions=num_partitions)
 
         try:
+            model = migrate_batch_export_model(inputs.batch_export_model)
             (
                 _,
                 record_batch_model,
@@ -377,7 +385,7 @@ async def insert_into_internal_stage_activity(
                 extra_query_parameters,
             ) = await database_sync_to_async(resolve_batch_exports_model)(
                 inputs.team_id,
-                inputs.batch_export_model,
+                model,
                 inputs.batch_export_id,
                 is_backfill=inputs.backfill_details is not None,
             )
@@ -459,6 +467,19 @@ async def _stage_query_results(
             num_partitions=num_partitions,
             run_id=run_id,
         )
+    except ClickHouseUnknownTableError as e:
+        if isinstance(record_batch_model, HogQLQueryRecordBatchModel):
+            # With HogQL, users may need to solve this, so we raise a more friendly
+            # but unretryable version.
+            table_names = ", ".join(record_batch_model.hogql_table_names)
+            raise HogQLTableNotSupportedError(
+                "Batch exports could not find a required table. "
+                f"Tables referenced in your query: {table_names}. "
+                "Contact support for help."
+            ) from e
+        # If not HogQL, this should never happen.
+        # Raise retryable so we can figure out what's going on.
+        raise
     except ClickHouseError as e:
         _raise_on_hogql_resource_limit_error(e, model_name)
         raise
@@ -570,10 +591,10 @@ async def _get_query(
                 filter_distinct_ids = """
                 HAVING
                     (
-                        _timestamp >= {interval_start}::DateTime64
+                        _timestamp >= %(interval_start)s::DateTime64
                     )
                     AND (
-                        _timestamp < {interval_end}::DateTime64
+                        _timestamp < %(interval_end)s::DateTime64
                     )
                 """
             else:
@@ -801,6 +822,9 @@ async def _write_batch_export_record_batches_to_internal_stage(
         else:
             query = query_or_model
             query_settings = {}
+
+        if str(team_id) in settings.BATCH_EXPORT_ARROW_COMPRESSION_TEAM_IDS:
+            query_settings["output_format_arrow_compression_method"] = settings.BATCH_EXPORT_ARROW_COMPRESSION_METHOD
 
         base_s3_staging_folder = get_base_s3_staging_folder(
             batch_export_id=batch_export_id,

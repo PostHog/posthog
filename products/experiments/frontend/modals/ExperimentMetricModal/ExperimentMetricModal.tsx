@@ -4,10 +4,16 @@ import { LemonButton, LemonDialog, LemonInput, LemonLabel, LemonModal } from '@p
 
 import { ExperimentMetricForm } from 'scenes/experiments/ExperimentMetricForm'
 import { exposureCriteriaModalLogic } from 'scenes/experiments/ExperimentView/exposureCriteriaModalLogic'
-import { resolvedExposureEvent } from 'scenes/experiments/exposureContract'
+import { resolveFilterTestAccounts, resolvedExposureEvent } from 'scenes/experiments/exposureContract'
 
 import type { ExperimentExposureCriteria, ExperimentMetric } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
+
+import {
+    alignMetricsWithExposure,
+    getWarehouseNativeExposure,
+    getWarehouseNativeMetricError,
+} from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
 
 import { type MetricContext, experimentMetricModalLogic } from './experimentMetricModalLogic'
 
@@ -29,6 +35,10 @@ export function ExperimentMetricModal({
     if (!isModalOpen || !metric) {
         return null
     }
+
+    // The exposure can change while this modal is open, and the API rejects a metric on another connection or unit
+    const warehouseExposure = getWarehouseNativeExposure(exposureCriteria)
+    const metricToSave = warehouseExposure ? alignMetricsWithExposure([metric], warehouseExposure)[0] : metric
 
     return (
         <LemonModal
@@ -72,9 +82,10 @@ export function ExperimentMetricModal({
                         </LemonButton>
                         <LemonButton
                             form="edit-experiment-metric-form"
-                            onClick={() => onSave(metric, context)}
+                            onClick={() => onSave(metricToSave, context)}
                             type="primary"
                             data-attr="save-experiment-metric"
+                            disabledReason={getWarehouseNativeMetricError(metricToSave) ?? undefined}
                         >
                             {isCreateMode ? 'Create' : 'Save'}
                         </LemonButton>
@@ -97,7 +108,7 @@ export function ExperimentMetricModal({
             <ExperimentMetricForm
                 metric={metric}
                 handleSetMetric={setModalMetric}
-                filterTestAccounts={experiment.exposure_criteria?.filterTestAccounts || false}
+                filterTestAccounts={resolveFilterTestAccounts(experiment.exposure_criteria)}
                 exposureCriteria={exposureCriteria}
                 openExposureCriteriaModal={openExposureCriteriaModal}
                 resolvedExposureEvent={resolvedExposureEvent(experiment)}

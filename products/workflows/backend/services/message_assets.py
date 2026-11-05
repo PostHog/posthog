@@ -1,6 +1,8 @@
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any, Optional, cast
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import sync_execute
 
 from products.workflows.backend.facade.contracts import MessageAsset
@@ -136,10 +138,21 @@ def fetch_message_assets_for_person(
     after: Optional[datetime] = None,
     before: Optional[datetime] = None,
     kind: str = "email",
+    distinct_ids: Sequence[str] = (),
+    email: Optional[str] = None,
 ) -> list[MessageAsset]:
+    """The person's messages. A send with no person attached, such as a transactional email to someone
+    who had no person yet, also belongs to the person whose distinct ID it used or whose email it went to."""
+    owners = ["person_id = %(person_id)s"]
+    if distinct_ids:
+        owners.append("(person_id = '' AND distinct_id IN %(distinct_ids)s)")
+    if email:
+        # A plain IN keeps the bloom index on recipient usable. Inside the OR, a function of recipient would stop every
+        # branch from skipping granules.
+        owners.append("(person_id = '' AND recipient IN %(emails)s)")
     where = [
         "team_id = %(team_id)s",
-        "person_id = %(person_id)s",
+        f"({' OR '.join(owners)})",
         # Standalone hog_function email destinations aren't surfaced anywhere yet,
         # so this endpoint only returns workflow-step rows.
         "function_kind = 'hog_flow'",
@@ -151,6 +164,8 @@ def fetch_message_assets_for_person(
     kwargs: dict[str, Any] = {
         "team_id": team_id,
         "person_id": person_id,
+        "distinct_ids": list(distinct_ids),
+        "emails": sorted({(email or "").strip(), (email or "").strip().lower()}),
         "kind": kind,
         "limit": limit,
         "offset": offset,
@@ -177,6 +192,82 @@ def fetch_message_assets_for_person(
 
     results = cast(list, sync_execute(query, kwargs))
     return [_build_asset(row) for row in results]
+
+
+def fetch_message_assets_for_invocations(
+    team_id: int,
+    invocation_ids: Sequence[str],
+    after: datetime,
+) -> list[MessageAsset]:
+    """The emails the given runs sent, at most one per run and step. `after` bounds the scan to the runs' partitions."""
+    if not invocation_ids:
+        return []
+    query = f"""
+        SELECT {_OUTER_COLUMNS}
+        FROM (
+            SELECT {_COLLAPSED_AGGREGATES}
+            FROM message_assets
+            WHERE team_id = %(team_id)s
+              AND function_kind = 'hog_flow'
+              AND kind = 'email'
+              AND invocation_id IN %(invocation_ids)s
+              AND sent_at >= toDateTime64(%(after)s, 6)
+            GROUP BY invocation_id, action_id
+        )
+        WHERE latest_is_deleted = 0
+    """
+    results = cast(
+        list,
+        sync_execute(
+            query,
+            {
+                "team_id": team_id,
+                "invocation_ids": list(invocation_ids),
+                "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S"),
+            },
+            workload=Workload.ONLINE,
+            team_id=team_id,
+        ),
+    )
+    return [_build_asset(row) for row in results]
+
+
+def fetch_first_email_sends(
+    team_id: int,
+    function_id: str,
+    after: datetime,
+    before: datetime,
+    limit: int,
+) -> dict[str, datetime]:
+    """When the workflow first emailed each distinct ID in the range, for the `limit` most recently emailed."""
+    rows = cast(
+        list,
+        sync_execute(
+            """
+            SELECT distinct_id, min(sent_at) AS first_sent_at
+            FROM message_assets
+            WHERE team_id = %(team_id)s
+              AND function_kind = 'hog_flow'
+              AND function_id = %(function_id)s
+              AND kind = 'email'
+              AND sent_at >= toDateTime64(%(after)s, 6) AND sent_at < toDateTime64(%(before)s, 6)
+              AND distinct_id != ''
+            GROUP BY distinct_id
+            ORDER BY first_sent_at DESC
+            LIMIT %(limit)s
+            """,
+            {
+                "team_id": team_id,
+                "function_id": function_id,
+                "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S"),
+                "before": before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S"),
+                "limit": limit,
+            },
+            workload=Workload.ONLINE,
+            team_id=team_id,
+        ),
+    )
+    return {distinct_id: sent_at.replace(tzinfo=UTC) for distinct_id, sent_at in rows}
 
 
 def fetch_message_asset_html(

@@ -14,10 +14,11 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { aiBlobRenderHandlers, resolveAiBlobUrl, resolveDataUri } from '../aiBlob'
+import { AIImage } from '../components/AIImage'
 import { getJsonContainerForDisplay, JSONValueDisplay } from '../components/JSONValueDisplay'
 import { MessageSentimentBar } from '../components/SentimentTag'
 import { LLMInputOutput } from '../LLMInputOutput'
-import { isRenderableMediaSource, redactedMediaKind } from '../mediaSource'
+import { isRedactedMediaSentinel, isRenderableMediaSource, redactedMediaKind } from '../mediaSource'
 import { SearchHighlight } from '../SearchHighlight'
 import { containsSearchQuery } from '../searchUtils'
 import type { GenerationSentiment } from '../sentimentResults'
@@ -481,12 +482,19 @@ export const ImageMessageDisplay = ({ message }: { message: ImageDisplayMessage 
     if (typeof content === 'string') {
         return <span>{content}</span>
     } else if (content?.image) {
-        if (!isRenderableMediaSource(content.image)) {
+        if (isRedactedMediaSentinel(content.image)) {
             return <RedactedMediaPlaceholder kind="image" />
+        }
+        if (!isRenderableMediaSource(content.image)) {
+            return <HighlightedJSONViewer src={content} name={null} collapsed={5} />
         }
         const src = resolveAiBlobUrl(content.image, currentTeamId)
         return (
-            <img src={src} alt="User sent image" data-attr="ai-message-image" {...aiBlobRenderHandlers(src, 'image')} />
+            <AIImage
+                src={src}
+                alt="User sent image"
+                fallback={<HighlightedJSONViewer src={content} name={null} collapsed={5} />}
+            />
         )
     }
 
@@ -538,14 +546,16 @@ function renderContentItem(
     }
 
     if (isOpenAIImageURLMessage(item)) {
+        if (!isRenderableMediaSource(item.image_url.url)) {
+            return <HighlightedJSONViewer src={item} name={null} collapsed={5} searchQuery={searchQuery} />
+        }
         const src = resolveAiBlobUrl(item.image_url.url, currentTeamId)
         return (
-            <img
+            <AIImage
                 src={src}
                 alt="Message content"
                 className="max-w-full max-h-[400px] rounded"
-                data-attr="ai-message-image"
-                {...aiBlobRenderHandlers(src, 'image')}
+                fallback={<HighlightedJSONViewer src={item} name={null} collapsed={5} searchQuery={searchQuery} />}
             />
         )
     }
@@ -553,29 +563,31 @@ function renderContentItem(
     if (isAnthropicImageMessage(item)) {
         const src = resolveDataUri(item.source.data, item.source.media_type, currentTeamId)
         return (
-            <img
+            <AIImage
                 src={src}
                 alt="Message content"
                 className="max-w-full max-h-[400px] rounded"
-                data-attr="ai-message-image"
-                {...aiBlobRenderHandlers(src, 'image')}
+                fallback={<HighlightedJSONViewer src={item} name={null} collapsed={5} searchQuery={searchQuery} />}
             />
         )
     }
 
     if (isGeminiImageMessage(item)) {
         const inlineData = getGeminiInlineData(item)
-        if (!inlineData) {
-            return null
+        const src = inlineData
+            ? resolveDataUri(inlineData.data, inlineData.mime_type, currentTeamId)
+            : typeof item.uri === 'string' && isRenderableMediaSource(item.uri)
+              ? resolveAiBlobUrl(item.uri, currentTeamId)
+              : null
+        if (!src) {
+            return <HighlightedJSONViewer src={item} name={null} collapsed={5} searchQuery={searchQuery} />
         }
-        const src = resolveDataUri(inlineData.data, inlineData.mime_type, currentTeamId)
         return (
-            <img
+            <AIImage
                 src={src}
                 alt="Message content"
                 className="max-w-full max-h-[400px] rounded"
-                data-attr="ai-message-image"
-                {...aiBlobRenderHandlers(src, 'image')}
+                fallback={<HighlightedJSONViewer src={item} name={null} collapsed={5} searchQuery={searchQuery} />}
             />
         )
     }
@@ -767,6 +779,16 @@ export const LLMMessageDisplay = React.memo(
     }): JSX.Element => {
         const { currentTeamId } = useValues(teamLogic)
         const { role, content, ...additionalKwargs } = message
+        const parsedJsonContainer =
+            !show || Array.isArray(content)
+                ? null
+                : getJsonContainerForDisplay(content, { allowEmptyContainers: false })
+        const displayContent =
+            Array.isArray(parsedJsonContainer) &&
+            parsedJsonContainer.some((item) => redactedMediaKind(item) === 'image')
+                ? (parsedJsonContainer as MultiModalContentItem[])
+                : content
+        const isRedactedImage = redactedMediaKind(parsedJsonContainer) === 'image'
         let resolvedIsRenderingMarkdown = isRenderingMarkdown
         let resolvedIsRenderingXml = isRenderingXml
 
@@ -820,8 +842,6 @@ export const LLMMessageDisplay = React.memo(
                     </>
                 )
             }
-            const parsedJsonContainer = getJsonContainerForDisplay(content, { allowEmptyContainers: false })
-
             if (parsedJsonContainer) {
                 if (isObject(parsedJsonContainer)) {
                     const imageMessage = getImageDisplayMessage(parsedJsonContainer)
@@ -997,12 +1017,14 @@ export const LLMMessageDisplay = React.memo(
                 )}
                 {show && !!content && (
                     <div className={!minimal ? 'p-2 border-t' : 'p-1'}>
-                        {minimal ? (
+                        {isRedactedImage ? (
+                            <RedactedMediaPlaceholder kind="image" />
+                        ) : minimal ? (
                             <LemonMarkdown className="whitespace-pre-wrap">
-                                {extractMinimalPreview(content)}
+                                {extractMinimalPreview(displayContent)}
                             </LemonMarkdown>
                         ) : (
-                            renderMessageContent(content, searchQuery)
+                            renderMessageContent(displayContent, searchQuery)
                         )}
                     </div>
                 )}

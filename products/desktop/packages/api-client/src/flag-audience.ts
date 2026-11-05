@@ -126,6 +126,7 @@ const OPERATORS: Record<Schemas.PropertyOperator, string> = {
   semver_caret: "is version in caret range",
   semver_wildcard: "matches version wildcard",
   is_cleaned_path_exact: "is cleaned path",
+  is_cleaned_path_not_exact: "is not cleaned path",
   min: "at least once ≥",
   max: "at most once ≤",
 };

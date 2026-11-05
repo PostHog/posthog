@@ -3,6 +3,7 @@ import time
 import asyncio
 from collections.abc import AsyncGenerator, Iterator
 from typing import TYPE_CHECKING, Optional
+from uuid import uuid4
 
 from django.conf import settings
 
@@ -35,6 +36,7 @@ TASK_RUN_STREAM_WATCHED_TIMEOUT = 5 * 60
 TASK_RUN_STREAM_WATCHED_CACHE_SECONDS = 2.0
 TASK_RUN_STREAM_WATCHED_REFRESH_INTERVAL_SECONDS = 120.0
 TASK_RUN_STREAM_PREFIX = "task-run-stream:"
+TASK_RUN_STREAM_INITIAL_GENERATION = "initial"
 TASK_RUN_STREAM_READ_COUNT = 16
 # XREAD BLOCK is push-based (XADD wakes the blocked client immediately), so a
 # longer block only cuts idle polling — it never delays delivery. Keep it under
@@ -95,6 +97,10 @@ TASK_RUN_STREAM_WRITE_SKIPPED = TaskRunStreamWriteResult(accepted=True)
 
 
 class TaskRunStreamError(Exception):
+    pass
+
+
+class TaskRunStreamGenerationMismatch(Exception):
     pass
 
 
@@ -172,6 +178,16 @@ def get_task_run_stream_completed_key(stream_key: str) -> str:
     return f"{stream_key}:completed"
 
 
+def get_task_run_stream_generation(run_id: str, use_dedicated: bool = False) -> str:
+    client = get_tasks_stream_redis_sync(use_dedicated)
+    key = f"{get_task_run_stream_key(run_id)}:generation"
+    client.set(key, TASK_RUN_STREAM_INITIAL_GENERATION, nx=True, ex=TASK_RUN_STREAM_SEQUENCE_TIMEOUT)
+    generation = client.get(key)
+    if generation is None:
+        raise RuntimeError("Task run stream generation is unavailable")
+    return _normalize_stream_id(generation)
+
+
 def get_task_run_stream_agent_active_key(stream_key: str) -> str:
     return f"{stream_key}:ingest-agent-active"
 
@@ -216,6 +232,7 @@ class TaskRunRedisStream:
         presence_gated: bool = False,
         thin_tail: bool = False,
         origin_product: str | None = None,
+        expected_generation: str | None = None,
     ):
         self._stream_key = stream_key
         self._redis_client = get_tasks_stream_redis_async(use_dedicated)
@@ -226,6 +243,7 @@ class TaskRunRedisStream:
         self._presence_gated = presence_gated
         self._thin_tail = thin_tail
         self._origin_product = origin_product
+        self._expected_generation = expected_generation
         self._watched_cached_until = 0.0
         self._last_watched_refresh_at: float | None = None
 
@@ -374,16 +392,29 @@ class TaskRunRedisStream:
             return TASK_RUN_STREAM_THIN_MAX_LENGTH
         return self._max_length
 
-    async def _xadd_event(self, event: dict, *, ttl: int | None = None) -> str:
+    async def _xadd_event(self, event: dict, *, ttl: int | None = None, complete: bool = False) -> str:
         raw = json.dumps(event)
-        stream_id = await self._redis_client.xadd(
-            self._stream_key,
-            {DATA_KEY: raw},
-            maxlen=self._maxlen_for_event(event),
-            approximate=True,
-        )
-        await self._redis_client.expire(self._stream_key, self._timeout if ttl is None else ttl)
-        return _normalize_stream_id(stream_id)
+        generation_key = f"{self._stream_key}:generation"
+        while True:
+            async with self._redis_client.pipeline(transaction=True) as pipe:
+                try:
+                    await pipe.watch(generation_key)
+                    self._check_generation(await pipe.get(generation_key))
+                    pipe.multi()
+                    pipe.xadd(
+                        self._stream_key,
+                        {DATA_KEY: raw},
+                        maxlen=self._maxlen_for_event(event),
+                        approximate=True,
+                    )
+                    pipe.expire(self._stream_key, self._timeout if ttl is None else ttl)
+                    pipe.expire(generation_key, self._sequence_timeout)
+                    if complete:
+                        pipe.set(get_task_run_stream_completed_key(self._stream_key), "1", ex=self._sequence_timeout)
+                    results = await pipe.execute()
+                    return _normalize_stream_id(results[0])
+                except redis_exceptions.WatchError:
+                    continue
 
     async def _is_watched(self) -> bool:
         """Return whether a reader is attached, caching only a positive answer."""
@@ -407,6 +438,7 @@ class TaskRunRedisStream:
         Terminal sentinels bypass this gate.
         """
         if self._presence_gated and not await self._is_watched():
+            self._check_generation(await self._redis_client.get(f"{self._stream_key}:generation"))
             observe_stream_write_skipped("relay", self._origin_product)
             return None
         return await self._xadd_event(event, ttl=ttl)
@@ -525,7 +557,8 @@ class TaskRunRedisStream:
         sequence_key = get_task_run_stream_sequence_key(self._stream_key)
         completed_key = get_task_run_stream_completed_key(self._stream_key)
         watched_key = get_task_run_stream_watched_key(self._stream_key)
-        watch_keys = [sequence_key, completed_key]
+        generation_key = f"{self._stream_key}:generation"
+        watch_keys = [sequence_key, completed_key, generation_key]
         if self._presence_gated:
             watch_keys.append(watched_key)
 
@@ -533,6 +566,7 @@ class TaskRunRedisStream:
             async with self._redis_client.pipeline(transaction=True) as pipe:
                 try:
                     await pipe.watch(*watch_keys)
+                    self._check_generation(await pipe.get(generation_key))
                     last_sequence = _normalize_redis_int(await pipe.get(sequence_key))
                     completed = bool(await pipe.exists(completed_key))
                     if not _check_next_sequence(sequence, last_sequence, completed=completed):
@@ -548,6 +582,13 @@ class TaskRunRedisStream:
                     return _sequenced_write_result(_normalize_stream_id(results[0]) if mirror else None)
                 except redis_exceptions.WatchError:
                     continue
+
+    def _check_generation(self, generation: bytes | str | None) -> None:
+        if (
+            self._expected_generation is not None
+            and _normalize_stream_id(generation or TASK_RUN_STREAM_INITIAL_GENERATION) != self._expected_generation
+        ):
+            raise TaskRunStreamGenerationMismatch("Task run stream generation has changed")
 
     def _queue_sequenced_write(
         self, pipe: "Pipeline", event: dict, sequence: int, *, mirror: bool, pending_side_effect: str | None
@@ -565,6 +606,7 @@ class TaskRunRedisStream:
             )
             pipe.expire(self._stream_key, self._timeout)
         pipe.set(get_task_run_stream_sequence_key(self._stream_key), sequence, ex=self._sequence_timeout)
+        pipe.expire(f"{self._stream_key}:generation", self._sequence_timeout)
         if pending_side_effect is not None:
             pending_key = get_task_run_stream_side_effect_pending_key(self._stream_key, pending_side_effect, sequence)
             pipe.set(pending_key, "1", ex=self._sequence_timeout)
@@ -573,6 +615,7 @@ class TaskRunRedisStream:
         self, event: dict, sequence: int, pending_side_effect: str | None = None
     ) -> TaskRunStreamWriteResult:
         """Apply sequencing semantics without WATCH/MULTI for fakeredis."""
+        self._check_generation(await self._redis_client.get(f"{self._stream_key}:generation"))
         sequence_key = get_task_run_stream_sequence_key(self._stream_key)
         completed_key = get_task_run_stream_completed_key(self._stream_key)
         watched_key = get_task_run_stream_watched_key(self._stream_key)
@@ -596,12 +639,14 @@ class TaskRunRedisStream:
             return
 
         completed_key = get_task_run_stream_completed_key(self._stream_key)
+        generation_key = f"{self._stream_key}:generation"
         raw = json.dumps({"type": "STREAM_STATUS", "status": "complete"})
 
         while True:
             async with self._redis_client.pipeline(transaction=True) as pipe:
                 try:
-                    await pipe.watch(completed_key)
+                    await pipe.watch(completed_key, generation_key)
+                    self._check_generation(await pipe.get(generation_key))
                     if await pipe.exists(completed_key):
                         await self._redis_client.expire(self._stream_key, self._completed_timeout)
                         return
@@ -615,12 +660,14 @@ class TaskRunRedisStream:
                     )
                     pipe.expire(self._stream_key, self._completed_timeout)
                     pipe.set(completed_key, "1", ex=self._sequence_timeout)
+                    pipe.expire(generation_key, self._sequence_timeout)
                     await pipe.execute()
                     return
                 except redis_exceptions.WatchError:
                     continue
 
     async def _mark_complete_for_tests(self) -> None:
+        self._check_generation(await self._redis_client.get(f"{self._stream_key}:generation"))
         completed_key = get_task_run_stream_completed_key(self._stream_key)
         if await self._redis_client.exists(completed_key):
             await self._redis_client.expire(self._stream_key, self._completed_timeout)
@@ -637,12 +684,14 @@ class TaskRunRedisStream:
 
         sequence_key = get_task_run_stream_sequence_key(self._stream_key)
         completed_key = get_task_run_stream_completed_key(self._stream_key)
+        generation_key = f"{self._stream_key}:generation"
         raw = json.dumps({"type": "STREAM_STATUS", "status": "complete"})
 
         while True:
             async with self._redis_client.pipeline(transaction=True) as pipe:
                 try:
-                    await pipe.watch(sequence_key, completed_key)
+                    await pipe.watch(sequence_key, completed_key, generation_key)
+                    self._check_generation(await pipe.get(generation_key))
                     last_sequence_raw = await pipe.get(sequence_key)
                     last_sequence = _normalize_redis_int(last_sequence_raw)
                     if await pipe.exists(completed_key):
@@ -672,6 +721,7 @@ class TaskRunRedisStream:
                     continue
 
     async def _mark_complete_after_sequence_for_tests(self, final_sequence: int) -> None:
+        self._check_generation(await self._redis_client.get(f"{self._stream_key}:generation"))
         sequence_key = get_task_run_stream_sequence_key(self._stream_key)
         completed_key = get_task_run_stream_completed_key(self._stream_key)
         last_sequence_raw = await self._redis_client.get(sequence_key)
@@ -695,10 +745,9 @@ class TaskRunRedisStream:
     async def mark_error(self, error: str) -> None:
         """Write an error sentinel to signal stream failure."""
         await self._xadd_event(
-            {"type": "STREAM_STATUS", "status": "error", "error": error[:500]}, ttl=self._completed_timeout
-        )
-        await self._redis_client.set(
-            get_task_run_stream_completed_key(self._stream_key), "1", ex=self._sequence_timeout
+            {"type": "STREAM_STATUS", "status": "error", "error": error[:500]},
+            ttl=self._completed_timeout,
+            complete=True,
         )
 
     async def delete_stream(self) -> bool:
@@ -720,6 +769,7 @@ class TaskRunRedisStream:
                 first_command_key,
                 first_activity_key,
                 watched_key,
+                f"{self._stream_key}:generation",
             )
             return _normalize_redis_int(deleted) > 0
         except Exception:
@@ -739,15 +789,19 @@ def reset_task_run_stream(run_id: str, use_dedicated: bool = False) -> bool:
     client = get_tasks_stream_redis_sync(use_dedicated)
 
     try:
-        client.delete(
-            stream_key,
-            sequence_key,
-            completed_key,
-            agent_active_key,
-            heartbeat_key,
-            first_command_key,
-            first_activity_key,
-        )
+        with client.pipeline(transaction=True) as pipe:
+            pipe.delete(
+                stream_key,
+                sequence_key,
+                completed_key,
+                agent_active_key,
+                heartbeat_key,
+                first_command_key,
+                first_activity_key,
+            )
+            if settings.TASK_RUN_STREAM_GENERATION_ROTATION_ENABLED:
+                pipe.set(f"{stream_key}:generation", uuid4().hex, ex=TASK_RUN_STREAM_SEQUENCE_TIMEOUT)
+            pipe.execute()
         return True
     except Exception:
         logger.exception("task_run_stream_reset_failed", run_id=run_id)
@@ -795,16 +849,20 @@ def publish_task_run_stream_event(
         stream_id = client.xadd(stream_key, {DATA_KEY: raw}, maxlen=TASK_RUN_STREAM_MAX_LENGTH, approximate=True)
         completed = client.exists(get_task_run_stream_completed_key(stream_key))
         client.expire(stream_key, TASK_RUN_STREAM_COMPLETED_TIMEOUT if completed else TASK_RUN_STREAM_TIMEOUT)
+        client.expire(f"{stream_key}:generation", TASK_RUN_STREAM_SEQUENCE_TIMEOUT)
         return _normalize_stream_id(stream_id)
     except Exception:
         logger.exception("task_run_stream_publish_failed", run_id=run_id)
         return None
 
 
-def publish_task_run_stream_complete(run_id: str, use_dedicated: bool = False) -> bool:
+def publish_task_run_stream_complete(
+    run_id: str, use_dedicated: bool = False, *, expected_generation: str | None = None
+) -> bool:
     """Synchronously publish a completion sentinel for a task-run stream."""
     stream_key = get_task_run_stream_key(run_id)
     completed_key = get_task_run_stream_completed_key(stream_key)
+    generation_key = f"{stream_key}:generation"
     client = get_tasks_stream_redis_sync(use_dedicated)
     raw = json.dumps({"type": "STREAM_STATUS", "status": "complete"})
 
@@ -812,6 +870,12 @@ def publish_task_run_stream_complete(run_id: str, use_dedicated: bool = False) -
         if settings.TEST:
             # fakeredis doesn't support WATCH/MULTI; the sequencing race the
             # transaction guards against can't happen under the test harness.
+            if (
+                expected_generation is not None
+                and (client.get(generation_key) or TASK_RUN_STREAM_INITIAL_GENERATION.encode())
+                != expected_generation.encode()
+            ):
+                return True
             if client.exists(completed_key):
                 client.expire(stream_key, TASK_RUN_STREAM_COMPLETED_TIMEOUT)
                 return True
@@ -823,15 +887,20 @@ def publish_task_run_stream_complete(run_id: str, use_dedicated: bool = False) -
         with client.pipeline(transaction=True) as pipe:
             while True:
                 try:
-                    pipe.watch(completed_key)
-                    if pipe.exists(completed_key):
+                    pipe.watch(completed_key, generation_key)
+                    if (
+                        expected_generation is not None
+                        and (pipe.get(generation_key) or TASK_RUN_STREAM_INITIAL_GENERATION.encode())
+                        != expected_generation.encode()
+                    ):
                         pipe.reset()
-                        client.expire(stream_key, TASK_RUN_STREAM_COMPLETED_TIMEOUT)
                         return True
+                    completed = pipe.exists(completed_key)
                     pipe.multi()
-                    pipe.xadd(stream_key, {DATA_KEY: raw}, maxlen=TASK_RUN_STREAM_MAX_LENGTH, approximate=True)
+                    if not completed:
+                        pipe.xadd(stream_key, {DATA_KEY: raw}, maxlen=TASK_RUN_STREAM_MAX_LENGTH, approximate=True)
+                        pipe.set(completed_key, "1", ex=TASK_RUN_STREAM_SEQUENCE_TIMEOUT)
                     pipe.expire(stream_key, TASK_RUN_STREAM_COMPLETED_TIMEOUT)
-                    pipe.set(completed_key, "1", ex=TASK_RUN_STREAM_SEQUENCE_TIMEOUT)
                     pipe.execute()
                     return True
                 except redis_exceptions.WatchError:

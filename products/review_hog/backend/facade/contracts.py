@@ -82,7 +82,8 @@ ReviewIssueCategory = Literal[
 # finding (anchor), or a finding of its own session or lens (sibling). Only records from before Flash
 # stopped reading PR comments carry `dedup_comment`. `cap` is the cut in `compose_flash_findings`, and
 # `budget` the cut the pull request's finding budget adds on top (`finding_budget.py`).
-# `old_code` is a follow-up turn's P3 finding on code that did not change since the last reviewed head.
+# `old_code` is a follow-up turn's finding on code that did not change since the last reviewed head: P2 and P3
+# on an automatic turn from run 2 on, P3 only on a requested turn. A first review drops nothing this way.
 DropDisposition = Literal[
     "old_code",
     "dedup_prior",
@@ -268,6 +269,7 @@ class ReviewRepositorySettings:
     full_name: str
     selected: bool
     flash_for: AutomaticFlashFor | None
+    review_drafts: bool
     people: Sequence[ReviewRepositoryPersonEntry]
     created_by: ReviewUserRef | None
     created_at: datetime
@@ -351,6 +353,7 @@ class ReviewRepositoryOverviewEntry:
     selected: bool
     repository_id: UUID | None
     exception: ReviewRepositoryException | None
+    review_drafts: bool
     my_choice: ReviewUserRepositoryChoiceMode | None
     my_choice_id: UUID | None
     my_result: AutomaticReviewDecision
@@ -448,6 +451,7 @@ class ReviewProgress:
     review_stage: str
     done: int | None
     total: int | None
+    review_mode: str | None = None
 
 
 @frozen

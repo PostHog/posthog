@@ -36,7 +36,7 @@ from posthog.cloud_utils import is_dev_mode
 from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.models.scoping.manager import resolve_effective_team_id
-from posthog.permissions import DenyMCPBuiltInAgentOAuth
+from posthog.permissions import DenyMCPBuiltInAgentOAuth, DenyWorkloadAccessToken
 from posthog.rate_limit import (
     MCPOAuthBurstThrottle,
     MCPOAuthRedirectBurstThrottle,
@@ -300,6 +300,12 @@ class MCPServerViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.G
 
 class MCPServerInstallationSerializer(serializers.ModelSerializer):
     template_id = serializers.UUIDField(source="template.id", read_only=True, allow_null=True, default=None)
+    gateway_server_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="ID of the MCP server this connection belongs to. The MCP server page takes this ID, "
+        "not the connection id. Null for older connections that are not linked to a server yet.",
+    )
     needs_reauth = serializers.SerializerMethodField()
     pending_oauth = serializers.SerializerMethodField()
     name = serializers.SerializerMethodField()
@@ -334,6 +340,7 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "template_id",
+            "gateway_server_id",
             "name",
             "icon_key",
             "icon_domain",
@@ -351,7 +358,16 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "template_id", "created_at", "updated_at", "tool_count", "scope", "is_owner"]
+        read_only_fields = [
+            "id",
+            "template_id",
+            "gateway_server_id",
+            "created_at",
+            "updated_at",
+            "tool_count",
+            "scope",
+            "is_owner",
+        ]
 
     def get_tool_count(self, obj: MCPServerInstallation) -> int:
         # Prefer the annotation to avoid N+1 on list; fall back to a direct
@@ -748,7 +764,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     queryset = MCPServerInstallation.objects.all()
     serializer_class = MCPServerInstallationSerializer
     lookup_field = "id"
-    permission_classes = [IsAuthenticated, DenyMCPBuiltInAgentOAuth]
+    permission_classes = [IsAuthenticated, DenyMCPBuiltInAgentOAuth, DenyWorkloadAccessToken]
 
     # Installations are user-scoped or shared (safely_get_queryset returns both),
     # so write actions don't need project admin access.
@@ -1334,7 +1350,9 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             if gateway_server is not None
             else None
         )
-        decision, block_reason = resolve_call_decision(tool, policy_context)
+        decision, block_reason = resolve_call_decision(
+            tool, policy_context, caller_owns_installation=installation.user_id == request.user.id
+        )
 
         if gateway_server is not None:
             record_tool_call_audit(

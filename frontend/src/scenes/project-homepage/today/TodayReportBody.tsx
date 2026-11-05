@@ -24,12 +24,12 @@ export function TodayReportBody({
     live: TodayReportLiveState | null
 }): JSX.Element {
     return (
-        <article className="TodayReportArticle flex max-w-150 flex-col gap-10">
+        <article className="TodayReportArticle flex flex-col gap-10">
             <div className="flex flex-col gap-5">
                 <TodayReportHeader report={report} />
                 <TodayReportAbstract report={report} />
             </div>
-            <section className="flex flex-col gap-4" aria-label="Proposal">
+            <section className="flex flex-col gap-4 empty:hidden" aria-label="Proposal">
                 <TodayReportProposal reportId={report.id} />
                 <TodayReportNextStep
                     report={report}

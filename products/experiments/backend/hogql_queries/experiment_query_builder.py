@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional, Union
 
 from django.utils import timezone
@@ -15,16 +15,18 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
+    ExperimentWarehouseNativeExposureConfig,
     MultipleVariantHandling,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_actions
 from products.experiments.backend.hogql_queries.breakdown_injector import BreakdownInjector
 from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig
 from products.experiments.backend.hogql_queries.experiment_cuped_query_builder import CupedQueryBuilder
@@ -39,6 +41,7 @@ from products.experiments.backend.hogql_queries.experiment_metric_values import 
     build_value_aggregation_expr,
     build_value_expr,
     get_conversion_window_seconds,
+    get_maturity_window_seconds,
 )
 from products.experiments.backend.hogql_queries.experiment_query_context import (
     ExperimentPrecomputationContext,
@@ -57,6 +60,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     resolve_default_exposure_event,
     resolve_filter_test_accounts,
 )
+from products.experiments.backend.hogql_queries.precompute_policy import precompute_person_resolution_enabled
 
 
 def resolve_exposure_config_for_builder(
@@ -88,30 +92,33 @@ def get_exposure_config_params_for_builder(
     filter_test_accounts = resolve_filter_test_accounts(criteria)
     exposure_config: ExperimentEventExposureConfig | ActionsNode
     activation_config: ExperimentEventExposureConfig | ActionsNode | None = None
+    stored_exposure = criteria.exposure_config if criteria else None
+    if isinstance(stored_exposure, ExperimentWarehouseNativeExposureConfig):
+        raise ExposedHogQLError("Warehouse-native sources cannot be calculated yet.")
     if criteria is None:
         exposure_config = ExperimentEventExposureConfig(
             event=resolve_default_exposure_event(team, start_date), properties=[]
         )
         multiple_variant_handling = MultipleVariantHandling.EXCLUDE
     else:
-        if criteria.exposure_config is None:
+        if stored_exposure is None:
             exposure_config = ExperimentEventExposureConfig(
                 event=resolve_default_exposure_event(team, start_date), properties=[]
             )
         elif (
-            isinstance(criteria.exposure_config, ExperimentEventExposureConfig)
-            and criteria.exposure_config.event == DEFAULT_EXPOSURE_EVENT
+            isinstance(stored_exposure, ExperimentEventExposureConfig)
+            and stored_exposure.event == DEFAULT_EXPOSURE_EVENT
         ):
             # A config naming $feature_flag_called explicitly is the default exposure, not a
             # custom one (same convention as get_exposure_event_and_property), so it follows
             # the same event resolution while keeping its property filters.
-            exposure_config = resolve_exposure_config_for_builder(criteria.exposure_config, team, start_date)
+            exposure_config = resolve_exposure_config_for_builder(stored_exposure, team, start_date)
         else:
-            exposure_config = criteria.exposure_config
+            exposure_config = stored_exposure
         # Activation only composes with the default exposure; a custom exposure_config
         # disables it (validation rejects the combination, but stored data predating it
         # must not silently change semantics).
-        if is_default_exposure_config(criteria.exposure_config):
+        if is_default_exposure_config(stored_exposure):
             activation_config = criteria.activation_config
         multiple_variant_handling = criteria.multiple_variant_handling or MultipleVariantHandling.EXCLUDE
 
@@ -142,7 +149,7 @@ def metric_reads_flag_call(
     action_ids = [int(source.id) for source in sources if isinstance(source, ActionsNode)]
     return bool(action_ids) and any(
         step.event == DEFAULT_EXPOSURE_EVENT
-        for action in Action.objects.filter(pk__in=action_ids, team__project_id=team.project_id)
+        for action in get_actions(action_ids=action_ids, project_id=team.project_id)
         for step in action.steps
     )
 
@@ -202,6 +209,7 @@ class ExperimentQueryBuilder:
             breakdowns=tuple(self.breakdowns),
             only_count_matured_users=self.only_count_matured_users,
             cuped_config=self.cuped_config,
+            resolve_precomputed_persons=precompute_person_resolution_enabled(team),
             activation_config=self.activation_config,
             read_exposure_copies=metric is None or not metric_reads_flag_call(team, metric),
         )
@@ -251,6 +259,9 @@ class ExperimentQueryBuilder:
         query.limit = ast.Constant(value=self.QUERY_RESULT_LIMIT)
         return query
 
+    def reads_precomputed_exposures(self, job_ids: list[str]) -> bool:
+        return self._exposure_query_builder(job_ids=job_ids).reads_precomputed()
+
     def _exposure_query_builder(
         self, maturity: MaturityGate | None = None, job_ids: list[str] | None = None
     ) -> ExposureQueryBuilder:
@@ -293,6 +304,18 @@ class ExperimentQueryBuilder:
         """
         return self._exposure_query_builder().timeseries_query()
 
+    def get_exposure_segments_query(self, top_values: int, first_exposed_after: date | None = None) -> ast.SelectQuery:
+        """
+        Persons or groups by variant and by the SDK library, the library version, and the page or screen of their
+        first exposure. Columns: dimension, library, segment, variant, exposed_count. It scans the events, also when
+        precomputed exposures exist.
+        """
+        return self._exposure_query_builder().segments_query(top_values, first_exposed_after)
+
+    def get_exposed_count_query(self) -> ast.SelectQuery:
+        """The persons or groups exposed, in one row. Column: exposed_count."""
+        return self._exposure_query_builder().exposed_count_query()
+
     def get_daily_exposures_from_precomputed(self, job_ids: list[str]) -> ast.SelectQuery:
         """
         Reads from the precomputed table and aggregates into day/variant/count.
@@ -318,7 +341,7 @@ class ExperimentQueryBuilder:
         """
         if self.metric is None or isinstance(self.metric, ExperimentRetentionMetric):
             return 0
-        return self._get_conversion_window_seconds()
+        return get_maturity_window_seconds(self.metric)
 
     def _build_conversion_window_predicate(self) -> ast.Expr:
         """Uses "metric_events" as the events alias."""

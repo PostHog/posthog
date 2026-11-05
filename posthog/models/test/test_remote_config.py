@@ -1,6 +1,6 @@
 from datetime import timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from posthog.test.base import BaseTest
@@ -19,9 +19,10 @@ from posthog.models.remote_config import (
     REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET,
     RemoteConfig,
     RemoteConfigTokenChangeSyncError,
+    UnreadableTriggerGroupsError,
 )
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.templates.helpers import mock_transpile
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -29,6 +30,12 @@ from products.surveys.backend.models import Survey
 
 CONFIG_REFRESH_QUERY_COUNT = 6
 SITE_HOG = "export function onEvent({ inputs }) { console.log(inputs) }"
+_READABLE_GROUP = {"id": "g1", "sampleRate": 1, "conditions": {"matchType": "any", "events": ["purchase"]}}
+_SENT_GROUP = {"id": "g1", "sampleRate": 1, "conditions": {"matchType": "any", "events": [{"name": "purchase"}]}}
+
+
+def _flag_group(flag: str | dict[str, Any], **conditions: Any) -> dict[str, Any]:
+    return {"id": "g4", "sampleRate": 1, "conditions": {"matchType": "all", "flag": flag, **conditions}}
 
 
 @pytest.mark.usefixtures("unittest_snapshot")
@@ -333,6 +340,20 @@ class TestRemoteConfig(_RemoteConfigBase):
         session_recording = config["sessionRecording"]
         assert session_recording["sampleRate"] == expected
 
+    @parameterized.expand(
+        [
+            ("without_variant", {"id": 7, "key": "k"}, "k"),
+            ("with_variant", {"id": 7, "key": "k", "variant": "test"}, {"flag": "k", "variant": "test"}),
+        ]
+    )
+    def test_session_recording_linked_flag(
+        self, _name: str, stored: dict[str, Any], expected: str | dict[str, Any]
+    ) -> None:
+        self.team.session_recording_linked_flag = stored
+        self.team.save()
+        self.sync_remote_config()
+        assert self.remote_config.config["sessionRecording"]["linkedFlag"] == expected
+
     def test_session_recording_domains(self):
         self.team.session_recording_opt_in = True
         self.team.recording_domains = ["https://posthog.com", "https://*.posthog.com"]
@@ -342,6 +363,73 @@ class TestRemoteConfig(_RemoteConfigBase):
         assert config is not None
         session_recording = config["sessionRecording"]
         assert session_recording["domains"] == self.team.recording_domains
+
+    @parameterized.expand(
+        [
+            ("group_not_an_object", {"version": 2, "groups": ["not-a-group", _READABLE_GROUP]}, [_SENT_GROUP], True),
+            (
+                "conditions_missing",
+                {"version": 2, "groups": [{"id": "g2", "sampleRate": 1}, _READABLE_GROUP]},
+                [_SENT_GROUP],
+                True,
+            ),
+            (
+                "events_null",
+                {"version": 2, "groups": [_flag_group("k", events=None)]},
+                [_flag_group("k", events=None)],
+                False,
+            ),
+            (
+                "events_not_a_list",
+                {"version": 2, "groups": [{"conditions": {"events": "purchase"}}, _READABLE_GROUP]},
+                [_SENT_GROUP],
+                True,
+            ),
+            ("groups_missing", {"version": 2}, [], False),
+            ("groups_all_unreadable", {"version": 2, "groups": [{"conditions": {"events": "purchase"}}]}, False, True),
+            ("column_not_an_object", ["not-a-config"], False, True),
+            ("groups_not_a_list", {"version": 2, "groups": None}, False, True),
+            (
+                "flag_object_converted",
+                {
+                    "version": 2,
+                    "groups": [
+                        _flag_group({"id": 7, "key": "k"}, events=["purchase"]),
+                        _flag_group({"id": 7, "key": "k", "variant": "test"}),
+                    ],
+                },
+                [_flag_group("k", events=[{"name": "purchase"}]), _flag_group({"flag": "k", "variant": "test"})],
+                False,
+            ),
+            (
+                "flag_object_without_usable_key",
+                {"version": 2, "groups": [_flag_group({"id": 7}), _flag_group({"key": ""})]},
+                [_flag_group({"id": 7}), _flag_group({"key": ""})],
+                False,
+            ),
+        ]
+    )
+    def test_session_recording_trigger_groups_sent_to_sdk(
+        self,
+        _name: str,
+        stored: Any,
+        expected_trigger_groups: list[dict] | Literal[False],
+        expect_reported: bool,
+    ) -> None:
+        self.team.session_recording_trigger_groups = stored
+        with patch("posthog.models.remote_config.capture_exception") as mock_capture_exception:
+            self.team.save()
+            self.sync_remote_config()
+        reported = any(
+            isinstance(c.args[0], UnreadableTriggerGroupsError) for c in mock_capture_exception.call_args_list
+        )
+        assert reported == expect_reported
+        session_recording = self.remote_config.config["sessionRecording"]
+        if expected_trigger_groups is False:
+            assert session_recording is False
+        else:
+            assert session_recording["version"] == 2
+            assert session_recording["triggerGroups"] == expected_trigger_groups
 
     def test_extra_settings_recorder_script(self):
         self.team.session_recording_opt_in = True
@@ -596,7 +684,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
             start_date=timezone.now(),
         )
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="user subscribed",
             steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
@@ -610,7 +698,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
             questions=[{"type": "open", "question": "Why's a hedgehog?"}],
             start_date=timezone.now(),
         )
-        survey_with_actions.actions.set(Action.objects.filter(name="user subscribed"))
+        survey_with_actions.actions.set([action.id])
         survey_with_actions.save()
 
         self.sync_remote_config()

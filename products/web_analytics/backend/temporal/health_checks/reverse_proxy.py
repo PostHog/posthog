@@ -1,16 +1,19 @@
 from posthog.job_owners import JobOwners
 from posthog.models.health_issue import HealthIssue
-from posthog.temporal.health_checks.detectors import CLICKHOUSE_BATCH_EXECUTION_POLICY
 from posthog.temporal.health_checks.framework import (
     _SEVERITY_WEIGHT,
     AlertContent,
-    HealthCheck,
     Remediation,
     SignalContent,
     build_signal_extra,
 )
 from posthog.temporal.health_checks.models import HealthCheckResult
 from posthog.temporal.health_checks.query import execute_clickhouse_health_team_query
+from posthog.temporal.health_checks.rollups.checks import RollupHealthCheck
+from posthog.temporal.health_checks.rollups.freshness import RollupWindow
+
+from products.web_analytics.backend.models.health_rollups import EventsHealthDaily
+from products.web_analytics.backend.temporal.health_checks.rollup_reads import events_health_totals
 
 # A week-wide window, wider than the daily schedule. A project with intermittent browser
 # traffic keeps at least one browser event in the window across single zero-traffic days,
@@ -31,13 +34,15 @@ HAVING count() >= %(min_browser_events)s
 """
 
 
-class ReverseProxyCheck(HealthCheck):
+class ReverseProxyCheck(RollupHealthCheck):
     name = "reverse_proxy"
     kind = "reverse_proxy"
     owner = JobOwners.TEAM_WEB_ANALYTICS
-    policy = CLICKHOUSE_BATCH_EXECUTION_POLICY
     schedule = "30 6 * * *"
     active_since_days = 30
+    reads_rollup = False
+    rollup_model = EventsHealthDaily
+    window_days = REVERSE_PROXY_LOOKBACK_DAYS
     remediation = Remediation(
         human="""
             Set up a reverse proxy that forwards a path on your own domain (e.g. https://ph.example.com or
@@ -81,22 +86,26 @@ class ReverseProxyCheck(HealthCheck):
             extra=build_signal_extra(issue, title=title, summary=summary, link="/web/health"),
         )
 
-    def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
+    def detect_from_rollup(self, team_ids: list[int], window: RollupWindow) -> dict[int, list[HealthCheckResult]]:
+        return {
+            team_id: [_reverse_proxy_result()]
+            for team_id, totals in events_health_totals(team_ids, window).items()
+            if totals.browser_events >= REVERSE_PROXY_MIN_BROWSER_EVENTS and totals.proxied_browser_events == 0
+        }
+
+    def detect_from_events(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         rows = execute_clickhouse_health_team_query(
             REVERSE_PROXY_SQL,
             team_ids=team_ids,
             lookback_days=REVERSE_PROXY_LOOKBACK_DAYS,
             params={"min_browser_events": REVERSE_PROXY_MIN_BROWSER_EVENTS},
         )
+        return {team_id: [_reverse_proxy_result()] for (team_id,) in rows}
 
-        issues: dict[int, list[HealthCheckResult]] = {}
-        for (team_id,) in rows:
-            issues[team_id] = [
-                HealthCheckResult(
-                    severity=HealthIssue.Severity.WARNING,
-                    payload={"reason": "No reverse proxy detected. Ad blockers may affect tracking accuracy."},
-                    hash_keys=[],
-                )
-            ]
 
-        return issues
+def _reverse_proxy_result() -> HealthCheckResult:
+    return HealthCheckResult(
+        severity=HealthIssue.Severity.WARNING,
+        payload={"reason": "No reverse proxy detected. Ad blockers may affect tracking accuracy."},
+        hash_keys=[],
+    )

@@ -307,3 +307,23 @@ def append_partition_key_to_table(
         partition_format=partition_format,
         partition_keys=normalized_partition_keys,
     )
+
+
+# Delta's fixed marker for a Hive-style partition directory whose column value is null.
+HIVE_NULL_PARTITION = "__HIVE_DEFAULT_PARTITION__"
+
+
+def partition_key_from_add_path(path: str) -> str | None:
+    """Recover the `_ph_partition_key` value from a Hive-style partitioned add-action file path.
+
+    Every value this pipeline actually partitions by — an md5 bucket index, a numerical bucket or the
+    `null` sentinel, or a datetime tier like "2024-01" — is plain ASCII with nothing that needs
+    percent-encoding, so splitting the path recovers the same value `get_add_actions`'s
+    `partition.<key>` column would give.
+    """
+    prefix = f"{PARTITION_KEY}="
+    for segment in path.split("/"):
+        if segment.startswith(prefix):
+            value = segment[len(prefix) :]
+            return None if value == HIVE_NULL_PARTITION else value
+    return None

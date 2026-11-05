@@ -61,20 +61,25 @@ from posthog.api.services.llm_prompt import (
     set_prompt_label,
     unarchive_prompt,
 )
-from posthog.auth import DelegatedOAuthAccessTokenAuthentication, OAuthAccessTokenAuthentication, SessionAuthentication
+from posthog.auth import (
+    DelegatedOAuthAccessTokenAuthentication,
+    OAuthAccessTokenAuthentication,
+    ProjectSecretAPIKeyAuthentication,
+    SessionAuthentication,
+)
 from posthog.event_usage import report_team_action, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import (
     BurstRateThrottle,
+    LLMPromptFetchProjectSecretApiKeyTeamRateThrottle,
     LLMPromptFetchRateThrottle,
     LLMPromptPublishBurstRateThrottle,
     SustainedRateThrottle,
 )
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
-from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.ai_observability.backend.activity_logging import log_llm_prompt_activity
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel, get_prompt_outline
@@ -94,12 +99,15 @@ PROMPT_FETCHED_EVENT_SOURCE = "llm_prompt_management"
 @extend_schema(extensions={"x-product": "llm_analytics"})
 class LLMPromptViewSet(
     TeamAndOrgViewSetMixin,
-    AccessControlViewSetMixin,
     mixins.CreateModelMixin,
     mixins.ListModelMixin,
     viewsets.GenericViewSet,
 ):
     scope_object = "llm_prompt"
+    # Extends the default authenticators. TeamAndOrgViewSetMixin keeps session, personal key and OAuth.
+    authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    # The two reads the SDKs make. Every other action stays tied to a person.
+    psak_allowed_actions = ["list", "get_by_name"]
     queryset = LLMPrompt.objects.all()
     serializer_class = LLMPromptSerializer
     permission_classes = [AccessControlPermission]
@@ -113,7 +121,7 @@ class LLMPromptViewSet(
         # SDK read paths (get_all() hits list) get a dedicated per-minute budget, so a
         # polling fleet cannot exhaust the shared sustained budget for the whole API key.
         if self.action in ["list", "get_by_name", "resolve_by_name"]:
-            return [LLMPromptFetchRateThrottle()]
+            return [LLMPromptFetchRateThrottle(), LLMPromptFetchProjectSecretApiKeyTeamRateThrottle()]
 
         return super().get_throttles()
 

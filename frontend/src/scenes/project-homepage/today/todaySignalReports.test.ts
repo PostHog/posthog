@@ -1,4 +1,4 @@
-import { reportSourceLine, scoutLabel } from './todaySignalReports'
+import { reportSourceLine, reportTitle, scoutLabel } from './todaySignalReports'
 
 describe('todaySignalReports', () => {
     test.each([
@@ -24,5 +24,14 @@ describe('todaySignalReports', () => {
         ['no sources', { source_products: [], scout_name: null }, { line: 'Signals', title: '' }],
     ])('names the sources of %s', (_, report, expected) => {
         expect(reportSourceLine(report)).toEqual(expected)
+    })
+
+    test.each([
+        ['fix(desktop): stop a provider 400 killing an agent turn', 'Stop a provider 400 killing an agent turn'],
+        ['Checkout errors spike after deploy', 'Checkout errors spike after deploy'],
+        ['  ', 'Untitled report'],
+        [null, 'Untitled report'],
+    ])('titles the report %p the way its page does', (title, expected) => {
+        expect(reportTitle({ title })).toEqual(expected)
     })
 })

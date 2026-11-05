@@ -15,8 +15,6 @@ import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectDiffShallow, objectsEqual } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
-import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
-import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { crushDraftQueryForLocalStorage, parseDraftQueryFromLocalStorage } from 'scenes/insights/utils'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -27,17 +25,18 @@ import { userLogic } from 'scenes/userLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { Breadcrumb, InsightModel, SavedInsightsTabs, UserType } from '~/types'
 
+import { deleteDashboardLogic } from 'products/dashboards/frontend/deleteDashboardLogic'
+import type { DeleteDashboardForm } from 'products/dashboards/frontend/deleteDashboardLogic'
+import { duplicateDashboardLogic } from 'products/dashboards/frontend/duplicateDashboardLogic'
+import type { DuplicateDashboardForm } from 'products/dashboards/frontend/duplicateDashboardLogic'
 import {
     InsightBulkDeleteResponseApi,
     InsightBulkRestoreResponseApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
 
 import type { Node } from '../../queries/schema/schema-general'
-import type { DeleteDashboardForm } from '../dashboard/deleteDashboardLogic'
-import type { DuplicateDashboardForm } from '../dashboard/duplicateDashboardLogic'
 import { teamLogic } from '../teamLogic'
 import { DraftInsightQuery, draftInsightListItem, isValidDraftInsightQuery } from './draftInsight'
 
@@ -421,17 +420,12 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 }
 
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use insightsList() from 'products/product_analytics/frontend/generated/api' instead.
-                const legacyResponse: CountedPaginatedResponse<InsightModel> = await api.get(
+                const response: CountedPaginatedResponse<InsightModel> = await api.get(
                     `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
                 )
 
                 // Cancel if a newer request came in while this one was in flight
                 await breakpoint()
-
-                const response = {
-                    ...legacyResponse,
-                    results: legacyResponse.results.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight)),
-                }
 
                 if (filters.search && String(filters.search).match(/^[0-9]+$/)) {
                     try {

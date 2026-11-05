@@ -4,8 +4,13 @@ import { v7 as uuidv7 } from 'uuid'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
+import {
+    HOGFLOW_BATCH_RESOLVE_QUEUE,
+    deserializeResolverState,
+    serializeResolverState,
+} from '../hogflows/batch-resolver.types'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
-import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
+import { CyclotronV2Janitor, EMAIL_ATTACHMENTS_MAX_AGE_MS, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
 import { CyclotronV2Manager } from './manager'
 import {
     CYCLOTRON_COUNTER_MAX,
@@ -165,8 +170,8 @@ async function dequeueOneBatch(worker: CyclotronV2Worker, timeoutMs = 2000): Pro
 
 // ── Tests ────────────────────────────────────────────────────────────
 
-async function gaugeValueForQueue(queue: string): Promise<number | null> {
-    const metric = await register.getSingleMetricAsString('cdp_cyclotron_v2_queue_depth')
+async function gaugeValueForQueue(queue: string, metricName = 'cdp_cyclotron_v2_queue_depth'): Promise<number | null> {
+    const metric = await register.getSingleMetricAsString(metricName)
     const line = metric.split('\n').find((l) => l.includes(`queue="${queue}"`))
     return line ? Number(line.trim().split(' ').pop()) : null
 }
@@ -865,6 +870,64 @@ describe('Cyclotron V2', () => {
                 const outcomes = await manager.resumeParkedSteps(1, [resumeFor(jobId)])
 
                 expect(outcomes.get(jobId)).toBe('job_missing')
+                expect(await jobIsDue(jobId)).toBe(false)
+            })
+        })
+
+        describe('resumeParkedBatchResolver', () => {
+            const parkResolver = async (teamId: number, functionId: string, batchJobId: string): Promise<string> =>
+                await manager.createJob({
+                    teamId,
+                    queueName: HOGFLOW_BATCH_RESOLVE_QUEUE,
+                    functionId,
+                    parentRunId: batchJobId,
+                    scheduled: new Date(Date.now() + 3600 * 1000),
+                    state: serializeResolverState({
+                        batchJobId,
+                        teamId,
+                        hogFlowId: functionId,
+                        filters: { properties: [] },
+                        variables: {},
+                        realtimeCohort: { id: 7, teamId, waitUntil: new Date(Date.now() + 3600 * 1000).toISOString() },
+                        maxAudienceSize: 100,
+                        cursor: null,
+                        totalEnqueued: 0,
+                        pagesProcessed: 0,
+                        attempts: 0,
+                        startedAt: new Date().toISOString(),
+                    }),
+                })
+
+            it('wakes the parked resolver of the batch and clears its wait, once', async () => {
+                const functionId = uuidv7()
+                const batchJobId = uuidv7()
+                const jobId = await parkResolver(1, functionId, batchJobId)
+
+                const first = await manager.resumeParkedBatchResolver({ teamId: 1, functionId, batchJobId })
+                const second = await manager.resumeParkedBatchResolver({ teamId: 1, functionId, batchJobId })
+
+                expect([first, second]).toEqual(['resumed', 'already_resumed'])
+                expect(await jobIsDue(jobId)).toBe(true)
+                const state = deserializeResolverState((await queryJob(jobId)).state)
+                // Without the wait cleared, the resolver would park again and time out.
+                expect(state.realtimeCohort).toEqual({ id: 7, teamId: 1 })
+            })
+
+            it.each([
+                ['another team', 2, true],
+                ['another batch', 1, false],
+            ])('leaves the resolver of %s parked', async (_name, teamId, sameBatch) => {
+                const functionId = uuidv7()
+                const parkedBatchJobId = uuidv7()
+                const jobId = await parkResolver(teamId, functionId, parkedBatchJobId)
+
+                const outcome = await manager.resumeParkedBatchResolver({
+                    teamId: 1,
+                    functionId,
+                    batchJobId: sameBatch ? parkedBatchJobId : uuidv7(),
+                })
+
+                expect(outcome).toBe('job_missing')
                 expect(await jobIsDue(jobId)).toBe(false)
             })
         })
@@ -2694,19 +2757,28 @@ describe('Cyclotron V2', () => {
         it('measureQueueDepths reports 0 for a queue that drains', async () => {
             // GROUP BY returns no row for an empty queue. Without the zero write the gauge
             // keeps the last depth, and a depth alert then fires on an idle queue.
+            const ageMetric = 'cdp_cyclotron_v2_queue_oldest_due_age_ms'
             const jobId = uuidv7()
-            await insertRawJob({ id: jobId, queue_name: 'queue-drains', status: 'available' })
+            await insertRawJob({
+                id: jobId,
+                queue_name: 'queue-drains',
+                status: 'available',
+                scheduled: new Date(Date.now() - 30_000),
+            })
 
             const janitor = createJanitor({ stallTimeoutMs: 60_000 })
             const before = await janitor.runOnce()
             expect(before.depths.get('queue-drains')).toBe(1)
             expect(await gaugeValueForQueue('queue-drains')).toBe(1)
+            expect(await gaugeValueForQueue('queue-drains', ageMetric)).toBeGreaterThanOrEqual(30_000)
+            expect(await gaugeValueForQueue('queue-drains', ageMetric)).toBeLessThan(60_000)
 
             await assertPool.query('DELETE FROM cyclotron_jobs WHERE id = $1', [jobId])
             await janitor.runOnce()
             await janitor.stop()
 
             expect(await gaugeValueForQueue('queue-drains')).toBe(0)
+            expect(await gaugeValueForQueue('queue-drains', ageMetric)).toBe(0)
         })
 
         it('measureQueueDepths returns correct counts per queue', async () => {
@@ -2755,6 +2827,74 @@ describe('Cyclotron V2', () => {
                 [expired, live],
             ])
             expect(remaining.rows.map((r) => r.id)).toEqual([live])
+
+            await janitor.stop()
+        })
+
+        it('sweeps email attachment rows past the max age and keeps rows of jobs that still wait', async () => {
+            const insertAttachment = async (id: string, createdAt: Date): Promise<void> => {
+                await assertPool.query(
+                    `INSERT INTO cyclotron_email_attachments
+                     (id, job_id, team_id, position, filename, content, size_bytes, sha256, created_at)
+                     VALUES ($1, $2, 1, 0, 'report.pdf', 'bytes', 5, 'digest', $3)`,
+                    [id, uuidv7(), createdAt]
+                )
+            }
+            const abandoned = uuidv7()
+            const waiting = uuidv7()
+            await insertAttachment(abandoned, new Date(Date.now() - EMAIL_ATTACHMENTS_MAX_AGE_MS - 60_000))
+            await insertAttachment(waiting, new Date(Date.now() - EMAIL_ATTACHMENTS_MAX_AGE_MS + 3_600_000))
+
+            const janitor = createJanitor()
+            await janitor.runOnce()
+
+            const remaining = await assertPool.query(
+                `SELECT id FROM cyclotron_email_attachments WHERE id = ANY($1::uuid[])`,
+                [[abandoned, waiting]]
+            )
+            expect(remaining.rows.map((r) => r.id)).toEqual([waiting])
+
+            await janitor.stop()
+        })
+
+        it('sweeps expired email attachment rows around a row another sweep holds locked', async () => {
+            const expiredAt = new Date(Date.now() - EMAIL_ATTACHMENTS_MAX_AGE_MS - 60_000)
+            const locked = uuidv7()
+            const free = uuidv7()
+            for (const id of [locked, free]) {
+                await assertPool.query(
+                    `INSERT INTO cyclotron_email_attachments
+                     (id, job_id, team_id, position, filename, content, size_bytes, sha256, created_at)
+                     VALUES ($1, $2, 1, 0, 'report.pdf', 'bytes', 5, 'digest', $3)`,
+                    [id, uuidv7(), expiredAt]
+                )
+            }
+            const remainingRows = async (): Promise<string[]> =>
+                (
+                    await assertPool.query(`SELECT id FROM cyclotron_email_attachments WHERE id = ANY($1::uuid[])`, [
+                        [locked, free],
+                    ])
+                ).rows.map((r) => r.id)
+
+            const janitor = createJanitor()
+            const holder = await assertPool.connect()
+            try {
+                await holder.query('BEGIN')
+                await holder.query('SELECT id FROM cyclotron_email_attachments WHERE id = $1 FOR UPDATE', [locked])
+
+                let timer: NodeJS.Timeout | undefined
+                const blocked = new Promise<never>((_, reject) => {
+                    timer = setTimeout(() => reject(new Error('the sweep waited on the locked row')), 5_000)
+                })
+                await Promise.race([janitor.sweepEmailAttachments(), blocked]).finally(() => clearTimeout(timer))
+                expect(await remainingRows()).toEqual([locked])
+            } finally {
+                await holder.query('ROLLBACK')
+                holder.release()
+            }
+
+            await janitor.sweepEmailAttachments()
+            expect(await remainingRows()).toEqual([])
 
             await janitor.stop()
         })

@@ -105,6 +105,9 @@ class HogFlowTemplateActionSerializer(serializers.Serializer):
             elif trigger_type == "schedule":
                 # The schedule itself lives on a separate row, so the trigger carries nothing to validate.
                 pass
+            elif trigger_type == "cohort":
+                # The cohort is checked when a workflow made from this template goes live.
+                pass
             elif trigger_type in ["event", "internal-event"]:
                 filters = data.get("config", {}).get("filters", {})
                 if filters:

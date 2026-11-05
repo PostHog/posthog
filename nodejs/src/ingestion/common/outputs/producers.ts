@@ -11,6 +11,7 @@ import type { AllowedConfigKey } from '~/common/outputs/kafka-producer-config'
 // Cluster-accurate slots:
 //   INGESTION_UPSTREAM   — dedicated ingestion cluster; re-consumed topics (overflow/async/dlq)
 //   INGESTION_DOWNSTREAM — warpstream-ingestion cluster; ClickHouse-bound outputs
+//   INGESTION_BLACKHOLE  — no cluster; discards and counts every message routed to it
 // Pipeline-specific slots (e.g. session replay's warpstream-replay producer) live in their own module.
 
 /** UPSTREAM — dedicated ingestion cluster; re-consumed topics (overflow/async/dlq). */
@@ -21,8 +22,12 @@ export type IngestionUpstreamProducer = typeof INGESTION_UPSTREAM_PRODUCER
 export const INGESTION_DOWNSTREAM_PRODUCER = 'INGESTION_DOWNSTREAM' as const
 export type IngestionDownstreamProducer = typeof INGESTION_DOWNSTREAM_PRODUCER
 
+/** BLACKHOLE — no cluster; an output routed here is discarded and counted. */
+export const INGESTION_BLACKHOLE_PRODUCER = 'INGESTION_BLACKHOLE' as const
+export type IngestionBlackholeProducer = typeof INGESTION_BLACKHOLE_PRODUCER
+
 /** Union of all known producer names. Extend this as new producers are added. */
-export type ProducerName = IngestionUpstreamProducer | IngestionDownstreamProducer
+export type ProducerName = IngestionUpstreamProducer | IngestionDownstreamProducer | IngestionBlackholeProducer
 
 // =============================================================================
 // Cluster-accurate producer slots: env-var maps and their default env config.

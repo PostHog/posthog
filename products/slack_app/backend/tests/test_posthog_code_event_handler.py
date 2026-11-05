@@ -593,6 +593,40 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         mock_sync_connect.return_value.start_workflow.assert_called_once()
         assert awaited_request_from("T12345", "C001", message_ts, now=now) is None
 
+    @parameterized.expand(
+        [
+            ("unlinked_member", "stranger@example.com", {}, True),
+            ("known_member", "dev@example.com", {}, True),
+            ("other_workspace_guest", "stranger@example.com", {"user_team": "T_OTHER"}, False),
+        ]
+    )
+    @patch("products.slack_app.backend.api.request_onboarding")
+    @patch("products.slack_app.backend.api._post_slack_user_feedback")
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_a_mention_starts_the_onboarding_after_the_mention_is_handled(
+        self, _name, email, extra, starts, sync_connect, _asyncio_run, _post_feedback, request_onboarding
+    ):
+        SlackUserProfileCache.objects.filter(slack_user_id="U123").delete()
+        self._seed_slack_user_cache("U123", email)
+        calls = MagicMock()
+        calls.attach_mock(sync_connect, "mention_workflow")
+        calls.attach_mock(request_onboarding, "onboarding")
+
+        from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+        route_posthog_code_event_to_relevant_region(request, {**self.event, **extra}, "T12345")
+
+        assert request_onboarding.called is starts
+        if starts:
+            assert request_onboarding.call_args.args[1] == "U123"
+            assert request_onboarding.call_args.kwargs == {"may_start": True, "start_only": True}
+            # A slow onboarding start must not delay the answer, so it runs after the mention's own workflow start.
+            order = [call[0] for call in calls.mock_calls if call[0] in ("mention_workflow", "onboarding")]
+            assert order[-1] == "onboarding"
+
     @patch("products.slack_app.backend.api.posthoganalytics.capture")
     @patch("products.slack_app.backend.api._post_slack_user_feedback")
     @patch("products.slack_app.backend.api.asyncio.run")
@@ -926,10 +960,19 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         passed_integration = mock_unfurl.call_args[0][1]
         assert passed_integration.id == self.posthog_code_integration.id
 
+    @parameterized.expand(
+        [
+            ("task_link", "https://us.posthog.com/project/{team}/tasks/{task}"),
+            (
+                "artifact_download_link",
+                "https://us.posthog.com/api/projects/{team}/tasks/{task}/runs/{task}/artifacts/a1/download/",
+            ),
+        ]
+    )
     @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
     @patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=False)
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
-    def test_link_shared_routes_to_project_integration(self, mock_claims, mock_unfurl):
+    def test_link_shared_routes_to_project_integration(self, _name, url_template, mock_claims, mock_unfurl):
         other_team = Team.objects.create(organization=self.organization, name="Other")
         other_integration = Integration.objects.create(
             team=other_team,
@@ -942,7 +985,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         event = {
             "type": "link_shared",
             "channel": "C001",
-            "links": [{"url": f"https://us.posthog.com/project/{other_team.id}/tasks/{task_id}"}],
+            "links": [{"url": url_template.format(team=other_team.id, task=task_id)}],
         }
 
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
@@ -1788,9 +1831,8 @@ class TestQueueWorkflowDispatch(TestCase):
         # Every message in a conversation must land in ONE per-thread workflow
         # via signal-with-start — the conversation ID anchors on the thread
         # root so followups reach the same instance.
-        from posthog.temporal.ai.slack_app.slack_app_mention import SlackAppMentionWorkflow
-
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+        from products.slack_app.backend.temporal.slack_app_mention import SlackAppMentionWorkflow
 
         mock_slack.return_value.missing_scopes.return_value = set()
         event = {

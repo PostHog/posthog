@@ -16,6 +16,7 @@ import {
     STREAM_MAX_LENGTH,
     STREAM_THIN_MAX_LENGTH,
     STREAM_PREFIX,
+    STREAM_INITIAL_GENERATION,
     STREAM_TTL_SECONDS,
     STREAM_WATCHED_TTL_SECONDS,
     WAIT_DELAY_INCREMENT_MS,
@@ -23,12 +24,14 @@ import {
     WAIT_MAX_DELAY_MS,
     WAIT_TIMEOUT_MS,
 } from './constants.js'
+import { logger } from './logging.js'
 import type { ReadStreamEntriesOptions, ResumeGap, StreamEntryOrKeepalive, TaskRunStreamWriteResult } from './types.js'
 import {
     TaskRunStreamAlreadyCompleted,
     TaskRunStreamCompletionSequenceMismatch,
     TaskRunStreamCursorTrimmedError,
     TaskRunStreamError,
+    TaskRunStreamGenerationMismatch,
     TaskRunStreamSequenceGap,
     WRITE_RESULT_DUPLICATE,
     WRITE_RESULT_SKIPPED,
@@ -130,6 +133,50 @@ function sleep(ms: number): Promise<void> {
 // unsafe in Node. 100 iterations is far beyond what real contention
 // requires — if a slot is genuinely that contested something is wrong.
 const MAX_WATCH_RETRIES = 100
+interface RedisTransactionSlot {
+    client: Redis
+    tail: Promise<void>
+    pending: number
+}
+
+const redisTransactionPools = new WeakMap<Redis, RedisTransactionSlot[]>()
+
+async function withExclusiveRedisTransaction<T>(redis: Redis, operation: (client: Redis) => Promise<T>): Promise<T> {
+    let pool = redisTransactionPools.get(redis)
+    if (!pool) {
+        pool = [{ client: redis, tail: Promise.resolve(), pending: 0 }]
+        redisTransactionPools.set(redis, pool)
+    }
+    let slot = pool.reduce((least, candidate) => (candidate.pending < least.pending ? candidate : least))
+    if (slot.pending > 0 && pool.length < 8) {
+        const client = redis.duplicate({ lazyConnect: true })
+        client.on('error', (error: Error) => logger.error('redis:transaction_error', { error: error.message }))
+        redis.once('end', () => client.disconnect())
+        slot = { client, tail: Promise.resolve(), pending: 0 }
+        pool.push(slot)
+    }
+    const leased = slot
+    leased.pending++
+    const transaction = leased.tail.then(async () => {
+        try {
+            if (leased.client.status === 'wait') {
+                await leased.client.connect()
+            }
+            return await operation(leased.client)
+        } finally {
+            try {
+                await leased.client.unwatch()
+            } finally {
+                leased.pending--
+            }
+        }
+    })
+    leased.tail = transaction.then(
+        () => undefined,
+        () => undefined
+    )
+    return transaction
+}
 
 export class TaskRunRedisStream {
     private readonly streamKey: string
@@ -140,6 +187,7 @@ export class TaskRunRedisStream {
     private readonly maxLength: number
     private readonly presenceGated: boolean
     private readonly thinTail: boolean
+    private readonly expectedGeneration: string | undefined
 
     constructor(
         streamKey: string,
@@ -149,6 +197,7 @@ export class TaskRunRedisStream {
             maxLength?: number
             presenceGated?: boolean
             thinTail?: boolean
+            expectedGeneration?: string
         }
     ) {
         this.streamKey = streamKey
@@ -160,6 +209,7 @@ export class TaskRunRedisStream {
         this.maxLength = opts?.maxLength ?? STREAM_MAX_LENGTH
         this.presenceGated = opts?.presenceGated ?? false
         this.thinTail = opts?.thinTail ?? false
+        this.expectedGeneration = opts?.expectedGeneration
     }
 
     private maxlenForEvent(event: Record<string, unknown>): number {
@@ -490,39 +540,51 @@ export class TaskRunRedisStream {
     //   completed key present -> TaskRunStreamAlreadyCompleted
     //   presence-gated with no attached reader -> accepted, no stream ID
     async writeEventWithSequence(event: Record<string, unknown>, sequence: number): Promise<TaskRunStreamWriteResult> {
+        return withExclusiveRedisTransaction(this.redis, (client) =>
+            this.writeEventWithSequenceTransaction(client, event, sequence)
+        )
+    }
+
+    private async writeEventWithSequenceTransaction(
+        client: Redis,
+        event: Record<string, unknown>,
+        sequence: number
+    ): Promise<TaskRunStreamWriteResult> {
         const sequenceKey = getSequenceKey(this.streamKey)
         const completedKey = getCompletedKey(this.streamKey)
         const watchedKey = getWatchedKey(this.streamKey)
+        const generationKey = `${this.streamKey}:generation`
 
         for (let attempt = 0; attempt < MAX_WATCH_RETRIES; attempt++) {
             if (this.presenceGated) {
-                await this.redis.watch(sequenceKey, completedKey, watchedKey)
+                await client.watch(sequenceKey, completedKey, watchedKey, generationKey)
             } else {
-                await this.redis.watch(sequenceKey, completedKey)
+                await client.watch(sequenceKey, completedKey, generationKey)
             }
+            await this.checkGeneration(client, generationKey)
 
-            const lastSeqRaw = await this.redis.get(sequenceKey)
+            const lastSeqRaw = await client.get(sequenceKey)
             const lastSequence = normalizeRedisInt(lastSeqRaw)
-            const completedExists = (await this.redis.exists(completedKey)) > 0
+            const completedExists = (await client.exists(completedKey)) > 0
 
             if (completedExists) {
-                await this.redis.unwatch()
+                await client.unwatch()
                 throw new TaskRunStreamAlreadyCompleted(lastSequence)
             }
 
             if (sequence <= lastSequence) {
-                await this.redis.unwatch()
+                await client.unwatch()
                 return WRITE_RESULT_DUPLICATE
             }
 
             if (sequence !== lastSequence + 1) {
-                await this.redis.unwatch()
+                await client.unwatch()
                 throw new TaskRunStreamSequenceGap(lastSequence + 1, sequence, lastSequence)
             }
 
-            const mirror = !this.presenceGated || (await this.redis.exists(watchedKey)) > 0
+            const mirror = !this.presenceGated || (await client.exists(watchedKey)) > 0
 
-            const pipeline = this.redis.multi()
+            const pipeline = client.multi()
             if (mirror) {
                 pipeline.xadd(
                     this.streamKey,
@@ -536,6 +598,7 @@ export class TaskRunRedisStream {
                 pipeline.expire(this.streamKey, this.timeout)
             }
             pipeline.set(sequenceKey, String(sequence), 'EX', this.sequenceTimeout)
+            pipeline.expire(generationKey, this.sequenceTimeout)
 
             const results = await pipeline.exec()
             if (results === null) {
@@ -560,23 +623,30 @@ export class TaskRunRedisStream {
 
     // WATCH/MULTI on completed_key. Idempotent: returns if already completed.
     async markComplete(): Promise<void> {
+        return withExclusiveRedisTransaction(this.redis, (client) => this.markCompleteTransaction(client))
+    }
+
+    private async markCompleteTransaction(client: Redis): Promise<void> {
         const completedKey = getCompletedKey(this.streamKey)
+        const generationKey = `${this.streamKey}:generation`
         const raw = JSON.stringify({ type: 'STREAM_STATUS', status: 'complete' })
 
         for (let attempt = 0; attempt < MAX_WATCH_RETRIES; attempt++) {
-            await this.redis.watch(completedKey)
+            await client.watch(completedKey, generationKey)
+            await this.checkGeneration(client, generationKey)
 
-            const completedExists = (await this.redis.exists(completedKey)) > 0
+            const completedExists = (await client.exists(completedKey)) > 0
             if (completedExists) {
-                await this.redis.unwatch()
-                await this.redis.expire(this.streamKey, this.completedTimeout)
+                await client.unwatch()
+                await client.expire(this.streamKey, this.completedTimeout)
                 return
             }
 
-            const pipeline = this.redis.multi()
+            const pipeline = client.multi()
             pipeline.xadd(this.streamKey, 'MAXLEN', '~', this.maxLength, '*', 'data', raw)
             pipeline.expire(this.streamKey, this.completedTimeout)
             pipeline.set(completedKey, '1', 'EX', this.sequenceTimeout)
+            pipeline.expire(generationKey, this.sequenceTimeout)
 
             const results = await pipeline.exec()
             if (results === null) {
@@ -589,35 +659,53 @@ export class TaskRunRedisStream {
         throw new TaskRunStreamError('markComplete: too many WATCH conflicts')
     }
 
+    private async checkGeneration(client: Redis, generationKey: string): Promise<void> {
+        if (
+            this.expectedGeneration !== undefined &&
+            ((await client.get(generationKey)) ?? STREAM_INITIAL_GENERATION) !== this.expectedGeneration
+        ) {
+            await client.unwatch()
+            throw new TaskRunStreamGenerationMismatch('Task run stream generation has changed')
+        }
+    }
+
     // WATCH/MULTI on sequence_key + completed_key.
     // Throws TaskRunStreamCompletionSequenceMismatch if last_seq != finalSequence.
     // EXPIRE sequence_key only if it existed before (lastSeqRaw !== null).
     async markCompleteAfterSequence(finalSequence: number): Promise<void> {
+        return withExclusiveRedisTransaction(this.redis, (client) =>
+            this.markCompleteAfterSequenceTransaction(client, finalSequence)
+        )
+    }
+
+    private async markCompleteAfterSequenceTransaction(client: Redis, finalSequence: number): Promise<void> {
         const sequenceKey = getSequenceKey(this.streamKey)
         const completedKey = getCompletedKey(this.streamKey)
+        const generationKey = `${this.streamKey}:generation`
         const raw = JSON.stringify({ type: 'STREAM_STATUS', status: 'complete' })
 
         for (let attempt = 0; attempt < MAX_WATCH_RETRIES; attempt++) {
-            await this.redis.watch(sequenceKey, completedKey)
+            await client.watch(sequenceKey, completedKey, generationKey)
+            await this.checkGeneration(client, generationKey)
 
-            const lastSeqRaw = await this.redis.get(sequenceKey)
+            const lastSeqRaw = await client.get(sequenceKey)
             const lastSequence = normalizeRedisInt(lastSeqRaw)
-            const completedExists = (await this.redis.exists(completedKey)) > 0
+            const completedExists = (await client.exists(completedKey)) > 0
 
             if (completedExists) {
-                await this.redis.unwatch()
-                await this.redis.expire(this.streamKey, this.completedTimeout)
+                await client.unwatch()
+                await client.expire(this.streamKey, this.completedTimeout)
                 return
             }
 
             if (lastSequence !== finalSequence) {
-                await this.redis.unwatch()
+                await client.unwatch()
                 throw new TaskRunStreamCompletionSequenceMismatch(finalSequence, lastSequence)
             }
 
             const seqKeyExisted = lastSeqRaw !== null
 
-            const pipeline = this.redis.multi()
+            const pipeline = client.multi()
             pipeline.xadd(this.streamKey, 'MAXLEN', '~', this.maxLength, '*', 'data', raw)
             pipeline.expire(this.streamKey, this.completedTimeout)
             // Only EXPIRE the sequence key if it existed before the transaction;

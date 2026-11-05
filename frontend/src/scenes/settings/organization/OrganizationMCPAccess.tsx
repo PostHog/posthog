@@ -3,13 +3,12 @@ import { useActions, useValues } from 'kea'
 import { IconInfo } from '@posthog/icons'
 import { LemonSwitch } from '@posthog/lemon-ui'
 
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { organizationLogic } from 'scenes/organizationLogic'
 
-import { AvailableFeature } from '~/types'
+import { OrganizationSecuritySettingGate } from './OrganizationSecuritySettingGate'
 
 export function OrganizationMCPAccess(): JSX.Element {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
@@ -20,7 +19,7 @@ export function OrganizationMCPAccess(): JSX.Element {
     })
 
     return (
-        <PayGateMini feature={AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}>
+        <OrganizationSecuritySettingGate featureDetail="organization-mcp-access">
             <LemonSwitch
                 label={
                     <span>
@@ -39,6 +38,6 @@ export function OrganizationMCPAccess(): JSX.Element {
                 disabled={currentOrganizationLoading}
                 disabledReason={adminRestrictionReason}
             />
-        </PayGateMini>
+        </OrganizationSecuritySettingGate>
     )
 }

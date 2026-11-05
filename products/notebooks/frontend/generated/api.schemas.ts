@@ -46,7 +46,20 @@ export interface ReusableWidgetSummaryApi {
     updated_at: string
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface ReusableWidgetPageApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** Reusable widgets in this page. */
     results: ReusableWidgetSummaryApi[]
     /** Total reusable widgets matching the search. */
@@ -548,7 +561,20 @@ export interface WidgetSourceApi {
     source: string
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface ReusableWidgetVersionPageApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** Published versions, newest first. */
     results: ReusableWidgetVersionDetailApi[]
     /** Total number of published versions. */
@@ -1019,7 +1045,7 @@ export interface NotebookKernelStatusResponseApi {
 }
 
 export interface NotebookRunStartRequestApi {
-    /** Include prepared embedded insights when refreshing a dashboard widget. Requires notebook widgets to be enabled. */
+    /** Include prepared embedded insights when refreshing a dashboard widget. */
     include_prepared_insights?: boolean
     /** Replace the notebook's variables with this list before the run starts, so the results match what the document declares. Omit it to run with the variables already saved. */
     variables?: NotebookVariableApi[]
@@ -1589,7 +1615,20 @@ export interface WidgetVersionApi {
     build_hash: string | null
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface WidgetVersionPageApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** Versions ordered newest first. */
     results: WidgetVersionApi[]
     /**

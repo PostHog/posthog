@@ -1,6 +1,6 @@
-import uuid
 import dataclasses
 from typing import Any, cast, get_args
+from uuid import UUID
 
 from django.db import models
 from django.utils import timezone
@@ -16,6 +16,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.integration import github_rate_limited_response
+from posthog.api.pagination import PageLinksSerializer, offset_page_links
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.scoping.manager import resolve_effective_team_id
@@ -115,6 +116,11 @@ class PerspectiveStatsParamsSerializer(serializers.Serializer):
     )
 
 
+class ReviewTriggerReviewMode(models.TextChoices):
+    FULL = REVIEW_MODE_FULL, "Deep"
+    FLASH = REVIEW_MODE_FLASH, "Standard"
+
+
 class ReviewProgressSerializer(serializers.Serializer):
     review_stage = serializers.ChoiceField(
         choices=REVIEW_STAGES,
@@ -129,6 +135,13 @@ class ReviewProgressSerializer(serializers.Serializer):
     )
     total = serializers.IntegerField(
         allow_null=True, help_text="Work units the stage expects in total; null when unknown."
+    )
+    review_mode = serializers.ChoiceField(
+        choices=ReviewTriggerReviewMode.choices,
+        allow_null=True,
+        help_text="What the in-flight turn runs: 'full' (Deep) or 'flash' (Standard). The row's `review_mode` "
+        "describes the last completed turn, which can differ. Null until the turn records its mode, "
+        "shortly before its review sessions start.",
     )
 
 
@@ -151,11 +164,6 @@ class ReviewResolutionStatusSerializer(serializers.Serializer):
     needs_attention = serializers.IntegerField(
         help_text="Settled threads left for the author: judged worth doing but not safe to fix unattended."
     )
-
-
-class ReviewTriggerReviewMode(models.TextChoices):
-    FULL = REVIEW_MODE_FULL, "Deep"
-    FLASH = REVIEW_MODE_FLASH, "Standard"
 
 
 class ReviewTurnDesign(models.TextChoices):
@@ -388,7 +396,7 @@ class ReviewsTableParamsSerializer(serializers.Serializer):
     )
 
 
-class ReviewReviewsTablePageSerializer(serializers.Serializer):
+class ReviewReviewsTablePageSerializer(PageLinksSerializer):
     count = serializers.IntegerField(help_text="How many reviews match the scope and every filter, across all pages.")
     running_count = serializers.IntegerField(
         help_text="How many reviews have a run in flight under the scope and filters, ignoring `status`. "
@@ -643,9 +651,10 @@ class ReviewDroppedFindingSerializer(serializers.Serializer):
     )
     disposition = serializers.ChoiceField(
         choices=ReviewDropDisposition.choices,
-        help_text="Why the turn did not post the finding. `old_code`: a follow-up turn's P3 finding on code "
-        "that did not change since the last reviewed head (turns before reviewhog-flash-2-3 dropped P2 findings "
-        "this way too). `dedup_prior`: repeats an earlier turn's finding. "
+        help_text="Why the turn did not post the finding. `old_code`: a follow-up turn's finding on code that "
+        "did not change since the last reviewed head. An automatic follow-up (run 2 and later) drops P2 and P3 "
+        "findings this way, a requested review drops only P3, and a first review drops none. "
+        "`dedup_prior`: repeats an earlier turn's finding. "
         "`dedup_comment`: repeats a PR comment. `dedup_anchor`: repeats a main-review finding at the same "
         "spot. `dedup_sibling`: repeats another finding from the same session or lens. `cap`: ranked below "
         "the per-review finding limit.",
@@ -728,6 +737,13 @@ class ReviewPerspectiveStatsSerializer(serializers.Serializer):
     perspectives = ReviewPerspectiveStatItemSerializer(
         many=True, help_text="Per-skill effectiveness across those reviews, most kept findings first."
     )
+
+
+def _next_table_offset(offset: int, limit: int, count: int) -> int | None:
+    next_offset = offset + limit
+    if next_offset >= count or next_offset > MAX_REVIEWS_TABLE_OFFSET:
+        return None
+    return next_offset
 
 
 class _PageEnvelopeSchema(AutoSchema):
@@ -838,6 +854,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     serializer_class = ReviewRecentReviewSerializer
     pagination_class = None
     schema = _PageEnvelopeSchema()
+    path_parameters = {"pk": UUID}
 
     def _root_team_id(self) -> int:
         return resolve_effective_team_id(self.team_id)
@@ -900,7 +917,13 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             limit=filters["limit"],
             offset=filters["offset"],
         )
-        return Response(ReviewReviewsTablePageSerializer(page).data)
+        data = ReviewReviewsTablePageSerializer(page).data
+        offset, limit = filters["offset"], filters["limit"]
+        next_offset = _next_table_offset(offset, limit, page.count)
+        # Past the last row, `previous` points at the last page that holds rows, or is null when no row matches.
+        links_offset = min(offset, page.count)
+        data.update(offset_page_links(request, offset=links_offset, limit=limit, next_offset=next_offset))
+        return Response(data)
 
     @extend_schema(
         parameters=[PerspectiveStatsParamsSerializer],
@@ -1042,7 +1065,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
 
     @extend_schema(
         parameters=[
-            # The viewset has no queryset, so the path parameter does not get its type from the model.
+            # _PageEnvelopeSchema does not extend PostHogAutoSchema, so path_parameters does not type the id here.
             OpenApiParameter(
                 "id",
                 OpenApiTypes.UUID,
@@ -1065,15 +1088,11 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         "the resolution fields describe the report now, whatever the turn. Project-wide, so reviews listed "
         "under `scope=everyone` can be opened too.",
     )
-    def retrieve(self, request: Request, pk: str | None = None, **kwargs) -> Response:
-        try:
-            report_uuid = uuid.UUID(str(pk))
-        except ValueError:
-            raise NotFound("Review not found.")
+    def retrieve(self, request: Request, pk: UUID, **kwargs) -> Response:
         params = ReviewDetailParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
         try:
-            detail = get_review_detail(self._root_team_id(), report_uuid, params.validated_data.get("run_index"))
+            detail = get_review_detail(self._root_team_id(), pk, params.validated_data.get("run_index"))
         except ReviewTurnNotFoundError:
             raise NotFound("No completed review turn with that run_index.")
         except ReviewNotFoundError:

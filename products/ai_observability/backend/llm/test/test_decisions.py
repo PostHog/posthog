@@ -1,9 +1,7 @@
 import json
 from collections.abc import Iterator
 from contextlib import nullcontext
-from ipaddress import ip_address
 from typing import Literal
-from uuid import uuid4
 
 import pytest
 from unittest.mock import patch
@@ -13,7 +11,7 @@ from django.test import override_settings
 import httpx
 
 from posthog.llm.system_one import NoulAnswer, NoulQuestion, ScoreAnswer, ScoreQuestion
-from posthog.models import Team
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.ai_observability.backend.llm.client import Client
 from products.ai_observability.backend.llm.decisions import (
@@ -21,7 +19,6 @@ from products.ai_observability.backend.llm.decisions import (
     DecisionEndpointBlockedError,
     DecisionRateLimitError,
     DecisionRequestRejectedError,
-    decision_evaluations_enabled,
 )
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
@@ -44,41 +41,9 @@ def _response(status: int, body: dict[str, object] | str = "") -> httpx.Response
 @pytest.fixture(autouse=True)
 def public_endpoint_dns() -> Iterator[None]:
     with (
-        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
+        mock_anti_ssrf_dns_lookup(resolves_to=["8.8.8.8"]),
     ):
         yield
-
-
-@pytest.mark.parametrize(
-    "base_url,flag,enabled",
-    [
-        ("https://api.typesafe.ai/v1", True, False),
-        ("", True, False),
-        ("https://decisions.example.com/v1", True, True),
-        ("https://decisions.example.com/v1", False, False),
-        ("https://decisions.example.com/v1", None, False),
-        ("https://ai-gateway.us.posthog.com/v1", True, True),
-        ("https://ai-gateway.eu.posthog.com/v1", True, True),
-        ("https://AI-GATEWAY.US.POSTHOG.COM.:443/v1", True, True),
-        ("https://ａｉ-gateway.us.posthog.com/v1", True, True),
-        ("https://ai-gateway.us.posthog.com/v1", False, False),
-        ("https://ai-gateway.us.posthog.com/v1", None, False),
-    ],
-)
-def test_system_one_connections_require_flag_and_supported_endpoint(
-    base_url: str, flag: bool | None, enabled: bool
-) -> None:
-    team = Team(id=1, organization_id=uuid4(), uuid=uuid4())
-    with (
-        override_settings(POSTHOG_INTERNAL_ORG_IDS=[]),
-        patch("products.ai_observability.backend.llm.decisions.Team.objects.only") as teams,
-        patch(
-            "products.ai_observability.backend.llm.decisions.get_feature_flag_or_none",
-            side_effect=lambda *args, groups, **kwargs: flag if groups["project"] == str(team.uuid) else False,
-        ),
-    ):
-        teams.return_value.get.return_value = team
-        assert decision_evaluations_enabled(team.id, base_url=base_url) is enabled
 
 
 @pytest.mark.parametrize(
@@ -262,25 +227,6 @@ def test_unavailable_usage_does_not_discard_a_valid_answer(
     assert result.output_tokens == expected_output
 
 
-@pytest.mark.parametrize(
-    "base_url",
-    ["https://api.typesafe.ai/v1", "https://API.TYPESAFE.AI.:443/v1", "https://ａｐｉ.typesafe.ai/v1"],
-)
-def test_official_endpoint_is_blocked(base_url: str) -> None:
-    with (
-        patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
-        pytest.raises(DecisionEndpointBlockedError, match="hosted endpoint is not available"),
-    ):
-        DecisionClient.evaluate(
-            api_key="example-token",
-            base_url=base_url,
-            model="example-judge-v1",
-            state="Hello!",
-            questions={"verdict": NoulQuestion(instructions="Polite?")},
-        )
-    request.assert_not_called()
-
-
 @pytest.mark.parametrize("answers", [{}, {"verdict": {"type": "noul", "noul": 0.9}}])
 def test_system_one_requires_every_requested_answer(answers: dict[str, object]) -> None:
     response = _response(
@@ -346,8 +292,9 @@ def test_decision_requests_preserve_error_categories(
     "path,address,error_type",
     [
         ("decisions", None, ProviderHostUnresolvedError),
-        ("systemone", None, DecisionEndpointBlockedError),
+        ("systemone", None, ProviderHostUnresolvedError),
         ("decisions", "127.0.0.1", DecisionEndpointBlockedError),
+        ("systemone", "127.0.0.1", DecisionEndpointBlockedError),
     ],
 )
 def test_endpoint_resolution_errors(
@@ -355,9 +302,7 @@ def test_endpoint_resolution_errors(
 ) -> None:
     with (
         override_settings(DEBUG=False, TEST=False),
-        patch(
-            "posthog.security.url_validation.resolve_host_ips", return_value={ip_address(address)} if address else set()
-        ),
+        mock_anti_ssrf_dns_lookup(resolves_to=[address] if address else []),
         patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
         pytest.raises(error_type),
     ):
@@ -450,7 +395,7 @@ def test_invalid_endpoint_is_rejected_before_sending_credentials(base_url: str) 
 def test_private_endpoint_is_blocked(base_url: str) -> None:
     with (
         override_settings(DEBUG=False, TEST=False),
-        patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("127.0.0.1")}),
+        mock_anti_ssrf_dns_lookup(resolves_to=["127.0.0.1"]),
         patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
     ):
         state, _ = DecisionClient.validate_key("example-token", base_url=base_url, model="custom-model")

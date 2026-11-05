@@ -10,9 +10,6 @@ from posthog.schema import (
     EntityType,
     EventsNode,
     EventsQuery,
-    FunnelCorrelationActorsQuery,
-    FunnelCorrelationQuery,
-    FunnelCorrelationResultsType,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
     FunnelsActorsQuery,
@@ -34,7 +31,7 @@ from posthog.schema import (
 
 from posthog.hogql_queries.query_metadata import QueryEventsExtractor
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.contracts import ActionNotFound
 
 
 class TestQueryEventsExtractor(TestCase):
@@ -61,7 +58,7 @@ class TestQueryEventsExtractor(TestCase):
         result = self.extractor.extract_events(query)
         self.assertCountEqual(result, ["pageview", "click"])
 
-    @patch("products.actions.backend.models.action.Action.objects.get")
+    @patch("posthog.hogql_queries.query_metadata.get_action")
     def test_extract_events_with_actions_node(self, mock_action_get):
         """Test extracting events from query with ActionsNode"""
         mock_action = Mock()
@@ -77,7 +74,7 @@ class TestQueryEventsExtractor(TestCase):
         result = self.extractor.extract_events(query)
         self.assertCountEqual(result, ["pageview", "signup", "purchase"])
 
-    @patch("products.actions.backend.models.action.Action.objects.get")
+    @patch("posthog.hogql_queries.query_metadata.get_action")
     def test_extract_events_with_actions_node_with_none_steps(self, mock_action_get):
         """Test extracting events from query with ActionsNode"""
         mock_action = Mock()
@@ -93,10 +90,10 @@ class TestQueryEventsExtractor(TestCase):
         result = self.extractor.extract_events(query)
         self.assertCountEqual(result, ["pageview", "signup"])
 
-    @patch("products.actions.backend.models.action.Action.objects.get")
+    @patch("posthog.hogql_queries.query_metadata.get_action")
     def test_extract_events_with_non_existent_action(self, mock_action_get):
         """Test extracting events from query with non-existent ActionsNode"""
-        mock_action_get.side_effect = Action.DoesNotExist
+        mock_action_get.side_effect = ActionNotFound
         query = TrendsQuery(
             series=[
                 ActionsNode(id=999),  # Non-existent action ID
@@ -107,7 +104,7 @@ class TestQueryEventsExtractor(TestCase):
         result = self.extractor.extract_events(query)
         self.assertCountEqual(result, [])
 
-        mock_action_get.assert_called_once_with(pk=999, team__project_id=self.team.project_id)
+        mock_action_get.assert_called_once_with(action_id=999, project_id=self.team.project_id)
 
     def test_extract_events_stickiness_query(self):
         """Test extracting events from StickinessQuery"""
@@ -182,7 +179,7 @@ class TestQueryEventsExtractor(TestCase):
         result = self.extractor.extract_events(query)
         self.assertCountEqual(result, ["signup", "purchase", "abandon_cart", "logout"])
 
-    @patch("products.actions.backend.models.action.Action.objects.get")
+    @patch("posthog.hogql_queries.query_metadata.get_action")
     def test_extract_events_funnels_query_exclusions_actions(self, mock_action_get):
         """Test extracting events from FunnelsQuery with exclusions that include actions"""
         mock_action = Mock()
@@ -225,7 +222,7 @@ class TestQueryEventsExtractor(TestCase):
         result = self.extractor.extract_events(query)
         self.assertCountEqual(result, ["signup", "purchase"])
 
-    @patch("products.actions.backend.models.action.Action.objects.get")
+    @patch("posthog.hogql_queries.query_metadata.get_action")
     def test_extract_events_retention_query(self, mock_action_get):
         """Test extracting events from RetentionQuery"""
         mock_action = Mock()
@@ -301,44 +298,12 @@ class TestQueryEventsExtractor(TestCase):
         result = self.extractor.extract_events(query)
         self.assertCountEqual(result, ["funnel_step"])
 
-    def test_extract_events_funnel_correlation_actors_query(self):
-        """Test extracting events from FunnelCorrelationActorsQuery"""
-
-        funnels_query = FunnelsQuery(
-            series=[EventsNode(event="funnel_event")], funnelsFilter=FunnelsFilter(exclusions=[])
-        )
-        actors_query = FunnelsActorsQuery(source=funnels_query)
-        source_query = FunnelCorrelationQuery(
-            source=actors_query,
-            funnelCorrelationExcludeEventNames=["exclude_event"],
-            funnelCorrelationEventNames=["correlation_event"],
-            funnelCorrelationType=FunnelCorrelationResultsType.EVENTS,
-        )
-        query = FunnelCorrelationActorsQuery(source=source_query)
-        result = self.extractor.extract_events(query)
-        self.assertCountEqual(result, ["funnel_event", "correlation_event", "exclude_event"])
-
     def test_extract_events_stickiness_actors_query(self):
         """Test extracting events from StickinessActorsQuery"""
         source_query = StickinessQuery(series=[EventsNode(event="sticky_event")])
         query = StickinessActorsQuery(source=source_query)
         result = self.extractor.extract_events(query)
         self.assertCountEqual(result, ["sticky_event"])
-
-    def test_extract_events_funnel_correlation_query(self):
-        """Test extracting events from FunnelCorrelationQuery"""
-        funnels_query = FunnelsQuery(
-            series=[EventsNode(event="funnel_event")], funnelsFilter=FunnelsFilter(exclusions=[])
-        )
-        actors_query = FunnelsActorsQuery(source=funnels_query)
-        source_query = FunnelCorrelationQuery(
-            source=actors_query,
-            funnelCorrelationExcludeEventNames=["exclude_event"],
-            funnelCorrelationEventNames=["correlation_event"],
-            funnelCorrelationType=FunnelCorrelationResultsType.EVENTS,
-        )
-        result = self.extractor.extract_events(source_query)
-        self.assertCountEqual(result, ["funnel_event", "correlation_event", "exclude_event"])
 
     def test_extract_events_from_dict(self):
         """Test extracting events from dictionary input"""

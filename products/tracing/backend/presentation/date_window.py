@@ -17,9 +17,12 @@ previously turned a typo'd window into stale data with no error.
 """
 
 import re
+from zoneinfo import ZoneInfo
 
 from dateutil import parser as dateutil_parser
 from rest_framework import serializers
+
+from posthog.utils import relative_date_parse
 
 # Friendly tracing window: an integer with a single short unit, e.g. "-30m", "90s", "-2w".
 # Case-insensitive; the leading minus is optional because windows are always in the past.
@@ -37,6 +40,14 @@ _UNIT_TO_RELATIVE_TOKEN = {"s": "s", "m": "M", "h": "h", "d": "d", "w": "w"}
 _GLOBAL_RELATIVE_RE = re.compile(r"-?(?:\d+[hdwmqysHDWMQY](?:Start|End)?|[hdwmqysHDWMQY](?:Start|End))")
 
 
+def _in_range(window: str) -> str:
+    try:
+        relative_date_parse(window, ZoneInfo("UTC"))
+    except (OverflowError, ValueError):
+        raise serializers.ValidationError(f"Date range value {window!r} is out of range.")
+    return window
+
+
 def normalize_tracing_window(value: str | None) -> str | None:
     """Normalize a single ``date_from``/``date_to`` value for the tracing API.
 
@@ -46,6 +57,8 @@ def normalize_tracing_window(value: str | None) -> str | None:
     """
     if value is None:
         return None
+    if not isinstance(value, str):
+        raise serializers.ValidationError(f"Invalid date range value {value!r}: dates must be strings.")
     stripped = value.strip()
     if not stripped:
         return None
@@ -53,19 +66,22 @@ def normalize_tracing_window(value: str | None) -> str | None:
     match = _TRACING_WINDOW_RE.match(stripped)
     if match:
         token = _UNIT_TO_RELATIVE_TOKEN[match.group("unit").lower()]
-        return f"-{match.group('number')}{token}"
+        return _in_range(f"-{match.group('number')}{token}")
 
     # Absolute ISO 8601 timestamps pass through untouched.
     try:
-        dateutil_parser.isoparse(stripped)
-        return stripped
+        parsed = dateutil_parser.isoparse(stripped)
     except ValueError:
-        pass
+        parsed = None
+    if parsed is not None:
+        if not 1970 <= parsed.year <= 9998:
+            raise serializers.ValidationError(f"Date range value {value!r} is out of range.")
+        return stripped
 
     # Preserve the broader global relative grammar (e.g. "-1dStart", "wStart", "-3q", "-1y")
     # so anything that already worked keeps working.
     if _GLOBAL_RELATIVE_RE.fullmatch(stripped):
-        return stripped
+        return _in_range(stripped)
 
     raise serializers.ValidationError(
         f"Invalid date range value {value!r}. Use a relative window like '-30m' (minutes), "

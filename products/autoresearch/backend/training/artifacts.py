@@ -14,6 +14,7 @@ naturally and bundles never collide across tenants.
 from __future__ import annotations
 
 import re
+import gzip
 import hashlib
 from pathlib import Path
 
@@ -180,6 +181,29 @@ def bundle_prefix(*, team_id: int, pipeline_id: str, training_run_id: str) -> st
     """Object-storage key prefix (no trailing slash) for one training run's bundle."""
     folder = settings.OBJECT_STORAGE_TASKS_FOLDER
     return f"{folder}/autoresearch/team_{team_id}/pipeline_{pipeline_id}/run_{training_run_id}"
+
+
+def scored_persons_key(*, team_id: int, pipeline_id: str, inference_run_id: str) -> str:
+    """Object-storage key for the person ids one live inference run scored."""
+    folder = settings.OBJECT_STORAGE_TASKS_FOLDER
+    return f"{folder}/autoresearch/team_{team_id}/pipeline_{pipeline_id}/inference_{inference_run_id}/scored_persons.txt.gz"
+
+
+def write_scored_persons(key: str, person_ids: list[str]) -> None:
+    _require_storage()
+    object_storage.write(key, gzip.compress("\n".join(sorted(person_ids)).encode("utf-8")))
+
+
+def read_scored_persons(key: str) -> list[str] | None:
+    """The stored person ids, or None when the object is absent."""
+    content = object_storage.read_bytes(key, missing_ok=True)
+    if content is None:
+        return None
+    return [line for line in gzip.decompress(content).decode("utf-8").split("\n") if line]
+
+
+def delete_scored_persons(key: str) -> None:
+    object_storage.delete(key)
 
 
 def write_bundle(prefix: str, bundle: ArtifactBundle) -> None:

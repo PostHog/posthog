@@ -4,6 +4,7 @@ import { useCallback, useMemo } from 'react'
 import { TimeSeriesBarChart } from '@posthog/quill-charts'
 import type { PointClickData, Series, TimeSeriesBarChartConfig, TooltipContext } from '@posthog/quill-charts'
 
+import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -24,7 +25,6 @@ import type { IndexedTrendResult } from 'products/product_analytics/frontend/ins
 import { hasTrendsChartData } from '../../shared/hasTrendsChartData'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { getSeriesIdentification } from '../../shared/seriesIdentification'
-import { makeChartErrorHandler } from '../../trends/shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../../trends/shared/getTrendsSeriesDisplayLabel'
 import {
     buildTrendsSeriesMeta,
@@ -64,6 +64,7 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
         trendsFilter,
         labelGroupType,
         hasPersonsModal,
+        actionNames,
         querySource,
         showValuesOnSeries,
         isSingleSeriesDefinition,
@@ -73,14 +74,21 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
+    const buildMeta = useCallback(
+        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource, actionNames),
+        [querySource, actionNames]
+    )
+
     const seriesIdentification = useMemo(
-        () => getSeriesIdentification((indexedResults ?? []).map(buildTrendsSeriesMeta)),
-        [indexedResults]
+        () => getSeriesIdentification((indexedResults ?? []).map(buildMeta)),
+        [indexedResults, buildMeta]
     )
 
     const getLabel = useCallback(
         (r: IndexedTrendResult): string =>
             getTrendsSeriesDisplayLabel(r, {
+                querySource,
+                actionNames,
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
@@ -88,6 +96,8 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
                 seriesIdentification,
             }),
         [
+            querySource,
+            actionNames,
             breakdownFilter,
             allCohorts?.results,
             formatPropertyValueForDisplay,
@@ -114,9 +124,9 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
                 // instead of being dropped here, so the legend can restore them.
                 getHidden: undefined,
                 getLabel,
-                buildMeta: buildTrendsSeriesMeta,
+                buildMeta,
             }),
-        [indexedResults, getTrendsColor, getLabel]
+        [indexedResults, getTrendsColor, getLabel, buildMeta]
     )
 
     const chartConfig: TimeSeriesBarChartConfig = useChartConfig(
@@ -216,6 +226,7 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
             config={chartConfig}
             tooltip={renderTooltip}
             onPointClick={hasClickHandler ? onPointClick : undefined}
+            onPointContextMenu={context?.dashboardResultMenu && hasClickHandler ? onPointClick : undefined}
             className="BarGraph"
             dataAttr="stickiness-bar-graph"
             onError={handleChartError}

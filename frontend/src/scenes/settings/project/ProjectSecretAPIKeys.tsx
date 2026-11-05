@@ -11,6 +11,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import type { ScopeAccessLevel } from 'lib/scopes'
 
 import { APIKeyTable } from '../shared/APIKeyTable'
+import { GatewayKeySpend } from './GatewayKeySpend'
 import { MAX_PROJECT_API_KEYS_PER_PROJECT, projectSecretAPIKeysLogic } from './projectSecretAPIKeysLogic'
 
 function EditKeyModal(): JSX.Element {
@@ -96,7 +97,7 @@ function EditKeyModal(): JSX.Element {
                         {filteredScopes.length === 0 ? (
                             <div className="text-muted text-sm py-2">No scopes match "{searchTerm}"</div>
                         ) : (
-                            filteredScopes.map(({ key, label, disabledActions }) => {
+                            filteredScopes.map(({ key, label, info, disabledActions }) => {
                                 const disabledReason = (action: 'read' | 'write'): string | undefined =>
                                     disabledActions?.includes(action)
                                         ? 'Not available for project secret API keys'
@@ -107,6 +108,7 @@ function EditKeyModal(): JSX.Element {
                                         row={{
                                             key,
                                             label,
+                                            info,
                                             value: (formScopeRadioValues[key] ?? 'none') as ScopeAccessLevel,
                                             disabledReasons: {
                                                 read: disabledReason('read'),
@@ -169,6 +171,8 @@ export function ProjectSecretAPIKeys(): JSX.Element {
                 showCreatedBy={true}
                 showActions={!restrictionReason}
             />
+
+            <GatewayKeySpend />
 
             <EditKeyModal />
         </>

@@ -3,14 +3,10 @@
 //! This sink is pure mechanism: it produces to Kafka with `rdkafka`.
 //! `KafkaSinkBase::prepare_record` serializes a `ProcessedEvent` and maps the
 //! metadata the pipeline stamped to a [`Destination`] and partition key; v1's
-//! prepared events arrive serialized and carry their own address. All routing
-//! *policy* (overflow, DLQ and custom-topic redirects, person-processing
-//! headers) is decided *upstream*. Enqueue resolves the destination to a topic
-//! and producer.
-//!
-//! Keeping routing policy out of the sink keeps the clone-per-spawned-task
-//! cost in the scatter-gather batch path at one `Arc::clone` call (the output
-//! table) rather than deep copies of limiter state.
+//! prepared events arrive serialized and carry their own address. Routing
+//! policy lives in `pipeline::resolve`, which reads the stamped metadata and
+//! the output table's `has_ai_overflow_lane`. Enqueue resolves the destination
+//! to a topic and producer.
 use crate::api::CaptureError;
 use crate::config::EnvelopeCompression;
 use crate::ordering::OrderingGuarantee;
@@ -289,7 +285,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         // effects live in the same match that maps it to an output, so a new
         // address cannot skip them: dlq sets the dlq headers, and both admin
         // redirects count their reroutes.
-        let decision = pipeline::resolve(&metadata, self.outputs.ai_events_overflow_armed())?;
+        let decision = pipeline::resolve(&metadata, self.outputs.has_ai_overflow_lane())?;
         let target = match decision.address {
             Address::Dlq => {
                 dlq_reroute_effects(&mut headers, "event_restriction");
@@ -464,10 +460,7 @@ impl<P: KafkaProducer + 'static> KafkaSinkBase<P> {
                 Err(err) => {
                     counter!("capture_kafka_prep_panic_total").increment(1);
                     error!("join error while preparing Kafka record: {err:#}");
-                    // Drain remaining prep tasks before returning so they can't
-                    // leak records into librdkafka after we've already failed.
-                    // Record the histogram on the error path too so prep-duration
-                    // stays observable during failures (not just happy path).
+                    // Record prep duration on the error path too.
                     prep_set.abort_all();
                     histogram!("capture_kafka_batch_prep_duration_seconds")
                         .record(prep_start.elapsed().as_secs_f64());
@@ -2078,11 +2071,6 @@ mod tests {
         }
 
         // ==================== AiEvents ====================
-        // The dedicated $ai_* lane routes to its own topic, keyed on the
-        // event key. test_outputs() arms the AI overflow valve
-        // (CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC), so overflow handling mirrors the
-        // AnalyticsMain arm onto the AI topics; the unarmed tests below
-        // override the valve off.
 
         #[tokio::test]
         async fn ai_events_normal() {
@@ -2107,9 +2095,7 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn ai_events_force_overflow_reroutes_when_armed() {
-            // With the valve armed, restriction-driven force_overflow behaves
-            // exactly like the analytics main lane: rerouted, key kept.
+        async fn ai_events_force_overflow_reroutes() {
             assert_routing(
                 EventInput {
                     data_type: DataType::AiEvents,
@@ -2202,13 +2188,11 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn ai_events_unarmed_never_overflows() {
-            // Without CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC the lane never
-            // overflows: force_overflow and any stamped reason (which the
-            // gated pipeline would not produce anyway) are ignored.
+        async fn ai_events_without_overflow_lane_never_overflow() {
+            // Import has no AI overflow lane, so every overflow stamp is ignored.
             let producer = MockKafkaProducer::new();
             let mut topics = test_outputs();
-            topics.ai_overflow = None;
+            topics.has_ai_overflow_lane = false;
             let sink = KafkaSinkBase::with_producer(producer.clone(), topics);
 
             let mut event = create_test_event(&EventInput {
@@ -2452,12 +2436,6 @@ mod tests {
         }
 
         // ==================== overflow_reason routing tests ====================
-        // The pipeline stamps ProcessedEventMetadata::overflow_reason upstream;
-        // the sink is a pure mechanism layer that switches on it. These cover
-        // each variant: ForceLimited, RateLimited { preserve_locality }, and
-        // ReplayLimited. `force_overflow` coexistence is covered by the
-        // analytics_main_force_overflow / snapshot_main_force_overflow cases
-        // above (force_overflow short-circuits the overflow_reason branch).
 
         /// `ForceLimited` implies person processing is off on its own: the
         /// header is set whether or not the stamping site also set the flag,

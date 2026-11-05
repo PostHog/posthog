@@ -15,20 +15,23 @@ from uuid import UUID
 
 from redis.asyncio.client import PubSub
 
+from posthog.paging import Page, PageRequest
+
 from products.wizard.backend import metrics
 from products.wizard.backend.facade.contracts import (
     CreatePullRequestArtifactInput,
     CreateWizardRunInput,
     ListWizardRunsInput,
     RecordWizardScanInput,
+    StartWizardInstallInput,
     UpdateWizardRunTaskInput,
     UpsertWizardSessionInput,
+    WizardInstallStatusDTO,
     WizardProgram,
     WizardRunArtifactDTO,
     WizardRunCreationResult,
     WizardRunDTO,
     WizardRunGitDiffArtifactDTO,
-    WizardRunPage,
     WizardRunPullRequestArtifactDTO,
     WizardRunTaskDTO,
     WizardScanResult,
@@ -43,9 +46,11 @@ from products.wizard.backend.logic import (
     sessions,
 )
 from products.wizard.backend.logic.artifacts import service as artifacts
+from products.wizard.backend.logic.installs import service as installs
 from products.wizard.backend.logic.runs import pubsub as run_pubsub
 from products.wizard.backend.logic.sessions import pubsub
 from products.wizard.backend.tool_catalog.catalog import tool_catalog_json
+from products.wizard.backend.tool_catalog.warehouse_destinations import CATALOG_DESTINATION_CHOICES
 
 
 def upsert(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, bool]:
@@ -60,6 +65,9 @@ def record_scan(params: RecordWizardScanInput) -> WizardScanResult:
 def organization_has_detected_tool(*, organization_id: str, kinds: Collection[str]) -> bool:
     """Whether the latest scan of any workspace in the organization still finds one of `kinds`."""
     return scans.organization_has_detected_tool(organization_id=organization_id, kinds=kinds)
+
+
+TOOL_CATALOG_DESTINATION_CHOICES: list[tuple[str, str]] = CATALOG_DESTINATION_CHOICES
 
 
 def get_tool_catalog_json() -> bytes:
@@ -79,16 +87,9 @@ def list_for_team(
     workflow_id: str | None = None,
     skill_id: str | None = None,
     *,
-    offset: int = 0,
-    limit: int | None = None,
-) -> list[WizardSessionDTO]:
-    return sessions.list_sessions(
-        team_id,
-        workflow_id=workflow_id,
-        skill_id=skill_id,
-        offset=offset,
-        limit=limit,
-    )
+    page: PageRequest,
+) -> Page[WizardSessionDTO]:
+    return sessions.list_sessions(team_id, workflow_id=workflow_id, skill_id=skill_id, page=page)
 
 
 @asynccontextmanager
@@ -133,14 +134,25 @@ def get_run(team_id: int, run_id: UUID) -> WizardRunDTO:
     return run_service.get_run(team_id, run_id)
 
 
+def start_install(params: StartWizardInstallInput) -> WizardRunCreationResult:
+    """
+    Starts the PostHog setup program in the cloud on a GitHub repository of the project.
+    """
+    return installs.start_install(params)
+
+
+def get_install_status(team_id: int, run_id: UUID) -> WizardInstallStatusDTO:
+    return installs.get_install_status(team_id, run_id)
+
+
 @asynccontextmanager
 async def subscribe_to_run_updates(team_id: int, run_id: UUID) -> AsyncIterator[PubSub]:
     async with run_pubsub.subscribe(team_id, run_id) as subscription:
         yield subscription
 
 
-def list_runs(params: ListWizardRunsInput) -> WizardRunPage:
-    return run_service.list_runs(params)
+def list_runs(params: ListWizardRunsInput, page: PageRequest) -> Page[WizardRunDTO]:
+    return run_service.list_runs(params, page)
 
 
 def update_run_stage(team_id: int, run_id: UUID, stage: WizardRunStage) -> WizardRunDTO:
@@ -197,6 +209,10 @@ def get_git_diff_artifact_content(team_id: int, run_id: UUID, artifact_id: UUID)
 
 def validate_git_repository(repository: str) -> None:
     run_service.validate_git_repository_name(repository)
+
+
+def validate_git_branch(branch: str) -> None:
+    run_service.validate_git_branch_name(branch)
 
 
 def validate_wizard_version(wizard_version: object) -> str:

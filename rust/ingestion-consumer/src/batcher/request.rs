@@ -9,6 +9,7 @@ use super::key_queues::{KeyRun, ReadyRun};
 pub struct RequestClass {
     pub assignment_epoch: u64,
     pub replay: bool,
+    pub unbudgeted: bool,
 }
 
 #[derive(Debug)]

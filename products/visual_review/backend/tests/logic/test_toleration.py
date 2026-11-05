@@ -117,26 +117,33 @@ class TestToleratedHashes:
         with pytest.raises(ValueError, match="Can only mark CHANGED"):
             toleration.mark_snapshot_as_tolerated(run.id, snapshot.id, user.id, repo.team_id)
 
-    def test_tolerated_hash_shortcircuits_classification(self, repo, user, mocker):
-        from products.visual_review.backend.models import ToleratedHash
+    @pytest.mark.parametrize(
+        "rows,expected_baseline_hash",
+        [
+            ([("old_hash", "new_hash")], "old_hash"),
+            # The baseline flipped to the render that was tolerated, and the run rendered the old baseline.
+            ([("new_hash", "old_hash")], "new_hash"),
+            ([("new_hash", "old_hash"), ("old_hash", "new_hash")], "old_hash"),
+        ],
+    )
+    def test_tolerated_hash_shortcircuits_classification(self, repo, user, mocker, rows, expected_baseline_hash):
+        for baseline_hash, alternate_hash in rows:
+            ToleratedHash.objects.create(
+                repo=repo,
+                team_id=repo.team_id,
+                identifier="Button",
+                baseline_hash=baseline_hash,
+                alternate_hash=alternate_hash,
+                reason="auto_threshold",
+            )
 
-        # Create a tolerated hash entry
-        ToleratedHash.objects.create(
-            repo=repo,
-            team_id=repo.team_id,
-            identifier="Button",
-            baseline_hash="old_hash",
-            alternate_hash="new_hash",
-            reason="auto_threshold",
-        )
-
-        # Run with the same hashes — should be classified UNCHANGED via cache
         run = self._create_completed_run(repo, mocker)
         snapshot = run.snapshots.first()
 
         assert snapshot.result == SnapshotResult.UNCHANGED
         assert snapshot.classification_reason == "tolerated_hash"
         assert snapshot.tolerated_hash_match is not None
+        assert snapshot.tolerated_hash_match.baseline_hash == expected_baseline_hash
 
     def test_tolerated_hash_expires_on_baseline_change(self, repo, user, mocker):
         from products.visual_review.backend.models import ToleratedHash

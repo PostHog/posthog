@@ -28,6 +28,7 @@ class AccessMethod(StrEnum):
     OAUTH = "oauth"
     SHARING_TOKEN = "sharing_token"
     ID_JAG = "id_jag"
+    OIDC_WORKLOAD = "oidc_workload"
     PROJECT_SECRET_API_KEY = "project_secret_api_key"
     TEAM_SECRET_TOKEN = "team_secret_token"
 
@@ -50,6 +51,7 @@ class Product(StrEnum):
     API = "api"
     AUTORESEARCH = "autoresearch"
     BATCH_EXPORT = "batch_export"
+    CANVAS = "canvas"
     COHORTS = "cohorts"
     CONVERSATIONS = "conversations"
     CUSTOMER_ANALYTICS = "customer_analytics"
@@ -87,6 +89,7 @@ class Product(StrEnum):
     SIGNALS = "signals"
     SQL_EDITOR = "sql_editor"
     SURVEYS = "surveys"
+    TODAY = "today"
     TRACING = "tracing"
     WAREHOUSE = "warehouse"
     WEB_ANALYTICS = "web_analytics"
@@ -116,6 +119,7 @@ class Feature(StrEnum):
     PREAGGREGATION = "preaggregation"
     DATA_DELETION = "data_deletion"
     DATA_QUALITY_CHECK = "data_quality_check"  # one data quality check assertion against its subject
+    BATCH_RUN_OUTCOME = "batch_run_outcome"  # a workflow batch run checks whether its sends errored
     ENRICHMENT = "enrichment"  # background tasks that derive/sync data (not customer-facing)
     EVENT_FILTERS = "event_filters"
     SCHEMA_INTROSPECTION = "schema_introspection"
@@ -148,6 +152,7 @@ class Feature(StrEnum):
     # A 30 day aggregate that runs on every AI observability dashboard mount and trace view, so its
     # load is worth attributing separately from the tab queries it sits alongside.
     INSTRUMENTATION_CHECKLIST = "instrumentation_checklist"
+    AI_GATEWAY_DEV_USAGE = "ai_gateway_dev_usage"
 
 
 class FallbackTags(TypedDict):
@@ -216,6 +221,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.WEB_EXTERNAL_CLICKS_TABLE_QUERY
             | NodeKind.WEB_BOTS_TABLE_QUERY
             | NodeKind.WEB_AGENT_ANALYTICS_QUERY
+            | NodeKind.WEB_PAGE_DIRECTORY_QUERY
             | NodeKind.WEB_PAGE_URL_SEARCH_QUERY
             | NodeKind.WEB_VITALS_QUERY
             | NodeKind.WEB_VITALS_PATH_BREAKDOWN_QUERY
@@ -231,13 +237,14 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.ERROR_TRACKING_FINGERPRINT_PROJECTION_QUERY
             | NodeKind.ERROR_TRACKING_BREAKDOWNS_QUERY
             | NodeKind.ERROR_TRACKING_RELEASES_QUERY
+            | NodeKind.ERROR_TRACKING_ISSUE_EVENTS_QUERY
         ):
             return {"product": Product.ERROR_TRACKING}
         case NodeKind.LOGS_QUERY | NodeKind.LOG_ATTRIBUTES_QUERY | NodeKind.LOG_VALUES_QUERY:
             return {"product": Product.LOGS}
         case NodeKind.METRICS_QUERY | NodeKind.METRICS_HISTOGRAM_QUERY:
             return {"product": Product.METRICS}
-        case NodeKind.ACCOUNTS_TABLE_QUERY:
+        case NodeKind.ACCOUNTS_TABLE_QUERY | NodeKind.ACCOUNT_USERS_QUERY:
             return {"product": Product.CUSTOMER_ANALYTICS}
         case NodeKind.RECORDINGS_QUERY | NodeKind.SESSION_BATCH_EVENTS_QUERY:
             return {"product": Product.REPLAY}
@@ -287,6 +294,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.MARKETING_ANALYTICS_ATTRIBUTION_PATHS_QUERY
             | NodeKind.MARKETING_ANALYTICS_RETENTION_QUERY
             | NodeKind.MARKETING_ANALYTICS_SEARCH_QUERY
+            | NodeKind.MARKETING_ANALYTICS_RECOMMENDATIONS_QUERY
         ):
             return {"product": Product.MARKETING_ANALYTICS}
         case (
@@ -327,8 +335,6 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.INSIGHT_ACTORS_QUERY
             | NodeKind.INSIGHT_ACTORS_QUERY_OPTIONS
             | NodeKind.FUNNELS_ACTORS_QUERY
-            | NodeKind.FUNNEL_CORRELATION_QUERY
-            | NodeKind.FUNNEL_CORRELATION_ACTORS_QUERY
             | NodeKind.PATHS_V2_ACTORS_QUERY
             # data-source nodes, not full queries
             | NodeKind.EVENTS_NODE
@@ -336,6 +342,8 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.ACTIONS_NODE
             | NodeKind.PERSONS_NODE
             | NodeKind.DATA_WAREHOUSE_NODE
+            | NodeKind.EXPERIMENT_WAREHOUSE_NATIVE_NODE
+            | NodeKind.EXPERIMENT_WAREHOUSE_NATIVE_EXPOSURE_CONFIG
             | NodeKind.FUNNELS_DATA_WAREHOUSE_NODE
             | NodeKind.LIFECYCLE_DATA_WAREHOUSE_NODE
             | NodeKind.DATA_TABLE_NODE
@@ -391,6 +399,13 @@ class DagsterTags(BaseModel):
 
     op_name: Optional[str] = None
     asset_key: Optional[str] = None
+
+
+_PRODUCT_TAG_VALUES = frozenset(member.value for member in Product) | frozenset(member.value for member in ProductKey)
+
+
+def is_known_product_tag(value: str) -> bool:
+    return value in _PRODUCT_TAG_VALUES
 
 
 class QueryTags(BaseModel):
@@ -676,6 +691,11 @@ def get_query_tag_value(key: str) -> Optional[Any]:
         return getattr(get_query_tags(), key)
     except (AttributeError, KeyError):
         return None
+
+
+def get_http_request_id() -> str | None:
+    http_request_id = get_query_tag_value("http_request_id")
+    return str(http_request_id) if isinstance(http_request_id, uuid.UUID) else None
 
 
 # Tag snapshots are isolated copy-on-write: every mutation goes through a top-level attribute

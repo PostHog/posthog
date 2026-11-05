@@ -18,6 +18,8 @@ class WebAnalyticsAchievementProgress(TeamScopedRootMixin, UUIDModel):
     progress_value = models.BigIntegerField(default=0)
     state = models.JSONField(default=dict)
     last_computed_at = models.DateTimeField(null=True, blank=True)
+    failed_attempts = models.PositiveSmallIntegerField(default=0, db_default=0)
+    retry_after = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

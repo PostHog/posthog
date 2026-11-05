@@ -34,6 +34,7 @@ export function QuillSceneTitleSection({
     canEdit = false,
     forceEdit = false,
     descriptionAlwaysVisible = false,
+    descriptionIgnoresForceEdit = false,
     renameDebounceMs,
     saveOnBlur = false,
     noPadding = false,
@@ -59,10 +60,22 @@ export function QuillSceneTitleSection({
         [releaseStageSceneId, name]
     )
     const staticName = name !== null && !titleInPhoneHeader && !(onNameChange && canEdit) && !forceEdit && !isLoading
+    const descriptionForceEdit = forceEdit && !descriptionIgnoresForceEdit
     const hasDescription = description != null && (description || canEdit)
     const descriptionShown =
         hasDescription &&
-        (descriptionAlwaysVisible || (showDescription && !titleInPhoneHeader && !staticName) || forceEdit)
+        (descriptionAlwaysVisible || (showDescription && !titleInPhoneHeader && !staticName) || descriptionForceEdit)
+    const descriptionToggle = hasDescription && !descriptionAlwaysVisible && (
+        <Button
+            variant="default"
+            size="icon-sm"
+            aria-label={showDescription ? 'Hide description' : 'Show description'}
+            onClick={toggleShowDescription}
+            data-attr={showDescription ? 'toggle-description-button-collapse' : 'toggle-description-button-expand'}
+        >
+            {showDescription || descriptionForceEdit ? <IconCollapse /> : <IconExpand />}
+        </Button>
+    )
     const backTo = forceBackTo || (breadcrumbs.length > 2 ? breadcrumbs[breadcrumbs.length - 2] : undefined)
     const backPath = !titleInPhoneHeader && backTo && 'path' in backTo ? backTo.path : undefined
     const resourceIcon = name !== null && !titleInPhoneHeader ? sceneResourceIcon(resourceType) : undefined
@@ -102,6 +115,7 @@ export function QuillSceneTitleSection({
                                   : undefined
                         }
                         icon={resourceIcon}
+                        iconLeadsName={resourceType.iconLeadsName}
                         current={staticName ? { name, description: description || undefined } : undefined}
                     />
                 }
@@ -119,24 +133,11 @@ export function QuillSceneTitleSection({
                                 saveOnBlur={saveOnBlur}
                                 onGenerateMetadata={onGenerateMetadata}
                                 isGeneratingMetadata={isGeneratingMetadata}
+                                fieldSuffix={descriptionIgnoresForceEdit && descriptionToggle}
                                 suffix={
                                     <>
                                         {nameSuffixes}
-                                        {hasDescription && !descriptionAlwaysVisible && (
-                                            <Button
-                                                variant="default"
-                                                size="icon-sm"
-                                                aria-label={showDescription ? 'Hide description' : 'Show description'}
-                                                onClick={toggleShowDescription}
-                                                data-attr={
-                                                    showDescription
-                                                        ? 'toggle-description-button-collapse'
-                                                        : 'toggle-description-button-expand'
-                                                }
-                                            >
-                                                {showDescription || forceEdit ? <IconCollapse /> : <IconExpand />}
-                                            </Button>
-                                        )}
+                                        {descriptionToggle}
                                     </>
                                 }
                             />
@@ -145,7 +146,7 @@ export function QuillSceneTitleSection({
                             the menus onto their own line, where the divider would lead the line, so it hides there. */}
                         <div
                             ref={setMenuBarSlot}
-                            className="flex min-w-0 items-center empty:hidden before:mx-1 before:h-4 before:w-px before:shrink-0 before:bg-[var(--border)] before:content-[''] @max-xl/main-content:before:hidden"
+                            className="flex shrink-0 items-center empty:hidden before:mx-1 before:h-4 before:w-px before:shrink-0 before:bg-[var(--border)] before:content-[''] @max-xl/main-content:before:hidden"
                         />
                     </>
                 }
@@ -164,7 +165,7 @@ export function QuillSceneTitleSection({
                         isLoading={isLoading}
                         onChange={onDescriptionChange}
                         canEdit={canEdit}
-                        forceEdit={forceEdit}
+                        forceEdit={descriptionForceEdit}
                         renameDebounceMs={renameDebounceMs}
                         saveOnBlur={saveOnBlur}
                         maxLength={descriptionMaxLength}

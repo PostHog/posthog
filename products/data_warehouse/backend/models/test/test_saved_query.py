@@ -4,8 +4,6 @@ from types import SimpleNamespace
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
-from django.db.models.query import QuerySet as DjangoQuerySet
-
 from parameterized import parameterized
 
 from posthog.schema import CachedHogQLQueryResponse, HogQLQuery
@@ -17,20 +15,11 @@ from posthog.constants import AvailableFeature
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 
-from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 
 class TestRevertMaterialization(BaseTest):
-    """Tests for DataWarehouseSavedQuery.revert_materialization.
-
-    The method runs three DB operations (table soft-delete, saved_query save,
-    model paths delete) inside one transaction. If any of them fails, every
-    piece of state must be left as it was, so the next retry can converge on a
-    consistent state.
-    """
-
     def setUp(self):
         super().setUp()
         self.credential = DataWarehouseCredential.objects.create(
@@ -55,15 +44,8 @@ class TestRevertMaterialization(BaseTest):
             sync_frequency_interval=timedelta(hours=1),
             status=DataWarehouseSavedQuery.Status.COMPLETED,
         )
-        DataWarehouseModelPath.objects.create(
-            team=self.team,
-            saved_query=self.saved_query,
-            path=["posthog_events", self.saved_query.id.hex],
-        )
 
     def _assert_state_unchanged(self) -> None:
-        """A rollback must leave every piece of state (saved_query, table, model paths)
-        exactly as it was before revert_materialization was called."""
         self.saved_query.refresh_from_db()
         self.assertTrue(self.saved_query.is_materialized)
         self.assertEqual(self.saved_query.sync_frequency_interval, timedelta(hours=1))
@@ -72,8 +54,6 @@ class TestRevertMaterialization(BaseTest):
 
         self.table.refresh_from_db()
         self.assertFalse(self.table.deleted)
-
-        self.assertTrue(DataWarehouseModelPath.objects.filter(team=self.team, saved_query=self.saved_query).exists())
 
     def test_state_cleared_when_all_operations_succeed(self):
         self.saved_query.revert_materialization()
@@ -87,22 +67,9 @@ class TestRevertMaterialization(BaseTest):
         self.table.refresh_from_db()
         self.assertTrue(self.table.deleted)
 
-        self.assertFalse(DataWarehouseModelPath.objects.filter(team=self.team, saved_query=self.saved_query).exists())
-
-    def test_rollback_when_model_path_delete_raises(self):
-        """The last DB op raising must roll back the table soft_delete and the
-        saved_query save that ran earlier in the same block."""
-        original_delete = DjangoQuerySet.delete
-
-        def failing_delete(self_qs, *args, **kwargs):
-            # Only raise for DataWarehouseModelPath querysets so that test fixture
-            # cleanup and any unrelated delete calls still work normally.
-            if self_qs.model is DataWarehouseModelPath:
-                raise RuntimeError("model path delete failed")
-            return original_delete(self_qs, *args, **kwargs)
-
-        with patch.object(DjangoQuerySet, "delete", failing_delete):
-            with self.assertRaisesRegex(RuntimeError, "model path delete failed"):
+    def test_rollback_when_saved_query_save_raises(self):
+        with patch.object(DataWarehouseSavedQuery, "save", side_effect=RuntimeError("saved query save failed")):
+            with self.assertRaisesRegex(RuntimeError, "saved query save failed"):
                 self.saved_query.revert_materialization()
 
         self._assert_state_unchanged()

@@ -1,5 +1,5 @@
 {
-    "count": 8,
+    "count": 9,
     "next": null,
     "previous": null,
     "results": [
@@ -46,6 +46,48 @@
             },
             "created_at": "2022-03-16T18:01:41.362030Z",
             "updated_at": "2022-03-16T18:01:41.362030Z"
+        },
+        {
+            "id": 1803,
+            "name": "Show the loyalty program banner",
+            "key": "loyalty-program-banner",
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "type": "cohort",
+                                "value": 1,
+                                "operator": "in",
+                                "cohort_name": "Viewed pricing this week"
+                            },
+                            {
+                                "key": "id",
+                                "type": "cohort",
+                                "value": 2,
+                                "operator": "in",
+                                "cohort_name": "Frequent buyers",
+                                "cohort_deleted": true
+                            }
+                        ],
+                        "rollout_percentage": 100
+                    }
+                ],
+                "multivariate": null
+            },
+            "deleted": false,
+            "active": true,
+            "can_edit": true,
+            "created_by": {
+                "id": 4765,
+                "uuid": "4609ea95-6a1c-4577-bc5d-00ded02ffca9",
+                "distinct_id": "98ca6644-43b2-4d78-a35b-0cb1cc520e35",
+                "first_name": "Rick",
+                "email": "rick@posthog.com"
+            },
+            "created_at": "2022-03-20T10:12:05.000000Z",
+            "updated_at": "2022-03-20T10:12:05.000000Z"
         },
         {
             "id": 1526,

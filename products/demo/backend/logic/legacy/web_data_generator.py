@@ -1,6 +1,7 @@
 import json
 import random
 from datetime import timedelta
+from functools import cached_property
 from pathlib import Path
 from typing import Any
 
@@ -11,10 +12,9 @@ from dateutil.relativedelta import relativedelta
 from posthog.schema import ActionsNode, FunnelsQuery, InsightVizNode
 
 from posthog.models import Person, PropertyDefinition
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.utils import UUIDT
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import create_action
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
@@ -36,7 +36,7 @@ class WebDataGenerator(DataGenerator):
         PropertyDefinition.objects.get_or_create(team=self.team, name="$browser")
 
     def create_actions_dashboards(self):
-        homepage = Action.objects.create(
+        homepage = create_action(
             team=self.team,
             name="Hogflix homepage view",
             steps_json=[
@@ -48,7 +48,7 @@ class WebDataGenerator(DataGenerator):
             ],
         )
 
-        user_signed_up = Action.objects.create(
+        user_signed_up = create_action(
             team=self.team,
             name="Hogflix signed up",
             steps_json=[
@@ -61,7 +61,7 @@ class WebDataGenerator(DataGenerator):
             ],
         )
 
-        user_paid = Action.objects.create(
+        user_paid = create_action(
             team=self.team,
             name="Hogflix paid",
             steps_json=[

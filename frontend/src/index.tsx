@@ -5,20 +5,34 @@ import './buffer-polyfill'
 import { Suspense, lazy } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 
+import { markBootPhase } from 'lib/utils/bootTiming'
+import { applyDeferredAppContext, watchEarlyUserContextReads } from 'lib/utils/deferredAppContext'
 import { retryBootImport } from 'lib/utils/retryImport'
 
 import { RootErrorBoundary } from './RootErrorBoundary'
 import { ChunkLoadErrorBoundary } from './scenes/ChunkLoadErrorBoundary'
+
+markBootPhase('entry', {
+    deferred_app_context: !!window.POSTHOG_APP_CONTEXT_REQUEST,
+    deferred_app_context_variant: window.POSTHOG_APP_CONTEXT?.deferred_app_context_variant,
+})
+watchEarlyUserContextReads()
 
 type AppModules = [typeof import('scenes/App'), typeof import('scenes/bootApp')]
 
 let appModulesPromise: Promise<AppModules> | undefined
 
 function loadAppModules(): Promise<AppModules> {
+    // The user's data can arrive after these modules load, so they must not read it at load time.
+    // scenes/bootModules.test.ts checks this.
     return (appModulesPromise ??= Promise.all([
         retryBootImport(() => import('scenes/App')),
         retryBootImport(() => import('scenes/bootApp')),
-    ]))
+    ]).then((modules) => {
+        // Marked here, not in the lazy() factory: React calls the factory only after the CSS gate in boot().
+        markBootPhase('app_modules_loaded')
+        return modules
+    }))
 }
 
 // Lazy-load App so the entry chunk stays minimal: the entire transitive dependency
@@ -29,8 +43,9 @@ function loadAppModules(): Promise<AppModules> {
 // React Fast Refresh boundary.
 // boot() also starts the module imports while CSS loads; runtime initialization stays behind the render gate.
 const App = lazy(() =>
-    loadAppModules().then(([appModule, bootModule]) => {
+    Promise.all([loadAppModules(), applyDeferredAppContext()]).then(([[appModule, bootModule]]) => {
         bootModule.bootApp()
+        markBootPhase('app_booted')
         return { default: appModule.App }
     })
 )
@@ -116,6 +131,7 @@ function boot(): void {
         // `null` is the gate expiring on a sheet that is only slow. The loader keeps working on it
         // in the background, so render now rather than hold the app back.
         if (applied !== false) {
+            markBootPhase('css_ready')
             renderApp()
         }
     })

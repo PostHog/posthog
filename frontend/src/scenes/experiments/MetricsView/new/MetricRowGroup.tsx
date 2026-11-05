@@ -51,7 +51,7 @@ import {
     isSignificant,
     isWinning,
 } from '~/scenes/experiments/MetricsView/shared/utils'
-import { Experiment, InsightType, BreakdownAttributionType } from '~/types'
+import { Experiment, BreakdownAttributionType } from '~/types'
 
 import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 import { DetailsModal } from 'products/experiments/frontend/modals/DetailsModal/DetailsModal'
@@ -162,6 +162,7 @@ function CollapsibleBreakdownSection({
                 <LemonCollapse
                     multiple={false}
                     embedded
+                    size="small"
                     activeKey={isExpanded ? 'breakdowns' : undefined}
                     className={`breakdown-collapse breakdown-collapse--${isAlternatingRow ? 'alt-row' : 'normal-row'}`}
                     panels={[
@@ -185,9 +186,12 @@ function CollapsibleBreakdownSection({
                                     <div className="p-0 -m-4">
                                         <table ref={nestedTableRef} className="w-full">
                                             <tbody>
-                                                {breakdownResults.map((breakdownResult) => {
+                                                {breakdownResults.map((breakdownResult, breakdownIndex) => {
                                                     const baselineResult = breakdownResult.baseline
                                                     const variantResults = breakdownResult.variants || []
+                                                    // The wrapping cell already draws the bottom border, so the last group must not add its own
+                                                    const isLastBreakdown =
+                                                        breakdownIndex === breakdownResults.length - 1
 
                                                     if (variantResults.length === 0) {
                                                         return (
@@ -221,7 +225,6 @@ function CollapsibleBreakdownSection({
                                                                         <ChartEmptyState
                                                                             height={CELL_HEIGHT}
                                                                             experimentStarted={isLaunched(experiment)}
-                                                                            metric={metric}
                                                                             query={query}
                                                                             onRetry={onRetry}
                                                                             retryDisabledReason={
@@ -245,7 +248,7 @@ function CollapsibleBreakdownSection({
                                                                 style={FIXED_HEIGHT_STYLE}
                                                             >
                                                                 <td
-                                                                    className={`w-1/5 border-r p-3 align-top border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} text-xs`}
+                                                                    className={`w-1/5 border-r p-3 align-top ${isLastBreakdown ? '' : 'border-b'} ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} text-xs`}
                                                                     rowSpan={totalRows}
                                                                     // eslint-disable-next-line react/forbid-dom-props
                                                                     style={totalRowsHeightStyle}
@@ -345,7 +348,8 @@ function CollapsibleBreakdownSection({
                                                             {variantResults.map(
                                                                 (variant: ExperimentVariantResult, index: number) => {
                                                                     const isLastRow =
-                                                                        index === variantResults.length - 1
+                                                                        index === variantResults.length - 1 &&
+                                                                        !isLastBreakdown
                                                                     const significant = isSignificant(variant)
                                                                     const deltaPositive = isDeltaPositive(variant)
                                                                     const winning = isWinning(variant, metric.goal)
@@ -515,7 +519,6 @@ interface MetricRowGroupProps {
     metric: ExperimentMetric
     result: NewExperimentQueryResponse | null
     experiment: Experiment
-    metricType: InsightType
     displayOrder: number
     axisRange: number
     isSecondary: boolean
@@ -547,7 +550,6 @@ export function MetricRowGroup({
     metric,
     result,
     experiment,
-    metricType,
     displayOrder,
     axisRange,
     isSecondary,
@@ -815,7 +817,6 @@ export function MetricRowGroup({
                             dragHandle={dragHandle}
                             displayOrder={displayOrder}
                             metric={metric}
-                            metricType={metricType}
                             isPrimaryMetric={!isSecondary}
                             experiment={experiment}
                             onDuplicateMetricClick={() => onDuplicateMetric?.()}
@@ -892,7 +893,6 @@ export function MetricRowGroup({
                             dragHandle={dragHandle}
                             displayOrder={displayOrder}
                             metric={metric}
-                            metricType={metricType}
                             isPrimaryMetric={!isSecondary}
                             experiment={experiment}
                             onDuplicateMetricClick={() => onDuplicateMetric?.()}
@@ -914,7 +914,6 @@ export function MetricRowGroup({
                         <ChartEmptyState
                             height={noResultHeight}
                             experimentStarted={isLaunched(experiment)}
-                            metric={metric}
                             error={error}
                             query={debugQuery}
                             onRetry={error?.retriable === true ? handleRetry : undefined}
@@ -1007,7 +1006,6 @@ export function MetricRowGroup({
                         dragHandle={dragHandle}
                         displayOrder={displayOrder}
                         metric={metric}
-                        metricType={metricType}
                         isPrimaryMetric={!isSecondary}
                         experiment={experiment}
                         onDuplicateMetricClick={() => onDuplicateMetric?.()}

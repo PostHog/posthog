@@ -119,9 +119,9 @@ class TracedScorer(AsyncOnlyScorerMixin, Scorer):
     """Wraps a Scorer to trace LLM calls and collect per-invocation trace IDs.
 
     For LLM-based scorers (those with a ``client`` attribute), injects a
-    PostHog-traced OpenAI client. For all scorers, generates a trace_id
+    PostHog-traced OpenAI client. For LLM scorers, generates a trace_id
     per invocation and stores it in ``scorer_traces`` for later use in
-    ``$ai_evaluation`` events.
+    offline evaluation results.
     """
 
     def __init__(
@@ -180,6 +180,12 @@ class TracedScorer(AsyncOnlyScorerMixin, Scorer):
     async def _run_eval_async(self, output, expected=None, **kwargs):
         case_name = kwargs.get("metadata", {}).get("trial_id") or _case_name_from_kwargs(kwargs)
         with self._invocation_context(case_name) as is_llm_scorer:
+            metadata = kwargs.get("metadata")
+            context = _scorer_context.get()
+            if isinstance(metadata, dict) and context is not None:
+                if not isinstance(metadata.get("scorer_trace_ids"), dict):
+                    metadata["scorer_trace_ids"] = {}
+                metadata["scorer_trace_ids"][self._name()] = context["trace_id"]
             # eval_async, not _run_eval_async: sync-only inner scorers rely on
             # the base class's async-to-sync delegation.
             result = await self._inner.eval_async(output, expected, **kwargs)

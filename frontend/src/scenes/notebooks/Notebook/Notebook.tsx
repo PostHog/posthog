@@ -2,7 +2,7 @@ import './Notebook.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect, useLayoutEffect } from 'react'
+import { useEffect, useLayoutEffect, useState } from 'react'
 
 import { NotFound } from 'lib/components/NotFound'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
@@ -31,6 +31,7 @@ import { notebookSettingsLogic } from './notebookSettingsLogic'
 let markdownNotebookMountCount = 0
 
 export type NotebookProps = NotebookLogicProps & {
+    collapsedToolbarContainer?: HTMLElement | null
     initialContent?: JSONContent
     editable?: boolean
     className?: string
@@ -47,6 +48,7 @@ export function Notebook({
     cachedInsightsByShortId,
     cachedInlineQueryResultsByNodeId,
     className,
+    collapsedToolbarContainer,
     markdownSourceOpen,
     onMarkdownSourceOpenChange,
 }: NotebookProps): JSX.Element {
@@ -58,9 +60,25 @@ export function Notebook({
         cachedInlineQueryResultsByNodeId,
     }
     const logic = notebookLogic(logicProps)
-    const { notebook, notebookLoading, isEditable, isTemplate, notebookMissing, isShared, isLocalOnly } =
-        useValues(logic)
-    const { duplicateNotebook, loadNotebook, setEditable, setLocalContent, setContainerSize } = useActions(logic)
+    const {
+        notebook,
+        notebookLoading,
+        isEditable,
+        isTemplate,
+        notebookMissing,
+        isShared,
+        isLocalOnly,
+        shouldBeEditable,
+    } = useValues(logic)
+    const {
+        duplicateNotebook,
+        loadNotebook,
+        notebookEditorMounted,
+        notebookEditorUnmounted,
+        setEditable,
+        setLocalContent,
+        setContainerSize,
+    } = useActions(logic)
     const { isMarkdownExpanded } = useValues(notebookSettingsLogic)
     useAttachedContext(
         notebook && !isShared
@@ -88,8 +106,17 @@ export function Notebook({
         }
     })
 
-    useEffect(() => {
+    // A retained notebook is present on the first render. Rendering it read-only and then switching every block
+    // to editable rewrites `contenteditable` across the whole document, so the content waits for this value.
+    const [editableApplied, setEditableApplied] = useState(shouldBeEditable === editable)
+    useLayoutEffect(() => {
+        notebookEditorMounted()
+        return () => notebookEditorUnmounted()
+    }, [notebookEditorMounted, notebookEditorUnmounted])
+
+    useLayoutEffect(() => {
         setEditable(editable)
+        setEditableApplied(true)
     }, [editable]) // oxlint-disable-line exhaustive-deps
 
     const { ref, size } = useResizeBreakpoints({
@@ -116,7 +143,7 @@ export function Notebook({
 
     return (
         <BindLogic logic={notebookLogic} props={logicProps}>
-            {!notebook && notebookLoading ? (
+            {(!notebook && notebookLoading) || !editableApplied ? (
                 <NotebookLoadingState />
             ) : notebookMissing ? (
                 <NotFound object="notebook" />
@@ -172,6 +199,7 @@ export function Notebook({
                         <NotebookColumnLeft />
                         <ErrorBoundary>
                             <MarkdownNotebookV2
+                                collapsedToolbarContainer={collapsedToolbarContainer}
                                 debugOpen={markdownSourceOpen}
                                 onDebugOpenChange={onMarkdownSourceOpenChange}
                             />

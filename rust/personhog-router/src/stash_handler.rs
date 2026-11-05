@@ -7,6 +7,7 @@ use futures::future::join_all;
 use keyed_stash::Entry;
 use personhog_coordination::error::Result as CoordResult;
 use personhog_coordination::routing_table::StashHandler;
+use personhog_coordination::store::PersonhogStore;
 use tokio_util::sync::CancellationToken;
 use tonic::Code;
 
@@ -16,21 +17,26 @@ use crate::backend::{
 };
 use crate::grpc_http::{grpc_error_response, is_grpc_error_response};
 
+/// How long a drain waits before looking again for a key it could not take.
+const SETTLE_RETRY: Duration = Duration::from_millis(10);
+
+/// How long a drain waits for its config read before draining under the adopted count.
+const CONFIG_READ_TIMEOUT: Duration = Duration::from_secs(1);
+
 /// Stash handler for the router. Reacts to handoff phase transitions:
 ///
 /// * `Freezing` / `Draining` / `Warming` → `begin_stash`: start (or
 ///   re-confirm) buffering leader-path requests — writes and strong
 ///   reads — for the partition in the shared `StashTable`. The
 ///   routing-table layer calls `begin_stash` on every non-terminal phase
-///   the router observes, so the call must be idempotent —
-///   `StashTable::begin_stash` no-ops if the entry is already live. New
-///   leader-path requests park in per-key queues while the handoff
-///   progresses through `Freezing → Draining → Warming`.
+///   the router observes, so the call must be idempotent; a repeat only
+///   renews the freeze. New leader-path requests park in per-key queues
+///   while the handoff progresses through `Freezing → Draining → Warming`.
 /// * `Complete` → `drain_stash`: forward the buffered requests to the
 ///   new owner, each to the method it arrived on, through a
-///   `DrainSession`. The drain loops taking per-key front runs until it
-///   observes the queue fully settled; any request that arrives during
-///   the drain lands on the same queue and is picked up by a later take.
+///   `DrainSession`. The drain loops taking per-key front runs until no
+///   key of the partition remains; any request that arrives during the
+///   drain parks behind its key and is picked up by a later take.
 ///
 /// Every stashed request ends in exactly one of two ways: a definitive
 /// outcome delivered to its client (the forwarded response, an expiry
@@ -95,6 +101,8 @@ pub struct RouterStashHandler {
     /// Per-key ordering is preserved (sequential within a key); across
     /// keys we fan out up to this many at once.
     drain_concurrency: usize,
+    /// A drain reads the config here first, in case the config watch lags its handoff.
+    store: Arc<PersonhogStore>,
 }
 
 impl RouterStashHandler {
@@ -102,6 +110,7 @@ impl RouterStashHandler {
         leader_backend: Arc<LeaderBackend>,
         max_stash_wait: Duration,
         drain_concurrency: usize,
+        store: Arc<PersonhogStore>,
     ) -> Self {
         // A drain_concurrency of 0 would mean "never forward" — treat
         // as 1 (fully sequential) to keep the contract sensible if
@@ -111,6 +120,30 @@ impl RouterStashHandler {
             leader_backend,
             max_stash_wait,
             drain_concurrency,
+            store,
+        }
+    }
+
+    /// Read the config from etcd first, so a drain that beat the config watch takes the
+    /// right keys. Best effort: on failure it drains under the adopted count.
+    async fn adopt_current_config(&self, cancel: &CancellationToken) {
+        let read = tokio::select! {
+            _ = cancel.cancelled() => return,
+            read = tokio::time::timeout(CONFIG_READ_TIMEOUT, self.store.get_changelog_config()) => read,
+        };
+        match read {
+            Ok(Ok(Some(config))) => {
+                self.leader_backend.changelog().adopt(&config);
+            }
+            Ok(Ok(None)) => {}
+            Ok(Err(e)) => {
+                metrics::counter!("personhog_router_drain_config_read_failures_total").increment(1);
+                tracing::warn!(error = %e, "drain could not read config/changelog; draining under the adopted count");
+            }
+            Err(_) => {
+                metrics::counter!("personhog_router_drain_config_read_failures_total").increment(1);
+                tracing::warn!("drain config read timed out; draining under the adopted count");
+            }
         }
     }
 }
@@ -197,7 +230,7 @@ struct KeyRunOutcome {
 /// yet attempted. Retry accounting stays with the callers — only an
 /// actually-attempted head counts as a stash-path retry, so the
 /// never-attempted tail goes back uncounted.
-async fn put_back_rest(
+fn put_back_rest(
     session: &DrainSession,
     key: StashKey,
     head: Entry<StashedRequest>,
@@ -205,7 +238,7 @@ async fn put_back_rest(
 ) {
     let mut entries = vec![head];
     entries.extend(rest);
-    session.put_back(key, entries).await;
+    session.put_back(key, entries);
 }
 
 /// Forward one key's front run sequentially, recording a definitive
@@ -226,7 +259,7 @@ async fn forward_key_run(
     let mut entries = run.entries.into_iter();
     while let Some(mut entry) = entries.next() {
         if cancel.is_cancelled() {
-            put_back_rest(session, run.key, entry, entries).await;
+            put_back_rest(session, run.key, entry, entries);
             return outcome;
         }
         // Race the forward against cancellation: an in-flight call can
@@ -250,7 +283,7 @@ async fn forward_key_run(
                 "reason" => "cancelled"
             )
             .increment(1);
-            put_back_rest(session, run.key, entry, entries).await;
+            put_back_rest(session, run.key, entry, entries);
             return outcome;
         };
         match disposition {
@@ -258,7 +291,7 @@ async fn forward_key_run(
                 response,
                 outcome: label,
             } => {
-                let size = entry.item.approximate_size();
+                let charge = entry.item.charge();
                 metrics::histogram!("personhog_router_stash_wait_duration_ms")
                     .record(entry.item.enqueued_at.elapsed().as_secs_f64() * 1000.0);
                 if entry.item.reply.send(response).is_err() {
@@ -273,7 +306,7 @@ async fn forward_key_run(
                     "outcome" => label
                 )
                 .increment(1);
-                session.complete(run.key, size).await;
+                session.complete(run.key, charge);
                 outcome.completed += 1;
             }
             Disposition::Bounce(reason) => {
@@ -286,7 +319,7 @@ async fn forward_key_run(
                     "reason" => reason.label()
                 )
                 .increment(1);
-                put_back_rest(session, run.key, entry, entries).await;
+                put_back_rest(session, run.key, entry, entries);
                 outcome.bounced = true;
                 return outcome;
             }
@@ -298,7 +331,11 @@ async fn forward_key_run(
 #[async_trait]
 impl StashHandler for RouterStashHandler {
     fn stash_pending(&self, partition: u32) -> bool {
-        self.leader_backend.stash_table().has_entry(partition)
+        self.leader_backend.stash_table().is_pending(partition)
+    }
+
+    fn pending_partitions(&self) -> Vec<u32> {
+        self.leader_backend.stash_table().pending_partitions()
     }
 
     async fn begin_stash(&self, partition: u32, new_owner: &str) -> CoordResult<()> {
@@ -307,10 +344,7 @@ impl StashHandler for RouterStashHandler {
             new_owner,
             "beginning stash for partition handoff"
         );
-        self.leader_backend
-            .stash_table()
-            .begin_stash(partition)
-            .await;
+        self.leader_backend.stash_table().begin_stash(partition);
         Ok(())
     }
 
@@ -320,9 +354,9 @@ impl StashHandler for RouterStashHandler {
         new_owner: &str,
         cancel: CancellationToken,
     ) -> CoordResult<()> {
-        let stash_table = self.leader_backend.stash_table();
-        let Some(session) = stash_table.drain_session(partition) else {
-            // Nothing stashed — the partition never froze, or a prior
+        self.adopt_current_config(&cancel).await;
+        let Some(session) = self.leader_backend.stash_table().drain_session(partition) else {
+            // Nothing pending — the partition never froze, or a prior
             // drain already settled it.
             return Ok(());
         };
@@ -334,7 +368,10 @@ impl StashHandler for RouterStashHandler {
         // owner's entry stays in the cache unused — the routing table
         // no longer points at it — and is reclaimed only if that
         // address is ever resolved again; the cache has no eviction.
-        self.leader_backend.clear_client_cache(new_owner);
+        // A drain no handoff or assignment names has no new owner.
+        if !new_owner.is_empty() {
+            self.leader_backend.clear_client_cache(new_owner);
+        }
 
         let mut completed_total: u64 = 0;
         let mut bounced_waves: u32 = 0;
@@ -344,12 +381,17 @@ impl StashHandler for RouterStashHandler {
                 // flight, the backlog stays parked for the successor.
                 break;
             }
-            let taken = session.take_for_attempt(self.drain_concurrency).await;
+            let taken = session.take_for_attempt(self.drain_concurrency);
             if taken.is_empty() {
-                if session.finish_if_settled().await {
+                if session.finish_if_settled() {
                     break;
                 }
-                // An arrival raced the settle check; take again.
+                // An arrival raced the settle check, or another drain holds one of our keys.
+                metrics::counter!("personhog_router_stash_settle_retries_total").increment(1);
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    _ = tokio::time::sleep(SETTLE_RETRY) => {}
+                }
                 continue;
             }
 

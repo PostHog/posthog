@@ -5,11 +5,12 @@ import { dayjs } from 'lib/dayjs'
 import { getConstrainedWeekRange, parseDateInTimezone } from 'lib/utils/datetime'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils/strings'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
+import type { ResultSeries } from 'scenes/insights/utils/resultSeries'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { BreakdownFilter, DateRange } from '~/queries/schema/schema-general'
-import { ActionFilter, CompareLabelType, FilterType, IntervalType } from '~/types'
+import { CompareLabelType, IntervalType } from '~/types'
 
 export interface SeriesDatum {
     id: number // determines order that series will be displayed in
@@ -17,14 +18,13 @@ export interface SeriesDatum {
     datasetIndex: number
     breakdown_value?: string | number | string[]
     compare_label?: CompareLabelType
-    action?: ActionFilter
+    series?: ResultSeries
     label?: string
     date_label?: string
     order: number
     dotted?: boolean
     color?: string
     count: number
-    filter?: FilterType
     hideTooltip?: boolean
     anomalyScore?: number | null
 }

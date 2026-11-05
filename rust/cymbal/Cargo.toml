@@ -21,6 +21,7 @@ common-database = { path = "../common/database" }
 common-types = { path = "../common/types" }
 common-dns = { path = "../common/dns" }
 common-redis = { path = "../common/redis" }
+redis = { workspace = true }
 common-posthog = { path = "../common/posthog" }
 cymbal-proto = { path = "../cymbal-proto" }
 posthog-symbol-data = { path = "../common/symbol_data" }
@@ -60,9 +61,8 @@ common-temporal = { path = "../common/temporal" }
 
 
 [dev-dependencies]
+common-dns = { path = "../common/dns", features = ["test-util"] }
 common-compression = { path = "../common/compression" }
-# For constructing IO-flavored RedisErrors in redis_heal classifier tests
-redis = { workspace = true }
 httpmock = { workspace = true }
 mockall = { workspace = true }
 insta = { version = "1.46.0", features = ["json", "redactions"] }
