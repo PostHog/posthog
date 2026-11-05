@@ -1,4 +1,4 @@
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from posthog.test.base import BaseTest
@@ -12,8 +12,7 @@ import requests
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 
-from products.access_control.backend.models.access_control import AccessControl
-from products.access_control.backend.models.role import Role, RoleMembership
+from products.access_control.backend.facade import testing as access_testing
 from products.managed_warehouse.backend import member_teams, signals
 from products.managed_warehouse.backend.models import DuckgresServer
 
@@ -44,8 +43,8 @@ class _MemberTeamsTest(BaseTest):
         self.member = User.objects.create_and_join(self.organization, "member@posthog.com", "testtest")
         self.membership = OrganizationMembership.objects.get(organization=self.organization, user=self.member)
 
-    def _rule(self, team: Team, resource: str, level: str, **kwargs) -> AccessControl:
-        return AccessControl.objects.create(team=team, resource=resource, access_level=level, **kwargs)
+    def _rule(self, team: Team, resource: str, level: str, **kwargs) -> UUID:
+        return access_testing.create_access_control(team_id=team.id, resource=resource, access_level=level, **kwargs)
 
 
 class TestMemberTeams(_MemberTeamsTest):
@@ -70,7 +69,7 @@ class TestMemberTeams(_MemberTeamsTest):
 
     def test_an_explicit_member_rule_beats_the_default(self) -> None:
         self._rule(self.team, "warehouse_objects", "viewer")
-        self._rule(self.team, "warehouse_objects", "editor", organization_member=self.membership)
+        self._rule(self.team, "warehouse_objects", "editor", organization_member_id=self.membership.id)
         assert member_teams.member_teams(self.organization, self.member) == {self.team.id: "write"}
 
     def test_an_organization_admin_writes_whatever_the_rules_say(self) -> None:
@@ -188,26 +187,31 @@ class TestReceivers(_MemberTeamsTest):
             self.member.save()
         self.member_push.assert_called_once_with(str(self.organization.id), str(self.member.uuid))
 
-    def test_a_role_membership_is_pushed(self) -> None:
-        role = Role.objects.create(name="Analysts", organization=self.organization)
+    def test_a_role_membership_added_or_removed_is_pushed(self) -> None:
+        # The usual shape: a role membership with no organization membership on it.
+        role_id = access_testing.create_role(organization_id=self.organization.id, name="Analysts")
         with self.captureOnCommitCallbacks(execute=True):
-            RoleMembership.objects.create(role=role, user=self.member, organization_member=self.membership)
-        self.member_push.assert_called_with(str(self.organization.id), str(self.member.uuid))
+            role_membership_id = access_testing.add_role_member(role_id=role_id, user_id=self.member.id)
+        self.member_push.assert_called_once_with(str(self.organization.id), str(self.member.uuid))
+        self.member_push.reset_mock()
+        with self.captureOnCommitCallbacks(execute=True):
+            access_testing.remove_role_member(role_membership_id=role_membership_id)
+        self.member_push.assert_called_once_with(str(self.organization.id), str(self.member.uuid))
 
     def test_project_and_warehouse_rules_push_the_organization(self) -> None:
         for resource in ("project", "warehouse_objects"):
             self.org_push.reset_mock()
             with self.captureOnCommitCallbacks(execute=True):
-                rule = AccessControl.objects.create(team=self.team, resource=resource, access_level="viewer")
+                rule_id = self._rule(self.team, resource, "viewer")
             self.org_push.assert_called_once_with(str(self.organization.id))
             self.org_push.reset_mock()
             with self.captureOnCommitCallbacks(execute=True):
-                rule.delete()
+                access_testing.delete_access_control(access_control_id=rule_id)
             self.org_push.assert_called_once_with(str(self.organization.id))
 
     def test_other_rules_push_nothing(self) -> None:
         with self.captureOnCommitCallbacks(execute=True):
-            AccessControl.objects.create(team=self.team, resource="dashboard", access_level="viewer")
+            self._rule(self.team, "dashboard", "viewer")
         self.org_push.assert_not_called()
 
     def test_a_project_created_or_deleted_pushes_the_organization(self) -> None:
@@ -230,7 +234,7 @@ class TestReceivers(_MemberTeamsTest):
         with override_settings(HOGTOWER_MEMBER_TEAMS_PUSH_ENABLED=False):
             with self.captureOnCommitCallbacks(execute=True):
                 self.membership.delete()
-                AccessControl.objects.create(team=self.team, resource="project", access_level="none")
+                self._rule(self.team, "project", "none")
         self.member_push.assert_not_called()
         self.org_push.assert_not_called()
 

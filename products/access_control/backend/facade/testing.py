@@ -46,3 +46,12 @@ def create_access_control(
         organization_member_id=organization_member_id,
         role_id=role_id,
     ).id
+
+
+def delete_access_control(*, access_control_id: UUID) -> None:
+    """Delete one access control row, signals and all, as the production delete does."""
+    AccessControl.objects.get(id=access_control_id).delete()
+
+
+def remove_role_member(*, role_membership_id: UUID) -> None:
+    RoleMembership.objects.get(id=role_membership_id).delete()

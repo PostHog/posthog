@@ -104,14 +104,7 @@ def access_rule_changed(team_id: int, resource: str) -> None:
     _on_commit_organization(_team_organization_id(team_id))
 
 
-def role_membership_changed(user_id: int, organization_member_id: UUID | None) -> None:
-    if not member_teams.is_enabled() or organization_member_id is None:
-        return
-    organization_id = (
-        OrganizationMembership.objects.filter(pk=organization_member_id)
-        .values_list("organization_id", flat=True)
-        .first()
-    )
+def role_membership_changed(user_id: int, organization_id: UUID) -> None:
     _on_commit_member(organization_id, _user_uuid(user_id))
 
 
