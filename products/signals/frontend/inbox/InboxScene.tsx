@@ -5,7 +5,6 @@ import React, { useEffect, useRef } from 'react'
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -30,6 +29,7 @@ import { RunsTab } from './components/tabs/RunsTab'
 import { SettingsTab } from './components/tabs/SettingsTab'
 import { SourcesTab } from './components/tabs/SourcesTab'
 import { InboxTodayReportDetail } from './components/today/InboxTodayReportDetail'
+import { useInboxTodayStyle } from './components/today/useInboxTodayStyle'
 import { InboxTriageView } from './components/triage/InboxTriageView'
 import { captureInboxPanelViewed } from './inboxAnalytics'
 import { inboxSceneLogic } from './inboxSceneLogic'
@@ -146,7 +146,7 @@ function InboxListView(): JSX.Element {
  */
 function InboxDetailView({ report, backOverride }: { report: SignalReport; backOverride: string | null }): JSX.Element {
     const { reportDetailScrolled } = useActions(inboxSceneLogic)
-    const todayStyle = useFeatureFlag('INBOX_TODAY_STYLE')
+    const todayStyle = useInboxTodayStyle()
     // Report only the first scroll per report to the logic (which fires `Inbox report scrolled` once),
     // so a fast native scroll doesn't dispatch an action on every frame.
     const scrolledReportRef = useRef<string | null>(null)

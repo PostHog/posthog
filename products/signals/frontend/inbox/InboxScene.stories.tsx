@@ -226,7 +226,11 @@ export const ReportWithManyEvidenceItems: Story = reportWithEvidenceItems(12)
 export const ReportWithTwoEvidenceItems: Story = reportWithEvidenceItems(2)
 export const ReportWithoutEvidence: Story = reportWithEvidenceItems(0)
 
-const todayStyleFlags = { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.INBOX_TODAY_STYLE]: true }
+const todayStyleFlags = {
+    ...meta.parameters?.featureFlags,
+    [FEATURE_FLAGS.INBOX_TODAY_STYLE]: true,
+    [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+}
 
 function todayReportPage(reportId: string): ReportPageApi {
     const report = reportTabReports.find((candidate) => candidate.id === reportId) ?? reportTabReports[0]
