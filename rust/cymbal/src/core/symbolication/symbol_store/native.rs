@@ -67,17 +67,19 @@ impl ExtractionBudget {
     }
 
     // Fails with `NativeError::DataError` when the entry does not fit in the remaining budget,
-    // and with `NativeError::ParseError` when the entry cannot be read.
+    // and with `NativeError::ParseError` when the entry cannot be read. A read that fails, for
+    // example on a CRC mismatch at the end of the entry, still inflated its bytes, so they are
+    // charged before the error is returned.
     fn read(&mut self, entry: impl Read) -> Result<Vec<u8>, NativeError> {
         let mut data = Vec::new();
-        entry
+        let result = entry
             .take((self.remaining as u64).saturating_add(1))
-            .read_to_end(&mut data)
-            .map_err(|e| NativeError::ParseError(e.to_string()))?;
+            .read_to_end(&mut data);
         if data.len() > self.remaining {
             return Err(SymbolDataError::DecompressedTooLarge(self.max_bytes as u64).into());
         }
         self.remaining -= data.len();
+        result.map_err(|e| NativeError::ParseError(e.to_string()))?;
         Ok(data)
     }
 
@@ -620,6 +622,28 @@ mod test {
             ),
             FrameError::Apple(AppleError::DataError(too_large(LIMIT)))
         );
+    }
+
+    #[test]
+    fn extraction_budget_charges_bytes_from_a_failed_read() {
+        use std::io::{Cursor, Read};
+
+        use super::ExtractionBudget;
+
+        struct FailsAtEnd(Cursor<Vec<u8>>);
+        impl Read for FailsAtEnd {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                match self.0.read(buf)? {
+                    0 => Err(std::io::Error::other("checksum mismatch")),
+                    n => Ok(n),
+                }
+            }
+        }
+
+        let mut budget = ExtractionBudget::new(150);
+        let entry = || FailsAtEnd(Cursor::new(vec![0; 100]));
+        assert_eq!(budget.read_optional(entry()).unwrap(), None);
+        assert!(budget.read_optional(entry()).is_err());
     }
 
     #[test]
