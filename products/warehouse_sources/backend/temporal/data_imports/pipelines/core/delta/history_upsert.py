@@ -60,8 +60,7 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 
 STAGED_BATCH_COLUMN = "_ph_staged_batch"
-# Append order, `staging version << 32 | row`. It decides which of two rows with the same key and order value
-# wins, also between runs whose staged rows are finalized together, because the staging version only grows.
+# Append order, `staging version << 32 | row`: breaks ties on key and order value, across runs too.
 STAGED_ROW_COLUMN = "_ph_staged_row"
 _STAGING_COLUMNS = (STAGED_BATCH_COLUMN, STAGED_ROW_COLUMN)
 # deltalite refuses a source above this, counted with its key map.
@@ -72,7 +71,6 @@ MAX_CALL_BYTES = _SOURCE_GUARD_BYTES // 2
 CHUNK_TARGET_BYTES = 512 * 1024 * 1024
 # Rows per scanned batch, so one decoded batch of wide rows stays small next to the call budget.
 _SCAN_BATCH_ROWS = 16_384
-# Each chunk of a spill pass holds one open file while the staging table is read.
 _MAX_OPEN_CHUNK_FILES = 256
 # deltalite's source guard also counts its copies of the key, order and tie-break columns (about twice their
 # size) and a key-map entry plus two row indexes per row.
@@ -311,7 +309,6 @@ def _measure(dataset: ds.Dataset, columns: list[str], narrow_columns: list[str])
     for batch in _scanner(dataset, [*columns, STAGED_BATCH_COLUMN]).to_batches():
         tag_column = batch.column(STAGED_BATCH_COLUMN)
         tags.update(str(tag) for tag in pc.unique(tag_column).drop_null().to_pylist())
-        # The upsert never receives the tag column.
         footprint += _footprint(batch, narrow_columns) - tag_column.nbytes
     return footprint, tags
 
@@ -371,7 +368,6 @@ def _spill_chunks(
             aligned = align_incoming_decimals_to_delta(pa.Table.from_batches([staged]), history_schema)
             for batch in aligned.to_batches():
                 ids = handle.key_buckets(batch, list(key_columns), chunks)
-                # One sort per batch, then a slice per bucket, instead of a filter pass per bucket.
                 order = pc.sort_indices(ids)
                 sorted_batch = batch.take(order)
                 starts = np.searchsorted(ids.take(order).to_numpy(), np.arange(chunks + 1))
@@ -417,11 +413,8 @@ async def _history_upsert(
 ) -> tuple[Any, int]:
     """Read one call's rows inside its governor admission and write them. Returns the stats and the row count."""
     max_row_group_bytes = settings.DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES
-    # The rows are read only once admitted, so a finalize that waits for room holds none of them. That leaves
-    # no rows to size a rewrite profile from, and the governor plans for an unknown shape, which errs smaller.
-    # deltalite rewrites `current` with one worker and streams the closed versions to month files next to it,
-    # whatever plan the governor picks. Those writers hold at most the closed rows, about one per source row,
-    # so they count with the source.
+    # Rows are read only once admitted, so a finalize waiting for room holds none. The closed versions
+    # deltalite writes are at most one per source row, so they count with the source.
     async with get_governor().admit(source_bytes=2 * footprint, n_partitions=1) as adm:
         data = align_incoming_decimals_to_delta(await asyncio.to_thread(load), history_table.schema())
 
@@ -466,8 +459,7 @@ async def _history_upsert(
 
 
 async def _vacuum_staging(staging: "DeltaTableRef") -> None:
-    # The delete only tombstones the staged rows. The files go once they are past the retention every
-    # vacuum of this product keeps, so the staging table does not grow with every run.
+    # The delete only tombstones the rows. Vacuum drops their files past retention, so staging doesn't grow.
     staged = await staging.get_delta_table()
     if staged is None:
         return
