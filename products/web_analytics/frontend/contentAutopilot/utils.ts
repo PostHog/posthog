@@ -3,9 +3,11 @@ import { parseWebAnalyticsURL } from 'scenes/web-analytics/common'
 
 import type {
     AEOPromptCheckApi,
+    AEOPromptApi,
     AEOPromptImportResultApi,
     ContentAutopilotOpportunityApi,
     ContentAutopilotProposalListApi,
+    PatchedAEOPromptUpdateRequestApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
 const OPPORTUNITIES_STALE_AFTER_MS = 60 * 60 * 1000
@@ -94,4 +96,19 @@ export const promptImportMessage = ({ created, updated, skipped }: AEOPromptImpo
         skipped ? `Skipped ${pluralize(skipped, 'prompt')} (empty, too long, or archived).` : null,
     ].filter(Boolean)
     return sentences.join(' ') || 'No prompts changed.'
+}
+
+export const promptEditPatch = (
+    prompt: Pick<AEOPromptApi, 'prompt' | 'topic'>,
+    text: string,
+    topic: string
+): PatchedAEOPromptUpdateRequestApi | null => {
+    const patch: PatchedAEOPromptUpdateRequestApi = {}
+    if (text.trim() !== prompt.prompt) {
+        patch.prompt = text.trim()
+    }
+    if (topic.trim() !== prompt.topic) {
+        patch.topic = topic.trim()
+    }
+    return Object.keys(patch).length ? patch : null
 }

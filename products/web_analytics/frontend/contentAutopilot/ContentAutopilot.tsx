@@ -1,15 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlusSmall } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonCard,
-    LemonDialog,
-    LemonSelect,
-    LemonSkeleton,
-    LemonTabs,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonSelect, LemonSkeleton, LemonTabs } from '@posthog/lemon-ui'
 
 import { ContentAutopilotDrafts } from './ContentAutopilotDrafts'
 import { type ContentAutopilotWorkspaceTab, contentAutopilotLogic } from './contentAutopilotLogic'
@@ -19,6 +11,7 @@ import { ContentAutopilotPrompts } from './ContentAutopilotPrompts'
 import { ContentAutopilotPromptsOverview } from './ContentAutopilotPromptsOverview'
 import { ContentAutopilotProposalDetail } from './ContentAutopilotProposalDetail'
 import { ContentAutopilotSetup } from './ContentAutopilotSetup'
+import { ContentAutopilotSiteGate } from './ContentAutopilotSiteGate'
 
 export interface ContentAutopilotBotsTab {
     active: boolean
@@ -45,7 +38,6 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
         proposalsLoading,
         runMutationLoading,
         workspaceError,
-        workspaceErrors,
         workspaceInitialized,
         profileDataLoaded,
         visibleOpportunities,
@@ -83,21 +75,6 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
     if (!workspaceInitialized) {
         return <LemonSkeleton className="h-72 w-full" />
     }
-
-    // Prompt tracking and bots work without a site. Only content autopilot needs one.
-    const siteContent = (content: JSX.Element): JSX.Element =>
-        workspaceErrors.profiles && !profile ? (
-            <LemonCard hoverEffect={false} className="p-8 text-center">
-                <h2>Sites could not be loaded</h2>
-                <p className="text-muted">Try again before adding or changing a site.</p>
-            </LemonCard>
-        ) : !profile ? (
-            <ContentAutopilotSetup onboarding />
-        ) : !profileDataLoaded ? (
-            <LemonSkeleton className="h-72 w-full" />
-        ) : (
-            content
-        )
 
     return (
         <div className="flex flex-col gap-4">
@@ -176,7 +153,11 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
                             {
                                 key: 'opportunities',
                                 label: profile ? `Opportunities (${visibleOpportunities.length})` : 'Opportunities',
-                                content: siteContent(<ContentAutopilotOpportunities />),
+                                content: (
+                                    <ContentAutopilotSiteGate>
+                                        <ContentAutopilotOpportunities />
+                                    </ContentAutopilotSiteGate>
+                                ),
                             },
                             profile
                                 ? {
@@ -184,14 +165,22 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
                                       label: readyDraftCount
                                           ? `Drafts (${readyDraftCount} ready to review)`
                                           : `Drafts (${draftRows.length})`,
-                                      content: siteContent(<ContentAutopilotDrafts />),
+                                      content: (
+                                          <ContentAutopilotSiteGate>
+                                              <ContentAutopilotDrafts />
+                                          </ContentAutopilotSiteGate>
+                                      ),
                                   }
                                 : null,
                             profile
                                 ? {
                                       key: 'settings',
                                       label: 'Settings',
-                                      content: siteContent(<ContentAutopilotSetup />),
+                                      content: (
+                                          <ContentAutopilotSiteGate>
+                                              <ContentAutopilotSetup />
+                                          </ContentAutopilotSiteGate>
+                                      ),
                                   }
                                 : null,
                         ]}
