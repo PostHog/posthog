@@ -551,6 +551,28 @@ class TestRenameFlagCallScansToUnion(SimpleTestCase):
         assert collector.tables == expected_tables
         assert [refusal.reason for refusal in rename.refusals] == expected_refusals
 
+    @parameterized.expand(
+        [
+            ("no_flag_call_constant", "", []),
+            (
+                "flag_call_constant_elsewhere",
+                ", '$feature_flag_called' AS name",
+                ["it compares `event` with more values than the flag-call check reads"],
+            ),
+        ]
+    )
+    def test_scan_past_the_compared_values_budget(self, _name: str, extra_select: str, expected_refusals: list[str]):
+        select = _select(
+            f"SELECT count(){extra_select} FROM persons AS p JOIN events AS e ON p.id = e.person_id "
+            "WHERE e.event IN ('$pageview', '$autocapture', '$identify')"
+        )
+        with patch("posthog.hogql.transforms.flag_calls_union._COMPARED_VALUES_BUDGET", 2):
+            rename = rename_flag_call_scans_to_union(
+                select, flag_key_compares_as_string=lambda: True, only_in_flag_evaluations=True
+            )
+
+        assert [refusal.reason for refusal in rename.refusals] == expected_refusals
+
     def test_row_dependent_functions_cover_every_hogql_function_in_their_families(self):
         families = re.compile(
             r"^(rand|random|rowNumber|blockNumber|nowInBlock|generateUUID|generateULID|runningDifference|neighbor)"

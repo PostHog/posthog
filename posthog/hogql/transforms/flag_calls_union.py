@@ -67,7 +67,7 @@ from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
 )
 from posthog.hogql.transforms.order_by_pushdown import unwrap_alias
 from posthog.hogql.type_system import parse_sql_runtime_type
-from posthog.hogql.visitor import CloningVisitor
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.dataclasses import frozen
 from posthog.property_columns import TableColumn
@@ -504,6 +504,8 @@ class _FlagCallScan:
     position: int
     scan: EventsScan
     literals: list[ast.Constant]
+    # True when the finder stopped at the budget before it found a `$feature_flag_called` literal.
+    unchecked: bool
 
 
 def _flag_call_scans(
@@ -533,7 +535,14 @@ def _flag_call_scans(
                 )
             )
             if scan is not None and (finder := _flag_call_finder(node, scan, aliases)).names_flag_calls:
-                scans.append(_FlagCallScan(position=position, scan=scan, literals=finder.literals))
+                scans.append(
+                    _FlagCallScan(
+                        position=position,
+                        scan=scan,
+                        literals=finder.literals,
+                        unchecked=not finder.literals,
+                    )
+                )
         join = join.next_join
         position += 1
     return scans
@@ -783,7 +792,9 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
 
     @property
     def names_flag_calls(self) -> bool:
-        return bool(self.literals) or self.values_left < 0
+        # Past the budget the finder cannot tell which values it compares with `event`. A query without any
+        # `$feature_flag_called` constant cannot compare `event` with one, so only a query with one counts.
+        return bool(self.literals) or (self.values_left < 0 and _has_flag_called_constant(self.root))
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         if node is self.root:
@@ -842,6 +853,21 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
                     self.literals.append(named)
 
 
+def _has_flag_called_constant(node: ast.AST) -> bool:
+    finder = _FlagCalledConstantFinder()
+    finder.visit(node)
+    return finder.found
+
+
+class _FlagCalledConstantFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+
+    def visit_constant(self, node: ast.Constant) -> None:
+        self.found = self.found or node.value == FLAG_CALLED_EVENT
+
+
 class _UnionRenamer(ScanVisitor):
     def __init__(
         self,
@@ -866,6 +892,8 @@ class _UnionRenamer(ScanVisitor):
             if position == 0 and self._left_to_the_swap(node, scan, aliases):
                 continue
             refusal = _union_refusal(node, scan, position)
+            if refusal is not None and found.unchecked:
+                refusal = "it compares `event` with more values than the flag-call check reads"
             if refusal is not None:
                 self.refusals.append(UnionRefusal(join=scan.join, reason=refusal))
             else:
