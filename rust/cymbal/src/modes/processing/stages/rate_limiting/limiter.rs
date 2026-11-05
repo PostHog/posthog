@@ -189,6 +189,9 @@ mod tests {
         let limiter = RedisRateLimiter::new(FakeRunner::failing(), "test".into(), 3600)
             .with_shadow(Some(shadow.clone()));
         assert!(limiter.admit(42, None, None, None, 1).await.is_err());
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+        }
         assert_eq!(shadow.call_count(), 0);
     }
 

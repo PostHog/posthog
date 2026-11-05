@@ -328,14 +328,21 @@ async fn acquire_cooldown_locks_mirrored(
 ) -> Result<Vec<bool>, common_redis::CustomRedisError> {
     let result = acquire_cooldown_locks(redis, items).await?;
     if let Some(shadow) = shadow {
-        let shadow = shadow.clone();
-        let healing = shadow.clone();
-        let items = items.to_vec();
-        crate::modes::shadow_redis::submit(
-            "cooldown_acquire",
-            async move { acquire_cooldown_locks(&*shadow, &items).await },
-            async move { healing.reconnect().await },
-        );
+        let granted: Vec<_> = items
+            .iter()
+            .zip(&result)
+            .filter(|(_, acquired)| **acquired)
+            .map(|(item, _)| item.clone())
+            .collect();
+        if !granted.is_empty() {
+            let shadow = shadow.clone();
+            let healing = shadow.clone();
+            crate::modes::shadow_redis::submit(
+                "cooldown_acquire",
+                async move { acquire_cooldown_locks(&*shadow, &granted).await },
+                async move { healing.reconnect().await },
+            );
+        }
     }
     Ok(result)
 }
@@ -648,9 +655,65 @@ mod tests {
     use common_redis::MockRedisClient;
 
     #[tokio::test]
+    async fn mirrors_only_cooldown_locks_granted_by_primary() {
+        crate::modes::shadow_redis::with_test_circuit(async {
+            let denied = "cooldown/denied".to_string();
+            let granted = "cooldown/granted".to_string();
+            let mut primary_mock = MockRedisClient::new();
+            primary_mock.set_nx_ex_ret(&denied, Ok(false));
+            primary_mock.set_nx_ex_ret(&granted, Ok(true));
+            let shadow = Arc::new(MockRedisClient::new());
+            let shadow_client: Arc<dyn Client + Send + Sync> = shadow.clone();
+            let items = vec![(denied, 600), (granted.clone(), 600)];
+
+            let result = acquire_cooldown_locks_mirrored(
+                &primary_mock,
+                Some(&shadow_client),
+                &items,
+            )
+            .await
+            .unwrap();
+            assert_eq!(result, vec![false, true]);
+            tokio::time::timeout(std::time::Duration::from_secs(1), async {
+                while shadow.get_calls().is_empty() {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            let calls = shadow.get_calls();
+            assert_eq!(calls.len(), 1);
+            assert!(matches!(&calls[0].value, common_redis::MockRedisValue::VecString(keys) if keys == &vec![granted]));
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn does_not_mirror_refused_cooldown_locks() {
+        crate::modes::shadow_redis::with_test_circuit(async {
+            let primary = MockRedisClient::new();
+            let shadow = Arc::new(MockRedisClient::new());
+            let shadow_client: Arc<dyn Client + Send + Sync> = shadow.clone();
+            let items = vec![("cooldown/denied".to_string(), 600)];
+            let result = acquire_cooldown_locks_mirrored(&primary, Some(&shadow_client), &items)
+                .await
+                .unwrap();
+            for _ in 0..10 {
+                tokio::task::yield_now().await;
+            }
+            assert_eq!(result, vec![false]);
+            assert!(shadow.get_calls().is_empty());
+        })
+        .await;
+    }
+
+    #[tokio::test]
     async fn mirrors_spike_counters_sets_and_cooldowns() {
         let ctx = TestContext::new();
-        let primary: Arc<dyn Client + Send + Sync> = Arc::new(MockRedisClient::new());
+        let key = cooldown_key(&ctx.issue_id);
+        let mut primary_mock = MockRedisClient::new();
+        primary_mock.set_nx_ex_ret(&key, Ok(true));
+        let primary: Arc<dyn Client + Send + Sync> = Arc::new(primary_mock);
         let shadow = Arc::new(MockRedisClient::new());
         let shadow_client: Arc<dyn Client + Send + Sync> = shadow.clone();
         let counts = HashMap::from([(ctx.issue_id, 2)]);
@@ -664,7 +727,7 @@ mod tests {
             Some(&shadow_client),
         )
         .await;
-        let locks = vec![(cooldown_key(&ctx.issue_id), 3600)];
+        let locks = vec![(key.clone(), 3600)];
         let primary_result =
             acquire_cooldown_locks_mirrored(&*primary, Some(&shadow_client), &locks)
                 .await
@@ -680,7 +743,7 @@ mod tests {
         })
         .await
         .unwrap();
-        assert_eq!(primary_result.len(), 1);
+        assert_eq!(primary_result, vec![true]);
         let ops = shadow
             .get_calls()
             .into_iter()

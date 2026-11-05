@@ -238,25 +238,23 @@ fn submit_with_permits<T: Send + 'static>(
         let _permit = permit;
         match tokio::time::timeout(SHADOW_DEADLINE, write).await {
             Ok(Ok(_)) => metrics::counter!("cymbal_shadow_redis_operations_total", "operation" => operation, "outcome" => "ok").increment(1),
-            Ok(Err(error)) => {
-                metrics::counter!("cymbal_shadow_redis_operations_total", "operation" => operation, "outcome" => "error").increment(1);
-                if warn_for_shadow_failure() {
-                    warn!(%error, operation, "shadow Redis write failed");
-                }
-                if matches!(error, CustomRedisError::Timeout) {
-                    circuit.trip(generation, heal);
-                } else if is_connection_error(&error) {
-                    SHADOW_HEAL_GATE.get_or_init(HealGate::new).spawn_heal(async move {
-                        let _ = heal.await;
-                    });
-                }
-            }
-            Err(_) => {
+            Ok(Err(CustomRedisError::Timeout)) | Err(_) => {
                 metrics::counter!("cymbal_shadow_redis_operations_total", "operation" => operation, "outcome" => "timeout").increment(1);
                 if warn_for_shadow_failure() {
                     warn!(operation, "shadow Redis write timed out");
                 }
                 circuit.trip(generation, heal);
+            }
+            Ok(Err(error)) => {
+                metrics::counter!("cymbal_shadow_redis_operations_total", "operation" => operation, "outcome" => "error").increment(1);
+                if warn_for_shadow_failure() {
+                    warn!(%error, operation, "shadow Redis write failed");
+                }
+                if is_connection_error(&error) {
+                    SHADOW_HEAL_GATE.get_or_init(HealGate::new).spawn_heal(async move {
+                        let _ = heal.await;
+                    });
+                }
             }
         }
     });
@@ -433,6 +431,56 @@ mod tests {
         })
         .await
         .unwrap();
+    }
+
+    #[test]
+    fn client_timeout_records_timeout_instead_of_error() {
+        let recorder = DebuggingRecorder::new();
+        let circuit = Arc::new(ShadowCircuit::new());
+        let permits = Arc::new(Semaphore::new(1));
+        metrics::with_local_recorder(&recorder, || {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    submit_with_permits(
+                        &permits,
+                        &circuit,
+                        "test_client_timeout",
+                        async { Err::<(), _>(CustomRedisError::Timeout) },
+                        async { false },
+                    );
+                    tokio::time::timeout(Duration::from_secs(1), async {
+                        while !circuit.blocked.load(Ordering::Acquire) {
+                            tokio::task::yield_now().await;
+                        }
+                    })
+                    .await
+                    .unwrap();
+                });
+        });
+        let counts = recorder.snapshotter().snapshot().into_vec();
+        assert!(counts.iter().any(|(key, _, _, _)| {
+            key.key().name() == "cymbal_shadow_redis_operations_total"
+                && key.key().labels().any(|label| {
+                    label.key() == "operation" && label.value() == "test_client_timeout"
+                })
+                && key
+                    .key()
+                    .labels()
+                    .any(|label| label.key() == "outcome" && label.value() == "timeout")
+        }));
+        assert!(!counts.iter().any(|(key, _, _, _)| {
+            key.key().name() == "cymbal_shadow_redis_operations_total"
+                && key.key().labels().any(|label| {
+                    label.key() == "operation" && label.value() == "test_client_timeout"
+                })
+                && key
+                    .key()
+                    .labels()
+                    .any(|label| label.key() == "outcome" && label.value() == "error")
+        }));
     }
 
     #[test]
