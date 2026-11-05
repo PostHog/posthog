@@ -64,22 +64,19 @@ def get_task_reported_token_cost(*, team_id: int, task_id: UUID) -> Decimal | No
     """The model spend the task's agents reported across its runs, or `None` when it is unknown.
 
     The agent reports the SDK's running cost of each run in `state.budget_guard.sdk_total_usd`
-    after every settled turn, so the total is current the moment a turn ends. The `$ai_generation`
-    sum that `get_task_usage` reads arrives later. Each run reports its own cost from zero, so the
-    task total is the sum over runs. A run that settled no turn spent nothing. A run that settled
-    a turn without a reported cost, such as one on an adapter without a budget guard, makes the
-    total unknown.
+    after every settled turn. Each run reports its own cost from zero, so the task total is the
+    sum over runs. A run that settled no turn spent nothing. A run that settled a turn without a
+    reported cost, such as one on an adapter without a budget guard, makes the total unknown.
     """
     total = Decimal(0)
-    for state in TaskRun.objects.filter(team_id=team_id, task_id=task_id).values_list("state", flat=True):
-        state = state or {}
-        budget = state.get("budget_guard")
-        reported = budget.get("sdk_total_usd") if isinstance(budget, dict) else None
+    # Only two keys are read, and `state` holds much more, so Postgres extracts them per run.
+    runs = TaskRun.objects.filter(team_id=team_id, task_id=task_id).values_list(
+        "state__budget_guard__sdk_total_usd", "state__token_usage__turns"
+    )
+    for reported, turns in runs:
         if isinstance(reported, int | float) and not isinstance(reported, bool):
             total += Decimal(str(reported))
-            continue
-        usage = state.get("token_usage")
-        if isinstance(usage, dict) and usage.get("turns"):
+        elif turns:
             return None
     return total
 
