@@ -86,7 +86,6 @@ const FIXTURE_FILES: Record<string, string> = {
 
     'nodejs/src/reader.ts': [
         "import { PostgresUse } from './postgres'",
-        // A `/*` inside a string must not start a comment that hides the queries below it.
         'const glob = `${KEY}/*`',
         "const a = 'SELECT * FROM posthog_team'",
         "const b = 'SELECT * FROM posthog_session_session'",
@@ -102,10 +101,8 @@ const FIXTURE_FILES: Record<string, string> = {
         'const l = "SELECT \'//\' AS marker FROM posthog_ghost"',
         '// Rows move from posthog_ghost_comment once the job runs.',
     ].join('\n'),
-    // ClickHouse names can share an app prefix. A file without the Postgres client is not scanned for findings.
     'nodejs/src/clickhouse-reader.ts':
         "import { ClickHouseClient } from '@clickhouse/client'\nconst q = 'SELECT * FROM tracing_spans_distributed'\n",
-    // No known Postgres client, so the file counts. The block comment ends at its first */.
     'nodejs/src/pool-reader.ts': "/* note */ const q = 'SELECT * FROM posthog_pool_ghost'\n/* next */\n",
     'nodejs/src/reader.test.ts': "const h = 'SELECT * FROM unused_thing'\n",
 }

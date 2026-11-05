@@ -38,18 +38,15 @@ const MIGRATION_KEY = /\(\s*['"](\w+)['"]\s*,\s*['"](\w+)['"]\s*\)/g
 const ROUTED_APP_LABEL = /app_label:\s*['"]?(\w+)['"]?/g
 const LOWERCASE_IDENTIFIER = /\b[a-z][a-z0-9_]+\b/g
 const SQL_TABLE_NAME = String.raw`(?:"?public"?\.)?"?(?!(?:if|only)\b)[a-z_]\w*"?`
-// The capture holds a comma list, because `FROM a, b` reads both tables. An alias may follow each listed name.
 const SQL_TABLE_REFERENCE = new RegExp(
     String.raw`\b(?:FROM|JOIN|INTO|UPDATE|TABLE|TRUNCATE)\s+(?:ONLY\s+)?(?:IF\s+(?:NOT\s+)?EXISTS\s+)?` +
         String.raw`((?:${SQL_TABLE_NAME}(?:\s+(?:AS\s+)?"?\w+"?)?\s*,\s*)*${SQL_TABLE_NAME})`,
     'gi'
 )
 const SQL_TABLE_LIST_ITEM = new RegExp(String.raw`^\s*(${SQL_TABLE_NAME})`, 'i')
-// Prose in comments uses the same keywords ("update if", "wired from CDP_FETCH_*"). Only whole comment lines go,
-// because a `//` inside a SQL string would otherwise cut off the rest of the query.
+// Whole comment lines only: prose reuses SQL keywords, and a `//` inside a SQL string must not cut the query.
 const TS_COMMENT_LINE = /^\s*(?:\/\/.*|\/\*(?:(?!\*\/)[\s\S])*\*\/)$/gm
-// ClickHouse tables can share an app prefix (error_tracking_*, logs_*), so a file that names ClickHouse and no
-// Postgres client gives no findings. Any other file counts, so an unknown Postgres wrapper cannot hide a table.
+// ClickHouse tables share app prefixes, so a file that names ClickHouse and no Postgres client gives no findings.
 const POSTGRES_CLIENT_USE = /\bPostgresUse\b|\bPostgresRouter\b|\bTransactionClient\b|\bLazyPool\b|from 'pg'/
 const CLICKHOUSE_USE = /clickhouse/i
 
@@ -224,8 +221,7 @@ export function collectNodeSqlTables(nodeSourceDir: string): NodeSqlTables {
     return tables
 }
 
-// A routed app's table lives in a product database the check does not read. A prefixed table that no scanned
-// migration creates was made in a way the patterns miss. Unprefixed names (ClickHouse, CTEs) are out of scope.
+// Flags routed tables (product database, not checked) and prefixed tables no scanned migration creates.
 export function findUncoveredTables(
     nodeSqlTables: Set<string>,
     tableOwners: Map<string, Set<string>>,
