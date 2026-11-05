@@ -19,6 +19,7 @@ import { faviconUrl } from 'scenes/web-analytics/common'
 
 import type { ContentAutopilotOpportunityApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { ContentAutopilotDraftButton } from './ContentAutopilotDraftButton'
 import { MAX_DRAFTS_PER_RUN, contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotPageToUpdate } from './ContentAutopilotPageToUpdate'
 import { ContentAutopilotProposalStatusTag } from './ContentAutopilotProposalStatusTag'
@@ -62,7 +63,6 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
         opportunitySearch,
         opportunityProposals,
         pagesToUpdate,
-        rowDraftDisabledReason,
         draftingOpportunityIds,
     } = useValues(contentAutopilotLogic)
     const {
@@ -70,7 +70,6 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
         toggleOpportunitySelection,
         draftOpportunities,
         dismissOpportunity,
-        selectProposal,
         setShowDismissedOpportunities,
         setOpportunitySearch,
     } = useActions(contentAutopilotLogic)
@@ -253,34 +252,7 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
                             key: 'actions',
                             render: (_, opportunity) => (
                                 <div className="flex flex-nowrap items-center justify-end gap-1 whitespace-nowrap">
-                                    {opportunity.proposal_id &&
-                                    opportunity.status === 'drafted' &&
-                                    opportunityProposals[opportunity.id]?.lifecycle_status !== 'generating' ? (
-                                        <LemonButton
-                                            size="small"
-                                            type="secondary"
-                                            onClick={() => selectProposal(opportunity.proposal_id)}
-                                            data-attr="content-autopilot-review-opportunity-draft"
-                                        >
-                                            Review draft
-                                        </LemonButton>
-                                    ) : null}
-                                    {opportunity.status === 'new' ? (
-                                        <LemonButton
-                                            size="small"
-                                            type="secondary"
-                                            onClick={() => draftOpportunities([opportunity.id])}
-                                            loading={
-                                                runMutationLoading && draftingOpportunityIds.includes(opportunity.id)
-                                            }
-                                            disabledReason={rowDraftDisabledReason}
-                                            data-attr="content-autopilot-draft-opportunity"
-                                        >
-                                            {opportunity.recommended_type === 'page_improvement'
-                                                ? 'Draft changes'
-                                                : 'Draft page'}
-                                        </LemonButton>
-                                    ) : null}
+                                    <ContentAutopilotDraftButton opportunity={opportunity} />
                                     {opportunity.status !== 'dismissed' ? (
                                         <LemonButton
                                             size="small"

@@ -178,6 +178,7 @@ export interface contentAutopilotLogicValues {
     opportunities: ContentAutopilotOpportunityApi[] | null
     opportunitiesError: string | null
     opportunitiesLoading: boolean
+    opportunityByPromptId: Record<string, ContentAutopilotOpportunityApi>
     opportunityProposals: Record<string, ContentAutopilotProposalListApi>
     opportunitySearch: string
     pagesToUpdate: Record<string, ContentAutopilotPageTarget | null>
@@ -596,6 +597,9 @@ export interface contentAutopilotLogicMeta {
             proposalMutationLoading: boolean,
             exportedProposalLoading: boolean
         ) => ContentAutopilotProposalActionReasons
+        opportunityByPromptId: (
+            opportunities: ContentAutopilotOpportunityApi[] | null
+        ) => Record<string, ContentAutopilotOpportunityApi>
         visibleOpportunities: (
             opportunities: ContentAutopilotOpportunityApi[] | null,
             showDismissedOpportunities: boolean,
@@ -1233,6 +1237,15 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
                         (proposalMutationLoading ? 'Wait for your changes to save' : undefined),
                 }
             },
+        ],
+        opportunityByPromptId: [
+            (selectors) => [selectors.opportunities],
+            (opportunities: ContentAutopilotOpportunityApi[] | null): Record<string, ContentAutopilotOpportunityApi> =>
+                Object.fromEntries(
+                    (opportunities ?? []).flatMap((opportunity) =>
+                        opportunity.aeo_prompt_id ? [[opportunity.aeo_prompt_id, opportunity]] : []
+                    )
+                ),
         ],
         visibleOpportunities: [
             (selectors) => [selectors.opportunities, selectors.showDismissedOpportunities, selectors.opportunitySearch],

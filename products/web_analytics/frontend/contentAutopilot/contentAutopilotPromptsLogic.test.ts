@@ -41,7 +41,7 @@ describe('contentAutopilotPromptsLogic', () => {
         logic?.unmount()
     })
 
-    it('resets to the first page and sends the filters when the topic or archived filter changes', async () => {
+    it('resets to the first page and sends the filters when the topic, archived or needs improvement filter changes', async () => {
         logic = contentAutopilotPromptsLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -70,6 +70,17 @@ describe('contentAutopilotPromptsLogic', () => {
             offset: 0,
             topic: '',
             include_archived: true,
+        })
+
+        logic.actions.setPromptsPage(2)
+        logic.actions.setNeedsImprovement(true)
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ promptsPage: 1 })
+        expect(mockPromptsList).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            limit: PROMPTS_PAGE_SIZE,
+            offset: 0,
+            topic: '',
+            include_archived: true,
+            needs_improvement: true,
         })
     })
 

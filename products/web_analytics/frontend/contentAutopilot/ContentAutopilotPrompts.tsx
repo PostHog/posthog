@@ -5,6 +5,7 @@ import {
     LemonBanner,
     LemonButton,
     LemonCard,
+    LemonSegmentedButton,
     LemonSelect,
     LemonSkeleton,
     LemonSwitch,
@@ -18,6 +19,8 @@ import { TZLabel } from 'lib/components/TZLabel'
 import type { AEOPromptApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { ContentAutopilotCheckResultTag } from './ContentAutopilotCheckResultTag'
+import { ContentAutopilotDraftButton } from './ContentAutopilotDraftButton'
+import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotPromptActiveSwitch } from './ContentAutopilotPromptActiveSwitch'
 import { ContentAutopilotPromptDetail } from './ContentAutopilotPromptDetail'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
@@ -45,9 +48,18 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
         promptTopicsLoading,
         promptEngines,
         showArchived,
+        needsImprovement,
     } = useValues(contentAutopilotPromptsLogic)
-    const { loadAeoPrompts, loadAeoPromptTopics, openAddPrompts, setPromptsPage, setPromptsTopic, setShowArchived } =
-        useActions(contentAutopilotPromptsLogic)
+    const {
+        loadAeoPrompts,
+        loadAeoPromptTopics,
+        openAddPrompts,
+        setNeedsImprovement,
+        setPromptsPage,
+        setPromptsTopic,
+        setShowArchived,
+    } = useActions(contentAutopilotPromptsLogic)
+    const { opportunityByPromptId } = useValues(contentAutopilotLogic)
     const { openPromptDetail } = useActions(contentAutopilotPromptDetailLogic)
 
     if (promptsError === 'forbidden') {
@@ -63,6 +75,20 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                 site. Open a prompt to see the answers, edit it, or archive it.
             </p>
             <div className="flex flex-wrap items-center gap-2">
+                <LemonSegmentedButton
+                    size="small"
+                    value={needsImprovement ? 'needs-improvement' : 'all'}
+                    onChange={(value) => setNeedsImprovement(value === 'needs-improvement')}
+                    options={[
+                        { value: 'all', label: 'All prompts' },
+                        {
+                            value: 'needs-improvement',
+                            label: 'Needs improvement',
+                            tooltip: 'Prompts the AI assistants answered in the last 30 days without citing your site.',
+                        },
+                    ]}
+                    data-attr="content-autopilot-prompts-needs-improvement"
+                />
                 <LemonSelect
                     size="small"
                     aria-label="Topic"
@@ -124,7 +150,7 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                 promptsError ? null : (
                     <LemonSkeleton className="h-40 w-full" />
                 )
-            ) : count === 0 && promptsTopic === null && !showArchived ? (
+            ) : count === 0 && promptsTopic === null && !showArchived && !needsImprovement ? (
                 <LemonCard hoverEffect={false} className="p-6 text-center">
                     <h3 className="m-0">No prompts yet</h3>
                     <p className="m-0 mt-2 text-muted max-w-xl mx-auto">
@@ -137,7 +163,13 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                     dataSource={prompts.results}
                     rowKey="id"
                     loading={promptsLoading}
-                    emptyState={promptsTopic === null ? 'No prompts to show' : 'No prompts have this topic'}
+                    emptyState={
+                        needsImprovement
+                            ? 'No prompts need improvement. Every prompt answered in the last 30 days cited your site.'
+                            : promptsTopic === null
+                              ? 'No prompts to show'
+                              : 'No prompts have this topic'
+                    }
                     pagination={{
                         controlled: true,
                         pageSize: PROMPTS_PAGE_SIZE,
@@ -189,6 +221,15 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                                 ) : (
                                     <span className="text-muted whitespace-nowrap">Never</span>
                                 ),
+                        },
+                        {
+                            key: 'draft',
+                            render: (_, { id }) =>
+                                opportunityByPromptId[id] ? (
+                                    <div className="whitespace-nowrap">
+                                        <ContentAutopilotDraftButton opportunity={opportunityByPromptId[id]} />
+                                    </div>
+                                ) : null,
                         },
                         {
                             title: 'Active',

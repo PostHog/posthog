@@ -119,6 +119,7 @@ const aeoPromptsList = (): ToolBase<
                 active: params.active,
                 include_archived: params.include_archived,
                 limit: params.limit,
+                needs_improvement: params.needs_improvement,
                 offset: params.offset,
                 topic: params.topic,
             },

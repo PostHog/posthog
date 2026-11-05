@@ -48,6 +48,7 @@ export interface contentAutopilotPromptsLogicValues {
     currentTeamIdStrict: number | string // teamLogic
     addPromptsOpen: boolean
     addPromptsSubmitting: boolean
+    needsImprovement: boolean
     promptActiveUpdating: Record<string, boolean>
     promptEngines: string[]
     promptTopics: AEOPromptTopicApi[]
@@ -118,6 +119,9 @@ export interface contentAutopilotPromptsLogicActions {
     openAddPrompts: () => {
         value: true
     }
+    setNeedsImprovement: (needsImprovement: boolean) => {
+        needsImprovement: boolean
+    }
     setPromptActive: (
         promptId: string,
         active: boolean
@@ -168,6 +172,7 @@ export const contentAutopilotPromptsLogic = kea<contentAutopilotPromptsLogicType
         setPromptsPage: (page: number) => ({ page }),
         setPromptsTopic: (topic: string | null) => ({ topic }),
         setShowArchived: (showArchived: boolean) => ({ showArchived }),
+        setNeedsImprovement: (needsImprovement: boolean) => ({ needsImprovement }),
         setPromptActive: (promptId: string, active: boolean) => ({ promptId, active }),
         setPromptActiveSuccess: (prompt: AEOPromptApi) => ({ prompt }),
         setPromptActiveFailure: (promptId: string, active: boolean) => ({ promptId, active }),
@@ -188,6 +193,7 @@ export const contentAutopilotPromptsLogic = kea<contentAutopilotPromptsLogicType
                             offset: (values.promptsPage - 1) * PROMPTS_PAGE_SIZE,
                             topic: values.promptsTopic ?? undefined,
                             include_archived: values.showArchived || undefined,
+                            needs_improvement: values.needsImprovement || undefined,
                         })
                         breakpoint()
                         return response
@@ -242,6 +248,13 @@ export const contentAutopilotPromptsLogic = kea<contentAutopilotPromptsLogicType
                 setPromptsPage: (_, { page }) => page,
                 setPromptsTopic: () => 1,
                 setShowArchived: () => 1,
+                setNeedsImprovement: () => 1,
+            },
+        ],
+        needsImprovement: [
+            false,
+            {
+                setNeedsImprovement: (_, { needsImprovement }) => needsImprovement,
             },
         ],
         showArchived: [
@@ -321,6 +334,13 @@ export const contentAutopilotPromptsLogic = kea<contentAutopilotPromptsLogicType
         setShowArchived: ({ showArchived }) => {
             // pinned: analytics event name, renaming it breaks dashboards
             posthog.capture('web analytics content autopilot prompts archived shown', { show_archived: showArchived })
+            actions.loadAeoPrompts()
+        },
+        setNeedsImprovement: ({ needsImprovement }) => {
+            // pinned: analytics event name, renaming it breaks dashboards
+            posthog.capture('web analytics content autopilot prompts needs improvement filtered', {
+                needs_improvement: needsImprovement,
+            })
             actions.loadAeoPrompts()
         },
         setPromptsTopic: ({ topic }) => {
