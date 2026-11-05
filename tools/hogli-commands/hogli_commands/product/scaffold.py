@@ -241,6 +241,8 @@ def bootstrap_product(
     skipped: list[str] = []
 
     for path, config in flatten_structure(structure.get("root_files", {})).items():
+        if not config.get("scaffold", True):
+            continue
         file_path = product_dir / path
         if dry_run:
             (skipped if (file_path.exists() and not force) else created).append(path)
@@ -253,6 +255,8 @@ def bootstrap_product(
         created.append(path)
 
     for path, config in flatten_structure(structure.get("backend_files", {})).items():
+        if not config.get("scaffold", True):
+            continue
         file_path = product_dir / "backend" / path
         label = f"backend/{path}"
         if dry_run:
