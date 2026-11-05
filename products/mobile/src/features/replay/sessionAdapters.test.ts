@@ -3,6 +3,7 @@ import type { ObservationApi, WatchFeedItemApi } from '@/api/replayVision'
 
 import { parseSeekSeconds, shareSeconds } from './replayLinks'
 import {
+    countryFlag,
     fallbackTitle,
     formatDuration,
     formatOffset,
@@ -75,6 +76,19 @@ describe('session adapters', () => {
         [null, null, 'Anonymous person'],
     ])('labels a person %#', (person, distinctId, expected) => {
         expect(personLabel(person, distinctId)).toBe(expected)
+    })
+
+    test.each([
+        ['us', '🇺🇸'],
+        ['GB', '🇬🇧'],
+        ['  de ', '🇩🇪'],
+        ['USA', null],
+        ['ZZ', null],
+        ['', null],
+        [null, null],
+    ])('only renders usable country codes from profiles: %s', (code, expected) => {
+        const recording = recordingView({ id: 's-1', person: { properties: { $geoip_country_code: code } } })
+        expect(countryFlag(recording.countryCode)).toBe(expected)
     })
 
     test('formats offsets and durations', () => {
@@ -202,7 +216,11 @@ describe('session adapters', () => {
 
     test('the list puts the feed first, once per session, then the recordings it left out', () => {
         const recordings: RecordingApi[] = [
-            { id: 's-2', recording_duration: 60, person: { properties: { email: 'two@example.com' } } },
+            {
+                id: 's-2',
+                recording_duration: 60,
+                person: { properties: { email: 'two@example.com', $geoip_country_code: 'gb' } },
+            },
             { id: 's-1', recording_duration: 252 },
         ]
         const feed: WatchFeedItemApi[] = [
@@ -213,9 +231,9 @@ describe('session adapters', () => {
             { observation: observation({ id: 'obs-4', session_id: 's-1' }), reason: { kind: 'recent' } },
         ]
         const rows = sessionListRows(feed, recordings)
-        expect(rows.map((item) => [item.sessionId, item.title, item.durationSeconds])).toEqual([
-            ['s-1', 'Share fails', 252],
-            ['s-2', null, 60],
+        expect(rows.map((item) => [item.sessionId, item.title, item.durationSeconds, item.countryCode])).toEqual([
+            ['s-1', 'Share fails', 252, null],
+            ['s-2', null, 60, 'GB'],
         ])
     })
 

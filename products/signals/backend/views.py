@@ -182,8 +182,9 @@ from products.signals.backend.report_check_authoring import (
     CheckCreationError,
     CheckQueryAccessError,
     cancel_check,
-    replace_metric_check,
+    replace_check_with_metric,
 )
+from products.signals.backend.report_claim_follow_up import record_report_claimed
 from products.signals.backend.report_claims import (
     ReportClaim,
     actor_works_under_claim,
@@ -247,6 +248,7 @@ from products.signals.backend.reviewer_rules import ReviewerRules, ReviewerWrite
 from products.signals.backend.scout_authorship import inbox_hidden_report_filter
 from products.signals.backend.scout_harness.serializers import EmitReportRequestSerializer, EmitReportResponseSerializer
 from products.signals.backend.scout_harness.tools.report_author import (
+    AI_PROCESSING_NOT_APPROVED_REASON,
     USER_REPORT_DAILY_LIMIT,
     USER_REPORT_DAILY_LIMIT_REASON,
     UserReportAuthor,
@@ -2895,14 +2897,14 @@ class SignalReportViewSet(
             ),
             200: OpenApiResponse(
                 response=EmitReportResponseSerializer,
-                description=(
-                    "Nothing new was filed: a retry returned the first report (`idempotent_replay` true), "
-                    "or a preflight gate skipped the call (`skipped_reason` set)."
-                ),
+                description="Nothing new was filed: a retry returned the first report (`idempotent_replay` true).",
             ),
             400: OpenApiResponse(description="Invalid report shape (empty title, summary, or evidence)."),
             403: OpenApiResponse(
-                description="The caller is not a person, is a task sandbox, or report filing is not enabled."
+                description=(
+                    "The caller is not a person, is a task sandbox, report filing is not enabled, or the "
+                    "organization has not approved AI data processing."
+                )
             ),
             429: OpenApiResponse(description="The caller filed the daily maximum of reports for this project."),
         },
@@ -2931,6 +2933,12 @@ class SignalReportViewSet(
             client_name=resolve_external_agent_name(request),
         )
         result = emit_report_from_validated_data(team=self.team, author=author, data=request.validated_data)
+        if result.skipped_reason == AI_PROCESSING_NOT_APPROVED_REASON:
+            raise exceptions.PermissionDenied(
+                "This organization has not approved AI data processing, so no report was filed. An organization "
+                "admin must turn on 'Enable PostHog features that use third-party AI services' in "
+                "Organization settings → AI service providers."
+            )
         if result.skipped_reason == USER_REPORT_DAILY_LIMIT_REASON:
             resets_at = user_report_limit_resets_at(self.team)
             raise exceptions.Throttled(
@@ -2978,18 +2986,29 @@ class SignalReportViewSet(
         request_serializer.is_valid(raise_exception=True)
         report = cast(SignalReport, self.get_object())
         data = request_serializer.validated_data
+        actor = self._request_attribution()
+        was_impersonated = is_impersonated_session(request)
+        scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
         try:
             claim_report(
                 report=report,
-                actor=self._request_attribution(),
+                actor=actor,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=was_impersonated,
                 pr_url=data.get("pr_url"),
                 release=data["release"],
                 pull_requests=data.get("pull_requests"),
                 claim_id=str(data["claim_id"]) if data.get("claim_id") else None,
                 takeover=data["takeover"],
                 takeover_claim_id=str(data["takeover_claim_id"]) if data.get("takeover_claim_id") else None,
+                on_new_claim=partial(
+                    record_report_claimed,
+                    team_id=self.team.id,
+                    report_id=str(report.id),
+                    actor=actor,
+                    scoped_team_ids=tuple(scoped_team_ids) if scoped_team_ids is not None else None,
+                    was_impersonated=was_impersonated,
+                ),
             )
         except InvalidPullRequestUrl as err:
             raise serializers.ValidationError({"pr_url": str(err)})
@@ -6222,6 +6241,7 @@ def remove_suggested_reviewer(
                 ],
                 correction=correction,
                 forward_note=forward_note,
+                self_removal=True,
             )
         )
     return True
@@ -6235,6 +6255,7 @@ def _record_reviewer_edit(
     user_uuids: list[str],
     correction: ReviewerCorrection | None,
     forward_note: bool = True,
+    self_removal: bool = False,
 ) -> None:
     """The post-commit tail of a reviewer edit: steer the scouts, then record what the edit did.
 
@@ -6254,6 +6275,7 @@ def _record_reviewer_edit(
         correction_note_targets=forwarded.targets_resolved if forwarded else None,
         removal_reason=correction.removal_reason if correction else None,
         has_removal_note=bool(correction.removal_note) if correction and correction.removed_reviewers else None,
+        self_removal=self_removal,
     )
 
 
@@ -6381,8 +6403,8 @@ class SignalReportCheckViewSet(
     @validated_request(
         request_serializer=SignalReportCheckReplacementSerializer,
         responses={200: SignalReportCheckSerializer},
-        summary="Replace a metric follow-up check",
-        description="Atomically replace an open metric check. The old check stays live if the new one is invalid.",
+        summary="Replace a follow-up check with a metric",
+        description="Atomically replace an open agent or metric check with a metric check. The old check stays live if the new one is invalid.",
         operation_id="signals_report_checks_replace_create",
     )
     @action(detail=True, methods=["post"], url_path="replace", required_scopes=["inbox:write", "query:read"])
@@ -6390,7 +6412,7 @@ class SignalReportCheckViewSet(
         check = cast(SignalReportCheck, self.get_object())
         data = request.validated_data
         try:
-            replacement = replace_metric_check(
+            replacement = replace_check_with_metric(
                 check=check,
                 title=data["title"],
                 rationale=data.get("rationale", ""),
@@ -6568,6 +6590,9 @@ class SignalReportArtefactViewSet(
                 "signals_github_login_to_user_map": login_map,
                 "signals_reviewer_user_uuid_map": uuid_map,
                 "signals_scout_display_names": scout_display_names,
+                "signals_report_user_authored": SignalReport.objects.filter(
+                    id=self._validated_report_id(), team_id=self.team.id, user_authored=True
+                ).exists(),
                 "signals_compact_ranking_scores": True,
                 "signals_reviewer_history": [
                     artefact
