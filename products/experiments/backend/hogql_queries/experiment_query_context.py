@@ -32,6 +32,9 @@ class ExperimentQueryContext:
     breakdowns: tuple[Breakdown, ...]
     only_count_matured_users: bool
     cuped_config: CupedQueryConfig
+    # Whether a person-aggregated read of a preaggregated table follows person merges. The caller
+    # evaluates it once per query, so that every read of the query resolves persons the same way.
+    resolve_precomputed_persons: bool
     # When set, an entity only counts as exposed once it emits this event at/after its first
     # default exposure event, and that activation event's timestamp becomes the exposure time.
     activation_config: ExperimentEventExposureConfig | ActionsNode | None = None
@@ -39,6 +42,21 @@ class ExperimentQueryContext:
     # False for a metric that reads $feature_flag_called: the call and its copy share a timestamp,
     # so one of them would be the exposure and the other a conversion.
     read_exposure_copies: bool = True
+
+    def precomputed_entity_id_sql(self) -> str:
+        """
+        The entity that a row of an experiment preaggregated table belongs to, for a read that
+        aliases the table as `t`.
+
+        A group-aggregated read uses `entity_id`, which holds the group key. A person-aggregated
+        read uses the person stored in `entity_id` at build time, cast back to the UUID that the
+        downstream joins expect. With merge resolution on, it uses the table's `person_id`
+        instead, which follows a later identify or merge. Two rows that were built for different
+        persons and now belong to one person then count as one entity, as they do on the events scan.
+        """
+        if self.entity_key != "person_id":
+            return "t.entity_id"
+        return "t.person_id" if self.resolve_precomputed_persons else "toUUID(t.entity_id)"
 
 
 @dataclass(frozen=True)

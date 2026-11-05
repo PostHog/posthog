@@ -78,6 +78,7 @@ describe.each([
                 encryptedFields: infra.encryptedFields,
                 integrationManager: infra.integrationManager,
                 monitoringOutputs: createTestMonitoringOutputs(kafkaProducer),
+                teamManager: infra.teamManager,
             }),
         })
         jest.spyOn(infra.groupRepository, 'fetchGroup')

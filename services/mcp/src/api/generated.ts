@@ -17748,7 +17748,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.
+     * Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected.
      */
     export type RedshiftCopyInputsAuthorization = number | string | {
       aws_access_key_id: string;
@@ -17756,7 +17756,7 @@ export namespace Schemas {
     };
 
     /**
-     * Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.
+     * AWS S3 integration ID used to stage files in the S3 bucket. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected.
      */
     export type RedshiftCopyInputsBucketCredentials = number | {
       aws_access_key_id: string;
@@ -17773,9 +17773,9 @@ export namespace Schemas {
       region_name: string;
       /** Key prefix for staged files in the S3 bucket. */
       s3_key_prefix: string;
-      /** Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration. */
+      /** Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected. */
       authorization: RedshiftCopyInputsAuthorization;
-      /** Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration. */
+      /** AWS S3 integration ID used to stage files in the S3 bucket. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected. */
       bucket_credentials: RedshiftCopyInputsBucketCredentials;
     }
 
@@ -24818,6 +24818,264 @@ export namespace Schemas {
       member_ids?: number[];
       /** Star a new channel for the requester. This field does not change stars on an existing channel. */
       star?: boolean;
+    }
+
+    /**
+     * * `time_series` - Time series
+     */
+    export type ChartExplanationShapeEnum = typeof ChartExplanationShapeEnum[keyof typeof ChartExplanationShapeEnum];
+
+
+    export const ChartExplanationShapeEnum = {
+      TimeSeries: 'time_series',
+    } as const;
+
+    export interface StorySeriesResult {
+      /**
+         * The series name.
+         * @maxLength 400
+         */
+      label?: string;
+      /**
+         * One value per point. Saved for the followed series only.
+         * @maxItems 5000
+         */
+      data?: number[];
+      /**
+         * The date of each point, in the query's timezone. Saved for the followed series only.
+         * @maxItems 5000
+         */
+      days?: string[];
+    }
+
+    /**
+     * * `high` - High confidence
+     * * `medium` - Medium confidence
+     * * `low` - Low confidence
+     */
+    export type StoryConfidenceEnum = typeof StoryConfidenceEnum[keyof typeof StoryConfidenceEnum];
+
+
+    export const StoryConfidenceEnum = {
+      High: 'high',
+      Medium: 'medium',
+      Low: 'low',
+    } as const;
+
+    /**
+     * * `query-trends` - Trends
+     * * `query-funnel` - Funnel
+     * * `query-retention` - Retention
+     * * `query-stickiness` - Stickiness
+     * * `query-paths` - Paths
+     * * `query-lifecycle` - Lifecycle
+     */
+    export type StoryEvidenceQueryToolEnum = typeof StoryEvidenceQueryToolEnum[keyof typeof StoryEvidenceQueryToolEnum];
+
+
+    export const StoryEvidenceQueryToolEnum = {
+      QueryTrends: 'query-trends',
+      QueryFunnel: 'query-funnel',
+      QueryRetention: 'query-retention',
+      QueryStickiness: 'query-stickiness',
+      QueryPaths: 'query-paths',
+      QueryLifecycle: 'query-lifecycle',
+    } as const;
+
+    /**
+     * * `line` - Line
+     * * `bar` - Bar
+     */
+    export type StoryEvidenceChartTypeEnum = typeof StoryEvidenceChartTypeEnum[keyof typeof StoryEvidenceChartTypeEnum];
+
+
+    export const StoryEvidenceChartTypeEnum = {
+      Line: 'line',
+      Bar: 'bar',
+    } as const;
+
+    export interface StoryEvidenceSeries {
+      /** The breakdown value or column this line draws. */
+      name: string;
+      /**
+         * One value per label. Null where the breakdown value has no row for that point.
+         * @maxItems 5000
+         */
+      values: (number | null)[];
+    }
+
+    export interface StoryEvidenceChart {
+      /** How the evidence chart draws its series.
+       *
+       * * `line` - Line
+       * * `bar` - Bar */
+      type: StoryEvidenceChartTypeEnum;
+      /**
+         * The x-axis points.
+         * @maxItems 5000
+         */
+      labels: string[];
+      /**
+         * The axis label of each point, which leaves out a date that repeats.
+         * @maxItems 5000
+         */
+      ticks?: string[];
+      /** The lines or bars to draw. */
+      series: StoryEvidenceSeries[];
+      /**
+         * The y-axis label, if any.
+         * @nullable
+         */
+      yAxisLabel: string | null;
+    }
+
+    /**
+     * The query that shows the fact. The page links to it.
+     * @nullable
+     */
+    export type StoryEvidenceQuery = {[key: string]: unknown} | null;
+
+    export interface StoryEvidence {
+      /**
+         * One fact that supports the chapter, in one sentence.
+         * @maxLength 400
+         */
+      text: string;
+      /**
+         * The query that shows the fact. The page links to it.
+         * @nullable
+         */
+      query?: StoryEvidenceQuery;
+      /**
+         * The short id of a saved insight that shows the fact. The page links to it.
+         * @nullable
+         * @pattern ^[A-Za-z0-9]{8}$
+         */
+      insightShortId?: string | null;
+      /**
+         * A link to the GitHub pull request or commit behind the fact. No other links are accepted.
+         * @maxLength 500
+         * @nullable
+         */
+      url?: string | null;
+      /** The MCP query tool that can redraw `query`. The page redraws the query only when this is set.
+       *
+       * * `query-trends` - Trends
+       * * `query-funnel` - Funnel
+       * * `query-retention` - Retention
+       * * `query-stickiness` - Stickiness
+       * * `query-paths` - Paths
+       * * `query-lifecycle` - Lifecycle */
+      queryTool?: StoryEvidenceQueryToolEnum | null;
+      /** The fact drawn as a chart, from its SQL. */
+      chart?: StoryEvidenceChart | null;
+    }
+
+    export interface StoryChapter {
+      /**
+         * The moment on the chart this chapter explains.
+         * @maxLength 80
+         */
+      title: string;
+      /**
+         * Inclusive indexes into the series' points. Null when the chapter's dates match no point.
+         * @minItems 2
+         * @maxItems 2
+         * @nullable
+         * @items.minimum 0
+         */
+      range: number[] | null;
+      /**
+         * What happened in this moment.
+         * @maxLength 400
+         * @nullable
+         */
+      summary: string | null;
+      /**
+         * The likely cause of this moment.
+         * @maxLength 600
+         * @nullable
+         */
+      cause: string | null;
+      /** How sure the investigation is of the cause.
+       *
+       * * `high` - High confidence
+       * * `medium` - Medium confidence
+       * * `low` - Low confidence */
+      confidence: StoryConfidenceEnum | null;
+      /**
+         * Why the confidence is what it is.
+         * @maxLength 200
+         * @nullable
+         */
+      confidenceReason: string | null;
+      /** The facts behind the cause. */
+      evidence: StoryEvidence[];
+    }
+
+    /**
+     * The insight query the explanation follows.
+     */
+    export type ExplainChartDataQuery = {[key: string]: unknown};
+
+    export interface ExplainChartData {
+      /** What the explanation walks through, whichever insight drew the chart. A funnel over time is a time series too.
+       *
+       * * `time_series` - Time series */
+      shape?: ChartExplanationShapeEnum;
+      /** The insight query the explanation follows. */
+      query: ExplainChartDataQuery;
+      /** Every series on the chart when it was explained. */
+      results: StorySeriesResult[];
+      /**
+         * The index in `results` the explanation follows.
+         * @minimum 0
+         */
+      seriesIndex: number;
+      /**
+         * The insight's name.
+         * @maxLength 400
+         * @nullable
+         */
+      insightName: string | null;
+      /** Whether the last point's period had not ended yet. */
+      lastPointInProgress: boolean;
+      /**
+         * One sentence a person could read in place of the whole explanation.
+         * @maxLength 300
+         */
+      headline: string;
+      /** The moments that stand out, in reading order. */
+      chapters: StoryChapter[];
+      /**
+         * Warnings the chart's query came back with.
+         * @maxItems 20
+         */
+      warnings?: unknown[];
+    }
+
+    export interface ChartExplanationAuthor {
+      /** The user's id. */
+      id: number;
+      /** The user's first name. */
+      first_name: string;
+      /** The user's last name. */
+      last_name: string;
+      /** The user's email address. */
+      email: string;
+    }
+
+    export interface ChartExplanation {
+      /** The chart explanation, as the insight page shows it. */
+      data: ExplainChartData;
+      /** Who saved the explanation, directly or through an agent. */
+      created_by: ChartExplanationAuthor | null;
+      /** The explanation's id, which its link carries. */
+      id: string;
+      /** The insight the explanation belongs to. */
+      insight_id: number;
+      /** When the explanation was first saved. */
+      created_at: string;
     }
 
     /**
@@ -36495,6 +36753,17 @@ export namespace Schemas {
     }
 
     /**
+     * One external issue the report is about.
+     */
+    export interface SourceIssueWrite {
+      /**
+         * The issue's URL, `https://github.com/<owner>/<repo>/issues/<number>`. Only GitHub issues are accepted today. Pull request URLs are rejected.
+         * @maxLength 500
+         */
+      url: string;
+    }
+
+    /**
      * Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones.
      */
     export interface EditReportRequest {
@@ -36579,6 +36848,11 @@ export namespace Schemas {
          */
       links?: ReportLinkWrite[];
       /**
+         * The GitHub issues this report is about, when the finding came from an issue tracker. Pass the issue whenever the report is about one, so the report links back to it: a GitHub issue signal for the same issue then joins this report instead of opening a second one. When the project turned on GitHub issue comments, the issue gets one comment that links the report once its GitHub source ingests the issue. At most 5 per call. Additive: issues join the ones the report already names, and an issue it already names is skipped. Only a newly added issue gets a comment.
+         * @maxItems 5
+         */
+      source_issues?: SourceIssueWrite[];
+      /**
          * The report's full set of slug tags, at most 10. Replaces the report's tags rather than adding to them, so send every tag you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to remove them. Reuse a slug the project already uses before you coin a new one.
          * @maxItems 10
          * @nullable
@@ -36635,6 +36909,8 @@ export namespace Schemas {
       evidence_appended: number;
       /** How many typed report-to-report links this edit wrote; 0 if none. */
       links_appended: number;
+      /** How many source issues this edit added that the report did not name yet; 0 if none. */
+      source_issues_appended: number;
       /** Whether the report's suggested reviewers were replaced. */
       reviewers_set: boolean;
       /** Whether the report's repository was replaced (true for a cleared target too). */
@@ -37184,6 +37460,30 @@ export namespace Schemas {
     }
 
     /**
+     * * `queued` - Queued
+     * * `failed` - Failed
+     * * `sent` - Sent
+     * * `delivered` - Delivered
+     * * `bounced` - Bounced
+     * * `complained` - Complained
+     * * `opened` - Opened
+     * * `clicked` - Clicked
+     */
+    export type EmailLogEventKindEnum = typeof EmailLogEventKindEnum[keyof typeof EmailLogEventKindEnum];
+
+
+    export const EmailLogEventKindEnum = {
+      Queued: 'queued',
+      Failed: 'failed',
+      Sent: 'sent',
+      Delivered: 'delivered',
+      Bounced: 'bounced',
+      Complained: 'complained',
+      Opened: 'opened',
+      Clicked: 'clicked',
+    } as const;
+
+    /**
      * How much workflow email this project may send, and how much of that it has used.
      */
     export interface EmailSendingAllowance {
@@ -37191,14 +37491,10 @@ export namespace Schemas {
       readonly tier: number;
       /** The highest tier there is, so the current tier can be shown as progress. */
       readonly max_tier: number;
-      /** How many emails this tier allows per hour. */
-      readonly emails_per_hour: number;
       /** How many emails this tier allows per day. */
       readonly emails_per_day: number;
       /** The largest audience this tier allows for a single batch send. */
       readonly max_batch_audience: number;
-      /** Emails sent by this project's workflows in the last hour. */
-      readonly emails_sent_last_hour: number;
       /** Emails sent by this project's workflows in the last 24 hours. */
       readonly emails_sent_last_day: number;
       /** True when these allowances are applied to sends. False while they are only being measured. */
@@ -37557,6 +37853,11 @@ export namespace Schemas {
          * @maxItems 10
          */
       links?: ReportLinkWrite[];
+      /**
+         * The GitHub issues this report is about, when the finding came from an issue tracker. Pass the issue whenever the report is about one, so the report links back to it: a GitHub issue signal for the same issue then joins this report instead of opening a second one. When the project turned on GitHub issue comments, the issue gets one comment that links the report once its GitHub source ingests the issue. At most 5 per call.
+         * @maxItems 5
+         */
+      source_issues?: SourceIssueWrite[];
       /**
          * Optional slug tags that group the report with related ones, at most 10. Write lowercase kebab-case slugs that name the category of the report (`cost-spike`, `tracking-gap`), not the specific entity. Reuse a slug the project already uses before you coin a new one. Near-miss formats are normalized to slugs, and a tag that is empty or longer than 50 characters after normalization is rejected.
          * @maxItems 10
@@ -42195,38 +42496,65 @@ export namespace Schemas {
 
     export interface EventsRetention {
       /**
-         * The window, in months, that every project without its own window uses. Null while the organization keeps events for its plan's window.
+         * The period, in months, that every project without its own period uses. Null while those projects use the default period.
          * @nullable
          */
       readonly organization_retention_months: number | null;
-      /** The longest window the organization's plan allows, in months. */
+      /** The period, in months, that projects use while no period is set for them or their organization. 24 months on current plans, never longer than the plan's period and never shorter than the shortest period an admin can set. Plans from before the 24-month default use the plan's period. */
+      readonly default_retention_months: number;
+      /** Whether the default is longer than 24 months because the plan predates the 24-month default. */
+      readonly default_is_grandfathered: boolean;
+      /** The periods, in months, an admin can choose from. A save also has to be between min_retention_months and max_retention_months. Only PostHog staff can set other periods. */
+      readonly retention_months_choices: readonly number[];
+      /** The longest period the organization's plan allows, in months. */
       readonly plan_retention_months: number;
-      /** The shortest window an admin can set, in months. */
+      /** The shortest period an admin can set, in months. */
       readonly min_retention_months: number;
-      /** The longest window an admin can set, in months. Never longer than the plan's window. */
+      /** The longest period an admin can set, in months. Never longer than the plan's period. */
       readonly max_retention_months: number;
+      /** The date of the next monthly cleanup, in the timezone it runs in. */
+      readonly next_monthly_cleanup_on: string;
       /**
-         * How many months of events stay queryable, counted back from today. Null while no retention window applies to the project.
+         * How many months of events stay queryable, counted back from today. Null while no retention period applies to the project.
          * @nullable
          */
       readonly retention_months: number | null;
       /**
-         * The earliest date whose events are still queryable, in the project's timezone. Null while no retention window applies to the project.
+         * The earliest date whose events are still queryable, in the project's timezone. Null while no retention period applies to the project.
          * @nullable
          */
       readonly retained_from: string | null;
       /** Where the events retention policy is documented. */
       readonly docs_url: string;
       /**
-         * The window, in months, set for this project. Null while the project uses the organization's window.
+         * The period, in months, set for this project. Null while the project uses the organization's period.
          * @nullable
          */
       readonly project_retention_months: number | null;
+      /**
+         * The date of the next cleanup that deletes this project's events. Null while no deletion is scheduled.
+         * @nullable
+         */
+      readonly next_deletion_on: string | null;
+      /**
+         * The next cleanup deletes this project's events from before this date. Null while no deletion is scheduled.
+         * @nullable
+         */
+      readonly next_deletion_before: string | null;
+      /**
+         * The next cleanup every 3 months that deletes this project's events past its current period. Null while the project has none scheduled.
+         * @nullable
+         */
+      readonly scheduled_pass_on: string | null;
+      /** The earliest cleanup every 3 months for a period that gets shorter today. */
+      readonly first_pass_on: string;
+      /** Whether the cleanup deletes this project's events past the default period while no period is set. */
+      readonly default_period_deletes: boolean;
     }
 
     export interface EventsRetentionUpdate {
       /**
-         * The window in months. Events older than this are deleted on the next monthly cleanup and can't be restored. Null removes the window.
+         * The period in months, one of retention_months_choices. Older events are deleted at the next monthly cleanup and can't be restored. Null removes the period.
          * @minimum 1
          * @nullable
          */
@@ -43104,6 +43432,60 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `flag_state` - Flag State
+     * * `flag_shared` - Flag Shared
+     * * `flag_history` - Flag History
+     * * `split_changed_mid_run` - Split Changed Mid Run
+     * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+     * * `flag_variants_mismatch` - Flag Variants Mismatch
+     * * `forced_variant_release_condition` - Forced Variant Release Condition
+     * * `new_flag_no_traffic` - New Flag No Traffic
+     * * `no_metric` - No Metric
+     * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_cannot_compile` - Metric Cannot Compile
+     * * `metric_calculation_failed` - Metric Calculation Failed
+     * * `metric_all_zero` - Metric All Zero
+     * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `exposure_filters` - Exposure Filters
+     * * `early_significance` - Early Significance
+     * * `metrics_not_matured` - Metrics Not Matured
+     * * `zero_exposures` - Zero Exposures
+     * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
+     * * `srm` - Srm
+     * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+     * * `multiple_variants_share` - Multiple Variants Share
+     */
+    export type ExperimentHealthCheckKeyEnum = typeof ExperimentHealthCheckKeyEnum[keyof typeof ExperimentHealthCheckKeyEnum];
+
+
+    export const ExperimentHealthCheckKeyEnum = {
+      FlagState: 'flag_state',
+      FlagShared: 'flag_shared',
+      FlagHistory: 'flag_history',
+      SplitChangedMidRun: 'split_changed_mid_run',
+      BucketingChangedMidRun: 'bucketing_changed_mid_run',
+      ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
+      FlagVariantsMismatch: 'flag_variants_mismatch',
+      ForcedVariantReleaseCondition: 'forced_variant_release_condition',
+      NewFlagNoTraffic: 'new_flag_no_traffic',
+      NoMetric: 'no_metric',
+      MetricEventNotIngested: 'metric_event_not_ingested',
+      MetricCannotCompile: 'metric_cannot_compile',
+      MetricCalculationFailed: 'metric_calculation_failed',
+      MetricAllZero: 'metric_all_zero',
+      ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
+      ExposureFilters: 'exposure_filters',
+      EarlySignificance: 'early_significance',
+      MetricsNotMatured: 'metrics_not_matured',
+      ZeroExposures: 'zero_exposures',
+      TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
+      Srm: 'srm',
+      BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
+      MultipleVariantsShare: 'multiple_variants_share',
+    } as const;
+
+    /**
      * The values behind the finding, such as the key of a shipped variant or the share of users exposed to multiple variants. The keys depend on the code.
      */
     export type ExperimentHealthFindingEvidence = {[key: string]: string | number | boolean | null};
@@ -43166,61 +43548,33 @@ export namespace Schemas {
          * @nullable
          */
       diagnostic_ref: string | null;
+      /** The key of the check in `checks` that reported the finding. A check can report several codes, so the code doesn't name the check.
+       *
+       * * `flag_state` - Flag State
+       * * `flag_shared` - Flag Shared
+       * * `flag_history` - Flag History
+       * * `split_changed_mid_run` - Split Changed Mid Run
+       * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+       * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+       * * `flag_variants_mismatch` - Flag Variants Mismatch
+       * * `forced_variant_release_condition` - Forced Variant Release Condition
+       * * `new_flag_no_traffic` - New Flag No Traffic
+       * * `no_metric` - No Metric
+       * * `metric_event_not_ingested` - Metric Event Not Ingested
+       * * `metric_cannot_compile` - Metric Cannot Compile
+       * * `metric_calculation_failed` - Metric Calculation Failed
+       * * `metric_all_zero` - Metric All Zero
+       * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+       * * `exposure_filters` - Exposure Filters
+       * * `early_significance` - Early Significance
+       * * `metrics_not_matured` - Metrics Not Matured
+       * * `zero_exposures` - Zero Exposures
+       * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
+       * * `srm` - Srm
+       * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+       * * `multiple_variants_share` - Multiple Variants Share */
+      check: ExperimentHealthCheckKeyEnum;
     }
-
-    /**
-     * * `flag_state` - Flag State
-     * * `flag_shared` - Flag Shared
-     * * `flag_history` - Flag History
-     * * `split_changed_mid_run` - Split Changed Mid Run
-     * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
-     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
-     * * `flag_variants_mismatch` - Flag Variants Mismatch
-     * * `forced_variant_release_condition` - Forced Variant Release Condition
-     * * `new_flag_no_traffic` - New Flag No Traffic
-     * * `no_metric` - No Metric
-     * * `metric_event_not_ingested` - Metric Event Not Ingested
-     * * `metric_cannot_compile` - Metric Cannot Compile
-     * * `metric_calculation_failed` - Metric Calculation Failed
-     * * `metric_all_zero` - Metric All Zero
-     * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
-     * * `exposure_filters` - Exposure Filters
-     * * `early_significance` - Early Significance
-     * * `metrics_not_matured` - Metrics Not Matured
-     * * `zero_exposures` - Zero Exposures
-     * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
-     * * `srm` - Srm
-     * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
-     * * `multiple_variants_share` - Multiple Variants Share
-     */
-    export type ExperimentHealthCheckKeyEnum = typeof ExperimentHealthCheckKeyEnum[keyof typeof ExperimentHealthCheckKeyEnum];
-
-
-    export const ExperimentHealthCheckKeyEnum = {
-      FlagState: 'flag_state',
-      FlagShared: 'flag_shared',
-      FlagHistory: 'flag_history',
-      SplitChangedMidRun: 'split_changed_mid_run',
-      BucketingChangedMidRun: 'bucketing_changed_mid_run',
-      ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
-      FlagVariantsMismatch: 'flag_variants_mismatch',
-      ForcedVariantReleaseCondition: 'forced_variant_release_condition',
-      NewFlagNoTraffic: 'new_flag_no_traffic',
-      NoMetric: 'no_metric',
-      MetricEventNotIngested: 'metric_event_not_ingested',
-      MetricCannotCompile: 'metric_cannot_compile',
-      MetricCalculationFailed: 'metric_calculation_failed',
-      MetricAllZero: 'metric_all_zero',
-      ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
-      ExposureFilters: 'exposure_filters',
-      EarlySignificance: 'early_significance',
-      MetricsNotMatured: 'metrics_not_matured',
-      ZeroExposures: 'zero_exposures',
-      TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
-      Srm: 'srm',
-      BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
-      MultipleVariantsShare: 'multiple_variants_share',
-    } as const;
 
     /**
      * * `passed` - Passed
@@ -43239,45 +43593,146 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `percentage` - Percentage of exposed units
-     * * `p_value` - P-value of a statistical test
+     * * `exposed_count` - Users or groups exposed since launch, as the exposure criteria count them, including those exposed to multiple variants
+     * * `compared_count` - Exposed users or groups in the variants that the sample ratio test compares, without those exposed to multiple variants
+     * * `multiple_variant_count` - Users or groups exposed to more than one variant
+     * * `multiple_variant_percentage` - multiple_variant_count as a share of exposed_count
+     * * `multiple_variant_handling` - What the results do with users exposed to more than one variant: exclude or first_seen
+     * * `p_value` - P-value of the sample ratio test
+     * * `since_launch_hours` - Hours since launch
+     * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
+     * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+     * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
+     * * `primary_metric_count` - Primary metrics that the calculation computes
+     * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
+     * * `metric_count` - Metrics that the calculation computes
+     * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
+     * * `failed_metric_count` - Metrics whose latest calculation failed
+     * * `calculated_at` - When the latest calculation of the metrics finished
+     * * `flag_active` - Whether the feature flag is enabled
+     * * `flag_deleted` - Whether the feature flag is deleted
+     * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
+     * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
      */
-    export type ExperimentHealthMeasurementUnitEnum = typeof ExperimentHealthMeasurementUnitEnum[keyof typeof ExperimentHealthMeasurementUnitEnum];
+    export type ExperimentHealthValueKeyEnum = typeof ExperimentHealthValueKeyEnum[keyof typeof ExperimentHealthValueKeyEnum];
 
 
-    export const ExperimentHealthMeasurementUnitEnum = {
-      Percentage: 'percentage',
+    export const ExperimentHealthValueKeyEnum = {
+      ExposedCount: 'exposed_count',
+      ComparedCount: 'compared_count',
+      MultipleVariantCount: 'multiple_variant_count',
+      MultipleVariantPercentage: 'multiple_variant_percentage',
+      MultipleVariantHandling: 'multiple_variant_handling',
       PValue: 'p_value',
+      SinceLaunchHours: 'since_launch_hours',
+      ExposedWithoutTestAccountFilterCount: 'exposed_without_test_account_filter_count',
+      KeptByTestAccountFilterPercentage: 'kept_by_test_account_filter_percentage',
+      OnlyCountMaturedUsers: 'only_count_matured_users',
+      PrimaryMetricCount: 'primary_metric_count',
+      WaitingMetricCount: 'waiting_metric_count',
+      MetricCount: 'metric_count',
+      CompletedMetricCount: 'completed_metric_count',
+      FailedMetricCount: 'failed_metric_count',
+      CalculatedAt: 'calculated_at',
+      FlagActive: 'flag_active',
+      FlagDeleted: 'flag_deleted',
+      FlagRolledOut: 'flag_rolled_out',
+      ShippedVariant: 'shipped_variant',
     } as const;
 
     /**
      * * `above` - Finding above the threshold
      * * `below` - Finding below the threshold
      */
-    export type ExperimentHealthMeasurementSideEnum = typeof ExperimentHealthMeasurementSideEnum[keyof typeof ExperimentHealthMeasurementSideEnum];
+    export type ExperimentHealthRuleSideEnum = typeof ExperimentHealthRuleSideEnum[keyof typeof ExperimentHealthRuleSideEnum];
 
 
-    export const ExperimentHealthMeasurementSideEnum = {
+    export const ExperimentHealthRuleSideEnum = {
       Above: 'above',
       Below: 'below',
     } as const;
 
-    export interface ExperimentHealthMeasurement {
-      /** The value that the check measured on the experiment. */
-      value: number;
-      /** The value at which the check reports a finding. */
-      threshold: number;
-      /** percentage: a share of the exposed users or groups, on the 0-100 scale. p_value: the p-value of a statistical test.
+    /**
+     * * `chi_squared` - Chi-squared goodness-of-fit test
+     */
+    export type ExperimentHealthRuleTestEnum = typeof ExperimentHealthRuleTestEnum[keyof typeof ExperimentHealthRuleTestEnum];
+
+
+    export const ExperimentHealthRuleTestEnum = {
+      ChiSquared: 'chi_squared',
+    } as const;
+
+    export interface ExperimentHealthRuleMinimum {
+      /** The key in `values` that must reach the threshold before the check judges.
        *
-       * * `percentage` - Percentage of exposed units
-       * * `p_value` - P-value of a statistical test */
-      unit: ExperimentHealthMeasurementUnitEnum;
-      /** The side of the threshold that reports a finding: above or below.
+       * * `exposed_count` - Users or groups exposed since launch, as the exposure criteria count them, including those exposed to multiple variants
+       * * `compared_count` - Exposed users or groups in the variants that the sample ratio test compares, without those exposed to multiple variants
+       * * `multiple_variant_count` - Users or groups exposed to more than one variant
+       * * `multiple_variant_percentage` - multiple_variant_count as a share of exposed_count
+       * * `multiple_variant_handling` - What the results do with users exposed to more than one variant: exclude or first_seen
+       * * `p_value` - P-value of the sample ratio test
+       * * `since_launch_hours` - Hours since launch
+       * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
+       * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+       * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
+       * * `primary_metric_count` - Primary metrics that the calculation computes
+       * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
+       * * `metric_count` - Metrics that the calculation computes
+       * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
+       * * `failed_metric_count` - Metrics whose latest calculation failed
+       * * `calculated_at` - When the latest calculation of the metrics finished
+       * * `flag_active` - Whether the feature flag is enabled
+       * * `flag_deleted` - Whether the feature flag is deleted
+       * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
+       * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one */
+      value: ExperimentHealthValueKeyEnum;
+      /** The value that the key must reach. Below it, the check reports no finding. */
+      threshold: number;
+    }
+
+    export interface ExperimentHealthCheckRule {
+      /** The key in `values` that the check compares with the threshold.
+       *
+       * * `exposed_count` - Users or groups exposed since launch, as the exposure criteria count them, including those exposed to multiple variants
+       * * `compared_count` - Exposed users or groups in the variants that the sample ratio test compares, without those exposed to multiple variants
+       * * `multiple_variant_count` - Users or groups exposed to more than one variant
+       * * `multiple_variant_percentage` - multiple_variant_count as a share of exposed_count
+       * * `multiple_variant_handling` - What the results do with users exposed to more than one variant: exclude or first_seen
+       * * `p_value` - P-value of the sample ratio test
+       * * `since_launch_hours` - Hours since launch
+       * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
+       * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+       * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
+       * * `primary_metric_count` - Primary metrics that the calculation computes
+       * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
+       * * `metric_count` - Metrics that the calculation computes
+       * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
+       * * `failed_metric_count` - Metrics whose latest calculation failed
+       * * `calculated_at` - When the latest calculation of the metrics finished
+       * * `flag_active` - Whether the feature flag is enabled
+       * * `flag_deleted` - Whether the feature flag is deleted
+       * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
+       * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one */
+      value: ExperimentHealthValueKeyEnum;
+      /** The threshold, in the unit that the suffix of the key gives. */
+      threshold: number;
+      /** above: the check reports a finding when the value is above the threshold. below: when the value is below it. A value at the threshold passes.
        *
        * * `above` - Finding above the threshold
        * * `below` - Finding below the threshold */
-      warns: ExperimentHealthMeasurementSideEnum;
+      warns: ExperimentHealthRuleSideEnum;
+      /** The statistical test that computes the value, for example chi_squared. Null for a count or a share.
+       *
+       * * `chi_squared` - Chi-squared goodness-of-fit test */
+      test: ExperimentHealthRuleTestEnum | null;
+      /** What the check needs before it judges. Null when the check judges from the first value. */
+      minimum: ExperimentHealthRuleMinimum | null;
     }
+
+    /**
+     * What the check read on the experiment, for every status, as numbers, strings, booleans or null. Empty when the check read nothing or shows nothing. The suffix of a key gives the unit: _count is a count, _percentage is on the 0-100 scale, _hours is hours and _at is an ISO 8601 time in UTC. A key without a suffix is a setting or a state. A key means the same thing in every check. `rule.value` names the key that decides.
+     */
+    export type ExperimentHealthCheckResultValues = {[key: string]: string | number | boolean | null};
 
     export interface ExperimentHealthCheckResult {
       /** Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
@@ -43322,8 +43777,10 @@ export namespace Schemas {
          * @nullable
          */
       reason: string | null;
-      /** The value that decided a passed check, against its threshold. Null for the other statuses, and for a pass without a value. A finding carries its values in `evidence`. */
-      measurement: ExperimentHealthMeasurement | null;
+      /** What the check read on the experiment, for every status, as numbers, strings, booleans or null. Empty when the check read nothing or shows nothing. The suffix of a key gives the unit: _count is a count, _percentage is on the 0-100 scale, _hours is hours and _at is an ISO 8601 time in UTC. A key without a suffix is a setting or a state. A key means the same thing in every check. `rule.value` names the key that decides. */
+      values: ExperimentHealthCheckResultValues;
+      /** How the check decides. The same for every experiment and every status. Null for a check without a numeric rule. */
+      rule: ExperimentHealthCheckRule | null;
     }
 
     export interface ExperimentHealth {
@@ -43579,6 +44036,11 @@ export namespace Schemas {
       multiple_variant_handling?: MultipleVariantHandling | null;
     }
 
+    /**
+     * What the check read on the experiment, for every status. The suffix of a key gives the unit: _count is a count, _percentage is on the 0-100 scale, _hours is hours. A key without a suffix is a setting. Missing on an answer cached before the field existed.
+     */
+    export type ExperimentExposureHealthCheckValues = {[key: string]: string | number | boolean | null} | null;
+
     export type ExperimentExposureHealthCheckKey = typeof ExperimentExposureHealthCheckKey[keyof typeof ExperimentExposureHealthCheckKey];
 
 
@@ -43590,31 +44052,47 @@ export namespace Schemas {
       TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
     } as const;
 
-    export type ExperimentExposureHealthMeasurementUnit = typeof ExperimentExposureHealthMeasurementUnit[keyof typeof ExperimentExposureHealthMeasurementUnit];
+    export type ExperimentExposureHealthValueKey = typeof ExperimentExposureHealthValueKey[keyof typeof ExperimentExposureHealthValueKey];
 
 
-    export const ExperimentExposureHealthMeasurementUnit = {
-      Percentage: 'percentage',
+    export const ExperimentExposureHealthValueKey = {
+      ExposedCount: 'exposed_count',
+      ComparedCount: 'compared_count',
+      MultipleVariantCount: 'multiple_variant_count',
+      MultipleVariantPercentage: 'multiple_variant_percentage',
+      MultipleVariantHandling: 'multiple_variant_handling',
       PValue: 'p_value',
+      SinceLaunchHours: 'since_launch_hours',
+      ExposedWithoutTestAccountFilterCount: 'exposed_without_test_account_filter_count',
+      KeptByTestAccountFilterPercentage: 'kept_by_test_account_filter_percentage',
     } as const;
 
-    export type ExperimentExposureHealthMeasurementSide = typeof ExperimentExposureHealthMeasurementSide[keyof typeof ExperimentExposureHealthMeasurementSide];
+    export interface ExperimentExposureHealthRuleMinimum {
+      /** The value that the key must reach. Below it, the check reports no finding. */
+      threshold: number;
+      /** The key in `values` that must reach the threshold before the check judges. */
+      value: ExperimentExposureHealthValueKey;
+    }
+
+    export type ExperimentExposureHealthRuleSide = typeof ExperimentExposureHealthRuleSide[keyof typeof ExperimentExposureHealthRuleSide];
 
 
-    export const ExperimentExposureHealthMeasurementSide = {
+    export const ExperimentExposureHealthRuleSide = {
       Above: 'above',
       Below: 'below',
     } as const;
 
-    export interface ExperimentExposureHealthMeasurement {
-      /** The value at which the check reports a finding. */
+    export interface ExperimentExposureHealthCheckRule {
+      /** What the check needs before it judges. Null when the check judges from the first value. */
+      minimum: ExperimentExposureHealthRuleMinimum | null;
+      /** The statistical test that computes the value. Null for a count or a share. */
+      test: 'chi_squared' | null;
+      /** The threshold, in the unit that the suffix of the key gives. */
       threshold: number;
-      /** percentage: a share of the exposed users or groups, on the 0-100 scale. p_value: the p-value of a statistical test. */
-      unit: ExperimentExposureHealthMeasurementUnit;
-      /** The value that the check measured on the experiment. */
-      value: number;
-      /** The side of the threshold that reports a finding. */
-      warns: ExperimentExposureHealthMeasurementSide;
+      /** The key in `values` that the check compares with the threshold. */
+      value: ExperimentExposureHealthValueKey;
+      /** above: the check reports a finding when the value is above the threshold. below: when the value is below it. A value at the threshold passes. */
+      warns: ExperimentExposureHealthRuleSide;
     }
 
     export type ExperimentExposureHealthCheckStatus = typeof ExperimentExposureHealthCheckStatus[keyof typeof ExperimentExposureHealthCheckStatus];
@@ -43632,14 +44110,16 @@ export namespace Schemas {
       description?: string | null;
       /** Stable identifier of the check. */
       key: ExperimentExposureHealthCheckKey;
-      /** The value that decided a passed check. Null for the other statuses and for a pass without a value. */
-      measurement?: ExperimentExposureHealthMeasurement | null;
       /** The problem the check looks for, as the health panel lists it. */
       name: string;
       /** Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding. */
       reason: string | null;
+      /** How the check decides, the same for every experiment. Null for a check without a numeric rule. Missing on an answer cached before the field existed. */
+      rule?: ExperimentExposureHealthCheckRule | null;
       /** passed: no problem found. finding: a finding in `health_findings`. not_applicable: the check doesn't cover the experiment's state. not_checked: an input was missing or the check failed. */
       status: ExperimentExposureHealthCheckStatus;
+      /** What the check read on the experiment, for every status. The suffix of a key gives the unit: _count is a count, _percentage is on the 0-100 scale, _hours is hours. A key without a suffix is a setting. Missing on an answer cached before the field existed. */
+      values?: ExperimentExposureHealthCheckValues;
     }
 
     /**
@@ -43680,6 +44160,8 @@ export namespace Schemas {
     export interface ExperimentExposureHealthFinding {
       /** The actions that fix the problem, in order of preference. */
       actions: ExperimentExposureHealthFindingActionKind[];
+      /** The key of the check in `health_checks` that reported the finding. Missing on an answer cached before the field existed. */
+      check?: ExperimentExposureHealthCheckKey | null;
       /** Stable identifier of the problem. Each code has one meaning across every surface that reports it. */
       code: ExperimentExposureHealthFindingCode;
       /** What is wrong, what it does to the experiment, and how to fix it. */
@@ -48067,7 +48549,7 @@ export namespace Schemas {
       sdk: string;
       /** Number of billable requests in this bucket. */
       request_count: number;
-      /** Estimated billing units. Local evaluation requests count as 10 units each. */
+      /** Estimated billing units. Local evaluation requests count as 10 units each, except 304 Not Modified responses, which count as 1. */
       billing_units: number;
     }
 
@@ -58447,6 +58929,11 @@ export namespace Schemas {
       depth?: InsightDataChecksDepthEnum;
     }
 
+    export interface InsightExplanationCreate {
+      /** The chart explanation, as the insight page shows it. */
+      data: ExplainChartData;
+    }
+
     /**
      * The anomaly detector the alert uses in place of its threshold, or null for a threshold alert. It can't change through this API.
      */
@@ -61357,6 +61844,26 @@ export namespace Schemas {
       provider?: string | null;
     }
 
+    /**
+     * * `single_candidate` - Single candidate
+     * * `fork` - Fork
+     * * `nothing_cuttable` - Nothing cuttable
+     * * `no_answer` - No answer
+     * * `stamphog_approved` - Stamphog approved
+     * * `files_truncated` - Files truncated
+     */
+    export type LlmSkipReasonEnum = typeof LlmSkipReasonEnum[keyof typeof LlmSkipReasonEnum];
+
+
+    export const LlmSkipReasonEnum = {
+      SingleCandidate: 'single_candidate',
+      Fork: 'fork',
+      NothingCuttable: 'nothing_cuttable',
+      NoAnswer: 'no_answer',
+      StamphogApproved: 'stamphog_approved',
+      FilesTruncated: 'files_truncated',
+    } as const;
+
     export interface LlmsTxtFetchRequest {
       /**
          * Public HTTP or HTTPS URL of the llms.txt file to load.
@@ -64045,6 +64552,11 @@ export namespace Schemas {
       readonly id: string;
       /** @nullable */
       readonly template_id: string | null;
+      /**
+         * ID of the MCP server this connection belongs to. The MCP server page takes this ID, not the connection id. Null for older connections that are not linked to a server yet.
+         * @nullable
+         */
+      readonly gateway_server_id: string | null;
       readonly name: string;
       /** Deprecated: use icon_domain instead. Lowercase key from the linked template for clients that still render bundled icon assets. Empty if custom install (no template). */
       readonly icon_key: string;
@@ -69526,16 +70038,24 @@ export namespace Schemas {
 
     export interface OrganizationEventsRetention {
       /**
-         * The window, in months, that every project without its own window uses. Null while the organization keeps events for its plan's window.
+         * The period, in months, that every project without its own period uses. Null while those projects use the default period.
          * @nullable
          */
       readonly organization_retention_months: number | null;
-      /** The longest window the organization's plan allows, in months. */
+      /** The period, in months, that projects use while no period is set for them or their organization. 24 months on current plans, never longer than the plan's period and never shorter than the shortest period an admin can set. Plans from before the 24-month default use the plan's period. */
+      readonly default_retention_months: number;
+      /** Whether the default is longer than 24 months because the plan predates the 24-month default. */
+      readonly default_is_grandfathered: boolean;
+      /** The periods, in months, an admin can choose from. A save also has to be between min_retention_months and max_retention_months. Only PostHog staff can set other periods. */
+      readonly retention_months_choices: readonly number[];
+      /** The longest period the organization's plan allows, in months. */
       readonly plan_retention_months: number;
-      /** The shortest window an admin can set, in months. */
+      /** The shortest period an admin can set, in months. */
       readonly min_retention_months: number;
-      /** The longest window an admin can set, in months. Never longer than the plan's window. */
+      /** The longest period an admin can set, in months. Never longer than the plan's period. */
       readonly max_retention_months: number;
+      /** The date of the next monthly cleanup, in the timezone it runs in. */
+      readonly next_monthly_cleanup_on: string;
     }
 
     export interface OrganizationFeatureFlagRow {
@@ -69868,6 +70388,18 @@ export namespace Schemas {
     export const OverallHealthEnum = {
       Healthy: 'healthy',
       NeedsAttention: 'needs_attention',
+    } as const;
+
+    /**
+     * * `team` - Team
+     * * `person` - Person
+     */
+    export type OwnerKindEnum = typeof OwnerKindEnum[keyof typeof OwnerKindEnum];
+
+
+    export const OwnerKindEnum = {
+      Team: 'team',
+      Person: 'person',
     } as const;
 
     /**
@@ -73468,6 +74000,7 @@ export namespace Schemas {
      * * `code_review` - Code Review
      * * `related_to` - Related To
      * * `report_link` - Report Link
+     * * `source_issue` - Source Issue
      * * `autostart_skip` - Autostart Skip
      * * `work_claim` - Work Claim
      * * `work_release` - Work Release
@@ -73511,6 +74044,7 @@ export namespace Schemas {
       CodeReview: 'code_review',
       RelatedTo: 'related_to',
       ReportLink: 'report_link',
+      SourceIssue: 'source_issue',
       AutostartSkip: 'autostart_skip',
       WorkClaim: 'work_claim',
       WorkRelease: 'work_release',
@@ -74494,6 +75028,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly tracker_issue_error: string | null;
+      /** URLs of the external issues this report is about, as recorded by the scout or person that filed it, oldest first. Normalized to `https://github.com/<owner>/<repo>/issues/<number>`. Empty when the report names none. Issues the report learned about from a GitHub issue signal are not listed here. */
+      readonly source_issues: readonly string[];
       /** Derived remediation state: unclaimed, working, in_review, or done. */
       readonly work_state: SignalReportWorkStateEnum;
       /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
@@ -74518,10 +75054,20 @@ export namespace Schemas {
       /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps costs several queries per report. */
       readonly plan: ReportPlan | null;
       /**
-         * Sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first, so rows from several requests merge in the order of one request. For an outcome ranker (open, action or fix), a scored report gets 1 minus its score, from 0 to 1, and a report without a usable score gets 2 plus its priority rank. The priority ranker uses the priority rank only, from 0 (P0) to 5 (no priority). Null for every other sort.
+         * Sort key from the ranker named by the list response's ranker field, for sort=recommended and sort=personal only. Lower keys rank first, so rows from several requests merge in the order of one request. For an outcome ranker (open, action or fix), a scored report gets 1 minus its score, from 0 to 1, and a report without a usable score gets 2 plus its priority rank. The priority ranker uses the priority rank only, from 0 (P0) to 5 (no priority). For the personal ranker, a report in the stored personal ranking gets its position in that ranking from 0, and every other report gets the number of those positions plus its key from the recommended ranker. Null for every other sort.
          * @nullable
          */
       readonly inbox_merge_key: number | null;
+      /**
+         * The tier your personal ranking gave this report, for sort=personal. Null when the language model did not rank the report, and for every other sort.
+         * @nullable
+         */
+      readonly personal_tier: string | null;
+      /**
+         * Why your personal ranking put this report where it is, for sort=personal. Null when the language model did not rank the report, and for every other sort.
+         * @nullable
+         */
+      readonly personal_reason: string | null;
     }
 
     export interface PaginatedSignalReportListList {
@@ -74532,12 +75078,19 @@ export namespace Schemas {
       previous?: string | null;
       results: SignalReportList[];
       /**
-         * The ranker that ordered the page when sort=recommended: priority, or open, action or fix for that outcome of the served ranking model. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
+         * The ranker that ordered the page when sort=recommended or sort=personal: priority, or open, action or fix for that outcome of the served ranking model. For sort=personal it is personal when your stored personal ranking ordered the page. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
          * @nullable
          */
       ranker?: string | null;
       /**
-         * Whether the client shows a ranking score pill on each card, when sort=recommended. The same flag arm sets this and the ranker. Null for every other sort.
+         * The stored personal ranking that ordered the page when sort=personal. Pass it back as ranking_id on later pages, so a new ranking does not reorder them. Null when no personal ranking applied, and for every other sort.
+         * @nullable
+         */
+      ranking_id?: string | null;
+      /** True when `count` stopped at a cap, so it is a lower bound and `next` keeps paging past it. Only a search with a full page can cap the count. */
+      count_is_capped?: boolean;
+      /**
+         * Whether the client shows a ranking score pill on each card, when sort=recommended or sort=personal. The same flag arm sets this and the ranker. Null for every other sort.
          * @nullable
          */
       ranking_pill?: boolean | null;
@@ -74553,7 +75106,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `alert_scope`. Other sources reject these keys.
+     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys.
      */
     export type SignalSourceConfigConfig = { [key: string]: unknown };
 
@@ -74567,7 +75120,7 @@ export namespace Schemas {
       source_product: SignalSourceProductEnum;
       source_type: SignalSourceConfigSourceTypeEnum;
       enabled?: boolean;
-      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `alert_scope`. Other sources reject these keys. */
+      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys. */
       config?: SignalSourceConfigConfig;
       /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
       config_set?: SignalSourceConfigConfigSet;
@@ -74809,6 +75362,181 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: StamphogRepoConfig[];
+    }
+
+    /**
+     * * `full` - Every owner
+     * * `pinned` - Pinned owners only
+     */
+    export type RoutingScopeEnum = typeof RoutingScopeEnum[keyof typeof RoutingScopeEnum];
+
+
+    export const RoutingScopeEnum = {
+      Full: 'full',
+      Pinned: 'pinned',
+    } as const;
+
+    /**
+     * * `requested` - Requested
+     * * `labeled` - Labeled
+     * * `refused` - Refused by GitHub
+     * * `cut` - Cut
+     * * `not_requested` - Not requested
+     * * `already_requested` - Already requested
+     */
+    export type RoutingOwnerOutcomeEnum = typeof RoutingOwnerOutcomeEnum[keyof typeof RoutingOwnerOutcomeEnum];
+
+
+    export const RoutingOwnerOutcomeEnum = {
+      Requested: 'requested',
+      Labeled: 'labeled',
+      Refused: 'refused',
+      Cut: 'cut',
+      NotRequested: 'not_requested',
+      AlreadyRequested: 'already_requested',
+    } as const;
+
+    /**
+     * * `sensitive` - Owns a sensitive path
+     * * `new_path` - Owns a new path
+     * * `largest_owner` - Has the largest part
+     * * `diff_not_seen` - Diff not shown to the model
+     * * `cut_skipped` - Cut step skipped
+     * * `model_kept` - Kept by the model
+     * * `model_cut` - Cut by the model
+     * * `stamphog_approved` - Stamphog approved
+     */
+    export type RoutingOwnerReasonEnum = typeof RoutingOwnerReasonEnum[keyof typeof RoutingOwnerReasonEnum];
+
+
+    export const RoutingOwnerReasonEnum = {
+      Sensitive: 'sensitive',
+      NewPath: 'new_path',
+      LargestOwner: 'largest_owner',
+      DiffNotSeen: 'diff_not_seen',
+      CutSkipped: 'cut_skipped',
+      ModelKept: 'model_kept',
+      ModelCut: 'model_cut',
+      StamphogApproved: 'stamphog_approved',
+    } as const;
+
+    /**
+     * * `sensitive` - Sensitive path
+     * * `new_path` - New path
+     */
+    export type PinReasonEnum = typeof PinReasonEnum[keyof typeof PinReasonEnum];
+
+
+    export const PinReasonEnum = {
+      Sensitive: 'sensitive',
+      NewPath: 'new_path',
+    } as const;
+
+    export interface StamphogRoutingPin {
+      /** Why the path pins its owner.
+       *
+       * * `sensitive` - Sensitive path
+       * * `new_path` - New path */
+      readonly reason: PinReasonEnum;
+      /** The changed path, or the new directory, that pinned the owner. */
+      path: string;
+    }
+
+    export interface StamphogRoutingRunOwner {
+      /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved and the owner is not pinned) or 'already_requested' (an earlier run asked this pinned owner).
+       *
+       * * `requested` - Requested
+       * * `labeled` - Labeled
+       * * `refused` - Refused by GitHub
+       * * `cut` - Cut
+       * * `not_requested` - Not requested
+       * * `already_requested` - Already requested */
+      readonly outcome: RoutingOwnerOutcomeEnum;
+      /** Why: 'sensitive' or 'new_path' (pinned, never cut), 'largest_owner' (a pull request keeps at least one reviewer), 'diff_not_seen' (the model did not see all of the owner's diff), 'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut' or 'stamphog_approved'.
+       *
+       * * `sensitive` - Owns a sensitive path
+       * * `new_path` - Owns a new path
+       * * `largest_owner` - Has the largest part
+       * * `diff_not_seen` - Diff not shown to the model
+       * * `cut_skipped` - Cut step skipped
+       * * `model_kept` - Kept by the model
+       * * `model_cut` - Cut by the model
+       * * `stamphog_approved` - Stamphog approved */
+      readonly reason: RoutingOwnerReasonEnum;
+      /** The changed paths that pinned the owner, so no cut could remove them. */
+      readonly pins: readonly StamphogRoutingPin[];
+      /** Whether the owner is a GitHub team or a person.
+       *
+       * * `team` - Team
+       * * `person` - Person */
+      readonly kind: OwnerKindEnum;
+      /** The owner as owners.yaml spells it: a team slug such as 'team-devex', or a GitHub login such as '@octocat'. */
+      owner: string;
+      /** The model's one-line reason to cut this owner. Also set when a guard kept the owner anyway. Blank when the model proposed no cut for them. */
+      model_reason?: string;
+      /** Changed lines in the files this owner owns. */
+      lines?: number;
+      /** Changed files this owner owns. */
+      file_count?: number;
+    }
+
+    export interface StamphogRoutingRun {
+      /** ID of the routing run. */
+      id: string;
+      /** Full name of the repository. */
+      repository: string;
+      /** Pull request number. */
+      pr_number: number;
+      /** The head commit the run routed. */
+      head_sha: string;
+      /** The repository's routing_mode when the run made its requests.
+       *
+       * * `off` - Off
+       * * `always` - Always
+       * * `fallback` - When stamphog does not approve */
+      readonly mode: RoutingModeEnum;
+      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>' or 'safety_net'. */
+      trigger: string;
+      /** 'full', or 'pinned' when a stamphog approval asked only the owners of sensitive and new paths.
+       *
+       * * `full` - Every owner
+       * * `pinned` - Pinned owners only */
+      readonly scope: RoutingScopeEnum;
+      /** Whether the pull request came from a fork, which skips the model. */
+      fork?: boolean;
+      /** Why the cut step made no model call. Null when it made one.
+       *
+       * * `single_candidate` - Single candidate
+       * * `fork` - Fork
+       * * `nothing_cuttable` - Nothing cuttable
+       * * `no_answer` - No answer
+       * * `stamphog_approved` - Stamphog approved
+       * * `files_truncated` - Files truncated */
+      readonly llm_skipped: LlmSkipReasonEnum | null;
+      /** The model the cut request reached. Blank when no request reached the gateway. */
+      model?: string;
+      /** Whether GitHub listed fewer files than the pull request changes, so owners may be missing. */
+      files_truncated?: boolean;
+      /** Whether the new-path lookup worked. When false, owners of new paths may not be pinned. */
+      additions_resolved?: boolean;
+      /** The default-branch commit whose owners.yaml files decided the owners. Blank when unknown. */
+      owners_sha?: string;
+      /** The run's decision for every owner of the changed code. */
+      readonly owners: readonly StamphogRoutingRunOwner[];
+      /**
+         * When the run made its requests.
+         * @nullable
+         */
+      created_at?: string | null;
+    }
+
+    export interface PaginatedStamphogRoutingRunList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: StamphogRoutingRun[];
     }
 
     /**
@@ -86697,7 +87425,7 @@ export namespace Schemas {
     }
 
     /**
-     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `alert_scope`. Other sources reject these keys.
+     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys.
      */
     export type PatchedSignalSourceConfigConfig = { [key: string]: unknown };
 
@@ -86711,7 +87439,7 @@ export namespace Schemas {
       source_product?: SignalSourceProductEnum;
       source_type?: SignalSourceConfigSourceTypeEnum;
       enabled?: boolean;
-      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `alert_scope`. Other sources reject these keys. */
+      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys. */
       config?: PatchedSignalSourceConfigConfig;
       /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
       config_set?: PatchedSignalSourceConfigConfigSet;
@@ -98423,6 +99151,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly tracker_issue_error: string | null;
+      /** URLs of the external issues this report is about, as recorded by the scout or person that filed it, oldest first. Normalized to `https://github.com/<owner>/<repo>/issues/<number>`. Empty when the report names none. Issues the report learned about from a GitHub issue signal are not listed here. */
+      readonly source_issues: readonly string[];
       /** Derived remediation state: unclaimed, working, in_review, or done. */
       readonly work_state: SignalReportWorkStateEnum;
       /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
@@ -106710,9 +107440,9 @@ export namespace Schemas {
          * @items.maxLength 255
          */
       implementation_repositories?: string[];
-      /** Whether anomaly scoring scores this project's active trends insights every hour and writes the results as $anomaly_score events, which are not billed. True by default. Set false to stop new scores; events written before stay. Turning it on does not enroll a project that anomaly_scoring_available reports as not covered. */
+      /** Legacy off switch for anomaly scoring. The Product analytics source (analytics / anomaly_investigation) now controls scoring: when that source is on, anomaly scoring scores this project's active trends insights and writes the results as $anomaly_score events, which are not billed. True by default. False still stops new scores; events written before stay. Turning it on does not enroll a project that anomaly_scoring_available reports as not covered. */
       anomaly_scoring_enabled?: boolean;
-      /** Whether anomaly scoring covers this project, so anomaly_scoring_enabled has an effect. PostHog decides which projects anomaly scoring covers. */
+      /** Whether the anomaly scoring rollout covers this project. PostHog decides which projects it covers. A covered project is scored only while its Product analytics source is on. */
       readonly anomaly_scoring_available: boolean;
       /**
          * How many reports first became visible in the inbox during the current project-timezone day. This is the count the daily report limit compares against.
@@ -108086,6 +108816,112 @@ export namespace Schemas {
       routing_mode?: RoutingModeEnum;
     }
 
+    export interface StamphogRoutingFile {
+      /** The changed path. */
+      path: string;
+      /**
+         * The path before a rename. Null for any other change.
+         * @nullable
+         */
+      previous_path?: string | null;
+      /** GitHub's file status, such as 'added', 'modified', 'removed' or 'renamed'. */
+      status?: string;
+      /** Added lines. */
+      additions?: number;
+      /** Deleted lines. */
+      deletions?: number;
+    }
+
+    export interface StamphogRoutingRunOwnerDetail {
+      /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved and the owner is not pinned) or 'already_requested' (an earlier run asked this pinned owner).
+       *
+       * * `requested` - Requested
+       * * `labeled` - Labeled
+       * * `refused` - Refused by GitHub
+       * * `cut` - Cut
+       * * `not_requested` - Not requested
+       * * `already_requested` - Already requested */
+      readonly outcome: RoutingOwnerOutcomeEnum;
+      /** Why: 'sensitive' or 'new_path' (pinned, never cut), 'largest_owner' (a pull request keeps at least one reviewer), 'diff_not_seen' (the model did not see all of the owner's diff), 'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut' or 'stamphog_approved'.
+       *
+       * * `sensitive` - Owns a sensitive path
+       * * `new_path` - Owns a new path
+       * * `largest_owner` - Has the largest part
+       * * `diff_not_seen` - Diff not shown to the model
+       * * `cut_skipped` - Cut step skipped
+       * * `model_kept` - Kept by the model
+       * * `model_cut` - Cut by the model
+       * * `stamphog_approved` - Stamphog approved */
+      readonly reason: RoutingOwnerReasonEnum;
+      /** The changed paths that pinned the owner, so no cut could remove them. */
+      readonly pins: readonly StamphogRoutingPin[];
+      /** Whether the owner is a GitHub team or a person.
+       *
+       * * `team` - Team
+       * * `person` - Person */
+      readonly kind: OwnerKindEnum;
+      /** Every changed file this owner owns, which is what made them a candidate. Patches are not kept. */
+      readonly files: readonly StamphogRoutingFile[];
+      /** The owner as owners.yaml spells it: a team slug such as 'team-devex', or a GitHub login such as '@octocat'. */
+      owner: string;
+      /** The model's one-line reason to cut this owner. Also set when a guard kept the owner anyway. Blank when the model proposed no cut for them. */
+      model_reason?: string;
+      /** Changed lines in the files this owner owns. */
+      lines?: number;
+      /** Changed files this owner owns. */
+      file_count?: number;
+    }
+
+    export interface StamphogRoutingRunDetail {
+      /** ID of the routing run. */
+      id: string;
+      /** Full name of the repository. */
+      repository: string;
+      /** Pull request number. */
+      pr_number: number;
+      /** The head commit the run routed. */
+      head_sha: string;
+      /** The repository's routing_mode when the run made its requests.
+       *
+       * * `off` - Off
+       * * `always` - Always
+       * * `fallback` - When stamphog does not approve */
+      readonly mode: RoutingModeEnum;
+      /** What started the run: 'opened', 'ready_for_review', 'verdict:<outcome>' or 'safety_net'. */
+      trigger: string;
+      /** 'full', or 'pinned' when a stamphog approval asked only the owners of sensitive and new paths.
+       *
+       * * `full` - Every owner
+       * * `pinned` - Pinned owners only */
+      readonly scope: RoutingScopeEnum;
+      /** Whether the pull request came from a fork, which skips the model. */
+      fork?: boolean;
+      /** Why the cut step made no model call. Null when it made one.
+       *
+       * * `single_candidate` - Single candidate
+       * * `fork` - Fork
+       * * `nothing_cuttable` - Nothing cuttable
+       * * `no_answer` - No answer
+       * * `stamphog_approved` - Stamphog approved
+       * * `files_truncated` - Files truncated */
+      readonly llm_skipped: LlmSkipReasonEnum | null;
+      /** The model the cut request reached. Blank when no request reached the gateway. */
+      model?: string;
+      /** Whether GitHub listed fewer files than the pull request changes, so owners may be missing. */
+      files_truncated?: boolean;
+      /** Whether the new-path lookup worked. When false, owners of new paths may not be pinned. */
+      additions_resolved?: boolean;
+      /** The default-branch commit whose owners.yaml files decided the owners. Blank when unknown. */
+      owners_sha?: string;
+      /** The run's decision for every owner of the changed code, with the files each owner owns. */
+      readonly owners: readonly StamphogRoutingRunOwnerDetail[];
+      /**
+         * When the run made its requests.
+         * @nullable
+         */
+      created_at?: string | null;
+    }
+
     /**
      * Request body for binding a GitHub App installation to the current team.
      *
@@ -108137,9 +108973,9 @@ export namespace Schemas {
 
     export interface StartTrainingRequest {
       /**
-         * Iterations for this training run. Defaults to the pipeline's iterations_per_run.
+         * Iterations for this training run. Defaults to the pipeline's iterations_per_run. The project's iteration limit per run can lower it.
          * @minimum 1
-         * @maximum 500
+         * @maximum 50
          */
       iteration_budget?: number;
     }
@@ -112572,6 +113408,21 @@ export namespace Schemas {
       git: TraceGit | null;
     }
 
+    export interface TraceAvailability {
+      /** Requested trace IDs readable from AI events or the shared events table. */
+      available_trace_ids: string[];
+    }
+
+    export interface TraceAvailabilityRequest {
+      /**
+         * Application and evaluator trace IDs to check without loading trace contents.
+         * @minItems 1
+         * @maxItems 2
+         * @items.maxLength 255
+         */
+      trace_ids: string[];
+    }
+
     export interface TraceChoiceAnswer {
       kind: 'choice';
       question: string;
@@ -112973,6 +113824,20 @@ export namespace Schemas {
       regenerate?: boolean;
     }
 
+    export interface TrainingRunCapReached {
+      /** Why the run did not start. */
+      detail: string;
+      /** Sandbox training runs the project started in the last 24 hours, across all its pipelines. */
+      used: number;
+      /** Sandbox training runs the project may start in any 24 hours. */
+      limit: number;
+      /**
+         * When the next training run can start. Null when training runs are turned off for the project.
+         * @nullable
+         */
+      next_slot_at: string | null;
+    }
+
     /**
      * One prior completed training run plus its full iteration trail.
      */
@@ -113011,6 +113876,164 @@ export namespace Schemas {
     export interface TrainingRunHistory {
       /** Recent completed training runs — the current pipeline first, then same-target sibling pipelines on the team — newest first. Mine these to reuse winning features and avoid repeating discarded approaches. */
       runs: TrainingRunHistoryEntry[];
+    }
+
+    export interface TransactionalEmailLogEvent {
+      /** What happened. The delivery statuses, plus `opened` and `clicked` for what the recipient did.
+       *
+       * * `queued` - Queued
+       * * `failed` - Failed
+       * * `sent` - Sent
+       * * `delivered` - Delivered
+       * * `bounced` - Bounced
+       * * `complained` - Complained
+       * * `opened` - Opened
+       * * `clicked` - Clicked */
+      kind: EmailLogEventKindEnum;
+      /** When it happened. */
+      at: string;
+      /**
+         * Why a send failed, or the bounce type. Null otherwise.
+         * @nullable
+         */
+      reason: string | null;
+    }
+
+    export interface TransactionalEmailLogDetail {
+      /** The `message_id` that the send returned. */
+      message_id: string;
+      /** When the send was queued. */
+      created_at: string;
+      /** The email's delivery status. `queued` waits to go out, `sent` reached the email provider, `delivered` was accepted by the recipient's mail server, `bounced` and `complained` came back later, and `failed` was not sent.
+       *
+       * * `queued` - Queued
+       * * `failed` - Failed
+       * * `sent` - Sent
+       * * `delivered` - Delivered
+       * * `bounced` - Bounced
+       * * `complained` - Complained */
+      status: EmailDeliveryStatusEnum;
+      /** When the email reached its delivery status. */
+      status_at: string;
+      /**
+         * Why a failed email was not sent, or the bounce type. Null otherwise.
+         * @nullable
+         */
+      reason: string | null;
+      /** The address the email was sent to. */
+      recipient: string;
+      /** The workflow behind the transactional email. */
+      workflow_id: string;
+      /**
+         * The transactional email template. Null when it no longer exists.
+         * @nullable
+         */
+      template_id: string | null;
+      /** The template's name. Empty when it was deleted. */
+      template_name: string;
+      /** The domain the email was sent from. Empty before it was sent. */
+      sending_domain: string;
+      /** Whether the recipient opened the email. */
+      opened: boolean;
+      /** Whether the recipient clicked a link in the email. */
+      clicked: boolean;
+      /** Everything that happened, oldest first. */
+      timeline: TransactionalEmailLogEvent[];
+      /** The subject the email went out with. Empty when it was never sent. */
+      subject: string;
+      /** The distinct ID the send named. Empty when it named none. */
+      distinct_id: string;
+      /** The workflow step that sent the email, which the rendered email is stored under. Empty when no rendered email was stored. */
+      action_id: string;
+      /** True when the template is marked sensitive, so no rendered body or subject values are kept. */
+      sensitive: boolean;
+    }
+
+    export interface TransactionalEmailLogEntry {
+      /** The `message_id` that the send returned. */
+      message_id: string;
+      /** When the send was queued. */
+      created_at: string;
+      /** The email's delivery status. `queued` waits to go out, `sent` reached the email provider, `delivered` was accepted by the recipient's mail server, `bounced` and `complained` came back later, and `failed` was not sent.
+       *
+       * * `queued` - Queued
+       * * `failed` - Failed
+       * * `sent` - Sent
+       * * `delivered` - Delivered
+       * * `bounced` - Bounced
+       * * `complained` - Complained */
+      status: EmailDeliveryStatusEnum;
+      /** When the email reached its delivery status. */
+      status_at: string;
+      /**
+         * Why a failed email was not sent, or the bounce type. Null otherwise.
+         * @nullable
+         */
+      reason: string | null;
+      /** The address the email was sent to. */
+      recipient: string;
+      /** The workflow behind the transactional email. */
+      workflow_id: string;
+      /**
+         * The transactional email template. Null when it no longer exists.
+         * @nullable
+         */
+      template_id: string | null;
+      /** The template's name. Empty when it was deleted. */
+      template_name: string;
+      /** The domain the email was sent from. Empty before it was sent. */
+      sending_domain: string;
+      /** Whether the recipient opened the email. */
+      opened: boolean;
+      /** Whether the recipient clicked a link in the email. */
+      clicked: boolean;
+    }
+
+    export interface TransactionalEmailLogList {
+      /** Sends, newest first. */
+      results: TransactionalEmailLogEntry[];
+      /** Whether another page follows. */
+      has_more: boolean;
+    }
+
+    export interface TransactionalEmailResults {
+      /** People the email was sent to in the date range. */
+      recipients: number;
+      /** Of those, people who did the event within the window. */
+      converted: number;
+      /** The sum of the revenue property on those events. */
+      revenue: number;
+      /**
+         * Median hours from the first send to the first conversion. Null when none converted.
+         * @nullable
+         */
+      median_hours_to_convert: number | null;
+    }
+
+    export interface TransactionalEmailStatsRow {
+      /** The template ID or the sending domain. */
+      key: string;
+      /** The template name or the sending domain. Empty for a deleted template. */
+      label: string;
+      /** Emails that reached the email provider. */
+      sent: number;
+      /** Emails the recipient's mail server accepted. */
+      delivered: number;
+      /** Emails that bounced. */
+      bounced: number;
+      /** Emails the recipient marked as spam. */
+      complained: number;
+      /** Emails the recipient opened. */
+      opened: number;
+      /** Emails where the recipient clicked a link. */
+      clicked: number;
+      /** Emails that were not sent. */
+      failed: number;
+    }
+
+    export interface TransactionalEmailStats {
+      /** One row per group, busiest first. */
+      results: TransactionalEmailStatsRow[];
     }
 
     export interface TranslateRequest {
@@ -119030,7 +120053,7 @@ export namespace Schemas {
      */
     top_projects?: number | null;
     /**
-     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_and_traces_mb_in_period, logs_mb_in_period, apm_tracing_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, signals_spend_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_and_traces_mb_in_period, logs_mb_in_period, apm_tracing_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
      * @nullable
      */
     usage_types?: string | null;
@@ -119082,7 +120105,7 @@ export namespace Schemas {
      */
     top_projects?: number | null;
     /**
-     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_and_traces_mb_in_period, logs_mb_in_period, apm_tracing_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, signals_spend_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_and_traces_mb_in_period, logs_mb_in_period, apm_tracing_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
      * @nullable
      */
     usage_types?: string | null;
@@ -119134,7 +120157,7 @@ export namespace Schemas {
      */
     top_projects?: number | null;
     /**
-     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_and_traces_mb_in_period, logs_mb_in_period, apm_tracing_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, signals_spend_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_and_traces_mb_in_period, logs_mb_in_period, apm_tracing_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
      * @nullable
      */
     usage_types?: string | null;
@@ -119186,7 +120209,7 @@ export namespace Schemas {
      */
     top_projects?: number | null;
     /**
-     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_and_traces_mb_in_period, logs_mb_in_period, apm_tracing_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, signals_spend_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_and_traces_mb_in_period, logs_mb_in_period, apm_tracing_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
      * @nullable
      */
     usage_types?: string | null;
@@ -119618,7 +120641,7 @@ export namespace Schemas {
      */
     top_projects?: number | null;
     /**
-     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_and_traces_mb_in_period, logs_mb_in_period, apm_tracing_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, signals_spend_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_and_traces_mb_in_period, logs_mb_in_period, apm_tracing_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
      * @nullable
      */
     usage_types?: string | null;
@@ -119670,7 +120693,7 @@ export namespace Schemas {
      */
     top_projects?: number | null;
     /**
-     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_and_traces_mb_in_period, logs_mb_in_period, apm_tracing_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, signals_spend_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_and_traces_mb_in_period, logs_mb_in_period, apm_tracing_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
      * @nullable
      */
     usage_types?: string | null;
@@ -119709,7 +120732,7 @@ export namespace Schemas {
      */
     top_projects?: number | null;
     /**
-     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_and_traces_mb_in_period, logs_mb_in_period, apm_tracing_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, signals_spend_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_and_traces_mb_in_period, logs_mb_in_period, apm_tracing_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
      * @nullable
      */
     usage_types?: string | null;
@@ -119761,7 +120784,7 @@ export namespace Schemas {
      */
     top_projects?: number | null;
     /**
-     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_and_traces_mb_in_period, logs_mb_in_period, apm_tracing_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, signals_spend_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_and_traces_mb_in_period, logs_mb_in_period, apm_tracing_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
      * @nullable
      */
     usage_types?: string | null;
@@ -122057,7 +123080,7 @@ export namespace Schemas {
      */
     start_date?: string | null;
     /**
-     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_and_traces_mb_in_period, logs_mb_in_period, apm_tracing_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, signals_spend_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_and_traces_mb_in_period, logs_mb_in_period, apm_tracing_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
      * @nullable
      */
     usage_types?: string | null;
@@ -122084,7 +123107,7 @@ export namespace Schemas {
      */
     start_date?: string | null;
     /**
-     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_and_traces_mb_in_period, logs_mb_in_period, apm_tracing_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, signals_spend_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_and_traces_mb_in_period, logs_mb_in_period, apm_tracing_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
      * @nullable
      */
     usage_types?: string | null;
@@ -122111,7 +123134,7 @@ export namespace Schemas {
      */
     start_date?: string | null;
     /**
-     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_and_traces_mb_in_period, logs_mb_in_period, apm_tracing_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, signals_spend_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_and_traces_mb_in_period, logs_mb_in_period, apm_tracing_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
      * @nullable
      */
     usage_types?: string | null;
@@ -122138,7 +123161,7 @@ export namespace Schemas {
      */
     start_date?: string | null;
     /**
-     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_and_traces_mb_in_period, logs_mb_in_period, apm_tracing_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
+     * JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, signals_spend_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_and_traces_mb_in_period, logs_mb_in_period, apm_tracing_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. ["event_count_in_period","recording_count_in_period"]. Omit for all types.
      * @nullable
      */
     usage_types?: string | null;
@@ -130405,6 +131428,10 @@ export namespace Schemas {
      * Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}]
      */
     properties?: string;
+    /**
+     * Compute the overview again instead of serving the cached result, at most once every 5 seconds. The fresh result replaces the cached one.
+     */
+    refresh?: boolean;
     };
 
     export type McpGatewayAuditListParams = {
@@ -132442,6 +133469,10 @@ export namespace Schemas {
      */
     priority?: string;
     /**
+     * For sort=personal: the ranking_id of the first page. Pass it on later pages, so a new personal ranking does not reorder them. When that ranking no longer exists, the latest one applies.
+     */
+    ranking_id?: string;
+    /**
      * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_lift?: string;
@@ -132466,7 +133497,7 @@ export namespace Schemas {
      */
     search?: string;
     /**
-     * Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills.
+     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of your stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. It only reads the stored ranking and never starts a build. With no stored personal ranking, it is the recommended order.
      */
     sort?: string;
     /**
@@ -133176,6 +134207,97 @@ export namespace Schemas {
       Label: 'label',
       Manual: 'manual',
       SelfDriving: 'self_driving',
+    } as const;
+
+    export type StamphogRoutingRunsListParams = {
+    /**
+     * Keep only runs created at or after this time (ISO 8601).
+     */
+    created_after?: string;
+    /**
+     * Keep only runs created before this time (ISO 8601).
+     */
+    created_before?: string;
+    /**
+     * Keep only runs on this head commit. Pass the full 40-character SHA.
+     * @minLength 1
+     * @maxLength 64
+     */
+    head_sha?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Keep only runs where an owner got this outcome. With `owner`, that owner must have it, so `owner=team-devex&outcome=cut` lists the runs that cut team-devex.
+     *
+     * * `requested` - Requested
+     * * `labeled` - Labeled
+     * * `refused` - Refused by GitHub
+     * * `cut` - Cut
+     * * `not_requested` - Not requested
+     * * `already_requested` - Already requested
+     * @minLength 1
+     */
+    outcome?: StamphogRoutingRunsListOutcome;
+    /**
+     * Keep only runs that decided about this owner, spelled as in owners.yaml: a team slug such as 'team-devex', or a GitHub login such as '@octocat'.
+     * @minLength 1
+     */
+    owner?: string;
+    /**
+     * Filter by pull request number.
+     */
+    pr_number?: number;
+    /**
+     * Keep only runs where an owner was kept or cut for this reason. With `owner`, that owner must have it.
+     *
+     * * `sensitive` - Owns a sensitive path
+     * * `new_path` - Owns a new path
+     * * `largest_owner` - Has the largest part
+     * * `diff_not_seen` - Diff not shown to the model
+     * * `cut_skipped` - Cut step skipped
+     * * `model_kept` - Kept by the model
+     * * `model_cut` - Cut by the model
+     * * `stamphog_approved` - Stamphog approved
+     * @minLength 1
+     */
+    reason?: StamphogRoutingRunsListReason;
+    /**
+     * Filter by repository full name, e.g. 'PostHog/posthog'.
+     * @minLength 1
+     */
+    repository?: string;
+    };
+
+    export type StamphogRoutingRunsListOutcome = typeof StamphogRoutingRunsListOutcome[keyof typeof StamphogRoutingRunsListOutcome];
+
+
+    export const StamphogRoutingRunsListOutcome = {
+      Requested: 'requested',
+      Labeled: 'labeled',
+      Refused: 'refused',
+      Cut: 'cut',
+      NotRequested: 'not_requested',
+      AlreadyRequested: 'already_requested',
+    } as const;
+
+    export type StamphogRoutingRunsListReason = typeof StamphogRoutingRunsListReason[keyof typeof StamphogRoutingRunsListReason];
+
+
+    export const StamphogRoutingRunsListReason = {
+      Sensitive: 'sensitive',
+      NewPath: 'new_path',
+      LargestOwner: 'largest_owner',
+      DiffNotSeen: 'diff_not_seen',
+      CutSkipped: 'cut_skipped',
+      ModelKept: 'model_kept',
+      ModelCut: 'model_cut',
+      StamphogApproved: 'stamphog_approved',
     } as const;
 
     export type StreamlitAppsListParams = {
@@ -134326,6 +135448,117 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type TransactionalEmailLogListParams = {
+    /**
+     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
+     */
+    date_from?: string;
+    /**
+     * Only sends queued before this time. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Page size.
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number;
+    /**
+     * Sends to skip.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * A `message_id` for an exact match, or part of the recipient's email address.
+     */
+    search?: string;
+    /**
+     * Only sends in this delivery status.
+     *
+     * * `queued` - Queued
+     * * `failed` - Failed
+     * * `sent` - Sent
+     * * `delivered` - Delivered
+     * * `bounced` - Bounced
+     * * `complained` - Complained
+     * @minLength 1
+     */
+    status?: TransactionalEmailLogListStatus;
+    /**
+     * Only sends of the transactional email backed by this workflow.
+     */
+    workflow_id?: string;
+    };
+
+    export type TransactionalEmailLogListStatus = typeof TransactionalEmailLogListStatus[keyof typeof TransactionalEmailLogListStatus];
+
+
+    export const TransactionalEmailLogListStatus = {
+      Queued: 'queued',
+      Failed: 'failed',
+      Sent: 'sent',
+      Delivered: 'delivered',
+      Bounced: 'bounced',
+      Complained: 'complained',
+    } as const;
+
+    export type TransactionalEmailLogResultsRetrieveParams = {
+    /**
+     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
+     */
+    date_from?: string;
+    /**
+     * Only sends queued before this time. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * The event that counts as a conversion, such as `signed_up`.
+     * @minLength 1
+     */
+    event: string;
+    /**
+     * An event property holding a revenue amount to add up.
+     */
+    revenue_property?: string;
+    /**
+     * How many days after the first send the event still counts.
+     * @minimum 1
+     * @maximum 30
+     */
+    window_days?: number;
+    /**
+     * The workflow behind the transactional email.
+     */
+    workflow_id: string;
+    };
+
+    export type TransactionalEmailLogStatsRetrieveParams = {
+    /**
+     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
+     */
+    date_from?: string;
+    /**
+     * Only sends queued before this time. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Count per template or per sending domain.
+     *
+     * * `template` - Template
+     * * `sending_domain` - Sending domain
+     * @minLength 1
+     */
+    group_by?: TransactionalEmailLogStatsRetrieveGroupBy;
+    };
+
+    export type TransactionalEmailLogStatsRetrieveGroupBy = typeof TransactionalEmailLogStatsRetrieveGroupBy[keyof typeof TransactionalEmailLogStatsRetrieveGroupBy];
+
+
+    export const TransactionalEmailLogStatsRetrieveGroupBy = {
+      Template: 'template',
+      SendingDomain: 'sending_domain',
+    } as const;
 
     export type TurnSuggestionsStateRetrieveParams = {
     /**
@@ -135841,6 +137074,10 @@ export namespace Schemas {
      * Only return runs created after this timestamp.
      */
     created_after?: string;
+    /**
+     * Only return runs created by this user.
+     */
+    created_by_id?: number;
     /**
      * Number of results to return per page.
      * @maximum 100

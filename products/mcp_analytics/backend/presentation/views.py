@@ -316,7 +316,8 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description=(
             "Aggregate counters, top tools, agent clients, and the most recent tool calls for the last 30 days, "
             "computed in one request. Powers the dashboard's activity view. Results are cached for up to 5 minutes, "
-            "or 20 seconds when the caller has property restrictions. An empty result is never cached."
+            "or 20 seconds when the caller has property restrictions. An empty result is never cached. "
+            "Pass refresh to skip the cache."
         ),
     )
     @action(detail=False, methods=["get"], url_path="activity_overview", pagination_class=None)
@@ -327,6 +328,7 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             properties=params["properties"],
             filter_test_accounts=params["filter_test_accounts"],
             user=cast(User, request.user),
+            refresh=params["refresh"],
         )
         return Response(MCPActivityOverviewSerializer(overview).data)
 

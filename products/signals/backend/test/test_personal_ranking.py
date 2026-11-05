@@ -1173,3 +1173,144 @@ class TestForMeEndpoint(APIBaseTest):
         else:
             assert response.status_code == 404
         assert (self._rows(), self.queued) == (0, [])
+
+
+class TestPersonalListSort(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.payload: dict[str, Any] = {}
+        self.flag_enabled = True
+        self.analytics = MagicMock()
+        self.analytics.get_feature_flag.return_value = "control"
+        self.gather = MagicMock()
+        self.delay = MagicMock()
+        for target, value in (
+            (
+                "products.signals.backend.personal_ranking.config.read_flag_payload",
+                MagicMock(side_effect=lambda *_: self.payload),
+            ),
+            (
+                "products.signals.backend.ranking.access.feature_enabled_or_false",
+                MagicMock(side_effect=lambda *_args, **_kwargs: self.flag_enabled),
+            ),
+            ("products.signals.backend.ranking.inbox_sort.posthoganalytics", self.analytics),
+            ("products.signals.backend.personal_ranking.serve.gather_candidates", self.gather),
+            ("products.signals.backend.personal_ranking.serve.build_personal_inbox_ranking.delay", self.delay),
+        ):
+            patcher = patch(target, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.reports = [
+            SignalReport.objects.create(
+                team=self.team, title=f"R{index}", summary="s", signal_count=1, total_weight=1.0, status="ready"
+            )
+            for index in range(5)
+        ]
+
+    def _ranking(self, ranked: list[SignalReport], folded: list[SignalReport], **kwargs: Any) -> PersonalInboxRanking:
+        defaults: dict[str, Any] = {
+            "personalized": True,
+            "result": {
+                "ranked": [
+                    {
+                        "report_id": str(report.id),
+                        "rank": rank,
+                        "tier": "top" if rank == 1 else "later",
+                        "reason": f"reason {report.title}",
+                        "ranked_by": "llm" if rank == 1 else "model",
+                    }
+                    # Stored out of rank order, so the read must sort by rank.
+                    for rank, report in reversed(list(enumerate(ranked, start=1)))
+                ],
+                "folded": [
+                    {"report_id": str(report.id), "into_report_id": str(ranked[0].id), "reason": "same"}
+                    for report in folded
+                ],
+            },
+        }
+        return PersonalInboxRanking.objects.create(
+            team=self.team,
+            user=self.user,
+            input_hash="h",
+            model="m",
+            prompt_version=1,
+            status="ok",
+            **{**defaults, **kwargs},
+        )
+
+    def _list(self, **params: Any) -> dict[str, Any]:
+        query = "&".join(f"{key}={value}" for key, value in {"status": "ready", **params}.items())
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/?{query}")
+        assert response.status_code == 200, response.json()
+        return response.json()
+
+    def _ids(self, body: dict[str, Any]) -> list[str]:
+        return [row["id"] for row in body["results"]]
+
+    def test_puts_ranked_then_folded_reports_first_without_a_build_or_an_exposure(self) -> None:
+        r0, r1, r2, r3, r4 = self.reports
+        row = self._ranking([r2, r0], [r1])
+        base = self._ids(self._list(sort="recommended"))
+        self.analytics.reset_mock()
+
+        body = self._list(sort="personal")
+
+        rest = [report_id for report_id in base if report_id not in {str(r2.id), str(r0.id), str(r1.id)}]
+        assert self._ids(body) == [str(r2.id), str(r0.id), str(r1.id), *rest]
+        assert (body["ranker"], body["ranking_id"], body["ranking_pill"]) == ("personal", str(row.id), False)
+        assert [row["inbox_merge_key"] for row in body["results"]] == [0, 1, 2, 3 + 5, 3 + 5]
+        assert [(row["personal_tier"], row["personal_reason"]) for row in body["results"][:3]] == [
+            ("top", "reason R2"),
+            (None, None),
+            (None, None),
+        ]
+        assert self.analytics.get_feature_flag.call_args.kwargs["send_feature_flag_events"] is False
+        assert (self.gather.call_count, self.delay.call_count) == (0, 0)
+        assert PersonalInboxRanking.objects.for_team(self.team.id).count() == 1
+
+    @parameterized.expand(
+        [
+            ("no_row", None, True, True),
+            ("empty_row", {"ranked": [], "folded": []}, True, True),
+            ("not_personalized", "not_personalized", True, True),
+            ("flag_off", "ranked", False, True),
+            ("disabled", "ranked", True, False),
+        ]
+    )
+    def test_falls_back_to_the_recommended_order(
+        self, _name: str, row: Any, flag_enabled: bool, config_enabled: bool
+    ) -> None:
+        r0, r1, *_ = self.reports
+        if row == "not_personalized":
+            self._ranking([r0], [r1], personalized=False)
+        elif row == "ranked":
+            self._ranking([r0], [r1])
+        elif row is not None:
+            self._ranking([], [], result=row)
+        base = self._list(sort="recommended")
+        self.flag_enabled = flag_enabled
+        self.payload = {} if config_enabled else {"enabled": False}
+
+        body = self._list(sort="personal")
+
+        assert self._ids(body) == self._ids(base)
+        assert (body["ranker"], body["ranking_id"]) == ("priority", None)
+        assert [row["inbox_merge_key"] for row in body["results"]] == [
+            row["inbox_merge_key"] for row in base["results"]
+        ]
+        assert all(row["personal_reason"] is None for row in body["results"])
+        assert (self.gather.call_count, self.delay.call_count) == (0, 0)
+
+    def test_later_pages_keep_the_order_of_the_first_page_after_a_rebuild(self) -> None:
+        r0, r1, r2, r3, r4 = self.reports
+        old = self._ranking([r0, r1, r2, r3], [])
+        first = self._list(sort="personal", limit=2)
+        assert (self._ids(first), first["ranking_id"]) == ([str(r0.id), str(r1.id)], str(old.id))
+        self._ranking([r3, r2, r1, r0], [])
+
+        second = self._list(sort="personal", limit=2, offset=2, ranking_id=first["ranking_id"])
+        assert (self._ids(second), second["ranking_id"]) == ([str(r2.id), str(r3.id)], str(old.id))
+
+        old.delete()
+        latest = self._list(sort="personal", limit=2, offset=2, ranking_id=first["ranking_id"])
+        assert self._ids(latest) == [str(r1.id), str(r0.id)]

@@ -38,6 +38,7 @@ from products.signals.backend.activity_summary.search import MAX_MEMBER_ACTIVITY
 from products.signals.backend.artefact_schemas import (
     MAX_REPORT_LINK_REASON_LENGTH,
     MAX_REPORT_LINKS_PER_WRITE,
+    MAX_SOURCE_ISSUES_PER_WRITE,
     ActionabilityChoice,
     Priority,
 )
@@ -124,6 +125,7 @@ from products.signals.backend.serializers import (
     ReviewerProposalSerializer,
     SignalReportCheckWriteSerializer,
 )
+from products.signals.backend.source_issues import parse_source_issue_url
 from products.skills.backend.api.skill_serializers import (
     MAX_SKILL_FILE_COUNT,
     SPEC_DESCRIPTION_MAX_LENGTH,
@@ -1026,7 +1028,7 @@ class ScratchpadEntrySerializer(serializers.Serializer):
 
 
 # pg_trgm pads a word where a literal separator bounds it, so `ai_` still yields the trigram "AI ".
-_TRIGRAM_INDEXABLE_TEXT = re.compile(r"[^\W_]{3}|(?<=[\W_])[^\W_]{2}|[^\W_]{2}(?=[\W_])")
+TRIGRAM_INDEXABLE_TEXT = re.compile(r"[^\W_]{3}|(?<=[\W_])[^\W_]{2}|[^\W_]{2}(?=[\W_])")
 
 
 class SearchMemoryQuerySerializer(serializers.Serializer):
@@ -1102,7 +1104,7 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
     def validate_text(self, value: str) -> str:
         # The trigram indexes extract nothing from a term without an indexable word, so Postgres
         # reads and upper-cases every body the team holds to answer it.
-        if value and not _TRIGRAM_INDEXABLE_TEXT.search(value):
+        if value and not TRIGRAM_INDEXABLE_TEXT.search(value):
             raise serializers.ValidationError(
                 "Use 3 letters or digits in a row, or 2 next to a symbol such as `ai_`, for example a whole word or identifier. "
                 "To read one known entry, pass `key` instead."
@@ -1584,6 +1586,35 @@ _REPORT_METRICS_WRITE_HELP = (
 )
 
 
+class SourceIssueWriteSerializer(serializers.Serializer):
+    """One external issue the report is about."""
+
+    url = serializers.CharField(
+        max_length=500,
+        help_text=(
+            "The issue's URL, `https://github.com/<owner>/<repo>/issues/<number>`. Only GitHub issues are "
+            "accepted today. Pull request URLs are rejected."
+        ),
+    )
+
+    def validate_url(self, value: str) -> str:
+        if parse_source_issue_url(value) is None:
+            raise serializers.ValidationError(
+                "Not a GitHub issue URL. Use https://github.com/<owner>/<repo>/issues/<number>."
+            )
+        return value
+
+
+_SOURCE_ISSUES_HELP = (
+    "The GitHub issues this report is about, when the finding came from an issue tracker. Pass the "
+    "issue whenever the report is about one, so the report links back to it: a GitHub issue signal "
+    "for the same issue then joins this report instead of opening a second one. When the project "
+    "turned on GitHub issue comments, the issue gets one comment that links the report once its "
+    "GitHub source ingests the issue. At most "
+    f"{MAX_SOURCE_ISSUES_PER_WRITE} per call."
+)
+
+
 class EmitReportRequestSerializer(serializers.Serializer):
     """Request body for the scout `emit-report` action and the inbox report `create` action. A scout run is
     taken from the URL path; a person is the authenticated caller."""
@@ -1708,6 +1739,12 @@ class EmitReportRequestSerializer(serializers.Serializer):
             "so link from the side the sentence starts at. Links of the same kind must stay acyclic and "
             "every report must be in this project."
         ),
+    )
+    source_issues = serializers.ListField(
+        required=False,
+        child=SourceIssueWriteSerializer(),
+        max_length=MAX_SOURCE_ISSUES_PER_WRITE,
+        help_text=_SOURCE_ISSUES_HELP,
     )
     tags = serializers.ListField(
         required=False,
@@ -1924,6 +1961,15 @@ class EditReportRequestSerializer(ReviewerProposalSerializer):
             "Links of the same kind must stay acyclic and every report must be in this project."
         ),
     )
+    source_issues = serializers.ListField(
+        required=False,
+        child=SourceIssueWriteSerializer(),
+        max_length=MAX_SOURCE_ISSUES_PER_WRITE,
+        help_text=(
+            f"{_SOURCE_ISSUES_HELP} Additive: issues join the ones the report already names, and an issue "
+            "it already names is skipped. Only a newly added issue gets a comment."
+        ),
+    )
     tags = serializers.ListField(
         required=False,
         allow_null=True,
@@ -2030,6 +2076,9 @@ class EditReportResponseSerializer(serializers.Serializer):
     )
     links_appended = serializers.IntegerField(
         help_text="How many typed report-to-report links this edit wrote; 0 if none."
+    )
+    source_issues_appended = serializers.IntegerField(
+        help_text="How many source issues this edit added that the report did not name yet; 0 if none."
     )
     reviewers_set = serializers.BooleanField(help_text="Whether the report's suggested reviewers were replaced.")
     repository_set = serializers.BooleanField(
