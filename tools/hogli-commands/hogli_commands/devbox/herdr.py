@@ -69,16 +69,16 @@ def _output_of(result: subprocess.CompletedProcess[str]) -> str:
     return (result.stderr or result.stdout or "").strip()
 
 
-def _ssh_targets(workspace_name: str) -> tuple[str, str]:
+def _ssh_targets(workspace_name: str) -> frozenset[str]:
     # `coder config-ssh` writes a `coder.<name>` alias and a `<name>.coder` host suffix,
     # and a machine someone added in Herdr by hand can use either one.
-    return (_ssh_host_alias(workspace_name), f"{workspace_name}.coder")
+    return frozenset({_ssh_host_alias(workspace_name), f"{workspace_name}.coder"})
 
 
 def ensure_machine(workspace_name: str) -> str:
     """Return the `hc` machine name for the devbox, adding the machine when it's missing."""
     targets = _ssh_targets(workspace_name)
-    target = targets[0]
+    target = _ssh_host_alias(workspace_name)
     listing = _run_json(
         ["hc", "machine", "ls", "--json"],
         failure="Couldn't list Herdr machines.",
