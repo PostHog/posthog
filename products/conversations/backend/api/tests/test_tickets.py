@@ -1153,7 +1153,9 @@ class TestWriteBriefEndpoint(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         # The stored row, not the writer's return value: the caller renders this without
         # refetching the ticket, so a response that drifts from the row shows a stale brief.
-        self.assertEqual(response.json(), {"written": True, "reason": "", "brief": stored})
+        # Compared through the serializer, because it fills the optional fields with nulls and
+        # a field added to the brief should not break this.
+        self.assertEqual(response.json(), {"written": True, "reason": "", "brief": TicketBriefSerializer(stored).data})
         # The whole call, because passing respect_gate=True here would reinstate the wait the
         # button exists to skip, and a wrong team_id would brief someone else's ticket.
         self.assertEqual(helper.call_args.kwargs, {"team_id": self.team.id, "ticket_id": str(self.ticket.id)})

@@ -22,7 +22,6 @@ import posthoganalytics
 from pydantic import BaseModel, Field
 
 from posthog.dataclasses import frozen
-from posthog.llm.gateway_client import get_async_anthropic_gateway_client
 from posthog.models.comment import Comment
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
@@ -31,6 +30,7 @@ from products.conversations.backend.ai.llms import (
     UTILITY_MODEL,
     anthropic_output_config,
     anthropic_text,
+    build_conversations_client,
     create_message,
     strip_json_fence,
     tracing_kwargs,
@@ -306,7 +306,7 @@ async def write_brief(
         # SDK then does not clean up on its own. Without this, every brief leaves a connection
         # pool behind: on a Temporal worker they accumulate, and the on-demand caller closes
         # its event loop before the pool is collected.
-        client = get_async_anthropic_gateway_client(product="conversations", team_id=team_id)
+        client = build_conversations_client(team_id, trace_id, ticket_id)
         async with client.with_options(max_retries=0) as bounded_client:
             message = await create_message(
                 bounded_client,
