@@ -1,12 +1,20 @@
 import gzip
 import json
 import logging
+from collections.abc import Callable
+from decimal import Decimal
 from typing import Any, Optional, cast
 
 from django.db import close_old_connections
 
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.exceptions_capture import capture_exception
+from posthog.llm.gateway_internal_client import (
+    AIGatewayRequestRejected,
+    OrgLedgerResult,
+    grant_org_credit,
+    reverse_org_credit,
+)
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.organization import Organization
 from posthog.models.user import User
@@ -22,6 +30,9 @@ logger = logging.getLogger(__name__)
 # PostHog's own team on Cloud US — owns the Customer-analytics accounts that inbound billing
 # usage-spike events resolve against. Billing emits these spike messages to the US queue.
 POSTHOG_SELF_TEAM_ID = 2
+
+# The ai_funding_added and ai_funding_reversed message version this consumer reads.
+AI_FUNDING_MESSAGE_VERSION = 1
 
 
 class BillingConsumer(SQSConsumer):
@@ -57,6 +68,10 @@ class BillingConsumer(SQSConsumer):
                 self._process_usage_spike_detected(body)
             elif message_type == "billing_activity":
                 self._process_billing_activity(body)
+            elif message_type == "ai_funding_added":
+                self._relay_ai_funding(body, grant_org_credit, reason_field="kind")
+            elif message_type == "ai_funding_reversed":
+                self._relay_ai_funding(body, reverse_org_credit, reason_field="reason")
             # Add more message types as needed
             # elif message_type == "invoice_created":
             #     self._process_invoice_created(body)
@@ -178,6 +193,50 @@ class BillingConsumer(SQSConsumer):
             billing_id=data.get("billing_id"),
             stripe_customer_id=data.get("stripe_customer_id"),
             detected_at=data.get("detected_at"),
+        )
+
+    def _relay_ai_funding(
+        self,
+        body: dict[str, Any],
+        record: Callable[[str, str, str, str], OrgLedgerResult],
+        reason_field: str,
+    ) -> None:
+        """
+        Hand money that billing collected, or took back, to the organization's AI gateway wallet.
+
+        The gateway records each operation ID once, so a message that SQS delivers again records
+        nothing new. A gateway or network failure raises, which leaves the message on the queue
+        for another delivery. A message that can never succeed is captured and acknowledged.
+        """
+        message_type = body.get("type")
+        version = body.get("version")
+        if version != AI_FUNDING_MESSAGE_VERSION:
+            # A newer billing may send a version this consumer can't read yet. Raising keeps the
+            # money on the queue until PostHog reads it, where acknowledging would drop it.
+            raise ValueError(f"{message_type} version {version} is not supported")
+
+        organization_id = body.get("organization_id")
+        operation_id = body.get("operation_id")
+        amount_cents = body.get("amount_cents")
+        reason = body.get(reason_field)
+        context = {"message_type": message_type, "organization_id": organization_id, "operation_id": operation_id}
+        if not (organization_id and operation_id and reason and isinstance(amount_cents, int) and amount_cents > 0):
+            logger.error("ai_funding.malformed_message", extra=context)
+            capture_exception(Exception(f"{message_type} message is malformed"), {**context, "body": body})
+            return
+
+        try:
+            result = record(str(organization_id), f"{Decimal(amount_cents) / 100:.2f}", str(reason), str(operation_id))
+        except AIGatewayRequestRejected as e:
+            # A 400 or 409, such as an operation ID the gateway already holds with another amount,
+            # fails the same way on every delivery.
+            logger.exception("ai_funding.rejected_by_gateway", extra={**context, "status_code": e.status_code})
+            capture_exception(e, {**context, "status_code": e.status_code})
+            return
+
+        logger.info(
+            "ai_funding.recorded",
+            extra={**context, "entry_id": result.entry_id, "duplicate": result.duplicate},
         )
 
     def _process_billing_activity(self, body: dict[str, Any]) -> None:
