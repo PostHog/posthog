@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -7,7 +8,10 @@ import { initKeaTests } from '~/test/init'
 
 describe('the primary event properties model', () => {
     // Safety net for the test that calls silenceKeaLoadersErrors() inline
-    afterEach(resumeKeaLoadersErrors)
+    afterEach(() => {
+        resumeKeaLoadersErrors()
+        jest.restoreAllMocks()
+    })
 
     let logic: ReturnType<typeof primaryEventPropertiesModel.build>
 
@@ -119,5 +123,42 @@ describe('the primary event properties model', () => {
         }).toDispatchActions(['loadPrimaryPropertiesFailure'])
 
         expect(logic.values.loadedEventNames).toEqual([])
+    })
+
+    it.each([
+        {
+            name: 'a load',
+            method: 'get',
+            url: '/api/projects/:team_id/event_definitions/primary_properties/',
+            start: (): Promise<unknown> => logic.asyncActions.loadPrimaryProperties({ names: ['my_event'] }),
+        },
+        {
+            name: 'a pin',
+            method: 'patch',
+            url: '/api/projects/:team_id/event_definitions/:id/',
+            start: (): Promise<unknown> =>
+                logic.asyncActions.updatePrimaryProperty({ eventName: 'my_event', propertyKey: 'chosen_prop' }),
+        },
+    ])('does not report an error when the model unmounts during $name', async ({ method, url, start }) => {
+        let releaseResponse: () => void = () => {}
+        const responseGate = new Promise<void>((resolve) => {
+            releaseResponse = resolve
+        })
+        useMocks({
+            [method]: {
+                [url]: async () => {
+                    await responseGate
+                    return [200, { id: 'def-1', primary_property: 'chosen_prop', primary_properties: {} }]
+                },
+            },
+        })
+        const captureException = jest.spyOn(posthog, 'captureException')
+
+        const loaderSettled = start()
+        logic.unmount()
+        releaseResponse()
+        await loaderSettled
+
+        expect(captureException).not.toHaveBeenCalled()
     })
 })

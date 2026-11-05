@@ -73,6 +73,12 @@ export type primaryEventPropertiesModelType = MakeLogicType<
     primaryEventPropertiesModelActions
 >
 
+// The model can unmount while a request is in flight, for example when a taxonomic filter popover closes.
+// Reading `values` after that throws Kea's "Can not find path" error, so loaders read through this after an await.
+function currentPrimaryProperties(): Record<string, string> {
+    return primaryEventPropertiesModel.isMounted() ? primaryEventPropertiesModel.values.primaryProperties : {}
+}
+
 export const primaryEventPropertiesModel = kea<primaryEventPropertiesModelType>([
     path(['models', 'primaryEventPropertiesModel']),
     actions({
@@ -87,7 +93,7 @@ export const primaryEventPropertiesModel = kea<primaryEventPropertiesModelType>(
                     return values.primaryProperties
                 }
                 const response = await api.eventDefinitions.primaryProperties({ names })
-                const next = { ...values.primaryProperties }
+                const next = { ...currentPrimaryProperties() }
                 for (const name of names) {
                     delete next[name]
                 }
@@ -106,14 +112,14 @@ export const primaryEventPropertiesModel = kea<primaryEventPropertiesModelType>(
                 } catch (error) {
                     posthog.captureException(error, { action: 'update-primary-property', stage: 'lookup' })
                     lemonToast.error(`We couldn't find a definition for "${eventName}" yet. Please try again shortly.`)
-                    return values.primaryProperties
+                    return currentPrimaryProperties()
                 }
                 try {
                     const updated = await api.eventDefinitions.update({
                         eventDefinitionId: definitionId,
                         eventDefinitionData: { primary_property: propertyKey },
                     })
-                    const next = { ...values.primaryProperties }
+                    const next = { ...currentPrimaryProperties() }
                     if (updated.primary_property) {
                         next[eventName] = updated.primary_property
                     } else {
@@ -123,7 +129,7 @@ export const primaryEventPropertiesModel = kea<primaryEventPropertiesModelType>(
                 } catch (error) {
                     posthog.captureException(error, { action: 'update-primary-property', stage: 'update' })
                     lemonToast.error('Could not update the pinned property. Please try again.')
-                    return values.primaryProperties
+                    return currentPrimaryProperties()
                 }
             },
         },
