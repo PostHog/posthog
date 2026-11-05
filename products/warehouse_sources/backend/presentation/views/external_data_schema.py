@@ -50,6 +50,7 @@ from products.warehouse_sources.backend.facade.models import (
     MAX_FULL_REFRESH_INTERVAL_DAYS,
     SCHEDULED_FULL_REFRESH_SYNC_TYPES,
     SCHEMA_RESOURCE_ID_METADATA_KEY,
+    SETTABLE_SYNC_FREQUENCIES,
     DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
@@ -861,18 +862,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         ),
     )
     sync_frequency = serializers.ChoiceField(
-        choices=[
-            ("never", "never"),
-            ("5min", "5min"),
-            ("15min", "15min"),
-            ("30min", "30min"),
-            ("1hour", "1hour"),
-            ("6hour", "6hour"),
-            ("12hour", "12hour"),
-            ("24hour", "24hour"),
-            ("7day", "7day"),
-            ("30day", "30day"),
-        ],
+        choices=[(frequency, frequency) for frequency in SETTABLE_SYNC_FREQUENCIES],
         required=False,
         allow_null=True,
         help_text="How often to sync. The fastest sync frequency is 5 minutes.",

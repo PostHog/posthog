@@ -225,6 +225,25 @@ class TestCrawlMigration(BaseTest):
         assert item.proposal is not None
         assert item.proposal["source_type"] == ExternalDataSourceType.HUBSPOT
 
+    def test_a_deleted_migration_stops_reading_fivetran(self) -> None:
+        migration = self._migration()
+
+        def delete_while_reading(request: Any, context: Any) -> dict[str, Any]:
+            WarehouseMigration.objects.for_team(self.team.pk).filter(id=migration.id).delete()
+            return {"code": "Success", "data": {"id": "conn_a", "service": "hubspot", "schema": "conn_a"}}
+
+        with requests_mock.Mocker() as m:
+            _mock_account(m, ["conn_a", "conn_b"])
+            m.get(f"{FIVETRAN_API_URL}/connections/conn_a", json=delete_while_reading)
+            assert (
+                crawl_migration(
+                    team_id=self.team.pk, migration_id=migration.id, workflow_id=_CRAWL, catalog=_HubspotOnly()
+                )
+                == 0
+            )
+
+        assert "/v1/connections/conn_b" not in {request.path for request in m.request_history}
+
     def test_a_replaced_crawl_changes_nothing(self) -> None:
         migration = self._migration()
         with requests_mock.Mocker() as m:
