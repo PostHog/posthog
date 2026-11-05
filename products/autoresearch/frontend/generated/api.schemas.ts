@@ -1909,11 +1909,25 @@ export interface OnlinePerformanceApi {
 
 export interface StartTrainingRequestApi {
     /**
-     * Iterations for this training run. Defaults to the pipeline's iterations_per_run.
+     * Iterations for this training run. Defaults to the pipeline's iterations_per_run. The project's iteration limit per run can lower it.
      * @minimum 1
-     * @maximum 500
+     * @maximum 50
      */
     iteration_budget?: number
+}
+
+export interface TrainingRunCapReachedApi {
+    /** Why the run did not start. */
+    detail: string
+    /** Sandbox training runs the project started in the last 24 hours, across all its pipelines. */
+    used: number
+    /** Sandbox training runs the project may start in any 24 hours. */
+    limit: number
+    /**
+     * When the next training run can start. Null when training runs are turned off for the project.
+     * @nullable
+     */
+    next_slot_at: string | null
 }
 
 export interface AgentReasoningEffortOptionApi {

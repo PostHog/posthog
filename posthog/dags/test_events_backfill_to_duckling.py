@@ -1,5 +1,7 @@
 import os
 import re
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from fnmatch import fnmatch
 from typing import Any, cast
@@ -2635,15 +2637,35 @@ class _FakeTrinoBackfillCatalog:
         self.tables: list[tuple[str, dict[str, str]]] = []
         self.registered: list[tuple[str, list[str], str, DuckLakeDayReplacement | DuckLakeTableReplacement | None]] = []
         self.deleted: list[tuple[str, DuckLakeDayReplacement | DuckLakeTableReplacement]] = []
+        self.connection_open = False
+        self.exports_at_connect = 0
+        self.count_exports: Callable[[], int] = lambda: 0
+
+    @contextmanager
+    def connect(self, *_args: Any, **_kwargs: Any) -> Iterator["_FakeTrinoBackfillCatalog"]:
+        self.connection_open = True
+        self.exports_at_connect = self.count_exports()
+        try:
+            yield self
+        finally:
+            self.connection_open = False
+
+    def _require_live_connection(self) -> None:
+        assert self.connection_open, "a statement ran without an open Trino connection"
+        assert self.count_exports() == self.exports_at_connect, (
+            "a Trino connection stayed open across an export, so its credential lapsed"
+        )
 
     def ensure_table(
         self, table: str, columns: dict[str, str], *, drop_first: bool, create_if_missing: bool, validate: bool
     ) -> None:
+        self._require_live_connection()
         if self.layout_mismatch and validate and not self.rebuilt:
             raise DuckLakeTableLayoutError("the table has unsigned columns")
         self.tables.append((table, dict(columns)))
 
     def replace_table(self, table: str, columns: dict[str, str]) -> None:
+        self._require_live_connection()
         self.calls.append(("replace", table))
         self.rebuilt = True
 
@@ -2659,11 +2681,13 @@ class _FakeTrinoBackfillCatalog:
         import_id: str,
         replacement: DuckLakeDayReplacement | DuckLakeTableReplacement | None,
     ) -> int:
+        self._require_live_connection()
         self.calls.append(("register", table, replacement))
         self.registered.append((table, list(files), import_id, replacement))
         return len(files)
 
     def delete_rows(self, table: str, replacement: DuckLakeDayReplacement | DuckLakeTableReplacement) -> None:
+        self._require_live_connection()
         self.deleted.append((table, replacement))
 
 
@@ -2768,7 +2792,8 @@ class TestBackfillThroughTrino:
             patch("posthog.dags.events_backfill_to_duckling.record_duckling_backfill_workload"),
             patch("tenacity.nap.time.sleep"),
         ):
-            connect_catalog.return_value.__enter__.return_value = catalog
+            catalog.count_exports = lambda: len(clickhouse.inserts)
+            connect_catalog.side_effect = catalog.connect
             run(context, config)
             run(context, config)
         duckgres.assert_not_called()

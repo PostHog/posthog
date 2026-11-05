@@ -261,6 +261,7 @@ rules:
                               |HogFunctionRevision
                               |Hook
                               |Insight
+                              |InsightExplanation
                               |InsightVariable
                               |Integration
                               |IntegrationRepositoryCacheEntry
@@ -307,6 +308,7 @@ rules:
                               |MessageSuppression
                               |MessageTemplate
                               |Metric
+                              |MetricDailyQueryCount
                               |MetricsDashboardDiscovery
                               |MetricsDashboardSuggestion
                               |RelationshipProposal
@@ -464,6 +466,7 @@ rules:
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
+                              |TaskRunGatewayRequest
                               |TaskWorkflowDispatch
                               |TaskSearchDocument
                               |TaskSession
@@ -771,6 +774,7 @@ rules:
                         |HogFunctionRevision
                         |Hook
                         |Insight
+                        |InsightExplanation
                         |InsightVariable
                         |Integration
                         |IntegrationRepositoryCacheEntry
@@ -812,6 +816,7 @@ rules:
                         |MessageSuppression
                         |MessageTemplate
                         |Metric
+                        |MetricDailyQueryCount
                         |MetricsDashboardDiscovery
                         |MetricsDashboardSuggestion
                         |RelationshipProposal
@@ -967,6 +972,7 @@ rules:
                         |TaskAutomation
                         |TaskPresence
                         |TaskRun
+                        |TaskRunGatewayRequest
                         |TaskWorkflowDispatch
                         |TaskSession
                         |UserTasksConfig
@@ -1300,6 +1306,7 @@ rules:
                         |TeamDataQualityConfig
                         |TeamDataWarehouseConfig
                         |TeamDefaultEvaluationContext
+                        |TeamEventsPlanDeletion
                         |TeamEventsRetentionConfig
                         |TeamEventVolume
                         |TeamExperimentsConfig
