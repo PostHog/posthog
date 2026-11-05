@@ -21949,6 +21949,13 @@ class QueryResponseAlternative9(BaseModel):
     index_usage: list[PredicateIndexUsage] | None = Field(
         default=None, description="One entry per property filter, in query order."
     )
+    internalError: bool | None = Field(
+        default=None,
+        description=(
+            "The validator raised an internal error, such as a database failure, so the"
+            " errors do not prove that the query is invalid."
+        ),
+    )
     isUsingIndices: QueryIndexUsage | None = None
     isValid: bool | None = None
     notices: list[HogQLNotice]
@@ -29639,6 +29646,13 @@ class HogQLMetadataResponse(BaseModel):
     index_usage: list[PredicateIndexUsage] | None = Field(
         default=None, description="One entry per property filter, in query order."
     )
+    internalError: bool | None = Field(
+        default=None,
+        description=(
+            "The validator raised an internal error, such as a database failure, so the"
+            " errors do not prove that the query is invalid."
+        ),
+    )
     isUsingIndices: QueryIndexUsage | None = None
     isValid: bool | None = None
     notices: list[HogQLNotice]
@@ -34834,6 +34848,14 @@ class HogQLMetadata(BaseModel):
         default=None,
         description=(
             "Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder"
+        ),
+    )
+    freshSources: bool | None = Field(
+        default=None,
+        description=(
+            "Validate on the Python validator with freshly fetched sources, the same"
+            " sources query execution uses. Adds a sources fetch on every request, so"
+            " only set it where the result blocks an action."
         ),
     )
     globals: dict[str, Any] | None = Field(default=None, description="Extra globals for the query")
