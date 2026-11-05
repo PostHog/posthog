@@ -206,6 +206,7 @@ class TestDatasetsApi(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         updated = datasets.get()
+        assert updated.last_used_at is not None
         self.assertGreater(updated.last_used_at, recent)
         self.assertEqual(updated.archived, archived)
         self.assertEqual(updated.updated_at, original.updated_at)
@@ -214,7 +215,9 @@ class TestDatasetsApi(APIBaseTest):
         self.assertEqual(revisions.get(revision=2).last_used_at, recent)
         self.assertEqual(revisions.get(revision=3).last_used_at, recent)
         if revision is not None:
-            self.assertGreater(revisions.get(revision=revision).last_used_at, recent)
+            revision_last_used_at = revisions.get(revision=revision).last_used_at
+            assert revision_last_used_at is not None
+            self.assertGreater(revision_last_used_at, recent)
         else:
             self.assertEqual(revisions.get(revision=1).last_used_at, recent)
         self.assertEqual(response.data["revision"], revision)

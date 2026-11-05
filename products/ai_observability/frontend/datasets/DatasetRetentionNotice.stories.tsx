@@ -1,7 +1,10 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { fireEvent, within } from '@testing-library/dom'
+import { router } from 'kea-router'
 
 import { mswDecorator } from '~/mocks/browser'
+
+import { expect } from 'storybook/test'
 
 import type { DatasetRetentionEntryApi, DatasetRetentionReadApi } from '../generated/api.schemas'
 import { DatasetRetentionNotice } from './DatasetRetentionNotice'
@@ -78,9 +81,19 @@ export const Expanded: Story = {
 
 export const Revisions: Story = {
     play: async ({ canvasElement }) => {
-        fireEvent.click(await within(canvasElement).findByText('Review'))
-        fireEvent.click(await within(canvasElement).findByText('Older revisions (8)'))
-        await within(canvasElement).findByText('· Revision 1')
+        const canvas = within(canvasElement)
+        fireEvent.click(await canvas.findByText('Review'))
+        fireEvent.click(await canvas.findByText('Older revisions (8)'))
+        await canvas.findByText('· Revision 1')
+
+        const initialLocation = { ...router.values.location }
+        fireEvent.click(canvas.getByRole('button', { name: 'Next page' }))
+        await canvas.findByText('· Revision 6')
+        await expect(router.values.location).toEqual(initialLocation)
+
+        fireEvent.click(canvas.getByRole('button', { name: 'Previous page' }))
+        await canvas.findByText('· Revision 1')
+        await expect(router.values.location).toEqual(initialLocation)
     },
 }
 

@@ -81,6 +81,7 @@ export function DatasetRetentionNotice(): JSX.Element | null {
                         rowKey={(entry) => `${entry.dataset_id}:${entry.revision ?? 'latest'}`}
                         pagination={{
                             controlled: true,
+                            useUrl: false,
                             currentPage: page,
                             entryCount: retention.count,
                             pageSize: RETENTION_PAGE_SIZE,
