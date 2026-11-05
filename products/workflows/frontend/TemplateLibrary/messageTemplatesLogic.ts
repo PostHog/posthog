@@ -14,6 +14,7 @@ import {
     messagingTemplatesRetrieve,
 } from 'products/messaging/frontend/generated/api'
 
+import type { MessageTemplateApi } from '../../../messaging/frontend/generated/api.schemas'
 import { filterMessageTemplates } from './filterMessageTemplates'
 import { MessageTemplate, MessageTemplateListItem } from './types'
 
@@ -101,10 +102,10 @@ export interface messageTemplatesLogicActions {
         errorObject?: any
     }
     loadTemplatesSuccess: (
-        templates: MessageTemplateListItem[],
+        templates: MessageTemplateApi[],
         payload?: any
     ) => {
-        templates: MessageTemplateListItem[]
+        templates: MessageTemplateApi[]
         payload?: any
     }
     setCreatedByFilter: (createdBy: number | null) => {

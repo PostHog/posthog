@@ -469,8 +469,8 @@ export interface emailTemplaterLogicActions {
         template: MessageTemplateListApi,
         onPicked?: () => void
     ) => {
+        onPicked: (() => void) | undefined
         template: MessageTemplateApi
-        onPicked?: () => void
     }
     resetEmailTemplate: (values?: EmailTemplate) => {
         values?: EmailTemplate

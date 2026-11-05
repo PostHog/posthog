@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 import { filterMessageTemplates } from '../TemplateLibrary/filterMessageTemplates'
 import { messageTemplatesLogic, saveTemplateTags } from '../TemplateLibrary/messageTemplatesLogic'
 import { MessageTemplate } from '../TemplateLibrary/types'
+import type { MessageTemplateListItem } from '../TemplateLibrary/types'
 
 export interface TransactionalEmailsFilters {
     search: string
@@ -27,7 +28,7 @@ const FILTER_URL_PARAMS = ['search', 'created_by', 'tags']
 export interface transactionalEmailsLogicValues {
     tags: string[] // messageTemplatesLogic
     templatesLoading: boolean // messageTemplatesLogic
-    transactionalTemplates: MessageTemplate[] // messageTemplatesLogic
+    transactionalTemplates: MessageTemplateListItem[] // messageTemplatesLogic
     filteredTransactionalTemplates: MessageTemplate[]
     filters: TransactionalEmailsFilters
     isFiltered: boolean
@@ -65,7 +66,7 @@ export interface transactionalEmailsLogicActions {
 export interface transactionalEmailsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         filteredTransactionalTemplates: (
-            transactionalTemplates: MessageTemplate[],
+            transactionalTemplates: MessageTemplateListItem[],
             filters: TransactionalEmailsFilters
         ) => MessageTemplate[]
         isFiltered: (filters: TransactionalEmailsFilters) => boolean
