@@ -36495,6 +36495,17 @@ export namespace Schemas {
     }
 
     /**
+     * One external issue the report is about.
+     */
+    export interface SourceIssueWrite {
+      /**
+         * The issue's URL, `https://github.com/<owner>/<repo>/issues/<number>`. Only GitHub issues are accepted today. Pull request URLs are rejected.
+         * @maxLength 500
+         */
+      url: string;
+    }
+
+    /**
      * Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones.
      */
     export interface EditReportRequest {
@@ -36579,6 +36590,11 @@ export namespace Schemas {
          */
       links?: ReportLinkWrite[];
       /**
+         * The GitHub issues this report is about, when the finding came from an issue tracker. Pass the issue whenever the report is about one, so the report links back to it: a GitHub issue signal for the same issue then joins this report instead of opening a second one. When the project turned on GitHub issue comments, the issue gets one comment that links the report once its GitHub source ingests the issue. At most 5 per call. Additive: issues join the ones the report already names, and an issue it already names is skipped. Only a newly added issue gets a comment.
+         * @maxItems 5
+         */
+      source_issues?: SourceIssueWrite[];
+      /**
          * The report's full set of slug tags, at most 10. Replaces the report's tags rather than adding to them, so send every tag you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to remove them. Reuse a slug the project already uses before you coin a new one.
          * @maxItems 10
          * @nullable
@@ -36635,6 +36651,8 @@ export namespace Schemas {
       evidence_appended: number;
       /** How many typed report-to-report links this edit wrote; 0 if none. */
       links_appended: number;
+      /** How many source issues this edit added that the report did not name yet; 0 if none. */
+      source_issues_appended: number;
       /** Whether the report's suggested reviewers were replaced. */
       reviewers_set: boolean;
       /** Whether the report's repository was replaced (true for a cleared target too). */
@@ -37184,6 +37202,30 @@ export namespace Schemas {
     }
 
     /**
+     * * `queued` - Queued
+     * * `failed` - Failed
+     * * `sent` - Sent
+     * * `delivered` - Delivered
+     * * `bounced` - Bounced
+     * * `complained` - Complained
+     * * `opened` - Opened
+     * * `clicked` - Clicked
+     */
+    export type EmailLogEventKindEnum = typeof EmailLogEventKindEnum[keyof typeof EmailLogEventKindEnum];
+
+
+    export const EmailLogEventKindEnum = {
+      Queued: 'queued',
+      Failed: 'failed',
+      Sent: 'sent',
+      Delivered: 'delivered',
+      Bounced: 'bounced',
+      Complained: 'complained',
+      Opened: 'opened',
+      Clicked: 'clicked',
+    } as const;
+
+    /**
      * How much workflow email this project may send, and how much of that it has used.
      */
     export interface EmailSendingAllowance {
@@ -37191,14 +37233,10 @@ export namespace Schemas {
       readonly tier: number;
       /** The highest tier there is, so the current tier can be shown as progress. */
       readonly max_tier: number;
-      /** How many emails this tier allows per hour. */
-      readonly emails_per_hour: number;
       /** How many emails this tier allows per day. */
       readonly emails_per_day: number;
       /** The largest audience this tier allows for a single batch send. */
       readonly max_batch_audience: number;
-      /** Emails sent by this project's workflows in the last hour. */
-      readonly emails_sent_last_hour: number;
       /** Emails sent by this project's workflows in the last 24 hours. */
       readonly emails_sent_last_day: number;
       /** True when these allowances are applied to sends. False while they are only being measured. */
@@ -37557,6 +37595,11 @@ export namespace Schemas {
          * @maxItems 10
          */
       links?: ReportLinkWrite[];
+      /**
+         * The GitHub issues this report is about, when the finding came from an issue tracker. Pass the issue whenever the report is about one, so the report links back to it: a GitHub issue signal for the same issue then joins this report instead of opening a second one. When the project turned on GitHub issue comments, the issue gets one comment that links the report once its GitHub source ingests the issue. At most 5 per call.
+         * @maxItems 5
+         */
+      source_issues?: SourceIssueWrite[];
       /**
          * Optional slug tags that group the report with related ones, at most 10. Write lowercase kebab-case slugs that name the category of the report (`cost-spike`, `tracking-gap`), not the specific entity. Reuse a slug the project already uses before you coin a new one. Near-miss formats are normalized to slugs, and a tag that is empty or longer than 50 characters after normalization is rejected.
          * @maxItems 10
@@ -73654,6 +73697,7 @@ export namespace Schemas {
      * * `code_review` - Code Review
      * * `related_to` - Related To
      * * `report_link` - Report Link
+     * * `source_issue` - Source Issue
      * * `autostart_skip` - Autostart Skip
      * * `work_claim` - Work Claim
      * * `work_release` - Work Release
@@ -73697,6 +73741,7 @@ export namespace Schemas {
       CodeReview: 'code_review',
       RelatedTo: 'related_to',
       ReportLink: 'report_link',
+      SourceIssue: 'source_issue',
       AutostartSkip: 'autostart_skip',
       WorkClaim: 'work_claim',
       WorkRelease: 'work_release',
@@ -74680,6 +74725,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly tracker_issue_error: string | null;
+      /** URLs of the external issues this report is about, as recorded by the scout or person that filed it, oldest first. Normalized to `https://github.com/<owner>/<repo>/issues/<number>`. Empty when the report names none. Issues the report learned about from a GitHub issue signal are not listed here. */
+      readonly source_issues: readonly string[];
       /** Derived remediation state: unclaimed, working, in_review, or done. */
       readonly work_state: SignalReportWorkStateEnum;
       /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
@@ -98784,6 +98831,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly tracker_issue_error: string | null;
+      /** URLs of the external issues this report is about, as recorded by the scout or person that filed it, oldest first. Normalized to `https://github.com/<owner>/<repo>/issues/<number>`. Empty when the report names none. Issues the report learned about from a GitHub issue signal are not listed here. */
+      readonly source_issues: readonly string[];
       /** Derived remediation state: unclaimed, working, in_review, or done. */
       readonly work_state: SignalReportWorkStateEnum;
       /** Current user, internal task, or external agent claim owner. Null when unclaimed. */
@@ -113478,6 +113527,164 @@ export namespace Schemas {
     export interface TrainingRunHistory {
       /** Recent completed training runs — the current pipeline first, then same-target sibling pipelines on the team — newest first. Mine these to reuse winning features and avoid repeating discarded approaches. */
       runs: TrainingRunHistoryEntry[];
+    }
+
+    export interface TransactionalEmailLogEvent {
+      /** What happened. The delivery statuses, plus `opened` and `clicked` for what the recipient did.
+       *
+       * * `queued` - Queued
+       * * `failed` - Failed
+       * * `sent` - Sent
+       * * `delivered` - Delivered
+       * * `bounced` - Bounced
+       * * `complained` - Complained
+       * * `opened` - Opened
+       * * `clicked` - Clicked */
+      kind: EmailLogEventKindEnum;
+      /** When it happened. */
+      at: string;
+      /**
+         * Why a send failed, or the bounce type. Null otherwise.
+         * @nullable
+         */
+      reason: string | null;
+    }
+
+    export interface TransactionalEmailLogDetail {
+      /** The `message_id` that the send returned. */
+      message_id: string;
+      /** When the send was queued. */
+      created_at: string;
+      /** The email's delivery status. `queued` waits to go out, `sent` reached the email provider, `delivered` was accepted by the recipient's mail server, `bounced` and `complained` came back later, and `failed` was not sent.
+       *
+       * * `queued` - Queued
+       * * `failed` - Failed
+       * * `sent` - Sent
+       * * `delivered` - Delivered
+       * * `bounced` - Bounced
+       * * `complained` - Complained */
+      status: EmailDeliveryStatusEnum;
+      /** When the email reached its delivery status. */
+      status_at: string;
+      /**
+         * Why a failed email was not sent, or the bounce type. Null otherwise.
+         * @nullable
+         */
+      reason: string | null;
+      /** The address the email was sent to. */
+      recipient: string;
+      /** The workflow behind the transactional email. */
+      workflow_id: string;
+      /**
+         * The transactional email template. Null when it no longer exists.
+         * @nullable
+         */
+      template_id: string | null;
+      /** The template's name. Empty when it was deleted. */
+      template_name: string;
+      /** The domain the email was sent from. Empty before it was sent. */
+      sending_domain: string;
+      /** Whether the recipient opened the email. */
+      opened: boolean;
+      /** Whether the recipient clicked a link in the email. */
+      clicked: boolean;
+      /** Everything that happened, oldest first. */
+      timeline: TransactionalEmailLogEvent[];
+      /** The subject the email went out with. Empty when it was never sent. */
+      subject: string;
+      /** The distinct ID the send named. Empty when it named none. */
+      distinct_id: string;
+      /** The workflow step that sent the email, which the rendered email is stored under. Empty when no rendered email was stored. */
+      action_id: string;
+      /** True when the template is marked sensitive, so no rendered body or subject values are kept. */
+      sensitive: boolean;
+    }
+
+    export interface TransactionalEmailLogEntry {
+      /** The `message_id` that the send returned. */
+      message_id: string;
+      /** When the send was queued. */
+      created_at: string;
+      /** The email's delivery status. `queued` waits to go out, `sent` reached the email provider, `delivered` was accepted by the recipient's mail server, `bounced` and `complained` came back later, and `failed` was not sent.
+       *
+       * * `queued` - Queued
+       * * `failed` - Failed
+       * * `sent` - Sent
+       * * `delivered` - Delivered
+       * * `bounced` - Bounced
+       * * `complained` - Complained */
+      status: EmailDeliveryStatusEnum;
+      /** When the email reached its delivery status. */
+      status_at: string;
+      /**
+         * Why a failed email was not sent, or the bounce type. Null otherwise.
+         * @nullable
+         */
+      reason: string | null;
+      /** The address the email was sent to. */
+      recipient: string;
+      /** The workflow behind the transactional email. */
+      workflow_id: string;
+      /**
+         * The transactional email template. Null when it no longer exists.
+         * @nullable
+         */
+      template_id: string | null;
+      /** The template's name. Empty when it was deleted. */
+      template_name: string;
+      /** The domain the email was sent from. Empty before it was sent. */
+      sending_domain: string;
+      /** Whether the recipient opened the email. */
+      opened: boolean;
+      /** Whether the recipient clicked a link in the email. */
+      clicked: boolean;
+    }
+
+    export interface TransactionalEmailLogList {
+      /** Sends, newest first. */
+      results: TransactionalEmailLogEntry[];
+      /** Whether another page follows. */
+      has_more: boolean;
+    }
+
+    export interface TransactionalEmailResults {
+      /** People the email was sent to in the date range. */
+      recipients: number;
+      /** Of those, people who did the event within the window. */
+      converted: number;
+      /** The sum of the revenue property on those events. */
+      revenue: number;
+      /**
+         * Median hours from the first send to the first conversion. Null when none converted.
+         * @nullable
+         */
+      median_hours_to_convert: number | null;
+    }
+
+    export interface TransactionalEmailStatsRow {
+      /** The template ID or the sending domain. */
+      key: string;
+      /** The template name or the sending domain. Empty for a deleted template. */
+      label: string;
+      /** Emails that reached the email provider. */
+      sent: number;
+      /** Emails the recipient's mail server accepted. */
+      delivered: number;
+      /** Emails that bounced. */
+      bounced: number;
+      /** Emails the recipient marked as spam. */
+      complained: number;
+      /** Emails the recipient opened. */
+      opened: number;
+      /** Emails where the recipient clicked a link. */
+      clicked: number;
+      /** Emails that were not sent. */
+      failed: number;
+    }
+
+    export interface TransactionalEmailStats {
+      /** One row per group, busiest first. */
+      results: TransactionalEmailStatsRow[];
     }
 
     export interface TranslateRequest {
@@ -134818,6 +135025,117 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type TransactionalEmailLogListParams = {
+    /**
+     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
+     */
+    date_from?: string;
+    /**
+     * Only sends queued before this time. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Page size.
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number;
+    /**
+     * Sends to skip.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * A `message_id` for an exact match, or part of the recipient's email address.
+     */
+    search?: string;
+    /**
+     * Only sends in this delivery status.
+     *
+     * * `queued` - Queued
+     * * `failed` - Failed
+     * * `sent` - Sent
+     * * `delivered` - Delivered
+     * * `bounced` - Bounced
+     * * `complained` - Complained
+     * @minLength 1
+     */
+    status?: TransactionalEmailLogListStatus;
+    /**
+     * Only sends of the transactional email backed by this workflow.
+     */
+    workflow_id?: string;
+    };
+
+    export type TransactionalEmailLogListStatus = typeof TransactionalEmailLogListStatus[keyof typeof TransactionalEmailLogListStatus];
+
+
+    export const TransactionalEmailLogListStatus = {
+      Queued: 'queued',
+      Failed: 'failed',
+      Sent: 'sent',
+      Delivered: 'delivered',
+      Bounced: 'bounced',
+      Complained: 'complained',
+    } as const;
+
+    export type TransactionalEmailLogResultsRetrieveParams = {
+    /**
+     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
+     */
+    date_from?: string;
+    /**
+     * Only sends queued before this time. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * The event that counts as a conversion, such as `signed_up`.
+     * @minLength 1
+     */
+    event: string;
+    /**
+     * An event property holding a revenue amount to add up.
+     */
+    revenue_property?: string;
+    /**
+     * How many days after the first send the event still counts.
+     * @minimum 1
+     * @maximum 30
+     */
+    window_days?: number;
+    /**
+     * The workflow behind the transactional email.
+     */
+    workflow_id: string;
+    };
+
+    export type TransactionalEmailLogStatsRetrieveParams = {
+    /**
+     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
+     */
+    date_from?: string;
+    /**
+     * Only sends queued before this time. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Count per template or per sending domain.
+     *
+     * * `template` - Template
+     * * `sending_domain` - Sending domain
+     * @minLength 1
+     */
+    group_by?: TransactionalEmailLogStatsRetrieveGroupBy;
+    };
+
+    export type TransactionalEmailLogStatsRetrieveGroupBy = typeof TransactionalEmailLogStatsRetrieveGroupBy[keyof typeof TransactionalEmailLogStatsRetrieveGroupBy];
+
+
+    export const TransactionalEmailLogStatsRetrieveGroupBy = {
+      Template: 'template',
+      SendingDomain: 'sending_domain',
+    } as const;
 
     export type TurnSuggestionsStateRetrieveParams = {
     /**
