@@ -91,7 +91,14 @@ _SUMMED_STATS = (
 
 
 class HistoryChunkTooLargeError(ValueError):
-    """One key chunk of a sync is above deltalite's source limit, because one key holds too many versions."""
+    """One key chunk of a sync is above deltalite's source limit or half the free local disk.
+
+    Chunks split keys, not a key's versions, so only a key with too many versions causes it.
+    """
+
+
+class _SpillOutOfDisk(Exception):
+    """A spill pass brought the free local disk below its floor."""
 
 
 @frozen
@@ -125,7 +132,8 @@ async def stage(
     The commit carries the batch's `run_uuid` and `batch_index`, so the load path's redelivery
     check finds it on the staging table. A batch staged twice still makes one version per row.
     """
-    if data.num_rows == 0:
+    staging_table = await staging.get_delta_table()
+    if data.num_rows == 0 and staging_table is not None:
         return
     key_columns = _normalized_keys(key_columns)
     data = relax_batch_nullability(realign_decimal_buffers(data))
@@ -136,7 +144,6 @@ async def stage(
     if taken:
         raise ValueError(f"History batch has column(s) {taken}, which the staging table writes itself")
     data = data.drop_columns([c for c in (naming.valid_to, naming.partition_column) if c in data.column_names])
-    staging_table = await staging.get_delta_table()
     # Creating the table commits version 0, so the first append is version 1.
     first_row = (staging_table.version() + 1 if staging_table is not None else 1) << 32
     data = data.append_column(
@@ -152,6 +159,9 @@ async def stage(
             configuration=DELTA_TABLE_PROPERTIES,
         )
         staging.adopt_created_table(staging_table)
+        # An empty first batch still leaves a staging table, which the load path reads the schema from.
+        if data.num_rows == 0:
+            return
     else:
         # A new column joins as nullable, because the rows staged before it do not have it.
         staging_table = await evolve_delta_schema(staging_table, data.schema)
@@ -186,8 +196,9 @@ async def finalize(
     `commit_metadata`, so a tagged commit means the whole sync is in the table. A last call that keeps no
     row makes no commit, so its tag is missing although the sync is applied.
 
-    Chunks spill to local disk in passes. Each pass reads the staging table again and holds at most about
-    half of the free disk, so a large sync needs more reads, not more disk.
+    Chunks spill to local disk in passes. Each pass reads the staging table again and stops at half the disk
+    that was free when it started, then runs again with half the chunks, so a large sync needs more reads,
+    not more disk.
     """
     key_columns = _normalized_keys(key_columns)
     partition_column = naming.partition_column
@@ -238,31 +249,43 @@ async def finalize(
             await _apply(functools.partial(_read_staged, staging_dataset, columns), call_bytes, 1, last=True)
         else:
             chunks = math.ceil(call_bytes / chunk_target_bytes)
-            per_pass = _chunks_per_pass(Path(directory), chunk_target_bytes)
-            for first in range(0, chunks, per_pass):
+            spill_directory = Path(directory)
+            per_pass = max(1, min(_MAX_OPEN_CHUNK_FILES, _free_bytes(spill_directory) // 2 // chunk_target_bytes))
+            first = 0
+            while first < chunks:
                 buckets = range(first, min(chunks, first + per_pass))
-                spilled = await asyncio.to_thread(
-                    _spill_chunks,
-                    handle,
-                    history_table.schema(),
-                    staging_dataset,
-                    columns,
-                    key_columns,
-                    narrow_columns,
-                    chunks,
-                    buckets,
-                    Path(directory),
-                )
-                for index, (path, footprint) in enumerate(spilled):
-                    if footprint > _SOURCE_GUARD_BYTES:
-                        # Chunks split keys, not a key's versions, so a smaller chunk target can't help it.
+                # A chunk can be far above the target, and other spills share the disk, so the pass watches
+                # the free disk itself and stops at half of what was free when it started.
+                floor = _free_bytes(spill_directory) // 2
+                try:
+                    spilled = await asyncio.to_thread(
+                        _spill_chunks,
+                        handle,
+                        history_table.schema(),
+                        staging_dataset,
+                        columns,
+                        key_columns,
+                        narrow_columns,
+                        chunks,
+                        buckets,
+                        spill_directory,
+                        floor,
+                    )
+                except _SpillOutOfDisk:
+                    for path in spill_directory.iterdir():
+                        path.unlink()
+                    if len(buckets) == 1:
                         raise HistoryChunkTooLargeError(
-                            f"{table.resource_name}: a key chunk of this sync holds {footprint} bytes, above "
-                            f"deltalite's {_SOURCE_GUARD_BYTES} byte source limit, so one key has too many versions"
+                            f"{table.resource_name}: a key chunk of this sync needs more than half the free "
+                            f"local disk ({floor} bytes)"
                         )
+                    per_pass = len(buckets) // 2
+                    continue
+                for index, (path, footprint) in enumerate(spilled):
                     last = buckets.stop == chunks and index == len(spilled) - 1
                     await _apply(functools.partial(_read_chunk, path), footprint, chunks, last=last)
                     path.unlink()
+                first = buckets.stop
 
     # Only after every chunk committed: a crash before this point leaves the rows staged for the re-run.
     await DeltaWriter(staging).delete_where(STAGED_BATCH_COLUMN, batch_tags)
@@ -313,10 +336,8 @@ def _measure(dataset: ds.Dataset, columns: list[str], narrow_columns: list[str])
     return footprint, tags
 
 
-def _chunks_per_pass(directory: Path, chunk_target_bytes: int) -> int:
-    """How many chunk files one spill pass writes: about half the free disk, and at most the open-file cap."""
-    free_bytes = shutil.disk_usage(directory).free
-    return max(1, min(_MAX_OPEN_CHUNK_FILES, free_bytes // 2 // chunk_target_bytes))
+def _free_bytes(directory: Path) -> int:
+    return shutil.disk_usage(directory).free
 
 
 def _footprint(batch: pa.RecordBatch, narrow_columns: list[str]) -> int:
@@ -344,13 +365,15 @@ def _spill_chunks(
     chunks: int,
     buckets: range,
     directory: Path,
+    free_floor: int,
 ) -> list[tuple[Path, int]]:
     """Write the staged rows of the key buckets in `buckets` into one local Arrow file per bucket.
 
     The rows are aligned to the history table's decimal types first, so the history table hashes the keys
     the upsert matches. It hashes them after it casts them to its own key types, so two staged values that
     become one table key land in the same bucket. Returns the files that received rows, in bucket order,
-    each with its call footprint.
+    each with its call footprint. Stops once the free disk drops below `free_floor`, or a bucket's
+    footprint passes deltalite's source limit.
     """
     paths = {bucket: directory / f"chunk-{bucket}.arrow" for bucket in buckets}
     footprints = dict.fromkeys(buckets, 0)
@@ -377,6 +400,13 @@ def _spill_chunks(
                         rows = sorted_batch.slice(int(starts[bucket]), count)
                         writer.write_batch(rows)
                         footprints[bucket] += _footprint(rows, narrow_columns)
+                        if footprints[bucket] > _SOURCE_GUARD_BYTES:
+                            raise HistoryChunkTooLargeError(
+                                f"A key chunk of this sync holds over deltalite's {_SOURCE_GUARD_BYTES} byte "
+                                "source limit, so one key has too many versions"
+                            )
+            if _free_bytes(directory) < free_floor:
+                raise _SpillOutOfDisk()
     return [(paths[bucket], footprints[bucket]) for bucket in buckets if footprints[bucket]]
 
 
