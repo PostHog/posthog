@@ -3,14 +3,20 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { hogql } from 'lib/utils/hogql'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
+import {
+    isActionsNode,
+    isInsightQueryWithSeries,
+    isInsightVizNode,
+    isRetentionQuery,
+} from '~/queries/schema/node-guards'
 import { NodeKind } from '~/queries/schema/schema-general'
-import { hogql, isActionsNode, isInsightQueryWithSeries, isInsightVizNode, isRetentionQuery } from '~/queries/utils'
 
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 

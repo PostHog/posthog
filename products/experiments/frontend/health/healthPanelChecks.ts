@@ -1,11 +1,16 @@
 import { pluralize } from 'lib/utils/strings'
 
-import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
+import type {
+    ExperimentExposureHealthCheck,
+    ExperimentExposureHealthMeasurement,
+    ExperimentExposureQueryResponse,
+} from '~/queries/schema/schema-general'
 
 import type { ExperimentHealthApi, ExperimentHealthCheckResultApi } from '../generated/api.schemas'
 import { type HealthPanelFinding, healthIssues } from './healthPanelFindings'
 
-export type HealthPanelCheck = ExperimentHealthCheckResultApi
+/** An exposure check from an answer cached before the server added a field has no description or measurement. */
+export type HealthPanelCheck = ExperimentHealthCheckResultApi | ExperimentExposureHealthCheck
 
 /** A check in the list of checks. A check that reported a finding shows as that finding instead. */
 export type ListedHealthCheck = HealthPanelCheck & { status: Exclude<HealthPanelCheck['status'], 'finding'> }
@@ -74,6 +79,16 @@ export function countHealthChecks(checks: HealthPanelCheck[], status: HealthPane
     return checks.filter((check) => check.status === status).length
 }
 
+export function healthChecksVerdict(checks: HealthPanelCheck[], issueCount: number): string {
+    const passedCount = countHealthChecks(checks, 'passed')
+    if (issueCount > 0) {
+        return `${pluralize(issueCount, 'issue')} found`
+    }
+    return passedCount > 0
+        ? `No problems found by ${pluralize(passedCount, 'check')}`
+        : 'No checks apply to this experiment yet'
+}
+
 export function healthChipState(
     findings: HealthPanelFinding[] | null,
     checks: HealthPanelCheck[] | null,
@@ -105,4 +120,21 @@ export function healthChipState(
         .filter(Boolean)
         .join(' · ')
     return { kind: 'checks', label: label || 'No checks apply yet', checks, findings }
+}
+
+function formatMeasuredValue(value: number, unit: ExperimentExposureHealthMeasurement['unit']): string {
+    if (unit === 'p_value') {
+        return `p = ${Number(value.toPrecision(2))}`
+    }
+    // One decimal would print a small share as 0%, which reads as none.
+    return value > 0 && value < 0.1 ? 'less than 0.1%' : `${Number(value.toFixed(1))}%`
+}
+
+/** The value that decided a passed check, against its threshold, for example "Measured 4.2%. Warns above 5%." */
+export function healthMeasurementText(measurement: ExperimentExposureHealthMeasurement): string {
+    const threshold =
+        measurement.unit === 'p_value'
+            ? `${measurement.threshold}`
+            : formatMeasuredValue(measurement.threshold, 'percentage')
+    return `Measured ${formatMeasuredValue(measurement.value, measurement.unit)}. Warns ${measurement.warns} ${threshold}.`
 }

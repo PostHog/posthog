@@ -58,6 +58,7 @@ from products.signals.dags.inbox_ranking.training.dag import (
     served_object_key,
 )
 from products.signals.dags.inbox_ranking.training.families import (
+    AA_SEED_OFFSET,
     MODEL_FAMILIES,
     NN_FAMILY,
     NN_MODEL_NAME,
@@ -262,6 +263,7 @@ _PRIO_EXPERIMENT = ModelFamily(
     experiment=True,
     baseline=NN_MODEL_NAME,
     expires=datetime.date(2026, 12, 31),
+    seed_offset=AA_SEED_OFFSET,
 )
 
 NN_WITH_PRIO_FIXED_FAMILY = next(family for family in MODEL_FAMILIES if family.name == NN_WITH_PRIO_FIXED_MODEL_NAME)
@@ -309,6 +311,8 @@ def test_the_nn_candidate_writes_a_graph_whose_columns_follow_its_recorded_head_
     # Only an experiment is graded against a baseline, with one paired AUC per seed and head.
     if family.experiment:
         assert metadata["vs_baseline"]["baseline"] == family.baseline
+        assert metadata["vs_baseline"]["seeds"] == list(nn_dag.EXPERIMENT_SEEDS)
+        assert metadata["vs_baseline"]["experiment_seeds"] == list(family.experiment_seeds(nn_dag.EXPERIMENT_SEEDS))
         assert {
             name: len(grade["within_team"]["experiment_aucs"])
             == len(grade["within_team"]["baseline_aucs"])

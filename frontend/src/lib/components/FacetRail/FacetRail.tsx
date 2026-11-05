@@ -4,10 +4,10 @@ import { Fragment, ReactNode, useMemo, useRef } from 'react'
 import { IconPlus } from '@posthog/icons'
 import { LemonInput } from '@posthog/lemon-ui'
 
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
+import { ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 
 import { CustomFacetsProduct, customFacetsLogic } from './customFacetsLogic'
 import { FacetGroupItem, facetsByGroup, filterFacetsByName } from './facetGroups'

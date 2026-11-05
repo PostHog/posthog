@@ -30,6 +30,8 @@ describe('offlineItemInspectorLogic', () => {
                 const all = offlineDetailItemResults(detailItems[0].id)
                 return {
                     count: params?.scorer_version_ids ? 1 : all.length,
+                    next: null,
+                    previous: null,
                     next_cursor: params?.scorer_version_ids ? null : 'more',
                     results: params?.scorer_version_ids
                         ? all.filter((result) => result.scorer.id === params.scorer_version_ids)

@@ -42,6 +42,17 @@ If the assembled fallback session still exceeds 500,000 characters, the evaluati
 Generation evaluations extract message text without the per-message character cutoff.
 They reserve space for the complete output, then sample input and tool definitions into the remaining space within the 150,000-character limit.
 If the output and section labels alone exceed that limit, the run is skipped with reason `generation_output_too_long` without calling the judge.
+An exception applies when the judge sees images (the `llm-analytics-judge-images` flag is on and the evaluation does not turn attachments off).
+Then each image becomes an `[image N]` marker and each PDF a `[file N]` marker instead of its base64 or link, so an output with large inline attachments can fit and the run continues.
+The attachment labels sent next to the transcript sit outside the 150,000-character limit, but they are bounded: at most 20 attachments, plus one summary line that names the rest.
+PDFs reach OpenAI, Anthropic and Gemini judges, up to 10 MB each.
+WAV, MP3, AAC, AIFF, FLAC and OGG audio becomes an `[audio N]` marker and always goes inline.
+Gemini judges read all six. OpenAI audio models and non-Gemini OpenRouter models get WAV and MP3 only.
+MP4, MPEG, QuickTime and WebM video becomes a `[video N]` marker and reaches Gemini judges, up to 15 MB each.
+OpenRouter judges get each type that OpenRouter's model catalogue lists as an input of their model. PDFs need the `file` input, so OpenRouter never parses them with its paid OCR engine. Everything except images goes inline, and a model the catalogue doesn't list gets images only.
+Attachments a judge can't read take none of its 20 slots, and one summary line names them.
+Media the event never carried, such as an SDK's `[base64 image redacted]` placeholder, becomes `[image, not attached]`.
+When any attachment is left out, the judge is told it can't see it and not to guess what it contains.
 
 Generation evaluation and LLM tagger user prompts repair UTF-16 surrogate sequences after sampling.
 Lone surrogates become replacement characters (`�`), while valid pairs become their Unicode character.
@@ -179,6 +190,18 @@ Requests rejected because of an individual input skip that run without changing 
 Invalid probabilities, missing answers, and mismatched answer types skip the item as an unparsable response.
 Inputs rejected for exceeding the model's context window are skipped.
 See OpenAI's [Decisions guide](https://developers.openai.com/api/docs/guides/decisions), OpenRouter's [Decisions API reference](https://openrouter.ai/docs/api/api-reference/alphadecisions/submit-a-decisions-request), and TypeSafe's [API reference](https://docs.typesafe.ai/api) for their question and answer formats.
+
+## Reasoning level
+
+LLM judges on Anthropic and OpenAI reasoning models can set a reasoning level with the brain button next to the model selector.
+The level is stored as `evaluation_config.reasoning_level` (`minimal`, `low`, `medium` or `high`). Without it, the judge uses the model's default.
+Decision models and other providers do not support it, and the API rejects a level for them.
+Prompt-only `evaluation_config` PATCH requests preserve the saved level; an explicit `reasoning_level: null` restores the model default.
+Selecting a model without reasoning support clears the level in the editor.
+
+Anthropic models before Claude 4.6 get a thinking budget of 1,024, 2,048, 4,096 or 8,192 tokens. Newer models get adaptive thinking with that effort, and `minimal` becomes `low`.
+OpenAI models get `reasoning_effort`. Only the original GPT-5 models accept `minimal`; other models get `low` instead.
+For Anthropic, the token limit of the reply grows by the thinking budget of the level, so the verdict still fits after the thinking.
 
 ## Model output limits
 

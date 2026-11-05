@@ -8,6 +8,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from products.experiments.backend.hogql_queries.base_query_utils import (
     is_session_property_metric,
     validate_session_property,
+    winsorization_bound_expr,
 )
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
 from products.experiments.backend.hogql_queries.metric_source import MetricSourceInfo
@@ -346,24 +347,16 @@ class MeanQueryBuilder:
         assert isinstance(self._b.metric, ExperimentMeanMetric)
 
         if self._b.metric.lower_bound_percentile is not None:
-            lower_bound_expr = parse_expr(
-                "quantileExact({level})(entity_metrics.value)",
-                placeholders={"level": ast.Constant(value=self._b.metric.lower_bound_percentile)},
-            )
+            lower_bound_expr = winsorization_bound_expr(self._b.metric.lower_bound_percentile, "entity_metrics.value")
         else:
             lower_bound_expr = parse_expr("min(entity_metrics.value)")
 
         if self._b.metric.upper_bound_percentile is not None:
-            if getattr(self._b.metric, "ignore_zeros", False):
-                upper_bound_expr = parse_expr(
-                    "quantileExact({level})(if(entity_metrics.value != 0, entity_metrics.value, null))",
-                    placeholders={"level": ast.Constant(value=self._b.metric.upper_bound_percentile)},
-                )
-            else:
-                upper_bound_expr = parse_expr(
-                    "quantileExact({level})(entity_metrics.value)",
-                    placeholders={"level": ast.Constant(value=self._b.metric.upper_bound_percentile)},
-                )
+            upper_bound_expr = winsorization_bound_expr(
+                self._b.metric.upper_bound_percentile,
+                "entity_metrics.value",
+                ignore_zeros=bool(getattr(self._b.metric, "ignore_zeros", False)),
+            )
         else:
             upper_bound_expr = parse_expr("max(entity_metrics.value)")
 

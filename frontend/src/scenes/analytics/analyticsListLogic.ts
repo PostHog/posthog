@@ -28,6 +28,7 @@ import {
     AnalyticsFeedQuery,
     AnalyticsSourceState,
     analyticsFeedTypes,
+    isAnalyticsOrderBy,
     analyticsSourceKey,
 } from './analyticsFeed'
 import { analyticsFeedLogic, selectAnalyticsFeed } from './analyticsFeedLogic'
@@ -35,7 +36,7 @@ import { analyticsShareLogic } from './analyticsShareLogic'
 import {
     ANALYTICS_FILE_SYSTEM_TYPES,
     AnalyticsItem,
-    AnalyticsTypeFilter,
+    AnalyticsType,
     fileSystemBaseType,
     fileSystemEntryName,
     fileSystemEntryToAnalytics,
@@ -48,7 +49,8 @@ const FOLDER_PAGE_SIZE = ANALYTICS_FEED_PAGE_SIZE
 export const DEFAULT_ANALYTICS_SORT: NonNullable<AnalyticsListDisplayConfiguration['default_sort']> = '-last_viewed_at'
 
 export interface AnalyticsListFilters {
-    type: AnalyticsTypeFilter
+    /** Empty means every type. */
+    types: AnalyticsType[]
     orderBy?: AnalyticsFeedQuery['orderBy']
     search: string
     /** User uuids; empty means anyone. */
@@ -59,7 +61,7 @@ export interface AnalyticsListFilters {
 }
 
 export const DEFAULT_ANALYTICS_LIST_FILTERS: AnalyticsListFilters = {
-    type: 'all',
+    types: [],
     search: '',
     createdBy: [],
     folder: null,
@@ -101,15 +103,13 @@ function urlParamToString(value: unknown): string {
 }
 
 export function analyticsListFiltersFromUrl(params: Record<string, any>): AnalyticsListFilters {
-    const type = typeof params.type === 'string' && isAnalyticsType(params.type) ? params.type : 'all'
     const tags = Array.isArray(params.tags)
         ? params.tags.filter((tag: unknown): tag is string => typeof tag === 'string')
         : []
     return {
-        type,
-        orderBy: ['-created_at', '-last_viewed_at', 'last_viewed_at'].includes(params.orderBy)
-            ? params.orderBy
-            : undefined,
+        // A link can carry one type as plain text, such as the canvas product's `type=canvas`.
+        types: stringList(params.type).filter(isAnalyticsType),
+        orderBy: isAnalyticsOrderBy(params.orderBy) ? params.orderBy : undefined,
         search: urlParamToString(params.search),
         createdBy: stringList(params.createdBy),
         folder: params.folder === undefined || params.folder === null ? null : urlParamToString(params.folder),
@@ -120,7 +120,7 @@ export function analyticsListFiltersFromUrl(params: Record<string, any>): Analyt
 export function analyticsListUrlParams(filters: AnalyticsListFilters): AnalyticsListUrlParams {
     return {
         orderBy: filters.orderBy,
-        type: filters.type === 'all' ? undefined : filters.type,
+        type: filters.types.length ? filters.types : undefined,
         search: filters.search || undefined,
         createdBy: filters.createdBy.length ? filters.createdBy : undefined,
         folder: filters.folder ?? undefined,
@@ -129,7 +129,9 @@ export function analyticsListUrlParams(filters: AnalyticsListFilters): Analytics
 }
 
 export function analyticsListFiltersActive(filters: AnalyticsListFilters): boolean {
-    return filters.type !== 'all' || !!filters.search.trim() || filters.createdBy.length > 0 || filters.tags.length > 0
+    return (
+        filters.types.length > 0 || !!filters.search.trim() || filters.createdBy.length > 0 || filters.tags.length > 0
+    )
 }
 
 /** Narrows rows the server did not filter: folder contents come back whole. */
@@ -143,7 +145,7 @@ export function filterAnalytics(
     return items.filter(
         (item) =>
             filters.tags.every((tag) => item.tags.includes(tag)) &&
-            (filters.type === 'all' ? !insightsHidden || item.type !== 'insight' : item.type === filters.type) &&
+            (filters.types.length ? filters.types.includes(item.type) : !insightsHidden || item.type !== 'insight') &&
             (!needle || item.name.toLowerCase().includes(needle)) &&
             (!createdBy.length || (!!item.createdBy && createdBy.includes(item.createdBy.uuid)))
     )
@@ -179,6 +181,7 @@ export interface analyticsListLogicValues {
     loadedCount: number
     loading: boolean
     mode: AnalyticsListMode
+    narrowingFiltersActive: boolean
     scope: AnalyticsListScope
     searchInput: string
     shownQuery: AnalyticsFeedQuery | null
@@ -228,6 +231,9 @@ export interface analyticsListLogicActions {
         successCallback: (() => void) | undefined
     } // uiCustomizationLogic
     clearFilters: () => {
+        value: true
+    }
+    clearNarrowingFilters: () => {
         value: true
     }
     loadFolderContents: (_: void) => void
@@ -310,6 +316,7 @@ export interface analyticsListLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         mode: (filters: AnalyticsListFilters) => AnalyticsListMode
         filtersActive: (filters: AnalyticsListFilters) => boolean
+        narrowingFiltersActive: (filters: AnalyticsListFilters, scope: AnalyticsListScope) => boolean
         currentUserUuid: (user: UserType | null) => string | null
         creators: (filters: AnalyticsListFilters, currentUserUuid: string | null, scope: AnalyticsListScope) => string[]
         displayConfiguration: (uiConfiguration: UserUIConfiguration | null) => AnalyticsListDisplayConfiguration
@@ -421,6 +428,7 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
         /** Remembers URL filters without reading anything, for a visit the flag does not render yet. */
         storeFilters: (filters: AnalyticsListFilters) => ({ filters }),
         clearFilters: true,
+        clearNarrowingFilters: true,
         setSearchInput: (search: string) => ({ search }),
         setFeedSearch: (search: string) => ({ search }),
         setShownQuery: (query: AnalyticsFeedQuery) => ({ query }),
@@ -514,6 +522,15 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             (s) => [s.filters],
             (filters: AnalyticsListFilters): boolean => analyticsListFiltersActive(filters),
         ],
+        // What the funnel's dot means, so not the search text. My work has no Created by row, so a creator kept from
+        // View all narrows nothing there.
+        narrowingFiltersActive: [
+            (s) => [s.filters, s.scope],
+            (filters: AnalyticsListFilters, scope: AnalyticsListScope): boolean =>
+                filters.types.length > 0 ||
+                filters.tags.length > 0 ||
+                (scope === 'all' && filters.createdBy.length > 0),
+        ],
         // My work narrows to the person; View all narrows to whoever they picked.
         // The user record is replaced on every reload; its uuid is not, so the feed query only changes when the person does.
         currentUserUuid: [(s) => [s.user], (user: UserType | null): string | null => user?.uuid ?? null],
@@ -549,7 +566,7 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                 defaultSort: NonNullable<AnalyticsListDisplayConfiguration['default_sort']>,
                 insightsHidden: boolean
             ): AnalyticsFeedQuery => ({
-                type: filters.type,
+                types: filters.types,
                 // A header click sorts this visit through the URL; the next visit opens on the default again.
                 orderBy: filters.orderBy ?? defaultSort,
                 search: feedSearch.trim(),
@@ -829,9 +846,9 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                     folder: values.filters.folder !== null,
                 })
                 updateDisplay({ hide_insights: hidden })
-                if (hidden && values.filters.type === 'insight') {
-                    // The insight tab goes away, so the list cannot stay on it.
-                    actions.setFilters({ type: 'all' })
+                if (hidden && values.filters.types.includes('insight')) {
+                    // The insight option goes away, so the list cannot stay on it.
+                    actions.setFilters({ types: values.filters.types.filter((type) => type !== 'insight') })
                 } else if (values.mode === 'feed') {
                     // A folder's rows are already loaded and narrowed on the client.
                     loadCurrentMode()
@@ -841,8 +858,10 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                 // pinned: analytics event name and properties. Renaming them breaks dashboards.
                 posthog.capture('analytics default sort changed', { order_by: orderBy, scope: values.scope })
                 updateDisplay({ default_sort: orderBy })
-                // A sort in the URL is this visit's choice, so only a list on the default sort changes now.
-                if (values.mode === 'feed' && !values.filters.orderBy) {
+                // The person just chose the order, so a sort from a header click or a link gives way to it.
+                if (values.filters.orderBy) {
+                    actions.setFilters({ orderBy: undefined })
+                } else if (values.mode === 'feed') {
                     loadCurrentMode()
                 }
             },
@@ -854,7 +873,7 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                 if (changed.length) {
                     // pinned: analytics event name and `type` property. Renaming them breaks dashboards.
                     posthog.capture('views list filtered', {
-                        type: values.filters.type,
+                        type: values.filters.types.length > 1 ? 'multiple' : (values.filters.types[0] ?? 'all'),
                         changed,
                         created_by: !values.filters.createdBy.length
                             ? 'anyone'
@@ -870,6 +889,9 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             setFiltersFromUrl: () => {
                 actions.setFeedSearch(values.filters.search)
                 actions.loadList()
+            },
+            clearNarrowingFilters: () => {
+                actions.setFilters({ types: [], createdBy: [], tags: [] })
             },
             clearFilters: () => {
                 actions.setFeedSearch('')

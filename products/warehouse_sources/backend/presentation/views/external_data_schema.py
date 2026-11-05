@@ -1,3 +1,4 @@
+import uuid
 import datetime as dt
 from collections.abc import Callable, Iterable
 from typing import Any, Optional, cast
@@ -15,7 +16,7 @@ from rest_framework.response import Response
 
 from posthog.hogql.database.database import Database
 
-from posthog.api.log_entries import LogEntryRequestSerializer, LogEntrySerializer, fetch_log_entries
+from posthog.api.log_entries import LogEntryPagination, LogEntryRequestSerializer, log_entries_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
@@ -42,21 +43,26 @@ from products.data_warehouse.backend.facade.api import (
     unpause_external_data_schedule,
     update_external_job_status,
 )
+from products.warehouse_sources.backend.facade.api import schema_needs_webhook, sources_missing_webhook
 from products.warehouse_sources.backend.facade.contracts import ConfigValueError, UndecryptedConfigError
 from products.warehouse_sources.backend.facade.models import (
     CDC_SNAPSHOT_LANE_KEY,
     MAX_FULL_REFRESH_INTERVAL_DAYS,
     SCHEDULED_FULL_REFRESH_SYNC_TYPES,
     SCHEMA_RESOURCE_ID_METADATA_KEY,
+    DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSchemaDestination,
     ExternalDataSource,
     UnsupportedSyncTypeError,
+    clear_masked_column_bounds,
     discovered_schema_finder,
+    is_pinned_schema,
     mark_schema_running_unless_halted,
     resolve_destinations,
     resolve_sync_type,
+    self_managed_table_ref,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
     update_sync_type_config_keys,
@@ -67,17 +73,25 @@ from products.warehouse_sources.backend.facade.source_management import (
     BUFFER_LANE,
     CDC_RESET_PENDING_KEY,
     AnySource,
+    Config,
     RowFilterValidationError,
     SourceRegistry,
+    SourceSchema,
     WebhookSource,
     add_table_failure_message,
+    ambiguous_masked_columns,
+    collision_alias_masked_columns,
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
+    fold_column_name,
     get_cdc_adapter,
+    hand_reset_to_capture,
     hand_reset_to_capture_if_sync_running,
     history_naming_unless_taken,
     history_table_name,
     is_another_schemas_history_table,
     is_history_table_mode,
+    known_source_key,
+    masking_key_unavailable,
     new_history_naming,
     pin_history_naming,
     pinned_history_naming,
@@ -87,14 +101,11 @@ from products.warehouse_sources.backend.facade.source_management import (
     reserved_column_names,
     resnapshot_stays_in_buffer,
     source_type_supports_cdc,
+    stage_handed_over_reset,
     tables_wait_for_repair,
     validate_and_coerce_row_filters,
 )
-from products.warehouse_sources.backend.facade.types import (
-    ExternalDataSourceType,
-    IncrementalFieldType,
-    IncrementalSyncBlockedReason,
-)
+from products.warehouse_sources.backend.facade.types import IncrementalFieldType, IncrementalSyncBlockedReason
 from products.warehouse_sources.backend.presentation.history_tracking import report_history_change
 from products.warehouse_sources.backend.presentation.views.destination_links import (
     DestinationLinkSerializer,
@@ -118,7 +129,7 @@ def source_supports_column_selection(source_type: str) -> bool:
     Excludes managed-schema sources (Stripe, Paddle, Zendesk): their HogQL tables expose a
     fixed canonical schema, so dropping a referenced column breaks the query."""
     try:
-        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        source = SourceRegistry.get_source(source_type)
     except Exception as e:
         capture_exception(e)
         return False
@@ -127,7 +138,7 @@ def source_supports_column_selection(source_type: str) -> bool:
 
 def source_supports_row_filters(source_type: str) -> bool:
     try:
-        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        source = SourceRegistry.get_source(source_type)
     except Exception as e:
         capture_exception(e)
         return False
@@ -140,20 +151,107 @@ ON_DEMAND_SYNC_ERROR = "This table syncs only when its data changes, so its sync
 
 def source_syncs_on_demand(source_type: str) -> bool:
     try:
-        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        source = SourceRegistry.get_source(source_type)
     except Exception as e:
         capture_exception(e)
         return False
     return source.syncs_on_demand is True
 
 
+PINNED_TABLE_IDS_CONTEXT_KEY = "pinned_table_ids"
+WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY = "webhook_missing_by_source"
+
+
+def pinned_table_ids(schemas: Iterable[ExternalDataSchema], team_id: int) -> dict[uuid.UUID, uuid.UUID]:
+    """The live table each unlinked schema pins in its metadata, such as a migrated table before its first sync.
+
+    One team-scoped query for all schemas. A pin that names another team's table or a deleted one is left out.
+    """
+    pins: dict[uuid.UUID, uuid.UUID] = {}
+    for schema in schemas:
+        ref = self_managed_table_ref(schema) if schema.table_id is None else None
+        if ref is None:
+            continue
+        try:
+            pins[schema.pk] = uuid.UUID(ref.table_id)
+        except ValueError:
+            continue
+    if not pins:
+        return {}
+    live = set(
+        DataWarehouseTable.objects.filter(team_id=team_id, pk__in=set(pins.values()), deleted=False).values_list(
+            "pk", flat=True
+        )
+    )
+    return {schema_id: table_id for schema_id, table_id in pins.items() if table_id in live}
+
+
+def webhook_not_registered(schema: ExternalDataSchema, context: dict[str, Any]) -> bool:
+    """Whether the schema syncs by webhook but its source has no enabled webhook.
+
+    A list fills `WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY` up front with `sources_missing_webhook`. Without it,
+    the first schema of each source looks the source up and keeps the answer for the rest.
+    """
+    if not schema_needs_webhook(schema):
+        return False
+    missing_by_source: dict[uuid.UUID, bool] = context.setdefault(WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY, {})
+    if schema.source_id not in missing_by_source:
+        missing_by_source.update(sources_missing_webhook(schema.team_id, [schema]))
+    return missing_by_source[schema.source_id]
+
+
+def linked_table_id(schema: ExternalDataSchema, context: dict[str, Any]) -> uuid.UUID | None:
+    """The schema's table id: its linked table, else the live table its metadata pins."""
+    if schema.table_id is not None:
+        return None if schema.table is None or schema.table.deleted else schema.table_id
+    pinned = context.get(PINNED_TABLE_IDS_CONTEXT_KEY)
+    if pinned is None:
+        pinned = pinned_table_ids([schema], schema.team_id)
+    return pinned.get(schema.pk)
+
+
 def manual_sync_refusal(source_model: ExternalDataSource) -> str | None:
     try:
-        source = SourceRegistry.get_source(ExternalDataSourceType(source_model.source_type))
+        source = SourceRegistry.get_source(source_model.source_type)
     except Exception as e:
         capture_exception(e)
         return None
     return source.manual_sync_refusal(source_model)
+
+
+def _discovery_error_response(source_impl: AnySource, error: Exception) -> Response:
+    """A 400 with the error's message. Only an error the source doesn't classify goes to error tracking.
+
+    A failure that the source itself classifies is an expected customer or upstream condition rather
+    than a bug, and must not flood error tracking. Both maps count: a non-retryable match names
+    something only the customer can fix, such as bad credentials, and a retryable match names a
+    transient failure `get_retryable_errors` already exists to keep out of error tracking.
+    Mirrors `refresh_schemas`'s `_classify_refresh_schemas_error`.
+    """
+    error_text = str(error)
+    expected_patterns = (*source_impl.get_non_retryable_errors(), *source_impl.get_retryable_errors())
+    if not any(pattern and pattern in error_text for pattern in expected_patterns):
+        capture_exception(error)
+    return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": error_text})
+
+
+def describe_pinned_schema(source_impl: AnySource, config: Config, schema: ExternalDataSchema) -> SourceSchema | None:
+    """The source's own description of a pinned schema, or None when the schema isn't pinned or the
+    source can't describe it. The source also checks that the credentials can read the schema's data."""
+    if not is_pinned_schema(schema):
+        return None
+    return source_impl.describe_pinned_schema(config, schema.team_id, schema.name, schema.schema_metadata or {})
+
+
+def discover_existing_schema(
+    source_impl: AnySource, config: Config, schema: ExternalDataSchema, api_version: str | None
+) -> list[SourceSchema]:
+    """What the source reports for one stored schema. Discovery can't report a pinned schema, so the
+    source describes a pinned schema from its stored definition when it can."""
+    pinned = describe_pinned_schema(source_impl, config, schema)
+    if pinned is not None:
+        return [pinned]
+    return source_impl.get_schemas(config, schema.team_id, names=[schema.name], api_version=api_version)
 
 
 def source_row_filter_columns(source_type: str, schema_name: str) -> tuple[Any, ...] | None:
@@ -163,7 +261,7 @@ def source_row_filter_columns(source_type: str, schema_name: str) -> tuple[Any, 
     package, so this layer does not name it.
     """
     try:
-        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        source = SourceRegistry.get_source(source_type)
     except Exception as e:
         capture_exception(e)
         return None
@@ -180,7 +278,7 @@ def source_requires_exact_column_metadata(source_type: str) -> bool:
     also includes sources whose columns are projected generically after extraction.
     """
     try:
-        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        source = SourceRegistry.get_source(source_type)
     except Exception as e:
         capture_exception(e)
         # Unknown source types already fail the broader column-selection check. Keep the
@@ -463,6 +561,176 @@ def _source_column_names(instance: ExternalDataSchema) -> set[str]:
     return {column["name"] for column in columns if isinstance(column, dict) and isinstance(column.get("name"), str)}
 
 
+MASKING_KEY_UNAVAILABLE_ERROR = (
+    "Column masking isn't set up on this PostHog instance. "
+    "Set WAREHOUSE_COLUMN_MASKING_KEY to a secret of at least 32 characters, then try again."
+)
+
+
+def masked_key_conflict_error(
+    masked_columns: list[str],
+    primary_key_columns: Iterable[str] | None,
+    incremental_fields: Iterable[str | None],
+    partition_keys: Iterable[str] = (),
+) -> str | None:
+    # A partition column is read as a date or a number to pick the partition, which a digest is not.
+    protected = {
+        fold_column_name(column)
+        for column in [*(primary_key_columns or []), *partition_keys, *incremental_fields]
+        if column
+    }
+    conflicting = [column for column in masked_columns if fold_column_name(column) in protected]
+    if conflicting:
+        return f"Primary-key, incremental-field and partition columns can't be masked: {sorted(conflicting)}."
+    return None
+
+
+def masked_columns_error(
+    masked_columns: list[str],
+    *,
+    source_type: str,
+    is_direct_query: bool,
+    source_columns: Iterable[object],
+    primary_key_columns: Iterable[str] | None,
+    incremental_fields: Iterable[str | None],
+    partition_keys: Iterable[str] = (),
+) -> str | None:
+    """Why this mask cannot be saved, or None. `source_columns` is empty when no columns are known yet."""
+    # A direct query source never syncs, so a saved mask would protect nothing.
+    if is_direct_query:
+        return "Column masking is not supported for direct query sources."
+    # A managed-schema source declares fixed column types, which a string digest breaks.
+    if not source_supports_column_selection(source_type):
+        return "Column masking is not supported for this source type."
+    if masking_key_unavailable():
+        return MASKING_KEY_UNAVAILABLE_ERROR
+    known = [name for name in source_columns if isinstance(name, str)]
+    # A mask that names no real column hashes nothing, so the intended column would sync in plaintext.
+    if not known:
+        return "Can't mask columns before the table's columns are known. Sync the table once, then try again."
+    known_folded = {fold_column_name(name) for name in known}
+    unknown = [column for column in masked_columns if fold_column_name(column) not in known_folded]
+    if unknown:
+        return (
+            f"Unknown columns in masked_columns: {sorted(unknown)}. "
+            "Run `Pull new schemas` to refresh available columns."
+        )
+    ambiguous = ambiguous_masked_columns(masked_columns, known)
+    if ambiguous:
+        return (
+            f"Can't mask columns whose names collide after normalization: {sorted(ambiguous)}. "
+            "Rename the source columns so they differ by more than case."
+        )
+    return masked_key_conflict_error(masked_columns, primary_key_columns, incremental_fields, partition_keys)
+
+
+def canonical_masked_columns(masked_columns: list[str], source_columns: Iterable[str]) -> list[str]:
+    """Each mask under its column's own name, once. The UI compares names exactly."""
+    by_folded: dict[str, str] = {}
+    for name in source_columns:
+        by_folded.setdefault(fold_column_name(name), name)
+    return list(dict.fromkeys(by_folded.get(fold_column_name(column), column) for column in masked_columns))
+
+
+def _stage_mask_rebuild(config: dict[str, Any]) -> None:
+    config["reset_pipeline"] = True
+
+
+def _stage_disabled_cdc_mask_snapshot(config: dict[str, Any]) -> None:
+    config["cdc_mode"] = "snapshot"
+    config["reset_pipeline"] = True
+    config.pop(CDC_SNAPSHOT_LANE_KEY, None)
+    config.pop(CDC_RESET_PENDING_KEY, None)
+
+
+def _validate_masked_columns(
+    instance: ExternalDataSchema, validated_data: dict[str, Any], data: dict[str, Any]
+) -> bool:
+    """Reject a mask the sync cannot honor. Returns whether the request changes the masked set."""
+    mask_in_request = "masked_columns" in validated_data
+    masked_columns = (validated_data["masked_columns"] if mask_in_request else instance.masked_columns) or []
+
+    # Also checked when only the key or the cursor moves, so neither can land on a masked column.
+    if masked_columns and (mask_in_request or "primary_key_columns" in data or "incremental_field" in data):
+        metadata_columns = (instance.schema_metadata or {}).get("columns")
+        source_columns: list[str] = [
+            name
+            for column in (metadata_columns if isinstance(metadata_columns, list) else [])
+            if isinstance(column, dict) and isinstance(name := column.get("name"), str)
+        ]
+        synced_columns = (
+            [column["name"] for column in instance.table.get_user_facing_columns()]
+            if instance.table is not None
+            else []
+        )
+        # Non-SQL sources record no column metadata, so their synced columns are the known ones.
+        if not source_columns:
+            source_columns = synced_columns
+        # Some sources record their columns after normalization, so the metadata can list an alias too.
+        aliases = collision_alias_masked_columns(masked_columns, [*source_columns, *synced_columns])
+        if aliases:
+            raise ValidationError(
+                f"Can't mask {sorted(aliases)}: the column was renamed because two source columns share its "
+                "name. Rename one of the source columns, then mask it."
+            )
+        primary_key_columns = [*(data.get("primary_key_columns") or []), *(instance.primary_key_columns or [])]
+        # Without a stored key, a sync merges and partitions on `id` when the table has one.
+        if not primary_key_columns:
+            primary_key_columns = [name for name in source_columns if name.lower() == "id"][:1]
+        # The stored key and cursor count too: an update can leave them in place, for example when a
+        # CDC table ignores the incremental field in the request. A full-refresh table keeps the cursor
+        # of an earlier sync method in its settings, but reads no cursor.
+        sync_type = data.get("sync_type") or instance.sync_type
+        stored_cursor = instance.incremental_field if sync_type != ExternalDataSchema.SyncType.FULL_REFRESH else None
+        incremental_fields = [data.get("incremental_field"), stored_cursor]
+        partition_keys = [*(instance.partitioning_keys or []), *(instance.partitioning_keys_override or [])]
+        # A stored mask whose column left the source must not block unrelated edits, so only new masks
+        # are checked against the known columns. Every mask is still checked against the keys.
+        stored = {fold_column_name(column) for column in instance.masked_columns or []}
+        new_masks = [column for column in masked_columns if fold_column_name(column) not in stored]
+        error = (
+            masked_columns_error(
+                new_masks,
+                source_type=instance.source.source_type,
+                is_direct_query=instance.source.is_direct_query,
+                source_columns=source_columns,
+                primary_key_columns=primary_key_columns,
+                incremental_fields=incremental_fields,
+                partition_keys=partition_keys,
+            )
+            if new_masks
+            else None
+        ) or masked_key_conflict_error(masked_columns, primary_key_columns, incremental_fields, partition_keys)
+        if error:
+            raise ValidationError(error)
+        if mask_in_request:
+            masked_columns = canonical_masked_columns(masked_columns, source_columns)
+            validated_data["masked_columns"] = masked_columns
+
+    # An omitted field is unchanged. Without this, any other edit to a masked table would read as
+    # "remove every mask" and start a full resync.
+    if not mask_in_request:
+        return False
+    changed = {fold_column_name(column) for column in (instance.masked_columns or [])} != {
+        fold_column_name(column) for column in masked_columns
+    }
+    if not changed:
+        return False
+    # A mask change rebuilds the table from the source. A webhook table keeps its rows through a
+    # reset, because the source cannot send them again, so the old values would stay as they are.
+    if instance.is_webhook and instance.table is not None:
+        raise ValidationError(
+            "Can't change masked columns on a synced webhook table, because its data can't be fetched "
+            "again from the source. Delete and recreate the table to change masking."
+        )
+    if is_any_external_data_schema_paused(instance.team_id):
+        raise ValidationError(
+            "Monthly sync limit reached. Please increase your billing limit before changing "
+            "masked columns, because the change needs a full resync."
+        )
+    return True
+
+
 def _refuse_reserved_columns(
     instance: ExternalDataSchema,
     *,
@@ -551,6 +819,18 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
     """A schema of an external data source: its sync configuration and the warehouse table it syncs into."""
 
     table = serializers.SerializerMethodField(read_only=True)
+    table_id = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "The id of the warehouse table this schema syncs into. Set before the first sync for a table "
+            "the schema already names, such as a migrated one. Null when there is none."
+        ),
+    )
+    pending_self_managed_table = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="Whether this schema is linked to an existing self-managed table that its first sync will import. "
+        "Until then the table keeps reading the original bucket.",
+    )
     incremental = serializers.SerializerMethodField(read_only=True)
     status = serializers.SerializerMethodField(read_only=True)
     sync_type = serializers.ChoiceField(
@@ -653,6 +933,14 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "or fails for another reason, not when an update lands."
         ),
     )
+    webhook_not_registered = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Whether this table uses webhook sync, but its source has no enabled webhook. Such a table "
+            "gets no webhook updates. Each sync polls the source API instead, which is slower and can read "
+            "the whole table. Set up the webhook on the source, or change `sync_type`."
+        ),
+    )
     enabled_columns = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -661,6 +949,19 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "Names of source columns to sync. `null` (default) syncs all columns. "
             "Primary-key columns and the active incremental field are always retained, "
             "even if not listed here."
+        ),
+    )
+    masked_columns = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Names of source columns whose values are replaced with a deterministic one-way digest at "
+            "sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. "
+            "Primary-key, partition and incremental columns can't be masked, and direct query "
+            "sources don't support masking. Any change to this list starts a full resync of the table "
+            "(CDC tables take a new snapshot), or stages it until syncing is turned on. A synced "
+            "webhook table can't change its masked columns, because its data can't be fetched again."
         ),
     )
     row_filters = RowFiltersField(
@@ -732,11 +1033,13 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "name",
             "label",
             "table",
+            "table_id",
             "should_sync",
             "last_synced_at",
             "latest_error",
             "incremental",
             "status",
+            "pending_self_managed_table",
             "sync_type",
             "incremental_field",
             "incremental_field_type",
@@ -750,7 +1053,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "primary_key_columns",
             "cdc_table_mode",
             "incremental_sync_blocked",
+            "webhook_not_registered",
             "enabled_columns",
+            "masked_columns",
             "row_filters",
             "row_filter_columns",
             "available_columns",
@@ -767,10 +1072,13 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "name",
             "label",
             "table",
+            "table_id",
             "last_synced_at",
             "latest_error",
             "status",
+            "pending_self_managed_table",
             "incremental_sync_blocked",
+            "webhook_not_registered",
             "next_full_refresh_at",
             "description",
             "row_filter_columns",
@@ -841,6 +1149,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 "user_access_level": {"type": "string", "nullable": True},
                 "api_version": {"type": "string", "nullable": True},
                 "supported_api_versions": {"type": "array", "items": {"type": "string"}},
+                "file_name": {"type": "string", "nullable": True},
             },
         }
     )
@@ -856,13 +1165,15 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if user_access_control is not None:
             user_access_level = user_access_control.get_user_access_level(source)
         try:
-            source_impl = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
+            source_impl = SourceRegistry.get_source(source.source_type)
             # The version the schema falls back to without an override, and the picker's options.
             source_api_version: str | None = source_impl.resolve_api_version(source.api_version)
             supported_api_versions = list(source_impl.supported_versions)
+            file_name = source_impl.uploaded_file_name(source)
         except ValueError:
             source_api_version = None
             supported_api_versions = []
+            file_name = None
         return {
             "id": str(source.id),
             "source_type": source.source_type,
@@ -874,6 +1185,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "user_access_level": user_access_level,
             "api_version": source_api_version,
             "supported_api_versions": supported_api_versions,
+            "file_name": file_name,
         }
 
     def get_user_access_level(self, schema: ExternalDataSchema) -> str | None:  # type: ignore[override]  # narrows the mixin's Model — DRF always dispatches with this serializer's instance
@@ -931,7 +1243,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             # no create path to validate.
             if "api_version" in attrs and instance is not None and override != instance.api_version:
                 try:
-                    source_impl = SourceRegistry.get_source(ExternalDataSourceType(instance.source.source_type))
+                    source_impl = SourceRegistry.get_source(instance.source.source_type)
                 except ValueError:
                     raise ValidationError(
                         {"api_version": "API version overrides are not supported for this source type."}
@@ -948,8 +1260,21 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
     def get_status(self, schema: ExternalDataSchema) -> str | None:
         return schema_display_status(schema)
 
+    @extend_schema_field(serializers.BooleanField())
+    def get_pending_self_managed_table(self, schema: ExternalDataSchema) -> bool:
+        ref = self_managed_table_ref(schema)
+        return schema.table_id is None and ref is not None and ref.abandon_reason is None
+
     def get_incremental(self, schema: ExternalDataSchema) -> bool:
         return schema.is_incremental
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_webhook_not_registered(self, schema: ExternalDataSchema) -> bool:
+        return webhook_not_registered(schema, self.context)
+
+    @extend_schema_field(serializers.UUIDField(allow_null=True))
+    def get_table_id(self, schema: ExternalDataSchema) -> uuid.UUID | None:
+        return linked_table_id(schema, self.context)
 
     def get_table(self, schema: ExternalDataSchema) -> Optional[dict]:
         from products.data_warehouse.backend.presentation.views.table import SimpleTableSerializer
@@ -1010,6 +1335,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         instance: ExternalDataSchema,
         validated_data: dict[str, Any],
         original_sync_type_config: dict[str, Any],
+        mutate_locked_config: Callable[[dict[str, Any]], None] | None = None,
     ) -> ExternalDataSchema:
         """Persist the update onto a freshly-locked row, writing only the fields this request changed.
 
@@ -1034,6 +1360,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             merged.update(changed)
             for key in removed:
                 merged.pop(key, None)
+            if mutate_locked_config is not None:
+                mutate_locked_config(merged)
             validated_data["sync_type_config"] = merged
             # Apply to the locked row rather than the request's copy. The copy still holds whatever
             # the other writer replaced, and activity logging diffs the stored row against the
@@ -1123,6 +1451,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                         "Column metadata is unavailable. Run `Pull new schemas` before selecting source columns."
                     )
 
+        masked_columns_changed = _validate_masked_columns(instance, validated_data, data)
+
         # Validate against the schema's columns; raw filters are persisted as-is and re-coerced at sync time.
         if "row_filters" in validated_data and validated_data["row_filters"] is not None:
             # Only sources that push filters into their query (SQL WHERE) can honor them — a
@@ -1165,7 +1495,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # actually advertises xmin support — otherwise a raw PATCH would persist an xmin schema that
         # silently degrades to full_refresh.
         if sync_type == ExternalDataSchema.SyncType.XMIN:
-            if not SourceRegistry.get_source(ExternalDataSourceType(instance.source.source_type)).supports_xmin:
+            if not SourceRegistry.get_source(instance.source.source_type).supports_xmin:
                 raise ValidationError("xmin replication is only available for Postgres sources.")
             if not self._xmin_available_for_schema(instance):
                 raise ValidationError(
@@ -1252,9 +1582,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             # Only for a source that reads keys off the table, and only when the schema's columns
             # are known. A source that declares its key in code never needs one here, and without
             # columns there is nothing to say the table has none; the sync-time guard covers both.
-            source_detects_keys = SourceRegistry.get_source(
-                ExternalDataSourceType(instance.source.source_type)
-            ).detects_primary_keys
+            source_detects_keys = SourceRegistry.get_source(instance.source.source_type).detects_primary_keys
             if source_detects_keys and known_columns and not merge_keys and "id" not in column_names:
                 raise ValidationError(
                     f"'{instance.name}' has no primary key to sync incrementally on. "
@@ -1577,6 +1905,28 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             validated_data["sync_type_config"]["reset_pipeline"] = True
             trigger_refresh = True
 
+        # Rows already synced hold the old values, and the column changes type between the source
+        # type and text, so a mask change rebuilds the table. CDC takes a new snapshot further down.
+        # The rebuild is staged on the locked row: a run can clear an earlier reset, or repair can stage
+        # one, between this request's read and its save.
+        stage_locked_config: Callable[[dict[str, Any]], None] | None = None
+        if masked_columns_changed:
+            will_sync = should_sync if should_sync is not None else instance.should_sync
+            if not is_cdc:
+                validated_data.setdefault("sync_type_config", instance.sync_type_config)
+                stage_locked_config = _stage_mask_rebuild
+                if will_sync:
+                    trigger_refresh = True
+            elif will_sync:
+                # Staged in this save, so capture still finishes the reset if the hand-over after it fails.
+                stage_locked_config = stage_handed_over_reset
+            else:
+                # Capture does not read a table that does not sync, so the new snapshot is staged in this
+                # save. A self-managed publication takes no snapshot of its own when the table is turned on.
+                stage_locked_config = _stage_disabled_cdc_mask_snapshot
+                instance.initial_sync_complete = False
+                validated_data["initial_sync_complete"] = False
+
         if source.is_direct_query:
             direct_engine_adapter = get_direct_query_engine(source.direct_engine)
             # Direct-mode lifecycle hooks that need a fresh DataWarehouseTable projection:
@@ -1630,14 +1980,25 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
         # Persist under a row lock, replaying only the sync_type_config keys this request changed
         # so a concurrent CDC extract activity's writes aren't reverted by the full-instance save.
-        updated_instance = self._save_merging_sync_type_config(instance, validated_data, original_sync_type_config)
+        updated_instance = self._save_merging_sync_type_config(
+            instance, validated_data, original_sync_type_config, stage_locked_config
+        )
         if publication_removal is not None:
             self._run_temporal_side_effect(publication_removal)
+
+        if masked_columns_changed:
+            # Profiles computed before the mask hold plaintext bounds, and the profiler recomputes them only daily.
+            clear_masked_column_bounds(
+                updated_instance.team_id, updated_instance.table_id, updated_instance.masked_columns
+            )
 
         # A version repin invalidates any in-flight import: retried/resumed activities re-resolve
         # the version from the DB, so letting the run finish would mix two vendor API versions in
         # one table. Cancel it; the user decides when to sync again.
-        if api_version_changed:
+        # A mask change cancels it too, as the resync button does, so the masking rebuild starts now
+        # instead of waiting for the next schedule tick.
+        import_cancelled = False
+        if api_version_changed or (masked_columns_changed and not is_cdc):
             running_job = (
                 ExternalDataJob.objects.filter(schema_id=instance.pk, team_id=instance.team_id)
                 .order_by("-created_at")
@@ -1650,12 +2011,15 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                         cancel_external_data_workflow(running_job.workflow_id)
                     except temporalio.service.RPCError as e:
                         logger.exception(
-                            "Could not cancel running workflow after api_version change",
+                            "Could not cancel running workflow after a schema change",
                             schema_id=str(instance.id),
+                            workflow_id=running_job.workflow_id,
+                            reason="api_version_change" if api_version_changed else "mask_change",
                             exc_info=e,
                         )
 
                 self._run_temporal_side_effect(cancel_running_import)
+                import_cancelled = True
 
         if source.supports_scheduled_sync and (
             should_sync is not None
@@ -1719,7 +2083,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             self._run_temporal_side_effect(update_schedule)
 
         if trigger_refresh:
-            self._run_temporal_side_effect(lambda: trigger_external_data_workflow(updated_instance))
+            self._run_temporal_side_effect(
+                lambda: trigger_external_data_workflow(updated_instance, buffer_one=import_cancelled)
+            )
 
         if sync_type == ExternalDataSchema.SyncType.WEBHOOK:
             self._maybe_create_webhook(updated_instance)
@@ -1735,10 +2101,17 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
             self._run_temporal_side_effect(sync_cdc_schedule)
 
+        # Capture finishes this reset before it reads the change stream again, and it empties the change
+        # buffer first: files captured before the change hold the old values and the old column type.
+        cdc_mask_reset = is_cdc and masked_columns_changed and updated_instance.should_sync
+        if cdc_mask_reset:
+            # The save above staged the reset, so the hand-over only pauses the schedule and starts capture.
+            self._run_temporal_side_effect(lambda: hand_reset_to_capture(updated_instance, logger, stage=False))
+
         # If the cdc_table_mode change added a new physical write target, kick a full re-snapshot so the
         # new table is seeded from the current source state. `_seed_cdc_companion_from_snapshot` runs
         # automatically once the snapshot completes via `run_post_load_operations`.
-        if is_cdc and "cdc_table_mode" in data:
+        if is_cdc and "cdc_table_mode" in data and not cdc_mask_reset:
             new_cdc_table_mode = data.get("cdc_table_mode")
             if _cdc_table_mode_change_needs_resnapshot(previous_cdc_table_mode, new_cdc_table_mode):
                 logger.info(
@@ -1780,16 +2153,16 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if not source_inputs:
             return False
         try:
-            source_type = ExternalDataSourceType(source.source_type)
+            source_type = known_source_key(source.source_type)
             source_impl = SourceRegistry.get_source(source_type)
         except Exception:
             return False
         try:
             config = source_impl.parse_config(source_inputs)
-            source_schemas = source_impl.get_schemas(
+            source_schemas = discover_existing_schema(
+                source_impl,
                 config,
-                schema.team_id,
-                names=[schema.name],
+                schema,
                 api_version=source_impl.resolve_api_version(self._effective_probe_api_version(schema, source_impl)),
             )
         except Exception:
@@ -1808,13 +2181,13 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if not source_inputs:
             return False
         try:
-            source_type = ExternalDataSourceType(source.source_type)
+            source_type = known_source_key(source.source_type)
             source_impl = SourceRegistry.get_source(source_type)
             config = source_impl.parse_config(source_inputs)
-            source_schemas = source_impl.get_schemas(
+            source_schemas = discover_existing_schema(
+                source_impl,
                 config,
-                schema.team_id,
-                names=[schema.name],
+                schema,
                 api_version=source_impl.resolve_api_version(self._effective_probe_api_version(schema, source_impl)),
             )
         except Exception:
@@ -1834,17 +2207,17 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if not source_inputs:
             return unsupported
         try:
-            source_impl = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
+            source_impl = SourceRegistry.get_source(source.source_type)
         except Exception:
             return unsupported
         if not isinstance(source_impl, WebhookSource):
             return unsupported
         try:
             config = source_impl.parse_config(source_inputs)
-            source_schemas = source_impl.get_schemas(
+            source_schemas = discover_existing_schema(
+                source_impl,
                 config,
-                schema.team_id,
-                names=[schema.name],
+                schema,
                 api_version=source_impl.resolve_api_version(self._effective_probe_api_version(schema, source_impl)),
             )
         except Exception as e:
@@ -1911,7 +2284,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             return
 
         try:
-            source_type = ExternalDataSourceType(source.source_type)
+            source_type = known_source_key(source.source_type)
             source_impl = SourceRegistry.get_source(source_type)
         except Exception as e:
             capture_exception(e)
@@ -2079,7 +2452,19 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
     table = serializers.SerializerMethodField(
         read_only=True, help_text="The synced warehouse table (id, name, row_count), or null if not yet synced."
     )
+    table_id = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "The id of the warehouse table this schema syncs into. Set before the first sync for a table "
+            "the schema already names, such as a migrated one. Null when there is none."
+        ),
+    )
     status = serializers.SerializerMethodField(read_only=True, help_text="Current sync status for this schema.")
+    pending_self_managed_table = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="Whether this schema is linked to an existing self-managed table that its first sync will import. "
+        "Until then the table keeps reading the original bucket.",
+    )
 
     sync_frequency = serializers.SerializerMethodField(
         read_only=True, help_text="How often this table is scheduled to sync, or null if no interval is set."
@@ -2098,6 +2483,8 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
             "sync_frequency",
             "latest_error",
             "table",
+            "table_id",
+            "pending_self_managed_table",
         ]
         read_only_fields = fields
 
@@ -2118,9 +2505,18 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
             return None
         return {"id": str(table.id), "name": table.name, "row_count": table.row_count}
 
+    @extend_schema_field(serializers.UUIDField(allow_null=True))
+    def get_table_id(self, schema: ExternalDataSchema) -> uuid.UUID | None:
+        return linked_table_id(schema, self.context)
+
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_status(self, schema: ExternalDataSchema) -> str | None:
         return schema_display_status(schema)
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_pending_self_managed_table(self, schema: ExternalDataSchema) -> bool:
+        ref = self_managed_table_ref(schema)
+        return schema.table_id is None and ref is not None and ref.abandon_reason is None
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_sync_frequency(self, schema: ExternalDataSchema) -> str | None:
@@ -2209,8 +2605,20 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # otherwise route POST here, whose serializer create path skips the api_version guards.
         raise MethodNotAllowed("POST")
 
+    def get_serializer(self, *args: Any, **kwargs: Any) -> serializers.BaseSerializer:
+        if "context" not in kwargs:
+            kwargs["context"] = self.get_serializer_context()
+        if kwargs.get("many") and args:
+            context = kwargs["context"]
+            context[PINNED_TABLE_IDS_CONTEXT_KEY] = pinned_table_ids(args[0], self.team_id)
+            context[WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY] = sources_missing_webhook(self.team_id, args[0])
+        serializer_class = self.get_serializer_class()
+        return serializer_class(*args, **kwargs)
+
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
+        if getattr(self, "swagger_fake_view", False):
+            return context
         context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
         # Only the single-schema retrieve embeds the parent-source summary (see ExternalDataSchemaSerializer.get_source).
         context["include_source"] = self.action == "retrieve"
@@ -2324,28 +2732,10 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
     @extend_schema(parameters=[LogEntryRequestSerializer])
-    @action(methods=["GET"], detail=True, filter_backends=[])
+    @action(methods=["GET"], detail=True, filter_backends=[], pagination_class=LogEntryPagination)
     def logs(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSchema = self.get_object()
-        param_serializer = LogEntryRequestSerializer(data=request.query_params)
-        if not param_serializer.is_valid():
-            raise ValidationError(param_serializer.errors)
-        params = param_serializer.validated_data
-        data = fetch_log_entries(
-            team_id=self.team_id,
-            log_source="external_data_jobs",
-            log_source_id=str(instance.id),
-            limit=params["limit"],
-            instance_id=params.get("instance_id"),
-            after=params.get("after"),
-            before=params.get("before"),
-            search=params.get("search"),
-            level=params["level"].split(",") if params.get("level") else None,
-        )
-        page = self.paginate_queryset(data)
-        if page is not None:
-            return self.get_paginated_response(LogEntrySerializer(page, many=True).data)
-        return Response(LogEntrySerializer(data, many=True).data)
+        return log_entries_response(self, request, log_source="external_data_jobs", log_source_id=str(instance.id))
 
     @extend_schema(
         request=None,
@@ -2584,9 +2974,9 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not source.source_type:
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Missing source type"})
 
-        source_type_enum = ExternalDataSourceType(source.source_type)
+        source_type_key = known_source_key(source.source_type)
 
-        new_source = SourceRegistry.get_source(source_type_enum)
+        new_source = SourceRegistry.get_source(source_type_key)
         try:
             config = new_source.parse_config(source_inputs)
         except (UndecryptedConfigError, ConfigValueError):
@@ -2594,56 +2984,52 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         effective_api_version = new_source.resolve_api_version(instance.api_version or source.api_version)
         try:
-            credentials_valid, credentials_error = new_source.validate_credentials(
-                config, self.team_id, instance.name, api_version=effective_api_version
-            )
+            # Discovery can't report a pinned schema, and a source-wide check can fail where the sync
+            # works, for example when the key can't list the bucket root. The source checks access to
+            # the schema's own data instead.
+            pinned_schema = describe_pinned_schema(new_source, config, instance)
         except Exception as e:
-            credentials_valid, credentials_error = source_helpers._credentials_validation_failed(
-                new_source, self.team_id, e
-            )
-        if not credentials_valid:
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": credentials_error or "Invalid credentials"},
-            )
-
-        stored_resource_id = (
-            (instance.schema_metadata or {}).get(SCHEMA_RESOURCE_ID_METADATA_KEY)
-            if new_source.uses_stable_schema_resource_ids
-            else None
-        )
-        try:
-            schemas = new_source.get_schemas(
-                config, self.team_id, names=[instance.name], api_version=effective_api_version
-            )
-            # A stored resource id can outlive the stored name after an upstream rename. Discover every
-            # schema only when the name lookup misses that id, so an unrenamed schema keeps the cheap
-            # filtered discovery.
-            if stored_resource_id is not None:
-                found = discovered_schema_finder(schemas)(instance.name, instance.schema_metadata)
-                found_resource_id = (
-                    (found.schema_metadata or {}).get(SCHEMA_RESOURCE_ID_METADATA_KEY) if found else None
+            return _discovery_error_response(new_source, e)
+        if pinned_schema is not None:
+            schemas = [pinned_schema]
+        else:
+            try:
+                credentials_valid, credentials_error = new_source.validate_credentials(
+                    config, self.team_id, instance.name, api_version=effective_api_version
                 )
-                if str(found_resource_id) != str(stored_resource_id):
-                    schemas = new_source.get_schemas(
-                        config, self.team_id, names=None, api_version=effective_api_version
-                    )
-        except Exception as e:
-            # `validate_credentials` above just probed the same connection successfully, so a
-            # failure here that the source itself classifies is an expected customer or upstream
-            # condition rather than a bug, and must not flood error tracking. Both maps count: a
-            # non-retryable match names something only the customer can fix, such as bad
-            # credentials, and a retryable match names a transient failure `get_retryable_errors`
-            # already exists to keep out of error tracking.
-            # Mirrors `refresh_schemas`'s `_classify_refresh_schemas_error`.
-            error_text = str(e)
-            expected_patterns = (*new_source.get_non_retryable_errors(), *new_source.get_retryable_errors())
-            if not any(pattern and pattern in error_text for pattern in expected_patterns):
-                capture_exception(e)
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"message": str(e)},
+            except Exception as e:
+                credentials_valid, credentials_error = source_helpers._credentials_validation_failed(
+                    new_source, self.team_id, e
+                )
+            if not credentials_valid:
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={"message": credentials_error or "Invalid credentials"},
+                )
+
+            stored_resource_id = (
+                (instance.schema_metadata or {}).get(SCHEMA_RESOURCE_ID_METADATA_KEY)
+                if new_source.uses_stable_schema_resource_ids
+                else None
             )
+            try:
+                schemas = new_source.get_schemas(
+                    config, self.team_id, names=[instance.name], api_version=effective_api_version
+                )
+                # A stored resource id can outlive the stored name after an upstream rename. Discover every
+                # schema only when the name lookup misses that id, so an unrenamed schema keeps the cheap
+                # filtered discovery.
+                if stored_resource_id is not None:
+                    found = discovered_schema_finder(schemas)(instance.name, instance.schema_metadata)
+                    found_resource_id = (
+                        (found.schema_metadata or {}).get(SCHEMA_RESOURCE_ID_METADATA_KEY) if found else None
+                    )
+                    if str(found_resource_id) != str(stored_resource_id):
+                        schemas = new_source.get_schemas(
+                            config, self.team_id, names=None, api_version=effective_api_version
+                        )
+            except Exception as e:
+                return _discovery_error_response(new_source, e)
 
         if not schemas:
             return Response(
@@ -2667,7 +3053,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # job_inputs is an EncryptedJSONField: booleans round-trip as "True"/"False"
         # strings, so bool(...) would treat "False" as truthy. str_to_bool decodes both.
         source_cdc_enabled = str_to_bool(SourceInputsStore.load_settings(source).get("cdc_enabled"))
-        source_impl = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
+        source_impl = SourceRegistry.get_source(source.source_type)
         cdc_available = schema.supports_cdc if is_cdc_enabled_for_team(self.team) and source_cdc_enabled else None
         # xmin is source-capability-gated, mirroring the database_schema endpoint.
         xmin_available = schema.supports_xmin if source_impl.supports_xmin else None

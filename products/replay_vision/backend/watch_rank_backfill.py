@@ -1,9 +1,9 @@
 """Rank a window of past observations from the embeddings search already stored.
 
-The watch rank consumer ranks each new observation as its embedding lands. This fills in the observations from before
-that shipped, so a team can move to the embedding ranker without waiting a week for ranks to build
-up. It reads stored vectors from ClickHouse rather than embedding again. Feed groups and search themes
-come from the semantics backfill, which runs after this one.
+The watch rank consumer ranks each new observation as its embedding lands. This ranks the rest: observations whose
+results the consumer missed, and every observation again after the anchors change. It reads stored vectors from
+ClickHouse rather than embedding again. Feed groups and search themes come from the semantics backfill, which runs
+after this one.
 """
 
 import time
@@ -33,6 +33,7 @@ from products.replay_vision.backend.embeddings import (
     observation_scope_params,
     team_embeddings_params,
 )
+from products.replay_vision.backend.models.replay_highlight_feed import HighlightWindow
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.observation_ranks import NewRank, record_ranks
 from products.replay_vision.backend.watch_rank import (
@@ -49,7 +50,8 @@ from products.replay_vision.backend.watch_rank import (
 logger = structlog.get_logger(__name__)
 
 _VECTOR_CHUNK = 500
-WATCH_RANK_BACKFILL_DAYS = 7
+# The longest highlight feed window, so a run covers everything the feed can show.
+WATCH_RANK_BACKFILL_DAYS = max(HighlightWindow.values)
 _QUERY_TIMEOUT_S = 60
 _CAPACITY_RETRY_BASE_S = 15
 _CAPACITY_RETRY_ATTEMPTS = 6

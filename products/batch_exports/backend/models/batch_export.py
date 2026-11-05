@@ -20,7 +20,7 @@ from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDTModel
 
 from products.batch_exports.backend.facade import enums
-from products.batch_exports.backend.facade.enums import TIMEZONES
+from products.batch_exports.backend.facade.enums import timezone_choices
 
 
 class DayOfWeek(IntEnum):
@@ -384,7 +384,7 @@ class BatchExport(ModelActivityMixin, UUIDTModel):
     )
     filters = models.JSONField(null=True, blank=True)
     # determines the timezone used for daily or weekly exports
-    timezone = models.CharField(max_length=240, choices=TIMEZONES, default="UTC")
+    timezone = models.CharField(max_length=240, choices=timezone_choices, default="UTC")
     # interval offset allows for batch exports to start at a custom time
     # (eg daily exports can be configured to run at 1am local time by setting this to 3600)
     interval_offset = models.IntegerField(

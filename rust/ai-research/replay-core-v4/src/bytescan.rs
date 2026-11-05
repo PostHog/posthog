@@ -7,6 +7,8 @@
 //! callers that need decoded text use [`unescape`], and callers that meet an escaped **key** must fall
 //! back to a real parse — a `\uXXXX` key could alias a routing key, and byte comparison would miss it.
 
+use std::borrow::Cow;
+
 /// Half-open byte range into the scanned buffer.
 pub type Span = (usize, usize);
 
@@ -696,6 +698,69 @@ pub fn write_json_string(s: &str, out: &mut Vec<u8>) {
         }
     }
     out.push(b'"');
+}
+
+/// The bytes with each JSON string that holds an escape `write_json_string` does not write, such as `\/` or `\u0041`,
+/// written again as it writes them. Capture writes events that way, but the JSON inside a `cv` payload arrives as the
+/// page wrote it, and a client can send any escape. A URL or a data URI could then hide behind an escape from a reader
+/// that matches bytes.
+pub fn canonical_strings(bytes: &[u8]) -> Cow<'_, [u8]> {
+    if !bytes.contains(&b'\\') {
+        return Cow::Borrowed(bytes);
+    }
+    let mut out: Option<Vec<u8>> = None;
+    let mut copied_to = 0;
+    let mut position = 0;
+    while let Some(start) = bytes[position..]
+        .iter()
+        .position(|&b| b == b'"')
+        .map(|at| position + at)
+    {
+        let mut end = start + 1;
+        let mut canonical = true;
+        while end < bytes.len() && bytes[end] != b'"' {
+            if bytes[end] == b'\\' {
+                match bytes.get(end + 1) {
+                    Some(b'"' | b'\\' | b'b' | b'f' | b'n' | b'r' | b't') => {}
+                    Some(b'u') => canonical &= is_written_escape(bytes.get(end + 2..end + 6)),
+                    _ => canonical = false,
+                }
+                end += 1;
+            }
+            end += 1;
+        }
+        if end >= bytes.len() {
+            break;
+        }
+        if !canonical {
+            if let Ok(text) = unescape(bytes, (start, end + 1)) {
+                let out = out.get_or_insert_with(|| Vec::with_capacity(bytes.len()));
+                out.extend_from_slice(&bytes[copied_to..start]);
+                write_json_string(&text, out);
+                copied_to = end + 1;
+            }
+        }
+        position = end + 1;
+    }
+    match out {
+        Some(mut out) => {
+            out.extend_from_slice(&bytes[copied_to..]);
+            Cow::Owned(out)
+        }
+        None => Cow::Borrowed(bytes),
+    }
+}
+
+/// Whether `write_json_string` writes this `\u` escape: a control character without a short escape, in lowercase hex.
+fn is_written_escape(hex: Option<&[u8]>) -> bool {
+    let Some(&[b'0', b'0', high, low]) = hex else {
+        return false;
+    };
+    let digit = |b: u8| matches!(b, b'0'..=b'9' | b'a'..=b'f');
+    digit(high)
+        && digit(low)
+        && high <= b'1'
+        && !matches!((high, low), (b'0', b'8' | b'9' | b'a' | b'c' | b'd'))
 }
 
 #[cfg(test)]
