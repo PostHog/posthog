@@ -136,6 +136,7 @@ const BLOCKED_ATTACHMENT_EXTENSIONS: ReadonlySet<string> = new Set([
 ])
 
 const BASE64_RE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
+const MAX_ATTACHMENT_BASE64_LENGTH = Math.ceil(MAX_EMAIL_ATTACHMENTS_BYTES / 3) * 4
 const MIME_TYPE_RE = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$/i
 const CONTROL_CHARACTER_RE = /[\x00-\x1F\x7F]/
 const SES_ATTACHMENT_HEADER_MAX_LENGTH = 78
@@ -159,7 +160,10 @@ const AttachmentSchema = z
         content: z
             .string()
             .min(1, { message: 'content must not be empty' })
-            .refine((content) => BASE64_RE.test(content), { message: 'content must be base64' }),
+            .max(MAX_ATTACHMENT_BASE64_LENGTH, { message: 'attachments must be 512 KB or less in total' })
+            .refine((content) => content.length <= MAX_ATTACHMENT_BASE64_LENGTH && BASE64_RE.test(content), {
+                message: 'content must be base64',
+            }),
         contentType: z
             .string()
             .max(SES_ATTACHMENT_HEADER_MAX_LENGTH)

@@ -2546,6 +2546,10 @@ describe('CDP API', () => {
             ['a file that is not base64', { ...codeSend, attachments: [attachment({ content: `${FILE_CONTENT}!` })] }],
             ['an empty file', { ...codeSend, attachments: [attachment({ content: '' })] }],
             [
+                'a file too long to check as base64',
+                { ...codeSend, attachments: [attachment({ content: 'A'.repeat(4_500_000) })] },
+            ],
+            [
                 'a file type mailbox providers block',
                 { ...codeSend, attachments: [attachment({ filename: 'setup.EXE' })] },
             ],
