@@ -135,7 +135,7 @@ jobs:
               # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
               uses: actions/create-github-app-token@v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_HOMEBREW_TAP_RELEASER_APP_ID }}
+                  client-id: ${{ vars.GH_APP_HOMEBREW_TAP_RELEASER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_HOMEBREW_TAP_RELEASER_PRIVATE_KEY }}
                   owner: PostHog
                   repositories: homebrew-tap
