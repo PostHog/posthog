@@ -30,19 +30,3 @@ class WarehouseSourcesConfig(AppConfig):
         )
 
         register_source_kinds({kind: AuthType(auth_type) for kind, auth_type in CREDENTIAL_AUTH_TYPES.items()})
-
-        # Prewarm the source-config catalog in a background thread.
-        # This makes the initial load of the public source-config endpoint and the in-app wizard much faster, because the
-        # first request does not have to pay the cold-import cost of all source modules.
-        import threading  # noqa: PLC0415
-
-        from products.warehouse_sources.backend.presentation.views.public_source_configs import (  # noqa: PLC0415
-            build_source_configs,
-        )
-
-        # The prewarm thread is daemonized so it does not block process exit.
-        threading.Thread(
-            target=lambda: build_source_configs(include_tables=False),
-            daemon=True,
-            name="warehouse-sources-prewarm",
-        ).start()

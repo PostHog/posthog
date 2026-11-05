@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 
 import { reportOnboardingStepCompleted } from 'scenes/onboarding/onboardingUsage'
 
