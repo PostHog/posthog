@@ -1,6 +1,9 @@
 # posthog/test/test_otel_instrumentation.py
 import os
+import re
+import asyncio
 import logging
+from collections.abc import Callable
 from types import SimpleNamespace
 from typing import NoReturn
 
@@ -8,7 +11,13 @@ from unittest import mock
 
 from django.test import SimpleTestCase
 
+import httpx
+import httpcore
+import requests
+import responses
 from opentelemetry import trace
+from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
@@ -20,7 +29,31 @@ from posthog.otel_instrumentation import (
     _otel_django_response_hook,
     _otel_redis_request_hook,
     initialize_otel,
+    instrument_httpx_client,
+    instrument_requests_client,
 )
+
+URL_WITH_CREDENTIALS = "https://user:secret@api.example.com/hooks/secret?token=secret"
+
+
+def _get_with_requests(url: str) -> None:
+    with responses.RequestsMock() as mocked_responses:
+        mocked_responses.get(re.compile(".*"))
+        requests.get(url)
+
+
+def _get_with_httpx(url: str) -> None:
+    with mock.patch.object(httpcore.ConnectionPool, "handle_request", return_value=httpcore.Response(200)):
+        httpx.get(url)
+
+
+def _get_with_async_httpx(url: str) -> None:
+    async def get() -> None:
+        async with httpx.AsyncClient() as client:
+            await client.get(url)
+
+    with mock.patch.object(httpcore.AsyncConnectionPool, "handle_async_request", return_value=httpcore.Response(200)):
+        asyncio.run(get())
 
 
 class TestOtelInstrumentation(SimpleTestCase):
@@ -425,3 +458,30 @@ class TestOtelRedisRequestHook(SimpleTestCase):
                 raise RuntimeError("topology unavailable")
 
         self.assertEqual(self._span_attributes_after_hook(ClientWithoutTopology()), {})
+
+
+class TestOutboundCallSpans(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(self.exporter))
+        instrument_requests_client(provider)
+        self.addCleanup(RequestsInstrumentor().uninstrument)
+        instrument_httpx_client(provider)
+        self.addCleanup(HTTPXClientInstrumentor().uninstrument)
+
+    @parameterized.expand(
+        [
+            ("requests", _get_with_requests),
+            ("httpx", _get_with_httpx),
+            ("httpx_async", _get_with_async_httpx),
+        ]
+    )
+    def test_span_keeps_only_the_url_origin(self, _client: str, get: Callable[[str], None]) -> None:
+        get(URL_WITH_CREDENTIALS)
+
+        (span,) = self.exporter.get_finished_spans()
+        attributes = dict(span.attributes or {})
+        self.assertEqual(attributes["http.url"], "https://api.example.com")
+        self.assertNotIn("secret", str(attributes))

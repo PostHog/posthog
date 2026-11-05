@@ -3,6 +3,7 @@ import atexit
 import typing
 import logging
 from collections.abc import Sequence
+from urllib.parse import urlsplit, urlunsplit
 
 from django.http import HttpRequest, HttpResponse
 
@@ -11,8 +12,10 @@ from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.aiohttp_client import AioHttpClientInstrumentor
 from opentelemetry.instrumentation.aiokafka import AIOKafkaInstrumentor
+from opentelemetry.instrumentation.botocore import BotocoreInstrumentor
 from opentelemetry.instrumentation.celery import CeleryInstrumentor
 from opentelemetry.instrumentation.django import DjangoInstrumentor
+from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor, RequestInfo
 from opentelemetry.instrumentation.kafka import KafkaInstrumentor
 from opentelemetry.instrumentation.psycopg import PsycopgInstrumentor
 from opentelemetry.instrumentation.redis import RedisInstrumentor
@@ -22,9 +25,12 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace import Span
 from opentelemetry.util.http import sanitize_method
+from requests import PreparedRequest
 
 # Get a structlog logger for this module's own messages
 logger = structlog.get_logger(__name__)
+
+_OUTBOUND_URL_ATTRIBUTE_KEYS = ("http.url", "url.full")
 
 
 def _otel_django_request_hook(span: Span, request: HttpRequest) -> None:
@@ -88,7 +94,35 @@ def _otel_redis_request_hook(span: Span, instance: object, args: Sequence[object
         logger.debug("otel_redis_request_hook_failed", exc_info=True)
 
 
-def initialize_otel():
+def _url_origin(url: str) -> str:
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return ""
+    return urlunsplit((parts.scheme, parts.netloc.rpartition("@")[2], "", "", ""))
+
+
+def _replace_span_url_with_origin(span: Span, url: str) -> None:
+    if not span.is_recording():
+        return
+    origin = _url_origin(url)
+    for key in _OUTBOUND_URL_ATTRIBUTE_KEYS:
+        span.set_attribute(key, origin)
+
+
+def _otel_requests_request_hook(span: Span, request: PreparedRequest) -> None:
+    _replace_span_url_with_origin(span, request.url or "")
+
+
+def _otel_httpx_request_hook(span: Span, request: RequestInfo) -> None:
+    _replace_span_url_with_origin(span, str(request.url))
+
+
+async def _otel_httpx_async_request_hook(span: Span, request: RequestInfo) -> None:
+    _otel_httpx_request_hook(span, request)
+
+
+def initialize_otel(*, instrument_outbound_calls: bool = False) -> None:
     # App tracing targets a real OTLP collector (dev/prod). In tests, booting the app
     # (e.g. posthog/test/test_asgi_lifespan.py imports posthog.asgi) would otherwise arm a
     # process-wide span exporter to the SDK default localhost:4317 with no collector there,
@@ -163,6 +197,10 @@ def initialize_otel():
         instrument_psycopg(provider)
         instrument_kafka(provider)
         instrument_aiokafka(provider)
+        if instrument_outbound_calls:
+            instrument_requests_client(provider)
+            instrument_httpx_client(provider)
+            instrument_botocore(provider)
 
         logger.info(
             "otel_manual_init_status_from_instrumentation_module",
@@ -246,13 +284,37 @@ def instrument_aiohttp_client(provider: trace.TracerProvider):
         )
 
 
-def instrument_requests_client(provider: trace.TracerProvider):
+def instrument_requests_client(provider: trace.TracerProvider) -> None:
     try:
-        RequestsInstrumentor().instrument(tracer_provider=provider)
+        RequestsInstrumentor().instrument(tracer_provider=provider, request_hook=_otel_requests_request_hook)
         logger.info("otel_instrumentation_attempt", instrumentor="RequestsInstrumentor", status="success")
     except Exception as e:
         logger.exception(
             "otel_instrumentation_attempt", instrumentor="RequestsInstrumentor", status="error", exc_info=e
+        )
+
+
+def instrument_httpx_client(provider: trace.TracerProvider) -> None:
+    try:
+        HTTPXClientInstrumentor().instrument(
+            tracer_provider=provider,
+            request_hook=_otel_httpx_request_hook,
+            async_request_hook=_otel_httpx_async_request_hook,
+        )
+        logger.info("otel_instrumentation_attempt", instrumentor="HTTPXClientInstrumentor", status="success")
+    except Exception as e:
+        logger.exception(
+            "otel_instrumentation_attempt", instrumentor="HTTPXClientInstrumentor", status="error", exc_info=e
+        )
+
+
+def instrument_botocore(provider: trace.TracerProvider) -> None:
+    try:
+        BotocoreInstrumentor().instrument(tracer_provider=provider)
+        logger.info("otel_instrumentation_attempt", instrumentor="BotocoreInstrumentor", status="success")
+    except Exception as e:
+        logger.exception(
+            "otel_instrumentation_attempt", instrumentor="BotocoreInstrumentor", status="error", exc_info=e
         )
 
 
