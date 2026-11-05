@@ -102,16 +102,8 @@ const CachedIdentitySchema = z.object({
 
 type CachedIdentity = z.output<typeof CachedIdentitySchema>
 
-// A cache that isn't an object is broken, so hog starts a new one instead of failing the command.
-// An entry it can't read is dropped.
-const IdentityCacheSchema = z.record(z.string(), z.unknown()).transform((entries) =>
-    Object.fromEntries(
-        Object.entries(entries).flatMap(([key, entry]) => {
-            const parsed = CachedIdentitySchema.safeParse(entry)
-            return parsed.success ? [[key, parsed.data]] : []
-        })
-    )
-)
+// hog writes this file itself, so a cache it can't read is broken and hog starts a new one.
+const IdentityCacheSchema = z.record(z.string(), CachedIdentitySchema)
 
 // Only PostHog Cloud users exist in the project telemetry goes to.
 function isCloudHost(host: string): boolean {

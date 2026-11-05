@@ -1,6 +1,4 @@
-import { z } from 'zod'
-
-import { parseJsonOrUndefined } from '@/core/json'
+import { JsonObject, parseJsonOrUndefined } from '@/core/json'
 import { hogFile } from '@/core/paths'
 import type { Runtime } from '@/core/runtime'
 import { hostKey, HostSchema, type Host } from '@/posthog/host'
@@ -28,7 +26,7 @@ export class FileStore implements CredentialStore {
             }
             throw error
         }
-        return parseJsonOrUndefined(text, z.record(z.string(), z.unknown())) ?? {}
+        return parseJsonOrUndefined(text, JsonObject) ?? {}
     }
 
     async hosts(): Promise<Host[]> {

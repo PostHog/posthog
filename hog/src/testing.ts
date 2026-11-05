@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import type { ApiToolLibrary } from '@posthog/mcp/src/cli/library-types'
 
-import { decodeJson, parseJson } from '@/core/json'
+import { parseJson, parseJsonOrUndefined } from '@/core/json'
 import type { Prompts } from '@/core/prompts'
 import type { Env, Runtime, Secrets } from '@/core/runtime'
 
@@ -62,8 +62,7 @@ function fakePrompts(answers: string[]): Prompts {
 
 // Requests carry JSON, except OAuth requests, which are form encoded.
 function parseBody(body: string): unknown {
-    const json = decodeJson(body, z.unknown())
-    return json.ok ? json.value : Object.fromEntries(new URLSearchParams(body))
+    return parseJsonOrUndefined(body, z.unknown()) ?? Object.fromEntries(new URLSearchParams(body))
 }
 
 function memorySecrets(items: Record<string, string>): Secrets {
