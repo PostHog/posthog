@@ -1244,6 +1244,28 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         assert "X-PostHog-Events-Default-After" not in explicit_after.headers
         assert [event["id"] for event in explicit_after.json()["results"]] == [*recent_events, old_event]
 
+    @parameterized.expand(
+        [
+            ("clocks_go_forward", "2024-03-10T12:00:00Z", "2024-03-09T12:00:05+00:00"),
+            ("clocks_go_back", "2024-11-03T12:00:00Z", "2024-11-02T12:00:05+00:00"),
+        ]
+    )
+    def test_missing_after_spans_24_hours_across_a_clock_change(self, _name, now, expected_after):
+        self.team.timezone = "America/New_York"
+        self.team.save()
+
+        with (
+            time_machine.travel(now, tick=False),
+            patch(
+                "posthog.models.event.legacy_events_query._execute_events_list_query",
+                wraps=_execute_events_list_query,
+            ) as patch_execute_query,
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/events/")
+
+        assert response.headers["X-PostHog-Events-Default-After"] == expected_after
+        assert patch_execute_query.call_count == 6
+
     def test_optimize_query_with_bounded_dates(self):
         # Test that bounded date ranges return correct results
         _create_event(

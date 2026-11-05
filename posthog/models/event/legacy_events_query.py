@@ -1,7 +1,7 @@
 import uuid
 import random
 import builtins
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Optional, cast
 from zoneinfo import ZoneInfo
 
@@ -153,9 +153,9 @@ class LegacyEventsListQuery:
         if before and after:
             try:
                 tzinfo = self.team.timezone_info
-                request_window_seconds = int(
-                    (relative_date_parse(before, tzinfo) - relative_date_parse(after, tzinfo)).total_seconds()
-                )
+                before_utc = relative_date_parse(before, tzinfo).astimezone(UTC)
+                after_utc = relative_date_parse(after, tzinfo).astimezone(UTC)
+                request_window_seconds = int((before_utc - after_utc).total_seconds())
             except (ValueError, TypeError):
                 pass
 

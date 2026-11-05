@@ -324,7 +324,7 @@ class EventViewSet(
             if not after:
                 before_dt = resolve_before(before, team.timezone_info)
                 before = before_dt.isoformat()
-                default_after = after = (before_dt - EVENT_LIST_DEFAULT_AFTER_WINDOW).astimezone(UTC).isoformat()
+                default_after = after = (before_dt.astimezone(UTC) - EVENT_LIST_DEFAULT_AFTER_WINDOW).isoformat()
 
             request_user = cast(Optional[User], request.user if request.user.is_authenticated else None)
             query_result, has_more = LegacyEventsListQuery(team, request_user).run(
