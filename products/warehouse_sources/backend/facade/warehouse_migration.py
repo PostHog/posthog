@@ -265,7 +265,8 @@ _LEFTOVER_CAVEAT = "An earlier attempt created this source but did not finish. C
 
 
 def _source_description(item: _WarehouseMigrationItem) -> str:
-    return f"Imported from the migrated connection {item.name}."
+    # The description holds 400 characters, and a vendor connection name can too.
+    return f"Imported from the migrated connection {item.name[:350]}."
 
 
 @frozen

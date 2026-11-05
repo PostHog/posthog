@@ -112,7 +112,7 @@ def build_planned_schemas(
         if proposal.start_paused:
             defaults = [{**schema, "should_sync": False} for schema in defaults]
         return PlannedSchemas(
-            schemas=[_with_time_of_day(schema, proposal) for schema in defaults],
+            schemas=[_with_schedule(schema, proposal) for schema in defaults],
             unavailable=(),
             webhook_only=(),
             planned=tuple(schema.name for schema in source_schemas) if not proposal.start_paused else (),
@@ -139,12 +139,18 @@ def build_planned_schemas(
             if table_plan is not None:
                 webhook_only.append(source_schema.name)
                 # A registered webhook turns the table on later, at the planned time.
-                off = _with_time_of_day(off, proposal)
+                off = _with_schedule(off, proposal)
             payload.append(off)
             continue
 
         column_names = [str(column[0]) for column in source_schema.columns or []]
-        disabled = set(table_plan.disabled_columns) if column_names else set()
+        if table_plan.disabled_columns and not column_names:
+            # Discovery lists no columns, so no column selection can keep the excluded ones out.
+            payload.append({"name": source_schema.name, "should_sync": False})
+            kept_off.append(source_schema.name)
+            del plans[source_schema.name]
+            continue
+        disabled = set(table_plan.disabled_columns)
         if disabled:
             # A cursor column is always read, so an excluded column must never be the cursor.
             source_schema = dataclasses.replace(
@@ -166,7 +172,7 @@ def build_planned_schemas(
                 continue
         if table_plan.row_filters:
             entry["row_filters"] = [_row_filter_payload(row_filter) for row_filter in table_plan.row_filters]
-        payload.append(_with_time_of_day(entry, proposal))
+        payload.append(_with_schedule(entry, proposal))
 
     return PlannedSchemas(
         schemas=payload,
@@ -190,8 +196,10 @@ def _discovered_name(plan: ProposedSchema, discovered: Mapping[str, SourceSchema
     return None
 
 
-def _with_time_of_day(schema: dict[str, Any], proposal: ItemProposal) -> dict[str, Any]:
-    return {**schema, "sync_time_of_day": proposal.sync_time_of_day} if proposal.sync_time_of_day else schema
+def _with_schedule(schema: dict[str, Any], proposal: ItemProposal) -> dict[str, Any]:
+    """The planned frequency, and time of day if any, set at creation so no table needs a second update."""
+    scheduled = {**schema, "sync_frequency": proposal.sync_frequency}
+    return {**scheduled, "sync_time_of_day": proposal.sync_time_of_day} if proposal.sync_time_of_day else scheduled
 
 
 def _row_filter_payload(row_filter: ProposedRowFilter) -> dict[str, Any]:
