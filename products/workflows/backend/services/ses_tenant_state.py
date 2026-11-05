@@ -6,6 +6,8 @@ from django.db import transaction
 from django.utils import timezone
 
 import structlog
+from botocore.exceptions import BotoCoreError, ClientError
+from prometheus_client import Counter
 
 from posthog.models.team import Team
 from posthog.plugins.plugin_server_api import (
@@ -20,9 +22,16 @@ from posthog.tasks.email import (
 
 from products.workflows.backend.models.sandbox_sender_tenant_state import SandboxSenderTenantState
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
-from products.workflows.backend.providers.ses import SESProvider, TenantSendingState
+from products.workflows.backend.providers.ses import SESProvider
 
 logger = structlog.get_logger(__name__)
+
+SANDBOX_TENANT_SYNC_FAILURES = Counter(
+    "workflows_sandbox_tenant_sync_failures_total",
+    "Failed reads of the shared sandbox SES tenant state, so its pause mirror may be stale.",
+    labelnames=["kind"],
+)
+_TRANSIENT_SES_ERRORS = frozenset({"Throttling", "ThrottlingException", "TooManyRequestsException"})
 
 PROVIDER_PAUSE_REASON = "Our email provider paused sending for this project because of high-impact reputation findings"
 # A tenant can also be paused without high-impact findings: someone pausing it directly in the
@@ -63,21 +72,29 @@ def _announce_state_change(team_id: int) -> None:
         logger.exception("Failed to announce SES tenant state change to workers", team_id=team_id)
 
 
-def _apply_sandbox_tenant_state(state: SandboxSenderTenantState, tenant: TenantSendingState) -> None:
+def _sandbox_sync_failure_kind(error: Exception) -> str:
+    if isinstance(error, BotoCoreError):
+        return "transient"
+    if isinstance(error, ClientError) and error.response["Error"]["Code"] in _TRANSIENT_SES_ERRORS:
+        return "transient"
+    return "error"
+
+
+def _apply_sandbox_tenant_state(state: SandboxSenderTenantState, sending_status: str) -> None:
     previous_status = state.sending_status
     state.synced_at = timezone.now()
-    if previous_status == tenant.sending_status:
+    if previous_status == sending_status:
         state.save(update_fields=["synced_at"])
         logger.info("Sandbox SES tenant state unchanged", tenant_name=state.tenant_name, status=previous_status)
         return
 
-    state.sending_status = tenant.sending_status
+    state.sending_status = sending_status
     state.save(update_fields=["sending_status", "synced_at"])
     logger.info(
         "Sandbox SES tenant state changed",
         tenant_name=state.tenant_name,
         from_status=previous_status,
-        to_status=tenant.sending_status,
+        to_status=sending_status,
     )
     tenant_name = state.tenant_name
     transaction.on_commit(lambda: reload_sandbox_sender_state_on_workers(tenant_name), robust=True)
@@ -91,9 +108,12 @@ def sync_sandbox_tenant_state(provider: SESProvider | None = None) -> None:
     SandboxSenderTenantState.objects.get_or_create(tenant_name=tenant_name)
     with transaction.atomic():
         state = SandboxSenderTenantState.objects.select_for_update().get(tenant_name=tenant_name)
-        tenant = (provider or SESProvider()).get_tenant_sending_state(tenant_name)
-        if tenant is not None:
-            _apply_sandbox_tenant_state(state, tenant)
+        try:
+            tenant = (provider or SESProvider()).get_tenant_sending_state(tenant_name)
+        except Exception as error:
+            SANDBOX_TENANT_SYNC_FAILURES.labels(kind=_sandbox_sync_failure_kind(error)).inc()
+            raise
+        _apply_sandbox_tenant_state(state, tenant.sending_status if tenant is not None else "")
 
 
 def sync_ses_tenant_state(team_id: int, provider: SESProvider | None = None, *, verify_team: bool = True) -> None:
