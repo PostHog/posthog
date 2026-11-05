@@ -2,12 +2,14 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers, select
 import { urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
-import 'lib/components/CyclotronJob/integrations/integrationSetups'
 import {
     IntegrationSetupDefinition,
     LockedSetupValues,
     getIntegrationSetup,
 } from 'lib/components/CyclotronJob/integrations/integrationSetupRegistry'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import 'lib/components/CyclotronJob/integrations/integrationSetups'
+import { isUUIDLike } from 'lib/utils/guards'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -68,6 +70,9 @@ export interface destinationConnectSceneLogicActions {
     ) => {
         itemId: string
         migrationId: string
+    }
+    migrationPrefillFailed: () => {
+        value: true
     }
     migrationPrefillLoaded: (
         vendorConfig: Record<string, unknown> | null,
@@ -158,6 +163,7 @@ export const destinationConnectSceneLogic = kea<destinationConnectSceneLogicType
             creator: WarehouseMigrationCreatorApi | null
         ) => ({ vendorConfig, creator }),
         clearMigrationPrefill: true,
+        migrationPrefillFailed: true,
         setPrefillConfirmed: (confirmed: boolean) => ({ confirmed }),
         setHandBackStatus: (status: HandBackStatus) => ({ status }),
     }),
@@ -208,6 +214,7 @@ export const destinationConnectSceneLogic = kea<destinationConnectSceneLogicType
                 loadMigrationPrefill: () => true,
                 migrationPrefillLoaded: () => false,
                 clearMigrationPrefill: () => false,
+                migrationPrefillFailed: () => false,
             },
         ],
         migrationItemId: [
@@ -215,6 +222,7 @@ export const destinationConnectSceneLogic = kea<destinationConnectSceneLogicType
             {
                 loadMigrationPrefill: (_, { itemId }) => itemId,
                 clearMigrationPrefill: () => null,
+                migrationPrefillFailed: () => null,
             },
         ],
         vendorConfig: [
@@ -223,6 +231,7 @@ export const destinationConnectSceneLogic = kea<destinationConnectSceneLogicType
                 loadMigrationPrefill: () => null,
                 migrationPrefillLoaded: (_, { vendorConfig }) => vendorConfig,
                 clearMigrationPrefill: () => null,
+                migrationPrefillFailed: () => null,
             },
         ],
         migrationCreator: [
@@ -231,6 +240,7 @@ export const destinationConnectSceneLogic = kea<destinationConnectSceneLogicType
                 loadMigrationPrefill: () => null,
                 migrationPrefillLoaded: (_, { creator }) => creator,
                 clearMigrationPrefill: () => null,
+                migrationPrefillFailed: () => null,
             },
         ],
         prefillConfirmed: [
@@ -379,40 +389,49 @@ export const destinationConnectSceneLogic = kea<destinationConnectSceneLogicType
             }
         },
         loadMigrationPrefill: async ({ migrationId, itemId }, breakpoint) => {
-            let vendorConfig: Record<string, unknown> | null = null
-            let creator: WarehouseMigrationCreatorApi | null = null
+            let item: Awaited<ReturnType<typeof warehouseMigrationsItemsRetrieve>>
             try {
-                const item = await warehouseMigrationsItemsRetrieve(
-                    String(ApiConfig.getCurrentTeamId()),
-                    migrationId,
-                    itemId
-                )
-                // A link whose kind does not match the planned destination gets no prefill.
-                if (item.proposal?.destination?.type === values.destinationDefinition?.type) {
-                    vendorConfig = item.proposal?.destination?.config ?? null
-                }
-                creator = item.created_by ?? null
+                item = await warehouseMigrationsItemsRetrieve(String(ApiConfig.getCurrentTeamId()), migrationId, itemId)
             } catch (e: any) {
+                breakpoint()
+                if (values.migrationItemId !== itemId) {
+                    return
+                }
                 // The user can still fill the form by hand, so only a server error gets reported.
                 if (e?.status >= 500) {
                     posthog.captureException(e)
                 }
+                // Clears the item, so opening the same link again loads it again.
+                actions.migrationPrefillFailed()
+                lemonToast.error("Couldn't load the connection details from Fivetran. You can still fill them in.", {
+                    button: { label: 'Try again', action: () => actions.loadMigrationPrefill(migrationId, itemId) },
+                })
+                return
             }
             // Drops this response when the user opened another link meanwhile.
             breakpoint()
             if (values.migrationItemId !== itemId) {
                 return
             }
-            actions.migrationPrefillLoaded(vendorConfig, creator)
+            // A link whose kind does not match the planned destination gets no prefill.
+            const planned = item.proposal?.destination
+            const vendorConfig = planned?.type === values.destinationDefinition?.type ? (planned?.config ?? null) : null
+            actions.migrationPrefillLoaded(vendorConfig, item.created_by ?? null)
         },
     })),
     urlToAction(({ actions, values }) => ({
         [urls.warehouseDestinationConnect()]: (_, searchParams) => {
-            // Coming back to the same link must not overwrite what the user typed.
-            const itemId = searchParams.migration_item_id ?? null
-            if (searchParams.migration_id && itemId) {
+            const { migration_id: migrationId, migration_item_id: itemId } = searchParams
+            // Both go into a request path, so anything but an id is ignored.
+            if (
+                typeof migrationId === 'string' &&
+                typeof itemId === 'string' &&
+                isUUIDLike(migrationId) &&
+                isUUIDLike(itemId)
+            ) {
+                // Coming back to the same link must not overwrite what the user typed.
                 if (itemId !== values.migrationItemId) {
-                    actions.loadMigrationPrefill(searchParams.migration_id, itemId)
+                    actions.loadMigrationPrefill(migrationId, itemId)
                 }
             } else if (values.migrationItemId !== null) {
                 actions.clearMigrationPrefill()

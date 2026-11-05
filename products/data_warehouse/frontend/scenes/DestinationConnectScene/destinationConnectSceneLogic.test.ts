@@ -2,6 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { postgreSQLSetupModalLogic } from 'scenes/integrations/postgresql/postgreSQLSetupModalLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -9,9 +10,15 @@ import { initKeaTests } from '~/test/init'
 
 import { destinationConnectSceneLogic } from './destinationConnectSceneLogic'
 
+const MIGRATION_ID = '0190f0a0-0000-7000-8000-000000000001'
+const ITEM_1 = '0190f0a0-0000-7000-8000-000000000011'
+const ITEM_2 = '0190f0a0-0000-7000-8000-000000000012'
+const ITEM_SNOWFLAKE = '0190f0a0-0000-7000-8000-000000000013'
+const ITEM_NO_SERVER = '0190f0a0-0000-7000-8000-000000000014'
+
 const ITEMS: Record<string, Record<string, any>> = {
-    'item-1': {
-        id: 'item-1',
+    [ITEM_1]: {
+        id: ITEM_1,
         created_by: { first_name: 'Ana', email: 'ana@example.com' },
         proposal: {
             prefix: 'shop',
@@ -27,22 +34,22 @@ const ITEMS: Record<string, Record<string, any>> = {
             },
         },
     },
-    'item-2': {
-        id: 'item-2',
+    [ITEM_2]: {
+        id: ITEM_2,
         proposal: {
             prefix: 'billing',
             destination: { type: 'Postgres', config: { host: 'billing.example.com' } },
         },
     },
-    'item-snowflake': {
-        id: 'item-snowflake',
+    [ITEM_SNOWFLAKE]: {
+        id: ITEM_SNOWFLAKE,
         proposal: {
             prefix: 'ads',
             destination: { type: 'Snowflake', config: { host: 'acme.snowflakecomputing.com' } },
         },
     },
-    'item-no-server': {
-        id: 'item-no-server',
+    [ITEM_NO_SERVER]: {
+        id: ITEM_NO_SERVER,
         proposal: { prefix: 'crm', destination: { type: 'Postgres', config: { database: 'analytics' } } },
     },
 }
@@ -110,7 +117,7 @@ describe('destinationConnectSceneLogic', () => {
                 },
             },
         })
-        const searchParams = { kind: 'postgresql', migration_id: 'migration-1', migration_item_id: 'item-1' }
+        const searchParams = { kind: 'postgresql', migration_id: MIGRATION_ID, migration_item_id: ITEM_1 }
         await expectLogic(destinationConnectSceneLogic, () =>
             router.actions.push('/data-warehouse/connect-destination', searchParams)
         ).toFinishAllListeners()
@@ -154,13 +161,13 @@ describe('destinationConnectSceneLogic', () => {
         formLogic.unmount()
     })
 
-    it.each(['item-snowflake', 'item-no-server'])(
+    it.each([ITEM_SNOWFLAKE, ITEM_NO_SERVER])(
         'locks nothing when %s has no matching server settings',
         async (itemId) => {
             await expectLogic(destinationConnectSceneLogic, () =>
                 router.actions.push('/data-warehouse/connect-destination', {
                     kind: 'postgresql',
-                    migration_id: 'migration-1',
+                    migration_id: MIGRATION_ID,
                     migration_item_id: itemId,
                 })
             ).toFinishAllListeners()
@@ -173,12 +180,57 @@ describe('destinationConnectSceneLogic', () => {
         }
     )
 
+    it('ignores migration parameters that are not ids', () => {
+        router.actions.push('/data-warehouse/connect-destination', {
+            kind: 'postgresql',
+            migration_id: '../integrations/123/?',
+            migration_item_id: ITEM_1,
+        })
+
+        expect(itemRequests).toEqual(0)
+        expect(destinationConnectSceneLogic.values.migrationItemId).toBeNull()
+    })
+
+    it('offers a retry when the prefill fails, and the retry loads it', async () => {
+        let failing = true
+        useMocks({
+            get: {
+                '/api/projects/:team_id/warehouse_migrations/:id/items/:item_id/': ({ params }) =>
+                    failing ? [500, { detail: 'Server error.' }] : [200, ITEMS[params.item_id as string]],
+            },
+        })
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
+
+        await expectLogic(destinationConnectSceneLogic, () =>
+            router.actions.push('/data-warehouse/connect-destination', {
+                kind: 'postgresql',
+                migration_id: MIGRATION_ID,
+                migration_item_id: ITEM_1,
+            })
+        ).toFinishAllListeners()
+
+        expect(destinationConnectSceneLogic.values).toMatchObject({
+            migrationItemId: null,
+            migrationPrefillLoading: false,
+        })
+        const retry = errorToast.mock.calls[0][1]?.button
+        expect(retry?.label).toEqual('Try again')
+
+        failing = false
+        await expectLogic(destinationConnectSceneLogic, () => retry?.action?.()).toFinishAllListeners()
+        expect(destinationConnectSceneLogic.values.lockedSetupValues).toEqual({
+            host: 'db.example.com',
+            port: 6543,
+            user: 'loader',
+        })
+    })
+
     it('keeps the connect token on the link to a plain connect page', () => {
         router.actions.push('/data-warehouse/connect-destination', {
             kind: 'postgresql',
             token: 'abc_123',
-            migration_id: 'migration-1',
-            migration_item_id: 'item-1',
+            migration_id: MIGRATION_ID,
+            migration_item_id: ITEM_1,
         })
 
         expect(destinationConnectSceneLogic.values.plainSetupUrl).toEqual(
@@ -190,18 +242,18 @@ describe('destinationConnectSceneLogic', () => {
         const open = (itemId: string): void =>
             router.actions.push('/data-warehouse/connect-destination', {
                 kind: 'postgresql',
-                migration_id: 'migration-1',
+                migration_id: MIGRATION_ID,
                 migration_item_id: itemId,
             })
         await expectLogic(destinationConnectSceneLogic, () => {
-            open('item-1')
-            open('item-2')
+            open(ITEM_1)
+            open(ITEM_2)
         }).toFinishAllListeners()
         expect(destinationConnectSceneLogic.values.lockedSetupValues).toEqual({ host: 'billing.example.com' })
 
         destinationConnectSceneLogic.actions.setPrefillConfirmed(true)
         destinationConnectSceneLogic.actions.setIntegrationId(42)
-        await expectLogic(destinationConnectSceneLogic, () => open('item-1')).toFinishAllListeners()
+        await expectLogic(destinationConnectSceneLogic, () => open(ITEM_1)).toFinishAllListeners()
 
         expect(destinationConnectSceneLogic.values).toMatchObject({
             integrationId: null,
@@ -215,10 +267,10 @@ describe('destinationConnectSceneLogic', () => {
         const open = (itemId?: string): void =>
             router.actions.push('/data-warehouse/connect-destination', {
                 kind: 'postgresql',
-                ...(itemId ? { migration_id: 'migration-1', migration_item_id: itemId } : {}),
+                ...(itemId ? { migration_id: MIGRATION_ID, migration_item_id: itemId } : {}),
             })
         await expectLogic(destinationConnectSceneLogic, () => {
-            open('item-1')
+            open(ITEM_1)
             open()
         }).toFinishAllListeners()
         expect(destinationConnectSceneLogic.values).toMatchObject({
@@ -226,10 +278,10 @@ describe('destinationConnectSceneLogic', () => {
             lockedSetupValues: undefined,
         })
 
-        await expectLogic(destinationConnectSceneLogic, () => open('item-2')).toFinishAllListeners()
-        destinationConnectSceneLogic.actions.completeSetup(42, 'item-1')
+        await expectLogic(destinationConnectSceneLogic, () => open(ITEM_2)).toFinishAllListeners()
+        destinationConnectSceneLogic.actions.completeSetup(42, ITEM_1)
         expect(destinationConnectSceneLogic.values.integrationId).toBeNull()
-        destinationConnectSceneLogic.actions.completeSetup(43, 'item-2')
+        destinationConnectSceneLogic.actions.completeSetup(43, ITEM_2)
         expect(destinationConnectSceneLogic.values.integrationId).toEqual(43)
     })
 
