@@ -39,10 +39,11 @@ EFFECTIVE_TOOL_SQL = """coalesce(
 # A failed tool call. $mcp_error_expected marks failed calls the server classified as an
 # expected outcome (rate limit, not found) that the agent handles, so they are not failures;
 # $mcp_is_error stays true on them. Every failure count and failure filter uses this predicate.
-# Compared as text because SDK versions stamp the flag as a boolean, the string 'true', or 1.
+# Compared as lowercased text because senders stamp the flags as a boolean, 1, or a string in any
+# case ('true', 'True'), and toBool accepted all of those.
 IS_FAILURE_SQL = (
-    "toString(properties.$mcp_is_error) IN ('true', '1') "
-    "AND NOT coalesce(toString(properties.$mcp_error_expected) IN ('true', '1'), false)"
+    "lower(toString(properties.$mcp_is_error)) IN ('true', '1') "
+    "AND NOT coalesce(lower(toString(properties.$mcp_error_expected)) IN ('true', '1'), false)"
 )
 # The description of the *effective* tool: for single-exec calls the inner tool's
 # $mcp_exec_tool_call_description, else the directly-registered $mcp_tool_description.

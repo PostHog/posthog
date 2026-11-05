@@ -11,6 +11,8 @@ import {
     SurveyEventName,
 } from '~/types'
 
+import { MCP_IS_FAILURE_HOGQL } from 'products/mcp_analytics/frontend/failurePredicate'
+
 // Deep link used in error tracking alert messages. Routes through the fingerprint redirect page
 // (/error-tracking/fingerprint/<fingerprint>) so links stay valid even after issues are merged.
 // Also used by the onboarding alert setup (onboardingErrorTrackingAlertsLogic) — keep the format
@@ -125,19 +127,12 @@ const MCP_ALERT_MASKING_TTL_SECONDS = 30 * 60
 const MCP_ALERT_MASKING_HASH =
     `{concat(${MCP_EFFECTIVE_TOOL_EXPR}) != '' ` + `? concat(${MCP_EFFECTIVE_TOOL_EXPR}) : 'unknown-tool'}`
 
-// Every MCP failure notification triggers on an errored $mcp_tool_call. SDK versions stamp
-// $mcp_is_error as a boolean, the string 'true', or 1, so all three encodings are matched (CDP
-// compiles a multi-value Exact to IN, which the realtime bytecode rewrites to type-coercing
-// comparisons). Passing `errorType` narrows to one of the semantic buckets the SDK sets on
+// Every MCP failure notification triggers on a failed $mcp_tool_call, using the same predicate as the
+// MCP analytics failure counts so an expected error never alerts. Passing `errorType` narrows to one of the semantic buckets the SDK sets on
 // $mcp_error_type — see products/mcp_analytics/backend/hogql_queries/tool_tables.py for the list.
 function mcpFailedToolCallEvent(errorType?: string): CyclotronJobFilterEvents {
     const properties: CyclotronJobFilterEvents['properties'] = [
-        {
-            key: '$mcp_is_error',
-            type: PropertyFilterType.Event,
-            value: ['true', true, 1],
-            operator: PropertyOperator.Exact,
-        },
+        { key: MCP_IS_FAILURE_HOGQL, type: PropertyFilterType.HogQL },
     ]
     if (errorType) {
         properties.push({

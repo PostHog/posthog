@@ -18,6 +18,7 @@ EXPECTED_ERROR_CASES = [
     ("absent", {}, True),
     ("false", {"$mcp_error_expected": False}, True),
     ("true", {"$mcp_error_expected": True}, False),
+    ("is_error as capitalised string", {"$mcp_is_error": "True"}, True),
 ]
 
 
