@@ -408,8 +408,8 @@ To clear old `phw`, Claude Code (including agent scratchpads), Codex, and PostHo
 Neither removes a folder that holds a tracked file.
 Every mode skips a worktree where `cargo` or `rustc` is running.
 `--mode deps` and `--mode build` keep a Cargo `target` that a build used after the cutoff.
-Without `--source`, they also offer to delete a shared Cargo target (`CARGO_TARGET_DIR`, `build.target-dir` in `~/.cargo/config.toml`, or the old `~/.cargo/target`) when no build used it after the cutoff.
-With `--yes`, only the old `~/.cargo/target` goes, because the other two serve all of your Rust projects.
+Without `--source` or `--repo`, they also offer to delete the old shared `~/.cargo/target` when `CARGO_TARGET_DIR` is not set and no build used it after the cutoff.
+For a Cargo target that several projects share, run `hogli doctor:disk --area cargo-units`. It removes only the build units that no build in the last 7 days needed, directly or through its dependencies.
 Every mode also removes folders of removed worktrees that hold only flox caches.
 `--mode deps` and `--mode build` also act on worktrees that `git worktree list` registers outside these folders, such as ones made by hand. `--mode full` and the daily background run act on those only with `--source other`.
 

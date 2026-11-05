@@ -47,11 +47,9 @@ from hogli import telemetry
 from hogli.manifest import REPO_ROOT
 
 from .cargo_targets import (
-    SharedCargoTarget,
     last_cargo_build_epoch,
     looks_like_cargo_target,
-    shared_cargo_targets,
-    unused_cargo_target,
+    unused_legacy_cargo_target,
     worktrees_running_cargo,
 )
 from .devbox import hogland, mutagen
@@ -395,9 +393,9 @@ def worktrees_clean(
     if box_action:
         pending = _boxes_of_removed_worktrees(load_worktree_boxes(), repo_root, repo_common, selected_sources)
         _clean_boxes_of_removed_worktrees(pending, box_action, cutoff, dry_run, yes)
-    # A shared Cargo target belongs to no single worktree, so --source leaves it alone, but any repo can build into it, so --repo does not.
-    if mode != "full" and selected_sources is None:
-        _clean_shared_cargo_targets(cutoff, dry_run, yes)
+    # ~/.cargo/target belongs to no single worktree or repository, so a run narrowed by --source or --repo leaves it alone.
+    if mode != "full" and selected_sources is None and repo is None:
+        _clean_legacy_cargo_target(cutoff, dry_run, yes)
     protected = _protected_paths(repo_root)
 
     registry = _registered_worktrees(repo_root)
@@ -1568,25 +1566,15 @@ def _cargo_built_since(path: Path, cutoff: float) -> bool:
     return path.name == "target" and looks_like_cargo_target(path) and last_cargo_build_epoch(path) >= cutoff
 
 
-def _clean_shared_cargo_targets(cutoff: float, dry_run: bool, yes: bool) -> None:
-    for shared in shared_cargo_targets():
-        if not unused_cargo_target(shared.path, cutoff) or _holds_nested_repo(shared.path):
-            continue
-        # A target that the user's own config names serves all their Rust projects, so it needs a person to say yes.
-        if shared.configured_by_user and yes and not dry_run:
-            click.echo(
-                f"Kept the shared Cargo target {_display_path(shared.path)}. Run without --yes to be asked about it.\n"
-            )
-            continue
-        _clean_shared_cargo_target(shared, cutoff, dry_run, yes)
+def _clean_legacy_cargo_target(cutoff: float, dry_run: bool, yes: bool) -> None:
+    target = unused_legacy_cargo_target(cutoff)
+    if target is None:
+        return
 
-
-def _clean_shared_cargo_target(shared: SharedCargoTarget, cutoff: float, dry_run: bool, yes: bool) -> None:
-    target = shared.path
     size = measure_disk_usage([target]).freeable_bytes
     click.echo(
-        f"Shared Cargo target {_display_path(target)}: {_format_size(size)}, "
-        f"last build {_ago(last_cargo_build_epoch(target))} ago. {shared.reason}"
+        f"Old shared Cargo target {_display_path(target)}: {_format_size(size)}, "
+        f"last build {_ago(last_cargo_build_epoch(target))} ago. Cargo built here while the Flox env set CARGO_TARGET_DIR."
     )
     if dry_run:
         click.echo("[DRY-RUN] Not deleted.\n")
@@ -1594,7 +1582,7 @@ def _clean_shared_cargo_target(shared: SharedCargoTarget, cutoff: float, dry_run
     if not yes and not click.confirm("Delete it?", default=False):
         click.echo()
         return
-    if not unused_cargo_target(target, cutoff):
+    if unused_legacy_cargo_target(cutoff) is None:
         click.echo("A build used it while the prompt waited, so it is kept.\n")
         return
     if _delete_paths([target]) == 0:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import math
 import time
 import fcntl
@@ -19,6 +20,7 @@ from hogli_commands import worktrees
 from hogli_commands.cargo_targets import (
     shared_cargo_targets,
     unused_cargo_target,
+    unused_cargo_units,
     unused_legacy_cargo_target,
     worktrees_running_cargo,
 )
@@ -137,7 +139,7 @@ class TestUnattendedLock:
         monkeypatch.setattr(worktrees, "_discover_candidate_worktrees", record)
         monkeypatch.setattr(worktrees, "_registered_worktrees", lambda repo_root: {})
         monkeypatch.setattr(worktrees, "_process_cwds", lambda: {Path("/nowhere")})
-        monkeypatch.setattr(worktrees, "_clean_shared_cargo_targets", lambda *args: None)
+        monkeypatch.setattr(worktrees, "_clean_legacy_cargo_target", lambda *args: None)
         monkeypatch.setattr(worktrees, "_leftover_worktree_dirs", lambda *args: [])
 
         result = CliRunner().invoke(worktrees.worktrees_clean, ["--unattended", "--dry-run"])
@@ -444,6 +446,21 @@ def _write_cargo_target(target: Path, last_build_epoch: float, profile: Path = P
     return target
 
 
+def _write_cargo_unit(
+    profile: Path, name: str, unit_hash: str, fingerprint: int, depends_on: list[int], built_epoch: float
+) -> Path:
+    unit = profile / ".fingerprint" / f"{name}-{unit_hash}"
+    unit.mkdir(parents=True)
+    (unit / f"lib-{name}").write_text(fingerprint.to_bytes(8, "little").hex())
+    (unit / f"lib-{name}.json").write_text(json.dumps({"deps": [[0, "dep", False, dep] for dep in depends_on]}))
+    for entry in unit.iterdir():
+        os.utime(entry, (built_epoch, built_epoch))
+    output = profile / "deps" / f"lib{name.replace('-', '_')}-{unit_hash}.rlib"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(b"rlib")
+    return output
+
+
 def _fake_cargo_processes(monkeypatch, cargo_cwd: Path | None, lsof_available: bool = True) -> None:
     def fake_run(args, **kwargs):
         if args[0] == "pgrep":
@@ -528,22 +545,30 @@ class TestCargoTargets:
             [target] if expected_offered else []
         )
 
-    def test_yes_deletes_only_the_old_flox_target_and_keeps_targets_the_user_configured(
-        self, tmp_path, monkeypatch
-    ) -> None:
-        home = tmp_path / "home"
-        monkeypatch.setattr(Path, "home", lambda: home)
-        monkeypatch.delenv("CARGO_HOME", raising=False)
-        legacy = _write_cargo_target(home / ".cargo" / "target", time.time() - 10 * 86400)
-        configured = _write_cargo_target(tmp_path / "shared-target", time.time() - 10 * 86400)
-        (home / ".cargo" / "config.toml").write_text(f'[build]\ntarget-dir = "{configured}"\n')
-        monkeypatch.delenv("CARGO_TARGET_DIR", raising=False)
-        _fake_cargo_processes(monkeypatch, None)
+    @pytest.mark.parametrize("unreadable_fingerprint", [False, True], ids=["graph", "unreadable_fingerprint"])
+    def test_sweep_keeps_every_unit_a_recent_build_reaches(self, tmp_path, unreadable_fingerprint: bool) -> None:
+        now = time.time()
+        month_ago = now - 30 * 86400
+        profile = tmp_path / "target" / "debug"
+        _write_cargo_unit(profile, "app", "a" * 16, fingerprint=1, depends_on=[2], built_epoch=now)
+        _write_cargo_unit(profile, "serde", "b" * 16, fingerprint=2, depends_on=[], built_epoch=month_ago)
+        left_pad = _write_cargo_unit(profile, "left-pad", "c" * 16, fingerprint=3, depends_on=[], built_epoch=month_ago)
+        stale_incremental = profile / "incremental" / "left_pad-0k1rn5ce8ga0p"
+        recent_incremental = profile / "incremental" / "app-2k0klfowy1csk"
+        for incremental, epoch in ((stale_incremental, month_ago), (recent_incremental, now)):
+            (incremental / "s-session").mkdir(parents=True)
+            os.utime(incremental / "s-session", (epoch, epoch))
+        if unreadable_fingerprint:
+            (profile / ".fingerprint" / f"serde-{'b' * 16}" / "lib-serde.json").write_text("{not json")
 
-        worktrees._clean_shared_cargo_targets(time.time() - 7 * 86400, dry_run=False, yes=True)
+        unused = unused_cargo_units(tmp_path / "target", now - 7 * 86400)
 
-        assert not legacy.exists()
-        assert configured.is_dir()
+        expected = (
+            None
+            if unreadable_fingerprint
+            else {left_pad.parent.parent / ".fingerprint" / f"left-pad-{'c' * 16}", left_pad, stale_incremental}
+        )
+        assert (set(unused) if unused is not None else None) == expected
 
     @pytest.mark.parametrize("broken_git_metadata", [False, True], ids=["checkout", "checkout_git_cannot_read"])
     def test_cargo_target_dir_inside_a_checkout_is_not_treated_as_shared(

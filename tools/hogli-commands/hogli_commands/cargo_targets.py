@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import re
+import json
 import tomllib
 import subprocess
 from collections.abc import Sequence
@@ -106,7 +108,6 @@ def looks_like_cargo_target(path: Path) -> bool:
 class SharedCargoTarget:
     path: Path
     reason: str
-    configured_by_user: bool
 
 
 def shared_cargo_targets() -> list[SharedCargoTarget]:
@@ -115,15 +116,12 @@ def shared_cargo_targets() -> list[SharedCargoTarget]:
     cargo_home = Path(os.environ.get("CARGO_HOME") or Path.home() / ".cargo")
     candidates: list[SharedCargoTarget] = []
     if env_target := os.environ.get("CARGO_TARGET_DIR"):
-        candidates.append(
-            SharedCargoTarget(path=Path(env_target), reason="CARGO_TARGET_DIR points here.", configured_by_user=True)
-        )
+        candidates.append(SharedCargoTarget(path=Path(env_target), reason="CARGO_TARGET_DIR points here."))
     else:
         candidates.append(
             SharedCargoTarget(
                 path=Path.home() / ".cargo" / "target",
                 reason="Cargo built here while the Flox env set CARGO_TARGET_DIR.",
-                configured_by_user=False,
             )
         )
     if config_target := _configured_target_dir(cargo_home / "config.toml"):
@@ -131,7 +129,6 @@ def shared_cargo_targets() -> list[SharedCargoTarget]:
             SharedCargoTarget(
                 path=config_target,
                 reason=f"build.target-dir in {cargo_home / 'config.toml'} points here.",
-                configured_by_user=True,
             )
         )
 
@@ -160,9 +157,13 @@ def _configured_target_dir(config: Path) -> Path | None:
 def unused_cargo_target(target: Path, built_before_epoch: float) -> bool:
     """Whether no build used *target* after *built_before_epoch* and no cargo runs that could be using it now."""
 
+    return last_cargo_build_epoch(target) < built_before_epoch and idle_cargo_target(target)
+
+
+def idle_cargo_target(target: Path) -> bool:
+    """Whether *target* is a real Cargo target dir and no cargo or rustc runs that could be writing to it."""
+
     if target.is_symlink() or not looks_like_cargo_target(target):
-        return False
-    if last_cargo_build_epoch(target) >= built_before_epoch:
         return False
     # A shell with another environment can build here, and its CARGO_TARGET_DIR is not visible from this process.
     return _cargo_pids() == []
@@ -175,3 +176,106 @@ def unused_legacy_cargo_target(built_before_epoch: float) -> Path | None:
     if os.environ.get("CARGO_TARGET_DIR"):
         return None
     return target if unused_cargo_target(target, built_before_epoch) else None
+
+
+_METADATA_HASH = re.compile(r"-([0-9a-f]{16})(?=\.|$)")
+_UNIT_OUTPUT_DIRS = ("deps", "build", "examples")
+
+
+@dataclass(frozen=True, kw_only=True)
+class _CargoUnit:
+    fingerprint_dir: Path
+    built_epoch: float
+    dependency_fingerprints: list[str]
+
+
+def unused_cargo_units(target: Path, built_before_epoch: float) -> list[Path] | None:
+    """The paths of the units in *target* that no unit built after *built_before_epoch* needs, and the incremental caches not written since then.
+
+    Cargo does not touch the fingerprint of a unit it reuses, and the file
+    systems this runs on do not record reads, so a unit's own age cannot show
+    that a build still uses it. Its dependents can: every unit's fingerprint
+    JSON names the fingerprints of the units it depends on. A unit stays when
+    any unit built in the window reaches it through that graph. Deleting a
+    unit only costs a rebuild, because Cargo rebuilds a unit whose files are
+    missing. Returns None, and nothing should be removed, when a fingerprint
+    cannot be read, because a dependency edge could be missing.
+    """
+
+    units: dict[Path, _CargoUnit] = {}
+    unit_by_fingerprint: dict[str, Path] = {}
+    profiles = [
+        fingerprints.parent for fingerprints in (*target.glob("*/.fingerprint"), *target.glob("*/*/.fingerprint"))
+    ]
+    for profile in profiles:
+        for unit_dir in (profile / ".fingerprint").iterdir():
+            if not unit_dir.is_dir() or unit_dir.is_symlink():
+                continue
+            unit = _read_cargo_unit(unit_dir, unit_by_fingerprint)
+            if unit is None:
+                return None
+            units[unit_dir] = unit
+
+    live: set[Path] = set()
+    pending = [unit_dir for unit_dir, unit in units.items() if unit.built_epoch >= built_before_epoch]
+    while pending:
+        unit_dir = pending.pop()
+        if unit_dir in live:
+            continue
+        live.add(unit_dir)
+        for fingerprint in units[unit_dir].dependency_fingerprints:
+            if (dependency := unit_by_fingerprint.get(fingerprint)) is not None:
+                pending.append(dependency)
+
+    unused: list[Path] = []
+    for profile in profiles:
+        outputs_by_hash: dict[str, list[Path]] = {}
+        for output_dir in _UNIT_OUTPUT_DIRS:
+            try:
+                entries = list((profile / output_dir).iterdir())
+            except OSError:
+                continue
+            for entry in entries:
+                if match := _METADATA_HASH.search(entry.name):
+                    outputs_by_hash.setdefault(match.group(1), []).append(entry)
+        for unit_dir in (profile / ".fingerprint").iterdir():
+            if unit_dir in units and unit_dir not in live:
+                unused.append(unit_dir)
+                unused.extend(outputs_by_hash.get(unit_dir.name.rpartition("-")[2], []))
+        try:
+            incremental = [entry for entry in (profile / "incremental").iterdir() if entry.is_dir()]
+        except OSError:
+            incremental = []
+        # An incremental cache only speeds up recompiling its crate, and a compile writes a new session into it.
+        unused.extend(entry for entry in incremental if _newest_child_mtime(entry) < built_before_epoch)
+    return unused
+
+
+def _read_cargo_unit(unit_dir: Path, unit_by_fingerprint: dict[str, Path]) -> _CargoUnit | None:
+    dependency_fingerprints: list[str] = []
+    try:
+        for entry in unit_dir.iterdir():
+            if entry.suffix == ".json":
+                for dependency in json.loads(entry.read_text())["deps"]:
+                    # Cargo stores each fingerprint as a u64, written little-endian in hex in the unit's hash file.
+                    dependency_fingerprints.append(int(dependency[3]).to_bytes(8, "little").hex())
+            elif entry.is_file() and not entry.name.startswith(("dep-", "output-", "invoked")):
+                unit_by_fingerprint[entry.read_text().strip()] = unit_dir
+    except (OSError, ValueError, KeyError, IndexError, TypeError, OverflowError):
+        return None
+    return _CargoUnit(
+        fingerprint_dir=unit_dir,
+        built_epoch=_newest_child_mtime(unit_dir),
+        dependency_fingerprints=dependency_fingerprints,
+    )
+
+
+def _newest_child_mtime(directory: Path) -> float:
+    newest = 0.0
+    try:
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                newest = max(newest, entry.stat(follow_symlinks=False).st_mtime)
+    except OSError:
+        return float("inf")
+    return newest

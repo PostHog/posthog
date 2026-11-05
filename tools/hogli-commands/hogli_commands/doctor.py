@@ -27,7 +27,14 @@ import click
 from hogli.manifest import REPO_ROOT, get_manifest
 
 from . import hints
-from .cargo_targets import unused_legacy_cargo_target
+from .cargo_targets import (
+    idle_cargo_target,
+    looks_like_cargo_target,
+    shared_cargo_targets,
+    unused_cargo_units,
+    unused_legacy_cargo_target,
+)
+from .disk_usage import measure_disk_usage
 from .processes import process_cwds
 
 MAX_SAMPLE_PATHS = 8
@@ -146,6 +153,7 @@ class CleanupResult:
             "staticfiles",
             "dagster",
             "node-artifacts",
+            "cargo-units",
             "rust",
             "legacy-cargo-target",
             "sccache",
@@ -175,6 +183,7 @@ def doctor_disk(
     - Dagster background job storage
     - pnpm/Vite/Tailwind/Storybook/Playwright build artifacts
     - Rust workspaces built with Cargo, plus the sccache compilation cache
+    - Cargo build units in shared and local target dirs that no recent build needs
     - The old shared Cargo target at ~/.cargo/target
     - The uv and pnpm package caches shared across every worktree
 
@@ -280,6 +289,19 @@ def doctor_disk(
             estimate=_estimate_node_artifacts,
             cleanup=_cleanup_items,
             confirmation_prompt="Clean up JavaScript build caches and artifacts?",
+        ),
+        CleanupCategory(
+            id="cargo_units",
+            title="🦀 Cargo build units that no recent build needs",
+            description=[
+                f"Removes the units of a Cargo target dir that no build in the last {STALE_RUST_TARGET_DAYS} days reached,",
+                "directly or through the units it depends on, and incremental caches not written since then.",
+                "Covers CARGO_TARGET_DIR, build.target-dir in ~/.cargo/config.toml, ~/.cargo/target and this checkout.",
+                "A project built in that time keeps every unit it uses, so its next build starts warm.",
+            ],
+            estimate=_estimate_unused_cargo_units,
+            cleanup=_cleanup_unused_cargo_units,
+            confirmation_prompt="Remove the Cargo build units that no recent build needs?",
         ),
         CleanupCategory(
             id="rust",
@@ -1427,6 +1449,51 @@ def _collect_rust_target_dirs(repo_root: Path) -> list[CleanupItem]:
         items.append(CleanupItem(target_dir, size, is_dir=True))
 
     return items
+
+
+def _sweepable_cargo_targets(repo_root: Path) -> list[Path]:
+    targets: dict[Path, Path] = {}
+    candidates = [shared.path for shared in shared_cargo_targets()]
+    candidates += [item.path for item in _collect_rust_target_dirs(repo_root)]
+    for target in candidates:
+        try:
+            resolved = target.resolve()
+        except (OSError, RuntimeError):
+            continue
+        if looks_like_cargo_target(resolved):
+            targets.setdefault(resolved, target)
+    return list(targets.values())
+
+
+def _estimate_unused_cargo_units(repo_root: Path) -> CleanupEstimate:
+    built_before_epoch = time.time() - STALE_RUST_TARGET_DAYS * 24 * 60 * 60
+    items: list[CleanupItem] = []
+    details: list[str] = []
+    for target in _sweepable_cargo_targets(repo_root):
+        if not idle_cargo_target(target):
+            details.append(f"   {target}: skipped, because cargo or rustc is running.")
+            continue
+        unused = unused_cargo_units(target, built_before_epoch)
+        if unused is None:
+            details.append(f"   {target}: skipped, because a Cargo fingerprint could not be read.")
+            continue
+        target_items = [
+            CleanupItem(path, float(measure_disk_usage([path]).freeable_bytes), is_dir=path.is_dir()) for path in unused
+        ]
+        size = sum(item.size for item in target_items)
+        if target_items:
+            details.append(f"   {target}: {len(target_items)} unit file(s) and cache(s), {_format_size(size)}")
+        items.extend(target_items)
+    if not items and not details:
+        details.append("   Nothing to remove.")
+    return CleanupEstimate(total_size=sum(item.size for item in items), items=items, details=details)
+
+
+def _cleanup_unused_cargo_units(estimate: CleanupEstimate, repo_root: Path) -> CleanupStats:
+    if not all(idle_cargo_target(target) for target in _sweepable_cargo_targets(repo_root)):
+        click.echo("   A build started while the prompt waited, so every target is kept.")
+        return CleanupStats()
+    return _cleanup_items(estimate, repo_root)
 
 
 def _estimate_legacy_cargo_target(_repo_root: Path) -> CleanupEstimate:
