@@ -17,6 +17,7 @@ import { EVALUATION_RUNS_QUERY_LIMIT, numericScorePasses } from './constants'
 import { evaluationReportLogic } from './evaluationReportLogic'
 import { DEFAULT_HOG_SOURCE, llmEvaluationLogic } from './llmEvaluationLogic'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
+import { takeBackfillStart } from './pendingBackfillStarts'
 import { EvaluationConfig, EvaluationReport, EvaluationRun } from './types'
 
 const mockProviderKeys: LLMProviderKey[] = [
@@ -283,16 +284,6 @@ describe('llmEvaluationLogic', () => {
             await expectLogic(keysLogic).toFinishAllListeners()
             logic.actions.setEvaluationType(type)
             expect(logic.values.evaluation?.enabled).toBe(expected)
-        })
-
-        it('keeps a new evaluation paused once someone turned it off by hand', async () => {
-            await expectLogic(keysLogic).toFinishAllListeners()
-            logic.actions.setEvaluationType('hog')
-            logic.actions.setEvaluationEnabled(false)
-            // Through a judge and back, so canEnable changes and the default would turn it on again.
-            logic.actions.setEvaluationType('llm_judge')
-            logic.actions.setEvaluationType('hog')
-            expect(logic.values.evaluation?.enabled).toBe(false)
         })
 
         it.each([
@@ -1696,16 +1687,27 @@ return result`,
             })
         })
 
-        it('setEvaluationType switches back to llm_judge config shape', async () => {
+        it('switching method and back keeps the prompt and code already typed', async () => {
             await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
+            logic.actions.setEvaluationPrompt('Is the answer polite?')
             logic.actions.setEvaluationType('hog')
+            logic.actions.setHogSource('return true;')
             logic.actions.setEvaluationType('llm_judge')
 
             await expectLogic(logic).toMatchValues({
                 evaluation: expect.objectContaining({
                     evaluation_type: 'llm_judge',
-                    evaluation_config: { prompt: '' },
+                    evaluation_config: { prompt: 'Is the answer polite?' },
+                }),
+            })
+
+            logic.actions.setEvaluationType('hog')
+
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({
+                    evaluation_type: 'hog',
+                    evaluation_config: { source: 'return true;' },
                 }),
             })
         })
@@ -2292,11 +2294,58 @@ return result`,
         })
     })
 
+    describe('saveEvaluation past traffic', () => {
+        it.each([
+            { enabled: true, expectedTab: 'backfills', requestsStart: true, offersPastData: false },
+            { enabled: false, expectedTab: null, requestsStart: false, offersPastData: true },
+        ])(
+            'a new evaluation created enabled=$enabled asks the Backfills tab to start: $requestsStart',
+            async ({ enabled, expectedTab, requestsStart, offersPastData }) => {
+                const pushSpy = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
+                const infoSpy = jest.spyOn(lemonToast, 'info')
+                let backfillRequests = 0
+                useMocks({
+                    post: {
+                        '/api/projects/:teamId/evaluations/': () => ({ ...mockSentimentEvaluation, enabled }),
+                        '/api/projects/:teamId/evaluations/:id/backfills/': () => {
+                            backfillRequests += 1
+                            return [201, {}]
+                        },
+                    },
+                })
+                logic = llmEvaluationLogic({ evaluationId: 'new', evaluationType: 'sentiment' })
+                logic.mount()
+
+                try {
+                    await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                    logic.actions.setEvaluationName('Sentiment evaluation')
+                    logic.actions.setCheckPastTraffic(true)
+                    logic.actions.saveEvaluation()
+                    await expectLogic(logic).toDispatchActions(['saveEvaluationSuccess'])
+                    await expectLogic(logic).toFinishAllListeners()
+
+                    expect(backfillRequests).toBe(0)
+                    const params = new URL(String(pushSpy.mock.calls.at(-1)?.[0]), 'http://x').searchParams
+                    expect(params.get('evaluation_tab')).toBe(expectedTab)
+                    // The request stays in memory, never in a URL someone could share.
+                    expect(params.get('backfill_start')).toBeNull()
+                    expect(takeBackfillStart(mockSentimentEvaluation.id)).toBe(requestsStart)
+                    expect(
+                        infoSpy.mock.calls.some(
+                            ([message]) => message === 'This evaluation grades new data from now on.'
+                        )
+                    ).toBe(offersPastData)
+                } finally {
+                    pushSpy.mockRestore()
+                    infoSpy.mockRestore()
+                }
+            }
+        )
+    })
+
     describe('saveEvaluation updates', () => {
         it.each([
             { change: 'name', expected: { name: 'Renamed decision evaluation' }, rejected: false },
-            { change: 'disable', expected: { enabled: false }, rejected: false },
-            { change: 'enable', expected: { enabled: true }, rejected: true },
             {
                 change: 'output_config',
                 expected: { output_config: { allows_na: true } },
@@ -2325,7 +2374,7 @@ return result`,
             async ({ change, expected, rejected }) => {
                 const evaluation: EvaluationConfig = {
                     ...mockEvaluation,
-                    enabled: change !== 'enable',
+                    enabled: true,
                     evaluation_type: 'llm_judge',
                     evaluation_config: { prompt: 'Is this response helpful?', judge_method: 'decision' },
                     output_type: 'boolean',
@@ -2364,10 +2413,6 @@ return result`,
                         case 'name':
                             logic.actions.setEvaluationName(expected.name)
                             break
-                        case 'disable':
-                        case 'enable':
-                            logic.actions.setEvaluationEnabled(expected.enabled)
-                            break
                         case 'output_config':
                             logic.actions.setAllowsNA(true)
                             break
@@ -2389,6 +2434,58 @@ return result`,
                 }
             }
         )
+    })
+
+    describe('saveEnabled', () => {
+        it('lets a saved code evaluation turn on while its unsaved draft is a judge without a key', async () => {
+            const evaluation: EvaluationConfig = {
+                ...mockEvaluation,
+                enabled: false,
+                evaluation_type: 'hog',
+                evaluation_config: { source: 'return true;' },
+                model_configuration: null,
+            } as EvaluationConfig
+            useMocks({ get: { '/api/projects/:teamId/evaluations/:id/': evaluation } })
+            logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+            await expectLogic(keysLogic).toFinishAllListeners()
+
+            logic.actions.setEvaluationType('llm_judge')
+
+            expect(logic.values.canEnable).toBe(false)
+            expect(logic.values.enableSavedReason).toBeNull()
+        })
+
+        it('saves only the run state and keeps unsaved configuration edits', async () => {
+            const evaluation: EvaluationConfig = { ...mockEvaluation, enabled: false }
+            let savedPayload: unknown
+            useMocks({
+                get: { '/api/projects/:teamId/evaluations/:id/': evaluation },
+                patch: {
+                    '/api/projects/:teamId/evaluations/:id/': async ({ request }) => {
+                        savedPayload = await request.json()
+                        return { ...evaluation, enabled: true }
+                    },
+                },
+            })
+            logic = llmEvaluationLogic({ evaluationId: 'eval-123' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationName('Renamed but not saved')
+            logic.actions.saveEnabled(true)
+
+            await expectLogic(logic)
+                .toDispatchActions(['saveEnabledSuccess'])
+                .toMatchValues({
+                    enabledSaving: false,
+                    evaluation: expect.objectContaining({ enabled: true, name: 'Renamed but not saved' }),
+                    originalEvaluation: expect.objectContaining({ enabled: true, name: evaluation.name }),
+                    hasUnsavedChanges: true,
+                })
+            expect(savedPayload).toEqual({ enabled: true })
+        })
     })
 
     describe('saveEvaluation report persistence', () => {

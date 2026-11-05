@@ -771,6 +771,7 @@ export namespace Schemas {
      * * `insight` - insight
      * * `insight_variable` - insight_variable
      * * `integration` - integration
+     * * `knowledge_writer` - knowledge_writer
      * * `legal_document` - legal_document
      * * `link` - link
      * * `live_debugger` - live_debugger
@@ -837,6 +838,7 @@ export namespace Schemas {
      * * `wizard_session` - wizard_session
      * * `wizard_run` - wizard_run
      * * `workload_trust_policy` - workload_trust_policy
+     * * `workload_trust_policy_request` - workload_trust_policy_request
      */
     export type ScopeObjectEnum = typeof ScopeObjectEnum[keyof typeof ScopeObjectEnum];
 
@@ -897,6 +899,7 @@ export namespace Schemas {
       Insight: 'insight',
       InsightVariable: 'insight_variable',
       Integration: 'integration',
+      KnowledgeWriter: 'knowledge_writer',
       LegalDocument: 'legal_document',
       Link: 'link',
       LiveDebugger: 'live_debugger',
@@ -963,6 +966,7 @@ export namespace Schemas {
       WizardSession: 'wizard_session',
       WizardRun: 'wizard_run',
       WorkloadTrustPolicy: 'workload_trust_policy',
+      WorkloadTrustPolicyRequest: 'workload_trust_policy_request',
     } as const;
 
     export interface AccessControlObjectRuleResource {
@@ -1023,6 +1027,7 @@ export namespace Schemas {
        * * `insight` - insight
        * * `insight_variable` - insight_variable
        * * `integration` - integration
+       * * `knowledge_writer` - knowledge_writer
        * * `legal_document` - legal_document
        * * `link` - link
        * * `live_debugger` - live_debugger
@@ -1088,7 +1093,8 @@ export namespace Schemas {
        * * `webhook` - webhook
        * * `wizard_session` - wizard_session
        * * `wizard_run` - wizard_run
-       * * `workload_trust_policy` - workload_trust_policy */
+       * * `workload_trust_policy` - workload_trust_policy
+       * * `workload_trust_policy_request` - workload_trust_policy_request */
       resource: ScopeObjectEnum;
       /** The levels an object rule on this resource type accepts, lowest first. */
       available_access_levels: string[];
@@ -1272,6 +1278,7 @@ export namespace Schemas {
        * * `insight` - insight
        * * `insight_variable` - insight_variable
        * * `integration` - integration
+       * * `knowledge_writer` - knowledge_writer
        * * `legal_document` - legal_document
        * * `link` - link
        * * `live_debugger` - live_debugger
@@ -1337,7 +1344,8 @@ export namespace Schemas {
        * * `webhook` - webhook
        * * `wizard_session` - wizard_session
        * * `wizard_run` - wizard_run
-       * * `workload_trust_policy` - workload_trust_policy */
+       * * `workload_trust_policy` - workload_trust_policy
+       * * `workload_trust_policy_request` - workload_trust_policy_request */
       source_resource: ScopeObjectEnum;
       /**
          * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).
@@ -1687,6 +1695,7 @@ export namespace Schemas {
        * * `insight` - insight
        * * `insight_variable` - insight_variable
        * * `integration` - integration
+       * * `knowledge_writer` - knowledge_writer
        * * `legal_document` - legal_document
        * * `link` - link
        * * `live_debugger` - live_debugger
@@ -1752,7 +1761,8 @@ export namespace Schemas {
        * * `webhook` - webhook
        * * `wizard_session` - wizard_session
        * * `wizard_run` - wizard_run
-       * * `workload_trust_policy` - workload_trust_policy */
+       * * `workload_trust_policy` - workload_trust_policy
+       * * `workload_trust_policy_request` - workload_trust_policy_request */
       resource: ScopeObjectEnum;
       /** The object's primary key. */
       resource_id: string;
@@ -5564,6 +5574,7 @@ export namespace Schemas {
      * * `project_secret_key` - project_secret_key
      * * `team_secret_token` - team_secret_token
      * * `id_jag` - id_jag
+     * * `oidc_workload` - oidc_workload
      * * `internal_jwt` - internal_jwt
      * * `service_jwt` - service_jwt
      * * `internal_api_secret` - internal_api_secret
@@ -5590,6 +5601,7 @@ export namespace Schemas {
       ProjectSecretKey: 'project_secret_key',
       TeamSecretToken: 'team_secret_token',
       IdJag: 'id_jag',
+      OidcWorkload: 'oidc_workload',
       InternalJwt: 'internal_jwt',
       ServiceJwt: 'service_jwt',
       InternalApiSecret: 'internal_api_secret',
@@ -5639,6 +5651,7 @@ export namespace Schemas {
        * * `project_secret_key` - project_secret_key
        * * `team_secret_token` - team_secret_token
        * * `id_jag` - id_jag
+       * * `oidc_workload` - oidc_workload
        * * `internal_jwt` - internal_jwt
        * * `service_jwt` - service_jwt
        * * `internal_api_secret` - internal_api_secret
@@ -36498,6 +36511,11 @@ export namespace Schemas {
          * @maxLength 500
          */
       reviewer_retry_reason?: string;
+      /**
+         * Why no suitable owner exists, with `reviewer_outcome: no_suitable_owner`. Required to clear a report that already has suggested reviewers: without it the current reviewers stay and the response carries a warning. The reason is recorded in the report's work log.
+         * @maxLength 500
+         */
+      reviewer_outcome_reason?: string;
       /** Id of the report to edit (must belong to this project). */
       report_id: string;
       /**
@@ -36798,6 +36816,26 @@ export namespace Schemas {
     export interface ElementValue {
       /** A distinct value of the requested element property */
       name: string;
+    }
+
+    export interface EmailAttachment {
+      /**
+         * File name the recipient sees, such as `invoice.pdf`. No path and no line breaks. A file type mailbox providers block, such as `.exe`, is refused.
+         * @maxLength 255
+         */
+      filename: string;
+      /** The file's bytes as standard base64, without line breaks. */
+      content: string;
+      /**
+         * MIME type of the file, such as `application/pdf`. Without it, the type follows from the file name.
+         * @maxLength 78
+         */
+      content_type?: string;
+      /**
+         * Content ID that the HTML body references as `cid:<content_id>` to show the file inline, such as `logo`. Without `<` or `>`.
+         * @maxLength 78
+         */
+      content_id?: string;
     }
 
     /**
@@ -51785,6 +51823,8 @@ export namespace Schemas {
      * * `dashboard` - On a dashboard you open often
      * * `key_metric` - Project key metric
      * * `popular` - Opened often in this project
+     * * `watched` - You get updates on this
+     * * `built` - You created or edited this
      */
     export type HighlightMetricReasonEnum = typeof HighlightMetricReasonEnum[keyof typeof HighlightMetricReasonEnum];
 
@@ -51794,6 +51834,8 @@ export namespace Schemas {
       Dashboard: 'dashboard',
       KeyMetric: 'key_metric',
       Popular: 'popular',
+      Watched: 'watched',
+      Built: 'built',
     } as const;
 
     export interface HighlightMover {
@@ -51843,12 +51885,14 @@ export namespace Schemas {
       value_format: HighlightValueFormat | null;
       /** The first day of the period each value in `series` covers, in the project's timezone. Same length and order as `series`. */
       period_starts: string[];
-      /** Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project, `popular` for an insight that many people in the project open. Null for metrics computed before this field existed.
+      /** Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project, `popular` for an insight that many people in the project open, `watched` for an insight the person gets an alert or a subscription for, `built` for an insight the person created or edited recently. Null for metrics computed before this field existed.
        *
        * * `routine` - You open this often
        * * `dashboard` - On a dashboard you open often
        * * `key_metric` - Project key metric
-       * * `popular` - Opened often in this project */
+       * * `popular` - Opened often in this project
+       * * `watched` - You get updates on this
+       * * `built` - You created or edited this */
       reason: HighlightMetricReasonEnum | null;
       /**
          * Name of the dashboard the tile comes from when `reason` is `dashboard`, else null.
@@ -51937,7 +51981,9 @@ export namespace Schemas {
        * * `routine` - You open this often
        * * `dashboard` - On a dashboard you open often
        * * `key_metric` - Project key metric
-       * * `popular` - Opened often in this project */
+       * * `popular` - Opened often in this project
+       * * `watched` - You get updates on this
+       * * `built` - You created or edited this */
       reason?: HighlightMetricReasonEnum | null;
       /** Stable key of the selected number. */
       key: string;
@@ -65429,6 +65475,7 @@ export namespace Schemas {
        * * `insight` - insight
        * * `insight_variable` - insight_variable
        * * `integration` - integration
+       * * `knowledge_writer` - knowledge_writer
        * * `legal_document` - legal_document
        * * `link` - link
        * * `live_debugger` - live_debugger
@@ -65494,7 +65541,8 @@ export namespace Schemas {
        * * `webhook` - webhook
        * * `wizard_session` - wizard_session
        * * `wizard_run` - wizard_run
-       * * `workload_trust_policy` - workload_trust_policy */
+       * * `workload_trust_policy` - workload_trust_policy
+       * * `workload_trust_policy_request` - workload_trust_policy_request */
       source_resource: ScopeObjectEnum;
       /**
          * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).
@@ -65534,6 +65582,19 @@ export namespace Schemas {
     export interface MemberProjectAccessResponse {
       /** One entry per visible organization member. */
       results: MemberProjectAccess[];
+    }
+
+    export interface MergePush {
+      /**
+         * The 40-character SHA of the master merge commit.
+         * @pattern ^[0-9a-f]{40}$
+         */
+      commit_sha: string;
+    }
+
+    export interface MergePushResponse {
+      /** Always accepted; the merge check runs in the background. */
+      status: string;
     }
 
     export type MessageContextualTools = { [key: string]: unknown };
@@ -68904,18 +68965,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `legacy` - Default onboarding
-     * * `simple` - Simple onboarding
-     */
-    export type OnboardingFlowVariantEnum = typeof OnboardingFlowVariantEnum[keyof typeof OnboardingFlowVariantEnum];
-
-
-    export const OnboardingFlowVariantEnum = {
-      Legacy: 'legacy',
-      Simple: 'simple',
-    } as const;
-
-    /**
      * The first-run session that was started for the requester.
      */
     export interface OnboardingSession {
@@ -69007,11 +69056,6 @@ export namespace Schemas {
          * @maxLength 64
          */
       step_at_skip?: string;
-      /** Which onboarding flow the user skipped from, for analytics only.
-       *
-       * * `legacy` - Default onboarding
-       * * `simple` - Simple onboarding */
-      flow_variant?: OnboardingFlowVariantEnum;
     }
 
     /**
@@ -73418,6 +73462,7 @@ export namespace Schemas {
      * * `commit` - Commit
      * * `task_run` - Task Run
      * * `note` - Note
+     * * `scout_note_left` - Scout Note Left
      * * `title_change` - Title Change
      * * `summary_change` - Summary Change
      * * `code_review` - Code Review
@@ -73460,6 +73505,7 @@ export namespace Schemas {
       Commit: 'commit',
       TaskRun: 'task_run',
       Note: 'note',
+      ScoutNoteLeft: 'scout_note_left',
       TitleChange: 'title_change',
       SummaryChange: 'summary_change',
       CodeReview: 'code_review',
@@ -74507,7 +74553,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. Other sources reject this key.
+     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `alert_scope`. Other sources reject these keys.
      */
     export type SignalSourceConfigConfig = { [key: string]: unknown };
 
@@ -74521,7 +74567,7 @@ export namespace Schemas {
       source_product: SignalSourceProductEnum;
       source_type: SignalSourceConfigSourceTypeEnum;
       enabled?: boolean;
-      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. Other sources reject this key. */
+      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `alert_scope`. Other sources reject these keys. */
       config?: SignalSourceConfigConfig;
       /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
       config_set?: SignalSourceConfigConfigSet;
@@ -78471,6 +78517,114 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: WorkloadTrustPolicy[];
+    }
+
+    export type WorkloadTrustPolicyRequestStatusEnum = typeof WorkloadTrustPolicyRequestStatusEnum[keyof typeof WorkloadTrustPolicyRequestStatusEnum];
+
+
+    export const WorkloadTrustPolicyRequestStatusEnum = {
+      Pending: 'pending',
+      Approved: 'approved',
+      Rejected: 'rejected',
+      Expired: 'expired',
+    } as const;
+
+    /**
+     * Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition.
+     */
+    export type WorkloadTrustPolicyRequestConditions = {[key: string]: string};
+
+    /**
+     * What each risky scope in the request lets a token do, keyed by scope. Show it before approving.
+     */
+    export type WorkloadTrustPolicyRequestRiskyScopes = {[key: string]: string};
+
+    export interface WorkloadTrustPolicyRequest {
+      readonly id: string;
+      /**
+         * The name the policy gets once approved.
+         * @maxLength 200
+         */
+      name: string;
+      /**
+         * The OIDC issuer of the workload provider, from the list of supported providers.
+         * @maxLength 255
+         */
+      issuer: string;
+      /**
+         * The key of the workload provider the issuer belongs to.
+         * @nullable
+         */
+      readonly provider: string | null;
+      /**
+         * The display name of the workload provider, or null.
+         * @nullable
+         */
+      readonly provider_name: string | null;
+      /**
+         * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
+         * @maxLength 255
+         */
+      subject_name: string;
+      /**
+         * The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match.
+         * @maxLength 255
+         */
+      subject: string;
+      /** Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition. */
+      conditions?: WorkloadTrustPolicyRequestConditions;
+      /** How the provider names the subject, the subject name and each condition claim, for display. */
+      readonly claim_labels: WorkloadClaimLabels;
+      /**
+         * The scopes the policy's tokens would carry.
+         * @items.maxLength 100
+         */
+      scopes: string[];
+      /** What each risky scope in the request lets a token do, keyed by scope. Show it before approving. */
+      readonly risky_scopes: WorkloadTrustPolicyRequestRiskyScopes;
+      /** Where the request stands. A request expires after 24 hours. */
+      readonly status: WorkloadTrustPolicyRequestStatusEnum;
+      /** The link to send to an admin to approve the request. */
+      readonly approval_url: string;
+      /** Whether the current user's role lets them approve the request, in the browser. */
+      readonly can_approve: boolean;
+      /** Names of the organization admins and owners who can approve, when the current user cannot. */
+      readonly approvers: readonly string[];
+      readonly requested_by: UserBasic | null;
+      /**
+         * The name of the OAuth app the request came through, or null for other credentials.
+         * @nullable
+         */
+      readonly requested_via: string | null;
+      /**
+         * Whether PostHog verified the OAuth app the request came through, or null for other credentials.
+         * @nullable
+         */
+      readonly requested_via_verified: boolean | null;
+      /** When the request was made. */
+      readonly created_at: string;
+      /** When a pending request stops being approvable. */
+      readonly expires_at: string;
+      readonly resolved_by: UserBasic | null;
+      /**
+         * When an admin approved or rejected the request.
+         * @nullable
+         */
+      readonly resolved_at: string | null;
+      /**
+         * The policy created on approval.
+         * @nullable
+         */
+      readonly policy_id: string | null;
+    }
+
+    export interface PaginatedWorkloadTrustPolicyRequestList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: WorkloadTrustPolicyRequest[];
     }
 
     /**
@@ -86543,7 +86697,7 @@ export namespace Schemas {
     }
 
     /**
-     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. Other sources reject this key.
+     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `alert_scope`. Other sources reject these keys.
      */
     export type PatchedSignalSourceConfigConfig = { [key: string]: unknown };
 
@@ -86557,7 +86711,7 @@ export namespace Schemas {
       source_product?: SignalSourceProductEnum;
       source_type?: SignalSourceConfigSourceTypeEnum;
       enabled?: boolean;
-      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. Other sources reject this key. */
+      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `alert_scope`. Other sources reject these keys. */
       config?: PatchedSignalSourceConfigConfig;
       /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
       config_set?: PatchedSignalSourceConfigConfigSet;
@@ -89368,7 +89522,7 @@ export namespace Schemas {
       personalized: boolean;
       /** True when the list is a stored one. False when it is the inbox order fallback or the new list that `wait_seconds` waited for. */
       cached: boolean;
-      /** True when the list does not match your current inbox or focus. When `building` is true, a newer list is on the way. Otherwise a build limit was reached, so try again later. */
+      /** True when the list does not match your current inbox or focus. When `building` is true, a newer list is on the way. Otherwise a report in the list changed since the build, and the next scheduled build updates it. Pass `refresh` for a new list now. */
       stale: boolean;
       /** True when a new list is being built in the background. Call again in a few seconds, or pass `wait_seconds`, to get it. */
       building: boolean;
@@ -89382,6 +89536,11 @@ export namespace Schemas {
          * @nullable
          */
       generated_at: string | null;
+      /**
+         * When a build or a check last compared the list with your full inbox. The list is current as at this time. Null when no list is stored.
+         * @nullable
+         */
+      checked_at: string | null;
       /**
          * How long the model call of the build took, in ms. Null when there was no model call.
          * @nullable
@@ -100762,6 +100921,8 @@ export namespace Schemas {
        * * `listed` - Automatic Flash for these people
        * * `off` - Automatic Flash opt-in only */
       readonly flash_for: AutomaticFlashForEnum | null;
+      /** Whether draft pull requests in this repository get their automatic review when they open. */
+      readonly review_drafts: boolean;
       /** The people on the exception's two lists. Only the list that matches flash_for has an effect. */
       readonly people: readonly ReviewRepositoryPerson[];
       /** Who added the repository. */
@@ -100869,6 +101030,8 @@ export namespace Schemas {
       repository_id: string | null;
       /** This project's repository exception. Null when the repository follows the project. */
       exception: ReviewRepositoryException | null;
+      /** Whether draft pull requests in this repository get their automatic review when they open. Authors who turned off reviews of their drafts still get none. */
+      review_drafts: boolean;
       /** The requesting user's own choice for this repository: 'flash', 'off', or null.
        *
        * * `flash` - Flash
@@ -100906,7 +101069,7 @@ export namespace Schemas {
          * @nullable
          */
       next_offset: number | null;
-      /** With view 'differs', or 'all' without a search: how many repositories 'differs' leaves out because this project reviews them with no exception and no own choice. 0 otherwise. */
+      /** With view 'differs', or 'all' without a search: how many repositories 'differs' leaves out because this project reviews them with no exception, no draft reviews and no own choice. 0 otherwise. */
       folded: number;
       /** With view 'differs', or 'all' without a search: the names of the first left-out repositories, at most 3. Empty otherwise. */
       folded_preview: string[];
@@ -100950,6 +101113,8 @@ export namespace Schemas {
        * * `listed` - Automatic Flash for these people
        * * `off` - Automatic Flash opt-in only */
       flash_for?: AutomaticFlashForEnum | null;
+      /** True lets draft pull requests in this repository get their automatic review when they open. False waits until they are ready for review. Omit it to keep the current value. */
+      review_drafts?: boolean;
     }
 
     export interface ReviewRepositoryWriteResponse {
@@ -102984,7 +103149,7 @@ export namespace Schemas {
          * @nullable
          */
       created_by_name: string | null;
-      /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. `report_feedback` for the note someone left when rating a report useful or not: one reader's rating of the named report, context to weigh rather than a directive. `report_reviewer_correction` for a suggested reviewer someone added or removed on a report, or for a report a person or their agent claimed: evidence about who owns that surface, and a prompt to revisit the routing memory it corrects or supports, rather than a directive. */
+      /** Where the note came from. `human`: left directly through this API. `report_note`: left through this API with `report_id` set, about the report its content names. `report_dismissal`: the note someone typed when they dismissed, snoozed, or restored one or more inbox reports. `report_discussion`: the question someone asked when they opened a discussion on a report. `report_feedback`: the note someone left when they rated a report useful or not. `report_reviewer_correction`: someone added or removed a suggested reviewer on a report, or a person or their agent claimed a report. The `scout-notes-list` tool description says how a scout reads each origin. */
       origin: string;
     }
 
@@ -103002,6 +103167,11 @@ export namespace Schemas {
          * @maxLength 200
          */
       skill_name?: string;
+      /**
+         * Optional id of the inbox report this note is about. The note then names the report so a scout can fetch it, and the report's activity log records that the note was left. Requires edit access to inbox reports, and the report must belong to this project. The report reference shares the note's character budget, so `content` is capped at 9938 characters when this is set.
+         * @nullable
+         */
+      report_id?: string | null;
       /**
          * Optional ISO-8601 expiry. After this time the note drops out of the default list view, so time-boxed steering ('watch closely this week') retires itself. Omit for a note that stays active until deleted. Best-effort — a value that can't be parsed or is already in the past is dropped (the note stays active), not rejected, so the note is never lost.
          * @nullable
@@ -104490,6 +104660,16 @@ export namespace Schemas {
          * @maxItems 10
          */
       reply_to?: string[];
+      /** Addresses that get a visible copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here. */
+      cc?: string | string[] | null;
+      /** Addresses that get a hidden copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here. */
+      bcc?: string | string[] | null;
+      /**
+         * Files attached to the email your code rendered: up to 10, and at most 512 KB in total after decoding. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here.
+         * @maxItems 10
+         * @nullable
+         */
+      attachments?: EmailAttachment[] | null;
       /** Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says. */
       capture_engagement?: boolean;
       /**
@@ -117718,6 +117898,20 @@ export namespace Schemas {
       dateTo?: string;
     }
 
+    export interface _MetricQueryCount {
+      /** Metric name as it appears in the team's data. */
+      metric_name: string;
+      /** Number of builder and PromQL queries that read the metric in the window. SQL mode queries do not count. */
+      query_count: number;
+      /** When a query last read the metric, ISO 8601. */
+      last_queried_at: string;
+    }
+
+    export interface _MetricQueryCountsResponse {
+      /** Metrics that queries read in the window, the most queried first. */
+      results: _MetricQueryCount[];
+    }
+
     export interface _MetricQueryRequest {
       /** The metric query to execute. */
       query: _MetricQueryBody;
@@ -120481,6 +120675,7 @@ export namespace Schemas {
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
      * * `OAuthApplication` - OAuthApplication
      * * `WorkloadTrustPolicy` - WorkloadTrustPolicy
+     * * `WorkloadTrustPolicyRequest` - WorkloadTrustPolicyRequest
      * * `User` - User
      * * `Action` - Action
      * * `AccountView` - AccountView
@@ -120601,6 +120796,7 @@ export namespace Schemas {
       ProjectSecretAPIKey: 'ProjectSecretAPIKey',
       OAuthApplication: 'OAuthApplication',
       WorkloadTrustPolicy: 'WorkloadTrustPolicy',
+      WorkloadTrustPolicyRequest: 'WorkloadTrustPolicyRequest',
       User: 'User',
       Action: 'Action',
       AccountView: 'AccountView',
@@ -120707,6 +120903,7 @@ export namespace Schemas {
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
      * * `OAuthApplication` - OAuthApplication
      * * `WorkloadTrustPolicy` - WorkloadTrustPolicy
+     * * `WorkloadTrustPolicyRequest` - WorkloadTrustPolicyRequest
      * * `User` - User
      * * `Action` - Action
      * * `AccountView` - AccountView
@@ -120815,6 +121012,7 @@ export namespace Schemas {
       ProjectSecretAPIKey: 'ProjectSecretAPIKey',
       OAuthApplication: 'OAuthApplication',
       WorkloadTrustPolicy: 'WorkloadTrustPolicy',
+      WorkloadTrustPolicyRequest: 'WorkloadTrustPolicyRequest',
       User: 'User',
       Action: 'Action',
       AccountView: 'AccountView',
@@ -124258,6 +124456,7 @@ export namespace Schemas {
     dataset: string;
     /**
      * Number of results to return per page.
+     * @maximum 25
      */
     limit?: number;
     /**
@@ -124311,6 +124510,7 @@ export namespace Schemas {
     export type DatasetItemsVersionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -124332,6 +124532,7 @@ export namespace Schemas {
     id__in?: string[];
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -124378,6 +124579,7 @@ export namespace Schemas {
     export type DatasetsRevisionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -130090,6 +130292,7 @@ export namespace Schemas {
     export type McpAnalyticsFeedbackListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number;
     /**
@@ -130108,6 +130311,7 @@ export namespace Schemas {
     export type McpAnalyticsMissingCapabilitiesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number;
     /**
@@ -130590,6 +130794,21 @@ export namespace Schemas {
      * @maxLength 255
      */
     value?: string;
+    };
+
+    export type MetricsQueryCountsRetrieveParams = {
+    /**
+     * Number of UTC days to count, today included.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number;
+    /**
+     * Maximum number of metrics to return.
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number;
     };
 
     export type MetricsValuesRetrieveParams = {
@@ -132398,6 +132617,12 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * The oldest `checked_at` you accept. When the stored list is older, the request reads every candidate report, which can take some seconds, and starts a build if your inbox changed. Leave it out to get the stored list quickly. A new report then joins the list at the next scheduled build.
+     * @minimum 0
+     * @maximum 10080
+     */
+    max_age_minutes?: number;
+    /**
      * Start a new build even when the stored one is current. The build runs in the background, so the response has `building: true`. Pass `wait_seconds` to wait for it.
      */
     refresh?: boolean;
@@ -132649,6 +132874,10 @@ export namespace Schemas {
      * @maximum 500
      */
     limit?: number;
+    /**
+     * Return only the standing notes, which have no `expires_at`. Pair it with `date_from` to re-read the standing notes of a recent window that the newest-first cap would hide.
+     */
+    only_without_expiry?: boolean;
     /**
      * Return the notes addressed to this target plus the general (blank-target) notes for the whole fleet. Pass a configured scout's skill name or a pipeline audience (`pipeline:report-research`). Omit to browse every note on the project.
      * @minLength 1
@@ -133921,7 +134150,7 @@ export namespace Schemas {
 
     export type TodayHighlightsRetrieveParams = {
     /**
-     * Retry failed sources when progressive loading is enabled. An active computation is reused.
+     * Retry failed sources. An active computation is reused.
      */
     refresh?: boolean;
     };
@@ -135598,6 +135827,7 @@ export namespace Schemas {
     export type WizardRegistryListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -135640,6 +135870,7 @@ export namespace Schemas {
     export type WizardRunsArtifactsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -135703,6 +135934,17 @@ export namespace Schemas {
     };
 
     export type WorkloadTrustPoliciesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type WorkloadTrustPolicyRequestsListParams = {
     /**
      * Number of results to return per page.
      */

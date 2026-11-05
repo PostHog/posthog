@@ -56,6 +56,7 @@ from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.report_check_final_agents import MonitoringScoutResult
 from products.signals.backend.report_metrics import MAX_REPORT_METRICS
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
+from products.signals.backend.report_scout_notes import MAX_REPORT_NOTE_TEXT_LENGTH
 from products.signals.backend.scout_harness.config_registry import CRON_SCHEDULE_MAX_LENGTH, cron_schedule_error
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG_KEYS, DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.fleet_sync import SYNC_SURFACES
@@ -1243,18 +1244,14 @@ class ScoutNoteSerializer(serializers.Serializer):
     # `SignalScoutNote.Origin`.
     origin = serializers.CharField(
         help_text=(
-            "Where the note came from. `human` for one left directly through this API. "
-            "`report_dismissal` for one forwarded from the note someone typed when they dismissed, "
-            "snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports "
-            "its content names, so weigh it as evidence about those reports rather than as "
-            "fleet-level steering. `report_discussion` for the question someone asked when they "
-            "opened a discussion on a report: context to weigh, neither a verdict on the report nor "
-            "a directive. `report_feedback` for the note someone left when rating a report useful or "
-            "not: one reader's rating of the named report, context to weigh rather than a directive. "
-            "`report_reviewer_correction` for a suggested reviewer someone added or removed on a "
-            "report, or for a report a person or their agent claimed: evidence about who owns that "
-            "surface, and a prompt to revisit the routing memory it corrects or supports, rather "
-            "than a directive."
+            "Where the note came from. `human`: left directly through this API. `report_note`: left "
+            "through this API with `report_id` set, about the report its content names. "
+            "`report_dismissal`: the note someone typed when they dismissed, snoozed, or restored one "
+            "or more inbox reports. `report_discussion`: the question someone asked when they opened a "
+            "discussion on a report. `report_feedback`: the note someone left when they rated a report "
+            "useful or not. `report_reviewer_correction`: someone added or removed a suggested reviewer "
+            "on a report, or a person or their agent claimed a report. The `scout-notes-list` tool "
+            "description says how a scout reads each origin."
         ),
     )
 
@@ -1282,6 +1279,14 @@ class ScoutNotesQuerySerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text="Include notes whose `expires_at` has passed. Off by default so time-boxed steering retires itself.",
+    )
+    only_without_expiry = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Return only the standing notes, which have no `expires_at`. Pair it with `date_from` to "
+            "re-read the standing notes of a recent window that the newest-first cap would hide."
+        ),
     )
     date_from = serializers.DateTimeField(
         required=False,
@@ -1343,6 +1348,17 @@ class ScoutNoteCreateRequestSerializer(serializers.Serializer):
             "and no scout. Omit or leave blank for a general note every scout sees."
         ),
     )
+    report_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional id of the inbox report this note is about. The note then names the report so a "
+            "scout can fetch it, and the report's activity log records that the note was left. "
+            "Requires edit access to inbox reports, and the report must belong to this project. "
+            "The report reference shares the note's character budget, so `content` is capped at "
+            f"{MAX_REPORT_NOTE_TEXT_LENGTH} characters when this is set."
+        ),
+    )
     expires_at = _BestEffortDateTimeField(
         required=False,
         allow_null=True,
@@ -1360,6 +1376,18 @@ class ScoutNoteCreateRequestSerializer(serializers.Serializer):
         if value is not None and value <= timezone.now():
             return None
         return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs.get("report_id") and len(attrs.get("content", "")) > MAX_REPORT_NOTE_TEXT_LENGTH:
+            raise serializers.ValidationError(
+                {
+                    "content": (
+                        "A note about a report also stores a reference to it, so content is limited "
+                        f"to {MAX_REPORT_NOTE_TEXT_LENGTH} characters when report_id is set."
+                    )
+                }
+            )
+        return attrs
 
 
 # --- Emit -----------------------------------------------------------------
@@ -1755,6 +1783,15 @@ class EmitReportResponseSerializer(serializers.Serializer):
 class EditReportRequestSerializer(ReviewerProposalSerializer):
     """Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones."""
 
+    reviewer_outcome_reason = serializers.CharField(
+        required=False,
+        max_length=500,
+        help_text=(
+            "Why no suitable owner exists, with `reviewer_outcome: no_suitable_owner`. Required to clear a "
+            "report that already has suggested reviewers: without it the current reviewers stay and the "
+            "response carries a warning. The reason is recorded in the report's work log."
+        ),
+    )
     report_id = serializers.CharField(help_text="Id of the report to edit (must belong to this project).")
     title = serializers.CharField(
         required=False,
