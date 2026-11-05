@@ -1,3 +1,5 @@
+import './HeatmapScene.scss'
+
 import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
 import { useRef } from 'react'
 import useResizeObserver from 'use-resize-observer'
@@ -15,7 +17,6 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -332,22 +333,8 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                         className="flex-1 flex items-center justify-center min-h-96"
                                         data-attr="heatmap-generating-screenshot"
                                     >
-                                        <style>{`@keyframes hog-wobble{from{transform:rotate(0deg)}to{transform:rotate(5deg)}}`}</style>
                                         <div className="text-sm text-center font-semibold">
-                                            <HedgehogDirector
-                                                className="w-32 h-32 mx-auto mb-2"
-                                                style={
-                                                    // The snapshot runner zeroes animation durations, and CI can then paint either
-                                                    // end of the wobble, so the captured hog tilt changes between runs.
-                                                    inStorybook() || inStorybookTestRunner()
-                                                        ? undefined
-                                                        : {
-                                                              animation:
-                                                                  'hog-wobble 1.2s ease-in-out infinite alternate',
-                                                              transformOrigin: '50% 50%',
-                                                          }
-                                                }
-                                            />
+                                            <HedgehogDirector className="HeatmapScene__hogWobble w-32 h-32 mx-auto mb-2" />
                                             Generating screenshot…
                                             <div className="text-muted text-xs mt-2">
                                                 This usually takes a few minutes
