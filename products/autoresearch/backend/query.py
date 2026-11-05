@@ -1,13 +1,13 @@
 import random
 from collections.abc import Callable
 from time import perf_counter, sleep
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 import structlog
 
 from posthog.schema import CacheMissResponse, HogQLQuery, QueryStatusResponse
 
-from posthog.hogql.constants import LimitContext
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.query_stats import query_stats_scope
 
 from posthog.clickhouse.workload import Workload
@@ -40,6 +40,7 @@ class QueryContext:
 # A query inside a web request keeps the 60 s interactive limit, because a longer query
 # would outlive the request.
 INTERACTIVE_QUERY = QueryContext(limit_context=LimitContext.QUERY, workload=Workload.DEFAULT)
+INTERACTIVE_QUERY_TIME_LIMIT_S = cast(int, HogQLGlobalSettings().max_execution_time)
 # Scoring and online validation run in a Temporal activity that nobody waits on, so they
 # get the increased batch limit and run on the offline workload.
 BATCH_QUERY = QueryContext(limit_context=LimitContext.QUERY_ASYNC, workload=Workload.OFFLINE)
