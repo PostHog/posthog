@@ -23,9 +23,10 @@ from products.slack_app.backend.logic.onboarding.interactivity import (
     onboarding_integration_hint,
 )
 from products.slack_app.backend.logic.onboarding.sources_step import NO_PROJECT_ACCESS_TEXT
-from products.slack_app.backend.models import UntaggedFollowupMode
+from products.slack_app.backend.models import ChannelWelcomeMode, UntaggedFollowupMode
 from products.slack_app.backend.services.slack_settings import (
     resolve_auto_model_choice,
+    resolve_channel_welcome_mode,
     resolve_onboarding,
     resolve_untagged_followup_mode,
     set_auto_model_choice,
@@ -221,6 +222,28 @@ def test_card_clicks_save_the_choice_and_refresh_the_card(action_id: str, value:
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("workspace_admin", [True, False])
+def test_only_a_workspace_admin_can_set_the_channel_welcome(
+    workspace_admin: bool, org_team_user, slack_workspace_admin: MagicMock
+) -> None:
+    _, team, _ = org_team_user
+    integration = _install(team)
+    slack_workspace_admin.return_value = workspace_admin
+
+    with (
+        patch(f"{CLICKS}.request_onboarding") as refresh,
+        patch(f"{CLICKS}.post_response_url") as reply,
+        patch(f"{STEP}.capture_slack_event"),
+    ):
+        handle_onboarding_action(_click(integration, "slack_onboarding:channel_welcome:off", mode="off"))
+
+    expected = ChannelWelcomeMode.OFF if workspace_admin else ChannelWelcomeMode.CHANNEL
+    assert resolve_channel_welcome_mode(SLACK_TEAM_ID) == expected
+    assert refresh.called is workspace_admin
+    assert reply.called is not workspace_admin
+
+
+@pytest.mark.django_db
 def test_the_link_step_cannot_be_skipped(org_team_user) -> None:
     _, team, _ = org_team_user
     integration = _install(team)
@@ -328,10 +351,10 @@ def test_a_workspace_admin_also_gets_the_workspace_steps_after_linking(
     _refresh(integration)
 
     assert plan_onboarding(integration, SLACK_USER_ID).status == (
-        "1 of 7 steps done · current step: ai_consent · skipped: none"
+        "1 of 8 steps done · current step: ai_consent · skipped: none"
     )
     second_step = all_block_text(_posts(slack_client)[-1]["blocks"])
-    assert f"<@{SLACK_USER_ID}> Step 2 of 7" in second_step and "Allow AI data processing" in second_step
+    assert f"<@{SLACK_USER_ID}> Step 2 of 8" in second_step and "Allow AI data processing" in second_step
 
 
 @pytest.mark.django_db
