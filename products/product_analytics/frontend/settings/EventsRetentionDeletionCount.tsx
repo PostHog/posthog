@@ -16,7 +16,7 @@ export function EventsRetentionDeletionCount(props: EventsRetentionDeletionCount
         return (
             <p className="mb-0 flex items-center gap-2 text-secondary">
                 <Spinner />
-                <span>Counting the events this deletes</span>
+                <span>Counting the events this would delete if it ran now</span>
             </p>
         )
     }
@@ -28,7 +28,7 @@ export function EventsRetentionDeletionCount(props: EventsRetentionDeletionCount
     }
     return (
         <p className="mb-0">
-            {`This deletes about ${humanFriendlyLargeNumber(eventsDeleted)} ${eventsDeleted === 1 ? 'event' : 'events'}.`}
+            {`This would delete about ${humanFriendlyLargeNumber(eventsDeleted)} ${eventsDeleted === 1 ? 'event' : 'events'}.`}
         </p>
     )
 }
