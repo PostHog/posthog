@@ -59,6 +59,15 @@ class TestCopyNodeDescriptionsToAnnotations(NonAtomicTestMigrations):
             description="Table text",
         )
         self.table = table.id
+        Node.objects.create(
+            id=uuid4(),
+            team_id=self.team.id,
+            dag=dag,
+            name="malformed_table",
+            type="table",
+            properties={"warehouse_table_id": 123},
+            description="Malformed node text",
+        )
 
     def _view_row(self, saved_query_id: Any) -> Any:
         Annotation = self.apps.get_model("data_modeling", "DataWarehouseSavedQueryColumnAnnotation")  # type: ignore[union-attr]
