@@ -78,6 +78,15 @@ function sourceConfigsFor(state: PanelState): SignalSourceConfig[] {
                   },
               ]
             : []),
+        ...(state.adminDisabled
+            ? [
+                  {
+                      ...sourceConfig(SignalSourceProduct.SignalsScout, SignalSourceType.CrossSourceIssue, true),
+                      admin_disabled: true,
+                      admin_disable_note: 'Scouts are paused while we review their signals.',
+                  },
+              ]
+            : []),
         ...ERROR_TRACKING_SIGNAL_SOURCE_TYPES.map((sourceType) =>
             sourceConfig(SignalSourceProduct.ErrorTracking, sourceType, state.errorTrackingArmed)
         ),
@@ -500,5 +509,8 @@ export const AdminDisabled: Story = {
         const body = within(canvasElement.ownerDocument.body)
         await body.findByText('Signal emission is paused while we review this source.')
         await body.findByText('Contact support')
+        await userEvent.unhover(warning)
+        await userEvent.hover(await within(canvasElement).findByRole('button', { name: 'Scouts disabled by PostHog' }))
+        await body.findByText('Scouts are paused while we review their signals.')
     },
 }

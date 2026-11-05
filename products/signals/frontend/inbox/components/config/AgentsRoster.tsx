@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { memo, useCallback, useMemo, useState } from 'react'
 
-import { IconArrowUpRight, IconChevronDown, IconChevronRight, IconGear, IconPlus, IconWarning } from '@posthog/icons'
+import { IconArrowUpRight, IconChevronDown, IconChevronRight, IconGear, IconPlus } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -11,11 +11,9 @@ import {
     LemonTag,
     Link,
     Spinner,
-    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { openInAppSupport } from 'lib/components/Support/openInAppSupport'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
@@ -37,6 +35,7 @@ import { SourceSpendLabel } from '../spend/SourceSpendLabel'
 import { AGENT_ROSTER_GROUPS, AgentRosterDefinition, AgentRosterGroup, AgentRosterSource } from './agentRosterMeta'
 import { DataSourceSetupModal } from './DataSourceSetupModal'
 import { LinearTeamsModal } from './LinearTeamsModal'
+import { SourceAdminWarning } from './SourceAdminWarning'
 import { SourceAgentIcon } from './SourceAgentIcon'
 import { SourceSteeringModal } from './SourceSteeringModal'
 
@@ -516,7 +515,7 @@ function Expansion({
 
 interface AgentRowProps {
     agent: AgentRosterDefinition
-    sourceConfigs: SignalSourceConfig[]
+    sourceConfigs: SignalSourceConfig[] | null
     state: AgentSourceState
     product?: SourceProductStatus
     expanded: boolean
@@ -548,11 +547,6 @@ const AgentRow = memo(function AgentRow({
     onRetryData,
 }: AgentRowProps): JSX.Element {
     const { armed, loading, requiresSetup, syncStatus, entities } = state
-    const adminDisabledConfigs = sourceConfigs.filter((config) => config.admin_disabled)
-    const adminDisabledLabel =
-        adminDisabledConfigs.length === sourceConfigs.length
-            ? 'Source disabled by PostHog'
-            : 'Some signal types disabled by PostHog'
     const status = resolveAgentStatus(armed, syncStatus)
     const productOff = product?.enabled === false
     // An off product blocks arming (the source would watch nothing), never disarming.
@@ -606,41 +600,7 @@ const AgentRow = memo(function AgentRow({
                         </span>
                     </div>
                 </button>
-                {adminDisabledConfigs.length > 0 && (
-                    <Tooltip
-                        interactive
-                        openOnClick
-                        title={
-                            <div className="flex max-w-xs flex-col gap-2">
-                                <span className="font-semibold">{adminDisabledLabel}</span>
-                                {[
-                                    ...new Set(
-                                        adminDisabledConfigs.map((config) => config.admin_disable_note).filter(Boolean)
-                                    ),
-                                ].map((note) => (
-                                    <span key={note} className="whitespace-pre-wrap">
-                                        {note}
-                                    </span>
-                                ))}
-                                <LemonButton
-                                    type="primary"
-                                    size="xsmall"
-                                    onClick={() => openInAppSupport('self-driving-source-disabled')}
-                                    data-attr="signal-source-contact-support"
-                                >
-                                    Contact support
-                                </LemonButton>
-                            </div>
-                        }
-                    >
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconWarning className="text-warning" />}
-                            aria-label={adminDisabledLabel}
-                            data-attr="signal-source-admin-disabled"
-                        />
-                    </Tooltip>
-                )}
+                <SourceAdminWarning sourceConfigs={sourceConfigs} sourceProduct={agent.sourceProduct} />
                 {tag && (
                     <LemonTag type={tag.type} size="small">
                         {tag.label}
@@ -1047,9 +1007,7 @@ export function AgentsRoster(): JSX.Element {
                 <AgentRow
                     key={agent.source}
                     agent={agent}
-                    sourceConfigs={
-                        sourceConfigs?.filter((config) => config.source_product === agent.sourceProduct) ?? []
-                    }
+                    sourceConfigs={sourceConfigs}
                     state={state}
                     product={productStatusBySource[agent.source]}
                     expanded={expandedSource === agent.source}
