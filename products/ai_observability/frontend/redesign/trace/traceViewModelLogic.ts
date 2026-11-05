@@ -111,6 +111,7 @@ export interface traceViewModelLogicValues {
     canViewInThread: boolean
     clustersChip: TraceClustersChipProps | null
     datasetItemSource: ReturnType<typeof toDatasetItemSource>
+    datasetsEnabled: boolean
     detailData: NodeDetailData | null
     evalOutcomesByNode: Record<string, EvalRollupOutcome>
     evalsChip: EvalsChipData | null
@@ -262,8 +263,9 @@ export interface traceViewModelLogicMeta {
             createdAt: string | null,
             sessionId: string | null
         ) => NodeDetailData | null
+        datasetsEnabled: (featureFlags: FeatureFlagsSet) => boolean
         datasetItemSource: (
-            featureFlags: FeatureFlagsSet,
+            datasetsEnabled: boolean,
             selectedNodeLoad: NodeLoad,
             createdAt: string | null,
             traceId: string
@@ -505,17 +507,19 @@ export const traceViewModelLogic = kea<traceViewModelLogicType>([
                       })
                     : null,
         ],
+        datasetsEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS],
+        ],
         datasetItemSource: [
-            (s, p) => [s.featureFlags, s.selectedNodeLoad, s.createdAt, p.traceId],
+            (s, p) => [s.datasetsEnabled, s.selectedNodeLoad, s.createdAt, p.traceId],
             (
-                featureFlags: FeatureFlagsSet,
+                datasetsEnabled: boolean,
                 load: NodeLoad,
                 createdAt: string | null,
                 traceId: string
             ): ReturnType<typeof toDatasetItemSource> =>
-                featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS] && createdAt
-                    ? toDatasetItemSource({ traceId, createdAt, load })
-                    : null,
+                datasetsEnabled && createdAt ? toDatasetItemSource({ traceId, createdAt, load }) : null,
         ],
         thread: [
             (s, p) => [s.status, s.threadNodeLoad, s.createdAt, s.currentTeamId, p.traceId],
