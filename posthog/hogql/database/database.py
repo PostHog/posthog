@@ -2430,7 +2430,7 @@ class Database(BaseModel):
             event_modifier_saved_queries=event_modifier_saved_queries,
             virtual_source=virtual_source,
             virtual_schemas=virtual_schemas,
-            raw_trino_saved_queries=[sq for sq in all_saved_queries if sq.is_raw_managed_trino],
+            raw_trino_saved_queries=[sq for sq in all_saved_queries if sq.engine.is_raw_trino],
         )
 
     @staticmethod

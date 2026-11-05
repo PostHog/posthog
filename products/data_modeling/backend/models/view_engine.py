@@ -1,7 +1,7 @@
 from typing import Any
 
 from django.db import models
-from django.db.models import Expression, JSONField, Value
+from django.db.models import Expression, JSONField, Q, Value
 from django.db.models.fields.json import KeyTransform
 
 from posthog.dataclasses import frozen
@@ -81,6 +81,11 @@ class ViewEngine:
             dialect=ViewEngineDialect.RAW if send_raw else ViewEngineDialect.HOGQL,
             connection_id=connection_id,
         )
+
+    @classmethod
+    def raw_trino_filter(cls) -> Q:
+        """The queryset filter for the rows that `from_query` reads as raw Trino. JSON `true` only, as there."""
+        return Q(query__executionTarget=ViewEngineTarget.MANAGED_TRINO.value, query__sendRawQuery=True)
 
     @classmethod
     def queryset_annotations(cls, *, read_query_keys: bool) -> dict[str, Expression]:
