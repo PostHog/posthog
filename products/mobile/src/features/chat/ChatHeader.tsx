@@ -1,4 +1,5 @@
 import { type ReactElement, type RefObject, useState } from 'react'
+import type { ViewInstance } from 'react-native'
 import { View } from 'react-native'
 
 import { useToasts, ViewsToast } from '@/features/views/ViewsToast'
@@ -27,7 +28,7 @@ export const CHAT_COMPACT_HEADER_HEIGHT = HEADER_TOP + ROW_HEIGHT + 8
 interface ChatHeaderProps {
     compact?: boolean
     webUrl: string | undefined
-    blurTarget?: RefObject<View | null>
+    blurTarget?: RefObject<ViewInstance | null>
     onBack: () => void
     onNewChat: () => void
     newChatDisabledReason?: string

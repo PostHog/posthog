@@ -195,7 +195,7 @@ export function InboxScreen(): ReactElement {
                     data={access.state === 'ok' ? (query.data ?? []) : []}
                     keyExtractor={keyFor}
                     renderItem={renderItem}
-                    ListEmptyComponent={empty}
+                    ListEmptyComponent={empty ?? undefined}
                     ListFooterComponent={
                         <InboxListFooter
                             isLoadingMore={query.isLoadingMore}

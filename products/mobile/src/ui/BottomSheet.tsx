@@ -1,7 +1,8 @@
 import { type ReactElement, type ReactNode, useState } from 'react'
 import { type LayoutChangeEvent, useWindowDimensions, View } from 'react-native'
-import { GestureDetector, type NativeGesture } from 'react-native-gesture-handler'
+import { GestureDetector } from 'react-native-gesture-handler'
 import Animated, { type SharedValue, useAnimatedStyle } from 'react-native-reanimated'
+import type { NativeGesture } from '@/ui/gestureTypes'
 
 import { OverlayPortal } from './OverlayPortal'
 import { Scrim } from './Scrim'

@@ -1,4 +1,5 @@
 import { type ReactElement, useMemo, useRef } from 'react'
+import type { ScrollViewInstance } from 'react-native'
 import { ScrollView, Text } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
@@ -32,7 +33,7 @@ export function DecisionSheet({
     const styles = useStyles()
     const { height } = useSceneDimensions()
     const keyboard = useReanimatedKeyboardAnimation()
-    const scroll = useRef<ScrollView>(null)
+    const scroll = useRef<ScrollViewInstance>(null)
     const replyFocused = useRef(false)
     const listGesture = useMemo(() => Gesture.Native(), [])
     const keyboardStyle = useAnimatedStyle(() => ({ paddingBottom: Math.max(-keyboard.height.value, 0) }))
