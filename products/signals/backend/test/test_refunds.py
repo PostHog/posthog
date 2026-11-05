@@ -532,7 +532,13 @@ class TestSignalReportRefundAPI(APIBaseTest):
 
 
 class TestSignalReportRefundFlagGate(APIBaseTest):
-    @parameterized.expand([("usage_based", True, status.HTTP_403_FORBIDDEN), ("legacy", False, status.HTTP_200_OK)])
+    @parameterized.expand(
+        [
+            ("usage_based", True, status.HTTP_403_FORBIDDEN),
+            ("legacy", False, status.HTTP_200_OK),
+            ("unknown", None, status.HTTP_503_SERVICE_UNAVAILABLE),
+        ]
+    )
     @time_machine.travel(_NOW, tick=False)
     @patch("posthoganalytics.feature_enabled")
     def test_refund_requires_legacy_pricing(self, _name, usage_based_pricing, expected_status, flag_mock):
@@ -547,9 +553,12 @@ class TestSignalReportRefundFlagGate(APIBaseTest):
         )
 
         assert response.status_code == expected_status, response.json()
-        assert SignalReportRefund.objects.filter(report=report).exists() is not usage_based_pricing
-        if usage_based_pricing:
+        assert SignalReportRefund.objects.filter(report=report).exists() is (usage_based_pricing is False)
+        if usage_based_pricing is True:
             assert response.json()["detail"] == "PR refunds are not available with usage-based pricing."
+        if usage_based_pricing is None:
+            assert response.json()["detail"] == "Unable to determine pricing. Please try again."
+        if usage_based_pricing is not False:
             report.refresh_from_db()
             assert report.status == SignalReport.Status.READY
         org_id = str(self.organization.id)

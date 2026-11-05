@@ -4718,6 +4718,7 @@ class SignalReportViewSet(
             ),
             403: OpenApiResponse(description="PR refunds are not available with usage-based pricing."),
             404: OpenApiResponse(description="Report not found, or refunds are not enabled for this organization."),
+            503: OpenApiResponse(description="Pricing could not be determined. Retry the request."),
         },
         summary="Refund a report's implementation PR",
         description=(
@@ -4737,16 +4738,18 @@ class SignalReportViewSet(
             raise NotFound("PR refunds are not enabled for this organization.")
 
         org_id = str(self.organization.id)
-        if (
-            posthoganalytics.feature_enabled(
-                "self-driving-ubp",
-                org_id,
-                groups={"organization": org_id},
-                group_properties={"organization": {"id": org_id}},
-            )
-            is True
-        ):
+        usage_based_pricing = posthoganalytics.feature_enabled(
+            "self-driving-ubp",
+            org_id,
+            groups={"organization": org_id},
+            group_properties={"organization": {"id": org_id}},
+        )
+        if usage_based_pricing is True:
             raise exceptions.PermissionDenied("PR refunds are not available with usage-based pricing.")
+        if usage_based_pricing is not False:
+            return Response(
+                {"detail": "Unable to determine pricing. Please try again."}, status=status.HTTP_503_SERVICE_UNAVAILABLE
+            )
 
         report = cast(SignalReport, self.get_object())
         data = request.validated_data
