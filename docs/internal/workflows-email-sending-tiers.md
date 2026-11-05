@@ -46,8 +46,8 @@ Django mirrors the tenant named by `SES_SANDBOX_TENANT_NAME` into `SandboxSender
 A committed state change reaches the workers through the `reload-sandbox-sender-state` message.
 A tenant that SES no longer knows reads as not paused, so deleting it clears a stored pause. Each failed read of the tenant counts in `workflows_sandbox_tenant_sync_failures_total`, labeled `transient` for throttling, an unreachable endpoint, timeouts, a connection dropped before or during the response, and SES server errors, and `error` for everything else, such as missing credentials, denied access, or TLS and proxy failures.
 A long SES outage or a blocked endpoint stays `transient` on every read, so an alert on the mirror also watches sustained `transient` failures.
-The sending tier leaves `email_sandbox_sent` out of its volume and its rate denominators, and the sending allowance leaves it out too, floored at zero per day and per workflow.
-While `WORKFLOWS_SANDBOX_SENDER_DOMAIN`, `SES_SANDBOX_FROM_ADDRESS`, or `SES_SANDBOX_TENANT_NAME` is empty, both read only `email_sent`, as before.
+The sending tier leaves `email_sandbox_sent` out of its volume and its rate denominators, and the sending allowance leaves it out too, also after the sandbox settings are cleared.
+The worker records each sandbox send's `email_sandbox_sent` in the same batch as its `email_sent`, so the subtraction always meets its pair. A floor at zero guards against a lost metric write.
 Bounces and complaints of sandbox sends still count, so the exclusion can only raise a rate.
 
 ### Sending tiers
