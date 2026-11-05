@@ -71,6 +71,7 @@ def is_flag_evaluations_table_enabled(team: "Team") -> bool:
     # Returning True keeps the table queryable there without setting a mode first.
     if settings.DEBUG or settings.E2E_TESTING or is_cloud():
         return True
-    # A self-hosted instance may not have the ClickHouse table. The Usage tab reads flag_evaluations for any
-    # mode above EVENTS, and its query fails when the table is missing from the catalog.
+    # Self-hosted ingestion leaves the flag_evaluations fork off by default, so the table holds no rows there
+    # until an operator turns the fork on. The Usage tab reads flag_evaluations for any mode above EVENTS, and
+    # its query fails when the table is missing from the catalog.
     return get_organization_flag_evaluations_mode(team.organization_id) != FlagEvaluationsMode.EVENTS

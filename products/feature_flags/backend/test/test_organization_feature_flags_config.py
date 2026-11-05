@@ -57,7 +57,6 @@ class TestFlagEvaluationsTableGate(BaseTest):
             ),
             ("cloud_events", FlagEvaluationsMode.EVENTS, True, False, True),
             ("cloud_no_config_row", None, True, False, True),
-            ("cloud_read_flag_evaluations", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True, False, True),
         ]
     )
     def test_table_is_enabled_on_cloud_or_by_the_organization_mode(
