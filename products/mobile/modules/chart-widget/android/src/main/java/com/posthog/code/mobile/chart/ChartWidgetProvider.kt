@@ -22,7 +22,13 @@ class ChartWidgetProvider : AppWidgetProvider() {
     }
 
     override fun onAppWidgetOptionsChanged(context: Context, appWidgetManager: AppWidgetManager, appWidgetId: Int, newOptions: Bundle) {
-        ChartRenderer.renderOne(context, appWidgetManager, appWidgetId)
+        val pendingResult = goAsync()
+        try {
+            ChartRenderer.renderOne(context, appWidgetManager, appWidgetId) { pendingResult?.finish() }
+        } catch (e: Exception) {
+            pendingResult?.finish()
+            throw e
+        }
     }
 
     override fun onDeleted(context: Context, appWidgetIds: IntArray) {

@@ -69,11 +69,13 @@ object ChartStore {
         sessionGeneration += 1
         for (attempt in 0..1) {
             try {
-                securePrefs(context)?.edit()?.putString(KEY_CREDENTIALS, json)?.commit()
+                val store = checkNotNull(securePrefs(context)) { "Widget credential storage is unavailable" }
+                check(store.edit().putString(KEY_CREDENTIALS, json).commit()) { "Could not persist widget credentials" }
                 break
             } catch (e: Exception) {
                 Log.e(TAG, "Could not store the widget credentials (attempt ${attempt + 1})", e)
                 resetSecure(context)
+                if (attempt == 1) throw IllegalStateException("Could not store widget credentials", e)
             }
         }
         val next = credentials(context)
@@ -121,7 +123,19 @@ object ChartStore {
 
     @Synchronized
     fun setCatalogJson(context: Context, json: String?) {
-        val editor = prefs(context).edit()
+        val previous = catalog(context)
+        val next = json?.let(Catalog::parse)
+        val prefs = prefs(context)
+        val editor = prefs.edit()
+        previous?.pins?.forEach { pin ->
+            val replacement = next?.pin(pin.id)
+            if (previous.host != next?.host || previous.projectId != next?.projectId ||
+                replacement == null || pin.kind != replacement.kind || pin.insightId != replacement.insightId ||
+                pin.dashboardId != replacement.dashboardId
+            ) {
+                editor.remove("$SNAPSHOT_PREFIX${pin.id}").remove("$ERROR_PREFIX${pin.id}")
+            }
+        }
         if (json == null) editor.remove(KEY_CATALOG) else editor.putString(KEY_CATALOG, json)
         editor.commit()
     }

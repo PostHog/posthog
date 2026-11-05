@@ -63,7 +63,7 @@ object ChartFetcher {
         } catch (e: IOException) {
             return Outcome.Failure(ErrorKind.NETWORK)
         } catch (e: JSONException) {
-            Log.w(TAG, "Pin ${pin.id} answered with JSON the widget cannot read", e)
+            Log.w(TAG, "Pin ${pin.id} answered with JSON the widget cannot read")
             return Outcome.Failure(ErrorKind.BAD_DATA)
         } catch (e: BadDataException) {
             Log.w(TAG, "Pin ${pin.id} is not a trends result: ${e.message}")
