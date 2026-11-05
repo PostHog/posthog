@@ -11,14 +11,18 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardMode } from '~/types'
 
+import {
+    EditModeActions,
+    FullscreenModeActions,
+    ViewModeActions,
+} from 'products/dashboards/frontend/DashboardHeaderActions'
+import { DashboardModals } from 'products/dashboards/frontend/DashboardModals'
+import { DashboardSceneMenuBar } from 'products/dashboards/frontend/DashboardSceneMenuBar'
+import { DashboardScenePanel } from 'products/dashboards/frontend/DashboardScenePanel'
+import { QuillDashboardHeaderActions } from 'products/dashboards/frontend/QuillDashboardHeaderActions'
 import { useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 
-import { EditModeActions, FullscreenModeActions, ViewModeActions } from './DashboardHeaderActions'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
-import { DashboardModals } from './DashboardModals'
-import { DashboardSceneMenuBar } from './DashboardSceneMenuBar'
-import { DashboardScenePanel } from './DashboardScenePanel'
-import { QuillDashboardHeaderActions } from './QuillDashboardHeaderActions'
 
 export const DASHBOARD_CANNOT_EDIT_MESSAGE =
     "You don't have edit permissions for this dashboard. Ask a dashboard collaborator with edit access to add you."

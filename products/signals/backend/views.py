@@ -29,7 +29,6 @@ from django.db.models import (
     UUIDField,
     Value,
     When,
-    Window,
 )
 from django.db.models.expressions import OrderBy
 from django.db.models.functions import Coalesce
@@ -250,7 +249,11 @@ from products.signals.backend.reviewer_correction_notes import ReviewerCorrectio
 from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
 from products.signals.backend.reviewer_rules import ReviewerRules, ReviewerWriteError, StaleReviewerProposal
 from products.signals.backend.scout_authorship import inbox_hidden_report_filter
-from products.signals.backend.scout_harness.serializers import EmitReportRequestSerializer, EmitReportResponseSerializer
+from products.signals.backend.scout_harness.serializers import (
+    TRIGRAM_INDEXABLE_TEXT,
+    EmitReportRequestSerializer,
+    EmitReportResponseSerializer,
+)
 from products.signals.backend.scout_harness.tools.report_author import (
     AI_PROCESSING_NOT_APPROVED_REASON,
     USER_REPORT_DAILY_LIMIT,
@@ -1344,49 +1347,53 @@ class SignalReportReingestionStatusSerializer(serializers.Serializer):
 
 
 class SignalReportListPagination(FacadeLimitOffsetPagination):
+    # A full search page counts at most this many rows past its end, so `next` still works at any depth.
+    SEARCH_COUNT_HEADROOM = 1000
+
+    count_is_capped: bool = False
+    # How a search page got its count, for the list span. None without a search.
+    search_count_query: Literal["skipped", "bounded"] | None = None
+
     def paginate_queryset(self, queryset, request, view=None):
         # Fetch the page before the count. A page that ends before the limit already gives the
         # total, so the second scan is not needed. A `search` filter rechecks the text of every
-        # candidate report, and that scan costs seconds in a large team.
+        # candidate report, so a full search page counts only up to a cap past its end.
         self.limit = self.get_limit(request)
         if self.limit is None:
             return None
         self.offset = self.get_offset(request)
         self.request = request
-        page, window_count = self._page_by_ids(
-            queryset, self.offset, self.limit, with_window_count=bool(request.query_params.get("search"))
-        )
+        searched = bool(request.query_params.get("search"))
+        page = self._page_by_ids(queryset, self.offset, self.limit)
         if len(page) < self.limit and (page or self.offset == 0):
             self.count = self.offset + len(page)
-        elif window_count is not None:
-            self.count = window_count
+            self.search_count_query = "skipped" if searched else None
+        elif searched:
+            cap = self.offset + self.limit + self.SEARCH_COUNT_HEADROOM
+            bounded_count = queryset.order_by().values("pk")[: cap + 1].count()
+            self.count_is_capped = bounded_count > cap
+            self.count = min(bounded_count, cap)
+            self.search_count_query = "bounded"
         else:
             self.count = self.get_count(queryset)
         if self.count > self.limit and self.template is not None:
             self.display_page_controls = True
         return page
 
-    def _page_by_ids(
-        self, queryset, offset: int, limit: int, *, with_window_count: bool
-    ) -> tuple[list[SignalReport], int | None]:
+    def _page_by_ids(self, queryset, offset: int, limit: int) -> list[SignalReport]:
         # The sort covers every matching report in the team, so it selects ids only. Full rows would
-        # carry the wide report columns and the refund and tracker issue joins through that sort, and
-        # COUNT(*) OVER () would buffer them and spill to disk. The full rows load for the page alone.
-        if with_window_count:
-            rows = list(
-                queryset.annotate(search_total=Window(Count("*"))).values_list("pk", "search_total")[
-                    offset : offset + limit
-                ]
-            )
-            page_ids = [pk for pk, _ in rows]
-            window_count = rows[0][1] if rows else None
-        else:
-            page_ids = list(queryset.values_list("pk", flat=True)[offset : offset + limit])
-            window_count = None
+        # carry the wide report columns and the refund and tracker issue joins through that sort.
+        # The full rows load for the page alone.
+        page_ids = list(queryset.values_list("pk", flat=True)[offset : offset + limit])
         if not page_ids:
-            return [], None
+            return []
         reports = {report.pk: report for report in queryset.filter(pk__in=page_ids).order_by()}
-        return [reports[pk] for pk in page_ids if pk in reports], window_count
+        return [reports[pk] for pk in page_ids if pk in reports]
+
+    def get_paginated_response(self, data):
+        response = super().get_paginated_response(data)
+        response.data["count_is_capped"] = self.count_is_capped
+        return response
 
     def get_paginated_response_schema(self, schema):
         paginated = super().get_paginated_response_schema(schema)
@@ -1408,6 +1415,13 @@ class SignalReportListPagination(FacadeLimitOffsetPagination):
                 "The stored personal ranking that ordered the page when sort=personal. Pass it back as "
                 "ranking_id on later pages, so a new ranking does not reorder them. Null when no personal "
                 "ranking applied, and for every other sort."
+            ),
+        }
+        paginated["properties"]["count_is_capped"] = {
+            "type": "boolean",
+            "description": (
+                "True when `count` stopped at a cap, so it is a lower bound and `next` keeps paging past it. "
+                "Only a search with a full page can cap the count."
             ),
         }
         paginated["properties"]["ranking_pill"] = {
@@ -2145,14 +2159,14 @@ class SignalReportViewSet(
         # `(team, status, promoted_at)` index condition, while `exclude(status=...)` leaves the
         # status as a filter that runs on rows the index already made it read.
         statuses = self._visible_statuses()
+        if not self._report_monitoring_enabled:
+            statuses -= {SignalReport.Status.MONITORING}
         if SignalReport.Status.RESOLVED in statuses:
             statuses |= self._resolved_read_statuses()
         return queryset.filter(status__in=sorted(statuses))
 
     def _visible_statuses(self) -> frozenset[str]:
-        filterable_statuses = self._FILTERABLE_STATUSES
-        if self._report_monitoring_enabled:
-            filterable_statuses |= {SignalReport.Status.MONITORING}
+        filterable_statuses = self._FILTERABLE_STATUSES | {SignalReport.Status.MONITORING}
         status_filter = self.request.query_params.get("status")
         if status_filter:
             statuses = [s.strip() for s in status_filter.split(",") if s.strip()]
@@ -3195,6 +3209,13 @@ class SignalReportViewSet(
         list_span.set_attribute("signals.reports.list.count_only", count_only)
         list_span.set_attribute("signals.reports.list.include_source_metadata", include_source_metadata)
         list_span.set_attribute("signals.reports.list.cached_filters", self._inbox_cached_filters)
+        # The search shape only. The term itself never goes on the span.
+        search = request.query_params.get("search")
+        if search:
+            list_span.set_attribute("signals.reports.list.search.length", len(search))
+            list_span.set_attribute(
+                "signals.reports.list.search.trigram_indexable", bool(TRIGRAM_INDEXABLE_TEXT.search(search))
+            )
 
         with tracer.start_as_current_span("signals.reports.list.queryset"):
             queryset = self.filter_queryset(self.get_queryset())
@@ -3227,6 +3248,12 @@ class SignalReportViewSet(
                     list_span.set_attribute(
                         "signals.reports.list.has_next_page", page_offset + len(report_ids) < total_count
                     )
+            search_count_query = getattr(self.paginator, "search_count_query", None)
+            if search_count_query is not None:
+                list_span.set_attribute("signals.reports.list.search.count_query", search_count_query)
+                list_span.set_attribute(
+                    "signals.reports.list.search.count_capped", getattr(self.paginator, "count_is_capped", False)
+                )
 
         data = self._render_report_rows(reports, include_source_metadata=include_source_metadata)
         self._capture_list_ranking_usage(total_count if page is not None else len(reports))
