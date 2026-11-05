@@ -5,7 +5,6 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
@@ -17,7 +16,6 @@ import { MaxContextInput, createMaxContextHelpers } from '~/scenes/max/maxTypes'
 import { ActivityScope, Breadcrumb, ChartDisplayType, HogQLMathType } from '~/types'
 
 import {
-    evaluationsBackfillsCreate,
     evaluationsBackfillsRetrieve,
     evaluationsCreate,
     evaluationsPartialUpdate,
@@ -35,7 +33,8 @@ import { getUnhealthyProviderKey } from '../settings/providerKeyStateUtils'
 import { EvaluationRunsStats, queryEvaluationRuns, queryEvaluationRunsStats } from '../utils'
 import { evaluationErrorMessage } from './apiErrors'
 import {
-    BACKFILL_START_PENDING_PARAM,
+    BACKFILL_START_PARAM,
+    BACKFILL_START_REQUESTED,
     EVALUATION_NUMERIC_GRADED_HOGQL,
     EVALUATION_NUMERIC_MEAN_HOGQL,
     EVALUATION_SENTIMENT_GRADED_HOGQL,
@@ -64,7 +63,6 @@ import {
 import { EvaluationBackTarget, getEvaluationBackTarget } from './evaluationNavigation'
 import { evaluationReportLogic, persistReportDraft } from './evaluationReportLogic'
 import { patchEvaluation } from './evaluationsApi'
-import { VOLUME_LOOKBACK_DAYS } from './evaluationVolume'
 import { getHogEvalExample } from './hogEvalExamples'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { markEvaluationsOverviewStale } from './overview/evaluationsOverviewLogic'
@@ -217,15 +215,12 @@ function toSentimentEvaluation(evaluation: EvaluationConfig): SentimentEvaluatio
     }
 }
 
-const BACKFILL_START_TIMEOUT_MS = 10_000
-
-/** Starts the past-traffic backfill a new evaluation asked for, or offers it. Returns the URL params to open the evaluation with. */
-async function coverPastTraffic(
-    teamId: number,
+/** Offers past data for a new evaluation, or hands a requested past-traffic check to the Backfills tab. Returns the URL params to open the evaluation with. */
+function coverPastTraffic(
     evaluation: EvaluationConfig | undefined,
     requested: boolean,
     isNew: boolean
-): Promise<Record<string, string>> {
+): Record<string, string> {
     if (!isNew || !evaluation?.id) {
         return {}
     }
@@ -243,35 +238,8 @@ async function coverPastTraffic(
         })
         return {}
     }
-    // The create button stays locked during this request, so a stalled start must not hold it forever.
-    const signal = AbortSignal.timeout(BACKFILL_START_TIMEOUT_MS)
-    try {
-        await evaluationsBackfillsCreate(
-            teamId.toString(),
-            evaluation.id,
-            {
-                window_start: dayjs().subtract(VOLUME_LOOKBACK_DAYS, 'day').toISOString(),
-                window_end: dayjs().toISOString(),
-            },
-            { signal }
-        )
-        lemonToast.success(
-            `Checking the last ${VOLUME_LOOKBACK_DAYS} days of traffic. Follow it in the Backfills tab.`,
-            {
-                autoClose: 15000,
-            }
-        )
-    } catch {
-        // A timed-out request can still start the backfill on the server, so it does not claim a failure.
-        if (signal.aborted) {
-            lemonToast.info('Checking past traffic is taking longer than usual. See its status in the Backfills tab.')
-            return { evaluation_tab: 'backfills', [BACKFILL_START_PENDING_PARAM]: 'pending' }
-        }
-        lemonToast.error(
-            'The evaluation was created, but checking past traffic didn’t start. Try again from the Backfills tab.'
-        )
-    }
-    return { evaluation_tab: 'backfills' }
+    // The Backfills tab counts the range and starts the run, with its own errors and polling.
+    return { evaluation_tab: 'backfills', [BACKFILL_START_PARAM]: BACKFILL_START_REQUESTED }
 }
 
 function filterEvaluationRuns(
@@ -1665,8 +1633,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                           props.evaluationId,
                           evaluationData as Parameters<typeof evaluationsPartialUpdate>[2]
                       )) as unknown as EvaluationConfig
-                // Before the success action, so the create button stays locked until the page navigates away.
-                const openParams = await coverPastTraffic(teamId, response, isNew && values.checkPastTraffic, isNew)
+                const openParams = coverPastTraffic(response, values.checkPastTraffic, isNew)
                 actions.saveEvaluationSuccess(response)
                 // The list and the self-driving table read from llmEvaluationsLogic, which only
                 // fetches on mount. Refresh it here so they show the eval we just saved.

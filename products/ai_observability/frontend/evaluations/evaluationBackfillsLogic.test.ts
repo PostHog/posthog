@@ -462,16 +462,17 @@ describe('evaluationBackfillsLogic', () => {
         expect(logic.cache.disposables.registry.has('backfillPoll')).toBe(false)
     })
 
-    it('keeps polling an empty list while a timed-out start may still land, then polls only for the run', async () => {
-        router.actions.push(router.values.location.pathname, { backfill_start: 'pending' })
+    it('starts the default range once counted when a create asked for it, and only once', async () => {
+        router.actions.push(router.values.location.pathname, { backfill_start: 'requested' })
         mountLogic()
-        await expectLogic(logic).toDispatchActions(['loadBackfillsSuccess'])
-        expect(logic.cache.disposables.registry.has('backfillPoll')).toBe(true)
+        await expectLogic(logic).toDispatchActions(['requestEstimateSuccess', 'createBackfill', 'createBackfillDone'])
 
-        listMock.mockResolvedValue({ count: 1, results: [backfill({ status: 'completed' })] })
-        logic.actions.loadBackfills(true)
-        await expectLogic(logic).toDispatchActions(['loadBackfillsSuccess'])
-        expect(logic.cache.disposables.registry.has('backfillPoll')).toBe(false)
+        expect(createMock).toHaveBeenCalledTimes(1)
+        expect(router.values.searchParams.backfill_start).toBeUndefined()
+
+        logic.actions.requestEstimateSuccess(estimate())
+        await expectLogic(logic).toFinishAllListeners()
+        expect(createMock).toHaveBeenCalledTimes(1)
     })
 
     it('keeps polling a finished run until its coverage lands', async () => {

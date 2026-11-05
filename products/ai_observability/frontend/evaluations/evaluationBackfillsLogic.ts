@@ -25,7 +25,7 @@ import type {
 } from '../generated/api.schemas'
 import { evaluationErrorMessage } from './apiErrors'
 import { backfillRangeDateFormat } from './backfillConditions'
-import { BACKFILL_START_PENDING_PARAM } from './constants'
+import { BACKFILL_START_PARAM, BACKFILL_START_REQUESTED } from './constants'
 import { hasUnsetConditionRollout, llmEvaluationLogic, normalizeConditionRollouts } from './llmEvaluationLogic'
 import type { EvaluationConditionSet } from './types'
 import type { EvaluationConfig } from './types'
@@ -96,7 +96,6 @@ function backfillErrorMessage(error: unknown, fallback: string): string {
 // How long a finished run keeps refreshing while its coverage count is still on its way. It
 // matches the counting activity's own schedule-to-close, so a retried count is not missed.
 const COVERAGE_GRACE_SECONDS = 600
-const BACKFILL_START_WAIT_MS = 120_000
 
 /** Each consecutive list failure doubles the wait, so an API that is already struggling is not
  * polled at full rate. The wait returns to the base interval as soon as one load succeeds. */
@@ -108,7 +107,6 @@ function pollDelayMs(consecutiveFailures: number): number {
 export interface evaluationBackfillsLogicValues {
     evaluation: EvaluationConfig | null // llmEvaluationLogic
     timezone: string // teamLogic
-    awaitingStartUntil: number | null
     backfills: EvaluationBackfillApi[]
     backfillsError: string | null
     backfillsLoading: boolean
@@ -146,9 +144,6 @@ export interface evaluationBackfillsLogicActions {
     saveEvaluationSuccess: (evaluation: EvaluationConfig) => {
         evaluation: EvaluationConfig
     } // llmEvaluationLogic
-    awaitStart: (until: number) => {
-        until: number
-    }
     cancelBackfill: (id: string) => {
         id: string
     }
@@ -218,11 +213,7 @@ export interface evaluationBackfillsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         hasActiveBackfill: (backfills: EvaluationBackfillApi[]) => boolean
-        shouldPoll: (
-            backfills: EvaluationBackfillApi[],
-            hasActiveBackfill: boolean,
-            awaitingStartUntil: number | null
-        ) => boolean
+        shouldPoll: (backfills: EvaluationBackfillApi[], hasActiveBackfill: boolean) => boolean
         unit: (
             estimate: EvaluationBackfillEstimateApi | null,
             evaluation: EvaluationConfig | null
@@ -284,7 +275,6 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
         requestEstimateFailure: (error: string | null) => ({ error }),
         createBackfill: true,
         createBackfillDone: (succeeded: boolean) => ({ succeeded }),
-        awaitStart: (until: number) => ({ until }),
         cancelBackfill: (id: string) => ({ id }),
         retryBackfill: (id: string) => ({ id }),
         transitionBackfillDone: (id: string) => ({ id }),
@@ -299,13 +289,6 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
 
     reducers({
         backfills: [[] as EvaluationBackfillApi[], { loadBackfillsSuccess: (_, { backfills }) => backfills }],
-        awaitingStartUntil: [
-            null as number | null,
-            {
-                awaitStart: (_, { until }) => until,
-                loadBackfillsSuccess: (state, { backfills }) => (backfills.length > 0 ? null : state),
-            },
-        ],
         backfillsError: [
             null as string | null,
             {
@@ -394,15 +377,9 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
         // row that will never be counted, from before coverage was recorded or after a failed
         // count, from polling forever.
         shouldPoll: [
-            (s) => [s.backfills, s.hasActiveBackfill, s.awaitingStartUntil],
-            (
-                backfills: EvaluationBackfillApi[],
-                hasActiveBackfill: boolean,
-                awaitingStartUntil: number | null
-            ): boolean =>
+            (s) => [s.backfills, s.hasActiveBackfill],
+            (backfills: EvaluationBackfillApi[], hasActiveBackfill: boolean): boolean =>
                 hasActiveBackfill ||
-                // Each poll stores a new list, so this re-reads the clock and stops once the wait runs out.
-                (awaitingStartUntil !== null && Date.now() < awaitingStartUntil) ||
                 backfills.some(
                     (b) =>
                         b.status === 'completed' &&
@@ -581,6 +558,15 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
             },
             loadBackfillsSuccess: schedulePoll,
             loadBackfillsFailure: schedulePoll,
+            requestEstimateSuccess: () => {
+                if (!cache.startWhenCounted) {
+                    return
+                }
+                cache.startWhenCounted = false
+                if (!values.startDisabledReason) {
+                    actions.createBackfill()
+                }
+            },
             seedConditions: () => actions.requestEstimate(),
             setWindowRange: () => actions.requestEstimate(),
             setConditions: () => actions.requestEstimate(),
@@ -717,15 +703,18 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
         }
     }),
 
-    afterMount(({ actions, values, props }) => {
+    afterMount(({ actions, values, props, cache }) => {
         // Only the Backfills tab mounts this logic, so a mount is a view of the tab.
         posthog.capture('llma evaluation backfills tab viewed', {
             evaluation_id: props.evaluationId,
             evaluation_type: values.evaluation?.evaluation_type,
             target: values.evaluation?.target,
         })
-        if (router.values.searchParams[BACKFILL_START_PENDING_PARAM] === 'pending') {
-            actions.awaitStart(Date.now() + BACKFILL_START_WAIT_MS)
+        const { [BACKFILL_START_PARAM]: startRequest, ...searchParams } = router.values.searchParams
+        if (startRequest === BACKFILL_START_REQUESTED) {
+            cache.startWhenCounted = true
+            // Dropped from the URL so a refresh does not start a second backfill.
+            router.actions.replace(router.values.location.pathname, searchParams, router.values.hashParams)
         }
         actions.loadBackfills()
         if (values.evaluation) {

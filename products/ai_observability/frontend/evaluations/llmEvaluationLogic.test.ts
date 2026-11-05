@@ -2,7 +2,6 @@ import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
-import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { urls } from 'scenes/urls'
 
@@ -16,7 +15,6 @@ import { modelPickerLogic } from '../modelPickerLogic'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { EVALUATION_RUNS_QUERY_LIMIT, numericScorePasses } from './constants'
 import { evaluationReportLogic } from './evaluationReportLogic'
-import { VOLUME_LOOKBACK_DAYS } from './evaluationVolume'
 import { DEFAULT_HOG_SOURCE, llmEvaluationLogic } from './llmEvaluationLogic'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { EvaluationConfig, EvaluationReport, EvaluationRun } from './types'
@@ -2297,23 +2295,19 @@ return result`,
 
     describe('saveEvaluation past traffic', () => {
         it.each([
-            { enabled: true, expectedBackfills: 1, expectedTab: 'backfills', offersPastData: false },
-            { enabled: false, expectedBackfills: 0, expectedTab: undefined, offersPastData: true },
+            { enabled: true, expectedTab: 'backfills', expectedStart: 'requested', offersPastData: false },
+            { enabled: false, expectedTab: null, expectedStart: null, offersPastData: true },
         ])(
-            'a new evaluation created enabled=$enabled starts $expectedBackfills backfills',
-            async ({ enabled, expectedBackfills, expectedTab, offersPastData }) => {
+            'a new evaluation created enabled=$enabled asks the Backfills tab to start: $expectedStart',
+            async ({ enabled, expectedTab, expectedStart, offersPastData }) => {
                 const pushSpy = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
                 const infoSpy = jest.spyOn(lemonToast, 'info')
-                const backfillPayloads: { window_start: string; window_end: string }[] = []
-                let submittingDuringBackfill: boolean | null = null
+                let backfillRequests = 0
                 useMocks({
                     post: {
                         '/api/projects/:teamId/evaluations/': () => ({ ...mockSentimentEvaluation, enabled }),
-                        '/api/projects/:teamId/evaluations/:id/backfills/': async ({ request }) => {
-                            submittingDuringBackfill = logic.values.evaluationFormSubmitting
-                            backfillPayloads.push(
-                                (await request.json()) as { window_start: string; window_end: string }
-                            )
+                        '/api/projects/:teamId/evaluations/:id/backfills/': () => {
+                            backfillRequests += 1
                             return [201, {}]
                         },
                     },
@@ -2329,16 +2323,10 @@ return result`,
                     await expectLogic(logic).toDispatchActions(['saveEvaluationSuccess'])
                     await expectLogic(logic).toFinishAllListeners()
 
-                    expect(backfillPayloads).toHaveLength(expectedBackfills)
-                    expect(submittingDuringBackfill).toBe(expectedBackfills ? true : null)
-                    if (expectedBackfills) {
-                        const [{ window_start, window_end }] = backfillPayloads
-                        expect(dayjs(window_end).diff(dayjs(window_start), 'day')).toBe(VOLUME_LOOKBACK_DAYS)
-                    }
-                    const pushedUrl = String(pushSpy.mock.calls.at(-1)?.[0])
-                    expect(new URL(pushedUrl, 'http://x').searchParams.get('evaluation_tab') ?? undefined).toBe(
-                        expectedTab
-                    )
+                    expect(backfillRequests).toBe(0)
+                    const params = new URL(String(pushSpy.mock.calls.at(-1)?.[0]), 'http://x').searchParams
+                    expect(params.get('evaluation_tab')).toBe(expectedTab)
+                    expect(params.get('backfill_start')).toBe(expectedStart)
                     expect(
                         infoSpy.mock.calls.some(
                             ([message]) => message === 'This evaluation grades new data from now on.'
