@@ -259,7 +259,10 @@ export async function finalizeToolbarBuild(dirname, buildResponse) {
 //   dist/toolbar-extension/posthog-toolbar-chrome-<version>.zip
 const TOOLBAR_EXTENSION_OUT_DIR = 'toolbar-extension'
 
-const TOOLBAR_EXTENSION_VERSION = '0.1.0'
+// The release workflow bumps this version from Sampo changesets. See "Releases" in src/toolbar/extension/README.md.
+const TOOLBAR_EXTENSION_VERSION = JSON.parse(
+    fs.readFileSync(new URL('./src/toolbar/extension/release/package.json', import.meta.url), 'utf8')
+).version
 
 const TOOLBAR_EXTENSION_BUILD_DIR = 'toolbar-extension-build'
 
