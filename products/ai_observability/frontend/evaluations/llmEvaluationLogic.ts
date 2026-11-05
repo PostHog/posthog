@@ -33,8 +33,6 @@ import { getUnhealthyProviderKey } from '../settings/providerKeyStateUtils'
 import { EvaluationRunsStats, queryEvaluationRuns, queryEvaluationRunsStats } from '../utils'
 import { evaluationErrorMessage } from './apiErrors'
 import {
-    BACKFILL_START_PARAM,
-    BACKFILL_START_REQUESTED,
     EVALUATION_NUMERIC_GRADED_HOGQL,
     EVALUATION_NUMERIC_MEAN_HOGQL,
     EVALUATION_SENTIMENT_GRADED_HOGQL,
@@ -66,6 +64,7 @@ import { patchEvaluation } from './evaluationsApi'
 import { getHogEvalExample } from './hogEvalExamples'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { markEvaluationsOverviewStale } from './overview/evaluationsOverviewLogic'
+import { requestBackfillStart } from './pendingBackfillStarts'
 import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
 import type {
     EvaluationConditionSet,
@@ -239,7 +238,8 @@ function coverPastTraffic(
         return {}
     }
     // The Backfills tab counts the range and starts the run, with its own errors and polling.
-    return { evaluation_tab: 'backfills', [BACKFILL_START_PARAM]: BACKFILL_START_REQUESTED }
+    requestBackfillStart(evaluation.id)
+    return { evaluation_tab: 'backfills' }
 }
 
 function filterEvaluationRuns(

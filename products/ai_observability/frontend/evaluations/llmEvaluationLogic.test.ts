@@ -17,6 +17,7 @@ import { EVALUATION_RUNS_QUERY_LIMIT, numericScorePasses } from './constants'
 import { evaluationReportLogic } from './evaluationReportLogic'
 import { DEFAULT_HOG_SOURCE, llmEvaluationLogic } from './llmEvaluationLogic'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
+import { takeBackfillStart } from './pendingBackfillStarts'
 import { EvaluationConfig, EvaluationReport, EvaluationRun } from './types'
 
 const mockProviderKeys: LLMProviderKey[] = [
@@ -2295,11 +2296,11 @@ return result`,
 
     describe('saveEvaluation past traffic', () => {
         it.each([
-            { enabled: true, expectedTab: 'backfills', expectedStart: 'requested', offersPastData: false },
-            { enabled: false, expectedTab: null, expectedStart: null, offersPastData: true },
+            { enabled: true, expectedTab: 'backfills', requestsStart: true, offersPastData: false },
+            { enabled: false, expectedTab: null, requestsStart: false, offersPastData: true },
         ])(
-            'a new evaluation created enabled=$enabled asks the Backfills tab to start: $expectedStart',
-            async ({ enabled, expectedTab, expectedStart, offersPastData }) => {
+            'a new evaluation created enabled=$enabled asks the Backfills tab to start: $requestsStart',
+            async ({ enabled, expectedTab, requestsStart, offersPastData }) => {
                 const pushSpy = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
                 const infoSpy = jest.spyOn(lemonToast, 'info')
                 let backfillRequests = 0
@@ -2326,7 +2327,9 @@ return result`,
                     expect(backfillRequests).toBe(0)
                     const params = new URL(String(pushSpy.mock.calls.at(-1)?.[0]), 'http://x').searchParams
                     expect(params.get('evaluation_tab')).toBe(expectedTab)
-                    expect(params.get('backfill_start')).toBe(expectedStart)
+                    // The request stays in memory, never in a URL someone could share.
+                    expect(params.get('backfill_start')).toBeNull()
+                    expect(takeBackfillStart(mockSentimentEvaluation.id)).toBe(requestsStart)
                     expect(
                         infoSpy.mock.calls.some(
                             ([message]) => message === 'This evaluation grades new data from now on.'

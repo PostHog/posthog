@@ -275,8 +275,3 @@ export function decisionModelHint(outputType: EvaluationOutputType): string {
           ? 'This decision model estimates a score between your minimum and maximum without written reasoning. Define what low and high scores mean in your evaluation prompt. Scores can be fractional.'
           : 'This decision model returns a probability without written reasoning. The decision threshold determines whether the result is true.'
 }
-
-// pinned: URL param and value. A create that asked to evaluate past traffic opens the Backfills tab with
-// them, and the tab starts the backfill for its default range once it has counted it.
-export const BACKFILL_START_PARAM = 'backfill_start'
-export const BACKFILL_START_REQUESTED = 'requested'

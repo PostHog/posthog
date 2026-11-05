@@ -1,5 +1,4 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
@@ -25,8 +24,8 @@ import type {
 } from '../generated/api.schemas'
 import { evaluationErrorMessage } from './apiErrors'
 import { backfillRangeDateFormat } from './backfillConditions'
-import { BACKFILL_START_PARAM, BACKFILL_START_REQUESTED } from './constants'
 import { hasUnsetConditionRollout, llmEvaluationLogic, normalizeConditionRollouts } from './llmEvaluationLogic'
+import { takeBackfillStart } from './pendingBackfillStarts'
 import type { EvaluationConditionSet } from './types'
 import type { EvaluationConfig } from './types'
 
@@ -558,12 +557,9 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
             },
             loadBackfillsSuccess: schedulePoll,
             loadBackfillsFailure: schedulePoll,
+            // A count cut short by leaving the tab never lands here, so the request waits for the next visit.
             requestEstimateSuccess: () => {
-                if (!cache.startWhenCounted) {
-                    return
-                }
-                cache.startWhenCounted = false
-                if (!values.startDisabledReason) {
+                if (takeBackfillStart(props.evaluationId) && !values.startDisabledReason) {
                     actions.createBackfill()
                 }
             },
@@ -703,19 +699,13 @@ export const evaluationBackfillsLogic = kea<evaluationBackfillsLogicType>([
         }
     }),
 
-    afterMount(({ actions, values, props, cache }) => {
+    afterMount(({ actions, values, props }) => {
         // Only the Backfills tab mounts this logic, so a mount is a view of the tab.
         posthog.capture('llma evaluation backfills tab viewed', {
             evaluation_id: props.evaluationId,
             evaluation_type: values.evaluation?.evaluation_type,
             target: values.evaluation?.target,
         })
-        const { [BACKFILL_START_PARAM]: startRequest, ...searchParams } = router.values.searchParams
-        if (startRequest === BACKFILL_START_REQUESTED) {
-            cache.startWhenCounted = true
-            // Dropped from the URL so a refresh does not start a second backfill.
-            router.actions.replace(router.values.location.pathname, searchParams, router.values.hashParams)
-        }
         actions.loadBackfills()
         if (values.evaluation) {
             actions.seedConditions(values.evaluation.conditions.map(toBackfillCondition))

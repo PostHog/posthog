@@ -22,6 +22,7 @@ import {
 import type { EvaluationBackfillApi, EvaluationBackfillEstimateApi } from '../generated/api.schemas'
 import { evaluationBackfillsLogic } from './evaluationBackfillsLogic'
 import { llmEvaluationLogic } from './llmEvaluationLogic'
+import { requestBackfillStart } from './pendingBackfillStarts'
 import type { EvaluationConfig } from './types'
 
 jest.mock('../generated/api', () => ({
@@ -463,15 +464,31 @@ describe('evaluationBackfillsLogic', () => {
     })
 
     it('starts the default range once counted when a create asked for it, and only once', async () => {
-        router.actions.push(router.values.location.pathname, { backfill_start: 'requested' })
+        requestBackfillStart(EVALUATION_ID)
         mountLogic()
         await expectLogic(logic).toDispatchActions(['requestEstimateSuccess', 'createBackfill', 'createBackfillDone'])
-
         expect(createMock).toHaveBeenCalledTimes(1)
-        expect(router.values.searchParams.backfill_start).toBeUndefined()
 
         logic.actions.requestEstimateSuccess(estimate())
         await expectLogic(logic).toFinishAllListeners()
+        expect(createMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('starts nothing from a link that only claims a start was requested', async () => {
+        router.actions.push(router.values.location.pathname, { backfill_start: 'requested' })
+        mountLogic()
+        await expectLogic(logic).toDispatchActions(['requestEstimateSuccess'])
+        await expectLogic(logic).toFinishAllListeners()
+        expect(createMock).not.toHaveBeenCalled()
+    })
+
+    it('still starts a requested backfill after leaving the tab before the count landed', async () => {
+        requestBackfillStart(EVALUATION_ID)
+        mountLogic()
+        logic.unmount()
+
+        mountLogic()
+        await expectLogic(logic).toDispatchActions(['createBackfill', 'createBackfillDone'])
         expect(createMock).toHaveBeenCalledTimes(1)
     })
 
