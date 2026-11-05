@@ -318,6 +318,11 @@ Leaves are evaluated with the Rust HogVM, configured the same way in every proce
   The batch calculation reads an untyped or String-typed property as its JSON text, so `$feature/<flag> = 'variant'` skips events where the flag was off on both paths.
   It reads a Boolean-typed property through a case-sensitive `transform` of that text, so a stored string `"True"` does not equal the constant `true` on either path.
   A bare read and an ordering of a boolean keep boolean semantics.
+- A top-level person property stored as `""` or `"null"` reads as null, as the batch calculation reads one through a `pmat_` column or a Numeric, DateTime or Boolean property definition.
+  So `is_set` is false, `is_not_set` is true, and `exact ""` matches no person.
+  A text operator such as `icontains` or `regex` reads that null as the text `null`, as it reads a missing key.
+  For a person property with neither, which includes a String-typed one without a `pmat_` column, the batch calculation reads the JSON blob, which keeps both texts, and the two paths disagree.
+  Event properties keep both texts, because cloud reads an event property without a `mat_` column through its property group, which keeps them too.
 - A program that fails at runtime, calls an unknown function, or returns a non-boolean counts as `false`.
   Failures are counted by reason.
 - An event with malformed `properties` JSON skips only the behavioral side.
