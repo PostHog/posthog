@@ -1,5 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
+import posthog from 'posthog-js'
+
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -57,6 +60,20 @@ describe('visualReviewRunSceneLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+    })
+
+    it('shows not found for a missing run without a toast or an error report', async () => {
+        logic.unmount()
+        const captureException = jest.spyOn(posthog, 'captureException')
+        const toastError = jest.spyOn(lemonToast, 'error')
+        logic = visualReviewRunSceneLogic({ runId: RUN_ID })
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['setRunNotFound', 'loadRunSuccess', 'loadSnapshotsSuccess'])
+            .toMatchValues({ runNotFound: true, run: null })
+        expect(captureException).not.toHaveBeenCalled()
+        expect(toastError).not.toHaveBeenCalled()
     })
 
     it('drops the previous snapshot tolerations when the next load fails', async () => {

@@ -18,7 +18,7 @@ import {
 import type { FlakinessEntryApi, FlakinessOverviewApi, RepoApi } from '../generated/api.schemas'
 import { parseArea, runTypeLabel } from '../lib/parseIdentifier'
 import { repoBreadcrumbs } from '../lib/repoBreadcrumbs'
-import { resolveRepoId } from '../lib/repoIds'
+import { resolveRepoId, resolveRepoIdOrNull } from '../lib/repoIds'
 import { repoFullNameFromParams, splitRepoFullName } from '../lib/repoPaths'
 import { visualReviewRepoLogic } from './visualReviewRepoLogic'
 
@@ -420,7 +420,10 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
             {
                 loadOverview: async () => {
                     const projectId = String(values.currentProjectId)
-                    const repoId = await resolveRepoId(projectId, props.repoFullName)
+                    const repoId = await resolveRepoIdOrNull(projectId, props.repoFullName)
+                    if (!repoId) {
+                        return null
+                    }
                     return visualReviewReposFlakinessRetrieve(projectId, repoId)
                 },
             },
