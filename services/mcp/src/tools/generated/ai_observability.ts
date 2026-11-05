@@ -610,6 +610,8 @@ const llmaDatasetList = (): ToolBase<
                     'tags',
                     'archived',
                     'current_revision',
+                    'expires_at',
+                    'expiring_soon',
                     'created_at',
                     'updated_at',
                     'user_access_level',
@@ -674,7 +676,15 @@ const llmaDatasetRevisionList = (): ToolBase<
         const filtered = {
             ...result,
             results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, ['id', 'dataset_id', 'revision', 'created_at', 'created_by'])
+                pickResponseFields(item, [
+                    'id',
+                    'dataset_id',
+                    'revision',
+                    'expires_at',
+                    'expiring_soon',
+                    'created_at',
+                    'created_by',
+                ])
             ),
         } as typeof result
         return withInformationalResponse(

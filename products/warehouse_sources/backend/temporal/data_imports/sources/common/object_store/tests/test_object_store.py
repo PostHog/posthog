@@ -7,7 +7,7 @@ import tempfile
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import IO, Any, Literal, cast
 
 import pytest
 from unittest.mock import MagicMock, call, patch
@@ -103,6 +103,22 @@ LOGGER = structlog.get_logger()
 
 def stored(path: str) -> StoredObject:
     return StoredObject(path=path, size=10, modified_at=MODIFIED_AT)
+
+
+class _FsspecLikeFile:
+    """Like an fsspec file, `readline` takes no size."""
+
+    def __init__(self, content: bytes) -> None:
+        self._buffer = io.BytesIO(content)
+
+    def readable(self) -> bool:
+        return True
+
+    def read(self, size: int = -1) -> bytes:
+        return self._buffer.read(size)
+
+    def readline(self) -> bytes:
+        return self._buffer.readline()
 
 
 def local_store(root: Path) -> ObjectStore:
@@ -1122,6 +1138,21 @@ class TestFileSelection:
 
         assert len(tables) == 2
         assert [number for table in tables for number in table["_file_row_number"].to_pylist()] == list(range(rows))
+
+    @parameterized.expand(
+        [
+            ("csv", "orders.csv", b"id,name\n1,a\n2,b\n", "csv"),
+            ("jsonl", "orders.jsonl", b'{"id":1,"name":"a"}\n{"id":2,"name":"b"}\n', "jsonl"),
+        ]
+    )
+    def test_reads_a_stream_whose_readline_takes_no_size(
+        self, _name: str, path: str, content: bytes, file_format: Literal["csv", "jsonl"]
+    ) -> None:
+        stream = cast(IO[bytes], _FsspecLikeFile(content))
+
+        tables = list(iter_file_tables(stream, stored(path), file_format, CsvOptions()))
+
+        assert [str(value) for table in tables for value in table["id"].to_pylist()] == ["1", "2"]
 
     def test_row_numbers_continue_across_the_batches_of_a_gzipped_parquet_file(self) -> None:
         rows = PARQUET_BATCH_ROWS + 3

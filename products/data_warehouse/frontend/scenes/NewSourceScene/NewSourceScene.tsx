@@ -45,6 +45,7 @@ import { BillingLimitNotice } from './components/BillingLimitNotice'
 import { DestinationStep } from './components/DestinationStep'
 import { FileUploadSourceForm } from './components/FileUploadSourceForm'
 import { SelfManagedSourceForm } from './components/SelfManagedSourceForm'
+import { WebhookStepFallback } from './components/WebhookStepFallback'
 import { FILE_UPLOAD_SOURCE_NAME } from './fileUploadSource'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
 import { SourceCatalog } from './SourceCatalog'
@@ -696,18 +697,20 @@ function WebhookSetupStep({
         .map((s) => ({ name: s.table, label: s.label }))
 
     return (
-        <WebhookSetupForm
-            sourceName={selectedConnector?.label ?? selectedConnector?.name ?? 'source'}
-            sourceConfig={selectedConnector}
-            webhookTables={webhookTables}
-            webhookResult={webhookResult}
-            webhookCreating={webhookCreating}
-            webhookFieldsSubmitting={isWebhookFieldInputsSubmitting}
-            onCreateWebhook={createWebhook}
-            formLogic={sourceWizardLogicProps ? sourceWizardLogic(sourceWizardLogicProps) : sourceWizardLogic}
-            formKey="webhookFieldInputs"
-            isWizardStep
-        />
+        <div className="flex flex-col gap-4">
+            <WebhookSetupForm
+                sourceName={selectedConnector?.label ?? selectedConnector?.name ?? 'source'}
+                sourceConfig={selectedConnector}
+                webhookTables={webhookTables}
+                webhookResult={webhookResult}
+                webhookCreating={webhookCreating}
+                webhookFieldsSubmitting={isWebhookFieldInputsSubmitting}
+                onCreateWebhook={createWebhook}
+                formLogic={sourceWizardLogicProps ? sourceWizardLogic(sourceWizardLogicProps) : sourceWizardLogic}
+                formKey="webhookFieldInputs"
+            />
+            <WebhookStepFallback webhookTableCount={webhookTables.length} />
+        </div>
     )
 }
 

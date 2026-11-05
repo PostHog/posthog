@@ -1,6 +1,10 @@
+import { router } from 'kea-router'
+
+import { searchListsLogic } from 'lib/components/Search/searchListsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import type { SettingSectionId } from '~/scenes/settings/types'
 import { initKeaTests } from '~/test/init'
 
 import { commandKSearchLogic } from './commandKSearchLogic'
@@ -21,13 +25,20 @@ describe('commandKSearchLogic', () => {
         ['typing', (): void => logic.actions.inputChanged('revenue', 7, false)],
         ['clearing the input', (): void => logic.actions.clearQuery()],
         ['removing a chip', (): void => logic.actions.applyKeyIntent({ type: 'remove-chip', index: 0 })],
-    ])('a new query from %s drops the remembered highlight', (_, changeQuery) => {
+    ])('a new query from %s drops the remembered highlight and collapses expanded groups', (_, changeQuery) => {
         logic.actions.setChipsAndText([{ key: 'is', value: 'dashboard', label: 'Dashboard', negated: false }], 'rev', 3)
         logic.actions.setHighlightedKey('recents/dashboard:1')
+        logic.actions.activateRow(
+            { kind: 'expand', key: 'group-settings/expand', group: 'settings', label: 'Show all 11 settings' },
+            false,
+            'enter'
+        )
+        expect(logic.values.expandedGroups).toEqual(['settings'])
 
         changeQuery()
 
         expect(logic.values.highlightedKey).toBeNull()
+        expect(logic.values.expandedGroups).toEqual([])
     })
 
     test.each([
@@ -106,5 +117,67 @@ describe('commandKSearchLogic', () => {
 
         expect(logic.values.chips).toEqual([expect.objectContaining({ key: 'is', value: 'insight', negated: false })])
         expect(logic.values.text).toEqual('revenue')
+    })
+
+    it('moves the highlight to the first new setting when a Show all row from an earlier render is clicked', () => {
+        searchListsLogic({ commandPalette: true }).actions.setSettingsMap(
+            Array.from({ length: 10 }, (_, index) => ({
+                id: `user-zebra-${index}` as SettingSectionId,
+                level: 'user' as const,
+                title: `Zebra ${index}`,
+                settings: [],
+            }))
+        )
+        logic.actions.inputChanged('zebra', 5, false)
+        const query = logic.values.remoteQueries.results as string
+        logic.actions.remoteLoaded(query, {
+            results: [
+                {
+                    id: 'dashboard-1',
+                    name: 'Zebra board',
+                    category: 'results',
+                    record: { type: 'dashboard', ref: '1' },
+                    rankKey: [-1, 0, 0, 0, -1, 0, 1, 0, 0],
+                },
+            ],
+        })
+        const renderedRow = logic.values.selectableRows.find((row) => row.kind === 'expand')
+        expect(renderedRow).toBeTruthy()
+        const index = logic.values.selectableRows.indexOf(renderedRow!)
+
+        logic.actions.remoteLoaded(query, { persons: [] })
+        expect(logic.values.selectableRows).not.toContain(renderedRow)
+        logic.actions.activateRow(renderedRow!, false, 'click')
+
+        const revealed = logic.values.selectableRows[index]
+        expect(revealed).toMatchObject({ kind: 'item', item: { category: 'settings' } })
+        expect(logic.values.highlightedKey).toBe(revealed.key)
+    })
+
+    it('scrolls back to a setting when its result is opened on the page that already shows it', () => {
+        router.actions.push('/settings/project-customization#base-currency')
+        const heading = document.createElement('h2')
+        heading.id = 'base-currency'
+        heading.scrollIntoView = jest.fn()
+        document.body.appendChild(heading)
+
+        logic.actions.activateRow(
+            {
+                kind: 'item',
+                key: 'group-settings/settings-project-customization-base-currency',
+                section: 'settings',
+                item: {
+                    id: 'settings-project-customization-base-currency',
+                    name: 'Base currency',
+                    category: 'settings',
+                    href: '/settings/project-customization#base-currency',
+                },
+            },
+            false,
+            'enter'
+        )
+
+        expect(heading.scrollIntoView).toHaveBeenCalled()
+        heading.remove()
     })
 })
