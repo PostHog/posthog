@@ -23,14 +23,18 @@ function emailSenderIds(workflow: HogFlow): string[] {
     return ids.filter((id) => id !== null && id !== undefined).map(String)
 }
 
+export function sendsFromSandboxSender(workflow: HogFlow, integrations: IntegrationType[]): boolean {
+    const sandboxIds = new Set(integrations.filter(isSandboxEmailSender).map((integration) => String(integration.id)))
+    return emailSenderIds(workflow).some((id) => sandboxIds.has(id))
+}
+
 /** Mirrors is_convertible_to_broadcast on the server, which still checks on the move. */
 export function canMoveToBroadcasts(workflow: HogFlow | null, integrations: IntegrationType[] | null): boolean {
     if (!workflow || !integrations) {
         return false
     }
-    const sandboxIds = new Set(integrations.filter(isSandboxEmailSender).map((integration) => String(integration.id)))
     return (
-        !emailSenderIds(workflow).some((id) => sandboxIds.has(id)) &&
+        !sendsFromSandboxSender(workflow, integrations) &&
         !workflow.origin_product &&
         workflow.status !== 'archived' &&
         workflow.exit_condition === 'exit_only_at_end' &&
