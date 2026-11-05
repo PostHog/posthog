@@ -2790,6 +2790,10 @@ def auto_enable_new_schemas(
     return enabled
 
 
+# The frequencies a user may set. `1min` stays readable for schemas created before the 5-minute floor.
+SETTABLE_SYNC_FREQUENCIES = ("never", "5min", "15min", "30min", "1hour", "6hour", "12hour", "24hour", "7day", "30day")
+
+
 def sync_frequency_to_sync_frequency_interval(frequency: str) -> timedelta | None:
     if frequency == "never":
         return None
