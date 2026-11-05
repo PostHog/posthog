@@ -246,6 +246,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'webhook:write',
     'workload_trust_policy:read',
     'workload_trust_policy:write',
+    'workload_trust_policy_request:read',
+    'workload_trust_policy_request:write',
 ] as const
 
 export type OAuthScope = (typeof OAUTH_SCOPES_SUPPORTED)[number]

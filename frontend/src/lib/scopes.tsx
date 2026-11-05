@@ -171,6 +171,12 @@ export const API_SCOPES: APIScope[] = [
         objectPlural: 'workload trust policies',
         disabledActions: ['write'],
     },
+    {
+        key: 'workload_trust_policy_request',
+        objectName: 'Workload trust policy request',
+        objectPlural: 'workload trust policy requests',
+        info: 'Write access lets the key ask an organization admin for a workload trust policy. A request grants nothing until an admin approves it.',
+    },
     { key: 'cohort', objectName: 'Cohort', objectPlural: 'cohorts' },
     { key: 'comment', objectName: 'Comment', objectPlural: 'comments' },
     {
@@ -699,6 +705,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'organization_member',
             'project',
             'workload_trust_policy',
+            'workload_trust_policy_request',
             'user',
             'billing',
             'access_control',

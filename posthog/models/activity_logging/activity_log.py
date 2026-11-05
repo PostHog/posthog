@@ -104,6 +104,7 @@ ActivityScope = Literal[
     "ProjectSecretAPIKey",
     "OAuthApplication",
     "WorkloadTrustPolicy",
+    "WorkloadTrustPolicyRequest",
     "User",
     "Action",
     "AccountView",

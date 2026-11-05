@@ -2078,5 +2078,10 @@
         "template": "/workflows/library/templates/new",
         "params": [],
         "scope": "project"
+    },
+    "workloadTrustPolicyRequest": {
+        "template": "/workload-trust-policy-requests/{id}",
+        "params": ["id"],
+        "scope": "project"
     }
 }

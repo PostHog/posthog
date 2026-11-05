@@ -5,6 +5,7 @@
 # restore its AppConfig.ready() wiring instead of deleting the line.
 experiment_changed:ee.vercel.receivers.sync_experiment_experimentation_item
 model_activity:posthog.models.activity_logging.signal_handlers.handle_workload_trust_policy_change
+model_activity:posthog.models.activity_logging.signal_handlers.handle_workload_trust_policy_request_change
 model_activity:posthog.models.activity_logging.signal_handlers.handle_identity_provider_config_change
 model_activity:posthog.models.activity_logging.signal_handlers.handle_oauth_application_scopes_change
 model_activity:posthog.models.activity_logging.signal_handlers.handle_organization_change
