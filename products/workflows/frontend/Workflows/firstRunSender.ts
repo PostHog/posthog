@@ -80,18 +80,15 @@ async function resolveFirstRunSender(allowSandbox: boolean): Promise<DefaultEmai
     }
 }
 
-async function sharedIntegrationsLoaded(): Promise<void> {
-    const logic = integrationsLogic.findMounted()
-    if (logic && logic.values.integrations === null) {
-        await logic.asyncActions.loadIntegrations()
-    }
+export function stepTakesSender(action: HogFlowAction, workflow: HogFlow, sender: DefaultEmailSender): boolean {
+    return sender.reason === 'sandbox_sender' ? takesSandboxSender(action, workflow) : takesOwnSender(action)
 }
 
-export async function prepareSandboxSender(): Promise<void> {
-    if (sandboxSenderEnabled() && !integrationsLogic.findMounted()?.values.sandboxEmailSender) {
-        await resolveFirstRunSender(true)
-        await sharedIntegrationsLoaded()
-    }
+export async function resolveInsertedStepSender(
+    action: HogFlowAction,
+    workflow: HogFlow
+): Promise<DefaultEmailSender | null> {
+    return takesOwnSender(action) ? resolveFirstRunSender(takesSandboxSender(action, workflow)) : null
 }
 
 export function withInsertedStepSender(
@@ -115,9 +112,6 @@ export async function withFirstRunSender(
     if (!sender) {
         return { workflow, sender: null }
     }
-    const takesSender =
-        sender.reason === 'sandbox_sender'
-            ? (action: HogFlowAction): boolean => takesSandboxSender(action, workflow)
-            : takesOwnSender
+    const takesSender = (action: HogFlowAction): boolean => stepTakesSender(action, workflow, sender)
     return { workflow: withEmailSender(workflow, sender.integrationId, takesSender).workflow, sender }
 }
