@@ -416,7 +416,9 @@ class TestIsMaterializedEndpointRequest(APIBaseTest):
         version = endpoint.get_version(version_number)
 
         with self.assertNumQueries(0):
-            self.assertEqual(version.team.organization.id, self.organization.id)
+            team = version.team
+            assert team is not None
+            self.assertEqual(team.organization.id, self.organization.id)
 
     @parameterized.expand(
         [
