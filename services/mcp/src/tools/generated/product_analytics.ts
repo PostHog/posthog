@@ -224,6 +224,12 @@ const AssistantDataVisualizationChartSettings = z.object({
             'Column that splits a single Y series into multiple colored series — e.g. breaking down a line chart by `country`. Set to `null` or omit to disable. A breakdown buckets rows by x value, so it is ignored when `display` is `ScatterPlot`.'
         )
         .optional(),
+    showAnnotations: z.coerce
+        .boolean()
+        .describe(
+            'Show annotations on the chart. Only applies to line, area, bar, and stacked bar charts whose X axis is a date or datetime column.'
+        )
+        .optional(),
     showLegend: z.coerce.boolean().describe('Show the chart legend.').optional(),
     showNullsAsZero: z.coerce.boolean().describe('Replace null aggregation results with zero.').optional(),
     showTotalRow: z.coerce
