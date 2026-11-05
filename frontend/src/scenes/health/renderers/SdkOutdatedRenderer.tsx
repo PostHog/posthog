@@ -101,8 +101,7 @@ export const SdkOutdatedRenderer = ({ issue }: { issue: HealthIssue }): JSX.Elem
                     dataSource={usage}
                     columns={usageColumns(migrationRequired)}
                     rowKey="lib_version"
-                    // The Health page renders several of these tables, and URL sorting shares one
-                    // `order` param across all of them.
+                    // Several of these tables share the Health page, and URL sorting shares one `order` param.
                     useURLForSorting={false}
                     embedded
                     size="small"

@@ -123,10 +123,20 @@ function isObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null
 }
 
-// The selectors read `affected_components` on every incident and maintenance, and `name` and
-// `group_name` on every component, so each entry must be an object with a component array.
-function hasComponentArray(entry: unknown): boolean {
-    return isObject(entry) && Array.isArray(entry.affected_components) && entry.affected_components.every(isObject)
+function isComponent(value: unknown): boolean {
+    return (
+        isObject(value) &&
+        typeof value.name === 'string' &&
+        (value.group_name === undefined || typeof value.group_name === 'string')
+    )
+}
+
+function hasComponents(entry: unknown): entry is Record<string, unknown> {
+    return isObject(entry) && Array.isArray(entry.affected_components) && entry.affected_components.every(isComponent)
+}
+
+function isIncident(entry: unknown): boolean {
+    return hasComponents(entry) && typeof entry.name === 'string' && typeof entry.last_update_message === 'string'
 }
 
 function isSummary(data: unknown): data is Summary {
@@ -134,8 +144,8 @@ function isSummary(data: unknown): data is Summary {
         isObject(data) &&
         Array.isArray(data.ongoing_incidents) &&
         Array.isArray(data.in_progress_maintenances) &&
-        data.ongoing_incidents.every(hasComponentArray) &&
-        data.in_progress_maintenances.every(hasComponentArray)
+        data.ongoing_incidents.every(isIncident) &&
+        data.in_progress_maintenances.every(hasComponents)
     )
 }
 

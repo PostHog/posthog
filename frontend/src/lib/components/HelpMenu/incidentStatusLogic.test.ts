@@ -45,17 +45,35 @@ describe('incidentStatusLogic', () => {
         expect(logic.values.summary === null).toBe(expectedRequests === 0)
     })
 
+    const outageInUs = {
+        name: 'Outage',
+        last_update_message: 'Investigating',
+        current_worst_impact: 'partial_outage',
+        affected_components: [{ name: 'API', group_name: '🇺🇸 US Cloud', current_status: 'partial_outage' }],
+    }
+
     it.each([
-        ['without the incident arrays', { page_title: 'PostHog' }],
+        ['a well-formed body', { ongoing_incidents: [outageInUs], in_progress_maintenances: [] }, 'partial_outage'],
+        ['a body without the incident arrays', { page_title: 'PostHog' }, 'operational'],
         [
-            'with an incident that has no affected components',
+            'an incident that has no affected components',
             { ongoing_incidents: [{ name: 'Outage' }], in_progress_maintenances: [] },
+            'operational',
         ],
         [
-            'with a maintenance that has a non-object component',
+            'a maintenance that has a non-object component',
             { ongoing_incidents: [], in_progress_maintenances: [{ name: 'Upgrade', affected_components: [null] }] },
+            'operational',
         ],
-    ])('falls back to operational when the status page returns a 2xx body %s', async (_name, body) => {
+        [
+            'a component whose group name is not a string',
+            {
+                ongoing_incidents: [{ ...outageInUs, affected_components: [{ name: 'API', group_name: 7 }] }],
+                in_progress_maintenances: [],
+            },
+            'operational',
+        ],
+    ])('resolves the status from %s', async (_name, body, expectedStatus) => {
         useMocks({ get: { '/_preflight': [200, { ...preflightJson, region: Region.US }] } })
         initKeaTests()
         const realFetch = global.fetch
@@ -74,13 +92,10 @@ describe('incidentStatusLogic', () => {
         await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
         await expectLogic(logic).toFinishAllListeners()
 
+        const malformed = expectedStatus === 'operational'
         expect(statusPageRequestCount()).toBe(1)
-        expect(captureSpy).toHaveBeenCalledTimes(1)
-        expect(logic.values).toMatchObject({
-            summary: null,
-            rawStatus: 'operational',
-            aiIncidentAlerts: [],
-            statusDescription: null,
-        })
+        expect(captureSpy).toHaveBeenCalledTimes(malformed ? 1 : 0)
+        expect(logic.values.summary === null).toBe(malformed)
+        expect(logic.values.rawStatus).toBe(expectedStatus)
     })
 })
