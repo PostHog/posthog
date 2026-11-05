@@ -5,7 +5,7 @@ import { parser } from '@/core/schema'
 // PostHog takes `@current` in place of an ID, for the project or organization the key belongs to.
 const CURRENT = '@current'
 
-function projectIdProblem(issue: { input?: unknown }): string {
+function projectIdError(issue: { input?: unknown }): string {
     return `The project ID must be a number or ${CURRENT}, but it is "${String(issue.input)}".`
 }
 
@@ -13,18 +13,18 @@ function projectIdProblem(issue: { input?: unknown }): string {
 export const ProjectIdSchema = z
     .union([z.string(), z.int()], { error: `The project ID must be a number or ${CURRENT}.` })
     .transform(String)
-    .pipe(z.string().regex(/^(\d+|@current)$/, { error: projectIdProblem }))
+    .pipe(z.string().regex(/^(\d+|@current)$/, { error: projectIdError }))
     .brand<'ProjectId'>()
 
 export type ProjectId = z.output<typeof ProjectIdSchema>
 
-function organizationIdProblem(issue: { input?: unknown }): string {
+function organizationIdError(issue: { input?: unknown }): string {
     return `The organization ID must be a UUID or ${CURRENT}, but it is "${String(issue.input)}".`
 }
 
 export const OrganizationIdSchema = z
-    .union([z.guid({ error: organizationIdProblem }), z.literal(CURRENT, { error: organizationIdProblem })], {
-        error: organizationIdProblem,
+    .union([z.guid({ error: organizationIdError }), z.literal(CURRENT, { error: organizationIdError })], {
+        error: organizationIdError,
     })
     .brand<'OrganizationId'>()
 

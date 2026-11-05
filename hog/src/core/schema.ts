@@ -10,13 +10,13 @@ export interface ParseFailure {
 }
 
 // The schemas in hog set their own messages, so the first issue already reads as a sentence.
-export function firstProblem(error: z.ZodError): string {
+export function errorMessage(error: z.ZodError): string {
     return error.issues[0]?.message ?? 'The value is not valid.'
 }
 
-export function problemWith(schema: z.ZodType, raw: unknown): string | undefined {
+export function validationError(schema: z.ZodType, raw: unknown): string | undefined {
     const parsed = schema.safeParse(raw)
-    return parsed.success ? undefined : firstProblem(parsed.error)
+    return parsed.success ? undefined : errorMessage(parsed.error)
 }
 
 export function parseOrThrow<S extends z.ZodType>(schema: S, raw: unknown, failure: ParseFailure): z.output<S> {
@@ -24,10 +24,10 @@ export function parseOrThrow<S extends z.ZodType>(schema: S, raw: unknown, failu
     if (parsed.success) {
         return parsed.data
     }
-    const problem = firstProblem(parsed.error)
+    const message = errorMessage(parsed.error)
     throw new HogError(
         failure.code,
-        failure.context ? `${failure.context} ${problem}` : problem,
+        failure.context ? `${failure.context} ${message}` : message,
         failure.hint,
         failure.exitCode
     )
