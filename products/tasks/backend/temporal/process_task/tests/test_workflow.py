@@ -932,6 +932,37 @@ class TestSandboxRotation:
         assert rotation.credential_refresh_task is refresh_old
         provision.assert_not_awaited()
 
+    async def test_a_failed_memory_persist_keeps_the_run_on_its_sandbox(self, monkeypatch):
+        wf = self._workflow(monkeypatch)
+        wf._agent_memory_persist_enabled = True
+        in_flight_finished = asyncio.Event()
+
+        async def in_flight_persist() -> None:
+            in_flight_finished.set()
+
+        wf._agent_memory_persist_task = asyncio.ensure_future(in_flight_persist())
+
+        async def failed_persist(sandbox_id: str, *, reason: str) -> bool:
+            assert in_flight_finished.is_set()
+            return False
+
+        monkeypatch.setattr(wf, "_persist_agent_memory", failed_persist)
+        snapshot = AsyncMock(return_value=self._snapshot())
+        monkeypatch.setattr(wf, "_create_resume_snapshot_output", snapshot)
+        provision = AsyncMock()
+        monkeypatch.setattr(wf, "_get_sandbox_for_repository", provision)
+
+        relay_old = self._relay("relay-old")
+        refresh_old = self._relay("refresh-old")
+        rotation = await wf._rotate_sandbox_before_deadline("sb-old", relay_old, refresh_old)
+
+        assert rotation.sandbox_id is None
+        assert rotation.relay_task is relay_old
+        assert rotation.credential_refresh_task is refresh_old
+        assert rotation.reason == "memory_persist_failed"
+        snapshot.assert_not_awaited()
+        provision.assert_not_awaited()
+
     async def test_the_replacements_own_agent_server_boot_keeps_the_rotation(self, monkeypatch):
         wf = self._workflow(monkeypatch)
         monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=datetime.now(UTC)))

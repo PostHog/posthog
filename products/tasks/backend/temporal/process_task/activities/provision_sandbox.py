@@ -1095,7 +1095,9 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
         # observe or race a half-written memory directory.
         if ctx.persist_agent_memory_enabled and ctx.task_created_by_id is not None:
             with StepTimer("agent_memory_restore"):
-                restore_agent_memory_into_sandbox(sandbox, run_id=ctx.run_id, user_id=ctx.task_created_by_id)
+                restore_agent_memory_into_sandbox(
+                    sandbox, run_id=ctx.run_id, team_id=ctx.team_id, user_id=ctx.task_created_by_id
+                )
 
         log_with_activity_context(f"Sandbox provisioned: {sandbox.id}", run_id=ctx.run_id)
         activity.logger.info(f"Created sandbox {sandbox.id} (used_snapshot={actual_used_snapshot})")

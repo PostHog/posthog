@@ -195,6 +195,7 @@ class SandboxDirEntry:
     # A symlink is reported as itself, never as the type of its target.
     kind: Literal["file", "dir", "symlink", "other"]
     size: int
+    mtime: float
 
 
 class ExecutionStream(Protocol):
@@ -512,18 +513,18 @@ class SandboxBase(ABC):
     @abstractmethod
     def write_file(self, path: str, payload: bytes, timeout_seconds: int | None = None) -> ExecutionResult: ...
 
-    def list_dir(self, path: str) -> list[SandboxDirEntry]:
-        """Entries in `path`, or an empty list when it is missing or not a directory.
+    def list_dir(self, path: str) -> list[SandboxDirEntry] | None:
+        """Entries in `path`; None when it is missing or not a directory, so an empty directory stays distinct.
 
         The agent controls the sandbox filesystem, so callers must validate every name and size.
         """
         raise NotImplementedError(f"{type(self).__name__} does not support listing directories")
 
     def read_file(self, path: str, max_bytes: int) -> bytes | None:
-        """The contents of `path`, or None when it is missing or not a readable file.
+        """The contents of `path`, or None when it is missing, not a regular file, or over `max_bytes`.
 
-        A backend may stop after `max_bytes + 1` bytes, but not every backend can bound the read,
-        so callers must skip entries whose listed size exceeds the limit and re-check the length.
+        A file can grow between the size check and the read, so a result may hold up to
+        `max_bytes + 1` bytes and callers must re-check the length.
         """
         raise NotImplementedError(f"{type(self).__name__} does not support reading files")
 

@@ -3130,7 +3130,7 @@ class TestModalSandboxProxyRateLimit:
                 permissions="rw-r--r--",
                 owner="root",
                 group="root",
-                modified_time=0.0,
+                modified_time=5.5,
                 symlink_target="/etc/passwd" if file_type == ModalFileType.SYMLINK else None,
             )
             for name, file_type, size in [
@@ -3141,21 +3141,50 @@ class TestModalSandboxProxyRateLimit:
         ]
 
         assert mock_sandbox.list_dir("/tmp/workspace/memory") == [
-            SandboxDirEntry(name="MEMORY.md", kind="file", size=12),
-            SandboxDirEntry(name="link.md", kind="symlink", size=11),
-            SandboxDirEntry(name="nested", kind="dir", size=0),
+            SandboxDirEntry(name="MEMORY.md", kind="file", size=12, mtime=5.5),
+            SandboxDirEntry(name="link.md", kind="symlink", size=11, mtime=5.5),
+            SandboxDirEntry(name="nested", kind="dir", size=0, mtime=5.5),
         ]
 
-    def test_list_dir_of_a_missing_directory_is_empty(self, mock_sandbox: Any):
+    def test_list_dir_of_a_missing_directory_is_none(self, mock_sandbox: Any):
         mock_sandbox._sandbox.filesystem.list_files.side_effect = ModalSandboxFilesystemNotFoundError("missing")
 
-        assert mock_sandbox.list_dir("/tmp/workspace/memory") == []
+        assert mock_sandbox.list_dir("/tmp/workspace/memory") is None
 
-    def test_read_file_returns_the_bytes(self, mock_sandbox: Any):
-        mock_sandbox._sandbox.filesystem.read_bytes.return_value = b"# Memory"
+    @pytest.mark.parametrize(
+        "file_type, size, expected",
+        [
+            (ModalFileType.FILE, 8, b"# Memory"),
+            (ModalFileType.SYMLINK, 8, None),
+            (ModalFileType.FILE, 11, None),
+        ],
+    )
+    def test_read_file_reads_only_small_regular_files_through_a_capped_read(
+        self, mock_sandbox: Any, file_type: Any, size: int, expected: bytes | None
+    ):
+        mock_sandbox._sandbox.filesystem.stat.return_value = ModalFileInfo(
+            name="MEMORY.md",
+            path="/tmp/workspace/memory/MEMORY.md",
+            type=file_type,
+            size=size,
+            mode=0o644,
+            permissions="rw-r--r--",
+            owner="root",
+            group="root",
+            modified_time=0.0,
+            symlink_target=None,
+        )
+        execute = MagicMock(
+            return_value=ExecutionResult(stdout=base64.b64encode(b"# Memory").decode(), stderr="", exit_code=0)
+        )
+        mock_sandbox.execute = execute
 
-        assert mock_sandbox.read_file("/tmp/workspace/memory/MEMORY.md", 10) == b"# Memory"
-        mock_sandbox._sandbox.filesystem.read_bytes.assert_called_once_with("/tmp/workspace/memory/MEMORY.md")
+        assert mock_sandbox.read_file("/tmp/workspace/memory/MEMORY.md", 10) == expected
+        if expected is None:
+            execute.assert_not_called()
+        else:
+            assert execute.call_args.args[0].startswith("head -c 11 -- ")
+        mock_sandbox._sandbox.filesystem.read_bytes.assert_not_called()
 
     def test_write_file_rate_limit_skips_exec_fallback(self, mock_sandbox: Any):
         mock_sandbox._sandbox.filesystem.write_bytes.side_effect = _socks_rate_limit()

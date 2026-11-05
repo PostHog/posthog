@@ -3011,7 +3011,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # The replacement restores memory from storage, so storage must match the snapshot first.
         # Taken after the activity count, so agent activity during the persist abandons the rotation.
         if self._agent_memory_persist_enabled:
-            await self._persist_agent_memory(old_sandbox_id, reason="ttl_rotation")
+            await self._drain_agent_memory_persist_task()
+            if not await self._persist_agent_memory(old_sandbox_id, reason="ttl_rotation"):
+                # The replacement would restore older stored memory over the snapshot's newer files.
+                return SandboxRotation(
+                    relay_task=relay_task,
+                    credential_refresh_task=credential_refresh_task,
+                    reason="memory_persist_failed",
+                )
         snapshot = await self._create_resume_snapshot_output(old_sandbox_id, reason="ttl_rotation", allow_pruning=False)
         if snapshot is None or not snapshot.external_id:
             return SandboxRotation(
@@ -3322,10 +3329,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         except (asyncio.CancelledError, Exception):
             pass
 
-    async def _persist_agent_memory(self, sandbox_id: str, *, reason: str) -> None:
+    async def _persist_agent_memory(self, sandbox_id: str, *, reason: str) -> bool:
+        """True only when the activity ran and reported no error."""
         user_id = self.context.task_created_by_id
         if user_id is None:
-            return
+            return False
         try:
             result = await workflow.execute_activity(
                 persist_agent_memory,
@@ -3344,7 +3352,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "agent_memory_persist_failed_non_fatal",
                 extra={"run_id": self.context.run_id, "sandbox_id": sandbox_id, "reason": reason, "error": str(e)},
             )
-            return
+            return False
         if result.error:
             workflow.logger.warning(
                 "agent_memory_persist_skipped",
@@ -3355,6 +3363,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     "error": result.error,
                 },
             )
+            return False
+        return True
 
     def _schedule_agent_memory_persist(self, sandbox_id: str | None) -> None:
         if not self._agent_memory_persist_enabled or sandbox_id is None or self._agent_memory_persist_closed:
@@ -3378,15 +3388,18 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await self._persist_agent_memory(self._agent_memory_sandbox_id, reason="turn_completed")
             self._agent_memory_persisted_turns = persisted_through
 
-    async def _persist_agent_memory_at_teardown(self, sandbox_id: str) -> None:
-        self._agent_memory_persist_closed = True
+    async def _drain_agent_memory_persist_task(self) -> None:
         task = self._agent_memory_persist_task
         if task is not None and not task.done():
-            # A per-turn persist that finished after this one would write older file contents over newer ones.
+            # A per-turn persist that finished after the next one would write older file contents over newer ones.
             try:
                 await task
             except (asyncio.CancelledError, Exception):
                 pass
+
+    async def _persist_agent_memory_at_teardown(self, sandbox_id: str) -> None:
+        self._agent_memory_persist_closed = True
+        await self._drain_agent_memory_persist_task()
         await self._persist_agent_memory(sandbox_id, reason="teardown")
 
     async def _create_resume_snapshot(self, sandbox_id: str, *, reason: str, allow_pruning: bool) -> bool:

@@ -31,7 +31,6 @@ from modal.exception import (
     ConnectionError as ModalConnectionError,
     InvalidError as ModalInvalidError,
     ResourceExhaustedError as ModalResourceExhaustedError,
-    SandboxFilesystemIsADirectoryError as ModalSandboxFilesystemIsADirectoryError,
     SandboxFilesystemNotADirectoryError as ModalSandboxFilesystemNotADirectoryError,
     SandboxFilesystemNotFoundError as ModalSandboxFilesystemNotFoundError,
     SandboxFilesystemPermissionError as ModalSandboxFilesystemPermissionError,
@@ -1714,34 +1713,47 @@ class ModalSandbox(AgentServerLaunchMixin):
                 cause=RuntimeError(f"Sandbox {self.id} is not running"),
             )
 
-    def list_dir(self, path: str) -> list[SandboxDirEntry]:
+    def list_dir(self, path: str) -> list[SandboxDirEntry] | None:
         self._raise_unless_running()
         try:
             infos = self._sandbox.filesystem.list_files(path)
         except (ModalSandboxFilesystemNotFoundError, ModalSandboxFilesystemNotADirectoryError):
-            return []
+            return None
         except Exception as e:
             _raise_if_proxy_failure(e, self.id, "filesystem_list")
             raise
         return [
-            SandboxDirEntry(name=info.name, kind=_MODAL_FILE_KINDS.get(info.type, "other"), size=info.size)
+            SandboxDirEntry(
+                name=info.name,
+                kind=_MODAL_FILE_KINDS.get(info.type, "other"),
+                size=info.size,
+                mtime=info.modified_time,
+            )
             for info in infos
         ]
 
     def read_file(self, path: str, max_bytes: int) -> bytes | None:
         self._raise_unless_running()
         try:
-            return self._sandbox.filesystem.read_bytes(path)
+            info = self._sandbox.filesystem.stat(path)
         except (
             ModalSandboxFilesystemNotFoundError,
-            ModalSandboxFilesystemIsADirectoryError,
             ModalSandboxFilesystemNotADirectoryError,
             ModalSandboxFilesystemPermissionError,
         ):
             return None
         except Exception as e:
-            _raise_if_proxy_failure(e, self.id, "filesystem_read")
+            _raise_if_proxy_failure(e, self.id, "filesystem_stat")
             raise
+        if not info.is_file() or info.size > max_bytes:
+            return None
+        # Modal's supported filesystem API has no bounded read, and a file can grow after the stat,
+        # so the bytes come from a capped shell read. Callers validate and cap the content, so a
+        # tampered shell can only corrupt the user's own memory.
+        result = self.execute(f"head -c {max_bytes + 1} -- {shlex.quote(path)} | base64 -w0")
+        if result.exit_code != 0:
+            return None
+        return base64.b64decode(result.stdout.strip())
 
     def _remove_temp_file(self, temp_path: str, step_timeout: int) -> None:
         try:

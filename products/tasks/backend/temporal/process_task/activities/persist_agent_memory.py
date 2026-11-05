@@ -7,6 +7,7 @@ from temporalio import activity
 from posthog.dataclasses import frozen
 from posthog.temporal.common.utils import asyncify
 
+from products.tasks.backend.exceptions import SandboxNotFoundError, SandboxNotRunningError
 from products.tasks.backend.logic.services.agent_memory import (
     MemorySyncCounts,
     persist_sandbox_memory,
@@ -39,6 +40,7 @@ class PersistAgentMemoryInput:
 
 @frozen
 class PersistAgentMemoryOutput:
+    outcome: str = "persisted"
     files_written: int = 0
     files_unchanged: int = 0
     files_deleted: int = 0
@@ -56,9 +58,24 @@ def _record_counts(direction: Literal["persist", "restore"], counts: MemorySyncC
         increment_agent_memory_files(direction, f"skipped_{reason}", count)
 
 
-def _restored_into(run_id: str, team_id: int, sandbox_id: str) -> bool:
-    state = TaskRun.objects.filter(id=run_id, team_id=team_id).values_list("state", flat=True).first()
-    return isinstance(state, dict) and state.get(AGENT_MEMORY_RESTORED_SANDBOX_STATE_KEY) == sandbox_id
+@frozen
+class _RunMemoryState:
+    restored_sandbox_id: str | None
+    actor_changed: bool
+
+
+def _run_memory_state(run_id: str, team_id: int) -> _RunMemoryState:
+    row = TaskRun.objects.filter(id=run_id, team_id=team_id).values_list("state", "task__created_by_id").first()
+    state, created_by_id = row if row is not None else (None, None)
+    state = state if isinstance(state, dict) else {}
+    restored = state.get(AGENT_MEMORY_RESTORED_SANDBOX_STATE_KEY)
+    # send_followup_to_sandbox records the Slack member steering the run. Once that is someone other
+    # than the creator, the creator's memory must not be saved from this sandbox.
+    actor = state.get("slack_actor_user_id")
+    actor_changed = isinstance(actor, int) and not isinstance(actor, bool) and actor != created_by_id
+    return _RunMemoryState(
+        restored_sandbox_id=restored if isinstance(restored, str) else None, actor_changed=actor_changed
+    )
 
 
 def _finish_persist(
@@ -91,6 +108,7 @@ def _finish_persist(
             f"Agent memory saved ({input.reason}): {counts.files_written} written, {counts.files_deleted} removed",
         )
     return PersistAgentMemoryOutput(
+        outcome=outcome,
         files_written=counts.files_written,
         files_unchanged=counts.files_unchanged,
         files_deleted=counts.files_deleted,
@@ -103,35 +121,53 @@ def _finish_persist(
 @activity.defn
 @asyncify
 def persist_agent_memory(input: PersistAgentMemoryInput) -> PersistAgentMemoryOutput:
-    """Copy the sandbox's Claude Code auto memory into object storage. Never fails the run."""
+    """Copy the memory the agent changed into object storage.
+
+    Permanent outcomes return a result. Transient failures raise, so Temporal retries the activity
+    and the workflow treats an exhausted retry as non-fatal.
+    """
     started_at = time.perf_counter()
     counts = MemorySyncCounts()
     try:
         sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
-    except Exception as e:
+    except SandboxNotFoundError as e:
         return _finish_persist(input, "sandbox_not_found", started_at, counts, f"Sandbox not found: {e}")
     if not sandbox.is_running():
         return _finish_persist(input, "sandbox_not_running", started_at, counts, "Sandbox not running")
+    run_state = _run_memory_state(input.run_id, input.team_id)
+    if run_state.actor_changed:
+        return _finish_persist(input, "actor_changed", started_at, counts, None)
     try:
-        allow_deletes = _restored_into(input.run_id, input.team_id, input.sandbox_id)
-        counts = persist_sandbox_memory(sandbox, user_id=input.user_id, allow_deletes=allow_deletes)
+        counts = persist_sandbox_memory(
+            sandbox,
+            team_id=input.team_id,
+            user_id=input.user_id,
+            allow_deletes=run_state.restored_sandbox_id == input.sandbox_id,
+        )
     except NotImplementedError:
         # A backend without file listing (hogland) is a supported configuration, not a failure.
         return _finish_persist(input, "unsupported", started_at, counts, None)
-    except Exception as e:
-        return _finish_persist(input, "failed", started_at, counts, str(e))
-    outcome = "partial" if counts.errors else "persisted"
-    return _finish_persist(input, outcome, started_at, counts, None)
+    except SandboxNotRunningError:
+        return _finish_persist(input, "sandbox_not_running", started_at, counts, "Sandbox not running")
+    except Exception:
+        duration_ms = int((time.perf_counter() - started_at) * 1000)
+        increment_agent_memory_sync("persist", "failed")
+        record_agent_memory_sync_latency_ms("persist", "failed", duration_ms)
+        logger.warning(
+            "persist_agent_memory_failed", sandbox_id=input.sandbox_id, run_id=input.run_id, reason=input.reason
+        )
+        raise
+    return _finish_persist(input, "persisted", started_at, counts, None)
 
 
-def restore_agent_memory_into_sandbox(sandbox: SandboxBase, *, run_id: str, user_id: int) -> None:
+def restore_agent_memory_into_sandbox(sandbox: SandboxBase, *, run_id: str, team_id: int, user_id: int) -> None:
     """Write the user's stored memory into a fresh sandbox before agent-server boots. Never raises."""
     started_at = time.perf_counter()
     outcome = "failed"
     counts = MemorySyncCounts()
     error: str | None = None
     try:
-        result = restore_sandbox_memory(sandbox, user_id=user_id)
+        result = restore_sandbox_memory(sandbox, team_id=team_id, user_id=user_id)
         counts = result.counts
         outcome = "restored" if result.complete else "partial"
         if result.complete:

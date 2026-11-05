@@ -1341,14 +1341,14 @@ class DockerSandbox(AgentServerLaunchMixin):
                 cause=RuntimeError(f"Sandbox {self.id} is not running"),
             )
 
-    def list_dir(self, path: str) -> list[SandboxDirEntry]:
+    def list_dir(self, path: str) -> list[SandboxDirEntry] | None:
         self._raise_unless_running()
         quoted = shlex.quote(path)
         result = self.execute(
-            f"test -d {quoted} || exit 3; find {quoted} -mindepth 1 -maxdepth 1 -printf '%y\\t%s\\t%f\\n'"
+            f"test -d {quoted} || exit 3; find {quoted} -mindepth 1 -maxdepth 1 -printf '%y\\t%s\\t%T@\\t%f\\n'"
         )
         if result.exit_code == 3:
-            return []
+            return None
         if result.exit_code != 0:
             raise SandboxExecutionError(
                 "Failed to list directory",
@@ -1357,16 +1357,22 @@ class DockerSandbox(AgentServerLaunchMixin):
             )
         entries: list[SandboxDirEntry] = []
         for line in result.stdout.splitlines():
-            kind, _, rest = line.partition("\t")
-            size, _, name = rest.partition("\t")
-            if name and size.isdigit():
-                entries.append(SandboxDirEntry(name=name, kind=_FIND_KINDS.get(kind, "other"), size=int(size)))
+            parts = line.split("\t", 3)
+            if len(parts) != 4 or not parts[1].isdigit():
+                continue
+            kind, size, mtime, name = parts
+            entries.append(
+                SandboxDirEntry(name=name, kind=_FIND_KINDS.get(kind, "other"), size=int(size), mtime=float(mtime))
+            )
         return entries
 
     def read_file(self, path: str, max_bytes: int) -> bytes | None:
         self._raise_unless_running()
         quoted = shlex.quote(path)
-        result = self.execute(f"test -f {quoted} || exit 3; head -c {max_bytes + 1} -- {quoted} | base64 -w0")
+        result = self.execute(
+            f"test -f {quoted} && test ! -L {quoted} && [ $(stat -c %s {quoted}) -le {max_bytes} ] || exit 3; "
+            f"head -c {max_bytes + 1} -- {quoted} | base64 -w0"
+        )
         if result.exit_code != 0:
             return None
         return base64.b64decode(result.stdout.strip())

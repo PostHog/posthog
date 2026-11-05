@@ -1,6 +1,8 @@
+import json
 import shlex
 import hashlib
 from collections.abc import Iterator
+from types import SimpleNamespace
 
 import pytest
 from unittest.mock import patch
@@ -10,46 +12,76 @@ from posthog.storage.object_storage import ObjectStorageError, StoredObjectSumma
 from products.tasks.backend.logic.services import agent_memory
 from products.tasks.backend.logic.services.agent_memory import (
     MAX_FILE_BYTES,
+    SANDBOX_BASELINE_PATH,
     SANDBOX_CLAUDE_PROJECTS_DIR,
     SANDBOX_HOME_CLAUDE_PROJECTS_DIR,
     is_valid_memory_filename,
     is_valid_slug,
     memory_object_key,
+    parse_baseline,
     parse_memory_object_key,
     persist_sandbox_memory,
     restore_sandbox_memory,
 )
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxDirEntry
 
+TEAM_ID = 3
 USER_ID = 7
 REPO_SLUG = "-tmp-workspace-repos-posthog-posthog"
 WORKSPACE_SLUG = "-tmp-workspace"
+OK = ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
 
 
 def _memory_path(slug: str, filename: str) -> str:
     return f"{SANDBOX_CLAUDE_PROJECTS_DIR}/{slug}/memory/{filename}"
 
 
+def _key(slug: str, filename: str) -> str:
+    return memory_object_key(TEAM_ID, USER_ID, slug, filename)
+
+
+def _md5(content: bytes) -> str:
+    return hashlib.md5(content).hexdigest()
+
+
 class FakeSandbox:
     id = "sb-1"
 
-    def __init__(self, files: dict[str, bytes] | None = None, symlinks: frozenset[str] = frozenset()) -> None:
+    def __init__(
+        self,
+        files: dict[str, bytes] | None = None,
+        *,
+        dirs: frozenset[str] = frozenset(),
+        symlinks: frozenset[str] = frozenset(),
+    ) -> None:
         self.files: dict[str, bytes] = dict(files or {})
+        self.mtimes: dict[str, float] = dict.fromkeys(self.files, 1.0)
+        self.dirs = set(dirs)
         self.symlinks = symlinks
         self.reads: list[str] = []
+        self.clock = 1.0
 
-    def list_dir(self, path: str) -> list[SandboxDirEntry]:
-        prefix = path.rstrip("/") + "/"
+    def _is_dir(self, path: str) -> bool:
+        prefix = path + "/"
+        return path in self.dirs or any(p.startswith(prefix) for p in [*self.files, *self.dirs])
+
+    def list_dir(self, path: str) -> list[SandboxDirEntry] | None:
+        if not self._is_dir(path):
+            return None
+        prefix = path + "/"
         entries: dict[str, SandboxDirEntry] = {}
-        for file_path, content in self.files.items():
-            if not file_path.startswith(prefix):
+        for child in [*self.files, *self.dirs]:
+            if not child.startswith(prefix):
                 continue
-            name, _, rest = file_path[len(prefix) :].partition("/")
-            if rest:
-                entries[name] = SandboxDirEntry(name=name, kind="dir", size=0)
+            name, _, rest = child[len(prefix) :].partition("/")
+            if rest or child in self.dirs:
+                entries[name] = SandboxDirEntry(name=name, kind="dir", size=0, mtime=0.0)
             else:
                 entries[name] = SandboxDirEntry(
-                    name=name, kind="symlink" if file_path in self.symlinks else "file", size=len(content)
+                    name=name,
+                    kind="symlink" if child in self.symlinks else "file",
+                    size=len(self.files[child]),
+                    mtime=self.mtimes[child],
                 )
         return list(entries.values())
 
@@ -58,38 +90,46 @@ class FakeSandbox:
         return self.files.get(path)
 
     def write_file(self, path: str, payload: bytes, timeout_seconds: int | None = None) -> ExecutionResult:
+        self.clock += 1
         self.files[path] = payload
-        return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
+        self.mtimes[path] = self.clock
+        return OK
 
     def execute(self, command: str, timeout_seconds: int | None = None) -> ExecutionResult:
         argv = shlex.split(command)
+        if argv[:2] == ["mkdir", "-p"]:
+            self.dirs.add(argv[2])
         if argv[:3] == ["rm", "-f", "--"]:
             for path in argv[3:]:
                 self.files.pop(path, None)
-        return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
+        return OK
+
+    def set_baseline(self, baseline: dict) -> None:
+        self.files[SANDBOX_BASELINE_PATH] = json.dumps(baseline).encode()
+        self.mtimes[SANDBOX_BASELINE_PATH] = 1.0
+
+    def memory(self) -> dict[str, bytes]:
+        return {p: c for p, c in self.files.items() if p.startswith(SANDBOX_CLAUDE_PROJECTS_DIR)}
 
 
 class FakeStorage:
     def __init__(self) -> None:
         self.objects: dict[str, bytes] = {}
-        self.etags: dict[str, str] = {}
         self.list_fails = False
         self.writes: list[str] = []
+        self.clock = 0.0
 
     def list_object_summaries(self, prefix: str, bucket: str | None = None) -> list[StoredObjectSummary]:
         if self.list_fails:
             raise ObjectStorageError("list_objects failed")
         return [
-            StoredObjectSummary(
-                key=key,
-                etag=self.etags.get(key, f'"{hashlib.md5(content).hexdigest()}"'),
-                size=len(content),
-            )
+            StoredObjectSummary(key=key, etag=f'"{_md5(content)}"', size=len(content))
             for key, content in sorted(self.objects.items())
             if key.startswith(prefix)
         ]
 
     def read_bytes(self, file_name: str, bucket: str | None = None, *, missing_ok: bool = False) -> bytes | None:
+        self.clock += 10
         return self.objects.get(file_name)
 
     def write(self, file_name: str, content: bytes, extras: dict | None = None, bucket: str | None = None) -> None:
@@ -147,36 +187,45 @@ def test_filename_validation(filename: str, expected: bool) -> None:
 @pytest.mark.parametrize(
     "key",
     [
-        f"tasks/agent-memory/8/claude/{REPO_SLUG}/MEMORY.md",
-        f"tasks/agent-memory/{USER_ID}/claude/../MEMORY.md",
-        f"tasks/agent-memory/{USER_ID}/claude/{REPO_SLUG}/nested/MEMORY.md",
-        f"tasks/agent-memory/{USER_ID}/claude/{REPO_SLUG}/notes.txt",
+        f"tasks/agent-memory/{TEAM_ID}/8/claude/{REPO_SLUG}/MEMORY.md",
+        f"tasks/agent-memory/4/{USER_ID}/claude/{REPO_SLUG}/MEMORY.md",
+        f"tasks/agent-memory/{TEAM_ID}/{USER_ID}/claude/../MEMORY.md",
+        f"tasks/agent-memory/{TEAM_ID}/{USER_ID}/claude/{REPO_SLUG}/nested/MEMORY.md",
+        f"tasks/agent-memory/{TEAM_ID}/{USER_ID}/claude/{REPO_SLUG}/notes.txt",
     ],
 )
 def test_parse_memory_object_key_rejects_foreign_and_malformed_keys(key: str) -> None:
-    assert parse_memory_object_key(USER_ID, key) is None
+    assert parse_memory_object_key(TEAM_ID, USER_ID, key) is None
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b"not json",
+        b"[]",
+        json.dumps({"../escape": {}}).encode(),
+        json.dumps({REPO_SLUG: {"../x.md": {"md5": "0" * 32, "size": 1, "mtime": 1.0}}}).encode(),
+        json.dumps({REPO_SLUG: {"MEMORY.md": {"md5": "short", "size": 1, "mtime": 1.0}}}).encode(),
+        json.dumps({REPO_SLUG: {"MEMORY.md": {"md5": "0" * 32, "size": True, "mtime": 1.0}}}).encode(),
+    ],
+)
+def test_a_malformed_baseline_reads_as_empty(raw: bytes) -> None:
+    assert parse_baseline(raw) == {}
 
 
 @pytest.mark.parametrize("allow_deletes", [True, False])
-def test_persist_replaces_only_the_slugs_the_sandbox_has(storage: FakeStorage, allow_deletes: bool) -> None:
-    unchanged_key = memory_object_key(USER_ID, REPO_SLUG, "MEMORY.md")
-    multipart_key = memory_object_key(USER_ID, REPO_SLUG, "multipart.md")
-    removed_key = memory_object_key(USER_ID, REPO_SLUG, "removed.md")
-    oversize_key = memory_object_key(USER_ID, REPO_SLUG, "big.md")
-    other_slug_key = memory_object_key(USER_ID, WORKSPACE_SLUG, "MEMORY.md")
+def test_persist_uploads_only_what_changed_since_the_baseline(storage: FakeStorage, allow_deletes: bool) -> None:
     storage.objects = {
-        unchanged_key: b"index",
-        multipart_key: b"same bytes",
-        removed_key: b"gone from the sandbox",
-        oversize_key: b"last version under the cap",
-        other_slug_key: b"another checkout",
+        _key(WORKSPACE_SLUG, "MEMORY.md"): b"newer, saved by another sandbox",
+        _key(REPO_SLUG, "MEMORY.md"): b"index",
+        _key(REPO_SLUG, "removed.md"): b"gone from the sandbox",
+        _key(REPO_SLUG, "other.md"): b"added by another sandbox",
     }
-    storage.etags[multipart_key] = '"0123abcd-2"'
     symlink = _memory_path(REPO_SLUG, "link.md")
     sandbox = FakeSandbox(
         {
+            _memory_path(WORKSPACE_SLUG, "MEMORY.md"): b"restored earlier",
             _memory_path(REPO_SLUG, "MEMORY.md"): b"index",
-            _memory_path(REPO_SLUG, "multipart.md"): b"same bytes",
             _memory_path(REPO_SLUG, "new.md"): b"fresh",
             _memory_path(REPO_SLUG, "big.md"): b"x" * (MAX_FILE_BYTES + 1),
             _memory_path(REPO_SLUG, "notes.txt"): b"not memory",
@@ -184,25 +233,64 @@ def test_persist_replaces_only_the_slugs_the_sandbox_has(storage: FakeStorage, a
         },
         symlinks=frozenset({symlink}),
     )
+    sandbox.set_baseline(
+        {
+            WORKSPACE_SLUG: {"MEMORY.md": {"md5": _md5(b"restored earlier"), "size": 16, "mtime": 1.0}},
+            REPO_SLUG: {
+                "MEMORY.md": {"md5": _md5(b"index"), "size": 5, "mtime": 1.0},
+                "removed.md": {"md5": _md5(b"gone from the sandbox"), "size": 21, "mtime": 1.0},
+            },
+        }
+    )
 
-    counts = persist_sandbox_memory(sandbox, user_id=USER_ID, allow_deletes=allow_deletes)  # type: ignore[arg-type]
+    counts = persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID, allow_deletes=allow_deletes)  # type: ignore[arg-type]
 
-    assert storage.writes == [multipart_key, memory_object_key(USER_ID, REPO_SLUG, "new.md")]
-    assert storage.objects[oversize_key] == b"last version under the cap"
-    assert storage.objects[other_slug_key] == b"another checkout"
-    assert (removed_key in storage.objects) is not allow_deletes
-    assert symlink not in sandbox.reads
-    assert _memory_path(REPO_SLUG, "big.md") not in sandbox.reads
-    assert counts.files_unchanged == 1
-    assert counts.skipped == {"file_too_large": 1, "invalid_filename": 1, "not_file_symlink": 1}
+    assert storage.writes == [_key(REPO_SLUG, "new.md")]
+    assert storage.objects[_key(WORKSPACE_SLUG, "MEMORY.md")] == b"newer, saved by another sandbox"
+    assert storage.objects[_key(REPO_SLUG, "other.md")] == b"added by another sandbox"
+    assert (_key(REPO_SLUG, "removed.md") in storage.objects) is not allow_deletes
+    assert sandbox.reads == [SANDBOX_BASELINE_PATH, _memory_path(REPO_SLUG, "new.md")]
+    assert counts.skipped["not_file_symlink"] == 1
+    assert counts.skipped["file_too_large"] == 1
+
+    sandbox.reads.clear()
+    storage.writes.clear()
+    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID, allow_deletes=allow_deletes)  # type: ignore[arg-type]
+
+    assert storage.writes == []
+    assert sandbox.reads == [SANDBOX_BASELINE_PATH]
 
 
-def test_restore_replaces_stored_slugs_and_ignores_malformed_keys(storage: FakeStorage) -> None:
+@pytest.mark.parametrize(
+    "sandbox_dirs, baseline_valid, expected_deleted",
+    [
+        (frozenset({f"{SANDBOX_CLAUDE_PROJECTS_DIR}/{REPO_SLUG}/memory"}), True, True),
+        (frozenset({SANDBOX_CLAUDE_PROJECTS_DIR}), True, True),
+        (frozenset({f"{SANDBOX_CLAUDE_PROJECTS_DIR}/{REPO_SLUG}/memory"}), False, False),
+    ],
+)
+def test_deleting_the_last_memory_file_propagates_only_against_a_valid_baseline(
+    storage: FakeStorage, sandbox_dirs: frozenset[str], baseline_valid: bool, expected_deleted: bool
+) -> None:
+    storage.objects = {_key(REPO_SLUG, "MEMORY.md"): b"index"}
+    sandbox = FakeSandbox(dirs=sandbox_dirs)
+    if baseline_valid:
+        sandbox.set_baseline({REPO_SLUG: {"MEMORY.md": {"md5": _md5(b"index"), "size": 5, "mtime": 1.0}}})
+    else:
+        sandbox.files[SANDBOX_BASELINE_PATH] = b"{truncated"
+
+    persist_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID, allow_deletes=True)  # type: ignore[arg-type]
+
+    assert (_key(REPO_SLUG, "MEMORY.md") not in storage.objects) is expected_deleted
+
+
+def test_restore_replaces_stored_slugs_for_this_project_only(storage: FakeStorage) -> None:
     storage.objects = {
-        memory_object_key(USER_ID, REPO_SLUG, "MEMORY.md"): b"stored index",
-        memory_object_key(USER_ID, REPO_SLUG, "topic.md"): b"stored topic",
-        f"tasks/agent-memory/{USER_ID}/claude/{REPO_SLUG}/nested/evil.md": b"nested",
-        f"tasks/agent-memory/{USER_ID}/claude/-..x/escape.md": b"escape",
+        _key(REPO_SLUG, "MEMORY.md"): b"stored index",
+        _key(REPO_SLUG, "topic.md"): b"stored topic",
+        memory_object_key(TEAM_ID + 1, USER_ID, REPO_SLUG, "other-project.md"): b"another project",
+        f"tasks/agent-memory/{TEAM_ID}/{USER_ID}/claude/{REPO_SLUG}/nested/evil.md": b"nested",
+        f"tasks/agent-memory/{TEAM_ID}/{USER_ID}/claude/-..x/escape.md": b"escape",
     }
     untouched = _memory_path(WORKSPACE_SLUG, "keep.md")
     sandbox = FakeSandbox(
@@ -213,15 +301,16 @@ def test_restore_replaces_stored_slugs_and_ignores_malformed_keys(storage: FakeS
         }
     )
 
-    result = restore_sandbox_memory(sandbox, user_id=USER_ID)  # type: ignore[arg-type]
+    result = restore_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
 
-    assert sandbox.files == {
+    assert sandbox.memory() == {
         _memory_path(REPO_SLUG, "MEMORY.md"): b"stored index",
         _memory_path(REPO_SLUG, "topic.md"): b"stored topic",
         untouched: b"slug storage does not have",
     }
     assert result.complete is True
     assert result.counts.skipped == {"invalid_key": 2}
+    assert set(json.loads(sandbox.files[SANDBOX_BASELINE_PATH])) == {REPO_SLUG}
 
 
 @pytest.mark.parametrize(
@@ -229,7 +318,7 @@ def test_restore_replaces_stored_slugs_and_ignores_malformed_keys(storage: FakeS
     [
         ({}, {}, True),
         (
-            {memory_object_key(USER_ID, REPO_SLUG, "MEMORY.md"): b"stored index"},
+            {memory_object_key(TEAM_ID, USER_ID, REPO_SLUG, "MEMORY.md"): b"stored index"},
             {f"{SANDBOX_HOME_CLAUDE_PROJECTS_DIR}/{REPO_SLUG}/session.jsonl": b"{}"},
             False,
         ),
@@ -241,14 +330,26 @@ def test_restore_is_complete_only_when_the_sandbox_mirrors_storage(
     storage.objects = dict(stored)
     sandbox = FakeSandbox(sandbox_files)
 
-    result = restore_sandbox_memory(sandbox, user_id=USER_ID)  # type: ignore[arg-type]
+    result = restore_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
 
     assert result.complete is expected_complete
-    assert sandbox.files == sandbox_files
+    assert sandbox.memory() == {}
 
 
 def test_restore_raises_when_storage_cannot_be_listed(storage: FakeStorage) -> None:
     storage.list_fails = True
 
     with pytest.raises(ObjectStorageError):
-        restore_sandbox_memory(FakeSandbox(), user_id=USER_ID)  # type: ignore[arg-type]
+        restore_sandbox_memory(FakeSandbox(), team_id=TEAM_ID, user_id=USER_ID)  # type: ignore[arg-type]
+
+
+def test_restore_stops_inside_a_slug_once_the_deadline_passes(storage: FakeStorage) -> None:
+    storage.objects = {_key(REPO_SLUG, f"topic-{index}.md"): b"note" for index in range(3)}
+    sandbox = FakeSandbox()
+
+    with patch.object(agent_memory, "time", SimpleNamespace(monotonic=lambda: storage.clock)):
+        result = restore_sandbox_memory(sandbox, team_id=TEAM_ID, user_id=USER_ID, deadline=15.0)  # type: ignore[arg-type]
+
+    assert result.complete is False
+    assert result.counts.skipped["deadline"] == 1
+    assert sandbox.memory() == {}
