@@ -72,7 +72,7 @@ impl Parser for ProguardProvider {
             let _permit = permit;
             let (map, decompressed_bytes): (ProguardMapping, usize) =
                 read_symbol_data_with_byte_count_limited(&source, max_decompressed_bytes)
-                    .inspect_err(|e| record_size_limit_exceeded(e, "proguard"))
+                    .inspect_err(|e| record_size_limit_exceeded(e, "proguard", "container"))
                     .map_err(ProguardError::DataError)?;
             metrics::histogram!(SYMBOL_SET_DECOMPRESSED_BYTES, "kind" => "proguard")
                 .record(decompressed_bytes as f64);

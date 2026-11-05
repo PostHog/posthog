@@ -3,15 +3,12 @@ use std::fmt::Display;
 use async_trait::async_trait;
 use bytes::Bytes;
 
-use posthog_symbol_data::{read_symbol_data_with_byte_count_limited, AppleDsym, SymbolDataError};
+use posthog_symbol_data::{read_symbol_data_with_byte_count_limited, AppleDsym};
 
 use crate::{
     core::config::ResolverConfig,
-    error::{AppleError, NativeError, ResolveError, UnhandledError},
-    metric_consts::SYMBOL_SET_DECOMPRESSED_BYTES,
-    symbolication::symbol_store::{
-        native::ParsedNativeSymbols, record_size_limit_exceeded, Fetcher, ParsePermit, Parser,
-    },
+    error::{AppleError, ResolveError, UnhandledError},
+    symbolication::symbol_store::{native::ParsedNativeSymbols, Fetcher, ParsePermit, Parser},
 };
 
 pub struct AppleProvider {
@@ -66,28 +63,11 @@ impl Parser for AppleProvider {
             let container = read_symbol_data_with_byte_count_limited::<AppleDsym>(
                 &source,
                 max_decompressed_bytes,
-            );
-            let (zip_data, decompressed_bytes) = match container {
-                Ok((dsym, bytes)) => (dsym.data, bytes),
-                Err(e @ SymbolDataError::DecompressedTooLarge(_)) => {
-                    record_size_limit_exceeded(&e, "apple");
-                    return Err(AppleError::DataError(e).into());
-                }
-                Err(_) => {
-                    let len = source.len();
-                    (source.to_vec(), len)
-                }
-            };
-            metrics::histogram!(SYMBOL_SET_DECOMPRESSED_BYTES, "kind" => "apple")
-                .record(decompressed_bytes as f64);
+            )
+            .map(|(dsym, bytes)| (dsym.data, bytes));
             // Map shared native parse errors onto AppleError so stored failure
             // reasons for apple symbol sets keep their existing shape.
-            ParsedNativeSymbols::from_zip_data(zip_data, decompressed_bytes, max_extracted_bytes)
-                .inspect_err(|e| {
-                    if let NativeError::DataError(e) = e {
-                        record_size_limit_exceeded(e, "apple");
-                    }
-                })
+            ParsedNativeSymbols::from_container(container, &source, max_extracted_bytes, "apple")
                 .map_err(|e| AppleError::from(e).into())
         })
         .await

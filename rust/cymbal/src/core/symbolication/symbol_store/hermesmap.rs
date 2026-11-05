@@ -101,7 +101,7 @@ impl Parser for HermesMapProvider {
             let _permit = permit;
             let (map, decompressed_bytes): (HermesMap, usize) =
                 read_symbol_data_with_byte_count_limited(&source, max_decompressed_bytes)
-                    .inspect_err(|e| record_size_limit_exceeded(e, "hermes"))
+                    .inspect_err(|e| record_size_limit_exceeded(e, "hermes", "container"))
                     .map_err(HermesError::DataError)?;
             metrics::histogram!(SYMBOL_SET_DECOMPRESSED_BYTES, "kind" => "hermes")
                 .record(decompressed_bytes as f64);

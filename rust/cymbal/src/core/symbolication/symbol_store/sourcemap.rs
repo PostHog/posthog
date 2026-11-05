@@ -512,7 +512,7 @@ impl Parser for SourcemapProvider {
                 let _permit = permit;
                 let (sam, decompressed_bytes): (SourceAndMap, usize) =
                     read_symbol_data_with_byte_count_limited(&data, max_decompressed_bytes)
-                        .inspect_err(|e| record_size_limit_exceeded(e, "sourcemap"))
+                        .inspect_err(|e| record_size_limit_exceeded(e, "sourcemap", "container"))
                         .map_err(JsResolveErr::JSDataError)?;
                 metrics::histogram!(SYMBOL_SET_DECOMPRESSED_BYTES, "kind" => "sourcemap")
                     .record(decompressed_bytes as f64);

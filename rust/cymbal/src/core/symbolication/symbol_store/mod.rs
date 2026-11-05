@@ -71,9 +71,14 @@ impl ParsePermit {
 
 // The size limits are set from production sizes, so a count here can be a real upload that
 // outgrew them rather than an attack.
-pub(crate) fn record_size_limit_exceeded(error: &SymbolDataError, kind: &'static str) {
+pub(crate) fn record_size_limit_exceeded(
+    error: &SymbolDataError,
+    kind: &'static str,
+    limit: &'static str,
+) {
     if matches!(error, SymbolDataError::DecompressedTooLarge(_)) {
-        metrics::counter!(SYMBOL_SET_SIZE_LIMIT_EXCEEDED, "kind" => kind).increment(1);
+        metrics::counter!(SYMBOL_SET_SIZE_LIMIT_EXCEEDED, "kind" => kind, "limit" => limit)
+            .increment(1);
     }
 }
 

@@ -80,9 +80,44 @@ impl ExtractionBudget {
         self.remaining -= data.len();
         Ok(data)
     }
+
+    // Like `read`, but gives `None` for an entry that cannot be read, so the caller can skip it.
+    fn read_optional(&mut self, entry: impl Read) -> Result<Option<Vec<u8>>, NativeError> {
+        match self.read(entry) {
+            Ok(data) => Ok(Some(data)),
+            Err(e @ NativeError::DataError(_)) => Err(e),
+            Err(_) => Ok(None),
+        }
+    }
 }
 
 impl ParsedNativeSymbols {
+    /// Parses the result of a symbol_data container read. `kind` labels the metrics.
+    pub fn from_container(
+        container: Result<(Vec<u8>, usize), SymbolDataError>,
+        source: &[u8],
+        max_extracted_bytes: usize,
+        kind: &'static str,
+    ) -> Result<Self, NativeError> {
+        let (zip_data, decompressed_bytes) = match container {
+            Ok(container) => container,
+            Err(e @ SymbolDataError::DecompressedTooLarge(_)) => {
+                record_size_limit_exceeded(&e, kind, "container");
+                return Err(e.into());
+            }
+            // Raw ZIP fallback for uploads from before the symbol_data container was introduced.
+            // TODO(2026-09-24): Remove raw ZIP fallback once all old uploads have expired.
+            Err(_) => (source.to_vec(), source.len()),
+        };
+        metrics::histogram!(SYMBOL_SET_DECOMPRESSED_BYTES, "kind" => kind)
+            .record(decompressed_bytes as f64);
+        Self::from_zip_data(zip_data, decompressed_bytes, max_extracted_bytes).inspect_err(|e| {
+            if let NativeError::DataError(e) = e {
+                record_size_limit_exceeded(e, kind, "extracted");
+            }
+        })
+    }
+
     pub fn from_zip_data(
         zip_data: Vec<u8>,
         decompressed_bytes: usize,
@@ -122,10 +157,8 @@ impl ParsedNativeSymbols {
         let Ok(manifest_file) = archive.by_name("__source/manifest.json") else {
             return Ok(None);
         };
-        let manifest_data = match budget.read(manifest_file) {
-            Ok(data) => data,
-            Err(e @ NativeError::DataError(_)) => return Err(e),
-            Err(_) => return Ok(None),
+        let Some(manifest_data) = budget.read_optional(manifest_file)? else {
+            return Ok(None);
         };
         let Ok(manifest) = serde_json::from_slice::<SourceManifest>(&manifest_data) else {
             return Ok(None);
@@ -136,16 +169,11 @@ impl ParsedNativeSymbols {
         // Several manifest keys can name the same entry, and each one reads it again, so every
         // read is charged to the budget.
         for (dwarf_path, zip_path) in &manifest.files {
-            if let Ok(file) = archive.by_name(zip_path) {
-                match budget.read(file) {
-                    Ok(data) => {
-                        if let Ok(content) = String::from_utf8(data) {
-                            sources.insert(dwarf_path.clone(), content);
-                        }
-                    }
-                    Err(e @ NativeError::DataError(_)) => return Err(e),
-                    Err(_) => {}
-                }
+            let Ok(file) = archive.by_name(zip_path) else {
+                continue;
+            };
+            if let Some(Ok(content)) = budget.read_optional(file)?.map(String::from_utf8) {
+                sources.insert(dwarf_path.clone(), content);
             }
         }
 
@@ -414,27 +442,7 @@ impl Parser for NativeProvider {
                 )
                 .map(|(dsym, bytes)| (dsym.data, bytes)),
             });
-            let (zip_data, decompressed_bytes) = match container {
-                Ok(container) => container,
-                Err(e @ SymbolDataError::DecompressedTooLarge(_)) => {
-                    record_size_limit_exceeded(&e, "native");
-                    return Err(NativeError::DataError(e).into());
-                }
-                // Raw ZIP fallback for dSYMs uploaded before the
-                // symbol_data container was introduced.
-                Err(_) => {
-                    let len = source.len();
-                    (source.to_vec(), len)
-                }
-            };
-            metrics::histogram!(SYMBOL_SET_DECOMPRESSED_BYTES, "kind" => "native")
-                .record(decompressed_bytes as f64);
-            ParsedNativeSymbols::from_zip_data(zip_data, decompressed_bytes, max_extracted_bytes)
-                .inspect_err(|e| {
-                    if let NativeError::DataError(e) = e {
-                        record_size_limit_exceeded(e, "native");
-                    }
-                })
+            ParsedNativeSymbols::from_container(container, &source, max_extracted_bytes, "native")
                 .map_err(Into::into)
         })
         .await
@@ -557,57 +565,60 @@ mod test {
         };
 
         const LIMIT: usize = 1024;
+        const EXTRACTED_LIMIT: usize = 2 * LIMIT;
         let mut config = ResolverConfig::init_with_defaults().unwrap();
         config.symbol_set_max_decompressed_bytes = NonZeroUsize::new(LIMIT).unwrap();
-        config.symbol_set_max_extracted_bytes = NonZeroUsize::new(LIMIT).unwrap();
+        config.symbol_set_max_extracted_bytes = NonZeroUsize::new(EXTRACTED_LIMIT).unwrap();
 
         let oversized_container = write_symbol_data(ElfDebugInfo {
             data: vec![0; 64 * LIMIT],
         })
         .unwrap();
-
-        let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
-        zip.start_file("dwarf", zip::write::SimpleFileOptions::default())
-            .unwrap();
-        zip.write_all(&vec![0; 64 * LIMIT]).unwrap();
-        let zip_data = zip.finish().unwrap().into_inner();
-        assert!(zip_data.len() <= LIMIT);
-        let oversized_entry = write_symbol_data(ElfDebugInfo { data: zip_data }).unwrap();
-
-        let provider = NativeProvider::new(&config);
-        for source in [oversized_container, oversized_entry] {
-            let Err(err) = provider.parse(source.into(), ParsePermit::none()).await else {
-                panic!("parse succeeded");
-            };
-            assert!(
-                matches!(
-                    err,
-                    ResolveError::ResolutionError(FrameError::Native(NativeError::DataError(
-                        SymbolDataError::DecompressedTooLarge(limit)
-                    ))) if limit == LIMIT as u64
-                ),
-                "{err:?}"
-            );
-        }
-
         let oversized_dsym = write_symbol_data(AppleDsym {
             data: vec![0; 64 * LIMIT],
         })
         .unwrap();
-        let Err(err) = AppleProvider::new(&config)
-            .parse(oversized_dsym.into(), ParsePermit::none())
-            .await
-        else {
-            panic!("parse succeeded");
+
+        let oversized_entry = |name: &str| {
+            let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+            zip.start_file(name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(&vec![0; 64 * LIMIT]).unwrap();
+            let zip_data = zip.finish().unwrap().into_inner();
+            assert!(zip_data.len() <= LIMIT);
+            write_symbol_data(ElfDebugInfo { data: zip_data }).unwrap()
         };
-        assert!(
-            matches!(
-                err,
-                ResolveError::ResolutionError(FrameError::Apple(AppleError::DataError(
-                    SymbolDataError::DecompressedTooLarge(limit)
-                ))) if limit == LIMIT as u64
+
+        let frame_error = |result: Result<ParsedNativeSymbols, ResolveError>| match result {
+            Err(ResolveError::ResolutionError(e)) => e,
+            Err(e) => panic!("{e:?}"),
+            Ok(_) => panic!("parse succeeded"),
+        };
+        let too_large = |limit: usize| SymbolDataError::DecompressedTooLarge(limit as u64);
+
+        let provider = NativeProvider::new(&config);
+        for (source, expected_limit) in [
+            (oversized_container, LIMIT),
+            (oversized_dsym.clone(), LIMIT),
+            (oversized_entry("dwarf"), EXTRACTED_LIMIT),
+            (
+                oversized_entry("App.dSYM/Contents/Resources/DWARF/App"),
+                EXTRACTED_LIMIT,
             ),
-            "{err:?}"
+        ] {
+            assert_eq!(
+                frame_error(provider.parse(source.into(), ParsePermit::none()).await),
+                FrameError::Native(NativeError::DataError(too_large(expected_limit)))
+            );
+        }
+
+        assert_eq!(
+            frame_error(
+                AppleProvider::new(&config)
+                    .parse(oversized_dsym.into(), ParsePermit::none())
+                    .await
+            ),
+            FrameError::Apple(AppleError::DataError(too_large(LIMIT)))
         );
     }
 
