@@ -428,7 +428,7 @@ tools:
             marked user-edited, so automatic enrichment will no longer overwrite it.
     warehouse-tables-create:
         operation: warehouse_tables_create
-        enabled: true
+        enabled: false
         scopes:
             - warehouse_table:write
         annotations:
