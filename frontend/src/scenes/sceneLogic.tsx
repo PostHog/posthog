@@ -996,14 +996,17 @@ export const sceneLogic = kea<sceneLogicType>([
                 }
 
                 if (sceneId !== Scene.InviteSignup) {
+                    // The agentic and OAuth consent pages pick or create the organization and project
+                    // they use, so approving there must not require either first.
+                    const isConsentPage =
+                        location.pathname.startsWith(urls.agenticAuthorize()) ||
+                        location.pathname.startsWith(urls.oauthAuthorize())
                     // Redirect to org/project creation if there's no org/project respectively, unless using invite
                     if (organizationLogic.values.isCurrentOrganizationUnavailable) {
                         if (
                             location.pathname !== urls.organizationCreateFirst() &&
                             !location.pathname.startsWith(urls.settings('user')) &&
-                            // The agentic consent page picks or creates the organization and project
-                            // it uses, so approving there must not require either first.
-                            !location.pathname.startsWith(urls.agenticAuthorize())
+                            !isConsentPage
                         ) {
                             console.warn('Organization not available, redirecting to organization creation')
                             router.actions.replace(urls.organizationCreateFirst())
@@ -1019,7 +1022,7 @@ export const sceneLogic = kea<sceneLogicType>([
                             if (
                                 location.pathname !== urls.projectCreateFirst() &&
                                 !location.pathname.startsWith('/settings') &&
-                                !location.pathname.startsWith(urls.agenticAuthorize())
+                                !isConsentPage
                             ) {
                                 console.warn(
                                     'Project not available and no other projects, redirecting to project creation'

@@ -4351,6 +4351,7 @@ export namespace Schemas {
         ch_table_names?: (Array<string> | null) | undefined;
         errors: Array<HogQLNotice>;
         index_usage?: (Array<PredicateIndexUsage> | null) | undefined;
+        internalError?: (boolean | null) | undefined;
         isUsingIndices?: (QueryIndexUsage | null) | undefined;
         isValid?: (boolean | null) | undefined;
         notices: Array<HogQLNotice>;
