@@ -3,7 +3,6 @@ import { z } from 'zod'
 import { parseJsonOrUndefined } from '@/core/json'
 import { hogFile } from '@/core/paths'
 import type { Runtime } from '@/core/runtime'
-import { parseOrUndefined } from '@/core/schema'
 import { hostKey, HostSchema, type Host } from '@/posthog/host'
 
 import { StoredSecretSchema } from './helpers'
@@ -33,12 +32,12 @@ export class FileStore implements CredentialStore {
     }
 
     async hosts(): Promise<Host[]> {
-        return Object.keys(await this.readAll()).flatMap((key) => parseOrUndefined(HostSchema, key) ?? [])
+        return Object.keys(await this.readAll()).flatMap((key) => HostSchema.safeParse(key).data ?? [])
     }
 
     async read(host: Host): Promise<StoredSecret | undefined> {
         // A stored value hog doesn't recognize, such as one a later version wrote, reads as no login.
-        return parseOrUndefined(StoredSecretSchema, (await this.readAll())[hostKey(host)])
+        return StoredSecretSchema.safeParse((await this.readAll())[hostKey(host)]).data
     }
 
     async write(host: Host, secret: StoredSecret): Promise<void> {
@@ -55,7 +54,7 @@ export class FileStore implements CredentialStore {
     // Removes the entries under a name that isn't a host, such as one an older hog wrote, which
     // `hosts` leaves out.
     async removeUnreadable(): Promise<boolean> {
-        return this.removeKeys((name) => parseOrUndefined(HostSchema, name) === undefined)
+        return this.removeKeys((name) => HostSchema.safeParse(name).data === undefined)
     }
 
     private async removeKeys(matches: (name: string) => boolean): Promise<boolean> {

@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { parser } from '@/core/schema'
+import { parseOrThrow, type ParseFailure } from '@/core/schema'
 
 // An http or https origin, plus the path a self-hosted PostHog can sit under. It is normalized, so
 // two ways to write one host compare equal.
@@ -39,7 +39,9 @@ function validateHost(value: string): string | undefined {
     return undefined
 }
 
-export const parseHost = parser(HostSchema, { code: 'invalid_host' })
+export function parseHost(raw: unknown, failure?: Partial<ParseFailure>): Host {
+    return parseOrThrow(HostSchema, raw, { code: 'invalid_host', ...failure })
+}
 
 // The origin of a host, without its path: its scheme, host name and port. Every map of logins is
 // keyed by it. Only `hostKey` makes one.
