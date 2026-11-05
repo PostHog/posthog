@@ -624,6 +624,8 @@ Notes:
 - `SignalReportGithubComment` holds one claim per report and issue, with a lowercase repository name. Completed claims prevent repeat comments. Pending claims expire after ten minutes.
 - A later settle checks existing comments for a stable marker before it retries an expired claim. An incomplete comment read leaves the claim pending. GitHub provides no atomic comment idempotency key, so this is best-effort recovery.
 - The worker checks the current issue state immediately before posting. Closed issues, locked issues, and pull requests receive no comment.
+- A report's `source_issue` artefacts count as source issues too. Scout and user-authored reports skip research, so their writeback runs from a Celery task queued after the write commits (`source_issues.py`). A source issue gets a comment only after the team's GitHub source ingests that issue; grouping queues the writeback again when the issue's signal joins the report.
+- Grouping attaches a GitHub issue signal to the oldest open report whose `source_issue` names the same issue, before similarity matching and without the specificity check. Resolved, suppressed, failed, closed, and deleted reports do not take it.
 - See [GitHub issue comments](../../docs/internal/signals-github-writeback.md) for recovery limits and diagnostic logs.
 
 ### `SignalUserAutonomyConfig`
