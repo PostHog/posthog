@@ -22,7 +22,7 @@ export function EvaluationPassRatePreview({
             <div className="flex flex-col rounded border border-primary bg-surface-primary p-1">
                 {runs.map((run, index) => (
                     <div key={index} className="flex items-center gap-2 px-1.5 py-0.5 text-xs">
-                        <span className="w-10 shrink-0 text-secondary">Run {index + 1}</span>
+                        <span className="w-10 shrink-0 text-secondary">{`Run ${index + 1}`}</span>
                         {run.fill !== undefined && (
                             // LemonProgress fills its parent, so this span sets its width.
                             <span className="w-16 shrink-0">
@@ -49,10 +49,13 @@ export function EvaluationPassRatePreview({
                 <div className="mt-1 border-t px-1.5 pt-1.5 pb-0.5 text-xs">
                     {graded ? (
                         <>
-                            <span className="font-semibold">Pass rate {Math.round((passed / runs.length) * 100)}%</span>
+                            {/* Each changing number sits in its own element, so page translation can't leave it stale. */}
+                            <span className="font-semibold">
+                                Pass rate <span>{`${Math.round((passed / runs.length) * 100)}%`}</span>
+                            </span>
                             <span className="text-secondary">
-                                {' '}
-                                · {passed} of {runs.length} runs
+                                {' · '}
+                                <span>{`${passed} of ${runs.length} runs`}</span>
                             </span>
                         </>
                     ) : (

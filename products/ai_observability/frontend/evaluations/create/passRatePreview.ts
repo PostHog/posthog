@@ -38,13 +38,14 @@ export function passRatePreview(outputType: EvaluationOutputType, config: Evalua
     }
     if (outputType === 'numeric') {
         const [min, max] = scoreRange(config)
-        // Whole-number ranges get whole-number examples. A fractional range keeps two decimals, so no example
-        // rounds outside it.
+        // Whole-number ranges get whole-number examples. A fractional range keeps three significant digits, which
+        // holds for any scale, and the clamp keeps rounding from stepping outside the range.
         const whole = Number.isInteger(min) && Number.isInteger(max)
         const threshold = rule && 'threshold' in rule ? rule : null
         return SCORE_POSITIONS.map((position) => {
             const exact = min + position * (max - min)
-            const score = whole ? Math.round(exact) : Math.round(exact * 100) / 100
+            const rounded = whole ? Math.round(exact) : Number(exact.toPrecision(3))
+            const score = Math.min(max, Math.max(min, rounded))
             return {
                 value: `${score} / ${max}`,
                 fill: max > min ? (score - min) / (max - min) : 1,

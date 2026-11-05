@@ -34,6 +34,11 @@ describe('passRatePreview', () => {
             { min: 0.1, max: 0.5 },
             ['0.5 / 0.5', '0.4 / 0.5', '0.3 / 0.5', '0.2 / 0.5'],
         ],
+        [
+            'a range of thousandths',
+            { min: 0.001, max: 0.005 },
+            ['0.005 / 0.005', '0.004 / 0.005', '0.003 / 0.005', '0.002 / 0.005'],
+        ],
         ['a range with only a lowest score', { min: 10 }, ['14 / 14', '13 / 14', '12 / 14', '11 / 14']],
     ])('example scores stay inside %s', (_name, config, expected) => {
         const runs = passRatePreview('numeric', config)
