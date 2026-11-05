@@ -46,31 +46,61 @@ class TestObjectMediaPreviewAPI(APIBaseTest):
         # Tied rows need a total order, or a page boundary can skip or repeat a preview
         assert seen == sorted((str(preview.id) for preview in previews), reverse=True)
 
-    def test_create_does_not_accept_an_exported_asset(self):
+    def test_create_links_only_the_uploaded_media(self):
         event_definition = EventDefinition.objects.create(team=self.team, name="purchase")
-        other_user = User.objects.create_and_join(self.organization, "other@example.com", "password")
-        asset = ExportedAsset.objects.create(team=self.team, export_format="text/csv", created_by=other_user)
+        media = UploadedMedia.objects.create(team=self.team, file_name="screenshot.png", content_type="image/png")
+        asset = ExportedAsset.objects.create(team=self.team, export_format="text/csv", created_by=self.user)
 
         response = self.client.post(
             f"/api/projects/{self.team.pk}/object_media_previews/",
-            {"event_definition_id": str(event_definition.pk), "exported_asset_id": str(uuid.UUID(int=asset.pk))},
+            {
+                "event_definition_id": str(event_definition.pk),
+                "uploaded_media_id": str(media.pk),
+                # Asset ids are integers, which a UUID field accepted in this form
+                "exported_asset_id": str(uuid.UUID(int=asset.pk)),
+            },
             format="json",
         )
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert not ObjectMediaPreview.objects.filter(exported_asset=asset).exists()
+        assert response.status_code == status.HTTP_201_CREATED
+        preview = ObjectMediaPreview.objects.get(id=response.json()["id"])
+        assert preview.uploaded_media_id == media.pk
+        assert preview.exported_asset_id is None
 
-    @parameterized.expand([("author", True, True), ("other_member", False, False)])
-    def test_exported_asset_media_url_is_only_returned_to_its_author(self, _name, is_author, expects_url):
+    @parameterized.expand(
+        [
+            ("own_export", "self", None, True),
+            ("other_members_export", "other", None, False),
+            ("event_screenshot", None, "session-1", True),
+        ]
+    )
+    def test_exported_asset_media_url_follows_export_access(self, _name, created_by, session_recording_id, expects_url):
         event_definition = EventDefinition.objects.create(team=self.team, name="purchase")
-        author = self.user if is_author else User.objects.create_and_join(self.organization, "a@example.com", "pw")
-        asset = ExportedAsset.objects.create(team=self.team, export_format="image/png", created_by=author)
+        author = {
+            "self": self.user,
+            "other": User.objects.create_and_join(self.organization, "other@example.com", "password"),
+            None: None,
+        }[created_by]
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format="image/png",
+            created_by=author,
+            export_context={"session_recording_id": session_recording_id} if session_recording_id else None,
+        )
         ObjectMediaPreview.objects.create(team=self.team, event_definition=event_definition, exported_asset=asset)
 
-        response = self.client.get(
+        list_response = self.client.get(
             f"/api/projects/{self.team.pk}/object_media_previews/?event_definition={event_definition.pk}"
         )
+        preferred_response = self.client.get(
+            f"/api/projects/{self.team.pk}/object_media_previews/preferred_for_event/?event_definition={event_definition.pk}"
+        )
 
-        assert response.status_code == status.HTTP_200_OK
-        media_url = response.json()["results"][0]["media_url"]
-        assert ("token=" in media_url) is expects_url
+        assert list_response.status_code == status.HTTP_200_OK
+        media_url = list_response.json()["results"][0]["media_url"]
+        if expects_url:
+            assert "token=" in media_url
+            assert preferred_response.json()["media_url"] == media_url
+        else:
+            assert media_url == ""
+            assert preferred_response.status_code == status.HTTP_404_NOT_FOUND

@@ -6,6 +6,7 @@ import posthoganalytics
 from drf_spectacular.extensions import OpenApiSerializerExtension
 from rest_framework import serializers
 
+from posthog.api.object_media_preview import media_url_for_request
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.event_usage import groups
@@ -250,4 +251,5 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             .select_related("uploaded_media", "exported_asset")
             .order_by("-updated_at")
         )
-        return [p.media_url for p in previews if p.media_url]
+        view = self.context.get("view")
+        return [url for url in (media_url_for_request(p, view) for p in previews) if url]

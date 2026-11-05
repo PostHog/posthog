@@ -10,6 +10,39 @@ from posthog.models import EventDefinition, ObjectMediaPreview, UploadedMedia
 from posthog.permissions import is_scout_sandbox_request
 from posthog.taxonomy.scout_writes import refuse_scout_taxonomy_write
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.exports.backend.facade.auth import can_user_view_exported_asset
+from products.exports.backend.facade.exporters import is_product_export
+
+
+def media_url_for_viewer(
+    preview: ObjectMediaPreview, *, user_id: int | None, user_access_control: UserAccessControl | None
+) -> str:
+    """The preview's URL, or "" when the viewer may not read the exported asset behind it.
+
+    An exported asset's URL is a long-lived token that works without a session, so it is only handed to
+    viewers the exports API would serve the asset to.
+    """
+    if preview.uploaded_media_id:
+        return preview.media_url
+    asset = preview.exported_asset
+    if asset is None or user_access_control is None:
+        return ""
+    if is_product_export(export_format=asset.export_format, kind=asset.export_kind):
+        return ""
+    if not can_user_view_exported_asset(asset, user_id=user_id, user_access_control=user_access_control):
+        return ""
+    return preview.media_url
+
+
+def media_url_for_request(preview: ObjectMediaPreview, view: object) -> str:
+    request = getattr(view, "request", None)
+    return media_url_for_viewer(
+        preview,
+        user_id=getattr(getattr(request, "user", None), "id", None),
+        user_access_control=getattr(view, "user_access_control", None),
+    )
+
 
 class ObjectMediaPreviewSerializer(serializers.ModelSerializer):
     media_url = serializers.SerializerMethodField()
@@ -32,14 +65,7 @@ class ObjectMediaPreviewSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "created_at", "updated_at", "media_url", "media_type")
 
     def get_media_url(self, obj: ObjectMediaPreview) -> str:
-        if obj.exported_asset_id and not obj.uploaded_media_id:
-            # An exported asset's URL is a long-lived bearer token for its content, while the exports API
-            # only serves an export to its author, so only the author gets the URL here.
-            request = self.context.get("request")
-            user_id = getattr(getattr(request, "user", None), "id", None)
-            if user_id is None or obj.exported_asset.created_by_id != user_id:
-                return ""
-        return obj.media_url
+        return media_url_for_request(obj, self.context.get("view"))
 
     def get_media_type(self, obj: ObjectMediaPreview) -> str:
         """Return 'uploaded' or 'exported' based on which media is set"""
@@ -149,6 +175,7 @@ class ObjectMediaPreviewViewSet(
 
         if exported:
             serializer = self.get_serializer(exported)
-            return Response(serializer.data)
+            if serializer.data["media_url"]:
+                return Response(serializer.data)
 
         return Response({"detail": "No media preview found"}, status=status.HTTP_404_NOT_FOUND)
