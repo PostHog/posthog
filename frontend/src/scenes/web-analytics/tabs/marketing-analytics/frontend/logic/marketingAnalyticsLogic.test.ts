@@ -1168,7 +1168,7 @@ describe('marketingAnalyticsLogic', () => {
                       }
                     : {}),
                 fields: Object.fromEntries(
-                    ['campaign', 'source', 'spend', 'day'].map((name) => [
+                    ['id', 'campaign', 'source', 'spend', 'day'].map((name) => [
                         name,
                         { name, hogql_value: name, type: 'string', schema_valid: true },
                     ])
@@ -1180,7 +1180,13 @@ describe('marketingAnalyticsLogic', () => {
                     ...teamLogic.values.currentTeam!,
                     marketing_analytics_config: {
                         sources_map: {
-                            [mappingKey]: { campaign: 'campaign', source: 'source', cost: 'spend', date: 'day' },
+                            [mappingKey]: {
+                                id: 'id',
+                                campaign: 'campaign',
+                                source: 'source',
+                                cost: 'spend',
+                                date: 'day',
+                            } as SourceMap,
                         },
                     },
                 })
