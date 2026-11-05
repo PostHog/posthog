@@ -29,6 +29,7 @@ from products.slack_app.backend.facade.api import slack_artifact_delivery_state_
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.slack_thread import SlackThreadContext
 from products.tasks.backend.facade import contracts
+from products.tasks.backend.facade.profiles import SourceKind
 from products.tasks.backend.logic.services.ai_run_defaults import resolve_ai_run_selection
 from products.tasks.backend.logic.services.code_usage_gate import usage_limit_response
 from products.tasks.backend.logic.services.gateway_model_pin import model_allowed_by_product_pin
@@ -46,6 +47,7 @@ from products.tasks.backend.logic.services.workflow_task_skills import (
 from products.tasks.backend.metrics import observe_workflow_task_create
 from products.tasks.backend.model_catalog import CLAUDE
 from products.tasks.backend.models import Channel, Task, TaskRun
+from products.tasks.backend.task_sources import idempotency_key_q, source_q
 from products.tasks.backend.temporal.constants import WORKFLOW_RUN_IDLE_TIMEOUT_SECONDS
 
 from ee.billing.quota_limiting import QuotaResource, is_team_over_credit_budget
@@ -331,7 +333,9 @@ def create_workflow_task(
                 raise WorkflowTaskTeamRateCapped(team_rate_cap)
 
             in_flight = TaskRun.objects.filter(
-                task__team_id=team.id, task__hog_flow_id=hog_flow_id, status__in=ACTIVE_RUN_STATUSES
+                source_q(SourceKind.HOG_FLOW, [hog_flow_id], via="task__"),
+                task__team_id=team.id,
+                status__in=ACTIVE_RUN_STATUSES,
             ).count()
             if in_flight >= max_parallel_tasks:
                 observe_workflow_task_create(reason="limit_reached")
@@ -496,10 +500,10 @@ def _find_replayed_task(
 ) -> contracts.WorkflowTaskDTO | None:
     if origin_key is None:
         return None
-    existing = Task.objects.filter(team_id=team_id, origin_key=origin_key).first()
+    existing = Task.objects.filter(idempotency_key_q(origin_key), team_id=team_id).first()
     if existing is None:
         return None
-    if existing.hog_flow_id != hog_flow_id:
+    if existing.hog_flow_source_id != hog_flow_id:
         raise WorkflowTaskOriginKeyConflict(origin_key)
     return _task_dto(existing, created=False)
 
@@ -516,7 +520,9 @@ def _daily_task_counts(team_id: int, hog_flow_id: uuid.UUID) -> _DailyTaskCounts
     """One function so the unlocked pre-check and the authoritative locked recheck run
     the identical query and can't drift apart."""
     since = django_timezone.now() - timedelta(hours=24)
-    workflow_count = Task.objects.filter(team_id=team_id, hog_flow_id=hog_flow_id, created_at__gte=since).count()
+    workflow_count = Task.objects.filter(
+        source_q(SourceKind.HOG_FLOW, [hog_flow_id]), team_id=team_id, created_at__gte=since
+    ).count()
     team_count = Task.objects.filter(
         team_id=team_id, origin_product=Task.OriginProduct.WORKFLOW, created_at__gte=since
     ).count()

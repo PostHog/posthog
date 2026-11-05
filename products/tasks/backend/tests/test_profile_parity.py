@@ -8,6 +8,7 @@ from parameterized import parameterized
 
 from products.tasks.backend.facade.profiles import (
     DrivePolicy,
+    GithubAccess,
     GithubResolution,
     Read,
     TaskProfile,
@@ -26,9 +27,12 @@ from products.tasks.backend.presentation.views.api import (
 )
 from products.tasks.backend.temporal.oauth import _oauth_application_for_task
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
-from products.tasks.backend.temporal.process_task.activities.start_agent_server import _include_personal_mcp_for_task
 from products.tasks.backend.temporal.process_task.ai_gateway_token import resolve_sandbox_ai_product
-from products.tasks.backend.temporal.process_task.utils import USER_AUTHORABLE_ORIGIN_PRODUCTS, get_pr_authorship_mode
+from products.tasks.backend.temporal.process_task.utils import (
+    USER_AUTHORABLE_ORIGIN_PRODUCTS,
+    get_pr_authorship_mode,
+    include_personal_mcp_for_task,
+)
 from products.tasks.backend.visibility import (
     PRODUCT_PRIVATE_ORIGIN_PRODUCTS,
     TEAM_READABLE_ORIGIN_PRODUCTS,
@@ -131,7 +135,7 @@ class TestTaskProfilesMatchMaster(SimpleTestCase):
 
     @parameterized.expand(PROFILES)
     def test_personal_mcp_matches_master(self, _key: str, profile: TaskProfile) -> None:
-        self.assertEqual(profile.personal_mcp, _include_personal_mcp_for_task(_task(profile)))
+        self.assertEqual(profile.personal_mcp, include_personal_mcp_for_task(_task(profile)))
 
     @parameterized.expand(PROFILES)
     def test_inherit_user_defaults_matches_master(self, _key: str, profile: TaskProfile) -> None:
@@ -151,6 +155,14 @@ class TestTaskProfilesMatchMaster(SimpleTestCase):
         }[profile.github_resolution]
         master = Task._github_resolution_allowed(profile.origin_product, has_repository=has_repository)
         self.assertEqual(attaches_github, master)
+
+    @parameterized.expand(PROFILES)
+    def test_github_access_matches_master(self, _key: str, profile: TaskProfile) -> None:
+        attaches_github = any(
+            Task._github_resolution_allowed(profile.origin_product, has_repository=has_repository)
+            for has_repository in (True, False)
+        )
+        self.assertEqual(profile.github_access, GithubAccess.WRITE if attaches_github else GithubAccess.NONE)
 
     @parameterized.expand(PROFILES)
     def test_user_authorable_prs_matches_master(self, _key: str, profile: TaskProfile) -> None:

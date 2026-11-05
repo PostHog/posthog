@@ -77,6 +77,7 @@ from products.signals.backend.scout_harness.runner import (
     SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME,
     SIGNALS_SCOUT_SANDBOX_ENV_NAME,
     RunResult,
+    _activity_summary_search_available,
     _ai_stage,
     _background_backoff_props,
     _create_run_row,
@@ -516,6 +517,79 @@ class TestPromptCacheablePrefix(SimpleTestCase):
             '"verdict"',
         ):
             assert value not in head, f"{value} interpolated above the per-run block"
+
+    @parameterized.expand(
+        [
+            ("signal_channel", [], True, False),
+            ("report_emit_only", ["emit_report"], True, True),
+            ("report_both", ["emit_report", "edit_report"], True, True),
+            ("report_edit_only", ["edit_report"], True, True),
+            ("report_both_unavailable", ["emit_report", "edit_report"], False, False),
+        ]
+    )
+    def test_activity_summary_search_nudge_renders_after_the_shared_prefix_only_when_available(
+        self, _name: str, allowed_tools: list[str], available: bool, rendered: bool
+    ) -> None:
+        prompt = build_run_prompt(
+            LoadedSkill(
+                name="signals-scout-reviewer-search",
+                version=1,
+                body="watch",
+                description="d",
+                allowed_tools=allowed_tools,
+                files=[],
+                skill_id="skill-1",
+                origin="custom",
+                authors=[],
+            ),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=1,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+            activity_summary_search_available=available,
+        )
+
+        assert ("activity-summary-search" in prompt) is rendered
+        if rendered:
+            assert prompt.index("# Find people who read the work") > prompt.index("# Output format")
+
+
+class TestActivitySummarySearchAvailability(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("unnarrowed", None, True, True, True),
+            ("allowlist_holds_tool", ["activity-summary-search"], True, True, True),
+            ("allowlist_omits_tool", ["insight-get"], True, True, False),
+            ("search_flag_off", None, True, False, False),
+            ("not_enrolled_for_reads", None, False, True, False),
+        ]
+    )
+    def test_resolves_from_the_search_gate_and_the_run_allowlist(
+        self,
+        _name: str,
+        allowlist: list[str] | None,
+        enrolled: bool,
+        flag_on: bool,
+        expected: bool,
+    ) -> None:
+        with (
+            patch(
+                "products.signals.backend.activity_summary.search.readable_config",
+                return_value=MagicMock() if enrolled else None,
+            ),
+            patch("products.signals.backend.activity_summary.search.search_enabled", return_value=flag_on),
+        ):
+            assert _activity_summary_search_available(MagicMock(), allowlist) is expected
+
+    def test_a_failed_gate_check_resolves_false(self) -> None:
+        with (
+            patch(
+                "products.signals.backend.activity_summary.search.readable_config",
+                side_effect=RuntimeError("flag payload unavailable"),
+            ),
+            patch("products.signals.backend.scout_harness.runner.capture_exception") as capture,
+        ):
+            assert _activity_summary_search_available(MagicMock(), None) is False
+        capture.assert_called_once()
 
 
 class TestCheckoutSection(SimpleTestCase):
@@ -1248,6 +1322,42 @@ class TestPromptBuilder(BaseTest):
             load_skill_for_run(self.team, "signals-scout-plain"), **kwargs, github_read_access=True
         )
         assert "Code-derived reviewer evidence" not in signal_prompt
+
+    @parameterized.expand(
+        [
+            ("emit_and_edit", ["emit_report", "edit_report"]),
+            ("emit_only", ["emit_report"]),
+        ]
+    )
+    def test_reviewer_guidance_follows_the_selection_trial(self, _name: str, allowed_tools: list[str]) -> None:
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-routing",
+            description="Report scout",
+            body="watch",
+            allowed_tools=allowed_tools,
+        )
+        loaded = load_skill_for_run(self.team, "signals-scout-routing")
+        kwargs: dict = {
+            "run_id": "00000000-0000-0000-0000-000000000abc",
+            "team_id": self.team.id,
+            "started_at": datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+            "github_read_access": True,
+        }
+        strict = build_run_prompt(loaded, **kwargs, strict_reviewer_selection=True)
+        legacy = build_run_prompt(loaded, **kwargs)
+
+        assert "No code evidence? Route to the most plausible owner." in strict
+        assert "it is a route, not only evidence" in strict
+        assert "Inspect relevant work." in strict
+        assert "Always try to set it." not in strict
+        assert "Query recent authors of the affected path" not in strict
+
+        assert "Always try to set it." in legacy
+        assert "No owner in your evidence? List the members." in legacy
+        assert "Query recent authors of the affected path" in legacy
+        assert "No code evidence? Route to the most plausible owner." not in legacy
+        assert "Inspect relevant work." not in legacy
 
     @parameterized.expand(
         [
@@ -2964,6 +3074,10 @@ async def test_successful_run_captures_run_finished_event(ateam, aerrors_skill):
             return_value=42,
         ),
         patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
+        patch(
+            "products.signals.backend.scout_harness.runner.team_research_reviewer_selection_enabled",
+            return_value=True,
+        ),
     ):
         run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
@@ -2984,6 +3098,14 @@ async def test_successful_run_captures_run_finished_event(ateam, aerrors_skill):
     # The prompt-shape fork reaches the lifecycle event too (this team has no knowledge base),
     # so an event-based A/B readout can segment on it without joining back to the run row.
     assert props["business_knowledge_maintained"] is False
+    # The reviewer-selection trial arm reaches both events and the run row, so the trial can be read per run.
+    assert all(c.kwargs["properties"]["strict_reviewer_selection"] is True for c in capture.call_args_list)
+    run_id = run_result.run_id
+    assert run_id is not None
+    stamped = await database_sync_to_async(
+        lambda: SignalScoutRun.objects.get(id=run_id).metadata or {}, thread_sensitive=False
+    )()
+    assert stamped["strict_reviewer_selection"] is True
 
 
 @pytest.mark.asyncio
@@ -4014,11 +4136,13 @@ class TestRunRowProvenanceStamps(BaseTest):
         # Always-present provenance key: absence would mean a run predating the field, so a False
         # default must still be stamped, not omitted.
         assert stamped["business_knowledge_maintained"] is False
+        assert stamped["strict_reviewer_selection"] is False
         # The routing triple stays absent on the default-model path, so its keys can't be
         # confused with the always-present provenance keys.
         assert not any(key in stamped for key in _ROUTED_MODEL_KEYS)
 
-    def test_stamps_business_knowledge_fork_when_maintained(self) -> None:
+    @parameterized.expand([("business_knowledge_maintained",), ("strict_reviewer_selection",)])
+    def test_stamps_prompt_fork_when_set(self, fork: str) -> None:
         # The section rides on every run and the flag/source state behind it can change, so the
         # resolved boolean is stamped write-once — an eval or A/B compares only runs given the
         # same prompt, and re-deriving it later would read the wrong (current) state.
@@ -4029,9 +4153,10 @@ class TestRunRowProvenanceStamps(BaseTest):
             team=self.team,
             config=config,
             skill=self._skill(allowed_tools=["emit_report"], origin="custom"),
-            business_knowledge_maintained=True,
+            business_knowledge_maintained=fork == "business_knowledge_maintained",
+            strict_reviewer_selection=fork == "strict_reviewer_selection",
         )
-        assert (run.metadata or {})["business_knowledge_maintained"] is True
+        assert (run.metadata or {})[fork] is True
 
     def test_stamps_the_one_off_note_a_manual_run_carried(self) -> None:
         # The run row is the only record of what a hand-triggered run was asked to do.

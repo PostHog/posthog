@@ -70,7 +70,7 @@ function StoryEditor({
         <div className="flex h-full flex-col">
             {originalWorkflow ? (
                 <>
-                    <HogFlowEditor key={originalWorkflow.id} isTreeView={false} isTileCanvas={!!tileCanvasEnabled} />
+                    <HogFlowEditor key={originalWorkflow.id} isTileCanvas={!!tileCanvasEnabled} />
                     <StoryState metrics={metrics} openAllPaths={openAllPaths} />
                 </>
             ) : (
