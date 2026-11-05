@@ -334,6 +334,18 @@ export const AiObservabilityTracesSummaryCreateBody = /* @__PURE__ */ zod.object
         .describe('Replace a ready summary with a new one. A pending summary is never replaced.'),
 })
 
+export const aiObservabilityTracesAvailabilityCreateBodyTraceIdsItemMax = 255
+
+export const aiObservabilityTracesAvailabilityCreateBodyTraceIdsMax = 2
+
+export const AiObservabilityTracesAvailabilityCreateBody = /* @__PURE__ */ zod.object({
+    trace_ids: zod
+        .array(zod.string().max(aiObservabilityTracesAvailabilityCreateBodyTraceIdsItemMax))
+        .min(1)
+        .max(aiObservabilityTracesAvailabilityCreateBodyTraceIdsMax)
+        .describe('Application and evaluator trace IDs to check without loading trace contents.'),
+})
+
 /**
  * Create an item and its first immutable version. An identical client item ID retry returns the existing item. A different payload or an archived match returns a conflict.
  */

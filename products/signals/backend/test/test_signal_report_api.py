@@ -91,6 +91,7 @@ from products.signals.backend.test.report_metric_test_fixtures import trends_met
 from products.signals.backend.throttles import ReportMetricRefreshThrottle
 from products.signals.backend.views import (
     PR_CI_STATUS_MAX_REPORTS,
+    SignalReportListPagination,
     SignalReportStateRequestSerializer,
     SignalReportViewSet,
     classify_report_list_client,
@@ -2606,35 +2607,71 @@ class TestSignalReportListAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("short_first_page", 10, 0, 3, False, False),
-            ("short_last_page", 2, 2, 1, False, False),
-            ("exact_full_page", 3, 0, 3, False, False),
-            ("full_page_with_more", 2, 0, 2, False, True),
-            ("offset_past_the_end", 2, 5, 0, True, False),
+            # name, headroom, limit, offset, rows, runs_count_query, count, capped, has_next
+            ("short_first_page", 1000, 10, 0, 3, False, 3, False, False),
+            ("short_last_page", 1000, 2, 2, 1, False, 3, False, False),
+            ("exact_full_page", 1000, 3, 0, 3, True, 3, False, False),
+            ("full_page_under_the_cap", 1000, 2, 0, 2, True, 3, False, True),
+            ("offset_past_the_end", 1000, 2, 5, 0, True, 3, False, False),
+            ("full_page_over_the_cap", 1, 1, 0, 1, True, 2, True, True),
+            ("deep_offset_moves_the_cap", 1, 1, 1, 1, True, 3, False, True),
         ]
     )
-    def test_search_page_counts_without_a_second_scan(
-        self, _name: str, limit: int, offset: int, rows: int, runs_count_query: bool, has_next: bool
+    def test_search_page_counts_only_up_to_a_cap(
+        self,
+        _name: str,
+        headroom: int,
+        limit: int,
+        offset: int,
+        rows: int,
+        runs_count_query: bool,
+        count: int,
+        capped: bool,
+        has_next: bool,
     ) -> None:
         for i in range(3):
             self._create_report(title=f"Checkout failure {i}")
         self._create_report(title="Unrelated")
 
-        with CaptureQueriesContext(connection) as ctx:
+        with (
+            patch.object(SignalReportListPagination, "SEARCH_COUNT_HEADROOM", headroom),
+            CaptureQueriesContext(connection) as ctx,
+        ):
             response = self.client.get(
                 self._list_url(search="checkout", ordering="-created_at", limit=limit, offset=offset)
             )
 
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
-        assert body["count"] == 3
+        assert (body["count"], body["count_is_capped"]) == (count, capped)
         newest_first = ["Checkout failure 2", "Checkout failure 1", "Checkout failure 0"]
         assert [r["title"] for r in body["results"]] == newest_first[offset : offset + rows]
         assert (body["next"] is not None) == has_next
         count_queries = [
-            q for q in ctx.captured_queries if 'COUNT(*) AS "__count" FROM "signals_signalreport"' in q["sql"]
+            q["sql"]
+            for q in ctx.captured_queries
+            if q["sql"].startswith('SELECT COUNT(*) FROM (SELECT "signals_signalreport"."id"')
         ]
         assert bool(count_queries) == runs_count_query
+        assert all(f"LIMIT {offset + limit + headroom + 1}" in sql for sql in count_queries)
+
+    def test_search_shape_goes_on_the_list_span_without_the_term(self) -> None:
+        for i in range(3):
+            self._create_report(title=f"Checkout failure {i}")
+        span = MagicMock()
+
+        with patch("products.signals.backend.views.trace.get_current_span", return_value=span):
+            response = self.client.get(self._list_url(search="checkout", limit=1))
+
+        assert response.status_code == status.HTTP_200_OK
+        attributes = {call.args[0]: call.args[1] for call in span.set_attribute.call_args_list}
+        assert {key: value for key, value in attributes.items() if key.startswith("signals.reports.list.search.")} == {
+            "signals.reports.list.search.length": 8,
+            "signals.reports.list.search.trigram_indexable": True,
+            "signals.reports.list.search.count_query": "bounded",
+            "signals.reports.list.search.count_capped": False,
+        }
+        assert "checkout" not in {str(value).lower() for value in attributes.values()}
 
     @parameterized.expand([("plain", {}), ("search", {"search": "checkout"})])
     def test_page_sort_selects_ids_without_joining_one_to_one_rows(self, _name: str, params: dict[str, str]) -> None:
