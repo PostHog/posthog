@@ -89,6 +89,7 @@ describe('RerunPaginatorService integration', () => {
             // max_attempts filter. Defaults to 0.
             rerunAttempts?: number
             scheduledAt?: Date
+            firstScheduledAt?: Date
         }>
     ): Promise<void> => {
         for (const r of rows) {
@@ -108,6 +109,7 @@ describe('RerunPaginatorService integration', () => {
                     timings: [],
                     attempts: 0,
                     rerunAttempts: r.rerunAttempts,
+                    firstScheduledAt: r.firstScheduledAt?.toISOString().replace('T', ' ').replace('Z', '000'),
                 },
                 teamId: team.id,
                 functionId: hogFunction.id,
@@ -529,6 +531,107 @@ describe('RerunPaginatorService integration', () => {
             expect(next.progress.queued).toBe(1)
             expect(next.progress.skipped).toBe(1)
         })
+
+        it('matches a run by the window of its first scheduled time, whatever day its last row lands on', async () => {
+            const run = (id: string, start: string, end: string) => [
+                {
+                    invocation_id: id,
+                    status: 'running' as const,
+                    scheduledAt: new Date(start),
+                    firstScheduledAt: new Date(start),
+                },
+                {
+                    invocation_id: id,
+                    status: 'failed' as const,
+                    error: new Error('boom'),
+                    scheduledAt: new Date(end),
+                    firstScheduledAt: new Date(start),
+                },
+            ]
+            await seedRows([
+                ...run('finishes-after-window', '2026-02-01T23:00:00Z', '2026-02-02T01:00:00Z'),
+                ...run('started-before-window', '2026-01-31T23:00:00Z', '2026-02-01T01:00:00Z'),
+            ])
+
+            const state = buildState({
+                request: {
+                    filter: { window_start: '2026-02-01T00:00:00Z', window_end: '2026-02-02T00:00:00Z' },
+                },
+            })
+
+            await paginator.processPage(team.id, state, { jobId: 'test-rerun-job', createdAt: DateTime.now() })
+            const enqueued = hogQueue.queueInvocations.mock.calls[0]?.[0] as
+                | CyclotronJobInvocationHogFunction[]
+                | undefined
+            expect(enqueued?.map((i) => i.id)).toEqual(['finishes-after-window'])
+        })
+
+        it.each([
+            {
+                name: 'run-start cursor',
+                cursor: {
+                    scheduled_at: '2026-02-01 12:00:00.000000',
+                    first_scheduled_at: '2026-02-01 12:00:00.000000',
+                    invocation_id: 'later-start',
+                },
+                expectedIds: ['spans-days'],
+                expectedCursor: {
+                    scheduled_at: '2026-02-01 10:00:00.000000',
+                    first_scheduled_at: '2026-02-01 10:00:00.000000',
+                    invocation_id: 'spans-days',
+                },
+            },
+            {
+                // A worker on the previous release wrote this cursor, keyed on the run's last row.
+                name: 'legacy last-row cursor',
+                cursor: { scheduled_at: '2026-02-02 09:00:00.000000', invocation_id: 'spans-days' },
+                expectedIds: ['later-start'],
+                expectedCursor: { scheduled_at: '2026-02-01 12:00:00.000000', invocation_id: 'later-start' },
+            },
+        ])(
+            'resumes from a $name without skipping or repeating a run',
+            async ({ cursor, expectedIds, expectedCursor }) => {
+                await seedRows([
+                    {
+                        invocation_id: 'spans-days',
+                        status: 'running',
+                        scheduledAt: new Date('2026-02-01T10:00:00Z'),
+                        firstScheduledAt: new Date('2026-02-01T10:00:00Z'),
+                    },
+                    {
+                        invocation_id: 'later-start',
+                        status: 'failed',
+                        error: new Error('boom'),
+                        scheduledAt: new Date('2026-02-01T12:00:00Z'),
+                        firstScheduledAt: new Date('2026-02-01T12:00:00Z'),
+                    },
+                    {
+                        invocation_id: 'spans-days',
+                        status: 'failed',
+                        error: new Error('boom'),
+                        scheduledAt: new Date('2026-02-02T09:00:00Z'),
+                        firstScheduledAt: new Date('2026-02-01T10:00:00Z'),
+                    },
+                ])
+
+                const state = buildState({
+                    request: {
+                        filter: { window_start: '2026-02-01T00:00:00Z', window_end: '2026-02-03T00:00:00Z' },
+                    },
+                    progress: { queued: 0, skipped: 0, done: false, cursor },
+                })
+
+                const { state: next } = await paginator.processPage(team.id, state, {
+                    jobId: 'test-rerun-job',
+                    createdAt: DateTime.now(),
+                })
+                const enqueued = hogQueue.queueInvocations.mock.calls[0]?.[0] as
+                    | CyclotronJobInvocationHogFunction[]
+                    | undefined
+                expect(enqueued?.map((i) => i.id)).toEqual(expectedIds)
+                expect(next.progress.cursor).toEqual(expectedCursor)
+            }
+        )
 
         it('honours max_count by capping queued+skipped at the user-provided limit', async () => {
             await seedRows([
