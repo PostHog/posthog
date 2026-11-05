@@ -27,7 +27,7 @@ describe('getExtensionPanelState', () => {
         ],
         [
             'extension store',
-            { tabUrl: 'https://addons.mozilla.org/en-US/firefox/' },
+            { tabUrl: 'https://chromewebstore.google.com/category/extensions' },
             { kind: 'unsupported-page', reason: 'extension-store' },
         ],
         [

@@ -35,7 +35,7 @@ from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig
 from products.signals.dags.inbox_ranking.multihead.local import report_vectors
 from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable, project_context, report_matrix
 from products.signals.dags.inbox_ranking.nn import experiments, pair_lane
-from products.signals.dags.inbox_ranking.nn.dag import NN_EXAMPLES_TABLE
+from products.signals.dags.inbox_ranking.nn.dag import EXPERIMENT_SEEDS, NN_EXAMPLES_TABLE
 from products.signals.dags.inbox_ranking.nn.examples import NN_HEAD_NAMES, NN_HEADS, build_examples, examples_arrow
 from products.signals.dags.inbox_ranking.nn.model import network_recipe, onnx_probabilities, vs_baseline_block
 from products.signals.dags.inbox_ranking.nn.pair_grade import DOGFOOD_TEAM_ID, pair_vs_baseline_block
@@ -63,6 +63,7 @@ from products.signals.dags.inbox_ranking.training.families import (
     NN_MODEL_NAME,
     NN_PAIR_BASE_MODEL_NAME,
     NN_PAIR_USER_MODEL_NAME,
+    NN_WITH_PRIO_AA_MODEL_NAME,
     NN_WITH_PRIO_FAMILY,
     NN_WITH_PRIO_MODEL_NAME,
     PAIR_GRAIN,
@@ -360,9 +361,16 @@ def test_vs_baseline_pairs_each_seed_inside_each_team_on_the_same_holdout_rows()
         "holdout_positives",
         *(
             f"{read}_{key}"
-            for read in ("within_team", "pooled")
+            for read in (
+                "within_team",
+                "within_team_non_dogfood",
+                "within_team_macro",
+                "within_team_non_dogfood_macro",
+                "pooled",
+            )
             for key in ("paired_seeds", "mean_delta_auc", "min_delta_auc", "max_delta_auc", "wins")
         ),
+        *(f"within_team_non_dogfood_macro_interval_{key}" for key in ("low", "high", "teams")),
     }
     paired = {
         "experiment_aucs": [1.0, 0.0],
@@ -389,6 +397,48 @@ def test_vs_baseline_pairs_each_seed_inside_each_team_on_the_same_holdout_rows()
     )
     assert mixed["heads"][first]["within_team"]["experiment_aucs"] == [0.5]
     assert mixed["heads"][first]["within_team_non_dogfood"]["experiment_aucs"] == [1.0]
+    assert mixed["heads"][first]["within_team_non_dogfood_macro"]["experiment_aucs"] == [1.0]
+    [mixed_event, *_] = experiment_comparison_events({"model_name": "experiment", "vs_baseline": mixed})
+    assert [
+        mixed_event.properties[f"{read}_mean_delta_auc"]
+        for read in ("within_team", "within_team_non_dogfood", "within_team_non_dogfood_macro")
+    ] == [0.5, 1.0, 1.0]
+
+    # Customer team 1 ranks its four pairs right and customer team 3 ranks its one pair wrong, so the
+    # pooled read follows team 1 while the macro read weighs both teams the same.
+    uneven_labels = np.zeros((8, len(NN_HEAD_NAMES)), dtype=np.float32)
+    uneven_labels[:, 0] = [1, 1, 0, 0, 1, 0, 1, 0]
+    uneven = ExampleTable(
+        rows=pd.DataFrame(
+            {"report_id": list("abcdefgh"), "report_team_id": [1, 1, 1, 1, 3, 3, DOGFOOD_TEAM_ID, DOGFOOD_TEAM_ID]}
+        ),
+        labels=uneven_labels,
+        holdout=np.ones_like(uneven_labels, dtype=bool),
+    )
+    experiment = uneven_labels.copy()
+    experiment[4:6, 0] = 1 - experiment[4:6, 0]
+    grade = vs_baseline_block(
+        uneven,
+        baseline=NN_MODEL_NAME,
+        seeds=(0,),
+        experiment_scores=[experiment],
+        baseline_scores=[np.full_like(uneven_labels, 0.5)],
+    )["heads"][first]
+    assert grade["within_team_non_dogfood"]["mean_delta_auc"] == pytest.approx(0.3)
+    assert grade["within_team_non_dogfood_macro"]["mean_delta_auc"] == pytest.approx(0.0)
+    assert grade["within_team_macro"]["mean_delta_auc"] == pytest.approx(1 / 6)
+    assert grade["within_team_non_dogfood_macro_team_interval"] == {"low": -0.5, "high": 0.5, "teams": 2, "draws": 1000}
+
+
+def test_the_aa_control_is_its_baseline_recipe_fit_on_other_seeds():
+    aa = next(family for family in MODEL_FAMILIES if family.name == NN_WITH_PRIO_AA_MODEL_NAME)
+    config = NetworkConfig()
+    assert aa.baseline == NN_WITH_PRIO_MODEL_NAME
+    assert network_recipe(aa, config, aa.project_vector_kinds) == network_recipe(
+        NN_WITH_PRIO_FAMILY, config, NN_WITH_PRIO_FAMILY.project_vector_kinds
+    )
+    # On the baseline's own seeds the two arms are the same fit, and every delta is zero.
+    assert set(aa.experiment_seeds(EXPERIMENT_SEEDS)).isdisjoint(EXPERIMENT_SEEDS)
 
 
 def _signal_log(signals: list[tuple[str, str, str, str]]) -> bytes:

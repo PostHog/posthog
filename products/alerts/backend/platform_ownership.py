@@ -12,6 +12,8 @@ from dataclasses import replace
 from datetime import datetime
 from uuid import UUID
 
+from django.db import transaction
+
 from products.alerts.backend.evaluation.validation import validate_alert_config
 from products.alerts.backend.facade.contracts import PlatformCannotOwn
 from products.alerts.backend.insight_alert_state_machine import apply_disable, apply_enable, apply_threshold_change
@@ -25,7 +27,7 @@ from products.alerts.backend.platform_cutover import (
     in_an_environment,
 )
 from products.alerts.backend.platform_source_cycle import platform_upsert_of
-from products.alerts_platform.backend.facade.api import close_owned_firings_now, delete_owned_copy, update_owned_copy
+from products.alerts_platform.backend.facade.api import close_owned_firings_now, delete_copy, update_owned_copy
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
     InvalidPlatformAlertEdit,
@@ -108,7 +110,22 @@ def delete_moved_alert_copy(*, team_id: int, alert_id: UUID) -> None:
     """
     alert = _locked(team_id, alert_id)
     if alert is not None and alert.platform_owned:
-        delete_owned_copy(team_id=team_id, legacy_configuration_id=alert_id)
+        delete_copy(team_id=team_id, legacy_configuration_id=alert_id)
+
+
+def delete_shadow_alert_copy(*, team_id: int, alert_id: UUID) -> None:
+    """Deletes the copy of an alert insight owns once the alert's delete commits, by any route: the
+    API, an insight sweep, or a cascade.
+
+    After the commit, so each copy is locked in a transaction of its own. A sweep or a cascade
+    deletes several alerts in one transaction, and locking their copies there in deletion order can
+    deadlock with `record_outcomes`, which locks them in id order. A copy whose delete fails is left
+    for `delete_orphaned_platform_insight_alert_copies`.
+    """
+    transaction.on_commit(
+        lambda: delete_copy(team_id=team_id, legacy_configuration_id=alert_id, owner=PlatformAlertOwner.SOURCE),
+        robust=True,
+    )
 
 
 def _locked(team_id: int, alert_id: UUID) -> AlertConfiguration | None:

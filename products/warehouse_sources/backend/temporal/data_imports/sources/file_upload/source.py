@@ -35,7 +35,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     NO_TABLE_FILES_ERROR,
     ObjectStorageError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.fields import FEATURE_FLAG
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.filesystem import ObjectStore
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.formats import (
     iter_file_tables,
@@ -127,7 +126,6 @@ class FileUploadSource(SimpleSource[FileUploadInputs]):
     at creation, and once each time the file is replaced. The schema's schedule stays paused.
     """
 
-    requires_team_feature_flag = FEATURE_FLAG
     syncs_on_demand = True
     listed_in_catalog = False
     # A file someone uploads leaves no trace in a codebase.
@@ -152,7 +150,6 @@ class FileUploadSource(SimpleSource[FileUploadInputs]):
             caption="Upload a CSV, JSON, or Parquet file to query it in the PostHog data warehouse.",
             iconPath="/static/services/file-upload.svg",
             releaseStatus=ReleaseStatus.ALPHA,
-            featureFlag=FEATURE_FLAG,
             fields=[],
         )
 
