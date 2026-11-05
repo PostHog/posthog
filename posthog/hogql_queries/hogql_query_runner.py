@@ -184,9 +184,14 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     def _finest_time_bucket(self) -> Optional[str]:
         try:
             interval = self.query.filters.interval.value if self.query.filters and self.query.filters.interval else None
-            return finest_time_bucket(self._parse_query()[0], filter_interval=interval)
+            parsed_query = self._parse_query()[0] if self.query.values else self._cache_inspection_query
+            return finest_time_bucket(parsed_query, filter_interval=interval)
         except Exception:
             return None
+
+    @cached_property
+    def _cache_inspection_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        return parse_select(self.query.query)
 
     @cached_property
     def _api_sql_freshness_enabled(self) -> bool:
@@ -382,7 +387,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         if self.query.connectionId:
             return set()
         try:
-            return set(get_table_names(parse_select(self.query.query)))
+            return set(get_table_names(self._cache_inspection_query))
         except Exception:
             return set()
 
