@@ -6353,6 +6353,64 @@ export interface PaginatedSignalReportCheckListApi {
     results: SignalReportCheckApi[]
 }
 
+/**
+ * How to draw this measurement; copied from a referenced metric.
+ */
+export type MetricThresholdReplacementConfigApiMetricKind =
+    | (typeof MetricThresholdReplacementConfigApiMetricKind)[keyof typeof MetricThresholdReplacementConfigApiMetricKind]
+    | null
+
+export const MetricThresholdReplacementConfigApiMetricKind = {
+    AffectedUsers: 'affected_users',
+    AffectedSessions: 'affected_sessions',
+    Occurrences: 'occurrences',
+    ConversionRate: 'conversion_rate',
+    ErrorRate: 'error_rate',
+    Duration: 'duration',
+    Revenue: 'revenue',
+    Custom: 'custom',
+} as const
+
+/**
+ * How to format measured values; copied from a referenced metric.
+ */
+export type MetricThresholdReplacementConfigApiValueFormat =
+    | (typeof MetricThresholdReplacementConfigApiValueFormat)[keyof typeof MetricThresholdReplacementConfigApiValueFormat]
+    | null
+
+export const MetricThresholdReplacementConfigApiValueFormat = {
+    Number: 'number',
+    Count: 'count',
+    Percentage: 'percentage',
+    PercentageScaled: 'percentage_scaled',
+    Duration: 'duration',
+    Currency: 'currency',
+} as const
+
+/**
+ * Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already.
+ */
+export type MetricThresholdReplacementConfigApiQuery = { [key: string]: unknown } | null
+
+export interface MetricThresholdReplacementConfigApi {
+    /** Identifier of a metric on the report whose query this check measures. The metric's query is copied into `query` when the check is created. */
+    metric_id?: string | null
+    /** Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already. */
+    query?: MetricThresholdReplacementConfigApiQuery
+    /** Monitoring definition for the replacement, including the target reference period and scaling policy. */
+    monitoring: MonitoringMetricConfigApi
+    /** What the measured value must satisfy to pass. */
+    comparison: CheckComparisonApi
+    /** The value observed when the check was written, recorded on each result for context. */
+    baseline_value?: number | null
+    /** How to draw this measurement; copied from a referenced metric. */
+    metric_kind?: MetricThresholdReplacementConfigApiMetricKind
+    /** How to format measured values; copied from a referenced metric. */
+    value_format?: MetricThresholdReplacementConfigApiValueFormat
+    /** Optional value suffix. */
+    unit?: string | null
+}
+
 export interface SignalReportCheckReplacementApi {
     /**
      * Label for the new metric check.
@@ -6364,8 +6422,26 @@ export interface SignalReportCheckReplacementApi {
      * @maxLength 2000
      */
     rationale?: string
-    /** Metric threshold configuration, including a bounded query and comparison. */
-    config: MetricThresholdConfigApi
+    /** Metric threshold configuration, including a bounded query, comparison, and required Monitoring definition. */
+    config: MetricThresholdReplacementConfigApi
+    /**
+     * Observation window in minutes from Monitoring start. Omission preserves the existing window, including zero. Replacing a check during Monitoring restarts the period for all open checks.
+     * @minimum 0
+     * @maximum 43200
+     */
+    soak_minutes?: number
+    /**
+     * Minutes between interim Monitoring measurements. Must be at least six hours and shorter than the observation window. Omit to use a quarter of the window, bounded to six hours through one day. Windows of six hours or less have no interim samples.
+     * @minimum 360
+     * @maximum 129600
+     */
+    run_interval_minutes?: number
+    /**
+     * Monitoring performs one terminal evaluation. Omit or set to 1; higher counts are not supported. Interim measurements do not consume this count.
+     * @minimum 1
+     * @maximum 1
+     */
+    runs_remaining?: number
 }
 
 export interface SignalReportBulkStateRequestApi {
@@ -10934,6 +11010,122 @@ export interface SpendOverviewApi {
     scout_spend: SpendAmountApi
 }
 
+export interface MonthlySourceUsageApi {
+    /**
+     * Recorded finalized usage in credits, including exempt usage. Decimal string preserving fractional credits.
+     * @pattern ^-?\d{0,20}(?:\.\d{0,4})?$
+     */
+    total_credits: string
+    /**
+     * Subset of total_credits marked billing-exempt; not an invoice adjustment or grant balance.
+     * @pattern ^-?\d{0,20}(?:\.\d{0,4})?$
+     */
+    exempt_credits: string
+    /** Whether accounting is missing, failed, or still settling. */
+    incomplete: boolean
+    /**
+     * Product that emitted the signal. Null means attribution is unavailable; usage is retained.
+     * @nullable
+     */
+    source_product: string | null
+    /**
+     * Signal type within the source product.
+     * @nullable
+     */
+    source_type: string | null
+    /**
+     * Credits for processing this source's signals.
+     * @pattern ^-?\d{0,20}(?:\.\d{0,4})?$
+     */
+    processing_credits: string
+    /**
+     * Research and repository-selection credits attributed to their triggering signals.
+     * @pattern ^-?\d{0,20}(?:\.\d{0,4})?$
+     */
+    research_credits: string
+    /**
+     * Implementation credits attributed to each report's current triggering signal.
+     * @pattern ^-?\d{0,20}(?:\.\d{0,4})?$
+     */
+    implementation_credits: string
+}
+
+export interface MonthlyScoutUsageApi {
+    /**
+     * Recorded finalized usage in credits, including exempt usage. Decimal string preserving fractional credits.
+     * @pattern ^-?\d{0,20}(?:\.\d{0,4})?$
+     */
+    total_credits: string
+    /**
+     * Subset of total_credits marked billing-exempt; not an invoice adjustment or grant balance.
+     * @pattern ^-?\d{0,20}(?:\.\d{0,4})?$
+     */
+    exempt_credits: string
+    /** Whether accounting is missing, failed, or still settling. */
+    incomplete: boolean
+    /**
+     * Scout configuration UUID, if it still exists.
+     * @nullable
+     */
+    scout_config_id: string | null
+    /** Scout skill name. */
+    skill_name: string
+    /** Scout display name, falling back to its skill name. */
+    display_name: string
+    /** Number of tracked scout runs whose spend finalized in this month, including runs with no reports. */
+    run_count: number
+    /** Distinct report IDs emitted by these runs. Reports can be shared across scouts; do not sum this as a project report count. */
+    reports_produced: number
+}
+
+export interface UsagePricingApi {
+    /** Currency of the recorded usage value: USD. */
+    currency: string
+    /**
+     * Multiply credits by this value to get recorded usage in USD, before billing exemptions, grants, discounts, or invoice rounding.
+     * @pattern ^-?\d{0,4}(?:\.\d{0,8})?$
+     */
+    usd_per_credit: string
+}
+
+export interface MonthlyUsageApi {
+    /**
+     * Recorded finalized usage in credits, including exempt usage. Decimal string preserving fractional credits.
+     * @pattern ^-?\d{0,20}(?:\.\d{0,4})?$
+     */
+    total_credits: string
+    /**
+     * Subset of total_credits marked billing-exempt; not an invoice adjustment or grant balance.
+     * @pattern ^-?\d{0,20}(?:\.\d{0,4})?$
+     */
+    exempt_credits: string
+    /** Whether accounting is missing, failed, or still settling. */
+    incomplete: boolean
+    /** Canonical project that owns these spend records. A child environment resolves to its parent, which the caller must also be allowed to read. */
+    project_id: number
+    /** Inclusive start of the UTC calendar month. */
+    period_start: string
+    /** Exclusive end of the UTC calendar month. */
+    period_end: string
+    /** Time this summary was computed. The current month is partial. */
+    as_of: string
+    /**
+     * Recorded credits for unfinalized work created in this month, excluded from total_credits. This is not the full outstanding balance from earlier months.
+     * @pattern ^-?\d{0,20}(?:\.\d{0,4})?$
+     */
+    unsettled_credits: string
+    /** Public scout runs created in this month with no spend record. Their unknown costs are not counted as zero. */
+    untracked_scout_run_count: number
+    /** Whether any source attribution is missing. Unattributed credits remain in sources and total_credits. */
+    attribution_incomplete: boolean
+    /** Signal processing, research, and implementation grouped by source. Excludes scout execution costs. */
+    sources: MonthlySourceUsageApi[]
+    /** Scout execution costs, excluding downstream report work, which appears in sources. The sources and scouts totals sum to total_credits. */
+    scouts: MonthlyScoutUsageApi[]
+    /** Server-provided denomination for converting recorded credits to USD. This summary is not an invoice. */
+    pricing: UsagePricingApi
+}
+
 export interface SignalUserAutonomyConfigApi {
     readonly id: string
     readonly user: _UserApi
@@ -11255,6 +11447,10 @@ export type SignalsReportsListParams = {
      */
     created_after?: string
     /**
+     * ISO 8601 datetime. Keeps reports created before this time. Use it for reports older than a cutoff, instead of reading every page.
+     */
+    created_before?: string
+    /**
      * Report ids to leave out of the results and counts, for example the reports a client already shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100.
      * @maxItems 100
      */
@@ -11518,6 +11714,10 @@ export type SignalsReportsSectionCountsRetrieveParams = {
      * ISO 8601 datetime. Keeps reports created at or after this time.
      */
     created_after?: string
+    /**
+     * ISO 8601 datetime. Keeps reports created before this time. Use it for reports older than a cutoff, instead of reading every page.
+     */
+    created_before?: string
     /**
      * Report ids to leave out of the results and counts, for example the reports a client already shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100.
      * @maxItems 100
@@ -11918,4 +12118,13 @@ export type SignalsSourceConfigsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type SignalsMonthlyUsageParams = {
+    /**
+     * UTC calendar month in YYYY-MM format, from 2026-10 onward. Defaults to the current month. Usage is grouped by finalization time.
+     * @minLength 1
+     * @pattern ^[0-9]{4}-(0[1-9]|1[0-2])$
+     */
+    month?: string
 }

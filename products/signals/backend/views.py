@@ -5,7 +5,7 @@ import time
 import uuid
 from collections.abc import Callable, Iterable, Sequence
 from contextlib import ExitStack
-from datetime import UTC, timedelta
+from datetime import UTC, datetime, timedelta
 from functools import cached_property, partial
 from typing import Any, Literal, cast
 
@@ -266,6 +266,7 @@ from products.signals.backend.scout_harness.views import emit_report_from_valida
 from products.signals.backend.scout_report.trial_inbox import TrialInboxReads, private_report_artefacts
 from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
+    GitHubRepositoryInaccessibleErrorSerializer,
     PersonalRankingQuerySerializer,
     PersonalRankingSerializer,
     PullRequestChecksPermissionErrorSerializer,
@@ -374,6 +375,23 @@ _PULL_REQUEST_ID_PARAMETER = OpenApiParameter(
     required=False,
     description="Select a PR from the report's pull_requests collection. Omit for the compatibility primary PR (unfinished first).",
 )
+
+
+def github_repository_inaccessible_response(team_id: int, repository: str) -> Response:
+    return Response(
+        GitHubRepositoryInaccessibleErrorSerializer(
+            {
+                "code": "github_repository_inaccessible",
+                "error": (
+                    f"PostHog's GitHub connection can't access {repository}. A project admin must give the "
+                    "GitHub app access to this repository, or reconnect GitHub."
+                ),
+                "remediation_url": f"/project/{team_id}/settings/project-integrations",
+            }
+        ).data,
+        status=status.HTTP_404_NOT_FOUND,
+    )
+
 
 # Reports one batch CI-status request may ask about. A report list page is 50 rows, so a full page
 # of pull requests fits, with room for a flat list that merges several sections.
@@ -1678,6 +1696,16 @@ _REPORT_LIST_PARAMETERS = [
         description="ISO 8601 datetime. Keeps reports created at or after this time.",
     ),
     OpenApiParameter(
+        name="created_before",
+        type=OpenApiTypes.DATETIME,
+        location=OpenApiParameter.QUERY,
+        required=False,
+        description=(
+            "ISO 8601 datetime. Keeps reports created before this time. Use it for reports older than a "
+            "cutoff, instead of reading every page."
+        ),
+    ),
+    OpenApiParameter(
         name="task_id",
         type=OpenApiTypes.UUID,
         location=OpenApiParameter.QUERY,
@@ -1992,7 +2020,7 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_status_filter(qs)
         qs = self._apply_signal_report_listed_filter(qs)
         qs = self._apply_signal_report_search_filter(qs)
-        qs = self._apply_signal_report_created_after_filter(qs)
+        qs = self._apply_signal_report_created_at_filters(qs)
         unread = self.request.query_params.get("unread")
         if unread is not None:
             if unread not in {"true", "false"}:
@@ -2227,15 +2255,23 @@ class SignalReportViewSet(
             return queryset
         return queryset.filter(Q(title__icontains=search) | Q(summary__icontains=search))
 
-    def _apply_signal_report_created_after_filter(self, queryset):
-        raw = self.request.query_params.get("created_after")
+    def _datetime_query_param(self, name: str) -> datetime | None:
+        raw = self.request.query_params.get(name)
         if not raw:
-            return queryset
+            return None
         try:
-            created_after = serializers.DateTimeField().to_internal_value(raw)
+            return serializers.DateTimeField().to_internal_value(raw)
         except serializers.ValidationError:
-            raise serializers.ValidationError({"created_after": "Use an ISO 8601 datetime."})
-        return queryset.filter(created_at__gte=created_after)
+            raise serializers.ValidationError({name: "Use an ISO 8601 datetime."})
+
+    def _apply_signal_report_created_at_filters(self, queryset):
+        created_after = self._datetime_query_param("created_after")
+        if created_after is not None:
+            queryset = queryset.filter(created_at__gte=created_after)
+        created_before = self._datetime_query_param("created_before")
+        if created_before is not None:
+            queryset = queryset.filter(created_at__lt=created_before)
+        return queryset
 
     def _apply_signal_report_source_product_filter(self, queryset):
         source_product_filter = self.request.query_params.get("source_product")
@@ -5090,7 +5126,10 @@ class SignalReportViewSet(
                 description="The CI checks on the report's implementation pull request.",
             ),
             404: OpenApiResponse(
-                description="Report has no implementation PR, or no GitHub integration can access it."
+                description=(
+                    "Report has no implementation PR, or no GitHub integration can access it "
+                    "(code `github_repository_inaccessible`, with a `remediation_url`)."
+                )
             ),
             403: OpenApiResponse(
                 response=PullRequestChecksPermissionErrorSerializer,
@@ -5197,7 +5236,10 @@ class SignalReportViewSet(
                 description="Conversation and review comments on the report's implementation pull request.",
             ),
             404: OpenApiResponse(
-                description="Report has no implementation PR, or no GitHub integration can access it."
+                description=(
+                    "Report has no implementation PR, or no GitHub integration can access it "
+                    "(code `github_repository_inaccessible`, with a `remediation_url`)."
+                )
             ),
             502: OpenApiResponse(description="GitHub could not return the comments."),
             503: OpenApiResponse(description="The GitHub egress budget is temporarily unavailable."),
@@ -5678,15 +5720,7 @@ class SignalReportViewSet(
                 ),
             )
         if github is None:
-            return (
-                None,
-                repository,
-                pr_number,
-                Response(
-                    {"error": f"No GitHub integration can access '{repository}'."},
-                    status=status.HTTP_404_NOT_FOUND,
-                ),
-            )
+            return None, repository, pr_number, github_repository_inaccessible_response(self.team.id, repository)
         return github, repository, pr_number, None
 
 
@@ -6514,6 +6548,8 @@ class SignalReportCheckViewSet(
     )
     @action(detail=True, methods=["post"], url_path="replace", required_scopes=["inbox:write", "query:read"])
     def replace(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        if not organization_report_monitoring_enabled(self.organization.id):
+            raise NotFound()
         check = cast(SignalReportCheck, self.get_object())
         data = request.validated_data
         try:
@@ -6524,6 +6560,9 @@ class SignalReportCheckViewSet(
                 config=data["config"],
                 attribution=resolve_request_attribution(request, self.team.id),
                 access_policy=ReportMetricAccessPolicy(request=request, team=self.team),
+                soak_minutes=data.get("soak_minutes"),
+                run_interval_minutes=data.get("run_interval_minutes"),
+                runs_remaining=data.get("runs_remaining"),
             )
         except CheckQueryAccessError as error:
             return Response({"error": str(error)}, status=status.HTTP_403_FORBIDDEN)
@@ -7077,7 +7116,12 @@ class SignalReportArtefactViewSet(
                 description="The pull request diff, or the branch diff when no pull request is linked.",
             ),
             400: OpenApiResponse(description="Artefact is not a commit, or is missing repository/branch."),
-            404: OpenApiResponse(description="Artefact not found, or no GitHub integration can access the repository."),
+            404: OpenApiResponse(
+                description=(
+                    "Artefact not found, or no GitHub integration can access the repository "
+                    "(code `github_repository_inaccessible`, with a `remediation_url`)."
+                )
+            ),
             502: OpenApiResponse(description="GitHub could not produce the diff (branch not found, fetch failed)."),
         },
         summary="Fetch the diff for a commit artefact",
@@ -7124,10 +7168,7 @@ class SignalReportArtefactViewSet(
         except GitHubRateLimitError as e:
             return github_rate_limited_response(e)
         if github is None:
-            return Response(
-                {"error": f"No GitHub integration can access '{repository}'."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+            return github_repository_inaccessible_response(self.team.id, str(repository))
         try:
             pull_request = _pull_request_ref_for_commit(artefact, str(repository), str(branch), github)
         except GitHubRateLimitError as e:
