@@ -61,6 +61,16 @@ Block = Notice | Table | Paging
 class Page:
     blocks: tuple[Block, ...]
 
+    def __post_init__(self) -> None:
+        # tool.html renders only the block kinds it knows, so an unknown block would vanish without an error.
+        for block in self.blocks:
+            if not isinstance(block, Notice | Table | Paging):
+                raise ValueError(f"{type(block).__name__} is not a console block. Add new blocks to the shell.")
+            if isinstance(block, Table):
+                for row in block.rows:
+                    if isinstance(row, Row) and len(row.cells) != len(block.columns):
+                        raise ValueError(f"A table row has {len(row.cells)} cells for {len(block.columns)} columns")
+
 
 class ConsoleTool:
     """A console page that is not about one record, for example a report across all teams.

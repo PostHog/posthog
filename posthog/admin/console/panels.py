@@ -2,6 +2,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, ClassVar, Protocol
 
 from django import forms
+from django.utils.safestring import SafeData
 
 from posthog.dataclasses import frozen
 
@@ -25,6 +26,10 @@ class Owner:
     crest: str
 
 
+# A card with more facts than this is a report. Put the detail in a tool and link to it.
+MAX_FACTS_PER_PANEL = 8
+
+
 @frozen
 class Fact:
     label: str
@@ -32,8 +37,15 @@ class Fact:
     tone: Tone | None = None
     mono: bool = False
 
+    def __post_init__(self) -> None:
+        # The shell escapes facts. Markup from format_html or mark_safe would bypass the shared design.
+        if isinstance(self.label, SafeData) or isinstance(self.value, SafeData):
+            raise ValueError(f"Fact {self.label!r} must be plain text, not markup")
+
 
 class OperationHandler(Protocol):
+    """Returns None when done. To report a failure, add an error message and return a 4xx or 5xx response."""
+
     def __call__(self, request: "HttpRequest", obj: "Model", form: forms.Form | None) -> "HttpResponse | None": ...
 
 
@@ -50,11 +62,16 @@ class Operation:
     danger: bool = False
     form_class: type[forms.Form] | None = None
     description: str = ""
+    undo_hint: str = ""
 
     def __post_init__(self) -> None:
         # The console writes the reason to the audit log, so nobody runs a destructive action without saying why.
         if self.danger and (self.form_class is None or "reason" not in self.form_class.base_fields):
             raise ValueError(f"Danger operation {self.key!r} needs a form with a reason field")
+        if self.danger and not self.undo_hint.strip():
+            raise ValueError(
+                f"Danger operation {self.key!r} needs an undo_hint that says how to undo it, or that it cannot be undone"
+            )
 
 
 class ReasonForm(forms.Form):

@@ -8,6 +8,7 @@ from posthog.admin.console.bridge import AdminViewBridge
 from posthog.admin.console.panels import Fact, Operation, Owner, Panel, ReasonForm, Tone
 from posthog.admin.console.registry import console
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 
 # The console shell owns the core panels until a team claims one.
@@ -23,8 +24,17 @@ class TeamOverviewPanel(Panel):
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, Team)
+        owner = (
+            OrganizationMembership.objects.filter(
+                organization_id=obj.organization_id, level=OrganizationMembership.Level.OWNER
+            )
+            .select_related("user")
+            .order_by("joined_at")
+            .first()
+        )
         return [
-            Fact(label="Organization", value=obj.organization.name),
+            Fact(label="Owner", value=owner.user.email if owner else "No owner"),
+            Fact(label="Members", value=str(obj.organization.members.count())),
             Fact(label="Project", value=str(obj.project_id), mono=True),
             Fact(label="Created", value=obj.created_at.strftime("%b %-d, %Y")),
             Fact(label="Timezone", value=obj.timezone),
@@ -33,7 +43,6 @@ class TeamOverviewPanel(Panel):
                 value="Yes" if obj.ingested_event else "Not yet",
                 tone=Tone.SUCCESS if obj.ingested_event else Tone.WARNING,
             ),
-            Fact(label="API token", value=obj.api_token, mono=True),
         ]
 
 
@@ -45,7 +54,11 @@ class RemoteConfigPanel(Panel):
     owner = DEV_EXPERIENCE
 
     def facts(self, obj: Model) -> list[Fact]:
-        return [Fact(label="Cache", value="Served from the hypercache, rebuilt on config changes")]
+        return [
+            Fact(
+                label="Cache", value="SDKs read the team's config from this cache. It rebuilds when the config changes."
+            )
+        ]
 
     def operations(self, obj: Model) -> list[Operation]:
         return [
@@ -126,6 +139,7 @@ class AIGatewayPanel(Panel):
                     key="enable",
                     label="Enable access",
                     handler=AdminViewBridge(Team, TeamAdmin.enable_ai_gateway_view),
+                    description="Lets the team send requests through the AI gateway.",
                 )
             )
         if obj.llm_gateway_revoked_at is None:
@@ -137,6 +151,7 @@ class AIGatewayPanel(Panel):
                     danger=True,
                     description="Blocks the team's gateway requests until the revoke is cleared.",
                     form_class=ReasonForm,
+                    undo_hint="To undo, use Clear revoke in the AI gateway panel.",
                 )
             )
         else:
@@ -145,6 +160,7 @@ class AIGatewayPanel(Panel):
                     key="clear-revoke",
                     label="Clear revoke",
                     handler=AdminViewBridge(Team, TeamAdmin.clear_ai_gateway_revoke_view),
+                    description="Lets the team's gateway requests through again.",
                 )
             )
         return operations
@@ -171,5 +187,6 @@ class ApiTokenPanel(Panel):
                 danger=True,
                 description="SDKs that still send the old token stop reaching this team.",
                 form_class=SetApiTokenForm,
+                undo_hint="This cannot be undone automatically. To go back, set the old token again.",
             )
         ]

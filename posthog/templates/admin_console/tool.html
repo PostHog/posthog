@@ -1,7 +1,9 @@
 {% extends "admin_console/base.html" %}
 {% block title %}{{ tool.title }} · PostHog Admin{% endblock %}
 {% block content %}
-    <div class="text-xs text-muted-foreground">Tools / {{ tool.group }} /</div>
+    <nav class="text-xs text-muted-foreground" aria-label="Breadcrumb">
+        Tools › {{ tool.group }}
+    </nav>
     <div class="flex flex-wrap items-start gap-4 mt-1.5 mb-4">
         <div class="min-w-0">
             <h1 class="m-0 text-[22px] font-extrabold">{{ tool.title }}</h1>

@@ -10,6 +10,7 @@ from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
 
 from posthog.admin import register_all_admin
+from posthog.admin.console.moved import MovedToConsole
 from posthog.admin.oauth2 import admin_oauth2_callback
 from posthog.admin.oauth_views import admin_auth_check, admin_oauth_success
 from posthog.api.sso import saml_metadata_view
@@ -101,7 +102,7 @@ if settings.ADMIN_PORTAL_ENABLED:
         ),
         path(
             "admin/events-retention/",
-            RedirectView.as_view(url="/admin/console/tools/events-retention/", permanent=False, query_string=True),
+            MovedToConsole.page_redirect("Events retention", "/admin/console/tools/events-retention/"),
             name="events-retention",
         ),
         path(

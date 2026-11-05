@@ -10,3 +10,19 @@ document.addEventListener('submit', (event) => {
         button.setAttribute('aria-busy', 'true')
     }
 })
+
+document.addEventListener('keydown', (event) => {
+    const target = event.target
+    const typing =
+        target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, select'))
+    if (event.key !== '/' || typing || event.metaKey || event.ctrlKey || event.altKey) {
+        return
+    }
+    const search = document.getElementById('team-search')
+    if (search) {
+        event.preventDefault()
+        search.focus()
+    }
+})
+
+document.querySelector('form[data-autofocus]')?.querySelector('input:not([type=hidden]), textarea, select')?.focus()

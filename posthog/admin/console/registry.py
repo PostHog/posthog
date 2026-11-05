@@ -1,9 +1,21 @@
+import re
+
 from django.utils.module_loading import autodiscover_modules
 
 from posthog.admin.console.panels import Panel
 from posthog.admin.console.tools import ConsoleTool
 
 RECORD_TYPES = frozenset({"team"})
+# Navigation headings. Add one here, in the shell, only when no existing group fits a new tool.
+TOOL_GROUPS = frozenset({"Data"})
+KEY_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+
+def _check_metadata(kind: str, cls: type, key: str, title: str) -> None:
+    if not KEY_PATTERN.match(key):
+        raise ValueError(f"Console {kind} {cls.__name__} needs a lowercase, dash-separated key, not {key!r}")
+    if not title.strip():
+        raise ValueError(f"Console {kind} {cls.__name__} needs a title")
 
 
 class ConsoleRegistry:
@@ -13,6 +25,7 @@ class ConsoleRegistry:
         self._discovered = False
 
     def register_panel(self, panel_class: type[Panel]) -> type[Panel]:
+        _check_metadata("panel", panel_class, panel_class.key, panel_class.title)
         if panel_class.record not in RECORD_TYPES:
             raise ValueError(f"Unknown console record type {panel_class.record!r} on {panel_class.__name__}")
         panels = self._panels[panel_class.record]
@@ -34,6 +47,11 @@ class ConsoleRegistry:
         return panel_class() if panel_class else None
 
     def register_tool(self, tool_class: type[ConsoleTool]) -> type[ConsoleTool]:
+        _check_metadata("tool", tool_class, tool_class.key, tool_class.title)
+        if tool_class.group not in TOOL_GROUPS:
+            raise ValueError(
+                f"Console tool {tool_class.__name__} uses group {tool_class.group!r}, not one of {sorted(TOOL_GROUPS)}"
+            )
         existing = self._tools.get(tool_class.key)
         if existing is not None and existing is not tool_class:
             raise ValueError(f"Console tool key {tool_class.key!r} is already used by {existing.__name__}")
