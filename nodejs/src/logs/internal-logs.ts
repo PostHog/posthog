@@ -5,6 +5,8 @@ import { buildIntegerMatcher } from '~/common/config/matchers'
 import { logger } from '~/common/utils/logger'
 import type { ValueMatcher } from '~/types'
 
+import type { LogsIngestionMessage } from './types'
+
 export const INTERNAL_LOGS_HEADER = 'posthog-internal'
 
 // The HTTP request header that capture-logs forwards as the `posthog-internal` Kafka header.
@@ -154,4 +156,9 @@ export class InternalLogsVerifier {
         const skewSeconds = Math.abs(Date.parse(createdAt ?? '') / 1000 - Number(signedAt))
         return skewSeconds <= SIGNATURE_WINDOW_SECONDS ? null : 'stale_signature'
     }
+}
+
+/** Transformations write logs that come back here, so internal logs never run them, even when the header fails to verify. */
+export function runsTransformations(message: LogsIngestionMessage): boolean {
+    return !message.sentAsInternalLogs && (message.verifiedAsInternalLogs?.teamRules ?? true)
 }

@@ -2,6 +2,7 @@ import { trace } from '@opentelemetry/api'
 
 import type { LogsSettings } from '~/types'
 
+import { runsTransformations } from '../internal-logs'
 import { MESSAGE_KEYS } from '../log-pattern-mask'
 import { logsPatternForcedDecodeCounter, makePatternMaskingStage } from '../log-pattern-stage'
 import { type PiiScrubStats } from '../log-pii-scrub'
@@ -72,7 +73,7 @@ async function buildRecordsTransform(
     batchBudget?: TransformationBatchBudget
 ): Promise<LogRecordsTransform | undefined> {
     const transformer = context.deps.logsTransformer
-    if (!transformer || !appliesTeamLogRules(message) || !isTransformationsEnabledForTeam(context, message.teamId)) {
+    if (!transformer || !runsTransformations(message) || !isTransformationsEnabledForTeam(context, message.teamId)) {
         return undefined
     }
     if (!(await transformer.teamHasTransformations(message.teamId))) {
@@ -117,7 +118,7 @@ export async function resolveLogBuffer(
         stages.push(makeTransformStage(recordsTransform))
     }
     let shortestRetentionDays =
-        message.internalLogs !== undefined ? INTERNAL_LOGS_MIN_RETENTION_DAYS : defaultRetentionDays
+        message.verifiedAsInternalLogs !== undefined ? INTERNAL_LOGS_MIN_RETENTION_DAYS : defaultRetentionDays
     if (useRetention && retentionRuleSet) {
         stages.push(makeRetentionStage(retentionRuleSet, message.teamId, defaultRetentionDays))
         shortestRetentionDays = Math.min(

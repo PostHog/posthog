@@ -2982,6 +2982,31 @@ describe('LogsIngestionConsumer', () => {
             )
         })
 
+        it.each([
+            { name: 'verifies', signingKey: 'internal-logs-test-key' },
+            { name: 'fails to verify', signingKey: 'rotated-away-key' },
+        ])('does not run transformations on internal logs whose header $name', async ({ signingKey }) => {
+            const logsTransformer = await buildTransformer(`return null`)
+            transformerConsumer = await createLogsIngestionConsumer(
+                hub,
+                {
+                    LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '*',
+                    LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: String(team.id),
+                    LOGS_INTERNAL_INGESTION_SIGNING_KEYS: 'internal-logs-test-key',
+                },
+                { logsTransformer }
+            )
+
+            const [message] = await createKafkaMessages([createLogMessage()], { token: team.api_token })
+            message.headers!.push(
+                internalLogsHeaders(signInternalLogs(signingKey, 'hog_function', team.id, new Date(Date.now())))
+            )
+            await waitForBackgroundTasks(transformerConsumer.processKafkaBatch([message]))
+
+            const logsMessages = getProducedKafkaMessages().filter((m) => m.topic === 'clickhouse_logs_test')
+            expect(logsMessages).toHaveLength(1)
+        })
+
         it('does not run transformations when the team is not in the allowlist', async () => {
             const logsTransformer = await buildTransformer(`return null`)
             transformerConsumer = await createLogsIngestionConsumer(

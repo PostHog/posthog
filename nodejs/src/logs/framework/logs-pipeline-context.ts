@@ -115,13 +115,12 @@ export type LogsPipelineContext = {
     defaultRetentionDays: (teamId: number, logsSettings: LogsSettings) => Promise<number>
 }
 
-/** Transformations write hog_function logs, which could come back here as internal logs and loop. */
 export function appliesTeamLogRules(message: LogsIngestionMessage): boolean {
-    return message.internalLogs?.teamRules ?? true
+    return message.verifiedAsInternalLogs?.teamRules ?? true
 }
 
 export function isUnbilledInternal(message: LogsIngestionMessage): boolean {
-    return message.internalLogs !== undefined && !message.internalLogs.billed
+    return message.verifiedAsInternalLogs !== undefined && !message.verifiedAsInternalLogs.billed
 }
 
 /** A failed batch replays in full and the logs table has no dedupe, so each retry here avoids duplicates. */
