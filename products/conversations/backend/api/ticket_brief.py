@@ -4,6 +4,8 @@ The caps are deliberate. A brief is a ten-second read, and the writer is an agen
 so a field without a cap grows until it is no faster to read than the ticket.
 """
 
+from typing import Any
+
 from rest_framework import serializers
 
 from products.conversations.backend.models.constants import TicketBriefItemKind
@@ -14,6 +16,11 @@ MAX_QUESTIONS = 6
 MAX_SCREENSHOTS = 5
 MAX_TRIED = 5
 MAX_URL_LENGTH = 2000
+
+# The fields a brief is unreadable without. Enforced in validate() rather than by `required`
+# alone, because a PATCH makes the parent serializer partial and DRF propagates that into a
+# nested serializer, which would skip every required field here.
+REQUIRED_FIELDS = ("ask", "area", "questions")
 
 
 class TicketBriefAffectedItemSerializer(serializers.Serializer):
@@ -76,3 +83,9 @@ class TicketBriefSerializer(serializers.Serializer):
         required=False,
         help_text="What the customer says they already did to fix or diagnose the problem.",
     )
+
+    def validate(self, data: dict[str, Any]) -> dict[str, Any]:
+        missing = sorted(set(REQUIRED_FIELDS) - set(data))
+        if missing:
+            raise serializers.ValidationError(dict.fromkeys(missing, "This field is required."))
+        return data
