@@ -1719,14 +1719,23 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
             (
                 "train_budget_spent",
                 True,
+                0,
                 [("past_train_every", ScoringRun.SCORE)],
-                (1, 1, 1),
+                (1, 1, 1, 1),
             ),
             (
                 "train_budget_left",
                 False,
+                0,
                 [("past_age_ceiling", ScoringRun.TRAIN), ("past_train_every", ScoringRun.TRAIN)],
-                (0, 0, 0),
+                (0, 0, 0, 0),
+            ),
+            (
+                "ready_picks_fill_the_score_cap",
+                True,
+                3,
+                [("past_train_every", ScoringRun.SCORE), ("ready", ScoringRun.SCORE)],
+                (1, 1, 1, 1),
             ),
         ]
     )
@@ -1735,24 +1744,32 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
         self,
         _name: str,
         train_budget_spent: bool,
+        ready_insights: int,
         expected: list[tuple[str, ScoringRun]],
-        stale_and_backlog: tuple[int, int, int],
+        stale_and_backlog: tuple[int, int, int, int],
     ) -> None:
         self.team.timezone = "UTC"
         self.team.save()
         dashboard = Dashboard.objects.create(team=self.team, name="Main")
+        trained_days_ago = {"past_train_every": 10, "past_age_ceiling": 30}
+        trained_days_ago.update({f"ready_{index}": 1 for index in range(ready_insights)})
         insights = {
             name: Insight.objects.create(team=self.team, name=name, query=_trends(interval="day"))
-            for name in ("past_train_every", "past_age_ceiling")
+            for name in trained_days_ago
         }
         for insight in insights.values():
             DashboardTile.objects.create(dashboard=dashboard, insight=insight)
             cache.delete(_cooldown_key(insight.id))
         config = parse_config(
-            {**_SPLIT_PAYLOAD, "organization_ids": [str(self.organization.id)], "allow_team_ids": [self.team.id]}
+            {
+                **_SPLIT_PAYLOAD,
+                "organization_ids": [str(self.organization.id)],
+                "allow_team_ids": [self.team.id],
+                "max_score_insights_per_tick": 2,
+            }
         )
         today = NOW.replace(hour=0)
-        for name, trained_days_ago in (("past_train_every", 10), ("past_age_ceiling", 30)):
+        for name, days_ago in trained_days_ago.items():
             insight = insights[name]
             save_state(
                 self.team,
@@ -1765,7 +1782,7 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
                         self.team,
                         config.limits,
                     ),
-                    trained_at=NOW - timedelta(days=trained_days_ago),
+                    trained_at=NOW - timedelta(days=days_ago),
                     scored_through=today - timedelta(days=2),
                     series_keys=("a",),
                     artifact_key=f"anomaly_models/{insight.id}",
@@ -1779,10 +1796,13 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
         with patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]):
             selection = select_insights(config, SelectionConfig(weighting=Weighting.UNIFORM), NOW)
 
-        names = {insight.id: name for name, insight in insights.items()}
+        names = {
+            insight.id: name.split("_")[0] if name.startswith("ready_") else name for name, insight in insights.items()
+        }
         assert sorted((names[pick.insight_id], pick.run) for pick in selection.picks) == expected
         assert (
             selection.scored_stale_model,
+            selection.stale_candidates,
             selection.train_backlog_soft,
             selection.train_backlog_hard,
         ) == stale_and_backlog
