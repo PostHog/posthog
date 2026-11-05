@@ -39,6 +39,8 @@ rules:
           - pattern: $E[$E.index("@") + 1 :]
           - pattern: $E[$E.find("@") + 1 :]
           - pattern: $E.split("@", ...)[1]
+          - pattern: $E.split("@", 1)[-1]
+          - pattern: $E.split("@", maxsplit=1)[-1]
           - pattern: $E.partition("@")[2]
           - pattern: $LOCAL, $SEP, $DOMAIN = $E.partition("@")
           - pattern: $LOCAL, $DOMAIN = $E.split("@", ...)

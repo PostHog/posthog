@@ -23,6 +23,10 @@ def first_at_splits(email: str, config: dict) -> list[str]:
         # ruleid: email-domain-after-last-at
         email.split("@", maxsplit=1)[1],
         # ruleid: email-domain-after-last-at
+        email.split("@", 1)[-1],
+        # ruleid: email-domain-after-last-at
+        email.split("@", maxsplit=1)[-1],
+        # ruleid: email-domain-after-last-at
         email.partition("@")[2],
         # ruleid: email-domain-after-last-at
         (config.get("email") or "").partition("@")[2].lower(),
