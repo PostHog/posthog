@@ -9,6 +9,9 @@ import { TraceHeader } from './TraceHeader'
 const meta: Meta<typeof TraceHeader> = {
     title: 'Scenes-App/AI observability/Trace view/Trace header',
     component: TraceHeader,
+    // The header is an inline-size container, which contributes no intrinsic width, so an unsized story root collapses
+    // to zero. Stories that pin their own width nest inside this one.
+    decorators: [withWidth(1100)],
     args: {
         name: 'answer-billing-question',
         hasError: false,
@@ -54,7 +57,7 @@ const reviewActions = (
 )
 const fullHeader = { search, copyAction, exportAction, actions: reviewActions }
 
-export const OneRow: Story = { args: fullHeader, decorators: [withWidth(1100)] }
+export const OneRow: Story = { args: fullHeader }
 export const ToolbarBelowTitle: Story = { args: fullHeader, decorators: [withWidth(673)] }
 export const ButtonsBelowSearch: Story = {
     args: { ...fullHeader, name: 'support-agent.handle-inbound-ticket.classify-and-route', hasError: true },
