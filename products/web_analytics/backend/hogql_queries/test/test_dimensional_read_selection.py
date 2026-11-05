@@ -14,8 +14,11 @@ from posthog.schema import (
     CustomChannelField,
     CustomChannelOperator,
     CustomChannelRule,
+    EventPropertyFilter,
     FilterLogicalOperator,
     HogQLQueryModifiers,
+    MaterializationMode,
+    PersonsOnEventsMode,
     PropertyOperator,
     SessionPropertyFilter,
     SessionTableVersion,
@@ -64,6 +67,14 @@ _CUSTOM_CHANNEL_RULES = [
 _CHANNEL_FILTER = SessionPropertyFilter(key="$channel_type", value="Docs", operator=PropertyOperator.EXACT)
 
 
+def _event_filter(key: str, value: str = "x") -> EventPropertyFilter:
+    return EventPropertyFilter(key=key, value=value, operator=PropertyOperator.EXACT)
+
+
+def _session_filter(key: str, value: str = "x") -> SessionPropertyFilter:
+    return SessionPropertyFilter(key=key, value=value, operator=PropertyOperator.EXACT)
+
+
 def _runner(
     opted_in: bool | None,
     compare_from: datetime | None = None,
@@ -75,15 +86,18 @@ def _runner(
     custom_channel_rules: list[CustomChannelRule] | None = None,
     breakdown_by: WebStatsBreakdown = WebStatsBreakdown.PAGE,
     properties: list | None = None,
+    kind: str = "WebStatsTableQuery",
+    modifiers: HogQLQueryModifiers | None = None,
 ) -> MagicMock:
     runner = MagicMock()
     runner.team.pk = 1
+    runner.query.kind = kind
     runner.query.webQueryModifiers = (
         None if opted_in is None else WebAnalyticsQueryModifiers(useDimensionalTables=opted_in)
     )
     runner.query.properties = properties or []
     runner.query.breakdownBy = breakdown_by
-    runner.modifiers = HogQLQueryModifiers(customChannelTypeRules=custom_channel_rules)
+    runner.modifiers = modifiers or HogQLQueryModifiers(customChannelTypeRules=custom_channel_rules)
     runner._test_account_filters = test_account_filters or []
     # A project-local range: the current day in New York ends after the UTC now below.
     runner.query_date_range.date_from.return_value = date_from or datetime(2026, 3, 1, tzinfo=tz)
@@ -115,6 +129,9 @@ class TestDimensionalReadSelection(SimpleTestCase):
         insert_modifiers_patcher = patch(f"{_READ}.dimensional_insert_modifiers", return_value=HogQLQueryModifiers())
         insert_modifiers_patcher.start()
         self.addCleanup(insert_modifiers_patcher.stop)
+        flag_patcher = patch(f"{_READ}.feature_enabled_or_false", return_value=True)
+        self.flag_enabled = flag_patcher.start()
+        self.addCleanup(flag_patcher.stop)
 
     @parameterized.expand(
         [
@@ -210,6 +227,44 @@ class TestDimensionalReadSelection(SimpleTestCase):
             ),
             ("not_ready", _runner(True), False, None),
             ("lookup_fails", _runner(True), False, RuntimeError("postgres down")),
+            (
+                "overview_pathname_filter",
+                _runner(True, kind="WebOverviewQuery", properties=[_event_filter("$pathname", "/pricing")]),
+                False,
+                _JOB_IDS,
+            ),
+            (
+                "event_referring_domain_filter",
+                _runner(True, properties=[_event_filter("$referring_domain", "example.com")]),
+                False,
+                _JOB_IDS,
+            ),
+            ("entry_gclid_value_filter", _runner(True, properties=[_session_filter("$entry_gclid")]), False, _JOB_IDS),
+            (
+                "entry_fbclid_value_filter",
+                _runner(True, properties=[_session_filter("$entry_fbclid")]),
+                False,
+                _JOB_IDS,
+            ),
+            ("browser_version_filter", _runner(True, properties=[_event_filter("$browser_version")]), False, _JOB_IDS),
+            ("os_version_filter", _runner(True, properties=[_event_filter("$os_version")]), False, _JOB_IDS),
+            ("country_name_filter", _runner(True, properties=[_event_filter("$geoip_country_name")]), False, _JOB_IDS),
+            ("time_zone_filter", _runner(True, properties=[_event_filter("$geoip_time_zone")]), False, _JOB_IDS),
+            (
+                "persons_on_events_mode_differs_from_the_build",
+                _runner(True, modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED)),
+                False,
+                _JOB_IDS,
+            ),
+            (
+                "materialization_mode_differs_from_the_build",
+                _runner(
+                    True,
+                    modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.LEGACY_NULL_AS_STRING),
+                ),
+                False,
+                _JOB_IDS,
+            ),
         ]
     )
     def test_query_falls_back(self, _name, runner, has_rules, job_ids):
@@ -219,10 +274,27 @@ class TestDimensionalReadSelection(SimpleTestCase):
         ):
             assert ready_dimensional_job_ids(runner, _BOTH_TABLES) is None
 
+    def test_request_modifier_is_ignored_when_the_flag_is_off(self):
+        self.flag_enabled.return_value = False
+        with (
+            patch(f"{_READ}.team_has_property_access_rules", return_value=False),
+            patch(f"{_READ}.dimensional_job_ids", return_value=_JOB_IDS) as mock_job_ids,
+        ):
+            assert ready_dimensional_job_ids(_runner(True), _BOTH_TABLES) is None
+
+        assert self.flag_enabled.call_args.args[0] == "web-analytics-query-modifiers"
+        mock_job_ids.assert_not_called()
+
     @parameterized.expand(
         [
             ("retention_not_enforced", _runner(True, compare_from=datetime(2026, 2, 1, tzinfo=_NEW_YORK)), None, True),
             ("both_periods_inside_retention", _runner(True), 1, True),
+            (
+                "stats_table_pathname_filter",
+                _runner(True, properties=[_event_filter("$pathname", "/pricing")]),
+                None,
+                True,
+            ),
             (
                 "compare_period_crosses_retention",
                 _runner(True, compare_from=datetime(2026, 2, 1, tzinfo=_NEW_YORK)),

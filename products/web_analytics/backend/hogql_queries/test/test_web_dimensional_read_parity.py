@@ -83,6 +83,12 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         for table in ("sharded_web_stats_dimensional_preaggregated", "sharded_web_bounces_dimensional_preaggregated"):
             sync_execute(f"SYSTEM STOP TTL MERGES {table}")
             self.addCleanup(sync_execute, f"SYSTEM START TTL MERGES {table}")
+        flag_patcher = patch(
+            "products.web_analytics.backend.hogql_queries.web_dimensional_read.feature_enabled_or_false",
+            return_value=True,
+        )
+        flag_patcher.start()
+        self.addCleanup(flag_patcher.stop)
         super().setUp()
 
     def _pageview(self, distinct_id: str, session: str, ts: str, **props) -> None:
@@ -104,6 +110,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
                 "$host": "app.example.com",
                 "$device_type": "Desktop",
                 "$browser": "Chrome",
+                "$browser_version": 120,
                 "$os": "Windows",
                 "$viewport_width": 1920,
                 "$viewport_height": 1080,
@@ -183,6 +190,20 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         assert runner.used_preaggregated_tables, "expected the pre-aggregated path, not a live fallback"
         return runner.query_strategy(), self._sort_results(response.results), response
 
+    def _run_live(self, breakdown: WebStatsBreakdown, properties=None) -> list:
+        runner = WebStatsTableQueryRunner(
+            query=WebStatsTableQuery(
+                dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+                properties=properties or [],
+                breakdownBy=breakdown,
+                limit=100,
+            ),
+            team=self.team,
+        )
+        response = runner.calculate()
+        assert not runner.used_preaggregated_tables
+        return self._sort_results(response.results)
+
     @staticmethod
     def _counts(results: list) -> dict:
         # {breakdown_value: (visitors, views)} — anchors values so a both-routes-broken
@@ -217,6 +238,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         assert dimensional_response.preComputeStale is None
         assert dimensional == v2, f"{_name} mismatch\nv2={v2}\ndimensional={dimensional}"
         assert self._counts(dimensional) == expected_counts
+        assert self._counts(self._run_live(WebStatsBreakdown.DEVICE_TYPE, properties)) == expected_counts
 
     @parameterized.expand(
         [
@@ -285,6 +307,15 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
                 HogQLQueryModifiers(bounceRateDurationSeconds=60),
                 None,
                 {"Desktop": (2.0, 3.0), "Mobile": (1.0, 1.0)},
+            ),
+            (
+                "browser_version_filter",
+                DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+                WebStatsBreakdown.DEVICE_TYPE,
+                [EventPropertyFilter(key="$browser_version", value="120", operator=PropertyOperator.EXACT)],
+                None,
+                None,
+                {"Desktop": (1.0, 2.0)},
             ),
             (
                 "range_before_retention_floor",
