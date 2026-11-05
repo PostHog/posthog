@@ -32,7 +32,7 @@ from posthog.test.fixtures import create_app_metric2
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.filters import RUNTIME_CONTRACT
 from products.cdp.backend.flag_gated_templates import gated_template_enabled
@@ -2248,7 +2248,7 @@ class TestHogFlowAPI(APIBaseTest):
     def test_hog_flow_conditional_branch_validates_cohorts_nested_in_action_filters(self, _mock_flag):
         eligible = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         static_cohort = Cohort.objects.create(team=self.team, name="static-cohort", is_static=True)
-        action = Action.objects.create(team=self.team, name="Converted", steps_json=[{"event": "converted"}])
+        action = create_action(team=self.team, name="Converted", steps_json=[{"event": "converted"}])
         filters = {
             "properties": [{"key": "id", "type": "cohort", "value": eligible.id}],
             "actions": [
@@ -2537,7 +2537,7 @@ class TestHogFlowAPI(APIBaseTest):
     def test_hog_flow_rejects_ineligible_cohorts_inside_referenced_actions(self, _mock_flag):
         eligible = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         static_cohort = Cohort.objects.create(team=self.team, name="static-in-action", is_static=True)
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="action with cohort step",
             steps_json=[
@@ -2560,7 +2560,7 @@ class TestHogFlowAPI(APIBaseTest):
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
     def test_hog_flow_compiles_eligible_cohort_referenced_only_through_an_action(self, _mock_flag):
         eligible = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="action with eligible cohort step",
             steps_json=[{"event": "$pageview", "properties": [{"key": "id", "type": "cohort", "value": eligible.id}]}],
@@ -3012,7 +3012,7 @@ class TestHogFlowAPI(APIBaseTest):
         # An "events to wait for" entry can target a PostHog Action instead of an event: filters.actions
         # is set and filters.events is empty. That is a real wait and must be kept (and its bytecode
         # compiled), while a truly-empty entry alongside it is still dropped.
-        action = Action.objects.create(team=self.team, name="Played with calculator", steps_json=[{"event": "calc"}])
+        action = create_action(team=self.team, name="Played with calculator", steps_json=[{"event": "calc"}])
 
         trigger_action = {
             "id": "trigger_node",
@@ -3108,7 +3108,7 @@ class TestHogFlowAPI(APIBaseTest):
     def test_hog_flow_conversion_drops_empty_keeps_action_event(self):
         # Same always-true guard as wait_until: a conversion "events" entry targeting nothing is
         # dropped (it would convert on every event), while an action-based entry is kept and compiled.
-        action = Action.objects.create(team=self.team, name="Converted via action", steps_json=[{"event": "converted"}])
+        action = create_action(team=self.team, name="Converted via action", steps_json=[{"event": "converted"}])
         trigger_action = {
             "id": "trigger_node",
             "name": "trigger_1",
