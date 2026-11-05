@@ -117,7 +117,7 @@ export function FacetSearchBar<TItem>({
             <div role="listbox" id={listboxId} aria-label={title} className="max-h-96 overflow-y-auto">
                 {suggestions.map((suggestion, index) =>
                     suggestion.kind === 'none' ? (
-                        <div key={suggestion.id} className="px-2 py-1 text-secondary">
+                        <div key={suggestion.id} className="px-2 py-1 text-secondary break-words">
                             {suggestion.label}
                         </div>
                     ) : (
