@@ -7,12 +7,8 @@ extra one, but a flag on every `name` or `status` column would teach people to i
 import re
 from collections.abc import Sequence
 
-from django.utils import timezone
-
 from posthog.dataclasses import frozen
 
-from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.types import WarehouseColumnSensitivity
 
 _WORD = re.compile(r"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+|\d+")
@@ -28,8 +24,6 @@ _METADATA_WORDS = frozenset(
         "enabled",
         "format",
         "has",
-        "id",
-        "ids",
         "is",
         "length",
         "opt",
@@ -41,14 +35,14 @@ _METADATA_WORDS = frozenset(
         "subscribed",
         "template",
         "type",
-        "uuid",
         "valid",
         "validated",
         "verified",
     }
 )
 
-_MAX_COLUMN_NAME_LENGTH: int = WarehouseColumnAnnotation._meta.get_field("column_name").max_length or 400
+# An identifier of the thing, not the thing, but only at the end: `email_id` is a key, `id_token` is a secret.
+_TRAILING_METADATA_WORDS = frozenset({"id", "ids", "uuid"})
 
 
 @frozen
@@ -74,7 +68,9 @@ _RULES: tuple[_Rule, ...] = (
     ),
     _Rule(
         sensitivity=WarehouseColumnSensitivity.IP_ADDRESS,
-        phrases=frozenset({"ip", "ipaddress", "ipaddr", "ipv4", "ipv6", "remoteaddr", "remoteaddress"}),
+        phrases=frozenset(
+            {"ip", "ipaddress", "ipaddr", "ipv4", "ipv6", "ipv4address", "ipv6address", "remoteaddr", "remoteaddress"}
+        ),
         trailing_only=True,
         allows_number=True,
     ),
@@ -93,10 +89,19 @@ _RULES: tuple[_Rule, ...] = (
     ),
     _Rule(
         sensitivity=WarehouseColumnSensitivity.PHONE,
-        phrases=frozenset(
-            {"phone", "phonenumber", "mobile", "mobilenumber", "cellphone", "telephone", "msisdn", "fax"}
+        phrases=frozenset({"phone", "phonenumber", "mobilenumber", "cellphone", "telephone", "msisdn", "fax"}),
+        excluded_words=frozenset(
+            {"earphone", "earphones", "headphone", "headphones", "iphone", "microphone", "smartphone"}
         ),
         word_suffixes=frozenset({"phone"}),
+        allows_number=True,
+    ),
+    # `mobile` alone is a number only at the end: `mobile_os` and `mobile_sessions` describe devices.
+    _Rule(
+        sensitivity=WarehouseColumnSensitivity.PHONE,
+        phrases=frozenset({"mobile"}),
+        excluded_words=frozenset({"app", "device", "os", "platform"}),
+        trailing_only=True,
         allows_number=True,
     ),
     _Rule(
@@ -160,7 +165,25 @@ _RULES: tuple[_Rule, ...] = (
                 "shippingname",
             }
         ),
-        excluded_words=frozenset({"app", "campaign", "company", "event", "file", "plan", "product", "template"}),
+        excluded_words=frozenset(
+            {
+                "app",
+                "campaign",
+                "channel",
+                "company",
+                "event",
+                "file",
+                "group",
+                "org",
+                "organization",
+                "pipeline",
+                "plan",
+                "product",
+                "stage",
+                "team",
+                "template",
+            }
+        ),
     ),
 )
 
@@ -190,7 +213,7 @@ def _type_kind(data_type: str | None) -> str | None:
 def classify_column_sensitivity(column_name: str, data_type: str | None = None) -> WarehouseColumnSensitivity | None:
     """The kind of sensitive data the column likely holds, or None. `data_type` may be any source's type name."""
     words = _words(column_name)
-    if not words or _METADATA_WORDS.intersection(words):
+    if not words or _METADATA_WORDS.intersection(words) or words[-1] in _TRAILING_METADATA_WORDS:
         return None
     kind = _type_kind(data_type)
     if kind in ("boolean", "float"):
@@ -215,47 +238,3 @@ def classify_column_sensitivity(column_name: str, data_type: str | None = None) 
         ):
             return rule.sensitivity
     return None
-
-
-def _expected_sensitivities(table: DataWarehouseTable) -> dict[str, WarehouseColumnSensitivity | None]:
-    return {
-        column["name"]: classify_column_sensitivity(column["name"], column.get("data_type"))
-        for column in table.get_user_facing_columns()
-        if column.get("name") and len(column["name"]) <= _MAX_COLUMN_NAME_LENGTH
-    }
-
-
-def classify_table_columns(team_id: int, table: DataWarehouseTable) -> int:
-    """Store each column's sensitivity on its annotation and return how many rows changed.
-
-    A flagged column without an annotation gets a row with an empty description, which the
-    description pass fills in later.
-    """
-    expected = _expected_sensitivities(table)
-    stored = {
-        annotation.column_name: annotation
-        for annotation in WarehouseColumnAnnotation.objects.for_team(team_id)
-        .filter(table_id=table.id)
-        .only("id", "column_name", "sensitivity")
-    }
-    now = timezone.now()
-    created: list[WarehouseColumnAnnotation] = []
-    changed: list[WarehouseColumnAnnotation] = []
-    for name, sensitivity in expected.items():
-        annotation = stored.get(name)
-        if annotation is None:
-            if sensitivity is not None:
-                created.append(
-                    WarehouseColumnAnnotation(
-                        team_id=team_id, table=table, column_name=name, description="", sensitivity=sensitivity
-                    )
-                )
-        elif annotation.sensitivity != sensitivity:
-            annotation.sensitivity = sensitivity
-            annotation.updated_at = now
-            changed.append(annotation)
-    # A description written since the read above already made the row, so a conflict leaves that row unflagged
-    # until the next pass.
-    WarehouseColumnAnnotation.objects.for_team(team_id).bulk_create(created, ignore_conflicts=True)
-    WarehouseColumnAnnotation.objects.for_team(team_id).bulk_update(changed, ["sensitivity", "updated_at"])
-    return len(created) + len(changed)
