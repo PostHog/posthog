@@ -1,5 +1,4 @@
-"""Ask the per-person workflow to render the DM setup card. Callers run inside Slack's 3-second limit
-or a browser request, so they only check the stored state and send a signal."""
+"""Callers run inside Slack's 3-second limit, so they only check the stored state and send a signal."""
 
 import asyncio
 
@@ -15,11 +14,7 @@ logger = structlog.get_logger(__name__)
 
 
 def request_dm_setup_card_render(integration: WorkspaceIntegration, slack_user_id: str, *, opened_dm: bool) -> None:
-    """``opened_dm`` is True only for an open of the PostHog DM, the one event that may post a new card.
-    A setting saved somewhere else only refreshes a card that is already there.
-
-    Never raises: the caller already did its own work, and the card catches up on the next open of the DM.
-    """
+    """Only an open of the DM may start a new thread. Never raises: the thread catches up on the next open."""
     try:
         state = resolve_dm_setup_card(integration.integration_id, slack_user_id)
         if state is not None and state.completed:

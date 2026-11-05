@@ -3,14 +3,17 @@ from typing import TYPE_CHECKING
 import structlog
 from temporalio import activity
 
-from products.slack_app.backend.temporal.types import SlackDmSetupInputs, SlackDmSetupMessageInputs, SlackDmSetupPlan
+from products.slack_app.backend.temporal.types import (
+    DM_SETUP_DONE_PLAN,
+    SlackDmSetupInputs,
+    SlackDmSetupMessageInputs,
+    SlackDmSetupPlan,
+)
 
 if TYPE_CHECKING:
     from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 
 logger = structlog.get_logger(__name__)
-
-_GONE = SlackDmSetupPlan(edits=[], post=None, finished=True, plan_again=False)
 
 
 def _integration(inputs: SlackDmSetupInputs) -> "WorkspaceIntegration | None":
@@ -28,7 +31,7 @@ def plan_slack_dm_setup_activity(inputs: SlackDmSetupInputs) -> SlackDmSetupPlan
 
     integration = _integration(inputs)
     if integration is None:
-        return _GONE
+        return DM_SETUP_DONE_PLAN
     return plan_dm_setup(integration, inputs.slack_user_id)
 
 

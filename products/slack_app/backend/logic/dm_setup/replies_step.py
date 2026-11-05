@@ -2,6 +2,7 @@ from products.slack_app.backend.logic.dm_setup.actions import REPLIES_ACTION_ID,
 from products.slack_app.backend.logic.dm_setup.step import DmSetupContext, DmSetupStep, DmSetupStepKey
 from products.slack_app.backend.models import UntaggedFollowupMode
 from products.slack_app.backend.services.slack_app_home import UNTAGGED_FOLLOWUP_MODE_LABELS
+from products.slack_app.backend.services.slack_messages import section_block
 from products.slack_app.backend.services.slack_settings import has_chosen_untagged_followup_mode
 
 
@@ -24,15 +25,11 @@ def _render(ctx: DmSetupContext) -> list[dict]:
         for mode in (UntaggedFollowupMode.AUTO, UntaggedFollowupMode.ASK, UntaggedFollowupMode.NEVER)
     ]
     return [
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": "*Replies in threads you start*\n"
-                "When someone replies in a thread you started and doesn't tag @PostHog, what should PostHog do? "
-                "This applies to your own replies too.",
-            },
-        },
+        section_block(
+            "*Replies in threads you start*\n"
+            "When someone replies in a thread you started and doesn't tag @PostHog, what should PostHog do? "
+            "This applies to your own replies too."
+        ),
         {"type": "actions", "elements": [*buttons, skip_button(ctx, DmSetupStepKey.REPLIES_IN_THREADS)]},
     ]
 

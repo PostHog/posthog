@@ -16,7 +16,7 @@ from products.slack_app.backend.temporal.types import SlackDmSetupInputs, SlackD
 
 SLACK_DM_SETUP_IDLE_TIMEOUT = timedelta(days=7)
 SLACK_DM_SETUP_ACTIVITY_TIMEOUT = timedelta(seconds=60)
-# A refresh needs at most two plans: one to post the top message, one to post the first step under it.
+# Two plans cover a refresh (the top message, then the first step under it); the third is headroom.
 SLACK_DM_SETUP_MAX_PLANS_PER_REFRESH = 3
 # Plans and edits can run again safely. A post cannot: a retry after a post could send the message twice.
 _SAFE_TO_RETRY = RetryPolicy(maximum_attempts=3)
@@ -29,14 +29,8 @@ def slack_dm_setup_workflow_id(slack_team_id: str, slack_user_id: str) -> str:
 
 @workflow.defn(name="posthog-slack-dm-setup")
 class SlackDmSetupWorkflow(PostHogWorkflow):
-    """One run per person keeps their DM setup thread up to date.
-
-    The webhook, the account link and the setup buttons only save their change and send ``refresh``.
-    For each refresh this workflow runs the same commands: a plan activity, then the edits the plan
-    lists, then at most one post. The plan decides everything from the database, so adding or
-    reordering setup steps changes no workflow command and needs no ``workflow.patched``.
-    The run ends when the setup is done, or after a week without a ``refresh``.
-    """
+    """One run per person. The plan activity decides everything from the database, so adding or
+    reordering setup steps changes no workflow command and needs no ``workflow.patched``."""
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> SlackDmSetupInputs:
@@ -52,7 +46,7 @@ class SlackDmSetupWorkflow(PostHogWorkflow):
         self._render_requested = True
 
     async def _render(self, inputs: SlackDmSetupInputs) -> bool:
-        """Apply the plans for one refresh. Returns True when the setup is finished."""
+        """Returns True when the setup is finished."""
         for _ in range(SLACK_DM_SETUP_MAX_PLANS_PER_REFRESH):
             plan = await workflow.execute_activity(
                 plan_slack_dm_setup_activity,

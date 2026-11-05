@@ -24,7 +24,9 @@ from products.slack_app.backend.services.workspace_integrations import (
     WorkspaceIntegration,
     require_workspace_integration,
 )
+from products.slack_app.backend.temporal.slack_dm_setup import SLACK_DM_SETUP_MAX_PLANS_PER_REFRESH
 from products.slack_app.backend.tests.conftest import SLACK_TEAM_ID, SLACK_USER_ID
+from products.slack_app.backend.tests.helpers import all_block_text
 
 CARD = "products.slack_app.backend.logic.dm_setup.card"
 CLICKS = "products.slack_app.backend.logic.dm_setup.interactivity"
@@ -40,12 +42,6 @@ def _install(team, scope: str = LINK_SCOPES) -> WorkspaceIntegration:
         sensitive_config={"access_token": "xoxb-test"},
     )
     return require_workspace_integration(row.id, SLACK_TEAM_ID)
-
-
-def _block_text(blocks: list[dict]) -> str:
-    texts = [block.get("text", {}).get("text", "") for block in blocks]
-    texts += [element.get("text", "") for block in blocks for element in block.get("elements", [])]
-    return "\n".join(text for text in texts if isinstance(text, str))
 
 
 def _click(integration: WorkspaceIntegration, action_id: str, **value: str) -> dict:
@@ -80,8 +76,7 @@ def capture() -> Iterator[MagicMock]:
 
 
 def _refresh(integration: WorkspaceIntegration) -> bool:
-    """Run one refresh the way the workflow does: plan, then its edits, then at most one post."""
-    for _ in range(3):
+    for _ in range(SLACK_DM_SETUP_MAX_PLANS_PER_REFRESH):
         plan = plan_dm_setup(integration, SLACK_USER_ID)
         for edit in plan.edits:
             edit_dm_setup_message(integration, SLACK_USER_ID, edit)
@@ -97,7 +92,9 @@ def _posts(slack_client: MagicMock) -> list[dict]:
 
 
 def _edits(slack_client: MagicMock) -> dict[str, str]:
-    return {call.kwargs["ts"]: _block_text(call.kwargs["blocks"]) for call in slack_client.chat_update.call_args_list}
+    return {
+        call.kwargs["ts"]: all_block_text(call.kwargs["blocks"]) for call in slack_client.chat_update.call_args_list
+    }
 
 
 @pytest.mark.django_db
@@ -112,10 +109,10 @@ def test_first_open_starts_a_thread_with_the_first_step_and_later_refreshes_post
 
     root, step = _posts(slack_client)
     assert root["channel"] == SLACK_USER_ID and "thread_ts" not in root
-    assert "0 of 3 steps done" in _block_text(root["blocks"])
+    assert "0 of 3 steps done" in all_block_text(root["blocks"])
     assert (step["channel"], step["thread_ts"]) == ("D1", "100.1")
-    assert f"<@{SLACK_USER_ID}> Step 1 of 3" in _block_text(step["blocks"])
-    assert "Link your PostHog account" in _block_text(step["blocks"])
+    assert f"<@{SLACK_USER_ID}> Step 1 of 3" in all_block_text(step["blocks"])
+    assert "Link your PostHog account" in all_block_text(step["blocks"])
     # The second refresh only renders the shown step again, which keeps its link fresh.
     assert list(_edits(slack_client)) == ["100.2"]
     assert [call.args[1] for call in capture.call_args_list] == [
@@ -159,7 +156,7 @@ def test_each_step_is_a_new_reply_and_done_steps_shrink_to_one_line(
     capture.reset_mock()
     finished = _refresh(integration)
 
-    assert "Step 2 of 3" in _block_text(model_step["blocks"]) and model_step["thread_ts"] == "100.1"
+    assert "Step 2 of 3" in all_block_text(model_step["blocks"]) and model_step["thread_ts"] == "100.1"
     assert ":white_check_mark: PostHog account linked" in edits_after_link["100.2"]
     assert "Link account" not in edits_after_link["100.2"]
     assert "1 of 3 steps done" in edits_after_link["100.1"]
@@ -167,7 +164,7 @@ def test_each_step_is_a_new_reply_and_done_steps_shrink_to_one_line(
     edits = _edits(slack_client)
     assert finished is True
     assert ready["thread_ts"] == "100.1"
-    assert "You skipped: Your model" in _block_text(ready["blocks"])
+    assert "You skipped: Your model" in all_block_text(ready["blocks"])
     assert "Skipped: Your model" in edits["100.3"] and "Pick a model" not in edits["100.3"]
     assert "PostHog is set up" in edits["100.1"] and "3 of 3 steps done" in edits["100.1"]
     capture.assert_called_once_with(

@@ -2189,9 +2189,7 @@ def _apply_personal_preferences(
 
 
 def set_personal_model(integration: WorkspaceIntegration, slack_user_id: str, model: str) -> None:
-    """Save one model as the person's personal default, with that model's default effort.
-
-    Raises ``ValidationError`` with a message for the person, the same as the Home tab editor."""
+    """Raises ``ValidationError`` with a message for the person, like the Home tab editor."""
     _apply_personal_preferences(
         integration,
         slack_user_id,
@@ -2202,15 +2200,7 @@ def set_personal_model(integration: WorkspaceIntegration, slack_user_id: str, mo
 
 
 def has_personal_model(integration: WorkspaceIntegration, slack_user_id: str) -> bool:
-    from products.tasks.backend.facade import (  # noqa: PLC0415 — keep tasks deps off the slack_app import path
-        ai_run_defaults,
-    )
-
-    try:
-        user, target = _personal_preference_target(integration, slack_user_id)
-    except ValidationError:
-        return False
-    return bool(ai_run_defaults.get_user_ai_run_preferences(target.team_id, user.id))
+    return _stored_personal_preferences(integration, slack_user_id) != AIPreferences()
 
 
 def _reset_personal_preferences(integration: WorkspaceIntegration, slack_user_id: str) -> None:
@@ -2605,17 +2595,22 @@ def _auto_model_choice_offered(integration: WorkspaceIntegration, slack_user_id:
     return _resolve_home_user(integration, slack_user_id) is not None
 
 
+def linked_posthog_user(integration: WorkspaceIntegration, slack_user_id: str) -> User | None:
+    """The PostHog user this Slack user linked, the check behind "Connected as" on the Home tab."""
+    slack_team_id = integration.integration_id
+    return find_linked_posthog_user(
+        slack_user_id=slack_user_id,
+        slack_team_id=slack_team_id,
+        candidate_org_ids=_workspace_org_ids(slack_team_id),
+    )
+
+
 def _resolve_account_state(integration: WorkspaceIntegration, slack_user_id: str) -> AccountState:
     slack_team_id = integration.integration_id
     if not is_slack_app_oauth_enabled(integration):
         return AccountState(enabled=False)
 
-    candidate_org_ids = _workspace_org_ids(slack_team_id)
-    linked_user = find_linked_posthog_user(
-        slack_user_id=slack_user_id,
-        slack_team_id=slack_team_id,
-        candidate_org_ids=candidate_org_ids,
-    )
+    linked_user = linked_posthog_user(integration, slack_user_id)
     if linked_user is not None:
         return AccountState(enabled=True, linked_email=linked_user.email)
 

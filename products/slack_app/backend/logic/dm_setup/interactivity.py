@@ -1,5 +1,4 @@
-"""Clicks on the DM setup card. Each one saves the setting at once and then asks the workflow to render
-the card again, so the click answers Slack well inside its 3-second limit."""
+"""Clicks save at once and only signal the workflow, to answer Slack within 3 seconds."""
 
 from typing import Any
 
@@ -17,6 +16,7 @@ from products.slack_app.backend.logic.dm_setup.actions import (
 )
 from products.slack_app.backend.logic.dm_setup.dispatch import request_dm_setup_card_render
 from products.slack_app.backend.logic.dm_setup.step import DmSetupStepKey
+from products.slack_app.backend.logic.dm_setup.steps import DM_SETUP_STEPS
 from products.slack_app.backend.models import UntaggedFollowupMode
 from products.slack_app.backend.services.inbox_interactivity import post_response_url
 from products.slack_app.backend.services.model_catalogue import offered_model_choices
@@ -28,7 +28,7 @@ from products.slack_app.backend.services.slack_settings import (
 )
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration, get_workspace_integration
 
-SKIPPABLE_STEPS = frozenset({DmSetupStepKey.MODEL, DmSetupStepKey.REPLIES_IN_THREADS})
+SKIPPABLE_STEPS = frozenset(step.key for step in DM_SETUP_STEPS if step.skippable)
 # pinned: analytics event names, renaming breaks dashboards
 STEP_COMPLETED_EVENT = "slack app dm setup step completed"
 STEP_SKIPPED_EVENT = "slack app dm setup step skipped"
@@ -51,7 +51,7 @@ def dm_setup_integration_hint(payload: dict[str, Any]) -> int | None:
 
 
 def _apply(integration: WorkspaceIntegration, slack_user_id: str, action_id: str, value: dict[str, Any]) -> str | None:
-    """Save what the click chose. Returns a message for the person when the choice cannot be saved."""
+    """Returns a message for the person when the choice cannot be saved."""
     slack_workspace_id = integration.integration_id
     if action_id == SKIP_ACTION_ID:
         step = value.get("step")
@@ -97,7 +97,7 @@ def _apply(integration: WorkspaceIntegration, slack_user_id: str, action_id: str
 
 def handle_dm_setup_action(payload: dict[str, Any]) -> HttpResponse:
     clicked = _clicked_action(payload)
-    integration_id = dm_setup_integration_hint(payload)
+    integration_id = clicked[1].get("integration_id") if clicked else None
     slack_team_id = (payload.get("team") or {}).get("id", "")
     # The card sits in the person's own DM with PostHog, so the clicker is the person it is for.
     slack_user_id = (payload.get("user") or {}).get("id", "")

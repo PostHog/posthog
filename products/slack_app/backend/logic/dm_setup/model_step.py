@@ -8,6 +8,7 @@ from products.slack_app.backend.logic.dm_setup.actions import (
 from products.slack_app.backend.logic.dm_setup.step import DmSetupContext, DmSetupStep, DmSetupStepKey
 from products.slack_app.backend.services.model_catalogue import offered_model_choices
 from products.slack_app.backend.services.slack_app_home import has_personal_model
+from products.slack_app.backend.services.slack_messages import section_block
 from products.slack_app.backend.services.slack_settings import resolve_auto_model_choice
 
 # Slack refuses a static_select with more options than this.
@@ -53,15 +54,11 @@ def _render(ctx: DmSetupContext) -> list[dict]:
         )
     elements.append(skip_button(ctx, DmSetupStepKey.MODEL))
     return [
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": "*Choose your model*\n"
-                "PostHog can pick the model for each task you start, or you can pick one model for all of them. "
-                "You can change this later in the Home tab.",
-            },
-        },
+        section_block(
+            "*Choose your model*\n"
+            "PostHog can pick the model for each task you start, or you can pick one model for all of them. "
+            "You can change this later in the Home tab."
+        ),
         {"type": "actions", "elements": elements},
     ]
 

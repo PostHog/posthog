@@ -26,18 +26,15 @@ def _message(kind: str, ts: str | None = None) -> SlackDmSetupMessage:
     return SlackDmSetupMessage(kind=kind, text=kind, blocks=[], ts=ts)  # type: ignore[arg-type]
 
 
-ROOT_PLAN = SlackDmSetupPlan(edits=[], post=_message("root"), finished=False, plan_again=True)
-FIRST_STEP_PLAN = SlackDmSetupPlan(edits=[], post=_message("step"), finished=False, plan_again=False)
+ROOT_PLAN = SlackDmSetupPlan(edits=[], post=_message("root"), finished=False)
+FIRST_STEP_PLAN = SlackDmSetupPlan(edits=[], post=_message("step"), finished=False)
 NEXT_STEP_PLAN = SlackDmSetupPlan(
-    edits=[_message("step", ts="1"), _message("root", ts="0")], post=_message("step"), finished=False, plan_again=False
+    edits=[_message("step", ts="1"), _message("root", ts="0")], post=_message("step"), finished=False
 )
-READY_PLAN = SlackDmSetupPlan(edits=[_message("root", ts="0")], post=_message("ready"), finished=True, plan_again=False)
+READY_PLAN = SlackDmSetupPlan(edits=[_message("root", ts="0")], post=_message("ready"), finished=True)
 
 
 class _Slack:
-    """Fake activities. Plans come from a script, and each call is recorded as ``plan``, ``edit:<kind>``
-    or ``post:<kind>``. ``failing_posts`` fails that many posts first."""
-
     def __init__(self, plans: list[SlackDmSetupPlan], failing_posts: int = 0) -> None:
         self.plans = plans
         self.failing_posts = failing_posts

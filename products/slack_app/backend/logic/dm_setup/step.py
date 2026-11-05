@@ -21,8 +21,7 @@ class DmSetupContext:
 
 @frozen
 class DmSetupStep:
-    """One step of the setup card. A step that does not apply is left out, and a done step shrinks
-    to ``done_text``. Each check reads the database again, so the card stores no step progress."""
+    """``applies`` and ``is_done`` read the database on every plan, so done status is never stored."""
 
     key: DmSetupStepKey
     title: str

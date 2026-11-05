@@ -192,10 +192,7 @@ def set_auto_model_choice(slack_workspace_id: str, slack_user_id: str, enabled: 
 
 @frozen(slots=False)
 class DmSetupCardState:
-    """A person's DM setup thread: a top message with the progress, and one reply for each step.
-
-    ``root_ts`` is None when PostHog found nothing to set up and posted nothing.
-    """
+    """``root_ts`` is None when there was nothing to set up, so nothing was posted."""
 
     channel: str | None
     root_ts: str | None
@@ -247,9 +244,8 @@ def update_dm_setup_card(
     skip_step: str | None = None,
     completed: bool | None = None,
 ) -> None:
-    """Change only the given parts. ``root`` is the (channel, ts) of the top message, and ``step_ts`` is
-    the (step key, ts) of a step reply. The row lock keeps a skip click and a workflow write from losing
-    each other's change."""
+    """``root`` is (channel, ts) and ``step_ts`` is (step key, ts). The row lock stops a skip click and a
+    workflow write from losing each other's change."""
     from products.slack_app.backend.models import SlackSettings
 
     with transaction.atomic():

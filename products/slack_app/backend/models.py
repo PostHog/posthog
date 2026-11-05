@@ -255,8 +255,7 @@ class SlackSettings(UUIDModel):
         blank=True,
         help_text="Which Slack app features this user used, saw as a tip, or dismissed.",
     )
-    # Only read on a personal row. NULL means PostHog never posted the DM setup card to this user.
-    # The shape is ``DmSetupCardState`` in ``services/slack_settings.py``.
+    # Only read on a personal row. The shape is ``DmSetupCardState`` in ``services/slack_settings.py``.
     dm_setup_card = models.JSONField(
         null=True,
         blank=True,

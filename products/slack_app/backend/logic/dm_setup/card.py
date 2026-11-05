@@ -1,44 +1,21 @@
-"""The setup thread in the PostHog DM.
-
-The top message shows the progress and is edited in place. Each step is a new reply in the thread, so the
-person gets a notification for it, and a finished step reply shrinks to one line without buttons. A last
-"Ready" reply closes the setup. Only the message timestamps, the shown progress, the skipped steps and the
-finished state get stored; each step reads its own status again on every plan.
-
-The per-person ``posthog-slack-dm-setup`` workflow calls these functions through activities: one plan,
-then its edits, then at most one post. Renders for one person therefore never run at the same time.
-"""
+"""Only the per-person workflow calls these, through activities, so renders for one person never overlap."""
 
 from dataclasses import replace
 
 from posthog.models.integration import SlackIntegration
 
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.logic.dm_setup.link_account_step import LINK_ACCOUNT_STEP
-from products.slack_app.backend.logic.dm_setup.model_step import MODEL_STEP
-from products.slack_app.backend.logic.dm_setup.replies_step import REPLIES_IN_THREADS_STEP
 from products.slack_app.backend.logic.dm_setup.step import DmSetupContext, DmSetupStep
+from products.slack_app.backend.logic.dm_setup.steps import DM_SETUP_STEPS
+from products.slack_app.backend.services.slack_messages import context_block, section_block
 from products.slack_app.backend.services.slack_settings import resolve_dm_setup_card, update_dm_setup_card
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
-from products.slack_app.backend.temporal.types import SlackDmSetupMessage, SlackDmSetupPlan
-
-# In display order. The account link comes first, because the steps after it save settings for the linked user.
-DM_SETUP_STEPS: tuple[DmSetupStep, ...] = (LINK_ACCOUNT_STEP, MODEL_STEP, REPLIES_IN_THREADS_STEP)
+from products.slack_app.backend.temporal.types import DM_SETUP_DONE_PLAN, SlackDmSetupMessage, SlackDmSetupPlan
 
 # pinned: analytics event names, renaming breaks dashboards
 SETUP_STARTED_EVENT = "slack app dm setup started"
 STEP_SHOWN_EVENT = "slack app dm setup step shown"
 SETUP_COMPLETED_EVENT = "slack app dm setup completed"
-
-_NOTHING_TO_DO = SlackDmSetupPlan(edits=[], post=None, finished=True, plan_again=False)
-
-
-def _context(text: str) -> dict:
-    return {"type": "context", "elements": [{"type": "mrkdwn", "text": text}]}
-
-
-def _section(text: str) -> dict:
-    return {"type": "section", "text": {"type": "mrkdwn", "text": text}}
 
 
 def _root_message(progress: str, *, ready: bool, ts: str | None = None) -> SlackDmSetupMessage:
@@ -49,7 +26,7 @@ def _root_message(progress: str, *, ready: bool, ts: str | None = None) -> Slack
     return SlackDmSetupMessage(
         kind="root",
         text="PostHog is set up" if ready else "Set up PostHog in Slack",
-        blocks=[_section(title), _context(progress)],
+        blocks=[section_block(title), context_block(progress)],
         ts=ts,
         progress=progress,
     )
@@ -61,14 +38,14 @@ def _step_message(ctx: DmSetupContext, step: DmSetupStep, position: int, total: 
         kind="step",
         step=step.key,
         text=f"Step {position} of {total}: {step.title}",
-        blocks=[_context(f"<@{ctx.slack_user_id}> Step {position} of {total}"), *step.render(ctx)],
+        blocks=[context_block(f"<@{ctx.slack_user_id}> Step {position} of {total}"), *step.render(ctx)],
     )
 
 
 def _summary_message(step: DmSetupStep, ts: str, *, skipped: bool) -> SlackDmSetupMessage:
     line = f"Skipped: {step.title}" if skipped else f":white_check_mark: {step.done_text}"
     return SlackDmSetupMessage(
-        kind="step", step=step.key, text=line, blocks=[_context(line)], ts=ts, summarizes_step=True
+        kind="step", step=step.key, text=line, blocks=[context_block(line)], ts=ts, summarizes_step=True
     )
 
 
@@ -81,15 +58,15 @@ def _ready_message(ctx: DmSetupContext, skipped: list[DmSetupStep]) -> SlackDmSe
     if skipped:
         titles = ", ".join(step.title for step in skipped)
         text += f"\n\nYou skipped: {titles}. You can set these up later in the Home tab."
-    return SlackDmSetupMessage(kind="ready", text="PostHog is ready", blocks=[_section(text)])
+    return SlackDmSetupMessage(kind="ready", text="PostHog is ready", blocks=[section_block(text)])
 
 
 def plan_dm_setup(integration: WorkspaceIntegration, slack_user_id: str) -> SlackDmSetupPlan:
-    """Decide what one refresh changes. Reads only, except that it stores "nothing to set up"."""
+    """Reads only, except that it stores that there is nothing to set up."""
     slack_workspace_id = integration.integration_id
     state = resolve_dm_setup_card(slack_workspace_id, slack_user_id)
     if state is not None and state.completed:
-        return _NOTHING_TO_DO
+        return DM_SETUP_DONE_PLAN
 
     ctx = DmSetupContext(integration=integration, slack_user_id=slack_user_id)
     steps = [step for step in DM_SETUP_STEPS if step.applies(ctx)]
@@ -101,10 +78,10 @@ def plan_dm_setup(integration: WorkspaceIntegration, slack_user_id: str) -> Slac
 
     if state is None or state.root_ts is None:
         if not pending:
-            # Nothing to set up, so no thread. Storing that saves a workflow run on each later open of the DM.
+            # Storing this saves a workflow run on each later open of the DM.
             update_dm_setup_card(slack_workspace_id, slack_user_id, completed=True)
-            return _NOTHING_TO_DO
-        return SlackDmSetupPlan(edits=[], post=_root_message(progress, ready=False), finished=False, plan_again=True)
+            return DM_SETUP_DONE_PLAN
+        return SlackDmSetupPlan(edits=[], post=_root_message(progress, ready=False), finished=False)
 
     edits = [
         _summary_message(step, state.step_ts[step.key], skipped=step in skipped)
@@ -113,17 +90,17 @@ def plan_dm_setup(integration: WorkspaceIntegration, slack_user_id: str) -> Slac
     ]
     if not pending:
         edits.append(_root_message(progress, ready=True, ts=state.root_ts))
-        return SlackDmSetupPlan(edits=edits, post=_ready_message(ctx, skipped), finished=True, plan_again=False)
+        return SlackDmSetupPlan(edits=edits, post=_ready_message(ctx, skipped), finished=True)
 
     if state.progress != progress:
         edits.append(_root_message(progress, ready=False, ts=state.root_ts))
     current = _step_message(ctx, pending[0], len(steps) - len(pending) + 1, len(steps))
-    current_ts = state.step_ts.get(current.step or "")
+    current_ts = state.step_ts.get(pending[0].key)
     if current_ts is None:
-        return SlackDmSetupPlan(edits=edits, post=current, finished=False, plan_again=False)
+        return SlackDmSetupPlan(edits=edits, post=current, finished=False)
     # Rendering the shown step again keeps its content fresh, such as the 15-minute account link.
     edits.append(replace(current, ts=current_ts))
-    return SlackDmSetupPlan(edits=edits, post=None, finished=False, plan_again=False)
+    return SlackDmSetupPlan(edits=edits, post=None, finished=False)
 
 
 def post_dm_setup_message(integration: WorkspaceIntegration, slack_user_id: str, message: SlackDmSetupMessage) -> None:
@@ -157,7 +134,6 @@ def post_dm_setup_message(integration: WorkspaceIntegration, slack_user_id: str,
 
 
 def edit_dm_setup_message(integration: WorkspaceIntegration, slack_user_id: str, message: SlackDmSetupMessage) -> None:
-    """Edit one message in place. Slack sends no notification for an edit."""
     slack_workspace_id = integration.integration_id
     state = resolve_dm_setup_card(slack_workspace_id, slack_user_id)
     if state is None or state.channel is None or message.ts is None:

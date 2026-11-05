@@ -1,5 +1,3 @@
-"""Block Kit pieces for the setup card buttons, and the values the interactivity handler reads back."""
-
 import json
 from typing import Any
 
@@ -8,9 +6,9 @@ from products.slack_app.backend.logic.dm_setup.step import DmSetupContext, DmSet
 # pinned: Slack action ids on cards that people already have in their DMs
 MODEL_ACTION_ID = "slack_dm_setup:model"
 AUTO_MODEL_ACTION_ID = "slack_dm_setup:auto_model"
+# Each reply mode button needs its own id inside one actions block, so the mode is a suffix.
 REPLIES_ACTION_ID = "slack_dm_setup:replies"
 SKIP_ACTION_ID = "slack_dm_setup:skip"
-# Each reply mode button needs its own id inside one actions block, so the mode is a suffix.
 DM_SETUP_ACTION_PREFIX = "slack_dm_setup:"
 
 

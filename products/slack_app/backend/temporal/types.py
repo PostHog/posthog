@@ -29,12 +29,8 @@ class SlackDmSetupInputs:
 
 @frozen
 class SlackDmSetupMessage:
-    """One message of a person's DM setup thread, to post or to edit.
-
-    ``kind`` is "root" for the top message, "step" for a step reply and "ready" for the last reply.
-    For an edit, ``ts`` is the message to change. ``progress`` is stored after a root post or edit, and
-    ``summarizes_step`` marks a step reply that the edit turns into its one-line summary.
-    """
+    """One message of a person's DM setup thread. For an edit, ``ts`` names the message; ``progress`` and
+    ``summarizes_step`` say what to store after it."""
 
     kind: Literal["root", "step", "ready"]
     text: str
@@ -47,13 +43,17 @@ class SlackDmSetupMessage:
 
 @frozen
 class SlackDmSetupPlan:
-    """What one refresh changes. ``plan_again`` asks for one more plan in the same refresh, after a
-    post that the next message needs, such as the top message that the first step reply goes under."""
-
     edits: list[SlackDmSetupMessage]
     post: SlackDmSetupMessage | None
     finished: bool
-    plan_again: bool
+
+    @property
+    def plan_again(self) -> bool:
+        # The first step reply goes under the top message, so it needs one more plan after the top post.
+        return self.post is not None and self.post.kind == "root"
+
+
+DM_SETUP_DONE_PLAN = SlackDmSetupPlan(edits=[], post=None, finished=True)
 
 
 @frozen
