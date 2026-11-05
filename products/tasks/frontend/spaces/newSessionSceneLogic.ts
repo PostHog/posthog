@@ -20,6 +20,9 @@ export interface NewSessionSpaceGroup {
 /** `route` is a space's own New session, or a pick in the heading. `last_used` and `personal` are the generic default. */
 export type NewSessionSpaceSource = 'route' | 'last_used' | 'personal' | 'first'
 
+/** Where the composer that started the session sits: the New session page, or the Ask tab on the Today home page. */
+export type NewSessionSurface = 'new_session' | 'home_ask'
+
 export interface NewSessionSpaceChoice {
     space: ChannelDTOApi | null
     source: NewSessionSpaceSource | null
@@ -71,8 +74,12 @@ export interface newSessionSceneLogicActions {
     pickSpace: (spaceId: string) => {
         spaceId: string
     }
-    sessionStarted: (sessionId: string) => {
+    sessionStarted: (
+        sessionId: string,
+        surface?: NewSessionSurface
+    ) => {
         sessionId: string
+        surface: NewSessionSurface
     }
     setRouteSpaceId: (spaceId: string | null) => {
         spaceId: string | null
@@ -109,7 +116,7 @@ export const newSessionSceneLogic = kea<newSessionSceneLogicType>([
     actions({
         pickSpace: (spaceId: string) => ({ spaceId }),
         setRouteSpaceId: (spaceId: string | null) => ({ spaceId }),
-        sessionStarted: (sessionId: string) => ({ sessionId }),
+        sessionStarted: (sessionId: string, surface: NewSessionSurface = 'new_session') => ({ sessionId, surface }),
     }),
     reducers({
         routeSpaceId: [null as string | null, { setRouteSpaceId: (_, { spaceId }) => spaceId }],
@@ -148,11 +155,12 @@ export const newSessionSceneLogic = kea<newSessionSceneLogicType>([
         pickSpace: ({ spaceId }) => {
             router.actions.push(urls.taskSpaceNewSession(spaceId))
         },
-        sessionStarted: ({ sessionId }) => {
+        sessionStarted: ({ sessionId, surface }) => {
             // pinned: analytics event name and properties. Renaming them breaks dashboards.
             posthog.capture('today new session started', {
                 space_role: values.space?.system_role ?? null,
                 space_source: values.spaceChoice.source,
+                surface,
             })
             if (!values.space) {
                 actions.loadSpaces()

@@ -5,9 +5,11 @@ import { Suspense } from 'react'
 
 import { Skeleton } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { TodayHomePage } from './TodayHomePage'
+import { TodayHomeTabs } from './TodayHomeTabs'
 import { todayLogic } from './todayLogic'
 import { todayReportQueueLogic } from './todayReportQueueLogic'
 
@@ -17,9 +19,10 @@ const TodayReportPage = lazyWithRetry(() => import('./TodayReportPage').then((m)
 export function TodayHome(): JSX.Element {
     useMountedLogic(todayReportQueueLogic)
     const { reportId } = useValues(todayLogic)
+    const homeTabsEnabled = useFeatureFlag('TODAY_HOME_TABS')
 
     return (
-        <div className="Today flex-1 min-h-full @container/today">
+        <div className="Today flex min-h-full flex-1 flex-col @container/today">
             {reportId ? (
                 <Suspense
                     fallback={
@@ -32,6 +35,8 @@ export function TodayHome(): JSX.Element {
                 >
                     <TodayReportPage key={reportId} reportId={reportId} />
                 </Suspense>
+            ) : homeTabsEnabled ? (
+                <TodayHomeTabs />
             ) : (
                 <TodayHomePage />
             )}
