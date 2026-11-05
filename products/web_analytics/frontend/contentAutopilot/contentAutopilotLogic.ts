@@ -168,8 +168,8 @@ export interface contentAutopilotLogicValues {
     dismissedOpportunityLoading: boolean
     dismissingOpportunityId: string | null
     draftDisabledReason: string | undefined
-    draftingOpportunityIds: string[]
     draftRows: ContentAutopilotDraftRow[]
+    draftingOpportunityIds: string[]
     exportedProposal: ContentAutopilotExportResponseApi | null
     exportedProposalLoading: boolean
     latestRunErrors: string[]
@@ -291,7 +291,7 @@ export interface contentAutopilotLogicActions {
         dismissedOpportunity: ContentAutopilotOpportunityApi
         payload?: string
     }
-    draftOpportunities: (opportunityIds?: string[]) => string[] | undefined
+    draftOpportunities: (opportunityIds?: string[]) => string[]
     draftOpportunitiesFailure: (
         error: string,
         errorObject?: any
@@ -301,10 +301,10 @@ export interface contentAutopilotLogicActions {
     }
     draftOpportunitiesSuccess: (
         runMutation: ContentAutopilotRunApi,
-        payload?: string[] | undefined
+        payload?: string[]
     ) => {
         runMutation: ContentAutopilotRunApi
-        payload?: string[] | undefined
+        payload?: string[]
     }
     exportProposal: (proposalId: string) => string
     exportProposalFailure: (
@@ -602,13 +602,13 @@ export interface contentAutopilotLogicMeta {
             opportunitySearch: string
         ) => ContentAutopilotOpportunityApi[]
         dismissedOpportunityCount: (opportunities: ContentAutopilotOpportunityApi[] | null) => number
-        draftDisabledReason: (
-            selectedOpportunityIds: string[],
-            rowDraftDisabledReason: string | undefined
-        ) => string | undefined
         rowDraftDisabledReason: (
             activeRun: ContentAutopilotRunApi | null,
             profileDataLoaded: boolean
+        ) => string | undefined
+        draftDisabledReason: (
+            selectedOpportunityIds: string[],
+            rowDraftDisabledReason: string | undefined
         ) => string | undefined
         workspaceError: (workspaceErrors: Partial<Record<ContentAutopilotWorkspaceResource, string>>) => string | null
     }
