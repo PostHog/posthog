@@ -9,6 +9,7 @@ import { ContentAutopilotOpportunities } from './ContentAutopilotOpportunities'
 import { ContentAutopilotPromptAddModal } from './ContentAutopilotPromptAddModal'
 import { ContentAutopilotPrompts } from './ContentAutopilotPrompts'
 import { ContentAutopilotPromptsOverview } from './ContentAutopilotPromptsOverview'
+import { ContentAutopilotPromptSuggestModal } from './ContentAutopilotPromptSuggestModal'
 import { ContentAutopilotProposalDetail } from './ContentAutopilotProposalDetail'
 import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 import { ContentAutopilotSiteGate } from './ContentAutopilotSiteGate'
@@ -184,6 +185,7 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
             )}
             <ContentAutopilotProposalDetail />
             <ContentAutopilotPromptAddModal />
+            <ContentAutopilotPromptSuggestModal />
         </div>
     )
 }
