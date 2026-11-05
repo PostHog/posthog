@@ -39,6 +39,11 @@ python manage.py run_aeo_citation_checks --team-id <id> --limit 3 --dry-run
 python manage.py run_aeo_citation_checks --team-id <id>
 ```
 
+### Add and edit in the app
+
+The AI visibility page in Web analytics (`/web/content-autopilot`) has an Overview tab for the prompt-set summary and a Prompts tab to add prompts (one per line, with an optional topic), edit a prompt's text or topic, turn prompts on or off, and archive them.
+Its Opportunities and Drafts tabs are content autopilot, which drafts pages for prompts where the engines did not cite the site.
+
 ### Import over the API
 
 `/api/projects/<id>/aeo_prompts/` lists the prompt set (filter with `?topic=` and `?active=true|false`; archived prompts are left out unless `?include_archived=true`; each prompt carries `latest_checks`, its newest check per engine, and its `current_version` and `version_count`), lists topics with `GET topics/`, sums up the whole set with `GET overview/?days=30` (prompts tracked, checks, citation and mention rates against the window before, the same per engine and per topic, and the domains the engines cite most), returns one prompt's check history with `GET <prompt_id>/checks/` (newest first, filter with `?engine=` and `?version=`) and its per-engine totals and 30-day daily counts with `GET <prompt_id>/stats/`, lists its versions with `GET <prompt_id>/versions/` (newest first), edits a prompt with `PATCH <prompt_id>/`, archives one with `DELETE <prompt_id>/`, and imports prompts with `POST bulk_import/`. It is gated by the `aeo-citation-tracking` flag and accepts personal API keys with `web_analytics:write`:

@@ -1,7 +1,9 @@
+import { pluralize } from 'lib/utils/strings'
 import { parseWebAnalyticsURL } from 'scenes/web-analytics/common'
 
 import type {
     AEOPromptCheckApi,
+    AEOPromptImportResultApi,
     ContentAutopilotOpportunityApi,
     ContentAutopilotProposalListApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
@@ -69,3 +71,27 @@ export const opportunitiesNeedRefresh = (
 // before then, so those checks all ran the text that became version 1.
 export const checkPromptVersion = (check: Pick<AEOPromptCheckApi, 'prompt_version'>): number =>
     check.prompt_version ?? 1
+
+export const promptLines = (text: string): string[] => {
+    const seen = new Set<string>()
+    return text
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => {
+            const key = line.toLowerCase()
+            if (!line || seen.has(key)) {
+                return false
+            }
+            seen.add(key)
+            return true
+        })
+}
+
+export const promptImportMessage = ({ created, updated, skipped }: AEOPromptImportResultApi): string => {
+    const sentences = [
+        created ? `Added ${pluralize(created, 'prompt')}. The next daily run checks new prompts.` : null,
+        updated ? `Updated ${pluralize(updated, 'existing prompt')}.` : null,
+        skipped ? `Skipped ${pluralize(skipped, 'prompt')} (empty, too long, or archived).` : null,
+    ].filter(Boolean)
+    return sentences.join(' ') || 'No prompts changed.'
+}

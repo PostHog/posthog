@@ -62,6 +62,8 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
         opportunitySearch,
         opportunityProposals,
         pagesToUpdate,
+        rowDraftDisabledReason,
+        draftingOpportunityIds,
     } = useValues(contentAutopilotLogic)
     const {
         refreshOpportunities,
@@ -77,14 +79,16 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
     return (
         <section className="flex flex-col gap-3">
             <p className="m-0 text-muted max-w-3xl">
-                Questions AI assistants answered without citing {siteName}, most promising first. Pick up to{' '}
-                {MAX_DRAFTS_PER_RUN} and draft them.
+                Prompts where AI assistants answered without citing {siteName}, clearest gaps first. Content autopilot
+                drafts a page that answers the prompt, or changes to a page you already have. Select up to{' '}
+                {MAX_DRAFTS_PER_RUN} to draft them together. You review and download each draft, and nothing is
+                published for you.
             </p>
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <LemonInput
                     type="search"
                     size="small"
-                    placeholder="Search questions"
+                    placeholder="Search prompts"
                     value={opportunitySearch}
                     onChange={setOpportunitySearch}
                     className="w-72"
@@ -113,8 +117,8 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
                     <LemonButton
                         type="primary"
                         size="small"
-                        onClick={draftOpportunities}
-                        loading={runMutationLoading}
+                        onClick={() => draftOpportunities()}
+                        loading={runMutationLoading && draftingOpportunityIds.length === 0}
                         disabledReason={draftDisabledReason}
                         data-attr="content-autopilot-draft-opportunities"
                     >
@@ -143,10 +147,10 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
             ) : visibleOpportunities.length === 0 ? (
                 <LemonCard hoverEffect={false} className="p-6 text-center">
                     {opportunitySearch.trim() ? (
-                        <p className="m-0 text-muted">No questions match your search.</p>
+                        <p className="m-0 text-muted">No prompts match your search.</p>
                     ) : dismissedOpportunityCount > 0 ? (
                         <>
-                            <h3 className="m-0">All questions are dismissed</h3>
+                            <h3 className="m-0">All opportunities are dismissed</h3>
                             <p className="m-0 mt-2 text-muted max-w-xl mx-auto">
                                 Turn on "Show dismissed" to see them again, or refresh to check for new citation gaps.
                             </p>
@@ -155,9 +159,8 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
                         <>
                             <h3 className="m-0">No citation gaps found</h3>
                             <p className="m-0 mt-2 text-muted max-w-xl mx-auto">
-                                Opportunities appear when AI citation checks show an assistant answering a tracked
-                                question without citing {siteName}. If checks haven't run for this project yet, there's
-                                nothing to show.
+                                An opportunity appears when an AI assistant answers a tracked prompt without citing{' '}
+                                {siteName}. Add prompts on the Prompts tab, and check back after the next daily run.
                             </p>
                         </>
                     )}
@@ -185,7 +188,7 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
                             ),
                         },
                         {
-                            title: 'Question',
+                            title: 'Prompt',
                             key: 'title',
                             render: (_, opportunity) => {
                                 const proposal = opportunityProposals[opportunity.id]
@@ -262,6 +265,22 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
                                             Review draft
                                         </LemonButton>
                                     ) : null}
+                                    {opportunity.status === 'new' ? (
+                                        <LemonButton
+                                            size="small"
+                                            type="secondary"
+                                            onClick={() => draftOpportunities([opportunity.id])}
+                                            loading={
+                                                runMutationLoading && draftingOpportunityIds.includes(opportunity.id)
+                                            }
+                                            disabledReason={rowDraftDisabledReason}
+                                            data-attr="content-autopilot-draft-opportunity"
+                                        >
+                                            {opportunity.recommended_type === 'page_improvement'
+                                                ? 'Draft changes'
+                                                : 'Draft page'}
+                                        </LemonButton>
+                                    ) : null}
                                     {opportunity.status !== 'dismissed' ? (
                                         <LemonButton
                                             size="small"
@@ -273,7 +292,7 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
                                                     ? 'Wait for the draft to finish'
                                                     : dismissingOpportunityId &&
                                                         dismissingOpportunityId !== opportunity.id
-                                                      ? 'Wait for the other question to finish dismissing'
+                                                      ? 'Wait for the other opportunity to finish dismissing'
                                                       : undefined
                                             }
                                             data-attr="content-autopilot-dismiss-opportunity"
