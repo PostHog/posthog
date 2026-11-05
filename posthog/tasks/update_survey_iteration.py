@@ -2,7 +2,8 @@ from datetime import date, timedelta
 
 from django.utils import timezone
 
-from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, Trigger, log_activity
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.tasks.survey_system_stop import log_survey_stopped_by_system
 
 from products.feature_flags.backend.facade.api import create_flag, update_flag
 from products.feature_flags.backend.facade.filters import replace_release_conditions
@@ -40,26 +41,10 @@ def _log_survey_closed_by_schedule(survey: Survey) -> None:
     # Record a system activity-log entry so the survey's history explains why it stopped.
     # Without this, the scheduler's direct save() leaves no trace, and a user who removes
     # the end date only ever sees their own removals logged — never the automatic close.
-    log_activity(
-        organization_id=survey.team.organization_id,
-        team_id=survey.team_id,
-        user=None,  # system action: renders as PostHog in the activity log
-        was_impersonated=False,
-        item_id=survey.id,
-        scope="Survey",
-        activity="updated",
-        detail=Detail(
-            name=survey.name,
-            changes=[Change(type="Survey", field="end_date", action="created", after=survey.end_date)],
-            trigger=Trigger(
-                job_type="survey_schedule_ended",
-                job_id=str(survey.id),
-                payload={
-                    "iteration_count": survey.iteration_count,
-                    "iteration_frequency_days": survey.iteration_frequency_days,
-                },
-            ),
-        ),
+    log_survey_stopped_by_system(
+        survey,
+        "survey_schedule_ended",
+        {"iteration_count": survey.iteration_count, "iteration_frequency_days": survey.iteration_frequency_days},
     )
 
 
