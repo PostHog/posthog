@@ -768,7 +768,13 @@ class TestReadFlagCallsWithUnion(BaseTest):
             patch("posthog.hogql_queries.hogql_cohort_query.HogQLCohortQuery.get_query", return_value=cohort_query),
             pytest.raises(QueryError, match="probe, which events stores in a Nullable"),
         ):
-            self._sql(outer_query.format(cohort=cohort.pk), mode=ONLY, inline_cohorts=True, in_cohort_via=via)
+            self._sql(
+                outer_query.format(cohort=cohort.pk),
+                mode=ONLY,
+                inline_cohorts=True,
+                in_cohort_via=via,
+                new_events_schema=False,
+            )
 
     @parameterized.expand(
         [
