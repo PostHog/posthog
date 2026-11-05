@@ -31,6 +31,7 @@ from posthog.temporal.alerts.retry_policy import ALERT_EVALUATE_RETRY_POLICY
 
 from products.alerts.backend.evaluation.contract import (
     CREATOR_LEFT_DISABLE_REASON,
+    AlertDataUnavailableError,
     AlertExtractionError,
     AlertOwnerAccessError,
 )
@@ -137,6 +138,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         *,
         truncated: bool = False,
         breach: str = "above 100",
+        error: Exception | None = None,
     ) -> PlatformAlertOutcome:
         slot = slot_of(configuration.next_check_at, CUTOFF)
         expires_at = time.time() + 3600
@@ -153,7 +155,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             ),
             truncated=truncated,
         )
-        with patch(f"{_MODULE}.check_alert_per_series", return_value=evaluated):
+        with patch(f"{_MODULE}.check_alert_per_series", return_value=evaluated, side_effect=error):
             evaluation = evaluate_insight_check(
                 self.team.id, slot, CUTOFF, str(configuration.id), held_until=expires_at, evaluation_id="test"
             )
@@ -757,6 +759,24 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             False,
         )
         assert outcome.failure.source_detail["error_code"] == LLM_DETECTOR_PAUSED_ERROR_CODE
+
+    @parameterized.expand([("single", False), ("breakdown", True)])
+    def test_a_check_without_enough_data_errors_and_stays_enabled(self, _name: str, breakdown: bool) -> None:
+        error = AlertDataUnavailableError("not enough rows")
+        if breakdown:
+            grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("breakdown",))
+            outcome = self._evaluate_per_series(
+                self._copy(self._alert(), grouping=grouping.to_stored()), {}, error=error
+            )
+        else:
+            outcome, _ = self._evaluate(self._copy(self._alert()), result=error)
+
+        assert outcome is not None and outcome.failure is not None
+        assert (outcome.failure.kind, outcome.error_message, outcome.disable) == (
+            AlertEventKind.ERRORED,
+            "not enough rows",
+            False,
+        )
 
     @parameterized.expand([("retried", False), ("last_attempt", True)])
     def test_an_ai_detector_without_a_verdict_is_retried_and_only_its_last_attempt_records_an_error(
