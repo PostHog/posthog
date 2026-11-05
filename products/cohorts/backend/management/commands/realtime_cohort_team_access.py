@@ -1,13 +1,17 @@
-"""Grant, revoke and list team access to the realtime cohort pipeline, meant for a toolbox pod.
+"""Enable, grant, revoke and list team access to the realtime cohort pipeline, meant for a toolbox pod.
 
-Django and the shufflers read these rows, each as a union with its own `REALTIME_COHORT_TEAM_ALLOWLIST`.
-The processor and seeder read only their env lists, so every grant or revoke needs the same change there.
+Django, the shufflers, the processor and the seeder read these rows, each as a union with its own
+`REALTIME_COHORT_TEAM_ALLOWLIST`.
 
-A grant at `processing` gives the team Django's side of the pipeline while its users see none of it,
-which is what a load test needs. `serving` also shows them realtime cohort state. `revoke --purpose
-load_test` sets every load-test row to `off` at once, and ends no run.
+`enable` is how a beta team gets realtime cohorts: it prepares the team's cohorts, grants `processing`,
+creates the team backfill runs, and moves the team to `serving` once neither run was refused. Run it again
+after resolving a refusal.
 
-A team on the env list is `serving` whatever its row says, so `grant` and `revoke` refuse it.
+A grant at `processing` gives the team the pipeline while its users see none of it, which is what a load
+test needs. `serving` also shows them realtime cohort state. `revoke --purpose load_test` sets every
+load-test row to `off` at once, and ends no run.
+
+A team on the env list is `serving` whatever its row says, so `enable`, `grant` and `revoke` refuse it.
 """
 
 import argparse
@@ -20,6 +24,16 @@ from products.cohorts.backend.models.team_access import (
     RealtimeCohortAccessPurpose,
     RealtimeCohortLevel,
     RealtimeCohortTeamAccess,
+)
+from products.cohorts.backend.realtime_enablement import (
+    AlreadyServing,
+    NothingToBackfill,
+    RunAlreadyCreated,
+    RunCreated,
+    RunOutcome,
+    RunRefused,
+    TeamEnablement,
+    enable_realtime_cohorts,
 )
 from products.cohorts.backend.realtime_teams import (
     GrantLevel,
@@ -39,6 +53,12 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser: CommandParser) -> None:
         subparsers = parser.add_subparsers(dest="action", required=True)
+
+        enable = subparsers.add_parser(
+            "enable",
+            help="Prepare each beta team's cohorts and backfills, and move it to serving once nothing was refused.",
+        )
+        enable.add_argument("--teams", type=int, nargs="+", required=True)
 
         grant = subparsers.add_parser("grant", help="Write the teams' access rows, all or none.")
         grant.add_argument("--teams", type=int, nargs="+", required=True)
@@ -61,13 +81,21 @@ class Command(BaseCommand):
         revoke = subparsers.add_parser("revoke", help="Set the selected rows to off, all or none.")
         selector = revoke.add_mutually_exclusive_group(required=True)
         selector.add_argument("--teams", type=int, nargs="+")
-        selector.add_argument("--purpose", choices=RealtimeCohortAccessPurpose.values)
+        # A revoked team cannot be granted again, so beta customer teams are revoked one id at a time.
+        selector.add_argument(
+            "--purpose",
+            choices=[
+                purpose for purpose in RealtimeCohortAccessPurpose.values if purpose != RealtimeCohortAccessPurpose.BETA
+            ],
+        )
 
         subparsers.add_parser("list", help="Print every access row.")
 
     def handle(self, *args: Any, **options: Any) -> None:
         try:
             match options["action"]:
+                case "enable":
+                    self._enable(options["teams"])
                 case "grant":
                     self._grant(options)
                 case "revoke":
@@ -76,6 +104,56 @@ class Command(BaseCommand):
                     self._list()
         except ValueError as error:
             raise CommandError(str(error)) from error
+
+    def _enable(self, team_ids: list[int]) -> None:
+        not_serving: list[int] = []
+        stale_flags_cache: list[int] = []
+        for team_id in sorted(set(team_ids)):
+            try:
+                result = enable_realtime_cohorts(team_id, purpose=RealtimeCohortAccessPurpose.BETA)
+            except ValueError as error:
+                self.stdout.write(f"Team {team_id}: refused, {error}")
+                not_serving.append(team_id)
+                continue
+            match result:
+                case AlreadyServing():
+                    self.stdout.write(f"Team {team_id}: already serving")
+                case TeamEnablement() as enablement:
+                    self._write_enablement(team_id, enablement)
+                    if not enablement.promoted:
+                        not_serving.append(team_id)
+                    if enablement.resave.rebuild_dispatch_failed:
+                        stale_flags_cache.append(team_id)
+        failures = []
+        if not_serving:
+            failures.append(f"Not enabled: {', '.join(str(team_id) for team_id in not_serving)}.")
+        # A rerun is a no-op once the team serves, so it cannot repair this.
+        if stale_flags_cache:
+            failures.append(
+                f"Flags cache rebuild not enqueued for {', '.join(str(team_id) for team_id in stale_flags_cache)}, "
+                "so enqueue update_team_flags_cache and update_team_service_flags_cache for them."
+            )
+        if failures:
+            raise CommandError(" ".join(failures))
+
+    def _write_enablement(self, team_id: int, enablement: TeamEnablement) -> None:
+        level = RealtimeCohortLevel.SERVING if enablement.promoted else RealtimeCohortLevel.PROCESSING
+        self.stdout.write(f"Team {team_id}: {level}")
+        resave = enablement.resave
+        resave_line = (
+            f"  Resave: {resave.total} cohorts, {resave.changed} changed, {resave.errors} errors, "
+            f"{resave.validation_errors} validation errors"
+        )
+        if resave.rebuild_dispatch_failed:
+            resave_line += ", flags cache rebuild not enqueued"
+        self.stdout.write(resave_line)
+        if enablement.unclassified_cohort_ids:
+            ids = ", ".join(str(cohort_id) for cohort_id in enablement.unclassified_cohort_ids)
+            self.stdout.write(f"  Null condition_type: {ids}")
+        for refusal in enablement.refused_cohorts:
+            self.stdout.write(f"  Not backfilled: cohort {refusal.cohort_id}, {refusal.kind}, {refusal.reason}")
+        self.stdout.write(f"  Behavioral run: {_run_outcome(enablement.behavioral)}")
+        self.stdout.write(f"  Person run: {_run_outcome(enablement.person)}")
 
     def _grant(self, options: dict[str, Any]) -> None:
         granted = grant_realtime_cohort_access(
@@ -102,6 +180,18 @@ class Command(BaseCommand):
             values = [str(row.team_id), row.level, row.purpose, str(row.save_triggers_backfill)]
             values += [_timestamp(row.processing_since), _timestamp(row.off_since), _timestamp(row.changed_at)]
             self.stdout.write("\t".join(values))
+
+
+def _run_outcome(outcome: RunOutcome) -> str:
+    match outcome:
+        case RunCreated(run_id=run_id):
+            return f"created {run_id}"
+        case RunAlreadyCreated(run_id=run_id):
+            return f"already created {run_id}"
+        case NothingToBackfill():
+            return "nothing to backfill"
+        case RunRefused(reason=reason):
+            return f"refused, {reason}"
 
 
 def _team_list(team_ids: list[int]) -> str:

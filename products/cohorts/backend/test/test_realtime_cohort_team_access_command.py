@@ -1,5 +1,6 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from io import StringIO
+from typing import Any
 
 import time_machine
 from posthog.test.base import BaseTest
@@ -13,6 +14,8 @@ from parameterized import parameterized
 
 from posthog.models.team.team import Team
 
+from products.cohorts.backend.backfill.sizing import BehavioralScanEstimate
+from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.team_access import (
     RealtimeCohortAccessPurpose,
     RealtimeCohortLevel,
@@ -140,6 +143,16 @@ class TestRealtimeCohortTeamAccessCommand(BaseTest):
 
         assert self._access(self.team.pk).level == RealtimeCohortLevel.SERVING
 
+    def test_revoke_cannot_select_beta_teams_by_purpose(self) -> None:
+        RealtimeCohortTeamAccess.objects.create(
+            team=self.team, level=RealtimeCohortLevel.SERVING, purpose=RealtimeCohortAccessPurpose.BETA
+        )
+
+        with self.assertRaisesMessage(CommandError, "invalid choice: 'beta'"):
+            call_command("realtime_cohort_team_access", "revoke", "--purpose", "beta")
+
+        assert self._access(self.team.pk).level == RealtimeCohortLevel.SERVING
+
     def test_revoke_by_purpose_leaves_other_purposes_on(self) -> None:
         pilot = Team.objects.create(organization=self.organization)
         RealtimeCohortTeamAccess.objects.create(
@@ -155,3 +168,71 @@ class TestRealtimeCohortTeamAccessCommand(BaseTest):
             RealtimeCohortLevel.OFF,
             RealtimeCohortLevel.SERVING,
         )
+
+    @override_settings(
+        BEHAVIORAL_BACKFILL_MERGE_GATE_ATTESTED=True,
+        BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED=True,
+        BEHAVIORAL_BACKFILL_PERSON_SIZING_ATTESTED=True,
+        BEHAVIORAL_BACKFILL_PERSON_TTL_ATTESTED=True,
+        BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET=1_000_000,
+        BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY=1_000,
+    )
+    @patch("products.cohorts.backend.realtime_enablement.estimate_behavioral_scan_events")
+    def test_enable_handles_each_team_and_fails_when_one_is_not_enabled(self, scan_estimate: Any) -> None:
+        scan_estimate.return_value = BehavioralScanEstimate(
+            days_sampled=7,
+            peak_day=date(2026, 11, 1),
+            peak_day_events=2_000,
+            peak_day_events_by_name={"$pageview": 2_000},
+            max_events_per_day=1_000,
+        )
+        held, serving, enabled = (Team.objects.create(organization=self.organization) for _ in range(3))
+        env_listed_cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"type": "person", "key": "email", "operator": "exact", "value": "person@example.com"}],
+                }
+            },
+        )
+        Cohort.objects.filter(id=env_listed_cohort.id).update(condition_type=None)
+        Cohort.objects.create(
+            team=held,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "behavioral",
+                            "key": "$pageview",
+                            "value": "performed_event",
+                            "event_type": "events",
+                            "time_value": 7,
+                            "time_interval": "day",
+                        }
+                    ],
+                }
+            },
+        )
+        RealtimeCohortTeamAccess.objects.create(
+            team=serving, level=RealtimeCohortLevel.SERVING, purpose=RealtimeCohortAccessPurpose.BETA
+        )
+
+        out = StringIO()
+        with (
+            override_settings(REALTIME_COHORT_TEAM_ALLOWLIST=str(self.team.pk)),
+            self.assertRaisesMessage(CommandError, f"Not enabled: {self.team.pk}, {held.pk}."),
+        ):
+            teams = [str(team.pk) for team in (enabled, serving, held, self.team)]
+            call_command("realtime_cohort_team_access", "enable", "--teams", *teams, stdout=out)
+
+        output = out.getvalue()
+        assert f"Team {self.team.pk}: refused, On REALTIME_COHORT_TEAM_ALLOWLIST: {self.team.pk}" in output
+        assert f"Team {serving.pk}: already serving" in output
+        assert Cohort.objects.get(id=env_listed_cohort.id).condition_type is None
+        assert [self._access(team.pk).level for team in (held, serving, enabled)] == [
+            RealtimeCohortLevel.PROCESSING,
+            RealtimeCohortLevel.SERVING,
+            RealtimeCohortLevel.SERVING,
+        ]
