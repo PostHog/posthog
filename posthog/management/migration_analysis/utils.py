@@ -5,18 +5,8 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from django.apps import apps
 
-import sqlparse
-
 if TYPE_CHECKING:
     from posthog.management.migration_analysis.models import OperationRisk
-
-
-def is_function_or_trigger_ddl(sql: str) -> bool:
-    statements = sqlparse.split(sqlparse.format(sql, strip_comments=True))
-    return bool(statements) and all(
-        re.match(r"^CREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|TRIGGER)\b", statement.strip(), re.IGNORECASE)
-        for statement in statements
-    )
 
 
 class VolatileFunctionDetector:
@@ -95,10 +85,6 @@ class OperationCategorizer:
         self.runsql_ops.append((idx, op_risk))
 
         sql_upper = str(op_risk.details.get("sql", "")).upper() if op_risk.details else ""
-
-        if is_function_or_trigger_ddl(sql_upper):
-            self.ddl_ops.append((idx, op_risk))
-            return
 
         # Skip categorization for safe non-blocking operations
         # These don't need DDL isolation warnings

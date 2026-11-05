@@ -2,13 +2,14 @@
 
 Use `inbox-usage-get` for a monthly overview by source and scout, including downstream report implementation.
 Use `execute-sql` for individual reports, runs, daily trends, or custom filters.
-The monthly tool is available when the project's rollout permits it; the SQL tables require their API read scopes.
+The monthly tool is available when the project's rollout permits it; the SQL tables use HogQL access controls.
 
 ## Spend records (`system.signal_spend`)
 
 {{ schema_columns('system.signal_spend') }}
 
-Requires `signal_usage:read` and project access.
+Requires usage access in the project.
+Usage history starts on October 1, 2026, at 00:00 UTC, using `finalized_at` for settled costs and `created_at` for unsettled costs.
 Each row owns one amount of recorded usage; sum these rows once.
 `credits` is a decimal, including fractional credits.
 Multiply credits by `pricing.usd_per_credit` returned by `inbox-usage-get` for the recorded USD value.
@@ -36,7 +37,7 @@ ORDER BY day, kind
 
 {{ schema_columns('system.scout_runs') }}
 
-Requires `signal_scout:read`; joining spend records also requires `signal_usage:read`.
+Requires scout access; joining spend records also requires usage access.
 `spend_credits` is a convenience copy of the run's recorded execution cost, excluding downstream report research and implementation.
 Do not add it to `system.signal_spend.credits`.
 Private scout trials are absent from both tables.

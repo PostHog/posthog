@@ -1,6 +1,6 @@
 import re
 from time import perf_counter
-from typing import Any, NoReturn, cast
+from typing import Any, NoReturn
 
 from django.core.cache import cache
 from django.http import HttpRequest, JsonResponse
@@ -76,11 +76,8 @@ from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filter
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_failure_handling import captured_elsewhere
 from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
-from posthog.hogql_queries.required_scopes import QUERY_RESOURCE_SCOPE_LABEL_PREFIX, required_query_resource_scopes
-from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import uuid7
-from posthog.permissions import scopes_caller_lacks
 from posthog.query_scan import slot as query_scan_slot
 from posthog.query_scan.flag import QueryScanMode, get_query_scan_flag
 from posthog.query_scan.serve import analysis_with_prompt
@@ -96,10 +93,8 @@ from posthog.rate_limit import (
     HogQLQueryThrottle,
 )
 from posthog.schema_migrations.upgrade import upgrade
-from posthog.scopes import APIScopeObject
-from posthog.synthetic_user import SyntheticUser
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.customer_analytics.backend.facade.api import validate_account_users_access
 from products.customer_analytics.backend.facade.constants import ACCOUNT_USERS_QUERY_STATUS_LABEL_PREFIX
 from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
@@ -256,24 +251,6 @@ def required_scopes_for_query_payload(query: object) -> list[str] | None:
     return None
 
 
-def validate_query_resource_scopes(request: Request, team: Team, scopes: list[str]) -> None:
-    if missing := scopes_caller_lacks(request, scopes):
-        raise PermissionDenied(f"API key missing required scope '{missing[0]}'")
-    if scopes and isinstance(request.user, User):
-        access = UserAccessControl(user=request.user, team=team)
-        for scope in scopes:
-            try:
-                access.assert_access_level_for_resource(cast(APIScopeObject, scope.split(":")[0]), "viewer")
-            except UserAccessControlError as error:
-                raise PermissionDenied(str(error)) from error
-    elif scopes:
-        readable = (
-            request.user.readable_system_table_access_scopes() if isinstance(request.user, SyntheticUser) else set()
-        )
-        if any(scope.split(":")[0] not in readable for scope in scopes):
-            raise PermissionDenied("You do not have access to this query.")
-
-
 def add_query_response_identity_headers(response: Response) -> Response:
     if http_request_id := get_http_request_id():
         response["X-Request-ID"] = http_request_id
@@ -365,7 +342,6 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             query, client_query_id, execution_mode = _process_query_request(
                 data, self.team, data.client_query_id, request.user
             )
-            validate_query_resource_scopes(request, self.team, required_query_resource_scopes(query, self.team))
 
             is_mcp_client = request.headers.get("x-posthog-client") == "mcp"
             if is_mcp_client:
@@ -524,15 +500,6 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             show_progress or request.query_params.get("showProgress", False) == "true"
         )  # TODO: Remove this once we have a consistent naming convention
         query_status = get_query_status(team_id=self.team.pk, query_id=pk, show_progress=show_progress)
-        validate_query_resource_scopes(
-            request,
-            self.team,
-            [
-                label.removeprefix(QUERY_RESOURCE_SCOPE_LABEL_PREFIX)
-                for label in query_status.labels or []
-                if label.startswith(QUERY_RESOURCE_SCOPE_LABEL_PREFIX)
-            ],
-        )
         account_users_account_id = next(
             (
                 label.removeprefix(ACCOUNT_USERS_QUERY_STATUS_LABEL_PREFIX)

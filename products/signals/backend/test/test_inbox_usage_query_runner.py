@@ -3,26 +3,13 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+import time_machine
 from posthog.test.base import ClickhouseTestMixin, NonAtomicAPIBaseTest
-from unittest.mock import patch
-
-from django.utils import timezone
-
-from parameterized import parameterized
-
-from posthog.schema import QueryStatus
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.execute_async import QueryStatusManager
-from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, PersonalAPIKey, Team
+from posthog.models import Team
 from posthog.models.scoping import team_scope
-from posthog.models.sharing_configuration import SharingConfiguration
-from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.access_control.backend.models.access_control import AccessControl
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.signals.backend.models import SignalReport, SignalSpend
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.test.test_scout_harness_api import _make_run
@@ -36,118 +23,59 @@ class TestInboxUsageQueryRunner(ClickhouseTestMixin, NonAtomicAPIBaseTest):
         self.enterContext(team_scope(self.team.pk))
         self.base = datetime.now(UTC) - timedelta(days=2)
 
-    @parameterized.expand([("summary",), ("sql",), ("saved_view",)])
-    def test_usage_access_is_checked_on_cached_and_async_reads(self, query_kind: str) -> None:
-        run = _make_run(self.team)
-        SignalSpend.objects.for_team(self.team.pk).create(
-            team=self.team,
-            kind=SignalSpend.Kind.SCOUT_RUN,
-            scout_run=run,
-            task_run_id=run.task_run_id,
-            spend="7.25",
-            finalized_at=timezone.now() - timedelta(minutes=1),
-        )
-        query = {"kind": "InboxUsageQuery", "dateRange": {"date_from": "-7d"}}
-        if query_kind != "summary":
-            query = {"kind": "HogQLQuery", "query": "SELECT credits FROM system.signal_spend"}
-            if query_kind == "saved_view":
-                DataWarehouseSavedQuery.objects.create(team=self.team, name="usage_receipts", query=query)
-                query = {"kind": "HogQLQuery", "query": "SELECT credits FROM usage_receipts"}
-        path = f"/api/projects/{self.team.pk}/query/"
-
-        def execute_without_initial_labels(task_signature, manager, query_status):
-            query_status.labels = None
-            manager.store_query_status(query_status)
-            task_signature()
-
-        with patch(
-            "posthog.clickhouse.client.execute_async.add_task_to_on_commit",
-            side_effect=execute_without_initial_labels,
-        ):
-            queued = self.client.post(path, {"query": query, "refresh": "async"}, format="json")
-        assert queued.status_code in (200, 202), queued.content
-        query_id = queued.json()["query_status"]["id"]
-        result_path = f"{path}{query_id}/"
-        result = self.client.get(result_path)
-        assert result.status_code == 200, result.content
-        assert "required_scope:signal_usage:read" in result.json()["query_status"]["labels"]
-
-        dashboard = Dashboard.objects.create(team=self.team, created_by=self.user)
-        share = SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
-        public_query_id = uuid.uuid4().hex
-        QueryStatusManager(public_query_id, self.team.pk).store_query_status(
-            QueryStatus(id=public_query_id, team_id=self.team.pk, complete=True, results={"results": [[1]]})
-        )
-        self.client.logout()
-        assert self.client.get(f"{path}{public_query_id}/?sharing_access_token={share.access_token}").status_code == 200
-        assert self.client.get(f"{result_path}?sharing_access_token={share.access_token}").status_code == 403
-        self.client.force_login(self.user)
-
-        for scopes, expected in [(["query:read", "signal_usage:read"], 200), (["query:read"], 403)]:
-            raw = generate_random_token_personal()
-            PersonalAPIKey.objects.create(
-                label="usage reader",
-                user=self.user,
-                secure_value=hash_key_value(raw),
-                scopes=scopes,
-                scoped_teams=[self.team.pk],
-            )
-            self.client.logout()
-            cached = self.client.post(path, {"query": query}, format="json", HTTP_AUTHORIZATION=f"Bearer {raw}")
-            stored = self.client.get(result_path, HTTP_AUTHORIZATION=f"Bearer {raw}")
-            assert cached.status_code == stored.status_code == expected, (cached.content, stored.content)
-            if expected == 200:
-                assert cached.json()["is_cached"] is True
-
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
-        ]
-        self.organization.save()
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-        AccessControl.objects.create(
-            team=self.team,
-            resource="signal_usage",
-            access_level="none",
-            organization_member=self.organization_membership,
-        )
-        self.client.force_login(self.user)
-        assert self.client.get(result_path).status_code == 403
-        assert self.client.post(path, {"query": query}, format="json").status_code == 403
-
-    def test_retained_scout_receipts_reconcile_and_unknown_visibility_is_incomplete(self) -> None:
-        for metadata, amount in [({}, "7.25"), ({"scout_trial": {"version": 1}}, "99")]:
-            run = _make_run(self.team, metadata=metadata)
+    @time_machine.travel("2026-10-02T12:00:00Z", tick=False)
+    def test_usage_history_starts_in_october_for_summary_and_sql(self) -> None:
+        start = datetime(2026, 10, 1, tzinfo=UTC)
+        before = start - timedelta(seconds=1)
+        visible_ids = set()
+        for created_at, finalized_at, amount, visible in [
+            (before, before, "99", False),
+            (before, None, "99", False),
+            (before, start, "3", True),
+            (start, start + timedelta(seconds=1), "4", True),
+            (start, None, "2", True),
+        ]:
+            run = _make_run(self.team)
             receipt = SignalSpend.objects.for_team(self.team.pk).create(
                 team=self.team,
                 kind=SignalSpend.Kind.SCOUT_RUN,
                 scout_run=run,
                 task_run_id=run.task_run_id,
                 spend=amount,
-                finalized_at=timezone.now() - timedelta(minutes=1),
+                finalized_at=finalized_at,
             )
-            type(run.task_run).objects.filter(team_id=self.team.pk, id=run.task_run_id).delete()
-            receipt.refresh_from_db()
-            assert receipt.is_private is bool(metadata)
-        SignalSpend.objects.for_team(self.team.pk).create(
-            team=self.team,
-            kind=SignalSpend.Kind.SCOUT_RUN,
-            scout_run_id=uuid.uuid4(),
-            task_run_id=uuid.uuid4(),
-            spend="123",
-            finalized_at=timezone.now() - timedelta(minutes=1),
+            SignalSpend.objects.for_team(self.team.pk).filter(id=receipt.id).update(created_at=created_at)
+            if visible:
+                visible_ids.add(str(receipt.id))
+        path = f"/api/projects/{self.team.pk}/query/"
+        summary = self.client.post(
+            path,
+            {"query": {"kind": "InboxUsageQuery", "dateRange": {"date_from": "all", "explicitDate": True}}},
+            format="json",
         )
-        summary = self.client.get(f"/api/projects/{self.team.pk}/signals/usage/")
         assert summary.status_code == 200, summary.content
-        assert Decimal(summary.json()["total_credits"]) == Decimal("7.25")
-        assert summary.json()["incomplete"] is True
+        usage = summary.json()["results"]
+        assert usage["period_start"] == "2026-10-01T00:00:00Z"
+        assert Decimal(usage["total_credits"]) == Decimal(7)
+        assert Decimal(usage["unsettled_credits"]) == Decimal(2)
         sql = self.client.post(
-            f"/api/projects/{self.team.pk}/query/",
-            {"query": {"kind": "HogQLQuery", "query": "SELECT sum(credits) FROM system.signal_spend"}},
+            path,
+            {"query": {"kind": "HogQLQuery", "query": "SELECT id FROM system.signal_spend"}},
             format="json",
         )
         assert sql.status_code == 200, sql.content
-        assert Decimal(str(sql.json()["results"][0][0])) == Decimal("7.25")
+        assert {row[0] for row in sql.json()["results"]} == visible_ids
+        unavailable = self.client.post(
+            path,
+            {
+                "query": {
+                    "kind": "InboxUsageQuery",
+                    "dateRange": {"date_from": "2026-09-01", "date_to": "2026-10-01", "explicitDate": True},
+                }
+            },
+            format="json",
+        )
+        assert unavailable.status_code == 400, unavailable.content
 
     def _emit_version(
         self,

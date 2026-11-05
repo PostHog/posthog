@@ -326,27 +326,6 @@ class TestRunSQLOperations:
     def setup_method(self):
         self.analyzer = RiskAnalyzer()
 
-    @pytest.mark.parametrize("trailing_sql, expected_score", [("", 2), ("UPDATE receipts SET spend = 0;", 4)])
-    def test_trigger_definitions_do_not_execute_their_bodies(self, trailing_sql, expected_score):
-        op = migrations.RunSQL(
-            """
-            CREATE OR REPLACE FUNCTION snapshot_receipt() RETURNS trigger AS $$
-            BEGIN
-                IF TG_OP = 'UPDATE' THEN
-                    NEW.spend := OLD.spend;
-                END IF;
-                RETURN NEW;
-            END;
-            $$ LANGUAGE plpgsql;
-            CREATE OR REPLACE TRIGGER snapshot_receipt
-                BEFORE INSERT OR UPDATE ON receipts
-                FOR EACH ROW EXECUTE FUNCTION snapshot_receipt();
-            """
-            + trailing_sql
-        )
-        risk = self.analyzer.analyze_operation(op)
-        assert risk.score == expected_score
-
     def test_run_sql_with_drop_table_without_if_exists(self):
         """DROP TABLE without IF EXISTS is dangerous (score 5 - BLOCKED)."""
         op = create_mock_operation(

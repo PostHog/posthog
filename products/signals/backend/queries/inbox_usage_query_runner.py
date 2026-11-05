@@ -4,7 +4,7 @@ from functools import cached_property
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from django.db.models import Count, Min, Q, QuerySet, Sum
+from django.db.models import Count, Q, QuerySet, Sum
 from django.utils import timezone
 
 from posthog.schema import (
@@ -32,6 +32,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.signals.backend.facade.constants import SIGNAL_USAGE_START
 from products.signals.backend.models import SignalScoutRun, SignalSpend
 from products.signals.backend.pricing import SIGNALS_CREDITS_PER_DOLLAR
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL, _deduped_signals_subquery, _signals_query_context
@@ -106,21 +107,6 @@ class InboxUsageQueryRunner(AnalyticsQueryRunner[InboxUsageQueryResponse]):
 
     @cached_property
     def query_date_range(self) -> QueryDateRange:
-        earliest = None
-        if self.query.dateRange.date_from == "all":
-            timestamps = (
-                SignalSpend.objects.for_team(self.team.id)
-                .filter(kind__isnull=False)
-                .exclude(is_private=True)
-                .aggregate(created=Min("created_at"), finalized=Min("finalized_at"))
-            )
-            timestamps["scout"] = (
-                SignalScoutRun.objects.for_team(self.team.id)
-                .exclude(metadata__has_key="scout_trial")
-                .aggregate(created=Min("created_at"))["created"]
-            )
-            # Usage can predate event ingestion, so all-time reads must start from the spend ledger and public runs.
-            earliest = min((timestamp for timestamp in timestamps.values() if timestamp), default=self.as_of)
         return QueryDateRange(
             date_range=self.query.dateRange,
             team=self.team,
@@ -128,12 +114,14 @@ class InboxUsageQueryRunner(AnalyticsQueryRunner[InboxUsageQueryResponse]):
             now=self.as_of,
             timezone_info=ZoneInfo("UTC"),
             exact_timerange=True,
-            earliest_timestamp_fallback=earliest,
+            earliest_timestamp_fallback=SIGNAL_USAGE_START,
         )
 
     @cached_property
     def period_start(self) -> datetime:
-        return self.query_date_range.date_from()
+        if self.period_end <= SIGNAL_USAGE_START:
+            raise QueryError("Usage is available from October 1, 2026. Choose a later date range.")
+        return max(self.query_date_range.date_from(), SIGNAL_USAGE_START)
 
     @cached_property
     def period_end(self) -> datetime:
@@ -141,7 +129,16 @@ class InboxUsageQueryRunner(AnalyticsQueryRunner[InboxUsageQueryResponse]):
 
     @cached_property
     def receipts(self) -> QuerySet[SignalSpend]:
-        return SignalSpend.objects.for_team(self.team.id).filter(kind__isnull=False, is_private=False)
+        private_runs = SignalScoutRun.objects.for_team(self.team.id).filter(metadata__has_key="scout_trial")
+        return (
+            SignalSpend.objects.for_team(self.team.id)
+            .filter(kind__isnull=False)
+            .filter(
+                Q(finalized_at__gte=SIGNAL_USAGE_START)
+                | Q(finalized_at__isnull=True, created_at__gte=SIGNAL_USAGE_START)
+            )
+            .exclude(scout_run_id__in=private_runs.values("id"))
+        )
 
     @cached_property
     def settled(self) -> QuerySet[SignalSpend]:
@@ -267,19 +264,6 @@ class InboxUsageQueryRunner(AnalyticsQueryRunner[InboxUsageQueryResponse]):
             .count()
         )
         buckets: list[InboxUsageSource | InboxUsageScout] = [*sources, *scouts]
-        unknown_visibility = (
-            SignalSpend.objects.for_team(self.team.id)
-            .filter(kind__isnull=False, is_private__isnull=True)
-            .filter(
-                Q(finalized_at__gte=self.period_start, finalized_at__lt=min(self.period_end, self.as_of))
-                | Q(
-                    finalized_at__isnull=True,
-                    created_at__gte=self.period_start,
-                    created_at__lt=min(self.period_end, self.as_of),
-                )
-            )
-            .exists()
-        )
         return InboxUsageQueryResponse(
             results=InboxUsage(
                 project_id=self.team.id,
@@ -290,9 +274,7 @@ class InboxUsageQueryRunner(AnalyticsQueryRunner[InboxUsageQueryResponse]):
                 exempt_credits=str(sum((Decimal(row.exempt_credits) for row in buckets), Decimal(0))),
                 unsettled_credits=str(pending["credits"]),
                 untracked_scout_run_count=untracked_runs,
-                incomplete=bool(
-                    pending["count"] or untracked_runs or unknown_visibility or any(row.incomplete for row in buckets)
-                ),
+                incomplete=bool(pending["count"] or untracked_runs or any(row.incomplete for row in buckets)),
                 attribution_incomplete=any(row.source_product is None or row.source_type is None for row in sources),
                 sources=sources,
                 scouts=scouts,

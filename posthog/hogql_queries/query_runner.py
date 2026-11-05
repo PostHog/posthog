@@ -2183,15 +2183,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         raise NotImplementedError()
 
     def query_status_labels(self) -> list[str] | None:
-        from posthog.hogql_queries.required_scopes import (  # noqa: PLC0415
-            QUERY_RESOURCE_SCOPE_LABEL_PREFIX,
-            required_query_resource_scopes,
-        )
-
-        return [
-            f"{QUERY_RESOURCE_SCOPE_LABEL_PREFIX}{scope}"
-            for scope in required_query_resource_scopes(self.query, self.team)
-        ] or None
+        return None
 
     def _reads_events_route(self) -> bool:
         """True when this query reads the PostHog events table.

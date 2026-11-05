@@ -6,11 +6,7 @@ from typing import Any, Optional
 from django.db import models
 
 from posthog.management.migration_analysis.models import OperationRisk
-from posthog.management.migration_analysis.utils import (
-    VolatileFunctionDetector,
-    check_drop_properly_staged,
-    is_function_or_trigger_ddl,
-)
+from posthog.management.migration_analysis.utils import VolatileFunctionDetector, check_drop_properly_staged
 
 # Base URL for migration safety documentation
 SAFE_MIGRATIONS_DOCS_URL = (
@@ -501,15 +497,6 @@ class RunSQLAnalyzer(OperationAnalyzer):
         sql_without_comments = re.sub(r"--[^\n]*", "", sql_original)  # Remove -- comments
         sql_without_comments = re.sub(r"#[^\n]*", "", sql_without_comments)  # Remove # comments
         sql = sql_without_comments.upper()
-
-        if is_function_or_trigger_ddl(sql_original):
-            return OperationRisk(
-                type=self.operation_type,
-                score=2,
-                reason="Function and trigger definitions need schema locks; their bodies do not run during creation",
-                details={"sql": sql_original},
-                guidance="Review trigger behavior and the lock needed to attach it to the table.",
-            )
 
         # CREATE EXTENSION takes a lock only on pg_extension, not on user tables.
         # Django's typed wrappers (TrigramExtension etc.) emit IF NOT EXISTS, so

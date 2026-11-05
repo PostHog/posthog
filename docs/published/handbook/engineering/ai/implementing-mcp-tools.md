@@ -427,12 +427,10 @@ Finalized spend is grouped by UTC calendar month, with unsettled work created in
 The endpoint uses `InboxUsageQueryRunner`, with a five-minute cache per canonical project and month; `as_of` identifies when the returned totals were computed.
 Source attribution uses one bulk HogQL aggregate, retaining spend when signal metadata is missing or the report is deleted.
 Report metadata reads are restricted to the reports referenced by receipts in the selected range.
-Spend receipts retain their public or private visibility when a scout run is deleted. Historical receipts whose scout was deleted before visibility was recorded are excluded from both SQL and the summary; the summary marks the range incomplete.
 The endpoint converts `month` to an explicit UTC `DateRange`; the runner resolves it with the shared `QueryDateRange` class.
 The generic query API accepts `{"kind": "InboxUsageQuery", "dateRange": {"date_from": "2026-11-01", "date_to": "2026-12-01", "explicitDate": true}}`, including its standard async execution modes, with both `query:read` and `signal_usage:read`.
-SQL reads of usage receipts, including saved views, require `signal_usage:read` too. Cached and asynchronous results recheck the caller's current usage access.
 Direct queries require `dateRange` and support standard relative dates. Bounds use UTC; `date_to` is exclusive. Use `explicitDate: true` to preserve exact end timestamps.
-All-time queries start from the earliest spend record or public scout run, independently of event ingestion.
+Usage history starts on October 1, 2026, at 00:00 UTC. All-time queries start there; ranges crossing the cutoff are clipped, and earlier months are rejected. SQL spend records use the same cutoff on finalized_at, or created_at for unsettled work.
 Direct queries must target the canonical parent project; the usage endpoint resolves child environments after checking parent-project access.
 The response returns fractional credits as decimal strings and `pricing.usd_per_credit` for USD conversion; recorded usage includes exemptions and is not an invoice amount.
 Use `system.signal_spend` for finer queries and `system.scout_runs.spend_credits` for per-run inspection, without adding the latter to the spend records again.

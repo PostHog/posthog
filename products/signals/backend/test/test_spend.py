@@ -926,17 +926,6 @@ class TestSignalSpend(BaseTest):
                     "kind", "spend", "finalized_at"
                 )
             ) == [(None, Decimal(0), None), (None, Decimal(0), None)]
-            for name in (
-                "0235_signalspend_is_private",
-                "0236_snapshot_signalspend_visibility",
-                "0237_backfill_signalspend_visibility",
-            ):
-                visibility = import_module(f"products.signals.backend.migrations.{name}")
-                with connection.schema_editor() as editor:
-                    state = visibility.Migration(name, "signals").apply(state, editor)
-            spend = state.apps.get_model("signals", "SignalSpend")
-            assert spend.objects.get(id=row.id).is_private is False
-            assert spend.objects.get(id=legacy_scout.id).is_private is None
             assert signal_spend_summaries(team_id=self.team.id, signal_ids=[str(row.signal_id)]) == {
                 str(row.signal_id): SignalSpendSummary(total_spend=4.0123, failed_stages=[])
             }

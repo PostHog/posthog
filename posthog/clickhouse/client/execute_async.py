@@ -275,11 +275,6 @@ def execute_process_query(
 
     reset_request_query_cost()
     try:
-        from posthog.hogql_queries.required_scopes import query_resource_scope_labels_for_payload
-
-        # Query IDs are caller-supplied, so execution must stamp the requirements of its own payload.
-        labels = query_resource_scope_labels_for_payload(query_json, team)
-        query_status.labels = list(dict.fromkeys([*(query_status.labels or []), *labels])) or None
         results = process_query_dict(
             team=team,
             query_json=query_json,

@@ -6173,7 +6173,7 @@ class TestScoutHarnessLighthouseAPI(APIBaseTest):
 
 
 class TestMonthlyUsageQuery(SimpleTestCase):
-    @parameterized.expand(["2026-00", "2026-13", "2026-1", "0000-01", "9999-12", "2026-11-01"])
+    @parameterized.expand(["2026-00", "2026-13", "2026-1", "0000-01", "9999-12", "2026-11-01", "2026-09"])
     def test_invalid_month(self, month: str) -> None:
         serializer = MonthlyUsageQuerySerializer(data={"month": month})
         assert not serializer.is_valid()
@@ -6352,7 +6352,14 @@ class TestScoutSpendOverview(APIBaseTest):
             (
                 "all",
                 {"date_from": "all", "explicitDate": True},
-                "2026-11-01T00:00:00Z",
+                "2026-10-01T00:00:00Z",
+                "2026-12-15T12:00:00Z",
+                "2.1250",
+            ),
+            (
+                "clipped_to_available_history",
+                {"date_from": "2026-09-01", "explicitDate": True},
+                "2026-10-01T00:00:00Z",
                 "2026-12-15T12:00:00Z",
                 "2.1250",
             ),
@@ -6388,8 +6395,9 @@ class TestScoutSpendOverview(APIBaseTest):
         assert data["period_end"] == end
         assert data["total_credits"] == credits
 
-    def test_monthly_usage_rejects_invalid_month(self) -> None:
-        response = self.client.get(f"/api/projects/{self.team.id}/signals/usage/?month=2026-13")
+    @parameterized.expand(["2026-13", "2026-09"])
+    def test_monthly_usage_rejects_invalid_month(self, month: str) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/usage/?month={month}")
         assert response.status_code == 400
 
     @parameterized.expand([False, True])

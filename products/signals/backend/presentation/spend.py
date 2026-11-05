@@ -19,6 +19,7 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.clickhouse.workload import Workload
 from posthog.permissions import APIScopePermission
 
+from products.signals.backend.facade.constants import SIGNAL_USAGE_START
 from products.signals.backend.facade.spend import InboxUsageQueryRunner, scout_spend_overview, source_spend_overview
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 
@@ -98,7 +99,7 @@ class MonthlyUsageQuerySerializer(serializers.Serializer):
     month = serializers.RegexField(
         r"^[0-9]{4}-(0[1-9]|1[0-2])$",
         required=False,
-        help_text="UTC calendar month in YYYY-MM format. Defaults to the current month. Usage is grouped by finalization time.",
+        help_text="UTC calendar month in YYYY-MM format, from 2026-10 onward. Defaults to the current month. Usage is grouped by finalization time.",
     )
 
     def validate_month(self, value: str) -> date:
@@ -108,6 +109,8 @@ class MonthlyUsageQuerySerializer(serializers.Serializer):
             raise serializers.ValidationError("Enter a valid month in YYYY-MM format.") from None
         if month.year == 9999:
             raise serializers.ValidationError("The year must be earlier than 9999.")
+        if month < SIGNAL_USAGE_START.date():
+            raise serializers.ValidationError("Usage is available from October 2026. Choose that month or a later one.")
         return month
 
 
