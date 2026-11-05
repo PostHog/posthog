@@ -1369,7 +1369,7 @@ export const getSignalsReportArtefactsDestroyUrl = (projectId: string, reportId:
 }
 
 /**
- * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `autostart_skip`, `check_authoring`, `check_cancelled`, `check_expired`, `check_observation`, `check_result`, `check_scheduled`, `code_review`, `impact_measurement_plan`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pr_owner_assignment`, `pull_request`, `ranking_score`, `report_link`, `reviewer_corrections`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
+ * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `autostart_skip`, `check_authoring`, `check_cancelled`, `check_expired`, `check_observation`, `check_result`, `check_scheduled`, `code_review`, `impact_measurement_plan`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pr_owner_assignment`, `pull_request`, `ranking_score`, `report_link`, `reviewer_corrections`, `scout_note_left`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
  * @summary Delete an artefact
  */
 export const signalsReportArtefactsDestroy = async (
@@ -1515,8 +1515,8 @@ export const getSignalsReportChecksReplaceCreateUrl = (projectId: string, report
 }
 
 /**
- * Atomically replace an open metric check. The old check stays live if the new one is invalid.
- * @summary Replace a metric follow-up check
+ * Atomically replace an open agent or metric check with a metric check. The old check stays live if the new one is invalid.
+ * @summary Replace a follow-up check with a metric
  */
 export const signalsReportChecksReplaceCreate = async (
     projectId: string,
@@ -2476,7 +2476,7 @@ export const getSignalsScoutMembersListUrl = (projectId: string, params?: Signal
 }
 
 /**
- * Return the people who can review work on this project — one row per member with access to it, each with their `user_uuid`, `email`, `first_name`/`last_name`, resolved GitHub `login` (null when they have no linked GitHub identity), and the `teams` they're on. The cold-start reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list members, match the owner by email/name, then put their resolved `github_login` in `suggested_reviewers` on `emit-report` / `edit-report`. Pass `team` to resolve a team slug to the people on it, maintainers first. Pass `search` to narrow a large roster; the result is capped at 200. Strictly team-scoped.
+ * Return the people who can review work on this project — one row per member with access to it, each with their `user_uuid`, `email`, `first_name`/`last_name`, resolved GitHub `login` (null when they have no linked GitHub identity), and the `teams` they're on. The cold-start reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list members, match the owner by email/name, then put their resolved `github_login` in `suggested_reviewers` on `emit-report` / `edit-report`. Pass `team` to resolve a team slug to the people on it, maintainers first. Pass `search` to narrow a large roster; the result is capped at 200. When `search` or `team` narrows the result to 10 members or fewer, each row also carries `activity`: the member's recent work, so you can check they are close to the affected area. Strictly team-scoped.
  * @summary List project members for reviewer routing
  */
 export const signalsScoutMembersList = async (

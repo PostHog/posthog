@@ -95,7 +95,7 @@ Known gaps and behavior that stays on the device.
 - **Shared screen chrome lives in Views.** Errors and Sessions import `features/views/screen/*`, `ViewsToast` and `ViewsReauthState`. Move them to `src/ui/` (or one shared module) in a follow-up, so features import only other features' hooks again.
 - **Only one list can be pinned.** Errors and Sessions share the one user slot in the nav pill (see [DECISIONS.md](DECISIONS.md#navigation-pins)).
 - **Views' sign-in state hides Browse.** While Views lacks its own scopes, the Browse group is hidden, so Errors and Sessions are reachable only through a pin.
-- **Production OAuth apps may not allow `today:read` yet.** The server drops scopes outside the app's ceiling without an error, so the report screen would always use signal evidence. Check the US and EU mobile apps in Django admin (see [AUTH.md](AUTH.md#server-side-ceiling)).
+- **Production OAuth apps may not allow `today:read` yet.** The server drops scopes outside the app's ceiling without an error, so the report screen would always use signal evidence. Check the US and EU mobile apps in Django admin.
 
 ## Notification follow-ups
 

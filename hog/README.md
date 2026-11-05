@@ -184,7 +184,7 @@ hog uploads the same bytes and content hashes as posthog-cli, so either CLI can 
 
 1. `HOG_PERSONAL_API_KEY` and `HOG_PROJECT_ID` in the environment, plus an optional `HOG_HOST`. The key is a personal API key: it acts as you, with your access.
 2. The same variables in the file `--dotenv-file` or `HOG_DOTENV_FILE` names. A missing file prints a warning and hog moves on to the next source.
-3. What `hog auth login` stored, one login per host: the system keychain (Keychain on macOS, Credential Manager on Windows, Secret Service on Linux), or `credentials.json` in hog's folder when hog can't use the keychain, such as over SSH or in a container. Only you can read that file.
+3. What `hog auth login` stored, one login per host: a short-lived OAuth token for one project, or a personal API key you pasted. It lives in the system keychain (Keychain on macOS, Credential Manager on Windows, Secret Service on Linux), or `credentials.json` in hog's folder when hog can't use the keychain, such as over SSH or in a container. Only you can read that file.
 
 hog doesn't read `~/.posthog/credentials.json`, the file `posthog-cli login` writes (`HOG_HOME` moves the folder). Run `hog auth migrate` once to move its key into hog's store.
 
@@ -196,10 +196,13 @@ hog's folder is `~/Library/Application Support/hog` on macOS, `$XDG_CONFIG_HOME/
 ### Logging in and out
 
 - At a terminal, `hog auth login` asks where your PostHog account is hosted, opens the browser, and waits for you to approve. The address PostHog opens at, us.posthog.com or eu.posthog.com, tells you which to pick.
-- An agent or a script cannot answer prompts, so `hog auth login --region us` returns at once with a link and a code for a person to approve. `hog auth login --wait` then saves the key. Running `hog auth login` again before the code expires returns the same link.
-- Each login checks that hog can use the keychain, and records where it stored the key in `settings.json` in hog's folder, so other commands don't check again. The keychain, or the credentials file, keeps only the secret. The rest of the login, such as the project, is in `settings.json`. When the keychain shows a dialog, choose "Always Allow".
+- On the approval page you check the code, pick a project and see what hog will be able to do. The token only works in that project; to use another one, log in again. hog renews the token by itself.
+- `hog auth login --read-only` asks only for read access. To change something later, run `hog auth login` again without the flag.
+- An agent or a script cannot answer prompts, so `hog auth login --region us` returns at once with a link and a code for a person to approve. `hog auth login --wait` then saves the token. Running `hog auth login` again before the code expires returns the same link.
+- Each login checks that hog can use the keychain, and records where it stored the token in `settings.json` in hog's folder, so other commands don't check again. The keychain, or the credentials file, keeps only the secrets. The rest of the login, such as the project and the scopes, is in `settings.json`. When the keychain shows a dialog, choose "Always Allow".
+- Self-hosted PostHog has to reach posthog.com to log hog in, because hog's OAuth client is described there. Without that, set the environment variables above.
 - In CI, skip login and set the environment variables above.
-- `hog auth status` checks the key against PostHog and names where it comes from. `hog auth logout` removes hog's login to the current host, and `hog auth logout --all` removes every login hog stored. Both warn when an environment variable still holds a key.
+- `hog auth status` checks the credentials against PostHog, and names where they come from, their scopes and when the token expires. `hog auth logout` revokes the login on this machine in PostHog and removes it from this machine. `hog auth logout --all` does the same for every login hog stored. Both warn when an environment variable still holds a key.
 
 ## Develop
 

@@ -13,6 +13,9 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthCheckKey,
     ExperimentHealthCheckStatus,
     ExperimentHealthFindingCode,
+    ExperimentHealthMeasurement,
+    ExperimentHealthMeasurementSide,
+    ExperimentHealthMeasurementUnit,
 )
 from products.experiments.backend.health import registry
 from products.experiments.backend.health.checks.filtered_exposures import reads_share_kept_by_test_account_filter
@@ -24,6 +27,7 @@ from products.experiments.backend.health.context import (
     FlagState,
     HealthContext,
     MetricEvents,
+    ReachableCondition,
 )
 from products.experiments.backend.health.registry import (
     EXPERIMENT_HEALTH_CHECKS,
@@ -112,7 +116,7 @@ def _raise(_ctx: HealthContext) -> Any:
 
 
 MULTIPLE_VARIANTS_CHECK = next(check for check in EXPOSURE_HEALTH_CHECKS if check.key == Key.MULTIPLE_VARIANTS_SHARE)
-FAILING_CHECK = HealthCheck(key=Key.FLAG_STATE, name="Failing", run=_raise)
+FAILING_CHECK = HealthCheck(key=Key.FLAG_STATE, name="Failing", description="Fails.", run=_raise)
 
 
 class TestEvaluate(TestCase):
@@ -173,8 +177,8 @@ class TestEvaluate(TestCase):
                 [ExperimentHealthFindingCode.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES],
             ),
             (
-                "test_account_filter_keeps_10_percent_after_the_end",
-                {**ENDED, "exposures": _filtered_totals(100, 1000)},
+                "test_account_filter_keeps_9_percent_after_the_end",
+                {**ENDED, "exposures": _filtered_totals(90, 1000)},
                 [ExperimentHealthFindingCode.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES],
             ),
             ("test_account_filter_keeps_95_percent", {"exposures": _filtered_totals(950, 1000)}, []),
@@ -237,7 +241,10 @@ class TestEvaluate(TestCase):
                         _totals_with_multiple(60, 1000), multiple_variant_handling=MultipleVariantHandling.FIRST_SEEN
                     )
                 },
-                {Key.MULTIPLE_VARIANTS_SHARE: Status.NOT_CHECKED, Key.BIAS_RISK_MULTIPLE_EXCLUDED: Status.PASSED},
+                {
+                    Key.MULTIPLE_VARIANTS_SHARE: Status.NOT_CHECKED,
+                    Key.BIAS_RISK_MULTIPLE_EXCLUDED: Status.NOT_APPLICABLE,
+                },
             ),
             (
                 "flag_traffic_is_left_to_zero_exposures_after_launch",
@@ -268,6 +275,34 @@ class TestEvaluate(TestCase):
                 "event_names_that_get_no_definition_are_not_checked",
                 _events("$$plugin_metrics", {}),
                 dict.fromkeys(EVENT_KEYS, Status.NOT_CHECKED),
+            ),
+            (
+                "test_account_filter_waits_for_enough_exposures",
+                {"exposures": _filtered_totals(5, 60)},
+                {Key.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES: Status.NOT_APPLICABLE},
+            ),
+            (
+                "bias_risk_does_not_apply_to_an_even_split",
+                {"flag": EVEN_SPLIT_FLAG},
+                {Key.BIAS_RISK_MULTIPLE_EXCLUDED: Status.NOT_APPLICABLE},
+            ),
+            (
+                "bias_risk_waits_for_exposures",
+                {"exposures": NO_EXPOSURES},
+                {Key.BIAS_RISK_MULTIPLE_EXCLUDED: Status.NOT_APPLICABLE},
+            ),
+            (
+                "bias_risk_does_not_apply_when_the_split_assigns_nobody",
+                {
+                    "flag": replace(
+                        UNEVEN_FLAG,
+                        reachable_conditions=(
+                            ReachableCondition(number=1, pinned_variant="test", variant_property=None),
+                        ),
+                    ),
+                    "exposures": _totals_with_multiple(60, 1000),
+                },
+                {Key.BIAS_RISK_MULTIPLE_EXCLUDED: Status.NOT_APPLICABLE},
             ),
         ]
     )
@@ -340,6 +375,85 @@ class TestEvaluate(TestCase):
             f for f in health.findings if f.code == ExperimentHealthFindingCode.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES
         )
         self.assertIn(share, finding.detail)
+
+    @parameterized.expand(
+        [
+            (
+                "srm_p_value",
+                Key.SRM,
+                replace(UNEVEN_SPLIT_TOTALS, sample_ratio_mismatch_p_value=0.71),
+                ExperimentHealthMeasurement(
+                    value=0.71,
+                    threshold=0.001,
+                    unit=ExperimentHealthMeasurementUnit.P_VALUE,
+                    warns=ExperimentHealthMeasurementSide.BELOW,
+                ),
+            ),
+            (
+                "multiple_variants_share",
+                Key.MULTIPLE_VARIANTS_SHARE,
+                _totals_with_multiple(30, 1000),
+                ExperimentHealthMeasurement(
+                    value=3.0,
+                    threshold=5.0,
+                    unit=ExperimentHealthMeasurementUnit.PERCENTAGE,
+                    warns=ExperimentHealthMeasurementSide.ABOVE,
+                ),
+            ),
+            (
+                "multiple_variants_below_the_minimum_count",
+                Key.MULTIPLE_VARIANTS_SHARE,
+                _totals_with_multiple(4, 20),
+                None,
+            ),
+            (
+                "kept_share",
+                Key.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES,
+                _filtered_totals(400, 1000),
+                ExperimentHealthMeasurement(
+                    value=40.0,
+                    threshold=10.0,
+                    unit=ExperimentHealthMeasurementUnit.PERCENTAGE,
+                    warns=ExperimentHealthMeasurementSide.BELOW,
+                ),
+            ),
+            (
+                "kept_share_at_the_threshold",
+                Key.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES,
+                _filtered_totals(100, 1000),
+                ExperimentHealthMeasurement(
+                    value=10.0,
+                    threshold=10.0,
+                    unit=ExperimentHealthMeasurementUnit.PERCENTAGE,
+                    warns=ExperimentHealthMeasurementSide.BELOW,
+                ),
+            ),
+            (
+                "bias_risk_share",
+                Key.BIAS_RISK_MULTIPLE_EXCLUDED,
+                _totals_with_multiple(0, 1000),
+                ExperimentHealthMeasurement(
+                    value=0.0,
+                    threshold=0.1,
+                    unit=ExperimentHealthMeasurementUnit.PERCENTAGE,
+                    warns=ExperimentHealthMeasurementSide.ABOVE,
+                ),
+            ),
+            (
+                "bias_risk_share_above_the_threshold_from_too_few_users",
+                Key.BIAS_RISK_MULTIPLE_EXCLUDED,
+                _totals_with_multiple(3, 1000),
+                None,
+            ),
+        ]
+    )
+    def test_a_pass_reports_its_value_only_when_the_threshold_decided_it(
+        self, _name: str, key: ExperimentHealthCheckKey, exposures: ExposureTotals, measurement: Any
+    ) -> None:
+        health = evaluate(replace(RUNNING_UNEVEN_SPLIT, exposures=exposures), EXPOSURE_HEALTH_CHECKS)
+
+        check = next(check for check in health.checks if check.key == key)
+        self.assertEqual((check.status, check.measurement), (Status.PASSED, measurement))
 
     @parameterized.expand(
         [

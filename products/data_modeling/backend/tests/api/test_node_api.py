@@ -19,6 +19,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from products.data_modeling.backend.logic.node_frequency import (
     get_declared_pin,
     get_declared_target,
+    set_declared_pin,
     set_declared_target,
 )
 from products.data_modeling.backend.logic.node_materialization import start_node_materialization
@@ -837,6 +838,18 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(
             (get_declared_target(self.view_node), get_declared_pin(self.view_node)), (timedelta(days=1), False)
         )
+
+    @parameterized.expand([("unpinned", False, "6hour"), ("pinned", True, "24hour")])
+    def test_list_reports_the_cadence_a_view_runs_at(self, _name, pinned, expected):
+        self._give_the_view_a_consumer(timedelta(hours=6), reads_the_table_too=True)
+        set_declared_target(self.view_node, timedelta(days=1))
+        set_declared_pin(self.view_node, pinned)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        listed = next(node for node in response.json()["results"] if node["id"] == str(self.view_node.id))
+        self.assertEqual((listed["sync_interval"], listed["effective_sync_interval"]), ("24hour", expected))
 
     def test_a_cadence_write_clears_the_legacy_saved_query_interval(self):
         DataWarehouseSavedQuery.objects.filter(pk=self.saved_query.pk).update(
