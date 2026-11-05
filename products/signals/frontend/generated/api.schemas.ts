@@ -10010,14 +10010,6 @@ export interface RecordCheckResultResponseApi {
  * Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones.
  */
 export interface EditReportRequestApi {
-    /** Opt in to updating the stored top-level Slack message for this report, including note-only edits. Set slack_message to the full replacement body. Without it, the latest report card is used. A missing or deleted message is posted again and its new ID is stored. Default false keeps note-only edits as new messages. */
-    update_existing_message?: boolean
-    /**
-     * Optional Slack message body, separate from the report text. Delivered as Markdown without an added title, buttons, or footer. Follow the scout's requested message format. Omit to use the standard report card. Uses only the scout's configured Slack destination.
-     * @maxLength 6000
-     * @nullable
-     */
-    slack_message?: string | null
     /** Report reviewer_assignment.state read before selection began. Required when reviewer corrections are enabled. */
     expected_reviewers?: ReviewerStateApi
     /** A successful selection, a deliberate empty result, or an unavailable lookup. Defaults to selected when omitted.
@@ -10038,6 +10030,14 @@ export interface EditReportRequestApi {
     reviewer_outcome_reason?: string
     /** Id of the report to edit (must belong to this project). */
     report_id: string
+    /** Opt in to updating the stored top-level Slack message for this report, including note-only edits. Set slack_message to the full replacement body. Without it, the latest report card is used. A missing or deleted message is posted again and its new ID is stored. Default false keeps note-only edits as new messages. */
+    update_existing_message?: boolean
+    /**
+     * Optional Slack message body, separate from the report text. Delivered as Markdown without an added title, buttons, or footer. Follow the scout's requested message format. Omit to use the standard report card. Uses only the scout's configured Slack destination.
+     * @maxLength 6000
+     * @nullable
+     */
+    slack_message?: string | null
     /**
      * Optional new title. Conventional-commit style (`type(scope): description`) renders with type/scope styling. The pipeline may later re-research and overwrite it.
      * @maxLength 300

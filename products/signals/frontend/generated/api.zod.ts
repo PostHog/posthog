@@ -665,6 +665,8 @@ export const SignalsProcessingPauseUpdateBody = /* @__PURE__ */ zod.object({
  * File a complete inbox report yourself, with the same validation and safety judge a scout report passes. The report surfaces at the status `actionability` implies, or is suppressed. It never starts an implementation run or opens a pull request on its own, now or after a later edit: start one from the report's actions. Safe to retry: a resend returns the first report with `idempotent_replay` true. Each person can file a limited number of reports per project per day.
  * @summary File an inbox report
  */
+export const signalsReportsCreateBodySlackMessageMax = 6000
+
 export const signalsReportsCreateBodyTitleMax = 300
 
 export const signalsReportsCreateBodyEvidenceItemDescriptionMax = 4000
@@ -714,6 +716,19 @@ export const signalsReportsCreateBodyIdempotencyKeyMax = 200
 
 export const SignalsReportsCreateBody = /* @__PURE__ */ zod
     .object({
+        update_existing_message: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Opt in to updating the stored top-level Slack message for this report, including note-only edits. Set slack_message to the full replacement body. Without it, the latest report card is used. A missing or deleted message is posted again and its new ID is stored. Default false keeps note-only edits as new messages.'
+            ),
+        slack_message: zod
+            .string()
+            .max(signalsReportsCreateBodySlackMessageMax)
+            .nullish()
+            .describe(
+                "Optional Slack message body, separate from the report text. Delivered as Markdown without an added title, buttons, or footer. Follow the scout's requested message format. Omit to use the standard report card. Uses only the scout's configured Slack destination."
+            ),
         title: zod
             .string()
             .max(signalsReportsCreateBodyTitleMax)
@@ -3059,8 +3074,9 @@ export const SignalsScoutRecordCheckResultBody = /* @__PURE__ */ zod
  */
 export const signalsScoutEditReportBodyReviewerRetryReasonMax = 500
 
-export const signalsScoutEditReportBodySlackMessageMax = 6000
 export const signalsScoutEditReportBodyReviewerOutcomeReasonMax = 500
+
+export const signalsScoutEditReportBodySlackMessageMax = 6000
 
 export const signalsScoutEditReportBodyTitleMax = 300
 

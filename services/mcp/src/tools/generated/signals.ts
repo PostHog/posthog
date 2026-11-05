@@ -644,6 +644,12 @@ const inboxReportsCreate = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportsCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.update_existing_message !== undefined) {
+            body['update_existing_message'] = params.update_existing_message
+        }
+        if (params.slack_message !== undefined) {
+            body['slack_message'] = params.slack_message
+        }
         if (params.title !== undefined) {
             body['title'] = params.title
         }
