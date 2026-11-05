@@ -99,6 +99,7 @@ class TestContextHelpers(TestCase):
     @parameterized.expand(
         [
             ("whitespace_value_is_quoted", "first second third", 'password="first second third"'),
+            ("separator_value_is_quoted", "abc;def", 'password="abc;def"'),
             (
                 "split_url_token_is_dropped",
                 "x" * 100 + " postgres://service:INVENTEDsecret1111@example.com/db",
