@@ -166,7 +166,8 @@ Five cheap reads cold-start a run:
 - **Deep-dive triggers** — look for a named customer who says the product is slow. The steering notes from `scout-notes-list` can name one directly.
   In the inbox, `search` matches only report titles and summaries, so run a few short terms (`slow`, `performance`, `load`, `lag`, `freez`, `unresponsive`, `ordering=-updated_at`), and also list the recent support-sourced reports (`source_product=conversations`) and read their titles.
   Open a candidate's artefacts only when its title or summary points at speed.
-  Skip a trigger whose `account:web_vitals:` or `blocked:web_vitals:` entry has a cursor at or after the report's newest artefact.
+  Skip a trigger whose `blocked:web_vitals:` entry, or `complete` `account:web_vitals:` entry, has a cursor at or after the report's newest artefact.
+  A `partial` `account:web_vitals:` entry is a dive that hit the time limit, so continue it whatever its cursor says.
   A note-triggered dive with no live report authors its own; the reference says how.
   Note the strongest trigger, but do the sweep first (see Explore).
 
