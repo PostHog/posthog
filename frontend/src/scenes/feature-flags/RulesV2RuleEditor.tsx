@@ -85,12 +85,7 @@ function RolloutRow({
             label="Rollout"
             aside={
                 reached === null ? null : (
-                    <RulesV2MatchCountText
-                        count={count}
-                        properties={rule.targeting.properties}
-                        subjects={subjects}
-                        rolloutPercentage={reached}
-                    />
+                    <RulesV2MatchCountText count={count} subjects={subjects} rolloutPercentage={reached} />
                 )
             }
         >
@@ -143,7 +138,9 @@ export const RulesV2RuleEditor = memo(function RulesV2RuleEditor({
     returnType,
     defaultValue,
     subjects,
+    groupTypeIndex,
     shadowedBy,
+    onRemoved,
 }: FeatureFlagLogicProps & {
     index: number
     rule: FeatureFlagRulesV2DraftRule
@@ -152,7 +149,10 @@ export const RulesV2RuleEditor = memo(function RulesV2RuleEditor({
     returnType: FeatureFlagRulesV2ReturnType
     defaultValue: JsonType | null
     subjects: Noun
+    groupTypeIndex: number | null
     shadowedBy: number | null
+    /** Called after the rule is deleted, so focus can move somewhere that still exists. */
+    onRemoved: () => void
 }): JSX.Element {
     const { fieldError } = useValues(featureFlagRulesV2EditorLogic({ id }))
     const { updateRule, removeRule, moveRule, duplicateRule } = useActions(featureFlagRulesV2EditorLogic({ id }))
@@ -162,7 +162,7 @@ export const RulesV2RuleEditor = memo(function RulesV2RuleEditor({
     const path = `filters.rules[${index}]`
     const seedError = fieldError(`${path}.seed`)
     const properties = rule.targeting.properties
-    const count = useRulesV2MatchCount(properties)
+    const count = useRulesV2MatchCount(properties, groupTypeIndex)
     const paused = rule.rule_type === 'experiment' && rule.paused
     const ruleError = fieldError(path)
     const menuButtonRef = useRef<HTMLButtonElement | null>(null)
@@ -265,7 +265,10 @@ export const RulesV2RuleEditor = memo(function RulesV2RuleEditor({
                             label: 'Delete rule',
                             icon: <IconTrash />,
                             status: 'danger',
-                            onClick: () => removeRule(index),
+                            onClick: () => {
+                                removeRule(index)
+                                onRemoved()
+                            },
                             'data-attr': 'rules-v2-remove-rule',
                         },
                     ]}
@@ -291,10 +294,7 @@ export const RulesV2RuleEditor = memo(function RulesV2RuleEditor({
                     </LemonBanner>
                 )}
                 <RulesV2ShadowedWarning shadowedBy={shadowedBy} subjects={subjects} />
-                <RulesV2RuleRow
-                    label="If"
-                    aside={<RulesV2MatchCountText count={count} properties={properties} subjects={subjects} />}
-                >
+                <RulesV2RuleRow label="If" aside={<RulesV2MatchCountText count={count} subjects={subjects} />}>
                     <div className="flex flex-wrap items-center gap-2">
                         {properties.length === 0 && <span className="leading-7">All {subjects.plural}</span>}
                         <PropertyFilters

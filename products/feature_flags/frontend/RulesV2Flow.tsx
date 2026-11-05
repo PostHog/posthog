@@ -8,12 +8,13 @@ import { LemonBanner, LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { getSeriesColor } from 'lib/colors'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { Link } from 'lib/lemon-ui/Link'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import { BlastRadiusErrorMessage } from 'scenes/feature-flags/BlastRadiusErrorMessage'
 import { BlastRadiusError, isBlastRadiusErrorRetryable } from 'scenes/feature-flags/featureFlagReleaseConditionsLogic'
 import { rulesV2CatchAllRule } from 'scenes/feature-flags/featureFlagRulesV2Draft'
-import { MatchingActorsLink } from 'scenes/feature-flags/MatchingActorsLink'
+import { matchingActorsUrl } from 'scenes/feature-flags/matchingActorsUrl'
 
 import { Noun } from '~/models/groupsModel'
 import { AnyPropertyFilter, FeatureFlagRulesV2DraftRule, FeatureFlagRulesV2Variant, JsonType } from '~/types'
@@ -223,18 +224,22 @@ export function rulesV2RolloutMissText(onRolloutMiss: 'continue' | 'return_defau
 }
 
 /** The targeting count for a rule: a debounced estimate that ignores incomplete conditions. */
-export function useRulesV2MatchCount(properties: AnyPropertyFilter[]): {
+export function useRulesV2MatchCount(
+    properties: AnyPropertyFilter[],
+    groupTypeIndex: number | null
+): {
     countable: boolean
     affected: number | null
     total: number | null
     error: BlastRadiusError | null
     retry: () => void
+    matchingActorsUrl: string
 } {
     const propertiesKey = useDebouncedValue(
         useMemo(() => JSON.stringify(properties), [properties]),
         400
     )
-    const logic = rulesV2MatchCountLogic({ propertiesKey })
+    const logic = rulesV2MatchCountLogic({ propertiesKey, groupTypeIndex })
     const { matchCount, matchCountError, countable } = useValues(logic)
     const { loadMatchCount } = useActions(logic)
     return {
@@ -243,17 +248,16 @@ export function useRulesV2MatchCount(properties: AnyPropertyFilter[]): {
         total: matchCount?.total ?? null,
         error: matchCountError,
         retry: loadMatchCount,
+        matchingActorsUrl: matchingActorsUrl(properties, groupTypeIndex),
     }
 }
 
 export function RulesV2MatchCountText({
     count,
-    properties,
     subjects,
     rolloutPercentage,
 }: {
     count: ReturnType<typeof useRulesV2MatchCount>
-    properties: AnyPropertyFilter[]
     subjects: Noun
     /** Shows the share the rollout reaches instead of the targeting match. */
     rolloutPercentage?: number
@@ -288,28 +292,11 @@ export function RulesV2MatchCountText({
     }
     return (
         <Tooltip
-            title={
-                <div className="flex flex-col gap-1">
-                    <span>
-                        About {humanFriendlyNumber(reached)} of {humanFriendlyNumber(count.total ?? 0)}{' '}
-                        {subjects.plural} match these conditions. Earlier rules may claim some of them first.
-                    </span>
-                    <MatchingActorsLink
-                        properties={properties}
-                        resolvedGroupTypeIndex={null}
-                        targetName={subjects.plural}
-                    />
-                </div>
-            }
-            interactive
+            title={`About ${humanFriendlyNumber(reached)} of ${humanFriendlyNumber(count.total ?? 0)} ${subjects.plural} match these conditions. Earlier rules may claim some of them first. Opens the matching ${subjects.plural}.`}
         >
-            <span
-                // Focusable, so a keyboard user can reach the link to the matching users.
-                tabIndex={0}
-                className="tabular-nums underline decoration-dotted underline-offset-2 cursor-help"
-            >
+            <Link to={count.matchingActorsUrl} target="_blank" className="tabular-nums">
                 {reachedText}
-            </span>
+            </Link>
         </Tooltip>
     )
 }

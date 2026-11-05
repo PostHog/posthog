@@ -888,6 +888,18 @@ describe('featureFlagRulesV2EditorLogic', () => {
             ])
         })
 
+        it('inserts a duplicate of the first rule right after it, and the other rules keep their keys', () => {
+            const [firstKey, secondKey] = logic.values.ruleKeys
+
+            logic.actions.duplicateRule(0)
+
+            const { id: _id, ...copy } = STRING_FLAG_RULES[0]
+            expect(logic.values.draft.config.rules).toEqual([STRING_FLAG_RULES[0], copy, EXPERIMENT_RULE])
+            expect(logic.values.ruleKeys[0]).toBe(firstKey)
+            expect(logic.values.ruleKeys[2]).toBe(secondKey)
+            expect(new Set(logic.values.ruleKeys).size).toBe(3)
+        })
+
         it('changes another rule and moves the experiment rule without touching any of its fields', async () => {
             const update = jest.spyOn(api, 'update').mockResolvedValue({ ...STRING_FLAG, version: 6 })
 

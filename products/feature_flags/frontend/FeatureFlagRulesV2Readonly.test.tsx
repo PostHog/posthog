@@ -1,11 +1,11 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { Provider } from 'kea'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { FeatureFlagRulesV2Config, PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, FeatureFlagRulesV2Config, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { FeatureFlagRulesV2Readonly } from './FeatureFlagRulesV2Readonly'
 
@@ -27,6 +27,19 @@ const CONFIG: FeatureFlagRulesV2Config = {
         },
     ],
 }
+
+const emailContains = (value: string): AnyPropertyFilter => ({
+    key: 'email',
+    type: PropertyFilterType.Person,
+    operator: PropertyOperator.IContains,
+    value,
+})
+
+/** The base config with one rule targeting `property`. Estimates are cached by targeting, so each test picks its own. */
+const withTargeting = (property: AnyPropertyFilter): FeatureFlagRulesV2Config => ({
+    ...CONFIG,
+    rules: [{ ...CONFIG.rules[0], targeting: { properties: [property] } }],
+})
 
 describe('FeatureFlagRulesV2Readonly', () => {
     beforeEach(() => {
@@ -247,6 +260,71 @@ describe('FeatureFlagRulesV2Readonly', () => {
         const rule = container.querySelector('[data-attr="rules-v2-rule-readonly"]')
         await waitFor(() => expect(rule).toHaveTextContent("Couldn't estimate"))
         expect(rule?.textContent?.includes('Retry')).toBe(retry)
+    })
+
+    it('estimates again on Retry, since a failed estimate is not kept', async () => {
+        useMocks({
+            post: { '/api/projects/:team/feature_flags/user_blast_radius': () => [500, { detail: 'Failed.' }] },
+        })
+        const { container } = render(
+            <Provider>
+                <FeatureFlagRulesV2Readonly config={withTargeting(emailContains('@retry.example.com'))} />
+            </Provider>
+        )
+        const rule = container.querySelector<HTMLElement>('[data-attr="rules-v2-rule-readonly"]')!
+        await waitFor(() => expect(rule).toHaveTextContent('Retry'))
+
+        useMocks({
+            post: {
+                '/api/projects/:team/feature_flags/user_blast_radius': () => [200, { affected: 200, total: 2000 }],
+            },
+        })
+        // The targeting and rollout rows share one estimate, so either Retry reloads both.
+        fireEvent.click(within(rule).getAllByText('Retry')[0])
+
+        await waitFor(() => expect(rule).toHaveTextContent('≈ 200 users'))
+    })
+
+    it('does not estimate a rule while one of its conditions has no value', async () => {
+        const estimate = jest.fn(() => [200, { affected: 200, total: 2000 }])
+        useMocks({ post: { '/api/projects/:team/feature_flags/user_blast_radius': estimate } })
+        const { container } = render(
+            <Provider>
+                <FeatureFlagRulesV2Readonly
+                    config={withTargeting({
+                        key: 'email',
+                        type: PropertyFilterType.Person,
+                        operator: PropertyOperator.Exact,
+                        value: [],
+                    })}
+                />
+            </Provider>
+        )
+
+        await act(async () => {})
+        expect(estimate).not.toHaveBeenCalled()
+        expect(container.querySelector('[data-attr="rules-v2-rule-readonly"]')).not.toHaveTextContent('≈')
+    })
+
+    it('estimates a group flag over its group type and links to the matching groups', async () => {
+        const groupTypeIndexes: unknown[] = []
+        useMocks({
+            post: {
+                '/api/projects/:team/feature_flags/user_blast_radius': async ({ request }) => {
+                    groupTypeIndexes.push(((await request.json()) as Record<string, unknown>).group_type_index)
+                    return [200, { affected: 30, total: 90 }]
+                },
+            },
+        })
+        const { container } = render(
+            <Provider>
+                <FeatureFlagRulesV2Readonly config={{ ...CONFIG, aggregation_group_type_index: 0 }} />
+            </Provider>
+        )
+
+        await waitFor(() => expect(container).toHaveTextContent('≈ 30'))
+        expect(groupTypeIndexes).toEqual([0])
+        expect(container.querySelector('a[href*="/groups/0"]')).toHaveTextContent('≈ 30')
     })
 
     it('shows a rule type it does not know instead of failing', () => {

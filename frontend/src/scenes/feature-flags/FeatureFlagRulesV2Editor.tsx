@@ -14,7 +14,7 @@ import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrate
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { Fragment, useId, useMemo } from 'react'
+import { Fragment, Ref, useCallback, useId, useMemo, useRef } from 'react'
 
 import { IconCalculator, IconCheckCircle, IconCode, IconLetter, IconPlusSmall, IconToggle } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonInput, LemonMenu, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
@@ -48,7 +48,10 @@ import { featureFlagRulesV2EditorLogic } from './featureFlagRulesV2EditorLogic'
 import { RulesV2RuleEditor } from './RulesV2RuleEditor'
 import { RulesV2ValueInput } from './RulesV2ValueInput'
 
-const RETURN_TYPE_META: Record<string, { label: string; description: string; icon: JSX.Element }> = {
+const RETURN_TYPE_META: Record<
+    FeatureFlagRulesV2ReturnType,
+    { label: string; description: string; icon: JSX.Element }
+> = {
     boolean: {
         label: 'Boolean',
         description: 'Serves true or false. For releases, kill switches and simple tests.',
@@ -143,10 +146,12 @@ function AddRule({
     onAdd,
     empty,
     subjects,
+    buttonRef,
 }: {
     onAdd: (ruleType: RulesV2RuleType) => void
     empty: boolean
     subjects: Noun
+    buttonRef: Ref<HTMLButtonElement>
 }): JSX.Element {
     if (empty) {
         return (
@@ -158,11 +163,12 @@ function AddRule({
                     </span>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                    {RULES_V2_RULE_TYPES.map((ruleType) => {
+                    {RULES_V2_RULE_TYPES.map((ruleType, index) => {
                         const meta = RULES_V2_RULE_TYPE_META[ruleType]
                         return (
                             <button
                                 key={ruleType}
+                                ref={index === 0 ? buttonRef : undefined}
                                 type="button"
                                 onClick={() => onAdd(ruleType)}
                                 className="text-left rounded border bg-surface-primary p-3 flex flex-col gap-1 cursor-pointer hover:border-accent transition-colors"
@@ -191,6 +197,7 @@ function AddRule({
             }))}
         >
             <LemonButton
+                ref={buttonRef}
                 type="secondary"
                 icon={<IconPlusSmall />}
                 fullWidth
@@ -230,6 +237,11 @@ export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Ele
     const groupTypeIndex = draft.config.aggregation_group_type_index
     const subjects = useMemo(() => aggregationLabel(groupTypeIndex, true), [aggregationLabel, groupTypeIndex])
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const addRuleRef = useRef<HTMLButtonElement | null>(null)
+    // A deleted rule's card and its focused menu button unmount, so focus moves to adding a rule.
+    const focusAddRule = useCallback((): void => {
+        setTimeout(() => addRuleRef.current?.focus())
+    }, [])
     const sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
         useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
@@ -426,7 +438,9 @@ export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Ele
                                                 returnType={returnType}
                                                 defaultValue={draft.config.default_value}
                                                 subjects={subjects}
+                                                groupTypeIndex={groupTypeIndex ?? null}
                                                 shadowedBy={shadowingRules[index]}
+                                                onRemoved={focusAddRule}
                                             />
                                             <RulesV2Connector />
                                         </Fragment>
@@ -434,7 +448,12 @@ export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Ele
                                 </div>
                             </SortableContext>
                         </DndContext>
-                        <AddRule onAdd={addRule} empty={rules.length === 0} subjects={subjects} />
+                        <AddRule
+                            onAdd={addRule}
+                            empty={rules.length === 0}
+                            subjects={subjects}
+                            buttonRef={addRuleRef}
+                        />
                         <RulesV2Connector />
                         <RulesV2DefaultStep subjects={subjects} rules={rules}>
                             <div className="flex flex-col gap-1">

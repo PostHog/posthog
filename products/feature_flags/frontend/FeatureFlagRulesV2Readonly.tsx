@@ -43,7 +43,7 @@ function ExperimentRows({
     subjects: Noun
     count: ReturnType<typeof useRulesV2MatchCount>
 }): JSX.Element {
-    const enrolled = rule.rollout_percentage
+    const rolloutPercentage = rule.rollout_percentage
     const heldOut = rule.holdout?.exclusion_percentage ?? 0
     const reached = rulesV2ReachedPercentage(rule)
     return (
@@ -60,24 +60,19 @@ function ExperimentRows({
                 label="Rollout"
                 aside={
                     reached === null ? null : (
-                        <RulesV2MatchCountText
-                            count={count}
-                            properties={rule.targeting.properties}
-                            subjects={subjects}
-                            rolloutPercentage={reached}
-                        />
+                        <RulesV2MatchCountText count={count} subjects={subjects} rolloutPercentage={reached} />
                     )
                 }
             >
                 <span className="leading-7">
-                    {enrolled >= 100 ? (
+                    {rolloutPercentage >= 100 ? (
                         <>
                             Every matching {subjects.singular}
                             {rule.holdout ? ' not held out' : ''} is enrolled.
                         </>
                     ) : (
                         <>
-                            <b className="tabular-nums">{formatPercentage(enrolled)}</b>
+                            <b className="tabular-nums">{formatPercentage(rolloutPercentage)}</b>
                             {rule.holdout ? ' of the rest' : ''} are enrolled. The others{' '}
                             {rulesV2RolloutMissText(rule.on_rollout_miss)}.
                         </>
@@ -129,7 +124,7 @@ function RuleCardReadonly({
     shadowedBy: number | null
 }): JSX.Element {
     const properties = rule.targeting.properties
-    const count = useRulesV2MatchCount(properties)
+    const count = useRulesV2MatchCount(properties, config.aggregation_group_type_index ?? null)
     const paused = rule.rule_type === 'experiment' && rule.paused
 
     return (
@@ -143,10 +138,7 @@ function RuleCardReadonly({
             </div>
             <div className="px-3 py-2.5 flex flex-col gap-1.5">
                 <RulesV2ShadowedWarning shadowedBy={shadowedBy} subjects={subjects} />
-                <RulesV2RuleRow
-                    label="If"
-                    aside={<RulesV2MatchCountText count={count} properties={properties} subjects={subjects} />}
-                >
+                <RulesV2RuleRow label="If" aside={<RulesV2MatchCountText count={count} subjects={subjects} />}>
                     {properties.length > 0 ? (
                         <div className="PropertyFilters py-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1">
                             {properties.map((property, propertyIndex) => (
@@ -178,7 +170,6 @@ function RuleCardReadonly({
                         aside={
                             <RulesV2MatchCountText
                                 count={count}
-                                properties={properties}
                                 subjects={subjects}
                                 rolloutPercentage={rule.rollout_percentage}
                             />

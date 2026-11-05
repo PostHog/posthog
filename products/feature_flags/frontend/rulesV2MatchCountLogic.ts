@@ -16,6 +16,8 @@ export interface RulesV2MatchCount {
 export interface RulesV2MatchCountLogicProps {
     /** The rule's targeting properties, serialized, so equal targeting shares one request. */
     propertiesKey: string
+    /** The flag's group type, or null when it targets persons. */
+    groupTypeIndex: number | null
 }
 
 // The estimate is a slow query, and the view and the editor ask for the same targeting, so a pending or recent
@@ -26,10 +28,10 @@ const recentMatchCounts = new Map<string, { promise: Promise<RulesV2MatchCount>;
 
 function sharedMatchCount(
     projectId: number | null,
-    propertiesKey: string,
+    { propertiesKey, groupTypeIndex }: RulesV2MatchCountLogicProps,
     properties: AnyPropertyFilter[]
 ): Promise<RulesV2MatchCount> {
-    const cacheKey = `${projectId}:${propertiesKey}`
+    const cacheKey = `${projectId}:${groupTypeIndex}:${propertiesKey}`
     const cached = recentMatchCounts.get(cacheKey)
     if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
         return cached.promise
@@ -43,7 +45,7 @@ function sharedMatchCount(
     }
     const promise = featureFlagsUserBlastRadiusCreate(String(projectId), {
         condition: { properties },
-        group_type_index: null,
+        group_type_index: groupTypeIndex,
     }).then(({ affected, total }) => ({ affected, total }))
     const entry = { promise, at: Date.now() }
     recentMatchCounts.set(cacheKey, entry)
@@ -94,12 +96,12 @@ export type rulesV2MatchCountLogicType = MakeLogicType<
 >
 
 /**
- * How many persons a rule's targeting matches, from the estimate the v1 release conditions show. An estimate is a
+ * How many persons or groups a rule's targeting matches, from the estimate the v1 release conditions show. An estimate is a
  * hint, so a failure shows inline with a retry instead of a toast.
  */
 export const rulesV2MatchCountLogic = kea<rulesV2MatchCountLogicType>([
     props({} as RulesV2MatchCountLogicProps),
-    key(({ propertiesKey }) => propertiesKey),
+    key(({ propertiesKey, groupTypeIndex }) => `${groupTypeIndex ?? 'persons'}:${propertiesKey}`),
     path((key) => ['products', 'feature_flags', 'frontend', 'rulesV2MatchCountLogic', key]),
     connect(() => ({ values: [projectLogic, ['currentProjectId']] })),
     actions({
@@ -137,7 +139,7 @@ export const rulesV2MatchCountLogic = kea<rulesV2MatchCountLogicType>([
         loadMatchCount: async (_, breakpoint) => {
             let matchCount: RulesV2MatchCount
             try {
-                matchCount = await sharedMatchCount(values.currentProjectId, props.propertiesKey, values.properties)
+                matchCount = await sharedMatchCount(values.currentProjectId, props, values.properties)
             } catch (error) {
                 breakpoint()
                 actions.loadMatchCountFailure(toBlastRadiusError(error))

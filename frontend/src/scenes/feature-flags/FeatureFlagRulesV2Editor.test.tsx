@@ -188,6 +188,38 @@ describe('FeatureFlagRulesV2Editor', () => {
 
             await waitFor(() => expect(rules().map((rule) => rule.id)).toEqual(['rule-rollout', 'rule-beta']))
             expect(document.querySelector('[data-attr="rules-v2-rule-unreachable"]')).toBeNull()
+            await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Rule 1 actions')))
+        })
+
+        it('moves focus to Add rule after deleting a rule, since its card is gone', async () => {
+            openRuleMenu(1)
+            fireEvent.click(await screen.findByText('Delete rule'))
+
+            expect(rules().map((rule) => rule.id)).toEqual(['rule-beta'])
+            await waitFor(() =>
+                expect(document.activeElement).toBe(
+                    document.querySelector<HTMLElement>('[data-attr="rules-v2-add-rule"]')
+                )
+            )
+        })
+
+        it('leaves a clean draft on Cancel without asking', async () => {
+            featureFlagLogic({ id: 7 }).actions.editFeatureFlag(true)
+            fireEvent.click(screen.getByText('Cancel'))
+
+            await waitFor(() => expect(featureFlagLogic({ id: 7 }).values.isEditingFlag).toBe(false))
+            expect(screen.queryByText('Discard your changes?')).toBeNull()
+        })
+
+        it('asks before Cancel discards unsaved edits', async () => {
+            featureFlagLogic({ id: 7 }).actions.editFeatureFlag(true)
+            fireEvent.change(screen.getByLabelText('Rule 1 description'), { target: { value: 'Beta testers' } })
+            fireEvent.click(screen.getByText('Cancel'))
+
+            expect(await screen.findByText('Discard your changes?')).toBeInTheDocument()
+            expect(featureFlagLogic({ id: 7 }).values.isEditingFlag).toBe(true)
+            fireEvent.click(screen.getByText('Discard changes'))
+            await waitFor(() => expect(featureFlagLogic({ id: 7 }).values.isEditingFlag).toBe(false))
         })
 
         it('adds a rule of the type picked from the add menu', async () => {
@@ -331,6 +363,14 @@ describe('FeatureFlagRulesV2Editor', () => {
 
             fireEvent.change(screen.getByLabelText('Default value'), { target: { value: '' } })
             expect(draftConfig().default_value).toBeNull()
+        })
+
+        it('empties an input whose number is cleared elsewhere', async () => {
+            expect(screen.getByLabelText('Default value')).toHaveValue(10)
+
+            featureFlagRulesV2EditorLogic({ id: 12 }).actions.setConfig({ default_value: null })
+
+            await waitFor(() => expect(screen.getByLabelText('Default value')).toHaveValue(null))
         })
     })
 })

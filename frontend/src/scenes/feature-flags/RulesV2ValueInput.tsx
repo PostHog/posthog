@@ -130,7 +130,8 @@ export function RulesV2ValueInput({
                 type="number"
                 id={id}
                 aria-label={ariaLabel}
-                value={typeof value === 'number' ? value : undefined}
+                // NaN shows an empty field and, unlike undefined, keeps the input controlled.
+                value={typeof value === 'number' ? value : NaN}
                 // An empty or half-typed number reads as NaN.
                 onChange={(number) => onChange(number === undefined || Number.isNaN(number) ? null : number)}
                 placeholder={nullable ? 'No value' : 'Value to serve'}
