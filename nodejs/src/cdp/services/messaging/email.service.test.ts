@@ -34,6 +34,7 @@ import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailStatusService } from './email-status.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
 import {
+    EMAIL_ATTACHMENT_LOAD_MAX_TRIES,
     EmailService,
     formatMailbox,
     parseAddressList,
@@ -1504,6 +1505,40 @@ describe('EmailService', () => {
                 expect(result.finished).toBe(true)
                 expect(result.error).toMatch(/^attachments_missing: /)
             })
+
+            it.each([
+                [
+                    'reschedules the send while tries are left',
+                    EMAIL_ATTACHMENT_LOAD_MAX_TRIES - 2,
+                    {
+                        finished: false,
+                        invocation: { queueMetadata: { attachmentLoadTries: EMAIL_ATTACHMENT_LOAD_MAX_TRIES - 1 } },
+                    },
+                ],
+                [
+                    'fails the send as attachments_unavailable on the last try',
+                    EMAIL_ATTACHMENT_LOAD_MAX_TRIES - 1,
+                    { finished: true, error: expect.stringMatching(/^attachments_unavailable: /) },
+                ],
+            ])(
+                'spends no pacing token when the attachment store fails to answer, and %s',
+                async (_name, priorTries, expected) => {
+                    const claimOrReserve = jest.fn().mockResolvedValue({ granted: 1, retryAfterMs: null })
+                    service['workflowEmailRateLimiter'] = { claimOrReserve } as unknown as RateLimiterService
+                    invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 120, period: 'minute' } }
+                    invocation.queueMetadata = { attachmentLoadTries: priorTries }
+                    jest.spyOn(attachments, 'load').mockRejectedValue(
+                        new Error('timeout exceeded when trying to connect')
+                    )
+                    sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+
+                    const result = await service.executeSendEmail(invocation)
+
+                    expect(result).toMatchObject(expected)
+                    expect(sendEmailSpy).not.toHaveBeenCalled()
+                    expect(claimOrReserve).not.toHaveBeenCalled()
+                }
+            )
         })
 
         const sesAccepts = (): void => {
