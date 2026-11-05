@@ -12574,6 +12574,10 @@ snapshots:
         hash: v1.k794b7964.1203e57baa347acd4e5b275dfed5f3c22728009a7373477de73ddf0783e93bc3.ULU5wVI3B8RrV8cDyd5q42JvAQMCPYz3lDFDtzPidv8
     scenes-app-inbox-linearteamsmodal--teams-picked--light:
         hash: v1.k794b7964.fbafa81bc3423f3f6daa5a4adb7cf061fb9cc7cdce756414a696daa088d2ccc0.A7XLMQQj4uatJWJApnBbLc1WkTuhCnS49DAYAlpr_qo
+    scenes-app-inbox-priorityfilter--open--dark:
+        hash: v1.k794b7964.0f9a9449ce711348c7d1083e4fe4f6034ebe13a986be1f4eed5cd8f5bff731ed.KnKN5xUFmYbD1mmovaJd2YcfuPY3AFcC-YG_7CRGDPo
+    scenes-app-inbox-priorityfilter--open--light:
+        hash: v1.k794b7964.2aae03e53780c0f74f5267c8ba7b7d969a6f648503ac3a6074cf26e0ead334f9.9xib5QAXs9Jhu7_1a2JudX4AeQEbWpzLD14S-DyW3MQ
     scenes-app-inbox-pullrequestdiffview--default--dark:
         hash: v1.k794b7964.55e3241d3af708ef5aa40de19b0baae64e633e372f3827164e986198b2b6be67.BcRhrBwKQfTp4aSrfBK4LASCs0XEnr1UsMRoEsCEsMs
     scenes-app-inbox-pullrequestdiffview--default--light:
