@@ -2,9 +2,8 @@ import { z } from 'zod'
 
 import { parser } from '@/core/schema'
 
-// Where a PostHog lives: an http or https origin, plus the path a self-hosted PostHog can sit under,
-// such as https://example.com/posthog. It has no trailing slash, query, fragment or password, so
-// two ways to write one host compare equal and a token never goes to a URL with extra parts.
+// An http or https origin, plus the path a self-hosted PostHog can sit under. It is normalized, so
+// two ways to write one host compare equal.
 export const HostSchema = z
     .string({ error: 'The host must be a URL, like https://us.posthog.com.' })
     .check((ctx) => {
