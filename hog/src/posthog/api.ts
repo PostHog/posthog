@@ -131,10 +131,6 @@ export class PostHogApi {
         return this.request('PATCH', path, schema, body)
     }
 
-    delete<S extends z.ZodType>(path: string, schema: S): Promise<z.output<S>> {
-        return this.request('DELETE', path, schema)
-    }
-
     private async request<S extends z.ZodType>(
         method: Method,
         path: string,

@@ -42,7 +42,11 @@ const HOGQL = endpoint('by-type', {
     query: 'SELECT count()\r\nFROM events\r\nWHERE event = {variables.event_type}',
     variables: { 'var-1': { variableId: 'var-1', code_name: 'event_type', value: '$pageview' } },
 })
-const VARIABLES = [{ id: 'var-1', name: 'event_type', code_name: 'event_type', type: 'String' }]
+// PostHog allows a variable without a code name, which no endpoint can use.
+const VARIABLES = [
+    { id: 'var-1', name: 'event_type', code_name: 'event_type', type: 'String' },
+    { id: 'var-0', name: 'Old variable', code_name: null, type: 'String' },
+]
 
 function server(endpoints: unknown[], extra: (url: string, body: unknown) => unknown = () => undefined) {
     return (url: string, body: unknown) => {

@@ -25,8 +25,13 @@ export function getEndpoint(api: PostHogApi, name: string): Promise<Endpoint> {
     return api.get(`endpoints/${encodeURIComponent(name)}/`, Endpoint)
 }
 
-export function listInsightVariables(api: PostHogApi): Promise<InsightVariable[]> {
-    return all(api, 'insight_variables/', InsightVariable)
+// PostHog allows a variable without a code name, which no query can reference, so the list leaves
+// it out.
+const ListedVariable = InsightVariable.extend({ code_name: z.string().nullable() })
+
+export async function listInsightVariables(api: PostHogApi): Promise<InsightVariable[]> {
+    const variables = await all(api, 'insight_variables/', ListedVariable)
+    return variables.flatMap(({ code_name, ...variable }) => (code_name === null ? [] : [{ ...variable, code_name }]))
 }
 
 export function createInsightVariable(

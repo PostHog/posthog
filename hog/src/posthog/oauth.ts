@@ -41,7 +41,7 @@ export type TokenResponse = z.output<typeof TokenResponse>
 // An RFC 6749 error answer. hog reads `error` only when the answer is one.
 export const OAuthErrorBody = z.looseObject({
     error: z.string().optional().catch(undefined),
-    error_description: z.unknown(),
+    error_description: z.string().optional().catch(undefined),
 })
 
 export function oauthPost(

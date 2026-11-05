@@ -7,7 +7,9 @@ import type { Runtime } from '@/core/runtime'
 import { parseOrThrow, parseOrUndefined } from '@/core/schema'
 
 import { hostKey, HostSchema, hostUrl, type Host } from './host'
+import { ProjectIdSchema } from './ids'
 import { HOG_CLIENT_ID, OAuthErrorBody, OAuthLogin, oauthPost, TokenResponse } from './oauth'
+import { OAuthRefreshTokenSchema } from './tokens'
 
 const DEVICE_CODE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code'
 
@@ -99,7 +101,7 @@ export type PendingLogin = z.output<typeof PendingLoginSchema>
 
 // PostHog refuses a client it hasn't verified with `unauthorized_client`, and its description says why.
 function unauthorizedClient(host: Host, body: OAuthError | undefined): HogError | undefined {
-    if (body?.error !== 'unauthorized_client' || typeof body.error_description !== 'string') {
+    if (body?.error !== 'unauthorized_client' || body.error_description === undefined) {
         return undefined
     }
     return new HogError(
@@ -110,6 +112,12 @@ function unauthorizedClient(host: Host, body: OAuthError | undefined): HogError 
 }
 
 type OAuthError = z.output<typeof OAuthErrorBody>
+
+// A new login has no earlier refresh token or project to fall back on.
+const DeviceTokenResponse = TokenResponse.extend({
+    refresh_token: OAuthRefreshTokenSchema,
+    scoped_teams: z.tuple([ProjectIdSchema], ProjectIdSchema),
+})
 
 const DeviceAuthorizationResponse = z.looseObject({
     device_code: z.string().min(1),
@@ -187,19 +195,12 @@ export async function pollDeviceLogin(
         return { state: 'retry', reason: `PostHog answered with HTTP ${response.status}.` }
     }
     if (response.ok) {
-        const body = parseOrThrow(TokenResponse, response.json, {
+        const body = parseOrThrow(DeviceTokenResponse, response.json, {
             code: 'unexpected_response',
             context: "PostHog approved the login, but its answer isn't what hog expects.",
             hint: 'Run `hog auth login` to start again.',
         })
-        const projectId = body.scoped_teams?.[0]
-        if (projectId === undefined || !body.refresh_token) {
-            throw new HogError(
-                'unexpected_response',
-                'PostHog approved the login, but its answer had no project or no refresh token.',
-                'Run `hog auth login` to start again.'
-            )
-        }
+        const [projectId] = body.scoped_teams
         return {
             state: 'approved',
             value: OAuthLogin.fromTokens(runtime, body, { host: pending.host, projectId, scopes: pending.scopes }),

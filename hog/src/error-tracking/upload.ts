@@ -198,10 +198,11 @@ export class SymbolSetClient {
         if (!response.ok) {
             throw new ApiFailure(response.status, text, url.toString())
         }
-        return parseJson(text || 'null', schema, {
+        const failure = {
             code: 'unexpected_response',
             context: `PostHog's answer to ${method} ${url.pathname} isn't what hog expects.`,
-        })
+        }
+        return parseOrThrow(schema, text ? parseJson(text, z.unknown(), failure) : undefined, failure)
     }
 
     async upload(uploads: SymbolSetUpload[], options: UploadOptions): Promise<UploadOutcome> {
@@ -296,7 +297,10 @@ export class SymbolSetClient {
                             error.status < 500
                         )
                 )
-                const response = parseOrThrow(CheckResponse, answer, { code: 'unexpected_response' })
+                const response = parseOrThrow(CheckResponse, answer, {
+                    code: 'unexpected_response',
+                    context: "PostHog's answer to the upload check isn't what hog expects.",
+                })
                 for (const chunkId of response.chunk_ids_to_upload) {
                     needed.add(String(chunkId))
                 }
@@ -327,7 +331,11 @@ export class SymbolSetClient {
                     skip_on_conflict: options.skipOnConflict,
                 })
             )
-            idMap = parseOrThrow(StartResponse, answer, { code: 'unexpected_response' }).id_map ?? {}
+            idMap =
+                parseOrThrow(StartResponse, answer, {
+                    code: 'unexpected_response',
+                    context: "PostHog's answer to the upload start isn't what hog expects.",
+                }).id_map ?? {}
         } catch (error) {
             throw startFailure(error)
         }
