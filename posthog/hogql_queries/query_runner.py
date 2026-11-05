@@ -66,6 +66,7 @@ from posthog.schema import (
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
+    InboxUsageQuery,
     InsightActorsQuery,
     InsightActorsQueryOptions,
     LifecycleQuery,
@@ -647,6 +648,7 @@ def enforce_api_queries_budget(team: Team, query: object | None = None) -> None:
 
 
 RunnableQueryNode = Union[
+    InboxUsageQuery,
     TrendsQuery,
     FunnelsQuery,
     RetentionQuery,
@@ -724,6 +726,13 @@ def get_query_runner(
             limit_context=limit_context,
             modifiers=modifiers,
             user=user,
+        )
+
+    if kind == "InboxUsageQuery":
+        from products.signals.backend.facade.spend import InboxUsageQueryRunner
+
+        return InboxUsageQueryRunner(
+            query=query, team=team, timings=timings, limit_context=limit_context, modifiers=modifiers, user=user
         )
 
     if kind == "TrendsQuery":

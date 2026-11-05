@@ -16031,6 +16031,7 @@ export namespace Schemas {
      * * `metrics_import` - Metrics Import
      * * `knowledge_writer` - Knowledge Writer
      * * `context_layer` - Context Layer
+     * * `feature_flags` - Feature Flags
      */
     export type TaskOriginProductEnum =
         | "onboarding"
@@ -16060,7 +16061,8 @@ export namespace Schemas {
         | "business_knowledge"
         | "metrics_import"
         | "knowledge_writer"
-        | "context_layer";
+        | "context_layer"
+        | "feature_flags";
     /**
      * * `default` - default
      * * `acceptEdits` - acceptEdits
@@ -19232,8 +19234,8 @@ export namespace Endpoints {
      * Get survey response statistics for a specific survey.
      *
      * Args:
-     *     date_from: Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
-     *     date_to: Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+     *     date_from: Optional ISO timestamp (e.g. 2024-01-01T00:00:00Z) or relative date (e.g. -7d) for start date
+     *     date_to: Optional ISO timestamp (e.g. 2024-01-31T23:59:59Z) or relative date for end date
      *     exclude_archived: Optional boolean to exclude archived responses (default: false, includes archived)
      *     include_per_question_stats: Optional boolean to include per-question response counts and distributions
      *
@@ -19302,7 +19304,8 @@ export namespace Endpoints {
                     | "business_knowledge"
                     | "metrics_import"
                     | "knowledge_writer"
-                    | "context_layer";
+                    | "context_layer"
+                    | "feature_flags";
                 hog_flow_id: string;
                 internal: "true" | "false" | "all";
                 limit: number;
@@ -19321,6 +19324,7 @@ export namespace Endpoints {
                     | "error_tracking"
                     | "eval_clusters"
                     | "experiments"
+                    | "feature_flags"
                     | "hogdesk"
                     | "image_builder"
                     | "knowledge_writer"
