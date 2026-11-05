@@ -763,6 +763,16 @@ class TestFinestTimeBucket(SimpleTestCase):
                 None,
             ),
             ("hour", "select toStartOfHour(timestamp) as h, count() from events group by h", "hour"),
+            (
+                "named_window_partition",
+                "select count() over w from events window w as (partition by toStartOfMinute(timestamp))",
+                "minute",
+            ),
+            (
+                "unused_named_window",
+                "select count() from events window w as (partition by toStartOfMonth(timestamp))",
+                None,
+            ),
             ("month", "select toStartOfMonth(timestamp) as m, count() from events group by m", "month"),
             ("to_date", "select toDate(timestamp) as d, count() from events group by d", "day"),
             ("date_trunc", "select date_trunc('hour', timestamp) as h, count() from events group by h", "hour"),

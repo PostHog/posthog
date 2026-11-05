@@ -85,8 +85,11 @@ class TimeBucketCollector(TraversingVisitor):
     def __init__(self, filter_interval: Optional[str] = None) -> None:
         self.buckets: set[str] = set()
         self.filter_interval = filter_interval
+        self.window_exprs: dict[str, ast.WindowExpr] = {}
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
+        parent_window_exprs = self.window_exprs
+        self.window_exprs = node.window_exprs or {}
         for cte in (node.ctes or {}).values():
             self.visit(cte)
         self.visit(node.select_from)
@@ -94,6 +97,7 @@ class TimeBucketCollector(TraversingVisitor):
             self.visit(expr)
         for expr in node.group_by or []:
             self.visit(expr)
+        self.window_exprs = parent_window_exprs
 
     def visit_join_expr(self, node: ast.JoinExpr) -> None:
         self.visit(node.table)
@@ -104,6 +108,11 @@ class TimeBucketCollector(TraversingVisitor):
         if bucket:
             self.buckets.add(bucket)
         super().visit_call(node)
+
+    def visit_window_function(self, node: ast.WindowFunction) -> None:
+        super().visit_window_function(node)
+        if node.over_identifier and node.over_identifier in self.window_exprs:
+            self.visit(self.window_exprs[node.over_identifier])
 
     def _bucket_of(self, node: ast.Call) -> Optional[str]:
         name = node.name.lower()
