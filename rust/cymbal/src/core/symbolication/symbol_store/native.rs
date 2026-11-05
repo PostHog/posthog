@@ -45,8 +45,17 @@ pub struct ParsedNativeSymbols {
 }
 
 impl Countable for ParsedNativeSymbols {
+    // Bundled sources are inflated out of the ZIP, so the parsed set can hold more memory than
+    // the container it was parsed from.
     fn byte_count(&self) -> usize {
+        let sources: usize = self
+            .sources
+            .iter()
+            .flatten()
+            .map(|(path, content)| path.len() + content.len())
+            .sum();
         self.decompressed_bytes
+            .max(self.symcache_data.len() + sources)
     }
 }
 
@@ -644,6 +653,15 @@ mod test {
         let entry = || FailsAtEnd(Cursor::new(vec![0; 100]));
         assert_eq!(budget.read_optional(entry()).unwrap(), None);
         assert!(budget.read_optional(entry()).is_err());
+    }
+
+    #[test]
+    fn cache_counts_bundled_sources_past_the_container_size() {
+        use super::Countable;
+
+        let source = "x".repeat(1000);
+        let symbols = symbols_with(&[("/src/main.c", &source)]);
+        assert!(symbols.byte_count() >= source.len());
     }
 
     #[test]
