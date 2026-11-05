@@ -652,13 +652,19 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         rendered_column_description = False
         rendered_sensitivity = False
+        from products.warehouse_sources.backend.facade.api import (  # noqa: PLC0415
+            column_sensitivity,
+            column_sensitivity_enabled,
+        )
+
+        tag_sensitivity = table.type == "data_warehouse" and column_sensitivity_enabled(self._team.pk)
         for field in table.fields.values():
             line = self._format_schema_field(field, raw_fields.get(field.name))
             resolved_column = descriptions.for_column(raw_table, field.name, raw_fields.get(field.name))
             if resolved_column:
                 line += f" — {_sanitize_semantic_text(resolved_column)}"
                 rendered_column_description = True
-            sensitivity = descriptions.sensitivity_for_column(raw_table, field.name)
+            sensitivity = column_sensitivity(field.name, field.type) if tag_sensitivity else None
             if sensitivity:
                 line += f" [sensitive: {sensitivity}]"
                 rendered_sensitivity = True

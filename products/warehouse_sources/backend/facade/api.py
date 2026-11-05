@@ -28,7 +28,6 @@ from django.utils import timezone
 
 from posthog.uuidt import UUIDT
 
-# Source-agnostic storage contract for user-uploaded files — shared with the upload endpoint.
 from products.warehouse_sources.backend.file_uploads import (
     FILE_FORMAT_READ_HINTS,
     FILE_FORMAT_TO_TABLE_FORMAT,
@@ -40,6 +39,9 @@ from products.warehouse_sources.backend.file_uploads import (
     build_file_upload_url_pattern,
     hosted_upload_s3_path,
 )
+
+# Source-agnostic storage contract for user-uploaded files — shared with the upload endpoint.
+from products.warehouse_sources.backend.logic.column_sensitivity import classify_column_sensitivity
 from products.warehouse_sources.backend.models.column_statistics import (
     WarehouseColumnStatistics as _WarehouseColumnStatistics,
 )
@@ -105,6 +107,8 @@ __all__ = [
     "list_tables_for_source",
     "list_jobs_for_source",
     "list_column_statistics",
+    "column_sensitivity",
+    "column_sensitivity_enabled",
     "saved_queries_feeding_consumers",
     "schema_needs_webhook",
     "sources_missing_webhook",
@@ -804,6 +808,22 @@ def list_jobs_for_source(
         .order_by("-created_at")[: min(max(limit, 1), MAX_JOBS_PER_SOURCE)]
     )
     return [_to_job(j) for j in qs]
+
+
+def column_sensitivity(column_name: str, data_type: str | None) -> str | None:
+    """The kind of personal or secret data a column's name and type suggest, such as `email`, or None."""
+    sensitivity = classify_column_sensitivity(column_name, data_type)
+    return sensitivity.value if sensitivity else None
+
+
+def column_sensitivity_enabled(team_id: int) -> bool:
+    """Whether the team sees sensitivity tags. The same flag gates the column picker's suggestions."""
+    # Inline: keeps the Temporal helpers off this module's import path.
+    from products.warehouse_sources.backend.temporal.data_imports.schema_flags import (  # noqa: PLC0415
+        is_team_flag_enabled,
+    )
+
+    return is_team_flag_enabled(team_id, "warehouse-column-sensitivity")
 
 
 def list_column_statistics(team_id: int) -> list[contracts.ColumnStatistics]:

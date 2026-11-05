@@ -1,6 +1,7 @@
 import uuid
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from django.apps import apps
 from django.test import SimpleTestCase, override_settings
@@ -544,24 +545,25 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         )
         assert columns[0][0] == "Stripe charge identifier (ch_...)."
 
-    def test_warehouse_column_sensitivity_comes_from_annotations(self):
-        customers = self._create_warehouse_table(name="customers", column="email")
-        with team_scope(self.team.id, canonical=True):
-            WarehouseColumnAnnotation.objects.create(
-                team=self.team, table=customers, column_name="email", description="", sensitivity="email"
-            )
+    @parameterized.expand([("flag_on", True, "email"), ("flag_off", False, None)])
+    def test_warehouse_column_sensitivity_follows_the_flag(self, _name, enabled, expected):
+        self._create_warehouse_table(name="customers", column="email")
 
-        columns = (
-            execute_hogql_query(
-                """
-            SELECT column_name, description, sensitivity FROM system.information_schema.columns
-            WHERE table_name = 'customers'
-            """,
-                team=self.team,
-            ).results
-            or []
-        )
-        assert [tuple(row) for row in columns] == [("email", None, "email")]
+        with patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *args, **kwargs: enabled and flag == "warehouse-column-sensitivity",
+        ):
+            columns = (
+                execute_hogql_query(
+                    """
+                SELECT column_name, sensitivity FROM system.information_schema.columns
+                WHERE table_name = 'customers'
+                """,
+                    team=self.team,
+                ).results
+                or []
+            )
+        assert [tuple(row) for row in columns] == [("email", expected)]
 
     def test_warehouse_source_native_table_description_appears(self):
         table = self._create_warehouse_table()

@@ -757,9 +757,6 @@ class TestReadDataTool(BaseTest):
                 description="charge amount in cents",
                 description_source=WarehouseColumnAnnotation.DescriptionSource.AI_GENERATED,
             )
-            await WarehouseColumnAnnotation.objects.acreate(
-                team=self.team, table=table, column_name="receipt_email", description="", sensitivity="email"
-            )
 
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
         context_manager = MagicMock()
@@ -770,7 +767,11 @@ class TestReadDataTool(BaseTest):
             team=self.team, user=self.user, state=state, context_manager=context_manager
         )
 
-        result, _ = await tool._arun_impl({"kind": "data_warehouse_table", "table_name": "stripe_charges"})
+        with patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *args, **kwargs: flag == "warehouse-column-sensitivity",
+        ):
+            result, _ = await tool._arun_impl({"kind": "data_warehouse_table", "table_name": "stripe_charges"})
 
         assert "Could not serialize" not in result
         assert "Table `stripe_charges` — Stripe charges with fields:" in result
