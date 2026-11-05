@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, ClassVar, Protocol
 
 from django import forms
 
-from posthog.admin.console.panels import Owner, Tone, check_danger
+from posthog.admin.console.panels import Gate, Owner, Tone, check_danger
 from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
@@ -105,6 +105,7 @@ class ToolOperation:
     form_initial: dict[str, object] | None = None
     description: str = ""
     undo_hint: str = ""
+    gate: Gate | None = None
 
     def __post_init__(self) -> None:
         check_danger(self.key, self.danger, self.form_class, self.undo_hint)

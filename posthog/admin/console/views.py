@@ -7,6 +7,7 @@ from django import forms
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.staticfiles import finders
+from django.core.exceptions import PermissionDenied
 from django.db.models import Model, Q
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseNotAllowed, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect, render
@@ -37,6 +38,8 @@ RECENT_TEAMS_LIMIT = 8
 class RenderedOperation:
     operation: Operation | ToolOperation
     url: str
+    # False when the operation's gate keeps this staff member out. The page shows it disabled, with who may run it.
+    allowed: bool
 
 
 @frozen
@@ -203,6 +206,7 @@ def record_detail(request: HttpRequest, record: str, pk: object) -> HttpResponse
                         record_type.operation_url_name,
                         kwargs={"pk": obj.pk, "panel_key": panel.key, "operation_key": operation.key},
                     ),
+                    allowed=_is_allowed(request, operation),
                 )
                 for operation in panel.operations(obj)
             ],
@@ -238,6 +242,17 @@ def _find_operation(panel: Panel, obj: Model, operation_key: str) -> Operation:
         if operation.key == operation_key:
             return operation
     raise Http404("This operation is not available for this record right now")
+
+
+def _is_allowed(request: HttpRequest, operation: Operation | ToolOperation) -> bool:
+    return operation.gate is None or operation.gate.allows(request)
+
+
+def _require_gate(request: HttpRequest, operation: Operation | ToolOperation, audit: structlog.BoundLogger) -> None:
+    # The page only disables the button. This check is the one that keeps a hand-built request out.
+    if operation.gate is not None and not operation.gate.allows(request):
+        audit.warning("admin_console_operation_denied", method=request.method)
+        raise PermissionDenied(f"{operation.label} needs {operation.gate.label}")
 
 
 def _audited(audit: structlog.BoundLogger, run: Callable[[], R]) -> R:
@@ -276,6 +291,14 @@ def run_operation(request: HttpRequest, record: str, pk: object, panel_key: str,
 
     if request.method not in ("GET", "POST"):
         return HttpResponseNotAllowed(["GET", "POST"])
+    audit = logger.bind(
+        record=record_type.key,
+        record_id=str(obj.pk),
+        panel=panel.key,
+        operation=operation.key,
+        triggered_by=cast(User, request.user).email,
+    )
+    _require_gate(request, operation, audit)
     if request.method == "GET" and operation.form_class is None:
         return redirect(record_url)
 
@@ -302,14 +325,7 @@ def run_operation(request: HttpRequest, record: str, pk: object, panel_key: str,
     if form is not None and not form.is_valid():
         return render(request, "admin_console/operation.html", context, status=400)
 
-    audit = logger.bind(
-        record=record_type.key,
-        record_id=str(obj.pk),
-        panel=panel.key,
-        operation=operation.key,
-        reason=form.cleaned_data.get("reason") if form is not None else None,
-        triggered_by=cast(User, request.user).email,
-    )
+    audit = audit.bind(reason=form.cleaned_data.get("reason") if form is not None else None)
     response = _audited(audit, lambda: operation.handler(request, obj, form))
     if response is None:
         return redirect(record_url)
@@ -352,6 +368,7 @@ def tool_page(request: HttpRequest, tool_key: str) -> HttpResponse:
                 reverse("admin_console_tool_operation", kwargs={"tool_key": tool.key, "operation_key": operation.key}),
                 request,
             ),
+            allowed=_is_allowed(request, operation),
         )
         for operation in tool.operations(request)
     ]
@@ -371,6 +388,8 @@ def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) 
 
     if request.method not in ("GET", "POST"):
         return HttpResponseNotAllowed(["GET", "POST"])
+    audit = logger.bind(tool=tool.key, operation=operation.key, triggered_by=cast(User, request.user).email)
+    _require_gate(request, operation, audit)
     if request.method == "GET" and operation.form_class is None:
         return redirect(tool_url)
 
@@ -392,12 +411,7 @@ def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) 
     if form is not None and not form.is_valid():
         return render(request, "admin_console/operation.html", context, status=400)
 
-    audit = logger.bind(
-        tool=tool.key,
-        operation=operation.key,
-        reason=form.cleaned_data.get("reason") if form is not None else None,
-        triggered_by=cast(User, request.user).email,
-    )
+    audit = audit.bind(reason=form.cleaned_data.get("reason") if form is not None else None)
     result = _audited(audit, lambda: operation.handler(request, form))
     if result is None:
         return redirect(tool_url)

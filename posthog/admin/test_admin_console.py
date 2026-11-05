@@ -7,6 +7,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
+from django.contrib.auth.models import Group
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import render_to_string
 from django.test import Client, RequestFactory, SimpleTestCase, override_settings
@@ -424,6 +425,22 @@ class TestAdminConsoleViews(BaseTest):
 
         assert response.status_code == expected_status
         assert (QuotaResource.EVENTS in QuotaLimits.limited(self.organization)) == expect_limited
+
+    @parameterized.expand([("billing_staff", True, 302), ("other_staff", False, 403)])
+    @patch("posthog.admin.console.usage_reports_tool.call_command")
+    @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
+    def test_sending_usage_reports_needs_the_billing_team_group(
+        self, _name: str, in_group: bool, expected_status: int, call_command: MagicMock
+    ) -> None:
+        if in_group:
+            Group.objects.get_or_create(name="Billing Team")[0].user_set.add(self.user)
+
+        page = self.client.get("/admin/console/tools/usage-reports/").content.decode()
+        response = self.client.post("/admin/console/tools/usage-reports/send/", {"report_date": "2026-10-19"})
+
+        assert ("Needs the Billing Team group" in page) != in_group
+        assert response.status_code == expected_status
+        assert call_command.called == in_group
 
     @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
     def test_events_retention_tool_lists_the_teams_of_an_organization_with_a_default(self) -> None:

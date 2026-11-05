@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from enum import StrEnum
 from typing import TYPE_CHECKING, ClassVar, Protocol
 
@@ -48,6 +49,26 @@ class Fact:
             raise ValueError(f"Fact {self.label!r} links to {self.href!r}. Link to a PostHog path that starts with /.")
 
 
+@frozen
+class Gate:
+    """Who may run an operation, on top of the staff check that every console page has.
+
+    Use a Django group or a reviewed rule. Not a Django model permission: `User.is_superuser` mirrors
+    `is_staff` in PostHog, so every staff member has every permission and such a gate would let everyone in.
+    """
+
+    # Who passes, shown next to the disabled button so staff know whom to ask, for example "the Billing Team group".
+    label: str
+    check: Callable[["HttpRequest"], bool]
+
+    @staticmethod
+    def group(name: str) -> "Gate":
+        return Gate(label=f"the {name} group", check=lambda request: request.user.groups.filter(name=name).exists())
+
+    def allows(self, request: "HttpRequest") -> bool:
+        return self.check(request)
+
+
 def check_danger(key: str, danger: bool, form_class: type[forms.Form] | None, undo_hint: str) -> None:
     # The console writes the reason to the audit log, so nobody runs a destructive action without saying why.
     if danger and (form_class is None or "reason" not in form_class.base_fields):
@@ -80,6 +101,7 @@ class Operation:
     form_initial: dict[str, object] | None = None
     description: str = ""
     undo_hint: str = ""
+    gate: Gate | None = None
 
     def __post_init__(self) -> None:
         check_danger(self.key, self.danger, self.form_class, self.undo_hint)

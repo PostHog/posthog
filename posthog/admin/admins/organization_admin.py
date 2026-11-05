@@ -1,5 +1,5 @@
 import re
-from datetime import UTC, timedelta
+from datetime import UTC
 from typing import Any
 from uuid import UUID
 
@@ -26,6 +26,7 @@ from django.views.decorators.http import require_http_methods
 from posthog.admin.ai_training_opt_in_history import get_ai_training_opt_in_history
 from posthog.admin.authorization import can_trigger_admin_deletion
 from posthog.admin.console.moved import MovedToConsole
+from posthog.admin.console.usage_reports_tool import ReportDateForm
 from posthog.admin.inline_registry import extra_inlines_for
 from posthog.admin.inlines.events_retention_config_inline import OrganizationEventsRetentionConfigInline
 from posthog.admin.inlines.organization_domain_inline import OrganizationDomainInline
@@ -127,16 +128,6 @@ def get_model_counts_for_organization(organization: Organization) -> list[dict]:
         )
 
     return sorted(results, key=lambda x: x["name"])
-
-
-class UsageReportForm(forms.Form):
-    report_date = forms.DateField(widget=forms.DateInput(attrs={"type": "date"}))
-
-    def clean_report_date(self):
-        report_date = self.cleaned_data["report_date"]
-        if report_date > (timezone.now().date() + timedelta(days=1)):
-            raise forms.ValidationError("The date cannot be more than one day in the future.")
-        return report_date
 
 
 class DatasetRetentionForm(forms.Form):
@@ -573,9 +564,6 @@ class OrganizationAdmin(admin.ModelAdmin):
         urls = super().get_urls()
         custom_urls = [
             path(
-                "send-usage-report/", self.admin_site.admin_view(self.send_usage_report_view), name="send-usage-report"
-            ),
-            path(
                 "send-ai-observability-usage-report/",
                 self.admin_site.admin_view(self.send_ai_observability_usage_report_view),
                 name="send-ai-observability-usage-report",
@@ -724,28 +712,11 @@ class OrganizationAdmin(admin.ModelAdmin):
             },
         )
 
-    def send_usage_report_view(self, request):
-        if not request.user.groups.filter(name="Billing Team").exists():
-            messages.error(request, "You are not authorized to send usage reports.")
-            return redirect(reverse("admin:posthog_organization_changelist"))
-
-        if request.method == "POST":
-            form = UsageReportForm(request.POST)
-            if form.is_valid():
-                report_date = form.cleaned_data["report_date"]
-                call_command("send_usage_report", f"--date={report_date.strftime('%Y-%m-%d')}", "--async=1")
-                messages.success(request, f"Usage report for date {report_date} was sent successfully.")
-                return redirect(reverse("admin:posthog_organization_changelist"))
-        else:
-            form = UsageReportForm()
-
-        return render(request, "admin/posthog/organization/send_usage_report.html", {"form": form})
-
     def send_ai_observability_usage_report_view(self, request):
         # Staff-only on purpose, unlike the sibling billing view: nothing here is customer-facing, and
         # the task now skips organizations that already have a report for the period.
         if request.method == "POST":
-            form = UsageReportForm(request.POST)
+            form = ReportDateForm(request.POST)
             if form.is_valid():
                 report_date = form.cleaned_data["report_date"]
                 try:
@@ -760,7 +731,7 @@ class OrganizationAdmin(admin.ModelAdmin):
                     messages.success(request, f"AI observability usage report for date {report_date} was queued.")
                 return redirect(reverse("admin:posthog_organization_changelist"))
         else:
-            form = UsageReportForm()
+            form = ReportDateForm()
 
         return render(
             request,

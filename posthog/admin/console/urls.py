@@ -69,6 +69,10 @@ urlpatterns = [
         )
         for old, target in MOVED_ORGANIZATION_ACTIONS.items()
     ],
+    path(
+        "admin/posthog/organization/send-usage-report/",
+        MovedToConsole.page_redirect("Sending usage reports", "/admin/console/tools/usage-reports/"),
+    ),
     # APPEND_SLASH is off, so a console URL typed without its trailing slash would fall through to the
     # Django admin catch-all.
     re_path(

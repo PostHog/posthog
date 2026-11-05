@@ -13,6 +13,7 @@ Before you add or change a panel, operation or tool, invoke `/extending-the-admi
 - **A panel returns data, not markup.** Subclass `Panel` and return `Fact` and `Operation` objects. Do not write templates, `format_html`, or `mark_safe` for a panel. The shell renders every panel the same way, so a new panel cannot drift from the design.
 - **Only the shell writes templates** (`posthog/templates/admin_console/`). They use quill's `quill-*` classes and Tailwind utilities, with the markup quill's React components emit, including their `data-*` attributes.
 - **A destructive operation sets `danger=True`, has a form with a `reason` field, and sets `undo_hint`.** `Operation` refuses it otherwise. The console writes the reason to the audit log and shows the undo hint on the confirm page.
+- **An operation that only some staff may run sets `gate`.** Use `Gate.group(name)` or a `Gate` with a reviewed rule. Never gate on a Django model permission: `User.is_superuser` mirrors `is_staff`, so every staff member passes. The console shows a gated operation disabled with who may run it, and refuses the request with 403.
 - **The contract checks itself.** The registry refuses a key that is not a slug, a blank title and a tool group outside `TOOL_GROUPS`. `Fact` refuses markup, and `Page` refuses unknown blocks and table rows of the wrong width. When a check fires, fix the contribution. Do not loosen the check in the same change.
 
 ## Add a panel
