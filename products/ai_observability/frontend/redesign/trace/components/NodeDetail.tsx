@@ -34,6 +34,7 @@ export interface NodeDetailProps {
 
 export function NodeDetail(props: NodeDetailProps): JSX.Element {
     const highlightRef = useSearchHighlight(props.highlightQuery ?? null, props.matchStepCount)
+    const propertyList = <NodePropertyList node={props.node} properties={props.properties} />
     return (
         <div className="flex min-w-0 flex-col gap-2" ref={highlightRef}>
             <NodeDetailHeader node={props.node} actions={props.actions} stepFeedback={props.stepFeedback} />
@@ -63,11 +64,13 @@ export function NodeDetail(props: NodeDetailProps): JSX.Element {
                         key: 'details',
                         label: 'Details',
                         'data-attr': 'trace-view-detail-tab-details',
-                        content: (
-                            <NodeContentGate content={props.content}>
-                                {() => <NodePropertyList node={props.node} properties={props.properties} />}
-                            </NodeContentGate>
-                        ),
+                        // The root's properties come from the trace, so they do not wait for its step read.
+                        content:
+                            props.node.kind === 'trace' ? (
+                                propertyList
+                            ) : (
+                                <NodeContentGate content={props.content}>{() => propertyList}</NodeContentGate>
+                            ),
                     },
                     {
                         key: 'evals',

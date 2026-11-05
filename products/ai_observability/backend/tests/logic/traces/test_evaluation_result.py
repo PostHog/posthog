@@ -51,6 +51,13 @@ def evaluation_result(overrides: dict[str, Any], output_config: dict[str, Any] |
         ("a tie rounded up to two places", {"result_type": "numeric", "score": "2.125"}, {}, "unrated", "2.13"),
         ("a tie rounded up to two digits", {"result_type": "numeric", "score": "0.125"}, {}, "unrated", "0.13"),
         (
+            "a score past the default decimal precision",
+            {"result_type": "numeric", "score": "1e30"},
+            {},
+            "unrated",
+            "1000000000000000019884624838656",
+        ),
+        (
             "a score whose rounding would flip the verdict",
             {"result_type": "numeric", "score": "0.6999"},
             AT_LEAST_0_7,

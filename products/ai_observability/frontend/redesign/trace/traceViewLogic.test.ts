@@ -283,7 +283,7 @@ describe('traceViewLogic', () => {
 
         expect(capture).toHaveBeenCalledWith('llma trace view loaded', {
             trace_load_ms: expect.any(Number),
-            node_count: 1,
+            node_count: 4,
         })
         expect(capture).toHaveBeenCalledWith('llma trace node loaded', {
             load_ms: expect.any(Number),
