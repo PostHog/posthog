@@ -162,6 +162,8 @@ class ProposedDestination:
     # An `ExternalDataDestination.Type` value.
     type: str
     config: Mapping[str, Any]
+    # The schemas Fivetran writes this connection into. The PostHog destination should use another one.
+    vendor_schemas: tuple[str, ...] = ()
 
 
 @frozen

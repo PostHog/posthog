@@ -13,6 +13,7 @@ from typing import Any, Protocol
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
+from products.warehouse_sources.backend.migration.catalog import MatchConfidence, PostHogTables, TableMatch
 from products.warehouse_sources.backend.migration.types import (
     ItemProposal,
     PostHogSyncFrequency,
@@ -33,34 +34,16 @@ from products.warehouse_sources.backend.migration.types import (
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
-class PostHogTablesLike(Protocol):
-    @property
-    def names(self) -> frozenset[str]: ...
-    # False when the source also syncs tables it discovers in the user's account.
-    @property
-    def complete(self) -> bool: ...
-
-
-class TableMatchLike(Protocol):
-    @property
-    def vendor_table(self) -> str: ...
-    @property
-    def posthog_table(self) -> str | None: ...
-    # "exact", "inferred", or None when nothing matched.
-    @property
-    def confidence(self) -> str | None: ...
-
-
 class CatalogLookup(Protocol):
     """The connector catalog: which PostHog source, tables and settings a vendor connection maps to."""
 
     def match_source(self, provider: str, vendor_service: str) -> ExternalDataSourceType | None: ...
     def match_destination(self, provider: str, vendor_service: str) -> str | None: ...
     # None when the user defines the tables, as in a database.
-    def posthog_tables(self, source_type: ExternalDataSourceType) -> PostHogTablesLike | None: ...
+    def posthog_tables(self, source_type: ExternalDataSourceType) -> PostHogTables | None: ...
     def match_tables(
         self, provider: str, vendor_tables: Iterable[str], posthog_table_names: Collection[str]
-    ) -> Sequence[TableMatchLike]: ...
+    ) -> Sequence[TableMatch]: ...
     # Keys are PostHog payload paths, where a dot is a nested field.
     def prefill_config(
         self, provider: str, source_type: ExternalDataSourceType, vendor_config: Mapping[str, Any]
@@ -87,18 +70,17 @@ class PlannedItem:
     proposal: ItemProposal | None
 
 
-_INTERVAL_TO_FREQUENCY: dict[int, PostHogSyncFrequency] = {
-    1: "5min",
-    5: "5min",
-    15: "15min",
-    30: "30min",
-    60: "1hour",
-    120: "1hour",
-    180: "1hour",
-    360: "6hour",
-    480: "6hour",
-    720: "12hour",
-    1440: "24hour",
+# How a caveat names each frequency, after "every".
+_FREQUENCY_LABELS: dict[PostHogSyncFrequency, str] = {
+    "5min": "5 minutes",
+    "15min": "15 minutes",
+    "30min": "30 minutes",
+    "1hour": "hour",
+    "6hour": "6 hours",
+    "12hour": "12 hours",
+    "24hour": "day",
+    "7day": "week",
+    "30day": "30 days",
 }
 _FREQUENCY_MINUTES: dict[PostHogSyncFrequency, int] = {
     "5min": 5,
@@ -238,7 +220,7 @@ def _plan_connection(
         unused_posthog_tables=tables.unused,
         sync_frequency=sync_frequency,
         sync_time_of_day=sync_time_of_day,
-        destination=_plan_destination(provider, connection, destination, catalog, caveats),
+        destination=_plan_destination(provider, connection, destination, catalog, source_type, caveats),
         start_paused=start_paused,
     )
     return PlannedItem(
@@ -298,7 +280,7 @@ def _plan_tables(
             vendor_table, alternative_names = f"{table.schema_name}.{table.name}", (table.name,)
             name = vendor_table
         elif (match := matches.get(table.name)) is not None and match.posthog_table is not None:
-            name, is_inferred = match.posthog_table, match.confidence == "inferred"
+            name, is_inferred = match.posthog_table, match.confidence == MatchConfidence.INFERRED
         elif known.complete:
             unmatched.append(table.name)
             continue
@@ -437,12 +419,17 @@ def _plan_frequency(connection: VendorConnection, caveats: list[str]) -> tuple[P
         return _plan_cron(schedule, caveats)
 
     interval = schedule.interval_minutes
-    frequency = _INTERVAL_TO_FREQUENCY.get(interval) if interval is not None else None
-    if frequency is None:
-        caveats.append(f"PostHog cannot match this Fivetran schedule, so it syncs every {_DEFAULT_FREQUENCY}.")
+    if interval is None:
+        caveats.append(
+            f"PostHog cannot match this Fivetran schedule, so it syncs every {_FREQUENCY_LABELS[_DEFAULT_FREQUENCY]}."
+        )
         return _DEFAULT_FREQUENCY, None
+    frequency = _nearest_frequency(interval)
     if interval != _FREQUENCY_MINUTES[frequency]:
-        caveats.append(f"Fivetran syncs every {interval} minutes. PostHog will sync every {frequency}.")
+        fivetran_every = "minute" if interval == 1 else f"{interval} minutes"
+        caveats.append(
+            f"Fivetran syncs every {fivetran_every}. PostHog will sync every {_FREQUENCY_LABELS[frequency]}."
+        )
     time_of_day = _to_posthog_time(schedule.time_of_day_utc) if frequency == "24hour" else None
     return frequency, time_of_day
 
@@ -485,6 +472,7 @@ def _plan_destination(
     connection: VendorConnection,
     destination: VendorDestination | None,
     catalog: CatalogLookup,
+    source_type: ExternalDataSourceType,
     caveats: list[str],
 ) -> ProposedDestination | None:
     if destination is None:
@@ -495,12 +483,15 @@ def _plan_destination(
             f"PostHog cannot write to the Fivetran destination `{destination.service}`. The data lands in the PostHog warehouse."
         )
         return None
-    # The schema is set per connection in Fivetran, so the destination config does not carry it.
-    caveats.append(
-        f"Fivetran writes this connection into the `{connection.name}` schema. "
-        "Choose the schema when you set up the PostHog destination."
-    )
-    return ProposedDestination(type=destination_type, config=destination.config)
+    # Fivetran names a database connection's schemas `<name>_<source schema>`, and any other connection's
+    # schema `<name>`. The destination config does not carry either.
+    if catalog.posthog_tables(source_type) is None and connection.tables:
+        vendor_schemas = sorted(
+            {f"{connection.name}_{table.schema_name}" for table in connection.tables if table.enabled}
+        )
+    else:
+        vendor_schemas = [connection.name]
+    return ProposedDestination(type=destination_type, config=destination.config, vendor_schemas=tuple(vendor_schemas))
 
 
 def _prefix_for(connection_name: str) -> str:
