@@ -2125,14 +2125,14 @@ class SignalReportViewSet(
         # `(team, status, promoted_at)` index condition, while `exclude(status=...)` leaves the
         # status as a filter that runs on rows the index already made it read.
         statuses = self._visible_statuses()
+        if not self._report_monitoring_enabled:
+            statuses -= {SignalReport.Status.MONITORING}
         if SignalReport.Status.RESOLVED in statuses:
             statuses |= self._resolved_read_statuses()
         return queryset.filter(status__in=sorted(statuses))
 
     def _visible_statuses(self) -> frozenset[str]:
-        filterable_statuses = self._FILTERABLE_STATUSES
-        if self._report_monitoring_enabled:
-            filterable_statuses |= {SignalReport.Status.MONITORING}
+        filterable_statuses = self._FILTERABLE_STATUSES | {SignalReport.Status.MONITORING}
         status_filter = self.request.query_params.get("status")
         if status_filter:
             statuses = [s.strip() for s in status_filter.split(",") if s.strip()]

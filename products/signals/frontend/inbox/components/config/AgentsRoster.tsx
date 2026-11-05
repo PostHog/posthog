@@ -21,6 +21,7 @@ import { LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import type { CISignalsSyncStatusEnumApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
 
 import { isExternalSignalSource } from '../../externalSignalSources'
+import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { sourceSteeringIsSet } from '../../logics/sourceSteeringModalLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import type { SourceProductDataStatus, SourceProductStatus } from '../../signalSourcesLogic'
@@ -245,6 +246,8 @@ function EntityRow({
 
 interface ExpansionProps {
     agent: AgentRosterDefinition
+    /** A second line under the detail, for a setting that only some projects have. */
+    note?: string
     state: AgentSourceState
     product?: SourceProductStatus
     enablingProduct: boolean
@@ -315,6 +318,7 @@ function ProductDataStatus({
 
 function Expansion({
     agent,
+    note,
     state,
     product,
     enablingProduct,
@@ -363,6 +367,7 @@ function Expansion({
                     <span>{alertScope ? ALERT_SCOPE_SOURCE_DETAIL : agent.detail}</span>
                     {!hasMetaLine && docsLink ? <span> {docsLink}</span> : null}
                 </p>
+                {note && <p className="mb-0 text-xs text-secondary">{note}</p>}
 
                 {hasMetaLine && (
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -522,6 +527,7 @@ function Expansion({
 
 interface AgentRowProps {
     agent: AgentRosterDefinition
+    note?: string
     state: AgentSourceState
     product?: SourceProductStatus
     expanded: boolean
@@ -538,6 +544,7 @@ interface AgentRowProps {
 
 const AgentRow = memo(function AgentRow({
     agent,
+    note,
     state,
     product,
     expanded,
@@ -665,6 +672,7 @@ const AgentRow = memo(function AgentRow({
             {expanded && (
                 <Expansion
                     agent={agent}
+                    note={note}
                     state={state}
                     product={product}
                     enablingProduct={enablingProduct}
@@ -688,7 +696,11 @@ function AgentRosterGroupHeader({ group }: { group: AgentRosterGroup }): JSX.Ele
     return <h4 className="m-0 text-sm font-semibold text-default">{group.label}</h4>
 }
 
+const ANOMALY_SCORING_NOTE =
+    'This source also checks your active trends insights for anomalies and saves the results as $anomaly_score events, which are free.'
+
 export function AgentsRoster(): JSX.Element {
+    const { anomalyScoringAvailable } = useValues(signalTeamConfigLogic)
     const {
         externalSourceStates,
         rosterGroups,
@@ -1014,6 +1026,7 @@ export function AgentsRoster(): JSX.Element {
                 <AgentRow
                     key={agent.source}
                     agent={agent}
+                    note={agent.source === 'analytics' && anomalyScoringAvailable ? ANOMALY_SCORING_NOTE : undefined}
                     state={state}
                     product={productStatusBySource[agent.source]}
                     expanded={expandedSource === agent.source}
@@ -1038,6 +1051,7 @@ export function AgentsRoster(): JSX.Element {
         [
             stateFor,
             linearIssuesConfig,
+            anomalyScoringAvailable,
             openLinearTeamsPicker,
             isLinearIssuesToggling,
             sourceConfigsLoading,

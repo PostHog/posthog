@@ -215,7 +215,6 @@ export interface reportListLogicValues {
     activeSourceProductFilter: string[] // inboxFiltersLogic
     hasUserChosenScope: boolean // inboxFiltersLogic
     isScopedToMe: boolean // inboxFiltersLogic
-    monitoringAvailable: boolean // inboxFiltersLogic
     priorityFilter: SignalReportPriority[] // inboxFiltersLogic
     scope: InboxScope // inboxFiltersLogic
     searchQuery: string // inboxFiltersLogic
@@ -226,8 +225,8 @@ export interface reportListLogicValues {
     countLoading: boolean
     countSettled: boolean
     hasMore: boolean
-    hasProjectClosedReports: boolean | null
-    hasProjectClosedReportsLoading: boolean
+    hasProjectReports: boolean | null
+    hasProjectReportsLoading: boolean
     isLoaded: boolean
     listApiParams: any
     livePrReportIds: string[]
@@ -337,19 +336,19 @@ export interface reportListLogicActions {
         count: number | null
         payload?: void
     }
-    loadHasProjectClosedReports: (_: void) => void
-    loadHasProjectClosedReportsFailure: (
+    loadHasProjectReports: (_: void) => void
+    loadHasProjectReportsFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     }
-    loadHasProjectClosedReportsSuccess: (
-        hasProjectClosedReports: boolean,
+    loadHasProjectReportsSuccess: (
+        hasProjectReports: boolean,
         payload?: void
     ) => {
-        hasProjectClosedReports: boolean
+        hasProjectReports: boolean
         payload?: void
     }
     loadMore: () => {
@@ -540,7 +539,6 @@ export const reportListLogic = kea<reportListLogicType>([
                 'activeScoutFilter',
                 'priorityFilter',
                 'activeCreatedWindow',
-                'monitoringAvailable',
             ],
             userLogic,
             ['user'],
@@ -606,12 +604,12 @@ export const reportListLogic = kea<reportListLogicType>([
     }),
 
     loaders(({ values, cache, props }) => ({
-        hasProjectClosedReports: [
+        hasProjectReports: [
             null as boolean | null,
             {
-                loadHasProjectClosedReports: async (_: void, breakpoint) => {
+                loadHasProjectReports: async (_: void, breakpoint) => {
                     const response = await signalsReportsList(String(values.currentTeamId), {
-                        view: 'closed',
+                        ...props.listParams,
                         count_only: true,
                         limit: 1,
                     })
@@ -627,9 +625,6 @@ export const reportListLogic = kea<reportListLogicType>([
             null as number | null,
             {
                 loadCount: async (_: void, breakpoint) => {
-                    if (props.sectionKey === 'outcome-monitoring' && !values.monitoringAvailable) {
-                        return 0
-                    }
                     const params = values.listApiParams
                     const pageAtRequest = values.reportsResponse
                     // nosemgrep: prefer-codegen-api-namespaced-signals -- the Inbox renders the handwritten SignalReport. The generated report type is wider (string status and priority, read-only arrays), so the list calls move to generated types together with the Inbox.
@@ -663,16 +658,6 @@ export const reportListLogic = kea<reportListLogicType>([
                     const params = values.listApiParams
                     const requestContext = requestContextFromValues(values)
                     cache.firstPageRequestId = (cache.firstPageRequestId ?? 0) + 1
-                    if (props.sectionKey === 'outcome-monitoring' && !values.monitoringAvailable) {
-                        return {
-                            count: 0,
-                            results: [],
-                            next: null,
-                            previous: null,
-                            requestParams: params,
-                            requestContext,
-                        }
-                    }
                     const rowsBefore = values.reportsResponse?.results
                     // nosemgrep: prefer-codegen-api-namespaced-signals -- the Inbox renders the handwritten SignalReport. The generated report type is wider (string status and priority, read-only arrays), so the list calls move to generated types together with the Inbox.
                     const response = await api.signalReports.list({
@@ -696,16 +681,6 @@ export const reportListLogic = kea<reportListLogicType>([
                 loadMoreReports: async (): Promise<ReportListResponse> => {
                     const params = values.listApiParams
                     const requestContext = requestContextFromValues(values)
-                    if (props.sectionKey === 'outcome-monitoring' && !values.monitoringAvailable) {
-                        return {
-                            count: 0,
-                            results: [],
-                            next: null,
-                            previous: null,
-                            requestParams: params,
-                            requestContext,
-                        }
-                    }
                     const firstPageRequestId = cache.firstPageRequestId
                     const current = values.reportsResponse?.results ?? []
                     // `removeReport` records ids here while the request is in flight. `current` predates
@@ -981,8 +956,8 @@ export const reportListLogic = kea<reportListLogicType>([
 
     listeners(({ actions, values, props, cache }) => ({
         loadCount: () => {
-            if (props.sectionKey === 'closed') {
-                actions.loadHasProjectClosedReports()
+            if (props.sectionKey === 'closed' || props.sectionKey === 'outcome-monitoring') {
+                actions.loadHasProjectReports()
             }
         },
         // Announce this section's open pull requests so their CI state is resolved in one batch. Both
@@ -1076,11 +1051,10 @@ export const reportListLogic = kea<reportListLogicType>([
             // response carries the total, so a separate count would run the same COUNT(*) twice.
             if (values.isLoaded || values.reportsResponseLoading) {
                 actions.loadReports()
-                // Whether the project holds any closed report is a project-wide question that this
-                // section's page does not answer, and the `loadCount` listener that asks it does not
-                // run on this path. The Closed tab stays hidden until this check runs again.
-                if (props.sectionKey === 'closed') {
-                    actions.loadHasProjectClosedReports()
+                // Status option availability is project-wide, so a scoped page cannot answer it.
+                // The `loadCount` listener does not run on this path.
+                if (props.sectionKey === 'closed' || props.sectionKey === 'outcome-monitoring') {
+                    actions.loadHasProjectReports()
                 }
             } else {
                 actions.loadCount()
@@ -1105,12 +1079,6 @@ export const reportListLogic = kea<reportListLogicType>([
         applyDefaultScope: () => actions.refresh(),
         setFilters: () => actions.refresh(),
         clearFilters: () => actions.refresh(),
-        [featureFlagLogic.actionTypes.setFeatureFlags]: () => {
-            if (props.sectionKey === 'outcome-monitoring' && cache.monitoringAvailable !== values.monitoringAvailable) {
-                cache.monitoringAvailable = values.monitoringAvailable
-                actions.refresh()
-            }
-        },
         // For-you scope needs the current user's uuid; reload once it resolves.
         [userLogic.actionTypes.loadUserSuccess]: () => {
             if (values.scope === INBOX_SCOPE_FOR_YOU) {
@@ -1267,9 +1235,8 @@ export const reportListLogic = kea<reportListLogicType>([
         },
     })),
 
-    events(({ actions, values, cache }) => ({
+    events(({ actions }) => ({
         afterMount: () => {
-            cache.monitoringAvailable = values.monitoringAvailable
             actions.loadCount()
         },
     })),

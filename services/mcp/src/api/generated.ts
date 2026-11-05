@@ -64262,6 +64262,11 @@ export namespace Schemas {
       readonly id: string;
       /** @nullable */
       readonly template_id: string | null;
+      /**
+         * ID of the MCP server this connection belongs to. The MCP server page takes this ID, not the connection id. Null for older connections that are not linked to a server yet.
+         * @nullable
+         */
+      readonly gateway_server_id: string | null;
       readonly name: string;
       /** Deprecated: use icon_domain instead. Lowercase key from the linked template for clients that still render bundled icon assets. Empty if custom install (no template). */
       readonly icon_key: string;
@@ -107120,9 +107125,9 @@ export namespace Schemas {
          * @items.maxLength 255
          */
       implementation_repositories?: string[];
-      /** Whether anomaly scoring scores this project's active trends insights every hour and writes the results as $anomaly_score events, which are not billed. True by default. Set false to stop new scores; events written before stay. Turning it on does not enroll a project that anomaly_scoring_available reports as not covered. */
+      /** Legacy off switch for anomaly scoring. The Product analytics source (analytics / anomaly_investigation) now controls scoring: when that source is on, anomaly scoring scores this project's active trends insights and writes the results as $anomaly_score events, which are not billed. True by default. False still stops new scores; events written before stay. Turning it on does not enroll a project that anomaly_scoring_available reports as not covered. */
       anomaly_scoring_enabled?: boolean;
-      /** Whether anomaly scoring covers this project, so anomaly_scoring_enabled has an effect. PostHog decides which projects anomaly scoring covers. */
+      /** Whether the anomaly scoring rollout covers this project. PostHog decides which projects it covers. A covered project is scored only while its Product analytics source is on. */
       readonly anomaly_scoring_available: boolean;
       /**
          * How many reports first became visible in the inbox during the current project-timezone day. This is the count the daily report limit compares against.
