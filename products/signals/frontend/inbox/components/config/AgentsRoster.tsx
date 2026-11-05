@@ -760,6 +760,7 @@ export function AgentsRoster(): JSX.Element {
                         loading: isAnomalyInvestigationToggling,
                         requiresSetup: false,
                         syncStatus: anomalyInvestigationConfig?.status,
+                        steeringConfigs: anomalyInvestigationConfig ? [anomalyInvestigationConfig] : [],
                     }
                 case 'health_checks':
                     return {

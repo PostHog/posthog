@@ -49,6 +49,7 @@ logger = structlog.get_logger(__name__)
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
 SLACK_APP_BYOS_FLAG = "slack-app-byos"
+SLACK_APP_FOOTER_COST_FLAG = "slack-app-footer-cost"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -150,6 +151,16 @@ def is_slack_app_byos_enabled(
         SLACK_APP_BYOS_FLAG,
         integration,
         failure_log_key="slack_app_byos_feature_flag_check_failed",
+        distinct_id=distinct_id,
+    )
+
+
+def is_slack_app_footer_cost_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
+    """Gate for the thread cost in the footer under an answer, keyed on the run's PostHog user."""
+    return _workspace_flag_enabled(
+        SLACK_APP_FOOTER_COST_FLAG,
+        integration,
+        failure_log_key="slack_app_footer_cost_feature_flag_check_failed",
         distinct_id=distinct_id,
     )
 

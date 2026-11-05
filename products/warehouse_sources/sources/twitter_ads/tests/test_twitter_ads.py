@@ -106,12 +106,25 @@ def test_entity_page_request_respects_per_table_limits(
     assert params.get("sort_by") == sort_by
 
 
+@pytest.mark.parametrize(
+    "timezone_name,expected_offsets",
+    [
+        ("America/Los_Angeles", {timedelta(hours=-7), timedelta(hours=-8)}),
+        # Local midnight is 18:30Z here. X accepts it, because it checks whole hours in the account's timezone.
+        ("Asia/Kolkata", {timedelta(hours=5, minutes=30)}),
+    ],
+)
 @pytest.mark.parametrize("table", ["campaign_stats", "line_item_stats"])
 @pytest.mark.parametrize("incremental_since", [None, date(2025, 10, 30)])
 def test_stats_limits_daily_rows_currency_and_dst(
-    client: TwitterAdsClient, manager: MagicMock, table: str, incremental_since: date | None
+    client: TwitterAdsClient,
+    manager: MagicMock,
+    table: str,
+    incremental_since: date | None,
+    timezone_name: str,
+    expected_offsets: set[timedelta],
 ) -> None:
-    account_timezone = ZoneInfo("America/Los_Angeles")
+    account_timezone = ZoneInfo(timezone_name)
     calls = []
     offsets = set()
     campaigns = [{"id": f"campaign-{i:02}", "funding_instrument_id": "funding"} for i in range(21)]
@@ -175,18 +188,19 @@ def test_stats_limits_daily_rows_currency_and_dst(
         resource = twitter_ads_source(client, "account", table, manager, incremental_since)
         rows = [row for page in sync_items(resource) for row in page]
     start = incremental_since or date(2025, 10, 25)
-    assert len(rows) == 21 * (date(2025, 11, 10) - start).days * len(PLACEMENTS)
+    today = datetime(2025, 11, 10, 20, tzinfo=UTC).astimezone(account_timezone).date()
+    assert len(rows) == 21 * (today - start).days * len(PLACEMENTS)
     assert len({(row["entity_id"], row["date"], row["placement"]) for row in rows}) == len(rows)
     assert {row["currency"] for row in rows} == {"EUR"}
     assert {row["billed_charge_local_micro"] for row in rows} == {1000000}
     assert {row["clicks"] for row in rows} == {2}
     assert all(row["account_id"] == "account" for row in rows)
     assert min(row["date"] for row in rows) == start
-    assert max(row["date"] for row in rows) == date(2025, 11, 9)
+    assert max(row["date"] for row in rows) == today - timedelta(days=1)
     assert {call[2] for call in calls} == set(PLACEMENTS)
-    # The window walked across the November fall-back, so it must have used both offsets. Without
-    # this the midnight assertions above would still pass on a range that never changes offset.
-    assert offsets == {timedelta(hours=-7), timedelta(hours=-8)}
+    # For Los Angeles the window walked across the November fall-back, so it must have used both
+    # offsets. Without this the midnight assertions above would pass on a range that never changes offset.
+    assert offsets == expected_offsets
     assert resource.primary_keys == ["entity_id", "date", "placement"]
     assert resource.partition_keys == ["date"]
     assert resource.sort_mode is None
@@ -199,71 +213,7 @@ def test_stats_limits_daily_rows_currency_and_dst(
     ):
         resumed = [row for page in sync_items(resource) for row in page]
     assert min(row["date"] for row in resumed) == date.fromisoformat(first_checkpoint.next_date)
-    assert max(row["date"] for row in resumed) == date(2025, 11, 9)
-
-
-def test_stats_rolls_hours_into_local_days_for_a_half_hour_offset_account(
-    client: TwitterAdsClient, manager: MagicMock
-) -> None:
-    # Local midnight on UTC+5:30 is never a whole UTC hour, and X only takes whole hours, so a DAY
-    # window cannot be expressed at all.
-    account_timezone = ZoneInfo("Asia/Kolkata")
-    campaigns = [{"id": "campaign-00", "funding_instrument_id": "funding"}]
-    windows = []
-
-    def send(request: requests.PreparedRequest, **kwargs: object) -> requests.Response:
-        url = request_url(request)
-        path = urlparse(url).path
-        if path.endswith("/funding_instruments"):
-            return response({"data": [{"id": "funding", "currency": "INR"}]})
-        if path.endswith("/campaigns"):
-            return response({"data": campaigns})
-        if "/stats/" not in path:
-            return response({"data": {"timezone": account_timezone.key, "created_at": "2025-10-25T10:00:00Z"}})
-        params = parse_qs(urlparse(url).query)
-        assert params["granularity"] == ["HOUR"]
-        start = datetime.fromisoformat(params["start_time"][0])
-        end = datetime.fromisoformat(params["end_time"][0])
-        assert start.minute == end.minute == 0
-        assert end - start <= timedelta(days=7)
-        windows.append((start, end))
-        hours = int((end - start) / timedelta(hours=1))
-        return response(
-            {
-                "data": [
-                    {
-                        "id": "campaign-00",
-                        "id_data": [
-                            {
-                                "segment": None,
-                                "metrics": {
-                                    "impressions": list(range(hours)),
-                                    "clicks": [None] * hours,
-                                    "billed_charge_local_micro": None,
-                                },
-                            }
-                        ],
-                    }
-                ]
-            }
-        )
-
-    with (
-        time_machine.travel("2025-11-01T20:00:00Z", tick=False),
-        patch.object(client.session, "send", side_effect=send),
-    ):
-        resource = twitter_ads_source(client, "account", "campaign_stats", manager, date(2025, 10, 30))
-        rows = [row for page in sync_items(resource) for row in page if row["placement"] == PLACEMENTS[0]]
-
-    # Each day starts at 00:30 local, the first whole UTC hour after local midnight.
-    assert windows[0] == (datetime(2025, 10, 29, 19, tzinfo=UTC), datetime(2025, 11, 1, 19, tzinfo=UTC))
-    assert [(row["date"], row["impressions"]) for row in rows] == [
-        (date(2025, 10, 30), sum(range(0, 24))),
-        (date(2025, 10, 31), sum(range(24, 48))),
-        (date(2025, 11, 1), sum(range(48, 72))),
-    ]
-    assert {row["clicks"] for row in rows} == {None}
-    assert {row["billed_charge_local_micro"] for row in rows} == {None}
+    assert max(row["date"] for row in resumed) == today - timedelta(days=1)
 
 
 def test_error_detail_rides_along_with_the_status(client: TwitterAdsClient) -> None:

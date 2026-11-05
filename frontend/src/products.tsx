@@ -2442,6 +2442,7 @@ export type ProductTreePath =
     | 'Visual review'
     | 'Web analytics'
     | 'Web scripts'
+    | 'Wizard'
     | 'Workflows'
 
 /** This const is auto-generated, as is the whole file */
@@ -3454,6 +3455,18 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         searchKeywords: ['site apps', 'custom javascript', 'tag manager'],
         sceneKey: 'WebScripts',
         sceneKeys: ['WebScripts'],
+    },
+    {
+        path: 'Wizard',
+        intents: [],
+        category: ProductItemCategory.TOOLS,
+        type: 'wizard',
+        iconType: 'wizard',
+        iconColor: ['var(--color-product-wizard-light)', 'var(--color-product-wizard-dark)'],
+        href: '/wizard/runs',
+        flag: FEATURE_FLAGS.WIZARD_UI_ENABLED,
+        sceneKey: 'WizardRuns',
+        sceneKeys: ['WizardRuns'],
     },
     {
         path: 'Workflows',

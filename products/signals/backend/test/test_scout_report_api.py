@@ -28,7 +28,7 @@ from products.signals.backend.artefact_schemas import (
     SuggestedReviewers,
     TaskRunArtefact,
 )
-from products.signals.backend.auto_start import _evaluate_link_gates
+from products.signals.backend.auto_start import _evaluate_link_gates, maybe_autostart_from_report_artefacts
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
     ArtefactAttribution,
@@ -60,7 +60,7 @@ from products.signals.backend.scout_harness.tools.report import (
     _wants_repo_selection,
     edit_report_sync,
 )
-from products.signals.backend.scout_harness.tools.report_author import ScoutRunReportAuthor
+from products.signals.backend.scout_harness.tools.report_author import USER_REPORT_DAILY_LIMIT, ScoutRunReportAuthor
 from products.signals.backend.scout_report import ScoutReportSignal
 from products.signals.backend.scout_report.judge import SAFETY_REFUSAL_EXPLANATION
 from products.signals.backend.task_run_artefacts import record_implementation_task
@@ -3179,3 +3179,115 @@ class TestEmitReportMetricGoalFields(SimpleTestCase):
 
         assert serializer.is_valid(), serializer.errors
         assert "goal_grain" not in serializer.validated_data["metrics"][0]
+
+
+class TestUserReportCreateAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        self.flag_mock = patch("products.signals.backend.views.feature_enabled_or_false", return_value=True).start()
+        patch(CAPTURE_INTERNAL_PATH).start()
+        self.addCleanup(patch.stopall)
+
+    def _url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/"
+
+    def _payload(self, **overrides) -> dict:
+        body: dict = {
+            "title": "Checkout p99 regressed after 4.2",
+            "summary": "The /checkout endpoint p99 doubled after the 4.2 deploy.",
+            "evidence": [{"description": "p99 doubled on /checkout", "source_id": "obs-1"}],
+            "actionability_explanation": "clear fix in the checkout handler",
+            "actionability": "immediately_actionable",
+        }
+        body.update(overrides)
+        return body
+
+    def test_user_report_never_autostarts_on_create_or_on_a_later_reevaluation(self) -> None:
+        payload = self._payload(
+            repository="acme/widgets",
+            priority="P1",
+            priority_explanation="Checkout latency costs conversions.",
+            suggested_reviewers=[{"user_uuid": str(self.user.uuid)}],
+        )
+        with (
+            _safe_judge(),
+            patch(EMBED_PATH) as embed,
+            patch(
+                "products.signals.backend.auto_start.maybe_autostart_implementation_task", new=AsyncMock()
+            ) as start_task,
+            patch("products.signals.backend.implementation_dispatch.ImplementationDispatcher.trigger") as dispatch,
+        ):
+            response = self.client.post(self._url(), payload, format="json")
+            assert response.status_code == status.HTTP_201_CREATED, response.content
+            report_id = response.json()["report_id"]
+            outcome = async_to_sync(maybe_autostart_from_report_artefacts)(team_id=self.team.id, report_id=report_id)
+
+        assert response.json()["report_status"] == SignalReport.Status.READY
+        assert outcome.status == "blocked"
+        start_task.assert_not_awaited()
+        dispatch.assert_not_called()
+        report = SignalReport.objects.get(id=report_id)
+        assert (report.user_authored, report.created_by_id) == (True, self.user.id)
+        assert {call.kwargs["metadata"]["source_product"] for call in embed.call_args_list} == {"user_authored"}
+
+    @parameterized.expand(
+        [
+            ("inbox_write", ["inbox:write"], status.HTTP_201_CREATED),
+            ("inbox_read", ["inbox:read"], status.HTTP_403_FORBIDDEN),
+            ("task_read", ["task:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_create_requires_inbox_write(self, _name: str, scopes: list[str], expected: int) -> None:
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+        with _safe_judge(), patch(EMBED_PATH):
+            response = self.client.post(self._url(), self._payload(), format="json")
+        assert response.status_code == expected, response.content
+
+    def test_create_refuses_a_task_sandbox_token(self) -> None:
+        _authenticate_as_scout(
+            self, scopes="signals_scout_reports", sandbox_task_id=_make_run(self.team).task_run.task_id
+        )
+        with _safe_judge() as judge, patch(EMBED_PATH):
+            response = self.client.post(self._url(), self._payload(), format="json")
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        judge.assert_not_awaited()
+        assert not SignalReport.objects.filter(team=self.team).exists()
+
+    def test_create_is_refused_while_the_flag_is_off(self) -> None:
+        self.flag_mock.return_value = False
+        with _safe_judge() as judge, patch(EMBED_PATH):
+            response = self.client.post(self._url(), self._payload(), format="json")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        judge.assert_not_awaited()
+        assert not SignalReport.objects.filter(team=self.team).exists()
+
+    def test_daily_cap_is_per_user_and_checked_after_replay_and_before_the_judge(self) -> None:
+        with _safe_judge(), patch(EMBED_PATH):
+            first = self.client.post(self._url(), self._payload(idempotency_key="first"), format="json")
+        assert first.status_code == status.HTTP_201_CREATED, first.content
+        SignalReport.objects.bulk_create(
+            [
+                SignalReport(team=self.team, title=f"Filed {i}", user_authored=True, created_by=self.user)
+                for i in range(USER_REPORT_DAILY_LIMIT - 1)
+            ]
+        )
+
+        with _safe_judge() as judge, patch(EMBED_PATH):
+            replay = self.client.post(self._url(), self._payload(idempotency_key="first"), format="json")
+            capped = self.client.post(self._url(), self._payload(title="A different finding"), format="json")
+        assert replay.status_code == status.HTTP_200_OK
+        assert (replay.json()["report_id"], replay.json()["idempotent_replay"]) == (first.json()["report_id"], True)
+        assert capped.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert "resets at" in capped.json()["detail"]
+        judge.assert_not_awaited()
+
+        other = User.objects.create_and_join(self.organization, "other@example.com", "password")
+        self.client.force_login(other)
+        with _safe_judge(), patch(EMBED_PATH):
+            same_content = self.client.post(self._url(), self._payload(idempotency_key="first"), format="json")
+        assert same_content.status_code == status.HTTP_201_CREATED, same_content.content
+        assert same_content.json()["report_id"] != first.json()["report_id"]

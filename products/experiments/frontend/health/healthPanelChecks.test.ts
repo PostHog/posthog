@@ -7,6 +7,7 @@ import {
     type HealthPanelCheck,
     exposureChecksState,
     healthChipState,
+    healthMeasurementText,
     healthPanelChecks,
 } from './healthPanelChecks'
 import type { HealthPanelFinding } from './healthPanelFindings'
@@ -14,7 +15,7 @@ import type { HealthPanelFinding } from './healthPanelFindings'
 const check = (
     key: ExperimentHealthCheckResultApi['key'],
     status: ExperimentHealthCheckResultApi['status']
-): HealthPanelCheck => ({ key, name: key, status, reason: null })
+): ExperimentHealthCheckResultApi => ({ key, name: key, description: '', status, reason: null, measurement: null })
 
 const finding = (severity: HealthPanelFinding['severity']): HealthPanelFinding => ({
     code: 'no_metric',
@@ -168,5 +169,24 @@ describe('healthPanelChecks', () => {
         },
     ])('$name', ({ findings, checks, exposureChecks, expected }) => {
         expect(healthChipState(findings, checks, exposureChecks)).toMatchObject(expected)
+    })
+    it.each([
+        {
+            name: 'a share against its threshold',
+            measurement: { value: 4.23, threshold: 5, unit: 'percentage', warns: 'above' },
+            expected: 'Measured 4.2%. Warns above 5%.',
+        },
+        {
+            name: 'a share too small for one decimal',
+            measurement: { value: 0.04, threshold: 5, unit: 'percentage', warns: 'above' },
+            expected: 'Measured less than 0.1%. Warns above 5%.',
+        },
+        {
+            name: 'a small p-value',
+            measurement: { value: 0.003456, threshold: 0.001, unit: 'p_value', warns: 'below' },
+            expected: 'Measured p = 0.0035. Warns below 0.001.',
+        },
+    ] as const)('healthMeasurementText states $name', ({ measurement, expected }) => {
+        expect(healthMeasurementText(measurement)).toEqual(expected)
     })
 })

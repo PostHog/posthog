@@ -431,6 +431,7 @@ rules:
 
                               |AnomalyScoringState
                               |AnomalyScoringDueInsight
+                              |PushTokenImport
                               |SignalScratchpad
                               |SignalProjectProfile
                               |SingleSessionSummary
@@ -488,6 +489,7 @@ rules:
                               |TraceReviewScore
                               |TracesRetentionRule
                               |TracingView
+                              |TransactionalEmailKey
                               |UploadedMedia
                               |UptimeMonitor
                               |UserInterview
@@ -930,6 +932,7 @@ rules:
 
                         |AnomalyScoringState
                         |AnomalyScoringDueInsight
+                        |PushTokenImport
                         |SignalScratchpad
                         |SignalProjectProfile
                         |SingleSessionSummary
@@ -986,6 +989,7 @@ rules:
                         |TraceReviewScore
                         |TracesRetentionRule
                         |TracingView
+                        |TransactionalEmailKey
                         |UploadedMedia
                         |UptimeMonitor
                         |UserInterview
@@ -1316,6 +1320,7 @@ rules:
                         |TraceReview
                         |TraceReviewScore
                         |TracesRetentionRule
+                        |TransactionalEmailKey
                         |User
                         |UserGroup
                         |UserInterview

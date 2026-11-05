@@ -234,6 +234,7 @@ from products.signals.backend.scout_harness.tools.notes import (
 )
 from products.signals.backend.scout_harness.tools.profile import get_project_profile
 from products.signals.backend.scout_harness.tools.report import (
+    EmitReportResult,
     ReportChartInput,
     ReportEvidence,
     ReportLinkInput,
@@ -243,7 +244,7 @@ from products.signals.backend.scout_harness.tools.report import (
     edit_report_sync,
     emit_report_sync,
 )
-from products.signals.backend.scout_harness.tools.report_author import ScoutRunReportAuthor
+from products.signals.backend.scout_harness.tools.report_author import ReportAuthor, ScoutRunReportAuthor
 from products.signals.backend.scout_harness.tools.runs import (
     DEFAULT_FINDINGS_WINDOW_HOURS,
     DEFAULT_RUNS_PER_SCOUT,
@@ -560,6 +561,48 @@ def _to_reviewer_inputs(entries: list[dict] | None) -> list[ReviewerInput] | Non
         )
         for entry in entries
     ]
+
+
+def emit_report_from_validated_data(*, team: Team, author: ReportAuthor, data: dict) -> EmitReportResult:
+    """Author a report from a validated `EmitReportRequestSerializer` body. Shared by the scout
+    `emit-report` action and the inbox `create` action, so both authors take one path."""
+    try:
+        return emit_report_sync(
+            team=team,
+            author=author,
+            title=data["title"],
+            summary=data["summary"],
+            evidence=_to_report_evidence(data["evidence"]) or [],
+            actionability_explanation=data["actionability_explanation"],
+            actionability=data["actionability"],
+            already_addressed=data.get("already_addressed", False),
+            repository=data.get("repository"),
+            priority=data.get("priority"),
+            priority_explanation=data.get("priority_explanation"),
+            suggested_reviewers=_to_reviewer_inputs(data.get("suggested_reviewers")),
+            charts=_to_report_charts(data.get("charts")),
+            metrics=_to_report_metrics(data.get("metrics")),
+            suggested_prompts=data.get("suggested_prompts"),
+            links=_to_report_links(data.get("links")),
+            idempotency_key=data.get("idempotency_key"),
+            tags=data.get("tags"),
+        )
+    except InvalidScoutReportError as exc:
+        raise exceptions.ValidationError({"detail": str(exc)})
+
+
+def emit_report_response_data(result: EmitReportResult) -> dict[str, Any]:
+    return EmitReportResponseSerializer(
+        {
+            "report_id": result.report_id,
+            "report_status": result.status,
+            "emitted": result.emitted,
+            "skipped_reason": result.skipped_reason,
+            "safety_explanation": result.safety_explanation,
+            "remediation": result.remediation,
+            "idempotent_replay": result.idempotent_replay,
+        }
+    ).data
 
 
 def _resolve_emission_report_links(
@@ -1283,47 +1326,12 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @trial_state_errors()
     def emit_report(self, request: Request, **kwargs) -> Response:
         run = self._resolve_in_progress_run(kwargs, required_tool="emit_report")
-        data = request.validated_data
-        evidence = _to_report_evidence(data["evidence"]) or []
-        try:
-            result = emit_report_sync(
-                # `run.team` is the canonical (parent) team the run was resolved on; a child-environment
-                # request's `self.team` would mismatch the run's owner and trip `_assert_team_owns_run`.
-                team=run.team,
-                author=ScoutRunReportAuthor(run=run),
-                title=data["title"],
-                summary=data["summary"],
-                evidence=evidence,
-                actionability_explanation=data["actionability_explanation"],
-                actionability=data["actionability"],
-                already_addressed=data.get("already_addressed", False),
-                repository=data.get("repository"),
-                priority=data.get("priority"),
-                priority_explanation=data.get("priority_explanation"),
-                suggested_reviewers=_to_reviewer_inputs(data.get("suggested_reviewers")),
-                charts=_to_report_charts(data.get("charts")),
-                metrics=_to_report_metrics(data.get("metrics")),
-                suggested_prompts=data.get("suggested_prompts"),
-                links=_to_report_links(data.get("links")),
-                idempotency_key=data.get("idempotency_key"),
-                tags=data.get("tags"),
-            )
-        except InvalidScoutReportError as exc:
-            raise exceptions.ValidationError({"detail": str(exc)})
-        return Response(
-            EmitReportResponseSerializer(
-                {
-                    "report_id": result.report_id,
-                    "report_status": result.status,
-                    "emitted": result.emitted,
-                    "skipped_reason": result.skipped_reason,
-                    "safety_explanation": result.safety_explanation,
-                    "remediation": result.remediation,
-                    "idempotent_replay": result.idempotent_replay,
-                }
-            ).data,
-            status=status.HTTP_200_OK,
+        # `run.team` is the canonical (parent) team the run was resolved on; a child-environment
+        # request's `self.team` would mismatch the run's owner and trip `_assert_team_owns_run`.
+        result = emit_report_from_validated_data(
+            team=run.team, author=ScoutRunReportAuthor(run=run), data=request.validated_data
         )
+        return Response(emit_report_response_data(result), status=status.HTTP_200_OK)
 
     @validated_request(
         request_serializer=EditReportRequestSerializer,

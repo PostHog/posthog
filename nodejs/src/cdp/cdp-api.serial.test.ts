@@ -2358,6 +2358,11 @@ describe('CDP API', () => {
                     ['transactional_email', body],
                     ['transactional_email/send', { ...body, send: codeSend }],
                 ],
+                [
+                    'a changed cc',
+                    ['transactional_email/send', { ...body, send: { ...codeSend, cc: ['manager@example.com'] } }],
+                    ['transactional_email/send', { ...body, send: { ...codeSend, cc: ['someone-else@example.com'] } }],
+                ],
             ] as const)(
                 'rejects the key for a request with %s',
                 async (_desc, [firstRoute, first], [route, payload]) => {
@@ -2421,6 +2426,10 @@ describe('CDP API', () => {
                 { ...codeSend, content: { subject: 'Hi', html: '<img src="https://example.com/a.png" alt="Hi">' } },
             ],
             ['a code send for a local template', { tracking: { captureEngagement: false } }],
+            [
+                'a code send with copies to addresses that use atext symbols',
+                { ...codeSend, cc: ['jane=tag@example.com'], bcc: ['jane~tag@example.com'] },
+            ],
         ])('stamps %s on the queued run', async (_desc, acceptedSend) => {
             const res = await sendAccepted(hogFlow.id, { ...body, send: acceptedSend })
 
@@ -2469,6 +2478,10 @@ describe('CDP API', () => {
             ['content with an empty subject', { ...codeSend, content: { subject: '', text: 'Hi' } }],
             ['a sender without an integration', { ...codeSend, from: { email: 'security@example.com' } }],
             ['no tracking choice', { content: codeSend.content }],
+            [
+                'more than 10 cc addresses',
+                { ...codeSend, cc: Array.from({ length: 11 }, (_, i) => `copy-${i}@example.com`) },
+            ],
         ])('refuses a code send with %s', async (_desc, acceptedSend) => {
             const invalidBefore = await outcomeCount('invalid_request')
 
@@ -2479,13 +2492,68 @@ describe('CDP API', () => {
             expect(mockQueueInvocations).not.toHaveBeenCalled()
         })
 
-        it('queues a send when the team is over its email quota', async () => {
-            jest.spyOn(api['deps'].quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
+        it.each([
+            [
+                'a bcc address is suppressed',
+                'recipient_suppressed',
+                { bcc: ['hidden@example.com'] },
+                () =>
+                    jest
+                        .spyOn(api['emailSuppressionService'], 'isSuppressed')
+                        .mockImplementation((_teamId, email) => Promise.resolve(email === 'hidden@example.com')),
+            ],
+            [
+                "a cc address's domain has no mail servers",
+                'recipient_unreachable',
+                { cc: ['copy@example.com'] },
+                () =>
+                    jest
+                        .spyOn(api['emailValidationService'], 'getRecipientSkipReason')
+                        .mockImplementation((_teamId, email) =>
+                            Promise.resolve(email === 'copy@example.com' ? 'Skipping send: no mail servers.' : null)
+                        ),
+            ],
+            ['a cc address is malformed', 'recipient_unreachable', { cc: ['copy@ph\u3002example.com'] }, () => {}],
+        ] as const)('refuses the whole code send when %s', async (_desc, code, copies, refuse) => {
+            refuse()
+
+            const res = await sendAccepted(hogFlow.id, { ...body, send: { ...codeSend, ...copies } })
+
+            expect(res.status).toEqual(422)
+            expect(res.body).toEqual({ error: code })
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        it.each<[string, () => { payload: Record<string, unknown>; verify?: () => void }]>([
+            [
+                'the team is over its email quota',
+                () => {
+                    jest.spyOn(api['deps'].quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
+                    return { payload: body }
+                },
+            ],
+            [
+                "the lookup of the recipient's mail servers fails",
+                () => {
+                    jest.spyOn(api['emailValidationService'], 'getRecipientSkipReason').mockRestore()
+                    const resolveMx = jest.mocked(api['emailValidationService']['resolver'].resolveMx)
+                    resolveMx.mockRejectedValueOnce(Object.assign(new Error('queryMx ETIMEOUT'), { code: 'ETIMEOUT' }))
+                    // A domain no other test sends to, so no cached verdict answers before the lookup.
+                    const domain = `${new UUIDT().toString()}.example.org`
+                    return {
+                        payload: { ...body, to: `user@${domain}` },
+                        verify: () => expect(resolveMx).toHaveBeenCalledWith(domain),
+                    }
+                },
+            ],
+        ])('queues a send when %s', async (_desc, arrange) => {
+            const { payload, verify } = arrange()
             const queuedBefore = await outcomeCount('queued')
 
-            const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
+            const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` }, payload)
 
             expect(res.status).toEqual(202)
+            verify?.()
             expect(await outcomeCount('queued')).toEqual(queuedBefore + 1)
             expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
         })
@@ -2639,6 +2707,57 @@ describe('CDP API', () => {
             )
             expect(validationLogs).toHaveLength(expectedStatus === 400 ? 1 : 0)
             expect(JSON.stringify(validationLogs)).not.toContain('example.com')
+        })
+
+        it.each([
+            [
+                'sending_suspended',
+                422,
+                [
+                    'sending_suspended',
+                    'sending_paused',
+                    'recipient_suppressed',
+                    'quota_limited',
+                    'recipient_unreachable',
+                ],
+            ],
+            [
+                'sending_paused',
+                422,
+                ['sending_paused', 'recipient_suppressed', 'quota_limited', 'recipient_unreachable'],
+            ],
+            ['recipient_suppressed', 422, ['recipient_suppressed', 'quota_limited', 'recipient_unreachable']],
+            ['quota_limited', 429, ['quota_limited', 'recipient_unreachable']],
+        ] as const)('refuses with %s when it and every later check would refuse', async (code, status, reasons) => {
+            // Marketing, because a transactional email bypasses the quota.
+            const marketingFlow = await insertHogFlow(transactionalFlow('api', 'active', 'marketing'))
+            const arrange: Record<(typeof reasons)[number], () => void> = {
+                sending_suspended: () =>
+                    jest
+                        .spyOn(api['teamWorkflowsConfigService'], 'getEmailSendingSuspension')
+                        .mockResolvedValue('staff'),
+                sending_paused: () =>
+                    jest
+                        .spyOn(api['hogFlowManager'], 'getHogFlowCheckingPrimaryOnMiss')
+                        .mockResolvedValue({ ...marketingFlow, email_sending_paused_at: Date.now() }),
+                recipient_suppressed: () =>
+                    jest.spyOn(api['emailSuppressionService'], 'isSuppressed').mockResolvedValue(true),
+                quota_limited: () =>
+                    jest.spyOn(api['deps'].quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true),
+                recipient_unreachable: () =>
+                    jest
+                        .spyOn(api['emailValidationService'], 'getRecipientSkipReason')
+                        .mockResolvedValue('Skipping send: the domain has no reachable mail servers.'),
+            }
+            reasons.forEach((reason) => arrange[reason]())
+
+            const res = await send(marketingFlow.id, {
+                Authorization: `Bearer ${mintToken(team.id, marketingFlow.id)}`,
+            })
+
+            expect(res.status).toEqual(status)
+            expect(res.body).toEqual({ error: code })
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
         })
 
         it('sends to a recipient whose only suppression is a spam complaint', async () => {

@@ -1,7 +1,7 @@
 import { BindLogic } from 'kea'
 import { useActions, useValues } from 'kea'
 
-import { IconComment, IconGear } from '@posthog/icons'
+import { IconGear } from '@posthog/icons'
 import { LemonButton, Popover } from '@posthog/lemon-ui'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
@@ -77,18 +77,6 @@ export const MarketingAnalyticsFilters = ({
                         >
                             <AddIntegrationButton />
                         </Shortcut>
-                        {/* The id is how the in-app feedback survey finds this button. */}
-                        {!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING] && (
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconComment />}
-                                id="marketing-analytics-feedback-button"
-                                data-attr="marketing-analytics-feedback-button"
-                            >
-                                Share your feedback
-                            </LemonButton>
-                        )}
                         <Popover
                             visible={optionsOpen}
                             onClickOutside={() => setOptionsOpen(false)}

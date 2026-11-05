@@ -187,10 +187,17 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
-    def test_is_hidden_while_the_flag_is_off(self, flag):
-        flag.return_value = False
+    @parameterized.expand(
+        [
+            ("both_send_flags_off", set(), status.HTTP_404_NOT_FOUND),
+            ("only_the_template_send_flag", {"workflows-transactional-email-api"}, status.HTTP_200_OK),
+            ("only_the_code_send_flag", {"workflows-email-from-code"}, status.HTTP_200_OK),
+        ]
+    )
+    def test_reads_a_status_under_either_send_flag(self, flag, _name, enabled_flags, expected_status):
+        flag.side_effect = lambda key, *args, **kwargs: key in enabled_flags
         self._status_rows([("queued", 0, "")])
 
         response = self.client.get(self._url(self.message_id))
 
-        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.status_code == expected_status

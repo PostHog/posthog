@@ -82,6 +82,7 @@ NON_RETRYABLE_ERRORS = [
     "EmptyHogQLResponseColumnsError",
     "DuplicateOutputColumnError",
     "UnstorableIntegerError",
+    "EndpointMaterializationTurnedOffError",
 ]
 
 CLICKHOUSE_RUN_WITHOUT_TRINO_SHADOW_PATCH = "data-modeling-clickhouse-run-without-trino-shadow"

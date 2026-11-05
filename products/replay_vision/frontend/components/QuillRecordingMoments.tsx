@@ -20,10 +20,10 @@ import {
     timelineRows as buildTimelineRows,
 } from '../utils/recordingTimeline'
 import { recordingScanBlock } from '../utils/scanEligibility'
-import { ChapterFilmstrip } from './ChapterFilmstrip'
+import { QuillChapterFilmstrip } from './QuillChapterFilmstrip'
 import { QuillRecordingTimeline } from './QuillRecordingTimeline'
+import { QuillScanList } from './QuillScanList'
 import { QuillScannerPicker } from './QuillScannerPicker'
-import { ScanList } from './ScanList'
 
 const CURRENT_MOMENT_SELECTOR = '[data-current-moment]'
 const FILMSTRIP_MIN_WIDTH_PX = 840
@@ -159,9 +159,7 @@ export function QuillRecordingMoments({
             <div className="flex-1 min-h-0 overflow-y-auto" ref={timelineRef}>
                 {/* Nothing before the width is known, so posters are fetched once. */}
                 {width === undefined ? null : filmstrip ? (
-                    <div data-not-quill className="contents">
-                        <ChapterFilmstrip {...timelineProps} />
-                    </div>
+                    <QuillChapterFilmstrip {...timelineProps} />
                 ) : (
                     <>
                         <SectionHeader label="Timeline" />
@@ -169,15 +167,13 @@ export function QuillRecordingMoments({
                     </>
                 )}
                 <SectionHeader label="Scans" />
-                <div data-not-quill className="contents">
-                    <ScanList
-                        sessionId={sessionId}
-                        observations={observations}
-                        endMs={timelineEndMs(timeline, durationMs)}
-                        currentTimeMs={currentPlayerTime}
-                        onSeek={seekToTime}
-                    />
-                </div>
+                <QuillScanList
+                    sessionId={sessionId}
+                    observations={observations}
+                    endMs={timelineEndMs(timeline, durationMs)}
+                    currentTimeMs={currentPlayerTime}
+                    onSeek={seekToTime}
+                />
             </div>
         </div>
     )

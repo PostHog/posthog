@@ -8593,6 +8593,7 @@ export namespace Schemas {
         personId?: (string | null) | undefined;
         response?: (ErrorTrackingQueryResponse | null) | undefined;
         searchQuery?: (string | null) | undefined;
+        severity?: (ErrorTrackingQueryIssueSeverity | null) | undefined;
         status?: (ErrorTrackingIssueStatus | string | null) | undefined;
         tags?: (QueryLogTags | null) | undefined;
         useQueryV2?: (boolean | null) | undefined;
@@ -9105,6 +9106,7 @@ export namespace Schemas {
      * * `subscription_usage_limit` - subscription_usage_limit
      * * `task_spend_limit` - task_spend_limit
      * * `agent_error` - agent_error
+     * * `ActiveSessionCapError` - ActiveSessionCapError
      */
     export type ErrorTypeEnum =
         | "agent_reported"
@@ -9122,7 +9124,8 @@ export namespace Schemas {
         | "turn_ended_without_response"
         | "subscription_usage_limit"
         | "task_spend_limit"
-        | "agent_error";
+        | "agent_error"
+        | "ActiveSessionCapError";
     /**
      * * `active` - Active
      * * `paused` - Paused
@@ -10202,6 +10205,40 @@ export namespace Schemas {
         | "finding"
         | "not_applicable"
         | "not_checked";
+    /**
+     * * `percentage` - Percentage of exposed units
+     * * `p_value` - P-value of a statistical test
+     */
+    export type ExperimentHealthMeasurementUnitEnum = "percentage" | "p_value";
+    /**
+     * * `above` - Finding above the threshold
+     * * `below` - Finding below the threshold
+     */
+    export type ExperimentHealthMeasurementSideEnum = "above" | "below";
+    export type ExperimentHealthMeasurement = {
+        /**
+         * The value that the check measured on the experiment.
+         */
+        value: number;
+        /**
+         * The value at which the check reports a finding.
+         */
+        threshold: number;
+        /**
+         * percentage: a share of the exposed users or groups, on the 0-100 scale. p_value: the p-value of a statistical test.
+         *
+         * * `percentage` - Percentage of exposed units
+         * * `p_value` - P-value of a statistical test
+         */
+        unit: ExperimentHealthMeasurementUnitEnum;
+        /**
+         * The side of the threshold that reports a finding: above or below.
+         *
+         * * `above` - Finding above the threshold
+         * * `below` - Finding below the threshold
+         */
+        warns: ExperimentHealthMeasurementSideEnum;
+    };
     export type ExperimentHealthCheckResult = {
         /**
          * Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
@@ -10236,6 +10273,10 @@ export namespace Schemas {
          */
         name: string;
         /**
+         * What the check looks for and why it matters. The same for every experiment and every status.
+         */
+        description: string;
+        /**
          * passed: the check found no problem. finding: the check reported a finding in `findings`. not_applicable: the check does not cover the experiment's current state, for example a check of the changes since launch on a draft. not_checked: the check covers the experiment, but it could not read an input or it failed, so a problem it looks for can be present without a finding.
          *
          * * `passed` - Passed
@@ -10248,6 +10289,10 @@ export namespace Schemas {
          * Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding.
          */
         reason: string | null;
+        /**
+         * The value that decided a passed check, against its threshold. Null for the other statuses, and for a pass without a value. A finding carries its values in `evidence`.
+         */
+        measurement: ExperimentHealthMeasurement | null;
     };
     export type ExperimentHealth = {
         /**
@@ -10591,16 +10636,40 @@ export namespace Schemas {
         | "bias_risk_multiple_excluded"
         | "multiple_variants_share"
         | "test_account_filter_removes_exposures";
+    export type ExperimentExposureHealthMeasurementUnit =
+        | "percentage"
+        | "p_value";
+    export type ExperimentExposureHealthMeasurementSide = "above" | "below";
+    export type ExperimentExposureHealthMeasurement = {
+        /**
+         * The value at which the check reports a finding.
+         */
+        threshold: number;
+        /**
+         * percentage: a share of the exposed users or groups, on the 0-100 scale. p_value: the p-value of a statistical test.
+         */
+        unit: ExperimentExposureHealthMeasurementUnit;
+        /**
+         * The value that the check measured on the experiment.
+         */
+        value: number;
+        /**
+         * The side of the threshold that reports a finding.
+         */
+        warns: ExperimentExposureHealthMeasurementSide;
+    };
     export type ExperimentExposureHealthCheckStatus =
         | "passed"
         | "finding"
         | "not_applicable"
         | "not_checked";
     export type ExperimentExposureHealthCheck = {
+        description?: (string | null) | undefined;
         /**
          * Stable identifier of the check.
          */
         key: ExperimentExposureHealthCheckKey;
+        measurement?: (ExperimentExposureHealthMeasurement | null) | undefined;
         /**
          * The problem the check looks for, as the health panel lists it.
          */
@@ -11554,11 +11623,13 @@ export namespace Schemas {
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
      * * `transactional_emails` - Transactional emails
+     * * `transactional_email_keys` - Transactional email keys
      */
     export type HogFlowOriginProductEnum =
         | "loops"
         | "broadcasts"
-        | "transactional_emails";
+        | "transactional_emails"
+        | "transactional_email_keys";
     export type HogFlowMasking = {
         ttl?: (number | null) | undefined;
         threshold?: (number | null) | undefined;
@@ -11998,6 +12069,7 @@ export namespace Schemas {
          * * `loops` - Loops
          * * `broadcasts` - Broadcasts
          * * `transactional_emails` - Transactional emails
+         * * `transactional_email_keys` - Transactional email keys
          */
         origin_product: HogFlowOriginProductEnum | NullEnum;
         created_at: string;
