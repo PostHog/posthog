@@ -122,6 +122,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'insight_variable:write',
     'integration:read',
     'integration:write',
+    'knowledge_writer:read',
+    'knowledge_writer:write',
     'legal_document:read',
     'legal_document:write',
     'link:read',
@@ -244,6 +246,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'webhook:write',
     'workload_trust_policy:read',
     'workload_trust_policy:write',
+    'workload_trust_policy_request:read',
+    'workload_trust_policy_request:write',
 ] as const
 
 export type OAuthScope = (typeof OAUTH_SCOPES_SUPPORTED)[number]
@@ -274,3 +278,29 @@ export const LEGACY_SCOPE_FALLBACKS: ReadonlyMap<string, string> = new Map([
     ['messaging_preference', 'hog_flow'],
     ['transactional_email', 'hog_flow'],
 ])
+
+// What each risky scope lets a token do (mirrors RISKY_SCOPE_WARNINGS in posthog/scopes.py).
+// Scope pickers show it next to the scope, so people add it with care.
+export const RISKY_SCOPE_WARNINGS: Readonly<Record<string, string>> = {
+    'access_control:write': 'Changes who can access resources in this project.',
+    'approvals:write': 'Approves or rejects change requests that gate other changes.',
+    'autoresearch:write': 'Starts agent runs that get their own longer-lived token.',
+    'billing:read': "Reads the whole organization's billing details, not just this project's.",
+    'billing:write': "Changes the organization's subscription and payment details.",
+    'hog_flow:write': "Runs workflow code that can use the stored credentials of the project's integrations.",
+    'hog_function:write':
+        "Runs code, including on your website, that can use the stored credentials of the project's integrations.",
+    'integration:write': 'Connects and changes third-party integrations and their stored credentials.',
+    'llm_provider_key:write': 'Stores and changes LLM provider API keys.',
+    'organization:write': 'Changes organization settings, including roles and OAuth apps.',
+    'organization_integration:write':
+        'Connects and changes organization-wide integrations and their stored credentials.',
+    'organization_member:write':
+        "Invites and removes organization members and changes their roles, so it can give people access beyond this token's scopes.",
+    'sharing_configuration:read':
+        'Reads the access tokens of public sharing links, which keep working after this token expires.',
+    'sharing_configuration:write': 'Creates public sharing links that anyone with the link can open.',
+    'user:read':
+        'Reads the account details of the user the token acts as, including every organization and project they belong to.',
+    'user:write': 'Changes the account of the user the token acts as.',
+}
