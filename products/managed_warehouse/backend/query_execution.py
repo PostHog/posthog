@@ -27,7 +27,7 @@ from posthog.direct_query_cancellation import build_direct_query_cancellation_to
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, raw_managed_trino_query_filter
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, ViewEngine
 from products.managed_warehouse.backend.facade.access import enable_customer_warehouse_access
 from products.managed_warehouse.backend.facade.contracts import TrinoExpansionMode
 from products.managed_warehouse.backend.facade.feature_flags import MANAGED_TRINO_QUERY_FLAG
@@ -51,6 +51,14 @@ def validate_managed_trino_raw_access(team: Team, user: User | None) -> None:
         )
     if not UserAccessControl(user=user, team=team).has_project_access:
         raise ExposedHogQLError("You do not have access to this project.")
+
+
+def has_managed_trino_raw_access(team: Team, user: User | None) -> bool:
+    try:
+        validate_managed_trino_raw_access(team, user)
+    except ExposedHogQLError:
+        return False
+    return True
 
 
 def validate_managed_trino_query(query: HogQLQuery, team: Team, user: User | None) -> None:
@@ -84,7 +92,7 @@ def raw_trino_view_catalog(
     """The raw Trino views the user can read, with the same access rules a HogQL query gets."""
     if (
         not DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
-        .filter(raw_managed_trino_query_filter())
+        .filter(ViewEngine.raw_trino_filter())
         .exclude(deleted=True)
         .exists()
     ):

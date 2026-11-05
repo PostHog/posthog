@@ -317,6 +317,37 @@ def test_raw_target_rejects_unauthorized_callers_before_cached_results(
     cached_run.assert_not_called()
 
 
+def test_hogql_results_that_may_read_raw_views_are_kept_from_token_callers(team: Team) -> None:
+    def cache_payload_and_labels(access_method: AccessMethod | None) -> tuple[dict, list[str] | None]:
+        runner = _canary_runner(team, connection=False)
+        runner.query = HogQLQuery(query="SELECT * FROM raw_view", executionTarget="managed_trino")
+        runner._modifiers_override_provided = False
+        with (
+            patch.object(HogQLQueryRunner, "_queried_table_names", new_callable=PropertyMock, return_value=set()),
+            patch("posthoganalytics.feature_enabled", return_value=False),
+            patch.object(AnalyticsQueryRunner, "get_cache_payload", return_value={}),
+            patch(
+                "products.managed_warehouse.backend.query_execution.enable_customer_warehouse_access", return_value=True
+            ),
+            patch(
+                "products.managed_warehouse.backend.query_execution.UserAccessControl.has_project_access",
+                new_callable=PropertyMock,
+                return_value=True,
+            ),
+            patch(
+                "products.managed_warehouse.backend.query_execution.get_query_tags",
+                return_value=QueryTags(access_method=access_method),
+            ),
+        ):
+            return runner.get_cache_payload(), runner.query_status_labels()
+
+    browser_payload, browser_labels = cache_payload_and_labels(None)
+    token_payload, token_labels = cache_payload_and_labels(AccessMethod.PERSONAL_API_KEY)
+    assert browser_payload != token_payload
+    assert browser_labels == [MANAGED_TRINO_RAW_QUERY_STATUS_LABEL]
+    assert token_labels is None
+
+
 @pytest.mark.parametrize(
     "sql", ['SELECT CAST(JSON \'{"ratio": "100%"}\' AS JSON) AS value', "DELETE FROM example_table"]
 )

@@ -223,16 +223,11 @@ def prepare_hogql_to_trino_compiler(
 def _raw_trino_view_mode(team: Team, user: User | None) -> RawTrinoViewMode:
     """Raw view SQL runs on the organization's warehouse credential, so only a caller allowed raw SQL may expand it."""
     from posthog.hogql.database.raw_trino_view import RawTrinoViewMode  # noqa: PLC0415
-    from posthog.hogql.errors import ExposedHogQLError  # noqa: PLC0415
 
     # query_execution imports this module, so its guard is imported here.
-    from products.managed_warehouse.backend.query_execution import validate_managed_trino_raw_access  # noqa: PLC0415
+    from products.managed_warehouse.backend.query_execution import has_managed_trino_raw_access  # noqa: PLC0415
 
-    try:
-        validate_managed_trino_raw_access(team, user)
-    except ExposedHogQLError:
-        return RawTrinoViewMode.REFUSE
-    return RawTrinoViewMode.EXPAND
+    return RawTrinoViewMode.EXPAND if has_managed_trino_raw_access(team, user) else RawTrinoViewMode.REFUSE
 
 
 def compile_hogql_to_trino_sql(
