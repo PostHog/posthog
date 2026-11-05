@@ -38,7 +38,7 @@ from posthog.storage.object_storage import ObjectStorageError
 from posthog.test.test_journeys import journeys_for
 from posthog.utils import absolute_uri
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.source_authentication import assert_export_authorization
 from products.exports.backend.tasks import csv_exporter
@@ -1454,7 +1454,7 @@ class TestCSVExporter(APIBaseTest):
             _create_person(distinct_ids=["user_1"], team=self.team)
             _create_person(distinct_ids=["user_2"], team=self.team)
 
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Test Action",
             steps_json=[{"event": "test_action_event"}],
