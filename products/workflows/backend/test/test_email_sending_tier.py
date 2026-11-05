@@ -544,38 +544,78 @@ class TestOwnSendsAtTheWindowStart(ClickhouseTestMixin, BaseTest):
             count=count,
         )
 
-    def test_sending_allowance_counts_from_the_exact_cutoff_and_drops_sandbox_sends(self) -> None:
+    @parameterized.expand(
+        [
+            ("own_send_before_the_cutoff", [("email_sent", -70, "step-1"), ("email_sent", -10, "step-1")], 1, 2),
+            ("full_pair", [("email_sent", -40, "step-1"), ("email_sandbox_sent", -40, "step-1")], 0, 0),
+            ("pair_split_sent_inside", [("email_sandbox_sent", -70, "step-1"), ("email_sent", -50, "step-1")], 0, 0),
+            (
+                "pair_split_sandbox_inside_beside_own_send",
+                [("email_sent", -70, "step-1"), ("email_sandbox_sent", -50, "step-1"), ("email_sent", -50, "step-2")],
+                1,
+                1,
+            ),
+            (
+                "own_send_outside_beside_pair_on_another_step",
+                [("email_sent", -70, "step-1"), ("email_sent", -50, "step-2"), ("email_sandbox_sent", -50, "step-2")],
+                0,
+                1,
+            ),
+        ]
+    )
+    def test_sending_allowance(
+        self, _name: str, records: list[tuple[str, int, str]], last_hour: int, last_day: int
+    ) -> None:
         with time_machine.travel(self.NOW, tick=False):
-            self._record("email_sent", self.NOW - timedelta(minutes=70), source="flow-b")
-            self._record("email_sent", self.NOW - timedelta(minutes=40))
-            self._record("email_sandbox_sent", self.NOW - timedelta(minutes=40))
-            self._record("email_sent", self.NOW - timedelta(minutes=10), count=2)
+            for metric_name, minutes, instance in records:
+                self._record(metric_name, self.NOW + timedelta(minutes=minutes), instance=instance)
             cache.clear()
             allowance = team_email_sending_allowance(self.team.id)
 
-        assert allowance.emails_sent_last_hour == 2
-        assert allowance.emails_sent_last_day == 3
+        assert (allowance.emails_sent_last_hour, allowance.emails_sent_last_day) == (last_hour, last_day)
 
-    def test_sending_history_counts_from_the_exact_cutoff_and_drops_sandbox_sends(self) -> None:
+    @parameterized.expand(
+        [
+            ("own_send_before_the_cutoff", [("email_sent", -20, "step-1"), ("email_sent", 20, "step-1")], 1),
+            ("full_pair", [("email_sent", 20, "step-1"), ("email_sandbox_sent", 20, "step-1")], 0),
+            ("pair_split_sandbox_inside", [("email_sent", -10, "step-1"), ("email_sandbox_sent", 10, "step-1")], 0),
+            ("pair_split_sent_inside", [("email_sandbox_sent", -10, "step-1"), ("email_sent", 10, "step-1")], 0),
+            (
+                "pair_outside_beside_own_send",
+                [("email_sent", -10, "step-1"), ("email_sandbox_sent", -10, "step-1"), ("email_sent", 10, "step-2")],
+                1,
+            ),
+            (
+                "pair_split_sandbox_inside_beside_own_send",
+                [("email_sent", -10, "step-1"), ("email_sandbox_sent", 10, "step-1"), ("email_sent", 10, "step-2")],
+                1,
+            ),
+            (
+                "own_send_outside_beside_pair_on_another_step",
+                [("email_sent", -10, "step-1"), ("email_sent", 10, "step-2"), ("email_sandbox_sent", 10, "step-2")],
+                0,
+            ),
+        ]
+    )
+    def test_sending_history_at_the_cutoff(
+        self, _name: str, records: list[tuple[str, int, str]], expected_sent: int
+    ) -> None:
         after = self.NOW - timedelta(days=1)
         with time_machine.travel(self.NOW, tick=False):
-            self._record("email_sent", after - timedelta(minutes=20), source="flow-b")
-            self._record("email_sent", after + timedelta(minutes=20))
-            self._record("email_sandbox_sent", after + timedelta(minutes=20))
-            self._record("email_sent", after - timedelta(minutes=10), source="flow-c")
-            self._record("email_sandbox_sent", after + timedelta(minutes=10), source="flow-c")
-            self._record("email_sent", after - timedelta(minutes=10), source="flow-d")
-            self._record("email_sandbox_sent", after - timedelta(minutes=10), source="flow-d")
-            self._record("email_sent", after + timedelta(minutes=10), source="flow-d", instance="step-2")
-            self._record("email_sandbox_sent", after - timedelta(minutes=10), source="flow-e")
-            self._record("email_sent", after + timedelta(minutes=10), source="flow-e")
-            self._record("email_sent", after - timedelta(minutes=10), source="flow-f")
-            self._record("email_sent", after + timedelta(minutes=10), source="flow-f", instance="step-2")
-            self._record("email_sandbox_sent", after + timedelta(minutes=10), source="flow-f", instance="step-2")
+            for metric_name, minutes, instance in records:
+                self._record(metric_name, after + timedelta(minutes=minutes), instance=instance)
+            histories = build_sending_histories(after=after, team_ids=[self.team.id])
+
+        assert histories[self.team.id].sent == expected_sent
+
+    def test_sending_history_keeps_bounces_of_sandbox_sends(self) -> None:
+        after = self.NOW - timedelta(days=1)
+        with time_machine.travel(self.NOW, tick=False):
             self._record("email_sent", after + timedelta(hours=4), count=3)
+            self._record("email_sandbox_sent", after + timedelta(hours=4))
             self._record("email_bounced_hard", after + timedelta(hours=4))
             histories = build_sending_histories(after=after, team_ids=[self.team.id])
 
-        assert histories[self.team.id].sent == 4
+        assert histories[self.team.id].sent == 2
         assert histories[self.team.id].hard_bounced == 1
-        assert histories[self.team.id].daily_sends == {after.strftime("%Y-%m-%d"): 4}
+        assert histories[self.team.id].daily_sends == {(after + timedelta(hours=4)).strftime("%Y-%m-%d"): 2}
