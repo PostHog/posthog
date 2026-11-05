@@ -27,7 +27,7 @@ export function EventsRetentionDeletionCount(props: EventsRetentionDeletionCount
         return <p className="mb-0">{`No events are older than ${retentionPeriodLabel(props.months)} yet.`}</p>
     }
     return (
-        <p className="mb-0">
+        <p className="mb-0 font-semibold">
             {`This would delete about ${humanFriendlyLargeNumber(eventsDeleted)} ${eventsDeleted === 1 ? 'event' : 'events'}.`}
         </p>
     )
