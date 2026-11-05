@@ -76,17 +76,17 @@ fn parse_json_column(text: Option<String>) -> JsValue {
 }
 
 /// Postgres team ids are int4 and start at 1 (`isValidTeamId`).
-fn team_id_key(key: &str) -> Option<Option<i32>> {
-    let is_digits = !key.is_empty() && key.len() <= 10 && key.bytes().all(|b| b.is_ascii_digit());
-    if !is_digits {
-        return None;
-    }
-    Some(
-        key.parse::<i64>()
-            .ok()
-            .filter(|n| *n >= 1 && *n <= 2_147_483_647)
-            .map(|n| n as i32),
-    )
+fn valid_team_id(raw: &str) -> Option<i32> {
+    raw.parse::<i32>().ok().filter(|n| *n >= 1)
+}
+
+/// A token lookup must never reach a team by id, so the two kinds of key never share a name.
+fn id_key(team_id: impl std::fmt::Display) -> String {
+    format!("id:{team_id}")
+}
+
+fn token_key(token: &str) -> String {
+    format!("token:{token}")
 }
 
 #[derive(Debug, Clone)]
@@ -132,7 +132,7 @@ impl PgTeamManager {
         .await
         .map_err(classify_pg_error)?;
         self.loader
-            .mark_for_refresh(&[team.team.id.to_string(), team.team.api_token.clone()]);
+            .mark_for_refresh(&[id_key(team.team.id), token_key(&team.team.api_token)]);
         Ok(())
     }
 }
@@ -144,10 +144,10 @@ async fn fetch_teams(
     let mut ids: Vec<i32> = Vec::new();
     let mut tokens: Vec<String> = Vec::new();
     for key in &keys {
-        match team_id_key(key) {
-            Some(Some(id)) => ids.push(id),
-            Some(None) => {}
-            None => tokens.push(key.clone()),
+        if let Some(raw) = key.strip_prefix("id:") {
+            ids.extend(valid_team_id(raw));
+        } else if let Some(token) = key.strip_prefix("token:") {
+            tokens.push(token.to_string());
         }
     }
     let rows = sqlx::query(
@@ -174,8 +174,8 @@ async fn fetch_teams(
             },
             ingested_event: row.try_get("ingested_event")?,
         };
-        out.insert(id.to_string(), Some(team.clone()));
-        out.insert(api_token, Some(team));
+        out.insert(id_key(id), Some(team.clone()));
+        out.insert(token_key(&api_token), Some(team));
     }
     Ok(out)
 }
@@ -183,11 +183,11 @@ async fn fetch_teams(
 #[async_trait]
 impl TeamManager for PgTeamManager {
     async fn get_team(&self, team_id: i64) -> anyhow::Result<Option<Team>> {
-        Ok(self.cached(&team_id.to_string()).await?.map(|t| t.team))
+        Ok(self.cached(&id_key(team_id)).await?.map(|t| t.team))
     }
 
     async fn get_team_by_token(&self, token: &str) -> anyhow::Result<Option<Team>> {
-        Ok(self.cached(token).await?.map(|t| t.team))
+        Ok(self.cached(&token_key(token)).await?.map(|t| t.team))
     }
 
     async fn set_teams_ingested_data(&self, team_ids: &[i64]) -> anyhow::Result<()> {
@@ -199,7 +199,7 @@ impl TeamManager for PgTeamManager {
         unique.dedup();
         futures::future::join_all(unique.into_iter().map(|team_id| async move {
             let result = async {
-                if let Some(team) = self.cached(&team_id.to_string()).await? {
+                if let Some(team) = self.cached(&id_key(team_id)).await? {
                     self.set_ingested_event(writer, &team).await?;
                 }
                 anyhow::Ok(())
@@ -648,12 +648,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn team_keys_split_like_fetch_teams() {
-        assert_eq!(team_id_key("42"), Some(Some(42)));
-        assert_eq!(team_id_key("0"), Some(None));
-        assert_eq!(team_id_key("9999999999"), Some(None));
-        assert_eq!(team_id_key("phc_abc"), None);
-        assert_eq!(team_id_key("12345678901"), None);
+    fn only_valid_team_ids_are_queried() {
+        assert_eq!(valid_team_id("42"), Some(42));
+        assert_eq!(valid_team_id("0"), None);
+        assert_eq!(valid_team_id("9999999999"), None);
+        assert_eq!(valid_team_id("phc_abc"), None);
     }
 
     #[test]

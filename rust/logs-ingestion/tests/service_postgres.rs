@@ -146,6 +146,14 @@ async fn team_manager_reads_teams_and_writes_ingested_event_once() {
         None
     );
     assert_eq!(manager.get_team(0).await.unwrap(), None);
+    // The team is cached by id now, and its id must still not work as a token.
+    assert_eq!(
+        manager
+            .get_team_by_token(&team.id.to_string())
+            .await
+            .unwrap(),
+        None
+    );
 
     let read_only = PgTeamManager::new(pool.clone(), None);
     read_only
