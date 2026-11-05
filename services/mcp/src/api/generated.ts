@@ -137077,6 +137077,10 @@ export namespace Schemas {
      */
     created_after?: string;
     /**
+     * Only return runs created by this user.
+     */
+    created_by_id?: number;
+    /**
      * Number of results to return per page.
      * @maximum 100
      */
