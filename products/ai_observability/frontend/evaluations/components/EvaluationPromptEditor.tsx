@@ -11,7 +11,7 @@ import { llmEvaluationLogic } from '../llmEvaluationLogic'
 
 export function EvaluationPromptEditor(): JSX.Element {
     const { evaluation } = useValues(llmEvaluationLogic)
-    const { setEvaluationPrompt } = useActions(llmEvaluationLogic)
+    const { setEvaluationPrompt, setTrueIsFailure } = useActions(llmEvaluationLogic)
 
     if (!evaluation || evaluation.evaluation_type !== 'llm_judge') {
         return <div>Loading...</div>
@@ -47,9 +47,15 @@ Example: Is this response helpful and accurate? Return true if yes, false if no.
                     />
                     {templatePrompts.length > 0 && (
                         <LemonMenu
-                            items={templatePrompts.map(({ label, prompt: templatePrompt }) => ({
+                            items={templatePrompts.map(({ label, prompt: templatePrompt, trueIsFailure }) => ({
                                 label,
-                                onClick: () => setEvaluationPrompt(templatePrompt),
+                                onClick: () => {
+                                    setEvaluationPrompt(templatePrompt)
+                                    // A detector's prompt returns true for the problem, so its polarity comes with it.
+                                    if (evaluation.output_type === 'boolean') {
+                                        setTrueIsFailure(!!trueIsFailure)
+                                    }
+                                },
                             }))}
                         >
                             <LemonButton

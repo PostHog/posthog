@@ -12,6 +12,8 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { urls } from '~/scenes/urls'
 import { SidePanelTab } from '~/types'
 
+import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+
 import { EvaluationResultTag } from '../../components/EvaluationResultTag'
 import type { TestHogResultItemApi } from '../../generated/api.schemas'
 import {
@@ -21,7 +23,7 @@ import {
     numericOutputConfigError,
     numericScorePasses,
 } from '../constants'
-import { HogSnippet, hogAdaptPrompt, hogSnippetsFor } from '../evaluationSnippets'
+import { HOG_ADAPT_PROMPT, HogSnippet, hogAdaptContext, hogSnippetsFor } from '../evaluationSnippets'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import type { EvaluationTarget } from '../types'
 
@@ -397,8 +399,11 @@ export function HogTestResultsPanel(): JSX.Element | null {
 
 export function EvaluationCodeEditor(): JSX.Element {
     const { evaluation, hogTestResultsLoading } = useValues(llmEvaluationLogic)
-    const { setHogSource, setAllowsNA, testHogOnSample } = useActions(llmEvaluationLogic)
+    const { setHogSource, setAllowsNA, setTrueIsFailure, testHogOnSample } = useActions(llmEvaluationLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
+    useAttachedContext(
+        evaluation?.evaluation_type === 'hog' ? hogAdaptContext(evaluation, evaluation.evaluation_config.source) : null
+    )
 
     if (!evaluation || evaluation.evaluation_type !== 'hog') {
         return <div>Loading...</div>
@@ -414,6 +419,10 @@ export function EvaluationCodeEditor(): JSX.Element {
         onClick: () => {
             if (snippet.allowsNA) {
                 setAllowsNA(true)
+            }
+            // A detector template returns true for the problem, so its polarity comes with its code.
+            if (snippet.trueIsFailure !== undefined && evaluation.output_type === 'boolean') {
+                setTrueIsFailure(snippet.trueIsFailure)
             }
             setHogSource(snippet.source)
         },
@@ -494,9 +503,7 @@ export function EvaluationCodeEditor(): JSX.Element {
                             type="secondary"
                             size="xsmall"
                             icon={<IconSparkles />}
-                            onClick={() =>
-                                openSidePanel(SidePanelTab.Max, autoRunMaxPrompt(hogAdaptPrompt(evaluation, source)))
-                            }
+                            onClick={() => openSidePanel(SidePanelTab.Max, autoRunMaxPrompt(HOG_ADAPT_PROMPT))}
                             data-attr="llma-evaluation-hog-adapt-with-ai"
                         >
                             Adapt with PostHog AI
