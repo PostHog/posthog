@@ -71,6 +71,15 @@ It also handles boxes whose worktree was already removed some other way, but onl
 
 To give every new worktree a box, run `hogli devbox:worktree --auto claude,phw` once with the worktree sources you want (`claude`, `codex`, `posthog-code`, `phw`, `other`). The husky `post-checkout` hook then runs `devbox:worktree` in the background after `git worktree add`, including for `claude -w`. Claude subagent worktrees are skipped. Turn it off with `--auto off`.
 
+**Worktree boxes on Hogland** —
+`hogli devbox:worktree --provider hogland` gives the worktree a Hogland devbox instead of a Coder workspace.
+It restores the box from the `devbox-golden` snapshot with `hogland devbox up`, so the `hogland` CLI must be installed and signed in.
+The box is named `wt-<label>` and the mirror goes to `/home/hog/posthog` over SSH.
+To make Hogland the default, including for automatic boxes, pass `--provider hogland` together with `--auto`.
+`hogli devbox:config:rm worktree-provider` goes back to Coder.
+`worktrees:clean --stop-boxes` hibernates a Hogland box, and `--delete-boxes` deletes it.
+`--clone-from` and `--start-app` work only with Coder.
+
 ## Prerequisites
 
 - Access to the PostHog Tailscale tailnet (on macOS, the Tailscale app bundle CLI is detected automatically if `tailscale` isn't on PATH)

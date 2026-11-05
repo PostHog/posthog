@@ -60,6 +60,7 @@ describe('ExperimentWarningBanner', () => {
                 {
                     code: 'variant_shipped_while_running',
                     subcode: 'running_but_single_variant_shipped',
+                    reason: null,
                     severity: 'warning',
                     title: '',
                     detail: '',

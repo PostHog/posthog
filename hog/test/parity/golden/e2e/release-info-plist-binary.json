@@ -1,0 +1,24 @@
+{
+  "exitCode": 0,
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/projects/1/error_tracking/releases/hash/4866ebf20b73d4f30c23b351936f36d7d395f41c218b97a1507730c4ca4e5d4f985ba73769a50e999054354f5b37c5b9dcfe88c47beda819246cdff39734e3c4",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "status": 404
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/releases",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"hash_id\":\"4866ebf20b73d4f30c23b351936f36d7d395f41c218b97a1507730c4ca4e5d4f985ba73769a50e999054354f5b37c5b9dcfe88c47beda819246cdff39734e3c4\",\"version\":\"3.4.0-béta+57\",\"project\":\"com.example.shop\"}",
+      "status": 201
+    }
+  ]
+}

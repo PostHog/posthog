@@ -26,6 +26,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { extractValidationError } from '~/queries/nodes/InsightViz/utils'
 import { performQuery } from '~/queries/query'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     ActorsQuery,
     DataTableNode,
@@ -39,7 +40,6 @@ import {
     TrendsQuery,
     insightActorsQueryOptionsResponseKeys,
 } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActivityTab,
     ActorType,

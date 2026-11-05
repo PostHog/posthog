@@ -52,6 +52,7 @@ PRODUCTS_APPS = [
     "products.tasks.backend.apps.TasksConfig",
     "products.canvas.backend.apps.CanvasConfig",
     "products.stamphog.backend.apps.StamphogConfig",
+    "products.knowledge_writer.backend.apps.KnowledgeWriterConfig",
     "products.today.backend.apps.TodayConfig",
     "products.links.backend.apps.LinksConfig",
     "products.field_notes.backend.apps.FieldNotesConfig",
@@ -211,10 +212,13 @@ MIDDLEWARE = [
     "posthog.middleware.EnvironmentsRewriteMiddleware",
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
-    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "posthog.middleware.AuthenticationMiddleware",
     # Must run immediately after AuthenticationMiddleware so downstream middleware
     # (activity logging, structlog binding, etc.) sees the swapped staff user on /admin/* paths.
     "posthog.middleware.AdminImpersonationMiddleware",
+    # Opens one authorization session per request, so `authorization.check()` without a subject
+    # uses the request's user. Middleware above this line runs outside the session and must pass a subject.
+    "products.authorization.backend.middleware.AuthorizationSessionMiddleware",
     "posthog.middleware.SocialAuthExceptionMiddleware",
     "posthog.middleware.SessionAgeMiddleware",
     "posthog.middleware.KnownLoginDeviceCookieMiddleware",
@@ -493,6 +497,13 @@ if DEBUG:
     # a second source for 1300+ identical assets would make collectstatic warn about
     # duplicate destinations for no gain.
     STATICFILES_DIRS.append(os.path.join(BASE_DIR, "frontend/public"))
+    # A warehouse source plugin keeps its icon in its own directory. The frontend build copies those
+    # icons into dist, so this finder is DEBUG-only for the same reason as `frontend/public` above.
+    STATICFILES_FINDERS = [
+        "django.contrib.staticfiles.finders.FileSystemFinder",
+        "django.contrib.staticfiles.finders.AppDirectoriesFinder",
+        "products.warehouse_sources.backend.source_icons.SourceIconFinder",
+    ]
 
 # WhiteNoise serves precompressed files when present, so this only controls collectstatic output.
 if TEST:
@@ -556,7 +567,7 @@ EMAIL_VERIFICATION_SKIP_FOR_DOMAINS = [
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["posthog.auth.SessionAuthentication"],
-    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.LimitOffsetPagination",
+    "DEFAULT_PAGINATION_CLASS": "posthog.api.pagination.DefaultLimitOffsetPagination",
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
     "DEFAULT_RENDERER_CLASSES": ["posthog.renderers.SafeJSONRenderer"],
     "PAGE_SIZE": 100,
@@ -648,7 +659,12 @@ SPECTACULAR_SETTINGS = {
             "LogsAlertConfigurationStateEnum": "products.logs.backend.models.LogsAlertConfiguration.State",
             # Matches the shared alerts skeleton's PlatformAlert.State.
             "BillingAlertConfigurationStateEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.State",
+            # The ai_observability playground asks the same System One question kinds, so both share one name.
+            "DecisionQuestionTypeEnum": "products.ml_inference.backend.facade.enums.DecisionQuestionType.choices",
             "LogsPatternsSourceEnum": ["stored_patterns", "body_mining"],
+            # Dashboard filters and data catalog metric runs both take the query schema's IntervalType,
+            # a plain enum no class can carry.
+            "IntervalTypeEnum": ["second", "minute", "hour", "day", "week", "month", "quarter", "year"],
             # The anomaly and explain bodies keep this name; the metrics query clause's own
             # aggregation adds 'none' and is named by its MetricQueryAggregation class.
             "AggregationEnum": ["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
@@ -701,6 +717,9 @@ SPECTACULAR_SETTINGS = {
             "ResolvedAccessSourceEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_CHOICES",
             "ResolvedAccessSourceSubjectEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES",
             "RuleResourceEnum": "products.access_control.backend.facade.user_access_control.RULE_RESOURCE_CHOICES",
+            # Authentication classes declare their activity log credential type as a CredentialType
+            # literal, so no Choices class carries the set. The list is derived from that literal.
+            "ActivityLogCredentialTypeEnum": "posthog.models.activity_logging.utils.CREDENTIAL_TYPE_CHOICES",
             # Every grantable scope object, from posthog/scopes.py. The frontend's APIScopeObject type
             # derives from this enum, so the object list is never copied by hand.
             "ScopeObjectEnum": "products.access_control.backend.facade.enums.SCOPE_OBJECT_CHOICES",
@@ -743,6 +762,8 @@ SPECTACULAR_SETTINGS = {
             #
             # The choices come from a typing.Literal via get_args; there is no class.
             "BlockedByEnum": ["x_frame_options", "frame_ancestors"],
+            # ai_observability's dataset and trace exports report the same states.
+            "ExportStatusEnum": "products.ai_observability.backend.facade.contracts.TRACE_EXPORT_STATUSES",
             "FeatureFlagRequestTypeEnum": ["remote_evaluation", "local_evaluation"],
             "PropertyFilterTypeEnum": [
                 "event",
@@ -1125,6 +1146,15 @@ WORKFLOWS_PERSON_BATCH_SIZE = int(get_from_env("WORKFLOWS_PERSON_BATCH_SIZE", 50
 if WORKFLOWS_PERSON_BATCH_SIZE < 1:
     # An empty page reports has_more, so the resolver would refetch it forever.
     raise ImproperlyConfigured("WORKFLOWS_PERSON_BATCH_SIZE must be at least 1")
+# ClickHouse execution cap for one audience page of the batch resolver. Interactive HogQL runs under the
+# 60s default; a page query is background work for one caller, so it gets more time. The resolver's
+# HTTP budget (CDP_HOG_FLOW_BATCH_AUDIENCE_FETCH_TIMEOUT_MS) must stay above this value, so ClickHouse
+# always ends a slow query before the client gives up and a retry never overlaps a query that is still running.
+WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS = int(
+    get_from_env("WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS", 180)
+)
+if WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS < 1:
+    raise ImproperlyConfigured("WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS must be at least 1")
 # Elevated maximum audience size, returned for teams listed in HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS.
 HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED = int(get_from_env("HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED", 1000000))
 # Comma-separated list of team IDs that get the elevated batch trigger limit instead of the default.
@@ -1305,6 +1335,7 @@ OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL = "posthog.OAuthAccessToken"
 OAUTH2_PROVIDER_REFRESH_TOKEN_MODEL = "posthog.OAuthRefreshToken"
 OAUTH2_PROVIDER_ID_TOKEN_MODEL = "posthog.OAuthIDToken"
 OAUTH2_PROVIDER_GRANT_MODEL = "posthog.OAuthGrant"
+OAUTH2_PROVIDER_DEVICE_GRANT_MODEL = "posthog.OAuthDeviceGrant"
 
 ID_JAG_ACCESS_TOKEN_TTL_SECONDS: int = get_from_env("ID_JAG_ACCESS_TOKEN_TTL_SECONDS", 60 * 60 * 2, type_cast=int)
 ID_JAG_CLOCK_SKEW_SECONDS: int = get_from_env("ID_JAG_CLOCK_SKEW_SECONDS", 30, type_cast=int)

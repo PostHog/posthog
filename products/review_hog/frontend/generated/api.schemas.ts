@@ -1361,7 +1361,20 @@ export interface ReviewPRStatusApi {
     request_outcome: ReviewPRStatusRequestOutcomeApi | null
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface ReviewReviewsTablePageApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** How many reviews match the scope and every filter, across all pages. */
     count: number
     /** How many reviews have a run in flight under the scope and filters, ignoring `status`. Labels the running quick filter without a second request. */

@@ -27,6 +27,7 @@ from ..facade.contracts import (
     HighlightContext,
     HighlightFindings,
     HighlightSource,
+    PulseSlot,
 )
 
 # Short names for Today's own sources in today_highlights/. Other products use the facade contract.
@@ -57,12 +58,14 @@ class Context:
         today: date,
         scopes: frozenset[str] | None = None,
         pinned: frozenset[str] = frozenset(),
+        publish_pulse: Callable[[HighlightFindings, list[PulseSlot]], None] | None = None,
     ) -> None:
         self.team = team
         self.user = user
         self.today = today
         self.scopes = scopes
         self.pinned = pinned
+        self.publish_pulse = publish_pulse
         self.failures: list[str] = []
         self.access = UserAccessControl(user=user, team=team)
 

@@ -86,8 +86,11 @@ impl RawJSFrame {
         let sourcemap = catalog.lookup(team_id, r).await?;
         let smc = sourcemap.get_smc();
 
-        // Note: javascript stack frame lines are 1-indexed, so we have to subtract 1
-        let generated_position = SourcePosition::new(location.line - 1, location.column);
+        // JS stack frame lines and columns are 1-based, but the sourcemap cache is 0-based
+        let generated_position = SourcePosition::new(
+            location.line.saturating_sub(1),
+            location.column.saturating_sub(1),
+        );
         let Some(location) = smc.lookup(generated_position) else {
             return Err(JsResolveErr::TokenNotFound(
                 self.fn_name.clone(),
@@ -237,8 +240,8 @@ impl From<(&RawJSFrame, SourceLocation<'_>, usize)> for Frame {
         let mut res = Self {
             frame_id: FrameId::placeholder(), // We use placeholders here, as they're overriden at the RawFrame level
             mangled_name: raw_frame.fn_name.clone(),
-            line: Some(token.line()),
-            column: Some(token.column()),
+            line: Some(token.line() + 1),
+            column: Some(token.column() + 1),
             source,
             in_app,
             resolved_name,
@@ -387,7 +390,7 @@ mod test {
     async fn source_map_ignore_list_demotes_only_ignored_sources() {
         let catalog = source_map_catalog();
 
-        let vendor = resolvable_frame(0)
+        let vendor = resolvable_frame(1)
             .resolve_frame(1, &catalog, 0)
             .await
             .unwrap();
@@ -395,13 +398,29 @@ mod test {
         assert_eq!(vendor.source.as_deref(), Some("vendor.js"));
         assert!(!vendor.in_app);
 
-        let app = resolvable_frame(10)
+        let app = resolvable_frame(11)
             .resolve_frame(1, &catalog, 0)
             .await
             .unwrap();
         assert!(app.resolved);
         assert_eq!(app.source.as_deref(), Some("app.js"));
         assert!(app.in_app);
+    }
+
+    #[tokio::test]
+    async fn resolves_1_based_frame_positions_to_1_based_source_positions() {
+        let catalog = source_map_catalog();
+
+        // The map starts app.js at 0-based minified column 10, which is 1-based column 11.
+        for (column, expected_source) in [(10, "vendor.js"), (11, "app.js")] {
+            let frame = resolvable_frame(column)
+                .resolve_frame(1, &catalog, 1)
+                .await
+                .unwrap();
+            assert_eq!(frame.source.as_deref(), Some(expected_source), "{column}");
+            assert_eq!((frame.line, frame.column), (Some(1), Some(1)), "{column}");
+            assert_eq!(frame.context.as_ref().unwrap().line.number, 1, "{column}");
+        }
     }
 
     #[test]

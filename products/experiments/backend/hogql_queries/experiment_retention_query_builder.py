@@ -21,6 +21,7 @@ from products.experiments.backend.hogql_queries.base_query_utils import (
     event_or_action_to_filter,
 )
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureQueryBuilder
+from products.experiments.backend.hogql_queries.experiment_metric_values import get_maturity_window_seconds
 from products.experiments.backend.hogql_queries.experiment_query_context import MaturityGate
 
 if TYPE_CHECKING:
@@ -57,10 +58,7 @@ class RetentionQueryBuilder:
         not contribute. Only retention_window_end counts.
         """
         assert isinstance(self._b.metric, ExperimentRetentionMetric)
-        return conversion_window_to_seconds(
-            self._b.metric.retention_window_end,
-            self._b.metric.retention_window_unit,
-        )
+        return get_maturity_window_seconds(self._b.metric)
 
     def get_metric_events_window_extension_seconds(self) -> int:
         """

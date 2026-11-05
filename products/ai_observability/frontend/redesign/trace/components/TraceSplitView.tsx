@@ -29,8 +29,8 @@ export function TraceSplitView({
     matchStepCount = 0,
 }: TraceSplitViewProps): JSX.Element {
     return (
-        <div className="@container">
-            <div className="flex flex-col gap-4 @3xl:flex-row @3xl:items-start">
+        <div className="@container h-full">
+            <div className="flex flex-col gap-4 @3xl:h-full @3xl:flex-row">
                 <aside className="w-full shrink-0 @3xl:w-72">
                     <TraceTree
                         nodes={tree}
@@ -43,7 +43,7 @@ export function TraceSplitView({
                         matchStepCount={matchStepCount}
                     />
                 </aside>
-                <div className="min-w-0 flex-1 @3xl:sticky @3xl:top-[var(--scene-title-section-height,50px)] @3xl:max-h-[calc(100vh-var(--scene-title-section-height,50px))] @3xl:overflow-y-auto">
+                <div className="min-w-0 flex-1 @3xl:overflow-y-auto">
                     {detail ? (
                         <NodeDetail
                             {...detail}

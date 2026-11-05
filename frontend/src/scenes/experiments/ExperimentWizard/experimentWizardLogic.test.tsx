@@ -40,7 +40,7 @@ jest.mock('scenes/feature-flags/JSONEditorInput', () => ({
 
 // The consent gate reads a single selector; stubbing the logic lets each case pick the org's
 // consent state without standing up organizationLogic's loaders.
-jest.mock('scenes/settings/organization/aiConsentLogic', () => {
+jest.mock('~/layout/ai/aiConsentLogic', () => {
     const { kea, selectors } = jest.requireActual('kea')
     return {
         aiConsentLogic: kea([

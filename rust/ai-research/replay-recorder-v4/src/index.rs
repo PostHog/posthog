@@ -419,6 +419,9 @@ impl IndexMessage {
 
 #[cfg(test)]
 mod tests {
+    use replay_core_v4::inspect::session::MAX_MOMENTS_PER_BLOCK;
+    use replay_core_v4::inspect::stats::MAX_WINDOW_IDS;
+    use replay_core_v4::scan::message::MAX_WINDOW_ID_BYTES;
     use serde_json::{json, Value};
 
     use super::*;
@@ -685,6 +688,29 @@ mod tests {
         };
         let message = IndexMessage::block(&block).unwrap();
         let value = assert_columns(&message.payload, BLOCK_COLUMNS);
+
+        // The longest window ID the reader accepts, in the characters JSON writes longest, keeps the row under the
+        // producer's default limit, so a rejected row cannot make its flush look incomplete.
+        let window = "\"".repeat(MAX_WINDOW_ID_BYTES);
+        let wide = BlockStats {
+            window_ids: vec![window.clone(); MAX_WINDOW_IDS],
+            ..BlockStats::default()
+        };
+        let crowded = vec![
+            Moment {
+                kind: "full_snapshot",
+                window_id: window.as_str().into(),
+                ts_ms: 0,
+                event_index: 0,
+            };
+            MAX_MOMENTS_PER_BLOCK
+        ];
+        let largest = BlockIndexRow {
+            stats: &wide,
+            moments: &crowded,
+            ..block
+        };
+        assert!(IndexMessage::block(&largest).unwrap().payload.len() < 1_000_000);
         assert_eq!(
             [
                 &value["first_ts_ms"],

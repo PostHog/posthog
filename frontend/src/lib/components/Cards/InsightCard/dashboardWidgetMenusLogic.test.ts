@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dashboardWidgetMenusLogic'
@@ -27,6 +28,18 @@ describe('dashboardWidgetMenusLogic', () => {
         await expectLogic(logic).toMatchValues({
             dashboardIdsWithThisWidget: new Set([7, 10]),
         })
+    })
+
+    it('keeps copyToDestinations stable when a caller passes a new empty tiles array', () => {
+        const logic = dashboardWidgetMenusLogic({ instanceKey: 'test', dashboardId: 1, dashboard_tiles: [] })
+        logic.mount()
+        const destinations = logic.values.copyToDestinations
+
+        dashboardWidgetMenusLogic({ instanceKey: 'test', dashboardId: 1, dashboard_tiles: [] })
+        // The selectors recompute only when the store state changes, and any action does that in the app.
+        router.actions.push('/elsewhere')
+
+        expect(logic.values.copyToDestinations).toBe(destinations)
     })
 
     it('copyToDestinations excludes the current dashboard and disables rows already placed', async () => {

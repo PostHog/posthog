@@ -14,8 +14,11 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.notebooks.backend.kernel_runtime import (
+    NOTEBOOK_KERNEL_MAX_RUNNING_PER_TEAM,
+    NOTEBOOK_KERNEL_STARTS_PER_USER_PER_HOUR,
     NOTEBOOK_KERNEL_TTL_SECONDS,
     KernelRuntimeService,
+    KernelSandboxLimitExceeded,
     _KernelHandle,
     _NotebookBridgeParser,
     build_notebook_sandbox_config,
@@ -232,6 +235,47 @@ class TestKernelRuntimeService(BaseTest):
         assert event == "notebook kernel sandbox ended"
         assert properties["ended_reason"] == KernelRuntime.Status.STOPPED
         assert properties["sandbox_still_running"] is destroy_fails
+
+    @parameterized.expand(
+        [
+            ("user_hourly_starts", "same_user_ended", NOTEBOOK_KERNEL_STARTS_PER_USER_PER_HOUR, True),
+            ("team_running_sandboxes", "other_user_running", NOTEBOOK_KERNEL_MAX_RUNNING_PER_TEAM, True),
+            ("ended_sandboxes_of_other_users", "other_user_ended", NOTEBOOK_KERNEL_MAX_RUNNING_PER_TEAM, False),
+            ("under_both_limits", "same_user_ended", NOTEBOOK_KERNEL_STARTS_PER_USER_PER_HOUR - 1, False),
+        ]
+    )
+    def test_ensure_kernel_refuses_new_sandbox_over_limit(
+        self, _name: str, existing: str, count: int, refused: bool
+    ) -> None:
+        notebook = Notebook.objects.create(team=self.team)
+        other_user = self._create_user("other@example.com")
+        now = timezone.now()
+        for _ in range(count):
+            runtime = KernelRuntime.objects.create(
+                team=self.team,
+                notebook_short_id=notebook.short_id,
+                user=self.user if existing == "same_user_ended" else other_user,
+                status=KernelRuntime.Status.RUNNING,
+                backend=KernelRuntime.Backend.MODAL,
+            )
+            KernelRuntime.objects.filter(pk=runtime.pk).update(
+                ttl_expires_at=now + timedelta(minutes=30),
+                ended_at=None if existing == "other_user_running" else now,
+            )
+        sandbox_class = MagicMock()
+        sandbox_class.create.side_effect = RuntimeError("provider called")
+        service = KernelRuntimeService()
+
+        with (
+            patch.object(service, "_get_backend", return_value=KernelRuntime.Backend.MODAL),
+            patch.object(service, "_acquire_lock", return_value=_DummyLock()),
+            patch.object(service, "_get_sandbox_class", return_value=sandbox_class),
+        ):
+            with self.assertRaises(KernelSandboxLimitExceeded if refused else RuntimeError) as ctx:
+                service.ensure_kernel(notebook, self.user)
+
+        assert isinstance(ctx.exception, KernelSandboxLimitExceeded) is refused
+        assert sandbox_class.create.called is not refused
 
     def test_execute_filters_invalid_variable_names(self) -> None:
         service = KernelRuntimeService()

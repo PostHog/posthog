@@ -66,6 +66,12 @@ class TestMessagePreferencesViews(BaseTest):
         self._token_patch.stop()
         super().tearDown()
 
+    def _post_one_click(self):
+        return self.client.post(
+            reverse("message_preferences", kwargs={"token": self.token}) + "?one_click_unsubscribe=1",
+            {"List-Unsubscribe": "One-Click"},
+        )
+
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_preferences_page_valid_token(self, mock_validate_messaging_preferences_token):
         mock_validate_messaging_preferences_token.return_value = mock_response(
@@ -96,32 +102,40 @@ class TestMessagePreferencesViews(BaseTest):
         )
 
         response = self.client.get(
-            reverse("message_preferences", kwargs={"token": self.token}),
-            {"one_click_unsubscribe": "1"},
+            reverse("message_preferences", kwargs={"token": self.token}), {"one_click_unsubscribe": "1"}
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertTemplateUsed(response, "message_preferences/one_click_unsubscribe_success.html")
+        self.assertTemplateUsed(response, "message_preferences/one_click_unsubscribe_confirm.html")
         self.assertContains(response, STYLESHEET_LINK)
+        self.assertContains(response, 'method="post"')
 
         self.recipient.refresh_from_db()
-        prefs = self.recipient.get_all_preferences()
-        self.assertEqual(prefs[str(self.category.id)], PreferenceStatus.OPTED_OUT)
-        self.assertEqual(prefs[str(self.category2.id)], PreferenceStatus.OPTED_OUT)
-        self.assertEqual(prefs[ALL_MESSAGE_PREFERENCE_CATEGORY_ID], PreferenceStatus.OPTED_OUT)
+        self.assertNotIn(ALL_MESSAGE_PREFERENCE_CATEGORY_ID, self.recipient.get_all_preferences())
 
+    @parameterized.expand(
+        [
+            ("mail_client_button", {"List-Unsubscribe": "One-Click"}, None),
+            ("confirm_form", {"one_click_unsubscribe": "1"}, "message_preferences/one_click_unsubscribe_success.html"),
+        ]
+    )
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
-    def test_preferences_page_one_click_unsubscribe_post(self, mock_validate_messaging_preferences_token):
+    def test_preferences_page_one_click_unsubscribe_post(
+        self, _name, body, expected_template, mock_validate_messaging_preferences_token
+    ):
         mock_validate_messaging_preferences_token.return_value = mock_response(
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
         )
 
         response = self.client.post(
-            reverse("message_preferences", kwargs={"token": self.token}),
-            {"one_click_unsubscribe": "1"},
+            reverse("message_preferences", kwargs={"token": self.token}) + "?one_click_unsubscribe=1", body
         )
 
         self.assertEqual(response.status_code, 200)
+        if expected_template:
+            self.assertTemplateUsed(response, expected_template)
+        else:
+            self.assertEqual(response.content, b"")
 
         self.recipient.refresh_from_db()
         prefs = self.recipient.get_all_preferences()
@@ -236,9 +250,10 @@ class TestMessagePreferencesViews(BaseTest):
             },
         )
 
-        if action in ("one_click", "view"):
-            params = {"one_click_unsubscribe": "1"} if action == "one_click" else {}
-            response = self.client.get(reverse("message_preferences", kwargs={"token": self.token}), params)
+        if action == "one_click":
+            response = self._post_one_click()
+        elif action == "view":
+            response = self.client.get(reverse("message_preferences", kwargs={"token": self.token}))
         else:
             prefs = {
                 "opt_out": [f"{self.category.id}:false"],
@@ -286,9 +301,7 @@ class TestMessagePreferencesViews(BaseTest):
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier, **claims}
         )
 
-        response = self.client.get(
-            reverse("message_preferences", kwargs={"token": self.token}), {"one_click_unsubscribe": "1"}
-        )
+        response = self._post_one_click()
 
         self.assertEqual(response.status_code, 200)
         self.recipient.refresh_from_db()
@@ -312,9 +325,7 @@ class TestMessagePreferencesViews(BaseTest):
             },
         )
 
-        response = self.client.get(
-            reverse("message_preferences", kwargs={"token": self.token}), {"one_click_unsubscribe": "1"}
-        )
+        response = self._post_one_click()
 
         self.assertEqual(response.status_code, 200)
         self.recipient.refresh_from_db()
@@ -337,10 +348,7 @@ class TestMessagePreferencesViews(BaseTest):
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
         )
 
-        response = self.client.get(
-            reverse("message_preferences", kwargs={"token": self.token}),
-            {"one_click_unsubscribe": "1"},
-        )
+        response = self._post_one_click()
 
         self.assertEqual(response.status_code, 200)
         mock_capture_internal.assert_called_once_with(
@@ -357,10 +365,7 @@ class TestMessagePreferencesViews(BaseTest):
 
         # A replay (scanner prefetch, reused token) is not a transition and must not emit again
         mock_capture_internal.reset_mock()
-        response = self.client.get(
-            reverse("message_preferences", kwargs={"token": self.token}),
-            {"one_click_unsubscribe": "1"},
-        )
+        response = self._post_one_click()
         self.assertEqual(response.status_code, 200)
         mock_capture_internal.assert_not_called()
 
@@ -410,10 +415,7 @@ class TestMessagePreferencesViews(BaseTest):
         )
 
         if code_path == "one_click":
-            response = self.client.get(
-                reverse("message_preferences", kwargs={"token": self.token}),
-                {"one_click_unsubscribe": "1"},
-            )
+            response = self._post_one_click()
         else:
             response = self.client.post(
                 reverse("message_preferences_update"),
@@ -536,10 +538,7 @@ class TestMessagePreferencesViews(BaseTest):
         )
 
         if code_path == "one_click":
-            response = self.client.get(
-                reverse("message_preferences", kwargs={"token": self.token}),
-                {"one_click_unsubscribe": "1"},
-            )
+            response = self._post_one_click()
         else:
             response = self.client.post(
                 reverse("message_preferences_update"),

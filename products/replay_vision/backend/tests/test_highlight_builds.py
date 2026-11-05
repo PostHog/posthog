@@ -4,10 +4,12 @@ from typing import Any
 
 import time_machine
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.utils import timezone
 
 from parameterized import parameterized
+from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Team
 
@@ -31,6 +33,7 @@ from products.replay_vision.backend.models.replay_observation import (
 from products.replay_vision.backend.models.replay_observation_rank import RankCategory, ReplayObservationRank
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.observation_ranks import NewRank, record_ranks
+from products.replay_vision.backend.temporal.activities.rebuild_highlight_feeds import rebuild_highlight_feeds_activity
 from products.replay_vision.backend.tests.helpers import snapshot_for
 from products.replay_vision.backend.watch_rank import ANCHOR_VERSION
 
@@ -90,6 +93,11 @@ class TestHighlightBuilds(BaseTest):
             (entry.window_days, str(entry.observation_id)): (entry.place, round(entry.percentile, 3))
             for entry in ReplayHighlightFeedEntry.objects.for_team(self.team.id)
         }
+        people = dict(ReplayObservationRank.objects.for_team(self.team.id).values_list("observation_id", "person_key"))
+        assert all(
+            entry.person_key is not None and entry.person_key == people[entry.observation_id]
+            for entry in ReplayHighlightFeedEntry.objects.for_team(self.team.id)
+        )
         # The day window has ten rows, so its best two clear the cut; the week window places all twenty.
         assert {key: value for key, value in entries.items() if key[0] == 1} == {
             (1, recent[0]): (1, 0.95),
@@ -230,6 +238,31 @@ class TestHighlightBuilds(BaseTest):
 
         assert (first, served, built) == (1, 1, [1, 0])
         assert ReplayHighlightFeedState.objects.for_team(self.team.id).get().generation == 2
+
+    def test_the_rebuild_activity_works_through_every_due_batch(self) -> None:
+        other = Team.objects.create(organization=self.organization, name="other")
+        other_scanner = ReplayScanner.objects.create(
+            team=other,
+            name="other",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+        )
+        self._ranked(10, age=timedelta(hours=1))
+        for index in range(10):
+            observation = self._observation(_NOW - timedelta(hours=1, minutes=index), scanner=other_scanner, team=other)
+            record_ranks(
+                other.id, ANCHOR_VERSION, {str(observation.id): NewRank(contrast=index / 10, category="failure")}
+            )
+
+        with patch("products.replay_vision.backend.highlight_builds.REBUILDS_PER_SWEEP", 1):
+            result = ActivityEnvironment().run(rebuild_highlight_feeds_activity)
+
+        assert result.built == 2
+        assert set(ReplayHighlightFeedState.objects.unscoped().values_list("team_id", "generation")) == {
+            (self.team.id, 1),
+            (other.id, 1),
+        }
 
     def test_a_load_that_began_before_a_rebuild_stays_on_the_build_it_started_on(self) -> None:
         self._ranked(10, age=timedelta(hours=1))

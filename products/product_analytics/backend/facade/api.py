@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 from posthog.models import Team, User
 
@@ -126,6 +126,19 @@ def recently_viewed_insights(*, team_id: int, user_id: int, limit: int) -> list[
     Each one carries the viewer's own ``last_viewed_at`` rather than the team-wide latest.
     """
     return logic.recently_viewed_insights(team_id=team_id, user_id=user_id, limit=limit)
+
+
+def insight_short_ids_built_by(*, team: Team, user_id: int, since: datetime, limit: int) -> list[str]:
+    """Short ids of saved insights in the project that the user created or last edited since `since`, newest first."""
+    return list(
+        Insight.objects.filter(team__project_id=team.project_id, deleted=False, saved=True)
+        .filter(
+            Q(created_by_id=user_id, created_at__gte=since)
+            | Q(last_modified_by_id=user_id, last_modified_at__gte=since)
+        )
+        .order_by("-last_modified_at")
+        .values_list("short_id", flat=True)[:limit]
+    )
 
 
 def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Collection[int]) -> list[Insight]:
@@ -291,6 +304,40 @@ def save_saved_insight_query(
     return None
 
 
+def viewable_insight_definitions(
+    *, team: Team, user: User, short_ids: Collection[str]
+) -> dict[str, SavedInsightDefinition]:
+    access_control = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
+    insights = list(Insight.objects.filter(team__project_id=team.project_id, short_id__in=short_ids, deleted=False))
+    denied = set(
+        access_control.denied_object_ids(
+            "insight", ((str(insight.pk), insight.team_id, insight.created_by_id) for insight in insights), "viewer"
+        )
+    )
+    return {
+        insight.short_id: SavedInsightDefinition(
+            id=insight.pk,
+            short_id=insight.short_id,
+            name=insight.name or insight.derived_name,
+            query=insight.query or {},
+        )
+        for insight in insights
+        if str(insight.pk) not in denied
+    }
+
+
+def insight_query_complete(*, team: Team, query_id: str) -> bool:
+    from products.product_analytics.backend import insight_series
+
+    return insight_series.query_complete(team=team, query_id=query_id)
+
+
+def insight_series_supported(*, query: dict[str, Any], dashboard: InsightDashboardContext | None = None) -> bool:
+    from products.product_analytics.backend import insight_series
+
+    return insight_series.supports_series(query=query, dashboard=dashboard)
+
+
 def get_insight_series(
     *,
     team: Team,
@@ -299,12 +346,15 @@ def get_insight_series(
     dashboard: InsightDashboardContext | None = None,
     blocking: bool = False,
     wait_until: float | None = None,
+    raise_on_pending: bool = False,
 ) -> InsightSeries | None:
     insight = Insight.objects.filter(team__project_id=team.project_id, short_id=short_id, deleted=False).first()
     if insight is None:
         return None
     access_control = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
-    if not access_control.check_access_level_for_object(insight, "viewer"):
+    if access_control.denied_object_ids(
+        "insight", [(str(insight.pk), insight.team_id, insight.created_by_id)], "viewer"
+    ):
         return None
     from products.product_analytics.backend import (  # noqa: PLC0415 -- insight_series imports the query runner, which imports this facade
         insight_series,
@@ -319,4 +369,5 @@ def get_insight_series(
         dashboard=dashboard,
         blocking=blocking,
         wait_until=wait_until,
+        raise_on_pending=raise_on_pending,
     )

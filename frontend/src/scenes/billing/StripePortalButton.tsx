@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { billingLogic } from './billingLogic'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 
 export const StripePortalButton = (): JSX.Element | null => {
     const { billing, isExternallyBilled, isBillingManagedByPartner } = useValues(billingLogic)

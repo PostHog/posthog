@@ -154,6 +154,14 @@ class CheckComparison(BaseModel):
 class MonitoringMetricConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    purpose: Literal["expectation", "minimum_evidence"] = Field(
+        default="expectation",
+        description=(
+            "`expectation` evaluates whether the implementation met its target. `minimum_evidence` checks a fixed "
+            "minimum sample count: meeting it passes the guard; missing it is inconclusive and requires assessment, "
+            "never an implementation failure. Use a positive whole-number `gte` target on one unsampled raw count."
+        ),
+    )
     reference_period_minutes: int = Field(
         strict=True,
         gt=0,
@@ -418,6 +426,24 @@ def validate_metric_check_for_write(config: MetricThresholdConfig) -> None:
             raise CheckConfigValidationError("A Monitoring baseline needs its measured baseline_period_minutes.")
         source = config.query["source"]
         series = source["series"]
+        if config.monitoring.purpose == "minimum_evidence":
+            if (
+                config.monitoring.threshold_scaling != "fixed"
+                or config.comparison.operator != "gte"
+                or config.comparison.value is None
+                or config.comparison.value <= 0
+                or not config.comparison.value.is_integer()
+                or len(series) != 1
+                or series[0].get("math") not in {None, "total"}
+                or series[0].get("math_property") == "$session_duration"
+                or series[0].get("math_property_type") == "session_properties"
+                or source.get("samplingFactor") not in (None, 1)
+                or any((source.get("trendsFilter") or {}).get(key) for key in ("formula", "formulas", "formulaNodes"))
+            ):
+                raise CheckConfigValidationError(
+                    "A minimum-evidence guard requires a fixed, positive whole-number gte target on one unsampled "
+                    "raw event or action count, without a formula."
+                )
         if any(item.get("math") in {"weekly_active", "monthly_active"} for item in series):
             raise CheckConfigValidationError(
                 "Monitoring targets cannot use rolling weekly or monthly active users. Use a distinct user count instead."
@@ -493,9 +519,12 @@ class CheckSpec(BaseModel):
         ge=MIN_CHECK_SOAK_HOURS,
         le=MAX_CHECK_SOAK_HOURS,
         description=(
-            "How long after the report is resolved to wait before measuring. The fix has to have "
-            f"been live a while for the result to mean anything. Defaults to {DEFAULT_CHECK_SOAK_HOURS} hours "
-            "for a new check; omission preserves an existing check’s wait."
+            "Verification duration in hours. Monitoring observes the entire fixed window from the recorded "
+            "Monitoring start through start + soak_hours, without excluding a deployment buffer. PR completion "
+            "uses the latest implementation PR merge timestamp; manual entry uses the time Monitoring starts. "
+            "Without Monitoring, this is the wait "
+            f"after resolution before measuring. Defaults to {DEFAULT_CHECK_SOAK_HOURS} hours for a new check; "
+            "omission preserves an existing check's duration."
         ),
     )
     run_interval_minutes: int | None = Field(
@@ -520,7 +549,12 @@ class CheckSpec(BaseModel):
 
     @model_validator(mode="after")
     def config_must_match_its_kind(self) -> CheckSpec:
-        config = parse_check_config(self.kind, self.config)
+        try:
+            config = parse_check_config(self.kind, self.config)
+        except CheckConfigValidationError as error:
+            if isinstance(error.__cause__, ValidationError):
+                raise error.__cause__
+            raise
         if self.run_interval_minutes is not None:
             if not isinstance(config, MetricThresholdConfig) or config.monitoring is None:
                 raise ValueError("Research can author an interval only for a Monitoring metric check.")

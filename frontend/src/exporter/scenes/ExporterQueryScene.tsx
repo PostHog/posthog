@@ -11,8 +11,10 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { DISPLAYS_WITH_IN_CHART_LEGEND } from 'scenes/insights/insightVizDataLogic'
 
 import { Query } from '~/queries/Query/Query'
+import { getDisplay } from '~/queries/schema/node-accessors'
+import { isInsightVizNode, isTrendsQuery } from '~/queries/schema/node-guards'
 import { SharingConfigurationSettings } from '~/queries/schema/schema-general'
-import { getDisplay, isInsightVizNode, isMetricInsightQuery, isTrendsQuery } from '~/queries/utils'
+import { isMetricInsightQuery } from '~/queries/utils'
 import { ChartDisplayType, InsightLogicProps } from '~/types'
 
 import { ExportedData } from '../types'
