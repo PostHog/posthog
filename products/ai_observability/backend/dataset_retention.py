@@ -62,14 +62,14 @@ class DatasetRetentionPolicy:
 
 class DatasetUsage:
     @staticmethod
-    def record(dataset: Dataset, revision: DatasetRevision | None = None) -> None:
+    def record(dataset: Dataset, revision: DatasetRevision | None = None, *, force: bool = False) -> None:
         if dataset.expired_at is not None:
             raise Dataset.DoesNotExist
         if revision is not None and (revision.expired_at is not None or revision.dataset_id != dataset.id):
             raise DatasetRevision.DoesNotExist
         now = timezone.now()
         cutoff = now - USAGE_REFRESH_INTERVAL
-        if dataset.last_used_at is not None and dataset.last_used_at > cutoff:
+        if not force and dataset.last_used_at is not None and dataset.last_used_at > cutoff:
             if revision is None or (revision.last_used_at is not None and revision.last_used_at > cutoff):
                 return
         # Usage and cleanup serialize on the dataset, including accesses to its older revisions.
@@ -85,13 +85,14 @@ class DatasetUsage:
                 )
                 if not revisions.exists():
                     raise DatasetRevision.DoesNotExist
-                if revisions.filter(Q(last_used_at__isnull=True) | Q(last_used_at__lte=cutoff)).update(
-                    last_used_at=now
-                ):
+                stale_revisions = (
+                    revisions if force else revisions.filter(Q(last_used_at__isnull=True) | Q(last_used_at__lte=cutoff))
+                )
+                if stale_revisions.update(last_used_at=now):
                     revision.last_used_at = now
                 else:
                     revision.last_used_at = revisions.values_list("last_used_at", flat=True).get()
-            if locked.last_used_at is None or locked.last_used_at <= cutoff:
+            if force or locked.last_used_at is None or locked.last_used_at <= cutoff:
                 Dataset.objects.for_team(dataset.team_id, canonical=True).filter(id=dataset.id).update(last_used_at=now)
                 locked.last_used_at = now
             dataset.last_used_at = locked.last_used_at

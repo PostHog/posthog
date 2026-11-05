@@ -33,6 +33,7 @@ import type {
     DatasetCreateApi,
     DatasetExportCreateApi,
     DatasetExportReadApi,
+    DatasetExtendRetentionApi,
     DatasetItemArchiveApi,
     DatasetItemCreateApi,
     DatasetItemReadApi,
@@ -42,7 +43,10 @@ import type {
     DatasetItemsRetrieveParams,
     DatasetItemsVersionsListParams,
     DatasetReadApi,
+    DatasetRetentionEntryApi,
+    DatasetRetentionReadApi,
     DatasetsListParams,
+    DatasetsRetentionRetrieveParams,
     DatasetsRevisionsListParams,
     EvaluationApi,
     EvaluationBackfillApi,
@@ -1403,6 +1407,27 @@ export const datasetsExportsContentRetrieve = async (
     })
 }
 
+export const getDatasetsExtendRetentionCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/datasets/${id}/extend_retention/`
+}
+
+/**
+ * Refresh retention for a dataset and optionally one revision, with the same access required to read them.
+ */
+export const datasetsExtendRetentionCreate = async (
+    projectId: string,
+    id: string,
+    datasetExtendRetentionApi?: DatasetExtendRetentionApi,
+    options?: RequestInit
+): Promise<DatasetRetentionEntryApi> => {
+    return apiMutator<DatasetRetentionEntryApi>(getDatasetsExtendRetentionCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(datasetExtendRetentionApi),
+    })
+}
+
 export const getDatasetsRestoreUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/datasets/${id}/restore/`
 }
@@ -1447,6 +1472,36 @@ export const datasetsRevisionsList = async (
     options?: RequestInit
 ): Promise<PaginatedDatasetRevisionReadListApi> => {
     return apiMutator<PaginatedDatasetRevisionReadListApi>(getDatasetsRevisionsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDatasetsRetentionRetrieveUrl = (projectId: string, params?: DatasetsRetentionRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/datasets/retention/?${stringifiedParams}`
+        : `/api/projects/${projectId}/datasets/retention/`
+}
+
+/**
+ * Find accessible datasets and older revisions within seven days of expiry without refreshing their retention.
+ */
+export const datasetsRetentionRetrieve = async (
+    projectId: string,
+    params?: DatasetsRetentionRetrieveParams,
+    options?: RequestInit
+): Promise<DatasetRetentionReadApi> => {
+    return apiMutator<DatasetRetentionReadApi>(getDatasetsRetentionRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

@@ -17,6 +17,8 @@ import {
     datasetsRevisionsList,
     datasetsRestore,
     datasetsRetrieve,
+    datasetsRetentionRetrieve,
+    datasetsExtendRetentionCreate,
 } from '../generated/api'
 import type {
     DatasetCreateApi,
@@ -36,6 +38,9 @@ import type {
     PaginatedDatasetReadListApi,
     PaginatedDatasetRevisionReadListApi,
     PatchedDatasetUpdateApi,
+    DatasetRetentionEntryApi,
+    DatasetRetentionReadApi,
+    DatasetsRetentionRetrieveParams,
 } from '../generated/api.schemas'
 
 function getCurrentProjectId(): string {
@@ -43,6 +48,14 @@ function getCurrentProjectId(): string {
 }
 
 export const datasetsApi = {
+    getRetention(params?: DatasetsRetentionRetrieveParams): Promise<DatasetRetentionReadApi> {
+        return datasetsRetentionRetrieve(getCurrentProjectId(), params)
+    },
+
+    extendRetention(id: string, revision?: number): Promise<DatasetRetentionEntryApi> {
+        return datasetsExtendRetentionCreate(getCurrentProjectId(), id, revision === undefined ? {} : { revision })
+    },
+
     listDatasets(params?: DatasetsListParams): Promise<PaginatedDatasetReadListApi> {
         return datasetsList(getCurrentProjectId(), params)
     },

@@ -1,6 +1,10 @@
+from datetime import timedelta
+
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
+
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -12,6 +16,7 @@ from posthog.models.user import User
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.dataset_service import archive_dataset, create_dataset, create_dataset_item
 from products.ai_observability.backend.models.clustering_job import ClusteringJob
+from products.ai_observability.backend.models.datasets import Dataset
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.review_queues import ReviewQueue, ReviewQueueItem
 from products.ai_observability.backend.models.trace_reviews import TraceReview
@@ -642,6 +647,39 @@ class TestAIObservabilityAccessControl(APIBaseTest):
                 organization_member=membership,
                 access_level="viewer",
             ).exists()
+        )
+
+    def test_retention_summary_and_renewal_respect_dataset_access(self) -> None:
+        hidden = create_dataset(team=self.team, name="Restricted dataset", created_by=self.user)
+        for dataset in (self.dataset, hidden):
+            create_dataset_item(team_id=self.team.id, dataset_id=dataset.id, created_by=self.user, input="Example one")
+            create_dataset_item(team_id=self.team.id, dataset_id=dataset.id, created_by=self.user, input="Example two")
+        Dataset.objects.for_team(self.team.id, canonical=True).filter(id__in=[self.dataset.id, hidden.id]).update(
+            last_used_at=timezone.now() - timedelta(days=88)
+        )
+        self._set_access_level(self.viewer_user, access_level="none")
+        membership = OrganizationMembership.objects.get(user=self.viewer_user, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dataset",
+            resource_id=str(self.dataset.id),
+            access_level="viewer",
+            organization_member=membership,
+        )
+        self.client.force_login(self.viewer_user)
+        url = f"/api/projects/{self.team.id}/datasets/"
+        for kind in ("datasets", "revisions"):
+            response = self.client.get(f"{url}retention/", {"kind": kind})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.data["datasets_count"], 1)
+            self.assertEqual(response.data["revisions_count"], 1)
+            self.assertEqual([entry["dataset_id"] for entry in response.data["results"]], [str(self.dataset.id)])
+        self.assertEqual(
+            self.client.post(f"{url}{hidden.id}/extend_retention/", {}).status_code, status.HTTP_403_FORBIDDEN
+        )
+        self.assertEqual(
+            self.client.post(f"{url}{self.dataset.id}/extend_retention/", {"revision": 1}).status_code,
+            status.HTTP_200_OK,
         )
 
     @parameterized.expand(
