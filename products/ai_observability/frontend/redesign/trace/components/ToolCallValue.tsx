@@ -1,10 +1,9 @@
-import { useLayoutEffect, useState } from 'react'
+import { useLayoutEffect, useMemo, useState } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
 
-import { isPlainObject, toDisplayText } from './jsonText'
+import { isPlainObject, searchableText, toDisplayText } from './jsonText'
 import { KeyValueTable } from './KeyValueTable'
-import { useShowsQuery } from './useShowsQuery'
 
 // A value longer than this folds to one line, so a message with several tool calls still shows every call.
 const FOLDED_LINES = 8
@@ -30,7 +29,9 @@ function ValueBody({ value }: { value: unknown }): JSX.Element {
 function FoldedValue({ value, highlightQuery }: Required<ToolCallValueProps>): JSX.Element {
     const [details, setDetails] = useState<HTMLDetailsElement | null>(null)
     const [isOpen, setIsOpen] = useState(false)
-    const showsQuery = useShowsQuery(details, highlightQuery)
+    const text = useMemo(() => searchableText(value).toLowerCase(), [value])
+    // A closed fold holds only the escaped one-line preview, so the decoded value decides whether the query is in it.
+    const showsQuery = !!highlightQuery && text.includes(highlightQuery.toLowerCase())
     useLayoutEffect(() => {
         if (details && showsQuery) {
             details.open = true

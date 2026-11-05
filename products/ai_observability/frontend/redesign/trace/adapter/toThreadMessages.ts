@@ -39,11 +39,12 @@ function parseArguments(args: unknown): unknown {
 // Tools often return JSON as text, which reads better as the structure it encodes. Scalars stay as written, and so
 // does a result whose numbers parsing would round, because the view must show the captured value.
 function parseToolResult(result: unknown): unknown {
-    if (typeof result === 'string' && hasLossyNumber(result)) {
+    const parsed = parseArguments(result)
+    if (!isObject(parsed) && !Array.isArray(parsed)) {
         return result
     }
-    const parsed = parseArguments(result)
-    return isObject(parsed) || Array.isArray(parsed) ? parsed : result
+    // The number scan runs on valid JSON only: on malformed text its string pattern backtracks quadratically.
+    return typeof result === 'string' && hasLossyNumber(result) ? result : parsed
 }
 
 // The normalizer passes some media items it has no recipe for through as their JSON text.
