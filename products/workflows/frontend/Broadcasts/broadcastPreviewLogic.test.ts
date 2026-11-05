@@ -16,7 +16,14 @@ const PRO_PLAN: AnyPropertyFilter[] = [
     { key: 'plan', value: ['pro'], operator: PropertyOperator.Exact, type: PropertyFilterType.Person },
 ]
 const ADA = ['person-ada', { display_name: 'Ada' }, JSON.stringify({ email: 'ada@example.com', name: 'Ada' })]
+const GRACE = ['person-grace', { display_name: 'Grace' }, JSON.stringify({ email: 'grace@example.com', name: 'Grace' })]
 const NO_EMAIL = ['person-anon', { display_name: 'Anon' }, JSON.stringify({ name: 'Anon' })]
+const NO_EMAIL_EITHER = ['person-bo', { display_name: 'Bo' }, JSON.stringify({ name: 'Bo' })]
+const SAVED_DRAFT = {
+    id: 'broadcast-1',
+    status: 'draft',
+    actions: [{ id: 'trigger_node', type: 'trigger', config: { type: 'batch', filters: { properties: PRO_PLAN } } }],
+}
 
 describe('broadcastPreviewLogic', () => {
     let wizard: ReturnType<typeof broadcastWizardLogic.build>
@@ -64,6 +71,20 @@ describe('broadcastPreviewLogic', () => {
         )
     })
 
+    it('looks up preview people in the audience a saved draft resumes with', async () => {
+        useMocks({ get: { '/api/projects/:team_id/hog_flows/:id/': () => [200, SAVED_DRAFT] } })
+        query.mockResolvedValueOnce({ results: [NO_EMAIL] }).mockResolvedValue({ results: [ADA] })
+        wizard.unmount()
+        wizard = broadcastWizardLogic({ id: 'broadcast-1' })
+        wizard.mount()
+        logic = broadcastPreviewLogic({ id: 'broadcast-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPersonsSuccess', 'loadPersonsSuccess'])
+
+        expect(query.mock.lastCall?.[0].properties).toEqual(PRO_PLAN)
+        expect(logic.values.persons.map((person) => person.id)).toEqual(['person-ada'])
+    })
+
     it.each([
         [
             'the display name',
@@ -100,8 +121,8 @@ describe('broadcastPreviewLogic', () => {
 
     it.each([
         ['the person the sender picked', [ADA, NO_EMAIL], 'person-anon', 'person-anon'],
-        ['the first person with an email', [NO_EMAIL, ADA], null, 'person-ada'],
-        ['the first person when nobody has an email', [NO_EMAIL], null, 'person-anon'],
+        ['the first person with an email', [NO_EMAIL, ADA, GRACE], null, 'person-ada'],
+        ['the first person when nobody has an email', [NO_EMAIL, NO_EMAIL_EITHER], null, 'person-anon'],
         ['a reachable person when the pick left the audience', [NO_EMAIL, ADA], 'person-gone', 'person-ada'],
     ])('previews %s', async (_name, rows, picked, expected) => {
         await mountWith(rows)
@@ -137,8 +158,9 @@ describe('broadcastPreviewLogic', () => {
         expect(logic.values).toMatchObject({ personsFailed: false, personsLoading: false })
     })
 
-    it('renders the email and push merge tags for the preview person', async () => {
-        await mountWith([ADA])
+    it('renders the email and push merge tags for the person the sender picked', async () => {
+        await mountWith([ADA, GRACE])
+        logic.actions.selectPerson('person-grace')
         const tag = '{{ person.properties.name }}'
         wizard.actions.setEmail({
             ...DEFAULT_BROADCAST_EMAIL,
@@ -149,12 +171,12 @@ describe('broadcastPreviewLogic', () => {
         wizard.actions.setPush({ channels: [], title: `Title ${tag}`, body: `Body ${tag}` })
 
         expect(logic.values).toMatchObject({
-            previewTo: 'ada@example.com',
-            previewSubject: 'Subject Ada',
-            previewHtml: '<p>Html Ada</p>',
-            previewText: 'Text Ada',
-            previewPushTitle: 'Title Ada',
-            previewPushBody: 'Body Ada',
+            previewTo: 'grace@example.com',
+            previewSubject: 'Subject Grace',
+            previewHtml: '<p>Html Grace</p>',
+            previewText: 'Text Grace',
+            previewPushTitle: 'Title Grace',
+            previewPushBody: 'Body Grace',
         })
     })
 
