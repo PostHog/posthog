@@ -5,12 +5,7 @@ from posthog.dataclasses import frozen
 
 from products.wizard.backend.facade.contracts import WizardSpendRange
 from products.wizard.backend.facade.enums import WizardSpendEffort, WizardSpendFixLocation
-from products.wizard.backend.logic.results.config import (
-    MAX_RESULT_IDS,
-    MAX_RESULT_SAVINGS,
-    MAX_RESULT_TEXT_LENGTH,
-    WIZARD_RESULT_VERSION,
-)
+from products.wizard.backend.logic.results.config import MAX_RESULT_TITLE_LENGTH, WIZARD_RESULT_VERSION
 
 _RESULT_FIELDS = frozenset(
     {"version", "notebook_short_id", "dashboard_ids", "insight_ids", "savings", "value_items", "checks_passed"}
@@ -68,7 +63,7 @@ def parse_program_result(raw: bytes) -> ProgramResult:
         raise InvalidProgramResultError("The result file has an unsupported version")
 
     savings = decoded.get("savings", [])
-    if not isinstance(savings, list) or len(savings) > MAX_RESULT_SAVINGS:
+    if not isinstance(savings, list):
         raise InvalidProgramResultError("Invalid savings list")
 
     claims = tuple(_parse_saving(saving) for saving in savings)
@@ -76,7 +71,7 @@ def parse_program_result(raw: bytes) -> ProgramResult:
         raise InvalidProgramResultError("Saving ids must be unique")
 
     return ProgramResult(
-        notebook_short_id=_text(decoded.get("notebook_short_id"), max_length=64),
+        notebook_short_id=_text(decoded.get("notebook_short_id")),
         dashboard_ids=_ids(decoded.get("dashboard_ids", [])),
         insight_ids=_ids(decoded.get("insight_ids", [])),
         savings=claims,
@@ -103,10 +98,10 @@ def _parse_saving(value: Any) -> SavingClaim:
         raise InvalidProgramResultError("A saving cannot raise volume")
 
     return SavingClaim(
-        id=_text(value["id"], max_length=64),
-        title=_text(value["title"]),
-        billing_type=_text(value["billing_type"], max_length=64),
-        unit=_text(value["unit"], max_length=64),
+        id=_text(value["id"]),
+        title=_text(value["title"], max_length=MAX_RESULT_TITLE_LENGTH),
+        billing_type=_text(value["billing_type"]),
+        unit=_text(value["unit"]),
         volume_before=before,
         volume_after=volume_after,
         evidence=_text(value["evidence"]),
@@ -116,8 +111,9 @@ def _parse_saving(value: Any) -> SavingClaim:
     )
 
 
-def _text(value: Any, *, max_length: int = MAX_RESULT_TEXT_LENGTH) -> str:
-    if not isinstance(value, str) or not value.strip() or len(value) > max_length:
+def _text(value: Any, *, max_length: int | None = None) -> str:
+    # Limits match the Wizard's `publish_result` schema, so nothing it accepts is refused here.
+    if not isinstance(value, str) or not value.strip() or (max_length is not None and len(value) > max_length):
         raise InvalidProgramResultError("Invalid text field")
     return value.strip()
 
@@ -130,7 +126,7 @@ def _number(value: Any) -> float:
 
 
 def _ids(value: Any) -> tuple[int, ...]:
-    if not isinstance(value, list) or len(value) > MAX_RESULT_IDS:
+    if not isinstance(value, list):
         raise InvalidProgramResultError("Invalid id list")
     if not all(isinstance(item, int) and not isinstance(item, bool) and item > 0 for item in value):
         raise InvalidProgramResultError("Invalid id list")
