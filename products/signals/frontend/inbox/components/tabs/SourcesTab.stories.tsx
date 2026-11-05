@@ -12,6 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { useStorybookMocks } from '~/mocks/browser'
 
 import { availableSourcesLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/availableSourcesLogic'
+import type { AlertPatternPreviewResponseApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { ERROR_TRACKING_SIGNAL_SOURCE_TYPES } from '../../signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from '../../types'
@@ -85,7 +86,14 @@ function sourceConfigsFor(state: PanelState): SignalSourceConfig[] {
         ),
         sourceConfig(SignalSourceProduct.Conversations, SignalSourceType.Ticket, state.supportArmed),
         sourceConfig(SignalSourceProduct.LlmAnalytics, SignalSourceType.EvaluationReport, state.aiObservabilityArmed),
-        sourceConfig(SignalSourceProduct.Analytics, SignalSourceType.AnomalyInvestigation, state.productAnalyticsArmed),
+        {
+            ...sourceConfig(
+                SignalSourceProduct.Analytics,
+                SignalSourceType.AnomalyInvestigation,
+                state.productAnalyticsArmed
+            ),
+            config: { alert_allow_patterns: ['(?i)revenue|signup'], alert_block_patterns: ['(?i)test'] },
+        },
         sourceConfig(SignalSourceProduct.HealthChecks, SignalSourceType.HealthIssue, state.healthChecksArmed),
     ]
 }
@@ -185,8 +193,47 @@ function eventDefinitionsFor(state: PanelState): { name: string; last_seen_at: s
     return names.map((name) => ({ name, last_seen_at: new Date().toISOString() }))
 }
 
+const ALERT_PATTERN_PREVIEW: AlertPatternPreviewResponseApi = {
+    alert_allow_patterns_error: null,
+    alert_block_patterns_error: null,
+    has_more: false,
+    alerts: [
+        {
+            id: 'alert-1',
+            name: 'Daily revenue below target',
+            insight_name: 'Revenue by plan',
+            insight_short_id: 'rev123',
+            outcome: 'passed',
+        },
+        {
+            id: 'alert-2',
+            name: 'Signups dropped',
+            insight_name: 'Weekly signups',
+            insight_short_id: 'sig123',
+            outcome: 'passed',
+        },
+        {
+            id: 'alert-3',
+            name: 'Revenue test alert',
+            insight_name: 'Revenue by plan',
+            insight_short_id: 'rev123',
+            outcome: 'blocked',
+        },
+        {
+            id: 'alert-4',
+            name: '',
+            insight_name: 'Pageview count',
+            insight_short_id: 'pv123',
+            outcome: 'not_allowed',
+        },
+    ],
+}
+
 function PanelHarness(state: PanelState): JSX.Element {
     useStorybookMocks({
+        post: {
+            '/api/projects/:team_id/signals/source_configs/alert_pattern_preview/': () => [200, ALERT_PATTERN_PREVIEW],
+        },
         get: {
             '/api/environments/:team_id/external_data_sources/wizard/': () => [
                 200,
@@ -441,7 +488,10 @@ export const ErrorTrackingExpanded: Story = {
     },
 }
 
-/** Product analytics opened with the all-alerts flag on: the choice between investigated alerts and every firing alert. */
+/**
+ * Product analytics opened with the all-alerts flag on: the choice between investigated alerts and every firing alert,
+ * then the allow and block patterns with a preview of the alerts they let through and drop.
+ */
 export const ProductAnalyticsAlertScope: Story = {
     args: { productAnalyticsArmed: true },
     parameters: {

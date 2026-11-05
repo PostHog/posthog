@@ -13658,6 +13658,72 @@ export namespace Schemas {
       hog_function_ids: string[];
     }
 
+    /**
+     * * `passed` - passed
+     * * `blocked` - blocked
+     * * `not_allowed` - not_allowed
+     */
+    export type AlertPatternPreviewOutcomeEnum = typeof AlertPatternPreviewOutcomeEnum[keyof typeof AlertPatternPreviewOutcomeEnum];
+
+
+    export const AlertPatternPreviewOutcomeEnum = {
+      Passed: 'passed',
+      Blocked: 'blocked',
+      NotAllowed: 'not_allowed',
+    } as const;
+
+    export interface AlertPatternPreviewAlert {
+      /** The alert's id. */
+      id: string;
+      /** The alert's name. Empty when the alert has no name. */
+      name: string;
+      /**
+         * The insight's name, or its derived name when it has none.
+         * @nullable
+         */
+      insight_name: string | null;
+      /** Short id of the insight the alert watches. */
+      insight_short_id: string;
+      /** `passed` when the patterns let the alert through, `blocked` when it matches a block pattern, and `not_allowed` when allow patterns are set and it matches none of them.
+       *
+       * * `passed` - passed
+       * * `blocked` - blocked
+       * * `not_allowed` - not_allowed */
+      outcome: AlertPatternPreviewOutcomeEnum;
+    }
+
+    export interface AlertPatternPreviewRequest {
+      /**
+         * Allow patterns to try, as they would be saved in `config.alert_allow_patterns`.
+         * @maxItems 100
+         * @items.maxLength 1000
+         */
+      alert_allow_patterns?: string[];
+      /**
+         * Block patterns to try, as they would be saved in `config.alert_block_patterns`.
+         * @maxItems 100
+         * @items.maxLength 1000
+         */
+      alert_block_patterns?: string[];
+    }
+
+    export interface AlertPatternPreviewResponse {
+      /**
+         * Why the allow patterns could not be saved, or null when they are valid.
+         * @nullable
+         */
+      alert_allow_patterns_error: string | null;
+      /**
+         * Why the block patterns could not be saved, or null when they are valid.
+         * @nullable
+         */
+      alert_block_patterns_error: string | null;
+      /** The project's enabled alerts on insights you can view, newest first, each with what the patterns do to it. Empty while either pattern list has an error. */
+      alerts: AlertPatternPreviewAlert[];
+      /** True when the project has more enabled alerts than `alerts` lists. */
+      has_more: boolean;
+    }
+
     export interface AlertSimulate {
       /**
          * Skip this many completed insight intervals before simulation, matching live evaluation. Time-series Trends only; a positive delay requires check_ongoing_interval=false.
