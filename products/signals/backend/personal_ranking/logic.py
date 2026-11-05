@@ -562,6 +562,7 @@ def build_personal_ranking(
                     call.content,
                     refs=refs,
                     model_reasons=model_reasons,
+                    needs_you={candidate.ref: candidate.needs_you for candidate in candidates},
                     limit=limit,
                     rank_top=config.rank_top,
                     top_max=config.top_max,
