@@ -4716,6 +4716,7 @@ class SignalReportViewSet(
                     "the current billing period, or the report is system-marked never-billable."
                 )
             ),
+            403: OpenApiResponse(description="PR refunds are not available with usage-based pricing."),
             404: OpenApiResponse(description="Report not found, or refunds are not enabled for this organization."),
         },
         summary="Refund a report's implementation PR",
@@ -4734,6 +4735,18 @@ class SignalReportViewSet(
     def refund(self, request: ValidatedRequest, pk=None, **kwargs):
         if not self._signals_pr_refunds_enabled():
             raise NotFound("PR refunds are not enabled for this organization.")
+
+        org_id = str(self.organization.id)
+        if (
+            posthoganalytics.feature_enabled(
+                "self-driving-ubp",
+                org_id,
+                groups={"organization": org_id},
+                group_properties={"organization": {"id": org_id}},
+            )
+            is True
+        ):
+            raise exceptions.PermissionDenied("PR refunds are not available with usage-based pricing.")
 
         report = cast(SignalReport, self.get_object())
         data = request.validated_data
