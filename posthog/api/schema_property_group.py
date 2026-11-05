@@ -1,7 +1,6 @@
 import logging
 
 from django.db import IntegrityError, transaction
-from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import mixins, serializers, viewsets
@@ -119,41 +118,14 @@ class SchemaPropertyGroupSerializer(serializers.ModelSerializer):
                 instance.save()
 
                 if properties_data is not None:
-                    existing_properties = {prop.id: prop for prop in instance.properties.all()}
-                    incoming_property_ids = {prop.get("id") for prop in properties_data if prop.get("id")}
-
-                    # Delete properties that are no longer present
-                    properties_to_delete = set(existing_properties.keys()) - incoming_property_ids
-                    if properties_to_delete:
-                        SchemaPropertyGroupProperty.objects.filter(id__in=properties_to_delete).delete()
-
-                    # Update existing properties and create new ones
-                    properties_to_update: list[SchemaPropertyGroupProperty] = []
-                    update_fields: set[str] = set()
-                    properties_to_create: list[SchemaPropertyGroupProperty] = []
-                    for property_data in properties_data:
-                        property_id = property_data.pop("id", None)
-                        if property_id and property_id in existing_properties:
-                            existing_prop = existing_properties[property_id]
-                            for key, value in property_data.items():
-                                setattr(existing_prop, key, value)
-                            update_fields.update(property_data.keys())
-                            properties_to_update.append(existing_prop)
-                        else:
-                            properties_to_create.append(
-                                SchemaPropertyGroupProperty(property_group=instance, **property_data)
-                            )
-
-                    if properties_to_update:
-                        # bulk_update skips auto_now, so set updated_at explicitly
-                        now = timezone.now()
-                        for prop in properties_to_update:
-                            prop.updated_at = now
-                        SchemaPropertyGroupProperty.objects.bulk_update(
-                            properties_to_update, [*sorted(update_fields), "updated_at"]
-                        )
-                    if properties_to_create:
-                        SchemaPropertyGroupProperty.objects.bulk_create(properties_to_create)
+                    # `id` is read-only on the child serializer, so the incoming list replaces the existing set
+                    instance.properties.all().delete()
+                    SchemaPropertyGroupProperty.objects.bulk_create(
+                        [
+                            SchemaPropertyGroupProperty(property_group=instance, **property_data)
+                            for property_data in properties_data
+                        ]
+                    )
 
             # Query fresh instance with properties to ensure all data is current
             return SchemaPropertyGroup.objects.prefetch_related("properties").get(pk=instance.pk)
