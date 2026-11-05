@@ -471,8 +471,7 @@ export class PluginServer implements NodeServer {
      * Null when no SES Valkey host is configured (local dev), in which case
      * EmailValidationService degrades to its local cache + DNS.
      *
-     * Also grants the dedicated frequency cap Valkey pool, which the same send path checks, and the
-     * bounded sandbox daily cap pool where the sandbox sender is on.
+     * Also grants the dedicated frequency cap Valkey pool, which the same send path checks.
      */
     private withEmailActionValkeys(deps: CdpConsumerBaseDeps): CdpConsumerBaseDeps {
         return {
