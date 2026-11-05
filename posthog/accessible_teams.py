@@ -5,6 +5,7 @@ from typing import Self, cast
 from rest_framework.request import Request
 
 from posthog.dataclasses import frozen
+from posthog.ip_restrictions import enforce_ip_restrictions, get_ip_blocked_organization_ids
 from posthog.models import Team, User
 from posthog.permissions import get_authenticator_scoped_organization_ids, get_authenticator_scoped_team_ids
 from posthog.user_permissions import UserPermissions
@@ -52,7 +53,7 @@ class AccessibleTeams:
 
     @classmethod
     def for_request(cls, request: Request, team_ids: Sequence[int] | None) -> Self:
-        """Like `for_user`, but also confined to the orgs and teams that the request's credential reaches.
+        """Like `for_user`, but also enforces the request credential and owning organizations' IP policies.
 
         `None` asks for no team restriction. Only a credential without an organization or team
         restriction can grant that, because a key confined to some orgs or teams must not hand
@@ -79,7 +80,17 @@ class AccessibleTeams:
             if not requested_organization_ids or not requested_organization_ids <= allowed_organization_ids:
                 raise CredentialScopeDenied("The credential does not reach one or more organizations.")
 
-        return cls.for_user(user, team_ids)
+        accessible = cls.for_user(user, team_ids)
+        blocked_organizations = get_ip_blocked_organization_ids(request)
+        if blocked_organizations:
+            blocked_organization = (
+                Team.objects.filter(pk__in=team_ids, organization_id__in=blocked_organizations)
+                .values_list("organization_id", flat=True)
+                .first()
+            )
+            if blocked_organization is not None:
+                enforce_ip_restrictions(request, user, authenticator, organization_id=str(blocked_organization))
+        return accessible
 
     @classmethod
     def all_for(cls, user: User) -> Self:

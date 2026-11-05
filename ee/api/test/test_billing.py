@@ -29,6 +29,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
@@ -1357,7 +1358,19 @@ class TestStartupApplicationBillingAPI(APILicensedTest):
     def test_startup_apply_owner_success(self, mock_apply_startup_program):
         mock_apply_startup_program.return_value = {"success": True}
 
-        response = self.client.post(self.url, self.data)
+        other, _, other_team = Organization.objects.bootstrap(self.user)
+        self.user.current_organization = other
+        self.user.current_team = other_team
+        self.user.save(update_fields=["current_organization", "current_team"])
+        with self.captureOnCommitCallbacks(execute=True):
+            OrganizationIPRestrictions.objects.create(
+                organization=self.organization, ip_restrictions=["203.0.113.0/24"]
+            )
+        denied = self.client.post(self.url, self.data, REMOTE_ADDR="198.51.100.7")
+        self.assertEqual(denied.status_code, status.HTTP_403_FORBIDDEN, denied.content)
+        self.assertEqual(denied.json()["code"], "ip_not_allowed")
+        mock_apply_startup_program.assert_not_called()
+        response = self.client.post(self.url, self.data, REMOTE_ADDR="203.0.113.7")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"success": True})
