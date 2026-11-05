@@ -498,8 +498,14 @@ class TestCargoTargets:
             [target] if expected_offered else []
         )
 
-    def test_cargo_target_dir_inside_a_checkout_is_not_treated_as_shared(self, tmp_path, monkeypatch) -> None:
+    @pytest.mark.parametrize("broken_git_metadata", [False, True], ids=["checkout", "checkout_git_cannot_read"])
+    def test_cargo_target_dir_inside_a_checkout_is_not_treated_as_shared(
+        self, tmp_path, monkeypatch, broken_git_metadata: bool
+    ) -> None:
         checkout = _git_worktree(tmp_path / "checkout", {})
+        if broken_git_metadata:
+            shutil.rmtree(checkout / ".git")
+            (checkout / ".git").write_text(f"gitdir: {tmp_path / 'pruned-admin-dir'}\n")
         target = _write_cargo_target(checkout / "target", time.time() - 10 * 86400)
         monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
         monkeypatch.setenv("CARGO_TARGET_DIR", str(target))

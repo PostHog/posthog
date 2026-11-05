@@ -137,17 +137,9 @@ def shared_cargo_targets() -> list[SharedCargoTarget]:
 
 
 def _inside_git_work_tree(path: Path) -> bool:
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(path), "rev-parse", "--is-inside-work-tree"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return True
-    return result.returncode == 0 and result.stdout.strip() == "true"
+    """Whether *path* or a folder above it holds a `.git` entry, which also catches a checkout whose git metadata is broken."""
+
+    return any((directory / ".git").exists() for directory in (path, *path.parents))
 
 
 def _configured_target_dir(config: Path) -> Path | None:

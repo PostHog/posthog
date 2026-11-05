@@ -44,24 +44,26 @@ def measure_disk_usage(paths: Sequence[Path]) -> DiskUsage:
     other mounted file systems are not followed.
     """
 
-    links_seen: dict[tuple[int, int], int] = {}
-    linked_files: dict[tuple[int, int], _FileBlocks] = {}
+    # One int per hard-linked inode, because pnpm hard-links every file in a large tree on Linux.
+    links_not_seen: dict[tuple[int, int], int] = {}
     freeable = allocated = 0
     for path in paths:
         for device, blocks in _walk_files(path):
-            allocated += blocks.allocated_bytes
             if blocks.link_count <= 1:
+                allocated += blocks.allocated_bytes
                 freeable += blocks.unshared_bytes
                 continue
             key = (device, blocks.inode)
-            links_seen[key] = links_seen.get(key, 0) + 1
-            if links_seen[key] == 1:
-                linked_files[key] = blocks
+            remaining = links_not_seen.get(key)
+            if remaining is None:
+                allocated += blocks.allocated_bytes
+                remaining = blocks.link_count
+            remaining -= 1
+            if remaining == 0:
+                links_not_seen.pop(key, None)
+                freeable += blocks.unshared_bytes
             else:
-                allocated -= blocks.allocated_bytes
-    for key, blocks in linked_files.items():
-        if links_seen[key] >= blocks.link_count:
-            freeable += blocks.unshared_bytes
+                links_not_seen[key] = remaining
     return DiskUsage(freeable_bytes=freeable, allocated_bytes=allocated)
 
 
