@@ -22,8 +22,10 @@ import {
     reportTabReports,
 } from './__mocks__/inboxMocks'
 import { mockLargeScoutFleet, mockScoutConfigs, mockScoutRuns, mockScoutSuggestionSet } from './__mocks__/scoutConfigs'
+import { InboxStateFilter } from './components/shell/InboxStateFilter'
 import { InboxScene } from './InboxScene'
 import { INBOX_LAST_UI_STATE_STORAGE_KEY } from './logics/inboxOnboardingLogic'
+import { reportListLogic, sectionListLogicProps } from './logics/reportListLogic'
 
 // Full Inbox scene with a populated report list. Use this to polish the holistic
 // layout: header, page tabs, the Reports view switcher, scope picker, filter bar, and the
@@ -103,6 +105,53 @@ export default meta
 type Story = StoryObj
 
 export const Inbox: Story = {}
+
+function statusAvailabilityMocks(monitoringCount: number): Decorator {
+    return mswDecorator({
+        get: {
+            '/api/projects/:id/signals/reports': ({ request }) => [
+                200,
+                {
+                    results: [],
+                    count: new URL(request.url).searchParams.get('status') === 'monitoring' ? monitoringCount : 0,
+                    next: null,
+                    previous: null,
+                },
+            ],
+        },
+    })
+}
+
+export const MonitoringReportsExist: Story = {
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: false },
+        testOptions: { snapshotBrowsers: [] },
+    },
+    decorators: [statusAvailabilityMocks(1)],
+    render: () => (
+        <div className="p-4">
+            <InboxStateFilter />
+        </div>
+    ),
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('button', { name: /statuses/ }))
+        await waitFor(() => expect(within(document.body).getByText('Monitoring', { exact: true })).toBeVisible())
+    },
+}
+
+export const NoMonitoringReports: Story = {
+    ...MonitoringReportsExist,
+    decorators: [statusAvailabilityMocks(0)],
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await waitFor(() =>
+            expect(reportListLogic(sectionListLogicProps('outcome-monitoring')).values.hasProjectReports).toBe(false)
+        )
+        await userEvent.click(await canvas.findByRole('button', { name: /statuses/ }))
+        expect(within(document.body).queryByText('Monitoring', { exact: true })).not.toBeInTheDocument()
+    },
+}
 
 const valueSummaryMocks = mswDecorator({
     get: {

@@ -1504,14 +1504,21 @@ class ExperimentExposureHealthFindingSeverity(StrEnum):
     INFO = "info"
 
 
-class ExperimentExposureHealthMeasurementSide(StrEnum):
+class ExperimentExposureHealthRuleSide(StrEnum):
     ABOVE = "above"
     BELOW = "below"
 
 
-class ExperimentExposureHealthMeasurementUnit(StrEnum):
-    PERCENTAGE = "percentage"
+class ExperimentExposureHealthValueKey(StrEnum):
+    EXPOSED_COUNT = "exposed_count"
+    COMPARED_COUNT = "compared_count"
+    MULTIPLE_VARIANT_COUNT = "multiple_variant_count"
+    MULTIPLE_VARIANT_PERCENTAGE = "multiple_variant_percentage"
+    MULTIPLE_VARIANT_HANDLING = "multiple_variant_handling"
     P_VALUE = "p_value"
+    SINCE_LAUNCH_HOURS = "since_launch_hours"
+    EXPOSED_WITHOUT_TEST_ACCOUNT_FILTER_COUNT = "exposed_without_test_account_filter_count"
+    KEPT_BY_TEST_ACCOUNT_FILTER_PERCENTAGE = "kept_by_test_account_filter_percentage"
 
 
 class ExperimentMetricGoal(StrEnum):
