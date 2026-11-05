@@ -1008,8 +1008,8 @@ importers:
         specifier: ^11.17.0
         version: 11.17.0
       posthog-js:
-        specifier: 1.446.0
-        version: 1.446.0(@types/react@19.2.17)(react@19.2.6)
+        specifier: 1.446.3
+        version: 1.446.3(@types/react@19.2.17)(react@19.2.6)
       radix-themes-tw:
         specifier: 0.2.3
         version: 0.2.3
@@ -1304,8 +1304,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
       posthog-js:
-        specifier: 1.446.0
-        version: 1.446.0(@types/react@19.2.17)(react@19.2.6)
+        specifier: 1.446.3
+        version: 1.446.3(@types/react@19.2.17)(react@19.2.6)
       react:
         specifier: 19.2.6
         version: 19.2.6
@@ -4846,8 +4846,8 @@ packages:
       react:
         optional: true
 
-  '@posthog/browser-common@0.10.6':
-    resolution: {integrity: sha512-AKJeONaS5OfEKJDDBsq8OWSSPnHW1AFyHYg6bd3q+Q6KCddA6SlVSylFfui161mquhU3tfgraMgSBs4LgFShQA==}
+  '@posthog/browser-common@0.10.7':
+    resolution: {integrity: sha512-1V2SBu7gxVbroZk49YsCM++K9qy3qcrOaylemjkkTPvACgAGwm0Y/AkJN2eRZO1YME0FnagF6QKBaXmq3o0e8g==}
 
   '@posthog/cli@0.18.12':
     resolution: {integrity: sha512-/eT9riWOkBb9uwsdOxQgW3fan/T3hwT8rvwZCzPl3DAgSBEhzpP59usD0fyFS++X2967E5AQe74nrBw1rywf6A==}
@@ -4857,8 +4857,8 @@ packages:
   '@posthog/core@1.62.0':
     resolution: {integrity: sha512-KjNwGC7s0141wnWWHubNMdg1lOhZjqKRw2OTNstuzdVvNDfvv2RbFJQSSvvABmbCmTXwlMpdnbb/M/aAigDnNQ==}
 
-  '@posthog/core@1.63.1':
-    resolution: {integrity: sha512-LcUSRUM8zoTdwQFH1kWDQDMOFwiFjJ2lVxOOtpOwp6ezcHdr94KjO84YcoEeYtMuIFVMjasDFWyrOuuMAAg52g==}
+  '@posthog/core@1.63.2':
+    resolution: {integrity: sha512-GC03SzHTTDB1tnwT6dvVdSs5tsbNXC+rg7vPLtlFCGtl9tWNzqRcpUes+pe3qgkeOaSEEQ7/pWZMyfvCf6SN3w==}
 
   '@posthog/hedgehog-mode@0.0.53':
     resolution: {integrity: sha512-Qyd9DckDg1Z/vT3mpKyuMemJHWpYD0k0Gob7hWCNMCDSYm/NcpDS1uX8PRoh3Z7HF2kBkZ7j6HCSUIG7Ha/j4Q==}
@@ -4892,9 +4892,6 @@ packages:
 
   '@posthog/types@1.418.0':
     resolution: {integrity: sha512-WqDXUWH1R8OilBp2PfDpQIRZSCs3QyOnw7H3YK7lvZLCMIsOqSZAKJrrqYWt4f7FvnVCACRuNGCC0HKh3J/HWw==}
-
-  '@posthog/types@1.419.0':
-    resolution: {integrity: sha512-XX7zRYt/vK8AzaD6V+oDquAzacZf5exJv971dja9En8Qf6g84Qvc3rpT0w6hDYYLWrjaSSkdjFfvvoXI0ouJDg==}
 
   '@posthog/types@1.420.0':
     resolution: {integrity: sha512-WrfsR3hynbNOkQor6TrQJrI+7UzStZs2rjFzQ+xK9mRCUH6TLMLfBSR+ibGoKreatb76Uh30b6lSZLWbOgdTsg==}
@@ -11049,8 +11046,8 @@ packages:
     resolution: {integrity: sha512-g50586zr4bZmwFiTlflMu8E0bDTb5I5gertgwAKmsdUlTQIhZtunzUlD1WSzwcVWPoAVpsrA6vlfCD7oXvRwgg==}
     engines: {node: ^10 || ^12 || >=14}
 
-  posthog-js@1.446.0:
-    resolution: {integrity: sha512-qyOQrupMynfZXNwWVFlM151LPmdEF2rHZMAaNHsL1wsl980WanA9JDtASWGgkkR4skRgTnkeRZG85+rR6jpxcg==}
+  posthog-js@1.446.3:
+    resolution: {integrity: sha512-1bHPVdyOI2cq5qqPCpEAW538tH00rIHy72GUrFSpX9eHUcvxgWZruj+azeUaU5sJ0TiwEy4iktzlZhUvyI1+Eg==}
     peerDependencies:
       '@types/react': ^19.2.15
       react: 19.2.6
@@ -16230,10 +16227,10 @@ snapshots:
     optionalDependencies:
       react: 19.2.6
 
-  '@posthog/browser-common@0.10.6':
+  '@posthog/browser-common@0.10.7':
     dependencies:
-      '@posthog/core': 1.63.1
-      '@posthog/types': 1.419.0
+      '@posthog/core': 1.63.2
+      '@posthog/types': 1.420.0
       dompurify: 3.4.13
       preact: 10.29.8
     transitivePeerDependencies:
@@ -16247,9 +16244,9 @@ snapshots:
     dependencies:
       '@posthog/types': 1.418.0
 
-  '@posthog/core@1.63.1':
+  '@posthog/core@1.63.2':
     dependencies:
-      '@posthog/types': 1.419.0
+      '@posthog/types': 1.420.0
 
   '@posthog/hedgehog-mode@0.0.53(prop-types@15.8.1)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
     dependencies:
@@ -16312,8 +16309,6 @@ snapshots:
       rollup: 4.59.0
 
   '@posthog/types@1.418.0': {}
-
-  '@posthog/types@1.419.0': {}
 
   '@posthog/types@1.420.0': {}
 
@@ -23495,10 +23490,10 @@ snapshots:
       source-map-js: 1.2.1
     optional: true
 
-  posthog-js@1.446.0(@types/react@19.2.17)(react@19.2.6):
+  posthog-js@1.446.3(@types/react@19.2.17)(react@19.2.6):
     dependencies:
-      '@posthog/browser-common': 0.10.6
-      '@posthog/core': 1.63.1
+      '@posthog/browser-common': 0.10.7
+      '@posthog/core': 1.63.2
       '@posthog/types': 1.420.0
       core-js: 3.50.0
       dompurify: 3.4.13
