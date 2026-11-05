@@ -4146,6 +4146,8 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
     # Freeze the meter at admission: a later plan change must not bill the same work twice.
     # Existing receipts and old workers retain the legacy PR meter.
     usage_billing = models.BooleanField(default=False, db_default=False)
+    # Snapshotted by the database so old workers also retain trial visibility after run deletion.
+    is_private = models.BooleanField(null=True, db_default=None)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

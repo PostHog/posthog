@@ -3414,20 +3414,6 @@ scout_runs: PostgresTable = PostgresTable(
     },
 )
 
-signal_spend_scout_runs = PostgresTable(
-    name="_signal_spend_scout_runs",
-    postgres_table_name="signals_signalscoutrun",
-    access_scope="signal_usage",
-    resource_level_access_only=True,
-    predicates=[parse_expr("NOT JSONHas(ifNull(_metadata, '{}'), 'scout_trial')")],
-    fields={
-        "id": UUIDDatabaseField(name="id"),
-        "team_id": IntegerDatabaseField(name="team_id"),
-        "_metadata": StringJSONDatabaseField(name="metadata", nullable=True, hidden=True),
-    },
-)
-
-
 signal_spend = PostgresTable(
     name="signal_spend",
     postgres_table_name="signals_signalspend",
@@ -3436,12 +3422,13 @@ signal_spend = PostgresTable(
     push_team_guard_with_predicates=True,
     predicates=[
         parse_expr("kind IS NOT NULL"),
-        parse_expr("scout_run_id IS NULL OR scout_run_id IN (SELECT id FROM system._signal_spend_scout_runs)"),
+        parse_expr("_is_private = false"),
     ],
     description="Self-driving spend records in credits, including billing-exempt work. Private scout trials are excluded. Sum each record once; signal and scout totals are copies, not additional charges. For monthly usage filter finalized_at; NULL is unsettled. Use inbox-usage-get for credit-to-USD conversion.",
     fields={
         "id": UUIDDatabaseField(name="id", description="Unique spend record UUID."),
         "team_id": IntegerDatabaseField(name="team_id"),
+        "_is_private": BooleanDatabaseField(name="is_private", nullable=True, hidden=True),
         "kind": StringDatabaseField(
             name="kind",
             description="ad-hoc (signal processing), research, repo_selection, scout_run, reviewer_triggered_implementation, or scout_triggered_implementation.",
@@ -4377,9 +4364,6 @@ class SystemTables(TableNode):
         "scout_configs": TableNode(name="scout_configs", table=scout_configs),
         "scout_run_emissions": TableNode(name="scout_run_emissions", table=scout_run_emissions),
         "scout_runs": TableNode(name="scout_runs", table=scout_runs),
-        "_signal_spend_scout_runs": TableNode(
-            name="_signal_spend_scout_runs", table=signal_spend_scout_runs, hidden=True
-        ),
         "signal_spend": TableNode(name="signal_spend", table=signal_spend),
         "session_recordings": TableNode(name="session_recordings", table=session_recordings),
         "source_schemas": TableNode(name="source_schemas", table=source_schemas),

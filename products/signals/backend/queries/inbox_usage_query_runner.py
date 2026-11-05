@@ -108,7 +108,12 @@ class InboxUsageQueryRunner(AnalyticsQueryRunner[InboxUsageQueryResponse]):
     def query_date_range(self) -> QueryDateRange:
         earliest = None
         if self.query.dateRange.date_from == "all":
-            timestamps = self.receipts.aggregate(created=Min("created_at"), finalized=Min("finalized_at"))
+            timestamps = (
+                SignalSpend.objects.for_team(self.team.id)
+                .filter(kind__isnull=False)
+                .exclude(is_private=True)
+                .aggregate(created=Min("created_at"), finalized=Min("finalized_at"))
+            )
             timestamps["scout"] = (
                 SignalScoutRun.objects.for_team(self.team.id)
                 .exclude(metadata__has_key="scout_trial")
@@ -136,12 +141,7 @@ class InboxUsageQueryRunner(AnalyticsQueryRunner[InboxUsageQueryResponse]):
 
     @cached_property
     def receipts(self) -> QuerySet[SignalSpend]:
-        private_runs = SignalScoutRun.objects.for_team(self.team.id).filter(metadata__has_key="scout_trial")
-        return (
-            SignalSpend.objects.for_team(self.team.id)
-            .filter(kind__isnull=False)
-            .exclude(scout_run_id__in=private_runs.values("id"))
-        )
+        return SignalSpend.objects.for_team(self.team.id).filter(kind__isnull=False, is_private=False)
 
     @cached_property
     def settled(self) -> QuerySet[SignalSpend]:
@@ -160,6 +160,10 @@ class InboxUsageQueryRunner(AnalyticsQueryRunner[InboxUsageQueryResponse]):
         return target is None or timezone.now() >= target
 
     def to_query(self) -> ast.SelectQuery:
+        report_ids = [
+            str(report_id)
+            for report_id in self.settled.exclude(report_id=None).values_list("report_id", flat=True).distinct()
+        ]
         # Finalization can follow signal creation by months, so bound metadata by referenced IDs rather than its timestamp.
         signals = parse_select(
             _deduped_signals_subquery(
@@ -180,7 +184,10 @@ class InboxUsageQueryRunner(AnalyticsQueryRunner[InboxUsageQueryResponse]):
                     WHERE finalized_at >= {period_start} AND finalized_at < {period_end}
                       AND kind != 'scout_run'
                 ) AS receipt
-                LEFT JOIN (SELECT id, triggering_signal_id FROM _inbox_usage_reports) AS report
+                LEFT JOIN (
+                    SELECT id, triggering_signal_id FROM _inbox_usage_reports
+                    WHERE id IN {report_ids}
+                ) AS report
                     ON receipt.report_id = report.id
             )
             SELECT nullIf(JSONExtractString(source.metadata, 'source_product'), '') AS source_product,
@@ -199,6 +206,7 @@ class InboxUsageQueryRunner(AnalyticsQueryRunner[InboxUsageQueryResponse]):
                 "period_start": ast.Constant(value=self.period_start),
                 "period_end": ast.Constant(value=min(self.period_end, self.as_of)),
                 "signals": signals,
+                "report_ids": ast.Constant(value=report_ids),
             },
         )
 
@@ -259,6 +267,19 @@ class InboxUsageQueryRunner(AnalyticsQueryRunner[InboxUsageQueryResponse]):
             .count()
         )
         buckets: list[InboxUsageSource | InboxUsageScout] = [*sources, *scouts]
+        unknown_visibility = (
+            SignalSpend.objects.for_team(self.team.id)
+            .filter(kind__isnull=False, is_private__isnull=True)
+            .filter(
+                Q(finalized_at__gte=self.period_start, finalized_at__lt=min(self.period_end, self.as_of))
+                | Q(
+                    finalized_at__isnull=True,
+                    created_at__gte=self.period_start,
+                    created_at__lt=min(self.period_end, self.as_of),
+                )
+            )
+            .exists()
+        )
         return InboxUsageQueryResponse(
             results=InboxUsage(
                 project_id=self.team.id,
@@ -269,7 +290,9 @@ class InboxUsageQueryRunner(AnalyticsQueryRunner[InboxUsageQueryResponse]):
                 exempt_credits=str(sum((Decimal(row.exempt_credits) for row in buckets), Decimal(0))),
                 unsettled_credits=str(pending["credits"]),
                 untracked_scout_run_count=untracked_runs,
-                incomplete=bool(pending["count"] or untracked_runs or any(row.incomplete for row in buckets)),
+                incomplete=bool(
+                    pending["count"] or untracked_runs or unknown_visibility or any(row.incomplete for row in buckets)
+                ),
                 attribution_incomplete=any(row.source_product is None or row.source_type is None for row in sources),
                 sources=sources,
                 scouts=scouts,

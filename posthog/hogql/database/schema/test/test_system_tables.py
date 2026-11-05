@@ -1204,7 +1204,6 @@ SYSTEM_TABLE_FACTORIES = [
     ("scout_run_emissions", _create_scout_run_emission),
     ("scout_runs", _create_scout_run),
     ("signal_spend", _create_signal_spend),
-    ("_signal_spend_scout_runs", _create_scout_run),
     ("session_recording_playlists", _create_session_recording_playlist),
     ("session_recordings", _create_session_recording),
     ("source_schemas", _create_source_schema),
@@ -1526,7 +1525,6 @@ class TestSystemTablesInboxAccess(BaseTest):
         )
         _, denied = _compute_system_table_access_decision(self.team, ProjectSecretAPIKeyUser(psak))
         assert ("signal_spend" not in denied) is expected_visible
-        assert ("_signal_spend_scout_runs" not in denied) is expected_visible
 
     @parameterized.expand(
         [
@@ -1647,6 +1645,12 @@ class TestSystemTablesScoutTrialExclusionIsolation(NonAtomicBaseTest):
         }
         assert [(str(row[0]), str(row[1])) for row in spend.results] == [(str(visible.scout_run_id), "12.3456")]
         assert [(str(row[0]), str(row[1])) for row in run_spend.results] == [(str(visible.scout_run_id), "12.3456")]
+
+        SignalScoutRun.objects.for_team(self.team.pk).filter(id__in=[visible.scout_run_id, trial.scout_run_id]).delete()
+        retained = execute_hogql_query(
+            "SELECT scout_run_id, credits FROM system.signal_spend", team=self.team, user=self.user
+        )
+        assert [(str(row[0]), str(row[1])) for row in retained.results] == [(str(visible.scout_run_id), "12.3456")]
 
 
 class TestSystemTablesTaskSpaceVisibilityIsolation(NonAtomicBaseTest):
