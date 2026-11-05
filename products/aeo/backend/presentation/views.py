@@ -858,7 +858,7 @@ class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request_serializer=AEOPromptSuggestRequestSerializer,
         operation_id="aeo_prompts_suggest",
         summary="Suggest AEO prompts",
-        description="Suggests prompts to track for a site. Claude reads the site with web search and writes questions a buyer would ask an AI assistant, each labeled with a topic, a circle, a funnel stage and whether it names the brand. Nothing is saved: import the prompts you keep with bulk_import. Prompts the project already tracks are left out. Takes up to a few minutes.",
+        description="Suggests prompts to track for a site. Requires AI data processing approved for the organization. Claude reads the site with web search and writes questions a buyer would ask an AI assistant, each labeled with a topic, a circle, a funnel stage and whether it names the brand. Nothing is saved: import the prompts you keep with bulk_import. Prompts the project already tracks are left out. Takes up to a few minutes.",
         responses={200: OpenApiResponse(response=AEOPromptSuggestResponseSerializer)},
         tags=["web_analytics"],
     )
@@ -868,6 +868,11 @@ class AEOPromptViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         throttle_classes=[AEOPromptSuggestionsBurstRateThrottle, AEOPromptSuggestionsSustainedRateThrottle],
     )
     def suggest(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        # The team's input and its tracked prompts go to Claude, so the organization must have approved AI data processing.
+        if not self.organization.is_ai_data_processing_approved:
+            raise PermissionDenied(
+                "Prompt suggestions need AI data processing approved for your organization. An admin can approve it in organization settings."
+            )
         data = request.validated_data
         try:
             suggestions = suggest_prompts(

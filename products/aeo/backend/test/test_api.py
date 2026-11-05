@@ -772,13 +772,16 @@ class TestAEOPromptAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("answer", 200, ["Best session replay tool?"]),
-            ("timeout", 503, None),
+            ("answer", True, 200, ["Best session replay tool?"]),
+            ("timeout", True, 503, None),
+            ("answer", False, 403, None),
         ]
     )
     def test_suggest_returns_new_prompts_without_saving_them(
-        self, outcome: str, expected_status: int, expected_prompts: list[str] | None
+        self, outcome: str, ai_approved: bool, expected_status: int, expected_prompts: list[str] | None
     ) -> None:
+        self.organization.is_ai_data_processing_approved = ai_approved
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
         self.client.post(f"{self.url}bulk_import/", {"prompts": [{"prompt": "Tracked already?"}]}, format="json")
         items = [
             {"prompt": p, "topic": "Replay", "circle": "battleground", "funnel_stage": "bottom", "branded": False}
@@ -799,3 +802,4 @@ class TestAEOPromptAPI(APIBaseTest):
         if expected_prompts is not None:
             assert [s["prompt"] for s in response.json()["suggestions"]] == expected_prompts
         assert AEOPrompt.objects.for_team(self.team.id).count() == 1
+        assert post.called is ai_approved

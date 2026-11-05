@@ -99,7 +99,7 @@ export const AeoPromptsBulkImportBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Suggests prompts to track for a site. Claude reads the site with web search and writes questions a buyer would ask an AI assistant, each labeled with a topic, a circle, a funnel stage and whether it names the brand. Nothing is saved: import the prompts you keep with bulk_import. Prompts the project already tracks are left out. Takes up to a few minutes.
+ * Suggests prompts to track for a site. Requires AI data processing approved for the organization. Claude reads the site with web search and writes questions a buyer would ask an AI assistant, each labeled with a topic, a circle, a funnel stage and whether it names the brand. Nothing is saved: import the prompts you keep with bulk_import. Prompts the project already tracks are left out. Takes up to a few minutes.
  * @summary Suggest AEO prompts
  */
 export const aeoPromptsSuggestBodyDomainMax = 200
