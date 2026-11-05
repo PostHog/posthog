@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -457,6 +458,18 @@ describe('evaluationBackfillsLogic', () => {
         listMock.mockResolvedValue({ count: 1, results: [backfill({ status: 'completed' })] })
         logic.actions.loadBackfills(true)
 
+        await expectLogic(logic).toDispatchActions(['loadBackfillsSuccess'])
+        expect(logic.cache.disposables.registry.has('backfillPoll')).toBe(false)
+    })
+
+    it('keeps polling an empty list while a timed-out start may still land, then polls only for the run', async () => {
+        router.actions.push(router.values.location.pathname, { backfill_start: 'pending' })
+        mountLogic()
+        await expectLogic(logic).toDispatchActions(['loadBackfillsSuccess'])
+        expect(logic.cache.disposables.registry.has('backfillPoll')).toBe(true)
+
+        listMock.mockResolvedValue({ count: 1, results: [backfill({ status: 'completed' })] })
+        logic.actions.loadBackfills(true)
         await expectLogic(logic).toDispatchActions(['loadBackfillsSuccess'])
         expect(logic.cache.disposables.registry.has('backfillPoll')).toBe(false)
     })

@@ -275,3 +275,7 @@ export function decisionModelHint(outputType: EvaluationOutputType): string {
           ? 'This decision model estimates a score between your minimum and maximum without written reasoning. Define what low and high scores mean in your evaluation prompt. Scores can be fractional.'
           : 'This decision model returns a probability without written reasoning. The decision threshold determines whether the result is true.'
 }
+
+// pinned: URL param. A create whose backfill request timed out opens the Backfills tab with it, so the
+// tab keeps polling while the server may still be starting that backfill.
+export const BACKFILL_START_PENDING_PARAM = 'backfill_start'

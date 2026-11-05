@@ -35,6 +35,7 @@ import { getUnhealthyProviderKey } from '../settings/providerKeyStateUtils'
 import { EvaluationRunsStats, queryEvaluationRuns, queryEvaluationRunsStats } from '../utils'
 import { evaluationErrorMessage } from './apiErrors'
 import {
+    BACKFILL_START_PENDING_PARAM,
     EVALUATION_NUMERIC_GRADED_HOGQL,
     EVALUATION_NUMERIC_MEAN_HOGQL,
     EVALUATION_SENTIMENT_GRADED_HOGQL,
@@ -264,11 +265,11 @@ async function coverPastTraffic(
         // A timed-out request can still start the backfill on the server, so it does not claim a failure.
         if (signal.aborted) {
             lemonToast.info('Checking past traffic is taking longer than usual. See its status in the Backfills tab.')
-        } else {
-            lemonToast.error(
-                'The evaluation was created, but checking past traffic didn’t start. Try again from the Backfills tab.'
-            )
+            return { evaluation_tab: 'backfills', [BACKFILL_START_PENDING_PARAM]: 'pending' }
         }
+        lemonToast.error(
+            'The evaluation was created, but checking past traffic didn’t start. Try again from the Backfills tab.'
+        )
     }
     return { evaluation_tab: 'backfills' }
 }
