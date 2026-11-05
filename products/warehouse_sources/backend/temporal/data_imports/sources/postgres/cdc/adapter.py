@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     drop_publication,
     drop_slot,
     drop_slot_and_publication,
+    get_current_wal_lsn,
     get_max_slot_wal_keep_size_mb,
     get_publication_tables,
     get_slot_lag_bytes,
@@ -149,6 +150,9 @@ class PostgresCDCAdapter:
             publication_name=cdc_config.publication_name,
         )
         return PgCDCStreamReader(params, source=source)
+
+    def current_position(self, conn: Any) -> str:
+        return get_current_wal_lsn(conn)
 
     @contextmanager
     def management_connection(self, source: ExternalDataSource, connect_timeout: int = 15) -> Iterator[Any]:

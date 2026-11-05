@@ -2388,6 +2388,11 @@ class PostgresSource(
         if table_rebuild_pending:
             resumable_source_manager.clear_state()
 
+        if schema.is_cdc:
+            self._record_cdc_snapshot_position(
+                schema, inputs, rebuild=table_rebuild_pending, resuming=resumable_source_manager.can_resume()
+            )
+
         # Prefer the per-row `schema_metadata.source_schema` so multi-schema warehouse sources work
         # without needing to encode the schema in `config.schema`. Falls back to `config.schema` for
         # legacy single-schema warehouse sources whose rows haven't been reconciled yet.

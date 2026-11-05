@@ -48,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import 
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import COMPANION_JOB_IDS_KEY
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import (
+    EMPTY_POSITION,
     LanePosition,
     content_columns,
     ensure_position_stats,
@@ -58,7 +59,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolutio
     drop_superseded_rows,
     has_engine_seq,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import snapshot_in_buffer
+from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import (
+    CDC_SNAPSHOT_POSITION_KEY,
+    snapshot_in_buffer,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     normalize_column_name,
     safe_parse_datetime,
@@ -360,6 +364,20 @@ def _history_transform(
     return _apply
 
 
+def _seed_position(schema: ExternalDataSchema) -> LanePosition:
+    """Where a history table that holds only its snapshot seed stops.
+
+    The seed carries no position, and a resnapshot that stays in the buffer keeps changes from before
+    the snapshot read. The merge lane converges over them, but the history lane would version each one
+    a second time. Every change at or below the recorded position is in the seed.
+    """
+    recorded = (schema.sync_type_config or {}).get(CDC_SNAPSHOT_POSITION_KEY)
+    if not isinstance(recorded, int) or isinstance(recorded, bool):
+        return EMPTY_POSITION
+    # `drop_superseded_rows` keeps rows at the position itself, and those are in the seed too.
+    return LanePosition(position=recorded + 1, applied={})
+
+
 async def build_output_lanes(
     schema: ExternalDataSchema, job: ExternalDataJob, logger: FilteringBoundLogger, history: HistoryNaming | None
 ) -> tuple[list[OutputLane], int | None]:
@@ -392,6 +410,8 @@ async def build_output_lanes(
         key_columns = [*keys, CDC_OP_COLUMN] if keys else None
         position = await read_lane_position(delta_table, key_columns=key_columns if is_append else None)
         positions.append(position.position)
+        if lane.history is not None and position.position is None:
+            position = _seed_position(schema)
         replay = ReplayFilter(position)
         lanes.append(
             OutputLane(

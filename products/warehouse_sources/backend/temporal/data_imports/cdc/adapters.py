@@ -51,6 +51,11 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
         LSN's 64-bit value). Must be strictly order-preserving within one source."""
         ...
 
+    def current_position(self, conn: Any) -> str:
+        """The source's current log position, serialized as `position_to_seq` reads it. Every change
+        committed before the call is at or below it (PG: the current WAL LSN)."""
+        ...
+
     @contextmanager
     def management_connection(self, source: ExternalDataSource, connect_timeout: int = 15) -> Iterator[Any]: ...
 

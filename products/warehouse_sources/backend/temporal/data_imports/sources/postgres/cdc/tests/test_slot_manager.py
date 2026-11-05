@@ -11,9 +11,11 @@ import psycopg.errors
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.position import PgLSN
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.slot_manager import (
     add_table_to_publication,
     cdc_pg_connection,
+    get_current_wal_lsn,
     get_max_slot_wal_keep_size_mb,
     get_publication_tables,
     is_slot_invalidation_error,
@@ -127,6 +129,15 @@ class TestGetMaxSlotWalKeepSizeMb:
         cursor.fetchone.return_value = row
 
         assert get_max_slot_wal_keep_size_mb(conn) == expected
+
+
+@pytest.mark.django_db
+def test_the_current_wal_position_reads_as_an_lsn():
+    # Run against a real server, because the query is all there is to get wrong.
+    from django.db import connection
+
+    connection.ensure_connection()
+    assert PgLSN.deserialize(get_current_wal_lsn(connection.connection)).value > 0
 
 
 class TestGetPublicationTables:

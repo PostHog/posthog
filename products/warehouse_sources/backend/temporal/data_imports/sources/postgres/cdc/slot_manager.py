@@ -270,6 +270,21 @@ def get_max_slot_wal_keep_size_mb(conn: psycopg.Connection) -> int | None:
     return value if value >= 0 else None
 
 
+def get_current_wal_lsn(conn: psycopg.Connection) -> str:
+    """The server's current WAL position. Every transaction committed before the call ends at or below it.
+
+    A standby has no WAL of its own to write, so it reports how far it has replayed.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT (CASE WHEN pg_is_in_recovery() THEN pg_last_wal_replay_lsn() ELSE pg_current_wal_lsn() END)::text"
+        )
+        row = cur.fetchone()
+    if row is None or row[0] is None:
+        raise ValueError("The server reported no WAL position")
+    return str(row[0])
+
+
 def get_slot_lag_bytes(conn: psycopg.Connection, slot_name: str) -> int | None:
     """Get the WAL lag in bytes for a replication slot.
 
