@@ -1131,6 +1131,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 }
                 openImplementClaimDialog({
                     report,
+                    surface,
                     step,
                     onConfirm: () => (step.kind === 'take_over' ? void takeOverAndStart() : start(report)),
                 })

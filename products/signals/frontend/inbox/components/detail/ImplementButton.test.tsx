@@ -13,7 +13,7 @@ import { initKeaTests } from '~/test/init'
 
 import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
-import { mockTask, myClaim, teammateClaim } from '../../__mocks__/inboxMocks'
+import { mockTask, myAgentClaim, myClaim, teammateClaim } from '../../__mocks__/inboxMocks'
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxTaskKickoffLogic, REPORT_AI_PANEL_ID } from '../../inboxTaskKickoffLogic'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
@@ -91,7 +91,6 @@ describe('ImplementButton', () => {
         })
     })
 
-    // Starting on a teammate's claim without the takeover would fail the run, or move their work without telling them.
     // Starting on a teammate's claim without the takeover would fail the run, or move their work without telling
     // them. A takeover the server refuses must reload the claim, or a retry submits the same stale takeover.
     it.each([
@@ -131,6 +130,29 @@ describe('ImplementButton', () => {
         } else {
             expect(createPrFromReport).not.toHaveBeenCalled()
         }
+    })
+
+    // Without the dialog outcome, a run someone thought about and cancelled cannot be told apart from one never offered.
+    it.each([
+        { button: 'Start run', confirmed: true },
+        { button: 'Cancel', confirmed: false },
+    ])('records whether the own-agent dialog was confirmed ($button)', async ({ button, confirmed }) => {
+        const user = userEvent.setup()
+        render(<ImplementButton report={makeReport({ assignee: myAgentClaim })} />)
+
+        await user.click(screen.getByTestId('inbox-report-create-pr'))
+        await user.click(screen.getByTestId('inbox-report-create-pr-submit'))
+        await user.click(await screen.findByText(button))
+
+        await waitFor(() =>
+            expect(captureInboxReportAction).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    actionType: 'claim_dialog',
+                    extra: { claim_step: 'confirm_own_agent', starts_run: true, confirmed },
+                })
+            )
+        )
+        expect(createPrFromReport).toHaveBeenCalledTimes(confirmed ? 1 : 0)
     })
 
     // A second press while the first one still loads would start two runs.

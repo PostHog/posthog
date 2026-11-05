@@ -187,6 +187,7 @@ function ReportContextMenuItems({
                     onOpenDialog()
                     openTakeOverReportDialog({
                         report,
+                        surface: 'context_menu',
                         holder: teammate,
                         onConfirm: () => setReportClaimed(report, true, 'context_menu', true),
                     })
