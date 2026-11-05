@@ -1727,6 +1727,30 @@ async def test_the_record_never_holds_more_than_the_tracked_row_limit():
     assert await get_async_client().scard(key) == 2
 
 
+@pytest.mark.asyncio
+async def test_a_fresh_attempt_of_the_same_job_keeps_rows_an_earlier_attempt_checkpointed():
+    # Once the activity's retries run out, the workflow retries the job with no heartbeat to resume
+    # from. The files the earlier attempt finished are gone, so their rows must come from Redis.
+    key = emitted_rows_key(1, str(uuid.uuid4()))
+    earlier = EmittedRowStore(key, mock.AsyncMock(), job_id="job_1")
+    await earlier.load()
+    earlier.record_produced("a")
+    await earlier.persist_progress()
+
+    overlapping = EmittedRowStore(key, mock.AsyncMock(), job_id="job_2")
+    await overlapping.load()
+
+    retry = EmittedRowStore(key, mock.AsyncMock(), job_id="job_1")
+    await retry.load()
+    retry.record_produced("b")
+    await retry.commit()
+
+    assert {
+        member.decode() if isinstance(member, bytes) else member for member in await get_async_client().smembers(key)
+    } == {"a", "b"}
+    assert not await get_async_client().exists(f"{key}:attempt:job_1")
+
+
 def test_the_emitted_rows_key_and_its_scratch_key_share_a_cluster_slot():
     key = emitted_rows_key(1, "01a0d0f3-b1c8-0000-1589-739b4a75582c")
 

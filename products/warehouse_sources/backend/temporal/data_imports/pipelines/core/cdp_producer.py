@@ -358,7 +358,7 @@ class CDPProducer:
         await self.logger.adebug(f"Found {len(files_to_produce)} files to produce to Kafka")
 
         emitted_rows = self._build_emitted_row_store()
-        await emitted_rows.load(resuming=resume_from is not None)
+        await emitted_rows.load()
         suppressed_rows = 0
 
         async with async_producer_scope(profile=KafkaClusterProfile.CYCLOTRON) as kafka_producer:

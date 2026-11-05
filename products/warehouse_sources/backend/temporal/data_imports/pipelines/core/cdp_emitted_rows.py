@@ -20,11 +20,13 @@ suppressed because an earlier run produced it. Serializing the load through the 
 holding a lock across the whole produce loop, which runs for as long as the rows take to reach
 Kafka, and a lock that expires under that would give the same interleaving with more to go wrong.
 
-A run that fails part way is retried from its last checkpoint, and the retry does not produce the
-rows before it again. So each checkpoint also adds the rows recorded so far to an attempt key for the
-job, which a resumed attempt reads back and the commit clears. The key is per job, so an overlapping
-run of the same view never touches another run's progress. Without it, the retry's commit would leave out
-the rows the earlier attempt delivered, and the next run would trigger them again.
+A run that fails part way is retried, either from its last checkpoint or, once the activity's
+retries run out, by a fresh workflow attempt for the same job. Neither produces the rows of files an
+earlier attempt already finished and deleted. So each checkpoint also adds the rows recorded so far
+to an attempt key for the job, which every attempt of that job reads back and the commit clears.
+Without it, the retry's commit would leave out the rows the earlier attempt delivered, and the next
+run would trigger them again. The key is per job, so an overlapping run of the same view never
+touches another run's progress.
 """
 
 import asyncio
@@ -88,12 +90,11 @@ class EmittedRowStore:
         self._enabled = key is not None
         self._at_limit = False
 
-    async def load(self, *, resuming: bool = False) -> None:
+    async def load(self) -> None:
         """Read the previous run's record.
 
-        A resumed attempt also reads back the rows its earlier attempts recorded before their last
-        checkpoint, since it does not produce those rows again. A fresh run drops whatever a run
-        that never committed left there.
+        Also reads back the rows earlier attempts of this job recorded before their last checkpoint,
+        since a retry does not produce those rows again. Every id there was delivered by this job.
         """
         if not self._enabled:
             return
@@ -103,12 +104,9 @@ class EmittedRowStore:
             client = get_async_client()
             members = await client.smembers(self._key)
             self._previous = {_decode(member) for member in members}
-            if resuming:
-                for member in await client.smembers(self._attempt_key):
-                    self._track(_decode(member))
-                self._unpersisted.clear()
-            else:
-                await client.delete(self._attempt_key)
+            for member in await client.smembers(self._attempt_key):
+                self._track(_decode(member))
+            self._unpersisted.clear()
         except Exception as e:
             self._enabled = False
             await self._logger.awarning(f"Could not read produced view rows; not suppressing repeats this run: {e}")
