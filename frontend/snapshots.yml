@@ -392,6 +392,10 @@ snapshots:
         hash: v1.k794b7964.4f7b276bd60977800b9ea20ddd221bffb6ccda7814b973e7b07bdaa85467996c.l51S8oLHNfi5ewuK9InQ4F9ixNJfXEeXnVLGXkyxucM
     components-activitylogrow--narrow-dashboard-changes--light:
         hash: v1.k794b7964.095ac6cc7ea7e35c94ab04aa2241c01e5ef3fdaa46d4fcde75ac76fae3ff01ad.F9DiID4HmI2V97skUnG3PT25MCLIAGxOda6D-BvVf_k
+    components-activitylogrow--workload-change--dark:
+        hash: v1.k794b7964.2c48852df684b5cabc7065e8d7c5a3ca4848a3a4f53f07ad9985c40a0d555b88.q1Nnm_FvhVo_ZMIEiSEciO0Hfj3aUXuwuymGb8ulvow
+    components-activitylogrow--workload-change--light:
+        hash: v1.k794b7964.f7d048fea6acf16f3410df1fa8e37280f05bf78742b5b5c21f1714b658ab637d.Br50Tw51CvI00fV_aQNViJrkePbIrujX4K17O-SBGcw
     components-agentattribution--intent-and-task--dark:
         hash: v1.k794b7964.0d80c815b27006d88f038af4b2d689f510f8bdf583d7fc830eb68942821b56e4.vFLLhu562dwroQu8TA_dLSIrYC3SgtRpKdZTB8ufS84
     components-agentattribution--intent-and-task--light:
