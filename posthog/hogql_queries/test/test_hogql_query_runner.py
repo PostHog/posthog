@@ -673,7 +673,7 @@ class TestHogQLQueryRunnerApiSqlFreshness(BaseTest):
             window=SqlWindowClass.UP_TO_NOW_LONG, fresh_until=now + fresh_for, reason=FreshnessReason.WINDOW_AGE
         )
         with _freshness_flag(on=flag_on), tags_context(access_method=access_method):
-            runner = HogQLQueryRunner(team=self.team, query=HogQLQuery(query="select 1"))
+            runner = HogQLQueryRunner(team=self.team, query=HogQLQuery(query="select toStartOfMinute(now())"))
             runner._read_cache_entry_freshness(freshness_record(window) if entry_has_window else None)
             stale = runner._is_stale_for_request(last_refresh=now - timedelta(minutes=10), lazy=lazy)
         assert stale is expected_stale
