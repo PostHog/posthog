@@ -72,7 +72,7 @@ export default defineCommand({
             ),
             findInsightVariables(api, variableNames),
         ])
-        const variables = [...known.values()]
+        const variables = [...known.found.values()]
         const items = planPush(endpoints, [...remotes.values()], variables)
         const plan = items.map(({ file: _file, ...item }) => item)
         const pending = plan.filter((item) => item.action !== 'skip')
