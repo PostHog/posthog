@@ -1,10 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { z } from 'zod'
 
 import type { AccessKey } from '@/posthog/access-key'
 import { posthogFile, type Credentials } from '@/posthog/credentials'
 import { VERSION } from '@/version'
 
 import type { Mode } from './agent'
+import { parseJsonOrUndefined } from './json'
 import type { Env, Runtime } from './runtime'
 
 // PostHog's own project, where posthog-cli release builds send their events too.
@@ -91,9 +93,17 @@ interface Identity {
     project?: string
 }
 
-interface CachedIdentity extends Identity {
-    checkedAt: number
-}
+const CachedIdentitySchema = z.object({
+    checkedAt: z.number(),
+    distinctId: z.string().optional(),
+    organization: z.string().optional(),
+    project: z.string().optional(),
+})
+
+type CachedIdentity = z.output<typeof CachedIdentitySchema>
+
+// hog writes this file itself, so a cache it can't read is broken and hog starts a new one.
+const IdentityCacheSchema = z.record(z.string(), CachedIdentitySchema)
 
 // Only PostHog Cloud users exist in the project telemetry goes to.
 function isCloudHost(host: string): boolean {
@@ -101,7 +111,11 @@ function isCloudHost(host: string): boolean {
     return hostname === 'posthog.com' || hostname.endsWith('.posthog.com')
 }
 
-const text = (value: unknown): string | undefined => (typeof value === 'string' && value ? value : undefined)
+// A field hog can't read, such as a null organization, reads as missing, so the event loses only
+// that field.
+const Text = z.string().min(1).optional().catch(undefined)
+const IdentityUser = z.object({ distinct_id: Text, organization: z.object({ id: Text }).optional().catch(undefined) })
+const IdentityProject = z.object({ organization: Text, uuid: Text })
 
 // Usage events for the PostHog team. They belong to the PostHog Cloud user whose key hog uses, and
 // to a random install ID otherwise. Events carry no argument or option values and no error messages,
@@ -219,15 +233,7 @@ export class Telemetry {
         const cacheKey = createHash('sha256').update(`${key.host}\n${key.projectId}\n${key.loginKey}`).digest('hex')
         let cache: Record<string, CachedIdentity> = {}
         try {
-            const parsed: unknown = JSON.parse(await this.runtime.readFile(path))
-            // A cache that isn't an object is broken, so hog starts a new one instead of failing the command.
-            if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-                cache = Object.fromEntries(
-                    Object.entries(parsed).filter(
-                        ([, entry]) => typeof (entry as Partial<CachedIdentity> | null)?.checkedAt === 'number'
-                    )
-                ) as Record<string, CachedIdentity>
-            }
+            cache = parseJsonOrUndefined(await this.runtime.readFile(path), IdentityCacheSchema) ?? {}
         } catch {
             // No cache yet.
         }
@@ -249,22 +255,25 @@ export class Telemetry {
     }
 
     private async lookup(key: AccessKey): Promise<Identity> {
-        const get = async (path: string): Promise<Record<string, any> | undefined> => {
+        const get = async <S extends z.ZodType>(path: string, schema: S): Promise<z.output<S> | undefined> => {
             try {
                 const response = await this.runtime.fetch(new URL(path, key.host), {
                     headers: { Authorization: `Bearer ${key.token}` },
                     signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS),
                 })
-                return response.ok ? ((await response.json()) as Record<string, any>) : undefined
+                return response.ok ? parseJsonOrUndefined(await response.text(), schema) : undefined
             } catch {
                 return undefined
             }
         }
-        const [user, project] = await Promise.all([get('/api/users/@me/'), get(`/api/projects/${key.projectId}/`)])
+        const [user, project] = await Promise.all([
+            get('/api/users/@me/', IdentityUser),
+            get(`/api/projects/${key.projectId}/`, IdentityProject),
+        ])
         return {
-            distinctId: text(user?.distinct_id),
-            organization: text(project?.organization) ?? text(user?.organization?.id),
-            project: text(project?.uuid),
+            distinctId: user?.distinct_id,
+            organization: project?.organization ?? user?.organization?.id,
+            project: project?.uuid,
         }
     }
 
