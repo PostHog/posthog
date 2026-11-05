@@ -82,6 +82,8 @@ Because this channel can't be enumerated, it is closed by construction rather th
    A model is reachable with no import: `apps.get_model("label", "Class")`, migrations, admin, fixtures.
    tach cannot see that, so a model or migration change always re-runs the full suite.
    `hogli product:lint` blocks a narrowing that leaves the surface out.
+4. Keep in the inputs every module that outside suites run without an import: a module with a signal receiver on a sender of core or another product, a module that a test outside the product names by dotted path, as a patch target does, and a module that core loads by name through `load_product_modules`.
+   `hogli product:lint` finds both and fails until each module is in the inputs.
 
 A product whose views still hold business logic is not soundly skippable even if nothing imports it.
 This is also why "no in-process callers, so we don't need a facade" is the wrong test: a product whose only consumers are over HTTP (node services, the generated TS/MCP types) is _not_ facade-optional — there the facade's whole job is sealing its own presentation.
@@ -111,9 +113,10 @@ These cross the boundary as classes — allowed only under all three rules:
    The lint reads coverage per location rather than per subtree, so it cannot hold that scope; the repo invariant `test_product_analytics_drives_only_the_watched_subtree` does, and it fails when a line names code outside the watched subtree.
    The other locations stay in the inputs by presence until their channel (Celery task names, Temporal workflow names, Max tool names) is read the same way.
 3. **Validated registration.**
-   Registration points check `issubclass(cls, Base)` and reject anything else.
+   A registration point accepts only implementations of its base and rejects anything else.
    Import linters (tach, import-linter) see only the import graph; _what an object is_ can only be checked at runtime, at the door.
-   `ee/hogai/registry.py` (MaxTool) is the reference implementation: subclass auto-registration with validation.
+   `MaxTool` is the reference implementation: a class registers itself by subclassing (`__init_subclass__` in `ee/hogai/tool.py`), so only a `MaxTool` enters the registry, and the hook rejects an unknown tool name.
+   The Temporal worker, Celery task discovery and `get_query_runner` do not validate yet: they accept whatever the wiring location holds.
 
 Django models never cross, with or without an approved base.
 A model cannot be narrowed: whatever interface it presents, the object still carries managers, `save()`/`delete()`, FK descriptors that query other tables on attribute access, and reverse relations added by other apps.
@@ -496,6 +499,9 @@ The facade pages in SQL instead, and the view builds the standard response from 
 - Every list returns `count`, `next`, `previous` and `results`, so clients and MCP tools page every product the same way.
   Add extra fields beside them when a list needs them, and do not replace them.
 - Do not set paginator attributes by hand, build a fake queryset for a paginator, or return a whole list for the view to slice.
+  The `no-hand-set-paginator-state` semgrep rule blocks the first.
+- Every paginator extends a base in `posthog/api/pagination.py`: `BoundedLimitOffsetPagination`, `BoundedPageNumberPagination` or `StableCursorPagination`.
+  `posthog/test/repo_invariants/test_pagination_contract.py` fails for a registered view whose paginator does not.
 
 `products/visual_review/backend/presentation/views.py` shows the limit/offset form.
 

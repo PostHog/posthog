@@ -124445,6 +124445,7 @@ export namespace Schemas {
     dataset: string;
     /**
      * Number of results to return per page.
+     * @maximum 25
      */
     limit?: number;
     /**
@@ -124498,6 +124499,7 @@ export namespace Schemas {
     export type DatasetItemsVersionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -124519,6 +124521,7 @@ export namespace Schemas {
     id__in?: string[];
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -124565,6 +124568,7 @@ export namespace Schemas {
     export type DatasetsRevisionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -130277,6 +130281,7 @@ export namespace Schemas {
     export type McpAnalyticsFeedbackListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number;
     /**
@@ -130295,6 +130300,7 @@ export namespace Schemas {
     export type McpAnalyticsMissingCapabilitiesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 500
      */
     limit?: number;
     /**
@@ -135800,6 +135806,7 @@ export namespace Schemas {
     export type WizardRegistryListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
@@ -135842,6 +135849,7 @@ export namespace Schemas {
     export type WizardRunsArtifactsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number;
     /**
