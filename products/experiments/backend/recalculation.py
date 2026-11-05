@@ -9,7 +9,7 @@ Module-level free functions (not methods on ExperimentService) so the API view c
 """
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from django.conf import settings
@@ -35,6 +35,7 @@ from posthog.temporal.common.client import sync_connect
 
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
 from products.experiments.backend.metric_calculation.config import (
+    MetricCalculationConfig,
     build_calculation_configs,
     resolve_calculation_key_version,
 )
@@ -653,11 +654,12 @@ def get_run_results(recalc: ExperimentMetricsRecalculation) -> list[dict]:
     Never returns rows from a previous run or from the timeseries workflow (which uses config fingerprints).
 
     Ended experiments retain completed rows with a compatible display key after project settings change, without
-    making those rows reusable.
+    making those rows reusable. A finished run of an ended experiment shows the saved end point of a metric it
+    failed, see `read_run_rows`.
     """
     configs = build_calculation_configs(recalc.experiment)
     by_uuid = {config.metric_id: config for config in configs}
-    rows = MetricResultStore(experiment_id=recalc.experiment_id).for_run(recalc, configs=configs)
+    rows = read_run_rows(recalc, configs=configs)
     return [
         {
             "metric_uuid": row.metric_uuid,
@@ -668,6 +670,59 @@ def get_run_results(recalc: ExperimentMetricsRecalculation) -> list[dict]:
         }
         for row in rows
     ]
+
+
+def read_run_rows(
+    recalc: ExperimentMetricsRecalculation,
+    *,
+    configs: list[MetricCalculationConfig],
+    with_result: bool = True,
+) -> list[ExperimentMetricResult]:
+    """The result rows that the results page shows for a run, ordered by metric uuid.
+
+    A finished run of an ended experiment shows the saved end point of each metric that has no row or a failed row,
+    so a failed recalculation does not hide the result that the page showed before it. The `metric_errors` entry
+    still records the failure, so the counters still count it. A run in progress shows only its own rows, because
+    the page reads a row as the metric's fresh result.
+    """
+    store = MetricResultStore(experiment_id=recalc.experiment_id)
+    rows = store.for_run(recalc, configs=configs, with_result=with_result)
+    experiment = recalc.experiment
+    if recalc.completed_at is None or not experiment.is_stopped:
+        return rows
+    errors = recalc.metric_errors if isinstance(recalc.metric_errors, dict) else {}
+    by_uuid = {row.metric_uuid: row for row in rows}
+    run_metrics = set(recalc.metric_uuids or [])
+    now = timezone.now()
+    for calculation_config in configs:
+        metric_uuid = calculation_config.metric_id
+        row = by_uuid.get(metric_uuid)
+        # A failed row without an error entry is the only record of the failure, so it stays.
+        failed_with_entry = (
+            row is not None and row.status == ExperimentMetricResult.Status.FAILED and metric_uuid in errors
+        )
+        if metric_uuid not in run_metrics or not (row is None or failed_with_entry):
+            continue
+        saved = _saved_end_point(store, experiment, calculation_config, now=now)
+        if saved is not None:
+            by_uuid[metric_uuid] = saved
+    return [by_uuid[metric_uuid] for metric_uuid in sorted(by_uuid)]
+
+
+def _saved_end_point(
+    store: MetricResultStore, experiment: Experiment, calculation_config: MetricCalculationConfig, *, now: datetime
+) -> ExperimentMetricResult | None:
+    """The latest compatible daily point of an ended experiment whose data reaches the end date, or None."""
+    if not experiment.is_stopped or experiment.start_date is None:
+        return None
+    # Bounded on both sides: the backfill writes end-of-day points, so today's point can carry a future query_to.
+    row = store.latest_daily_point(calculation_config, since=experiment.start_date, until=now, preserve_history=True)
+    if row is None:
+        return None
+    # A point whose data ends before the end date misses the final hours, so a run must compute them.
+    # A backfill stamps the end of its day as query_to, but its data ends at completed_at.
+    data_until = min(row.query_to, row.completed_at or row.query_to)
+    return row if data_until >= experiment_window_end(experiment, now) else None
 
 
 def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
@@ -693,17 +748,7 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
         for calculation_config in calculation_configs:
             # Bounded on both sides: the backfill writes end-of-day points, so today's point can carry a future
             # query_to that would surface here as a future completion time.
-            row = None
-            if experiment.is_stopped and experiment.start_date:
-                row = store.latest_daily_point(
-                    calculation_config, since=experiment.start_date, until=now, preserve_history=True
-                )
-                # A point whose data ends before the end date misses the final hours, so a run must compute them.
-                # A backfill stamps the end of its day as query_to, but its data ends at completed_at.
-                if row is not None:
-                    data_until = min(row.query_to, row.completed_at or row.query_to)
-                    if data_until < experiment_window_end(experiment, now):
-                        row = None
+            row = _saved_end_point(store, experiment, calculation_config, now=now)
             if row is None:
                 row = store.latest_daily_point(calculation_config, since=now - TIMESERIES_FALLBACK_MAX_AGE, until=now)
             if row is None:

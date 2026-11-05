@@ -113,7 +113,7 @@ The snapshot for such an experiment is the one row at `end_date` for the current
 
 `ExperimentMetricResult` has no foreign key pointing back to `ExperimentMetricsRecalculation`. The scoping key lives entirely in the fingerprint plus `query_to`. This avoided a migration on a shared table to add a nullable column, and makes the two workflow families uniform in how they write results.
 
-Run reads rebuild the current keys and match the run's window. A configuration change can leave a running experiment uncovered; an ended experiment keeps compatible completed results through the display key.
+Run reads rebuild the current keys and match the run's window. A configuration change can leave a running experiment uncovered; an ended experiment keeps compatible completed results through the display key. A finished run of an ended experiment shows the saved end point of a metric that it failed, the same point the cold-start fallback shows, so a failed recalculation does not hide a decided result. The `metric_errors` entry still counts the failure.
 
 Every read and write of `ExperimentMetricResult` goes through `MetricResultStore` (`metric_calculation/results.py`), so the salt and the sync's copy window stay in one module.
 The current result of a metric (`current_outcome`) is the completed row whose data ends last under the metric's current calculation key, salted or bare.
