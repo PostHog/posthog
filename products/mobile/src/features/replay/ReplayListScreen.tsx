@@ -173,7 +173,7 @@ function ReplayListBody({ chrome }: { chrome: 'tab' | 'stack' }): ReactElement {
                 data={rows}
                 keyExtractor={keyOf}
                 renderItem={({ item }) => <SessionListRow row={item} now={now} onOpen={openSession} />}
-                ListHeaderComponent={header}
+                ListHeaderComponent={header ?? undefined}
                 ListFooterComponent={
                     <>
                         <ListPaginationFooter
@@ -196,7 +196,7 @@ function ReplayListBody({ chrome }: { chrome: 'tab' | 'stack' }): ReactElement {
                     </>
                 }
                 ListEmptyComponent={
-                    list.recommendations.length > 0 ? null : (
+                    list.recommendations.length > 0 ? undefined : (
                         <StateView
                             icon={<RecordingIcon size={iconSizes.empty} color={colors.tertiary} />}
                             title="No recordings yet"

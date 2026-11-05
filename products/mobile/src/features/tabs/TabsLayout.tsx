@@ -43,11 +43,12 @@ function visiblePins(pins: readonly NavPin[], tab: TabKey): readonly NavPin[] {
     return (tab === 'errors' || tab === 'replay') && !pins.includes(tab) ? [...pins, tab].slice(-MAX_NAV_PINS) : pins
 }
 
-function TabBar({ state, navigation }: BottomTabBarProps): ReactElement {
+function TabBar({ state, navigateToTab }: BottomTabBarProps): ReactElement {
     const router = useRouter()
     const focused = state.routes[state.index]?.name
     const goTo = (route: TabKey): void => {
-        navigation.navigate(route)
+        const key = state.routes.find((item) => item.name === route)?.key
+        if (key) navigateToTab(key)
     }
 
     // A layout effect, so the header shows the new tab's title in the same frame as the new scene.

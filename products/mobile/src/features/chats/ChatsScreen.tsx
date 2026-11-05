@@ -215,8 +215,8 @@ export function ChatsScreen(): ReactElement {
                 renderItem={renderItem}
                 renderSectionHeader={renderSectionHeader}
                 stickySectionHeadersEnabled={false}
-                ListHeaderComponent={listHeader}
-                ListEmptyComponent={empty}
+                ListHeaderComponent={listHeader ?? undefined}
+                ListEmptyComponent={empty ?? undefined}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
                 contentContainerStyle={[

@@ -1,7 +1,8 @@
 import { BlurTargetView } from 'expo-blur'
 import { usePathname } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
-import { Keyboard, ScrollView, type TextInput, View } from 'react-native'
+import type { ViewInstance } from 'react-native'
+import { Keyboard, ScrollView, type TextInputInstance, View } from 'react-native'
 import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
 import Animated, { useAnimatedStyle } from 'react-native-reanimated'
 import { useAuthStore } from '@/auth/authStore'
@@ -112,7 +113,7 @@ export function ChatScreen({
     const contentInset = aiIncident ? 0 : headerInset
     const demo = useDataMode() === 'demo'
     const keyboard = useReanimatedKeyboardAnimation()
-    const blurTarget = useRef<View>(null)
+    const blurTarget = useRef<ViewInstance>(null)
     const archiveActions = useArchiveChat()
     const activeArchiveTarget = useRef(session.taskId)
     useEffect(() => {
@@ -199,9 +200,9 @@ export function ChatScreen({
     // The files of the direct send in flight. They stay in the composer until it settles, and a queued message
     // never takes them.
     const [sendingFileIds, setSendingFileIds] = useState<readonly string[]>([])
-    const input = useRef<TextInput>(null)
+    const input = useRef<TextInputInstance>(null)
     const inputRef = useCallback(
-        (node: TextInput | null) => {
+        (node: TextInputInstance | null) => {
             input.current = node
             if (autoFocus) {
                 node?.focus()
