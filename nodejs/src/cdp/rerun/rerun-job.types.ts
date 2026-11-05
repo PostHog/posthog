@@ -39,11 +39,8 @@ export type RerunStatusValue = 'running' | 'succeeded' | 'failed' | 'canceled'
 /**
  * Filter shape for a rerun request.
  *
- * `window_start` / `window_end` are REQUIRED — the lifecycle table is
- * partitioned by `toYYYYMMDD(scheduled_at)`, so a query without a time bound
- * scans every partition (up to 30 of them, since the TTL drops parts older
- * than that). The window also caps rerun to data that's still resident in the
- * table — older rows are gone via TTL anyway.
+ * `window_start` / `window_end` are REQUIRED and match the run's first scheduled time.
+ * The window also caps rerun to data that's still resident in the table — older rows are gone via TTL anyway.
  *
  * `invocation_ids` is an OPTIONAL additional restriction. When set, the
  * paginator pulls only those ids within the window — a UI "rerun these
@@ -77,15 +74,20 @@ export interface RerunRequest {
  */
 export const RERUN_MAX_WINDOW_DAYS = 30
 
+/**
+ * A cursor without `first_scheduled_at` comes from the previous release, so the job keeps paging by last row
+ * and a deploy mid-job repeats no run. `scheduled_at` stays set because that release reads only it.
+ */
 export interface RerunCursor {
     scheduled_at: string
+    first_scheduled_at?: string
     invocation_id: string
 }
 
 export interface RerunJobProgress {
     queued: number
     skipped: number
-    /** Keyset cursor on (scheduled_at, invocation_id). Undefined on first page; null when exhausted. */
+    /** Keyset cursor, see `RerunCursor`. Undefined on first page; null when exhausted. */
     cursor?: RerunCursor | null
     /** True once the worker has processed every page or exhausted max_count. */
     done: boolean

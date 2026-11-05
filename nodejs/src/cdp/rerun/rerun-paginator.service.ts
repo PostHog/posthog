@@ -76,7 +76,7 @@ interface InvocationRow {
     // shadowing the raw `attempts` column in the fetch query — see fetchPage.
     latest_attempts: number
     last_scheduled_at: string
-    first_scheduled_at: string
+    run_first_scheduled_at: string
     invocation_globals: string
 }
 
@@ -141,9 +141,9 @@ export class RerunPaginatorService {
             const remainingBudget = this.remainingBudget(state)
             const toProcess = rows.slice(0, remainingBudget)
 
-            // A historical window can't see the newer lifecycle rows a prior replay wrote —
-            // they land in the partition of their own scheduled_at, outside the window — so
-            // the in-window collapse can report 'failed' for an invocation that has since
+            // A page keyed on scheduled_at (a cursor from the previous release), or a row written
+            // without its run's first_scheduled_at, can miss the newer lifecycle rows a prior replay
+            // wrote, so the collapse can report 'failed' for an invocation that has since
             // succeeded. Re-check the page against each invocation's latest status across
             // all partitions; without this, replaying the same window twice re-fires side
             // effects (emails, webhooks) for already-recovered runs.
@@ -435,7 +435,19 @@ export class RerunPaginatorService {
             return null
         }
         const last = processed[processed.length - 1]
-        return { scheduled_at: last.last_scheduled_at, invocation_id: last.invocation_id }
+        if (!this.pagesByRunStart(state)) {
+            return { scheduled_at: last.last_scheduled_at, invocation_id: last.invocation_id }
+        }
+        return {
+            scheduled_at: last.run_first_scheduled_at,
+            first_scheduled_at: last.run_first_scheduled_at,
+            invocation_id: last.invocation_id,
+        }
+    }
+
+    private pagesByRunStart(state: RerunJobState): boolean {
+        const cursor = state.progress.cursor
+        return !cursor?.scheduled_at || cursor.first_scheduled_at !== undefined
     }
 
     /**
@@ -537,13 +549,18 @@ export class RerunPaginatorService {
             ? toClickhouseDateTime(state.progress.cursor.scheduled_at)
             : ''
 
-        // Keyset pagination on (scheduled_at, invocation_id). When the cursor
+        // Every row of a run shares `first_scheduled_at`, so the window and cursor keep or drop whole runs.
+        // There is no `scheduled_at` bound, because a rescheduled row can land before the run's start.
+        const keyColumn = this.pagesByRunStart(state) ? 'first_scheduled_at' : 'scheduled_at'
+        const orderColumn = this.pagesByRunStart(state) ? 'run_first_scheduled_at' : 'last_scheduled_at'
+
+        // Keyset pagination on (key, invocation_id). When the cursor
         // is undefined we start from the top of the window. ClickHouse needs
         // the tuple compared via a single AND-chained inequality.
         const cursor = state.progress.cursor
         const cursorClause =
             cursor && cursor.scheduled_at
-                ? "   AND (scheduled_at, invocation_id) < ({cursor_scheduled_at:DateTime64(6, 'UTC')}, {cursor_invocation_id:String})"
+                ? `   AND (${keyColumn}, invocation_id) < ({cursor_scheduled_at:DateTime64(6, 'UTC')}, {cursor_invocation_id:String})`
                 : ''
         const errorKindClause = filter.error_kind?.length
             ? 'AND argMax(error_kind, version) IN {error_kind:Array(String)}'
@@ -556,8 +573,7 @@ export class RerunPaginatorService {
         const maxAttemptsClause =
             filter.max_attempts !== undefined ? 'AND argMax(attempts, version) < {max_attempts:UInt8}' : ''
         // `invocation_ids` is an OPTIONAL additional restriction layered on top
-        // of the time window. The window is still required — it pins the query
-        // to a small set of date partitions instead of scanning everything.
+        // of the time window, which is still required.
         const invocationIdsClause = filter.invocation_ids?.length
             ? 'AND invocation_id IN {invocation_ids:Array(String)}'
             : ''
@@ -574,14 +590,15 @@ export class RerunPaginatorService {
                     -- pill autodrain always does) would fail every page. Keep the names distinct.
                     argMax(attempts, version)              AS latest_attempts,
                     argMax(invocation_globals, version)    AS invocation_globals,
-                    argMax(first_scheduled_at, version)    AS first_scheduled_at,
+                    -- Not aliased 'first_scheduled_at': the alias would replace the raw column in the WHERE.
+                    argMax(first_scheduled_at, version)    AS run_first_scheduled_at,
                     max(scheduled_at)                      AS last_scheduled_at
                 FROM hog_invocation_results
                 WHERE team_id = {team_id:Int64}
                   AND function_kind = {function_kind:String}
                   AND function_id = {function_id:String}
-                  AND scheduled_at >= {window_start:DateTime64(6, 'UTC')}
-                  AND scheduled_at <  {window_end:DateTime64(6, 'UTC')}
+                  AND ${keyColumn} >= {window_start:DateTime64(6, 'UTC')}
+                  AND ${keyColumn} <  {window_end:DateTime64(6, 'UTC')}
                   ${invocationIdsClause}
                 ${cursorClause}
                 GROUP BY invocation_id
@@ -590,7 +607,7 @@ export class RerunPaginatorService {
                    ${errorKindClause}
                    ${errorMessageClause}
                    ${maxAttemptsClause}
-                ORDER BY last_scheduled_at DESC, invocation_id DESC
+                ORDER BY ${orderColumn} DESC, invocation_id DESC
                 LIMIT {limit:UInt32}`,
             query_params: {
                 team_id: teamId,
@@ -752,7 +769,7 @@ export class RerunPaginatorService {
                     // Carry the original first-scheduled time forward — the
                     // producer writes this verbatim on every retry's lifecycle
                     // rows so ReplacingMergeTree doesn't collapse it away.
-                    firstScheduledAt: row.first_scheduled_at,
+                    firstScheduledAt: row.run_first_scheduled_at,
                 },
                 teamId,
                 functionId,
@@ -869,7 +886,7 @@ export class RerunPaginatorService {
                 // lifecycle row producer can derive `attempts` / `is_retry`
                 // for flows too, and the `max_attempts` guard actually trips.
                 rerunAttempts: (row.latest_attempts || 0) + 1,
-                firstScheduledAt: row.first_scheduled_at,
+                firstScheduledAt: row.run_first_scheduled_at,
             }
             return invocation
         }
