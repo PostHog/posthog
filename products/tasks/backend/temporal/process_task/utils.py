@@ -51,7 +51,7 @@ from products.tasks.backend.exceptions import (
     ProcessTaskTransientError,
 )
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
-from products.tasks.backend.facade.profiles import MAX_MCP_EXCLUDE_TOOLS, TaskProfile
+from products.tasks.backend.facade.profiles import MAX_MCP_EXCLUDE_TOOLS, GithubAccess, TaskProfile
 from products.tasks.backend.feature_flags import is_mcp_exec_skills_enabled
 from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
 from products.tasks.backend.logic.services.desktop_gateway_token import (
@@ -1299,6 +1299,8 @@ def resolve_user_github_integration_for_task(
     allow_refresh: bool = False,
 ) -> UserGitHubIntegration | None:
     """Resolve the UserIntegration that should author a task's GitHub writes."""
+    if task.github_access_limit == GithubAccess.NONE:
+        return None
     user = actor_user or task.created_by
     if user is None:
         return None
@@ -1447,6 +1449,8 @@ def _resolve_sandbox_github_token(
     ``BOT`` authorship falls through to the team's ``Integration`` installation token.
     """
     pr_authorship_mode: PrAuthorshipMode | None
+    if task is not None and task.github_access_limit == GithubAccess.NONE:
+        return None
     slack_interaction = is_slack_interaction_state(state)
     created_by = actor_user or created_by
     if task is not None:

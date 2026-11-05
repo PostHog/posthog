@@ -52,6 +52,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     mcp_exclude_tools_from_state,
     mcp_exec_skills_env_vars,
     parse_run_state,
+    resolve_user_github_integration_for_task,
     sanitize_mcp_exclude_tools,
     upgrade_run_to_user_authorship,
 )
@@ -1224,6 +1225,26 @@ class TestGetUserGithubIntegration(TestCase):
         assert resolved.integration.integration_id == "222"
 
 
+class TestResolveUserGithubIntegrationForTask(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_access", {"github_access": "none"}, False),
+            ("read_access", {"github_access": "read"}, True),
+            ("no_limit", None, True),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_github_integration")
+    def test_a_task_without_github_access_resolves_no_personal_integration(
+        self, _name: str, options: dict | None, resolves: bool, mock_get_identity: MagicMock
+    ) -> None:
+        identity = MagicMock(name="identity")
+        mock_get_identity.return_value = identity
+
+        resolved = resolve_user_github_integration_for_task(Task(options=options), actor_user=MagicMock())
+
+        assert resolved is (identity if resolves else None)
+
+
 class TestGetSandboxGitHubToken(SimpleTestCase):
     @parameterized.expand(
         [
@@ -1288,6 +1309,33 @@ class TestGetSandboxGitHubToken(SimpleTestCase):
             mock_get_github_token.assert_called_once_with(123, repositories=[])
         else:
             mock_get_github_token.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("no_access_user_authored", {"github_access": "none"}, "user", None),
+            ("no_access_bot_authored", {"github_access": "none"}, "bot", None),
+            ("read_access_user_authored", {"github_access": "read"}, "user", "ghp_cached"),
+            ("no_limit_bot_authored", None, "bot", "ghs_team"),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.process_task.utils.get_github_token", return_value="ghs_team")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_cached_github_user_token", return_value="ghp_cached")
+    def test_a_task_without_github_access_resolves_no_token(
+        self,
+        _name: str,
+        options: dict | None,
+        mode: str,
+        expected: str | None,
+        _mock_cached: MagicMock,
+        _mock_get_github_token: MagicMock,
+    ) -> None:
+        task = Task(options=options, github_integration_id=123)
+
+        token = get_sandbox_github_token(
+            123, run_id="run-1", state={"pr_authorship_mode": mode}, task=task, repository="posthog/posthog"
+        )
+
+        assert token == expected
 
     @parameterized.expand(
         [

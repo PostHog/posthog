@@ -56,7 +56,7 @@ Before changing templates, define:
 ## Verification
 
 ```bash
-hogli test frontend/src/scenes/dashboard/tileLayouts.test.ts
+hogli test products/dashboards/frontend/tileLayouts.test.ts
 hogli test frontend/src/scenes/dashboard/insertTileGeometry.test.ts
 hogli test frontend/src/scenes/dashboard/editLayoutGesture.test.ts
 hogli test products/dashboards/backend/api/test/test_dashboard_templates.py

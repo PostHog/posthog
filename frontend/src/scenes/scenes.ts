@@ -18,6 +18,7 @@ import { EventsQuery } from '~/queries/schema/schema-general'
 import { ActivityScope, ActivityTab, InsightShortId, ReplayTabs } from '~/types'
 
 import { BillingSectionId } from './billing/types'
+import { SettingSectionId } from './settings/types'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -743,6 +744,8 @@ export const redirects: Record<
     // There is no /project/new scene; send typed URLs and old bookmarks to the create-project flow
     '/project/new': urls.projectCreateFirst(),
     '/project/settings': urls.settings('project'),
+    '/project/settings/:section': ({ section }, _searchParams, hashParams) =>
+        combineUrl(urls.settings(section as SettingSectionId), {}, hashParams).url,
     // The quickstart landing page is gone; keep old bookmarks and pinned tabs out of a 404
     '/quickstart': urls.default(),
     '/recordings/file-playback': () => urls.replayFilePlayback(),

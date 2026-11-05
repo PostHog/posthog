@@ -1351,6 +1351,7 @@ CREDENTIAL_AUTH_TYPES: Mapping[str, str] = {
     "watchmode": "token",
     "waydev": "token",
     "wayfair": "credentials",
+    "webengage": "credentials",
     "webflow": "credentials",
     "weights-and-biases": "credentials",
     "whatsapp-business-management": "credentials",
