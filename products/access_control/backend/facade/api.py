@@ -880,7 +880,8 @@ def connect_access_change_receivers(
 ) -> None:
     """Call back when an access rule or a role membership is saved or deleted.
 
-    ``on_rule_change(team_id, resource)`` runs after a rule is saved or deleted.
+    ``on_rule_change(team_id, resource)`` runs after a rule is saved or deleted. A property rule
+    comes in as the ``property_definition`` resource.
     ``on_role_membership_change(user_id, organization_id)`` runs after a role membership is
     saved and before one is deleted, so its role can still be read. ``organization_id`` is the
     role's organization: most role memberships carry no organization membership.
@@ -902,6 +903,23 @@ def connect_access_change_receivers(
     # weak=False: the receivers are closures, and nothing else holds them.
     post_save.connect(rule_changed, sender=AccessControl, weak=False, dispatch_uid=f"{dispatch_uid}_rule_saved")
     post_delete.connect(rule_changed, sender=AccessControl, weak=False, dispatch_uid=f"{dispatch_uid}_rule_deleted")
+
+    def property_rule_changed(sender: object, instance: PropertyAccessControl, **kwargs: object) -> None:
+        if is_active():
+            on_rule_change(instance.team_id, "property_definition")
+
+    post_save.connect(
+        property_rule_changed,
+        sender=PropertyAccessControl,
+        weak=False,
+        dispatch_uid=f"{dispatch_uid}_property_rule_saved",
+    )
+    post_delete.connect(
+        property_rule_changed,
+        sender=PropertyAccessControl,
+        weak=False,
+        dispatch_uid=f"{dispatch_uid}_property_rule_deleted",
+    )
     post_save.connect(
         role_membership_changed, sender=RoleMembership, weak=False, dispatch_uid=f"{dispatch_uid}_role_saved"
     )

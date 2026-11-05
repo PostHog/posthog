@@ -10,7 +10,7 @@ from django.test import override_settings
 import requests
 
 from posthog.constants import AvailableFeature
-from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models import Organization, OrganizationMembership, PropertyDefinition, Team, User
 
 from products.access_control.backend.facade import testing as access_testing
 from products.managed_warehouse.backend import member_teams, signals
@@ -38,6 +38,7 @@ class _MemberTeamsTest(BaseTest):
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL},
         ]
         self.organization.save()
         self.member = User.objects.create_and_join(self.organization, "member@posthog.com", "testtest")
@@ -45,6 +46,12 @@ class _MemberTeamsTest(BaseTest):
 
     def _rule(self, team: Team, resource: str, level: str, **kwargs) -> UUID:
         return access_testing.create_access_control(team_id=team.id, resource=resource, access_level=level, **kwargs)
+
+    def _property_rule(self, team: Team, level: str, **kwargs) -> UUID:
+        definition = PropertyDefinition.objects.create(team=team, name=f"secret_{uuid4().hex[:8]}", type=1)
+        return access_testing.create_property_access_control(
+            team_id=team.id, property_definition_id=definition.id, access_level=level, **kwargs
+        )
 
 
 class TestMemberTeams(_MemberTeamsTest):
@@ -117,6 +124,21 @@ class TestMemberTeams(_MemberTeamsTest):
         # A table with a source falls back to the all-sources rule.
         self._rule(self.team, "external_data_source", "none")
         assert member_teams.member_teams(self.organization, self.member) == {}
+
+    def test_a_hidden_property_withholds_the_team(self) -> None:
+        # The namespace holds raw property values, so a member who may not see one gets nothing.
+        self._property_rule(self.team, "none", organization_member_id=self.membership.id)
+        assert member_teams.member_teams(self.organization, self.member) == {}
+
+    def test_a_read_only_property_does_not_restrict(self) -> None:
+        self._property_rule(self.team, "read")
+        assert member_teams.member_teams(self.organization, self.member) == {self.team.id: "write"}
+
+    def test_a_hidden_property_without_the_feature_does_not_restrict(self) -> None:
+        self._property_rule(self.team, "none")
+        self.organization.available_product_features = []
+        self.organization.save()
+        assert member_teams.member_teams(self.organization, self.member) == {self.team.id: "write"}
 
     def test_an_organization_admin_is_not_restricted_by_object_rules(self) -> None:
         self._rule(self.team, "warehouse_table", "none", resource_id=str(uuid4()))
@@ -257,6 +279,15 @@ class TestReceivers(_MemberTeamsTest):
             with self.captureOnCommitCallbacks(execute=True):
                 access_testing.delete_access_control(team_id=self.team.id, access_control_id=rule_id)
             self.org_push.assert_called_once_with(str(self.organization.id))
+
+    def test_a_property_rule_pushes_the_organization(self) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            rule_id = self._property_rule(self.team, "none")
+        self.org_push.assert_called_once_with(str(self.organization.id))
+        self.org_push.reset_mock()
+        with self.captureOnCommitCallbacks(execute=True):
+            access_testing.delete_property_access_control_rule(team_id=self.team.id, property_access_control_id=rule_id)
+        self.org_push.assert_called_once_with(str(self.organization.id))
 
     def test_other_rules_push_nothing(self) -> None:
         with self.captureOnCommitCallbacks(execute=True):

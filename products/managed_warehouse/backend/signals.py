@@ -25,7 +25,7 @@ from posthog.models import OrganizationMembership, Team, User
 from products.managed_warehouse.backend import member_teams
 
 # Access rules on these resources change which teams a member sees, or the level on them.
-_ACCESS_RESOURCES = frozenset({"project", *member_teams.RESTRICTING_RESOURCES})
+_ACCESS_RESOURCES = frozenset({"project", "property_definition", *member_teams.RESTRICTING_RESOURCES})
 
 
 def _has_warehouse(organization_id: str) -> bool:

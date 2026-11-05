@@ -10,6 +10,8 @@ owner can see. PostHog is not a live dependency of that mint, so PostHog pushes 
   source. The level is the lowest of the warehouse-objects rule, the all-sources rule (a table
   with a source falls back to it), and every object rule that applies to the member. A member
   denied one table therefore gets no grant on that team.
+- For the same reason, a member with any hidden property on a team gets no grant on it: the
+  namespace holds the raw values that PostHog's queries mask.
 - A member who has left the organization, or whose user is deactivated, is removed. hogtower
   then revokes every team credential the member owns.
 
@@ -37,6 +39,7 @@ from posthog.models import Organization, OrganizationMembership, User
 from posthog.scopes import APIScopeObject
 from posthog.user_permissions import UserPermissions
 
+from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 from products.managed_warehouse.backend.metrics import record_counter
 from products.managed_warehouse.backend.presentation import hogtower
@@ -84,6 +87,8 @@ def member_teams(organization: Organization, user: User) -> dict[int, str]:
     teams: dict[int, str] = {}
     for team_id, team_access in access.for_team_ids(list(visible)).items():
         level = _namespace_level(team_access)
+        if level is not None and get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id):
+            level = None
         if level in _WRITE_LEVELS:
             teams[team_id] = WRITE
         elif level in _READ_LEVELS:
