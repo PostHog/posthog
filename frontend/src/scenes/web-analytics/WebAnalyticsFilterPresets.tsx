@@ -21,7 +21,9 @@ import {
     LemonTextArea,
     Popover,
 } from '@posthog/lemon-ui'
+import { Button, ButtonGroup, SelectTriggerIcon } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconSync } from 'lib/lemon-ui/icons'
 
 import { WebAnalyticsFilterPresetType } from '~/types'
@@ -30,6 +32,7 @@ import { webAnalyticsFilterPresetsLogic } from './webAnalyticsFilterPresetsLogic
 
 export const FilterPresetsDropdown = (): JSX.Element => {
     const [dropdownOpen, setDropdownOpen] = useState(false)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const {
         pinnedPresets,
         recentPresets,
@@ -196,6 +199,14 @@ export const FilterPresetsDropdown = (): JSX.Element => {
     )
 
     const bookmarkIcon = activePreset ? <IconBookmarkSolid className="text-yellow-400" /> : <IconBookmark />
+    const presetLabel = activePreset ? (
+        <span className="flex items-center gap-1">
+            <span className="max-w-32 truncate">{activePreset.name}</span>
+            {hasUnsavedChanges && <span className="text-warning shrink-0">(modified)</span>}
+        </span>
+    ) : (
+        'Presets'
+    )
     return (
         <>
             <Popover
@@ -205,35 +216,53 @@ export const FilterPresetsDropdown = (): JSX.Element => {
                 fallbackPlacements={['bottom-end']}
                 overlay={dropdownContent}
             >
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={bookmarkIcon}
-                    onClick={() => setDropdownOpen(!dropdownOpen)}
-                    data-attr="web-analytics-filter-presets"
-                    active={!!activePreset}
-                    sideAction={
-                        activePreset
-                            ? {
-                                  icon: <IconX />,
-                                  tooltip: 'Clear preset',
-                                  onClick: (e) => {
-                                      e.stopPropagation()
-                                      clearPreset()
-                                  },
-                              }
-                            : undefined
-                    }
-                >
-                    {activePreset ? (
-                        <span className="flex items-center gap-1">
-                            <span className="max-w-32 truncate">{activePreset.name}</span>
-                            {hasUnsavedChanges && <span className="text-warning shrink-0">(modified)</span>}
-                        </span>
-                    ) : (
-                        'Presets'
-                    )}
-                </LemonButton>
+                {todayRailNav ? (
+                    <ButtonGroup>
+                        <Button
+                            variant="outline"
+                            onClick={() => setDropdownOpen(!dropdownOpen)}
+                            data-attr="web-analytics-filter-presets"
+                        >
+                            {bookmarkIcon}
+                            {presetLabel}
+                            <SelectTriggerIcon />
+                        </Button>
+                        {activePreset && (
+                            <Button
+                                variant="outline"
+                                size="icon"
+                                aria-label="Clear preset"
+                                tooltip="Clear preset"
+                                onClick={clearPreset}
+                            >
+                                <IconX />
+                            </Button>
+                        )}
+                    </ButtonGroup>
+                ) : (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={bookmarkIcon}
+                        onClick={() => setDropdownOpen(!dropdownOpen)}
+                        data-attr="web-analytics-filter-presets"
+                        active={!!activePreset}
+                        sideAction={
+                            activePreset
+                                ? {
+                                      icon: <IconX />,
+                                      tooltip: 'Clear preset',
+                                      onClick: (e) => {
+                                          e.stopPropagation()
+                                          clearPreset()
+                                      },
+                                  }
+                                : undefined
+                        }
+                    >
+                        {presetLabel}
+                    </LemonButton>
+                )}
             </Popover>
             <SaveFilterPresetModal />
             <DeletePresetModal
