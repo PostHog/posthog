@@ -145,6 +145,9 @@ class TestWebDimensionalPrecompute(ClickhouseTestMixin, APIBaseTest):
             ("bounce_duration", {"bounceRateDurationSeconds": 30}),
             ("bounce_page_view_mode", {"bounceRatePageViewMode": "uniq_urls"}),
             ("sessions_join_mode", {"sessionsV2JoinMode": "string"}),
+            # Never the team default, so the change is real in every persons-on-events CI mode.
+            ("persons_on_events_mode", {"personsOnEventsMode": "disabled"}),
+            ("materialization_mode", {"materializationMode": "legacy_null_as_string"}),
         ]
     )
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)

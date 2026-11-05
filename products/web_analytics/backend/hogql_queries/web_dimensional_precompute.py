@@ -356,6 +356,8 @@ DIMENSIONAL_SESSION_BUFFER_MINUTES = 25 * 60
 DIMENSIONAL_SEMANTIC_MODIFIER_FIELDS: tuple[str, ...] = (
     "bounceRateDurationSeconds",
     "bounceRatePageViewMode",
+    "materializationMode",
+    "personsOnEventsMode",
     "sessionsV2JoinMode",
     "sessionTableVersion",
 )
