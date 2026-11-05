@@ -7,6 +7,7 @@ from uuid import UUID
 import structlog
 
 from posthog.clickhouse.client import sync_execute
+from posthog.dataclasses import frozen
 from posthog.models.person.util import (
     PERSONHOG_BATCH_SIZE,
     PersonTombstone,
@@ -14,6 +15,7 @@ from posthog.models.person.util import (
     PersonVersionFloor,
     VersionFloorOutcome,
     ensure_person_version_floors,
+    get_distinct_id_rows,
     get_person_tombstones,
     get_persons_by_uuids,
 )
@@ -180,6 +182,50 @@ def tombstone_orphaned_ch_persons(
     if publication.failures:
         raise publication.failures[0].error
     return result
+
+
+@frozen
+class OrphanDataErasure:
+    """The data of repaired orphans that an erasure request may delete."""
+
+    person_uuids: list[str]
+    recording_distinct_ids: list[str]
+    # Distinct ids that a live persons-DB person owns, so deleting by them would reach that person's recordings.
+    excluded_distinct_ids: list[str]
+
+
+def plan_orphan_data_erasure(
+    team_id: int, requested_uuids: list[str], *, pending_uuids: Optional[list[str]] = None
+) -> OrphanDataErasure:
+    """Work out what an erasure may delete from the persons-DB tombstones, not from the orphans of this run.
+
+    A live person has no tombstone, so a person the repair skipped as live never qualifies. A tombstoned person
+    is no longer an orphan, so a rerun after a crash still finds every person the first run tombstoned. Mappings
+    stay in ClickHouse until the deletion sweep, and a rerun after that sweep finds no recording ids.
+
+    ``pending_uuids`` are orphans a dry run has not tombstoned, counted as if it had.
+    """
+    tombstoned = {str(t.uuid) for t in get_person_tombstones(team_id, [UUID(u) for u in requested_uuids])}
+    erasable = tombstoned | set(pending_uuids or [])
+    if not erasable:
+        return OrphanDataErasure(person_uuids=[], recording_distinct_ids=[], excluded_distinct_ids=[])
+
+    candidates = sorted(
+        m.distinct_id
+        for m in _ch_mappings_for_persons(team_id, erasable)
+        if m.winner_person_id in erasable and not m.winner_is_deleted
+    )
+    # A strong read, because a lagging replica could hide a live owner and cost that owner their recordings.
+    owned_by_live_person = {
+        row.distinct_id
+        for row in get_distinct_id_rows(team_id, candidates, strong=True)
+        if not row.is_deleted and not row.person_is_deleted
+    }
+    return OrphanDataErasure(
+        person_uuids=sorted(erasable),
+        recording_distinct_ids=[d for d in candidates if d not in owned_by_live_person],
+        excluded_distinct_ids=sorted(owned_by_live_person),
+    )
 
 
 _LIVE_PERSONS_BASE = """

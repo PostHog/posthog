@@ -1,12 +1,13 @@
 from uuid import uuid4
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 from posthog.management.commands.fix_orphaned_ch_persons import run as run_orphan_repair
+from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person.deletion import OrphanedPerson, find_orphaned_ch_persons, tombstone_orphaned_ch_persons
 from posthog.models.person.util import (
     create_person as create_person_in_ch,
@@ -236,3 +237,111 @@ class TestOrphanedCHPersonRepair(ClickhouseTestMixin, BaseTest):
 
         assert self._stored(uuid) == ((True, 6) if expect_repair else None)
         assert self._ch_person_state(uuid) == ((1, 6) if expect_repair else (0, 5))
+        assert self._queued_event_deletions() == set()
+
+    def _queued_event_deletions(self) -> set[str]:
+        return set(
+            AsyncDeletion.objects.filter(team_id=self.team.pk, deletion_type=DeletionType.Person).values_list(
+                "key", flat=True
+            )
+        )
+
+    def _seed_rest_of_team(self) -> None:
+        # Keeps the repair under the share limit, so that limit cannot be what stops a run.
+        for _ in range(20):
+            self._seed_ch_only_person(str(uuid4()), [], version=1)
+
+    def _erase(self, uuids: list[str], **overrides: object) -> tuple[list[str], MagicMock]:
+        options = {
+            "team_id": self.team.pk,
+            "person_uuid": uuids,
+            "all": False,
+            "dry_run": False,
+            "force": False,
+            "delete_events": True,
+            "delete_recordings": True,
+            "reason": "erasure request",
+            **overrides,
+        }
+        temporal = MagicMock()
+        temporal.start_workflow = AsyncMock()
+        with (
+            patch("posthog.models.person.bulk_delete.sync_connect", return_value=temporal),
+            patch("posthog.models.person.bulk_delete.queue_person_training_deletion") as training,
+        ):
+            run_orphan_repair(options)
+        recording_ids = sorted(d for c in temporal.start_workflow.call_args_list for d in c.args[1].distinct_ids)
+        return recording_ids, training
+
+    def test_erasure_reaches_repaired_orphans_and_spares_live_persons(self):
+        orphan = str(uuid4())
+        self._seed_ch_only_person(orphan, ["did-orphan"], version=5)
+        self._seed_rest_of_team()
+        live = create_person(team=self.team, distinct_ids=["did-live"], properties={})
+
+        recording_ids, training = self._erase([orphan, str(live.uuid)])
+
+        assert self._queued_event_deletions() == {orphan}
+        assert recording_ids == ["did-orphan"]
+        training.assert_called_once_with(self.team.pk, ["did-orphan"])
+
+    def test_erasure_skips_a_distinct_id_a_live_person_owns(self):
+        orphan = str(uuid4())
+        self._seed_ch_only_person(orphan, ["did-own", "did-shared"], version=5)
+        self._seed_rest_of_team()
+        create_person(team=self.team, distinct_ids=["did-shared"], properties={})
+
+        recording_ids, _training = self._erase([orphan])
+
+        assert recording_ids == ["did-own"]
+
+    def test_erasure_rerun_after_the_repair_still_queues_tombstoned_persons(self):
+        orphan = str(uuid4())
+        self._seed_ch_only_person(orphan, ["did-a"], version=5)
+        self._seed_rest_of_team()
+        self._erase([orphan], delete_events=False, delete_recordings=False)
+        assert find_orphaned_ch_persons(self.team.pk, [orphan]) == []
+
+        recording_ids, _training = self._erase([orphan])
+
+        assert self._queued_event_deletions() == {orphan}
+        assert recording_ids == ["did-a"]
+
+    def test_erasure_dry_run_deletes_nothing(self):
+        orphan = str(uuid4())
+        self._seed_ch_only_person(orphan, ["did-a"], version=5)
+
+        recording_ids, training = self._erase([orphan], dry_run=True)
+
+        assert self._queued_event_deletions() == set()
+        assert recording_ids == []
+        training.assert_not_called()
+        assert self._stored(orphan) is None
+
+    @parameterized.expand(
+        [
+            # A dry run, because every person is an orphan under --all and a real run stops at the share limit first.
+            ("all_persons", {"person_uuid": None, "all": True, "dry_run": True}),
+            ("force", {"force": True}),
+            ("recordings_without_a_reason", {"reason": ""}),
+        ]
+    )
+    def test_erasure_refuses_unsafe_options(self, _name: str, overrides: dict[str, object]):
+        orphan = str(uuid4())
+        self._seed_ch_only_person(orphan, ["did-a"], version=5)
+        self._seed_rest_of_team()
+
+        with self.assertRaises(SystemExit):
+            self._erase([orphan], **overrides)
+
+        assert self._queued_event_deletions() == set()
+        assert self._ch_person_state(orphan) == (0, 5)
+
+    def test_erasure_over_the_share_limit_is_refused(self):
+        orphan = str(uuid4())
+        self._seed_ch_only_person(orphan, ["did-a"], version=5)
+
+        with self.assertRaises(SystemExit):
+            self._erase([orphan])
+
+        assert self._queued_event_deletions() == set()

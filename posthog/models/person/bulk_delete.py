@@ -831,17 +831,22 @@ def queue_person_event_deletion(
     *,
     actor: User | None,
 ) -> None:
-    if not persons:
+    queue_event_deletion_by_uuid(team_id, [str(person.uuid) for person in persons], actor=actor)
+
+
+def queue_event_deletion_by_uuid(team_id: int, person_uuids: builtins.list[str], *, actor: User | None) -> None:
+    """Queue event deletion for persons that may have no persons-DB row, because the rows only need the uuid."""
+    if not person_uuids:
         return
     AsyncDeletion.objects.bulk_create(
         [
             AsyncDeletion(
                 deletion_type=DeletionType.Person,
                 team_id=team_id,
-                key=str(person.uuid),
+                key=person_uuid,
                 created_by=actor,
             )
-            for person in persons
+            for person_uuid in person_uuids
         ],
         ignore_conflicts=True,
     )
@@ -862,6 +867,28 @@ def queue_person_recording_deletion(
             team_id, [distinct_id for person in persons for distinct_id in person.distinct_ids]
         )
     _start_recording_workflows(team_id, persons, actor, reason)
+
+
+def queue_recording_deletion_by_distinct_id(
+    team_id: int,
+    distinct_ids: builtins.list[str],
+    *,
+    actor: User | None,
+    reason: str,
+) -> None:
+    """Delete recordings and training data for distinct ids that have no ``Person`` to carry them."""
+    if not distinct_ids:
+        return
+    queue_person_training_deletion(team_id, distinct_ids)
+    _start_recording_workflow_batches(
+        team_id,
+        [
+            distinct_ids[i : i + _MAX_DISTINCT_IDS_PER_WORKFLOW]
+            for i in range(0, len(distinct_ids), _MAX_DISTINCT_IDS_PER_WORKFLOW)
+        ],
+        actor,
+        reason,
+    )
 
 
 # Batch persons per workflow (not one each) to bound concurrent ClickHouse load queries; cap distinct IDs per chunk to stay under Temporal's payload limit.
@@ -895,7 +922,25 @@ def _start_recording_workflows(
     actor: User | None,
     reason: str,
 ) -> None:
-    """Kick off ``delete-recordings-with-person`` workflows, batching persons per run.
+    """Kick off ``delete-recordings-with-person`` workflows, batching persons per run."""
+    # A single person can carry more distinct IDs than the per-workflow cap, so the batch's
+    # distinct IDs are split again here rather than trusting the person-level chunking alone.
+    batches = [
+        distinct_ids[i : i + _MAX_DISTINCT_IDS_PER_WORKFLOW]
+        for batch in _chunk_persons(persons)
+        for distinct_ids in [sorted({distinct_id for person in batch for distinct_id in person.distinct_ids})]
+        for i in range(0, len(distinct_ids), _MAX_DISTINCT_IDS_PER_WORKFLOW)
+    ]
+    _start_recording_workflow_batches(team_id, batches, actor, reason)
+
+
+def _start_recording_workflow_batches(
+    team_id: int,
+    batches: builtins.list[builtins.list[str]],
+    actor: User | None,
+    reason: str,
+) -> None:
+    """Start one ``delete-recordings-with-person`` workflow per batch of distinct ids.
 
     The Temporal connection is established here (rather than in the caller) so
     that tests patching this seam don't need to mock ``sync_connect`` separately.
@@ -921,14 +966,6 @@ def _start_recording_workflows(
                     ),
                 )
 
-        # A single person can carry more distinct IDs than the per-workflow cap, so the batch's
-        # distinct IDs are split again here rather than trusting the person-level chunking alone.
-        starts = [
-            start_workflow(distinct_ids[i : i + _MAX_DISTINCT_IDS_PER_WORKFLOW])
-            for batch in _chunk_persons(persons)
-            for distinct_ids in [sorted({distinct_id for person in batch for distinct_id in person.distinct_ids})]
-            for i in range(0, len(distinct_ids), _MAX_DISTINCT_IDS_PER_WORKFLOW)
-        ]
-        await asyncio.gather(*starts)
+        await asyncio.gather(*(start_workflow(batch) for batch in batches))
 
     asyncio.run(start_all_workflows())

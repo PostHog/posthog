@@ -6,11 +6,14 @@ from django.core.management.base import BaseCommand
 import structlog
 
 from posthog.kafka_client.routing import flush_all_producers
+from posthog.models.person.bulk_delete import queue_event_deletion_by_uuid, queue_recording_deletion_by_distinct_id
 from posthog.models.person.deletion import (
+    OrphanDataErasure,
     OrphanRepairResult,
     count_live_ch_persons,
     find_orphaned_ch_persons,
     orphan_share_refusal,
+    plan_orphan_data_erasure,
     tombstone_orphaned_ch_persons,
 )
 
@@ -51,6 +54,17 @@ class Command(BaseCommand):
             action="store_true",
             help="Apply even when the orphans are more than 5%% of the team's live ClickHouse persons.",
         )
+        parser.add_argument(
+            "--delete-events",
+            action="store_true",
+            help="Erasure only: also queue deletion of the repaired persons' events. Needs --person-uuid.",
+        )
+        parser.add_argument(
+            "--delete-recordings",
+            action="store_true",
+            help="Erasure only: also delete the repaired persons' recordings. Needs --person-uuid and --reason.",
+        )
+        parser.add_argument("--reason", default="", help="Why the recordings are deleted. Stored on the workflow.")
 
     def handle(self, *args, **options):
         run(options)
@@ -66,6 +80,18 @@ def run(options) -> None:
     all_persons = options.get("all", False)
     if (not uuids and not all_persons) or (uuids and all_persons):
         logger.error("You must specify exactly one of --person-uuid or --all to run this script")
+        exit(1)
+
+    delete_events = options.get("delete_events", False)
+    delete_recordings = options.get("delete_recordings", False)
+    erasing = delete_events or delete_recordings
+    reason = options.get("reason", "")
+    # Deleted data cannot come back, so an erasure names its persons and never overrides the restore guard.
+    if erasing and (all_persons or options.get("force")):
+        logger.error("--delete-events and --delete-recordings need --person-uuid and refuse --all and --force")
+        exit(1)
+    if delete_recordings and not reason:
+        logger.error("--delete-recordings needs --reason")
         exit(1)
 
     dry_run = options["dry_run"]
@@ -94,6 +120,8 @@ def run(options) -> None:
     _log_result(team_id, result)
 
     if dry_run:
+        if erasing:
+            _log_erasure(team_id, plan_orphan_data_erasure(team_id, uuids, pending_uuids=[o.uuid for o in orphans]))
         logger.info("Dry run: no tombstones were produced. Re-run with --no-dry-run to apply.")
         return
 
@@ -107,6 +135,25 @@ def run(options) -> None:
         )
         exit(1)
     logger.info("Kafka producer queue flushed.")
+
+    if not erasing:
+        return
+    erasure = plan_orphan_data_erasure(team_id, uuids)
+    _log_erasure(team_id, erasure)
+    if delete_recordings:
+        queue_recording_deletion_by_distinct_id(team_id, erasure.recording_distinct_ids, actor=None, reason=reason)
+    if delete_events:
+        queue_event_deletion_by_uuid(team_id, erasure.person_uuids, actor=None)
+
+
+def _log_erasure(team_id: int, erasure: OrphanDataErasure) -> None:
+    logger.info(
+        "Orphan data erasure",
+        team_id=team_id,
+        persons=len(erasure.person_uuids),
+        recording_distinct_ids=len(erasure.recording_distinct_ids),
+        excluded_distinct_ids=len(erasure.excluded_distinct_ids),
+    )
 
 
 def _log_result(team_id: int, result: OrphanRepairResult) -> None:
