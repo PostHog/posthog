@@ -117,21 +117,28 @@ describe('flagComparisonLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
     })
 
-    test('restores the overrides when a capture never finishes', async () => {
+    test('restores the overrides when a capture never finishes, and starts no capture until it ends', async () => {
+        let releaseStalledCapture: (blob: Blob) => void = () => {}
         jest.useFakeTimers()
         try {
             jest.mocked(captureElementScreenshot)
                 .mockResolvedValueOnce(new Blob(['off']))
-                .mockReturnValueOnce(new Promise(() => {}))
+                .mockReturnValueOnce(new Promise((resolve) => (releaseStalledCapture = resolve)))
 
             logic.actions.compareFlag(flag)
             await jest.advanceTimersByTimeAsync(20000)
 
             expect(persisted.$override_feature_flags).toEqual(userOverrides)
             expect(logic.values.comparingFlagKey).toBeNull()
+
+            logic.actions.compareFlag(flag)
+            await jest.advanceTimersByTimeAsync(0)
+            expect(captureElementScreenshot).toHaveBeenCalledTimes(2)
         } finally {
+            releaseStalledCapture(new Blob(['late']))
             jest.useRealTimers()
         }
+        await expectLogic(logic).toFinishAllListeners()
     })
 
     test('shows the comparison when the flags menu closes during the capture', async () => {
