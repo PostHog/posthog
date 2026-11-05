@@ -557,32 +557,34 @@ class TestSendingHistoryFromMetrics(SimpleTestCase):
 class TestOwnSendsAtTheWindowStart(ClickhouseTestMixin, BaseTest):
     NOW = datetime(2026, 11, 4, 11, 30, tzinfo=UTC)
 
-    def _record(self, metric_name: str, at: datetime, count: int = 1) -> None:
+    def _record(self, metric_name: str, at: datetime, count: int = 1, source: str = "flow-a") -> None:
         create_app_metric2(
             team_id=self.team.id,
             app_source="hog_flow",
-            app_source_id="flow-a",
+            app_source_id=source,
             timestamp=at,
             metric_kind="success",
             metric_name=metric_name,
             count=count,
         )
 
-    def test_sending_allowance_subtracts_no_sandbox_send_whose_sent_row_fell_before_the_cutoff(self) -> None:
+    def test_sending_allowance_counts_from_the_exact_cutoff_and_drops_sandbox_sends(self) -> None:
         with time_machine.travel(self.NOW, tick=False):
-            self._record("email_sent", self.NOW - timedelta(minutes=80))
+            self._record("email_sent", self.NOW - timedelta(minutes=70), source="flow-b")
+            self._record("email_sent", self.NOW - timedelta(minutes=40))
             self._record("email_sandbox_sent", self.NOW - timedelta(minutes=40))
             self._record("email_sent", self.NOW - timedelta(minutes=10), count=2)
             cache.clear()
             allowance = team_email_sending_allowance(self.team.id)
 
         assert allowance.emails_sent_last_hour == 2
-        assert allowance.emails_sent_last_day == 2
+        assert allowance.emails_sent_last_day == 3
 
-    def test_sending_history_reads_both_metrics_of_the_first_hour(self) -> None:
+    def test_sending_history_counts_from_the_exact_cutoff_and_drops_sandbox_sends(self) -> None:
         after = self.NOW - timedelta(days=1)
         with time_machine.travel(self.NOW, tick=False):
-            self._record("email_sent", after - timedelta(minutes=20))
+            self._record("email_sent", after - timedelta(minutes=20), source="flow-b")
+            self._record("email_sent", after + timedelta(minutes=20))
             self._record("email_sandbox_sent", after + timedelta(minutes=20))
             self._record("email_sent", after + timedelta(hours=4), count=3)
             histories = build_sending_histories(after=after, team_ids=[self.team.id])
