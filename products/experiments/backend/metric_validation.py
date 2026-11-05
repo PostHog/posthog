@@ -30,7 +30,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_actions
 from products.event_definitions.backend.models import EventDefinition, effective_project_id_expr
 from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
@@ -298,8 +298,7 @@ def validate_metric_action_ids(
     if not action_ids:
         return
 
-    referenced = Action.objects.filter(id__in=action_ids, team_id=team.id)
-    actions = list(referenced.filter(deleted=False) if require_existing else referenced)
+    actions = get_actions(action_ids=action_ids, team_id=team.id, include_deleted=not require_existing)
     missing = action_ids - {action.id for action in actions}
     if require_existing and missing:
         missing_str = ", ".join(str(aid) for aid in sorted(missing))

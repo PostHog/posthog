@@ -1020,6 +1020,20 @@ export const StamphogReviewRunsListTrigger = {
 
 export type StamphogRoutingRunsListParams = {
     /**
+     * Keep only runs created at or after this time (ISO 8601).
+     */
+    created_after?: string
+    /**
+     * Keep only runs created before this time (ISO 8601).
+     */
+    created_before?: string
+    /**
+     * Keep only runs on this head commit. Pass the full 40-character SHA.
+     * @minLength 1
+     * @maxLength 64
+     */
+    head_sha?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -1027,6 +1041,18 @@ export type StamphogRoutingRunsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Keep only runs where an owner got this outcome. With `owner`, that owner must have it, so `owner=team-devex&outcome=cut` lists the runs that cut team-devex.
+     *
+     * * `requested` - Requested
+     * * `labeled` - Labeled
+     * * `refused` - Refused by GitHub
+     * * `cut` - Cut
+     * * `not_requested` - Not requested
+     * * `already_requested` - Already requested
+     * @minLength 1
+     */
+    outcome?: StamphogRoutingRunsListOutcome
     /**
      * Keep only runs that decided about this owner, spelled as in owners.yaml: a team slug such as 'team-devex', or a GitHub login such as '@octocat'.
      * @minLength 1
@@ -1037,8 +1063,48 @@ export type StamphogRoutingRunsListParams = {
      */
     pr_number?: number
     /**
+     * Keep only runs where an owner was kept or cut for this reason. With `owner`, that owner must have it.
+     *
+     * * `sensitive` - Owns a sensitive path
+     * * `new_path` - Owns a new path
+     * * `largest_owner` - Has the largest part
+     * * `diff_not_seen` - Diff not shown to the model
+     * * `cut_skipped` - Cut step skipped
+     * * `model_kept` - Kept by the model
+     * * `model_cut` - Cut by the model
+     * * `stamphog_approved` - Stamphog approved
+     * @minLength 1
+     */
+    reason?: StamphogRoutingRunsListReason
+    /**
      * Filter by repository full name, e.g. 'PostHog/posthog'.
      * @minLength 1
      */
     repository?: string
 }
+
+export type StamphogRoutingRunsListOutcome =
+    (typeof StamphogRoutingRunsListOutcome)[keyof typeof StamphogRoutingRunsListOutcome]
+
+export const StamphogRoutingRunsListOutcome = {
+    Requested: 'requested',
+    Labeled: 'labeled',
+    Refused: 'refused',
+    Cut: 'cut',
+    NotRequested: 'not_requested',
+    AlreadyRequested: 'already_requested',
+} as const
+
+export type StamphogRoutingRunsListReason =
+    (typeof StamphogRoutingRunsListReason)[keyof typeof StamphogRoutingRunsListReason]
+
+export const StamphogRoutingRunsListReason = {
+    Sensitive: 'sensitive',
+    NewPath: 'new_path',
+    LargestOwner: 'largest_owner',
+    DiffNotSeen: 'diff_not_seen',
+    CutSkipped: 'cut_skipped',
+    ModelKept: 'model_kept',
+    ModelCut: 'model_cut',
+    StamphogApproved: 'stamphog_approved',
+} as const

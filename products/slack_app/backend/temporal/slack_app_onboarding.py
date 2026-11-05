@@ -12,10 +12,13 @@ from products.slack_app.backend.temporal.activities.slack_app_onboarding import 
     edit_slack_app_onboarding_message_activity,
     plan_slack_app_onboarding_activity,
     post_slack_app_onboarding_message_activity,
+    remind_slack_app_onboarding_activity,
 )
 from products.slack_app.backend.temporal.types import SlackAppOnboardingInputs, SlackAppOnboardingMessageInputs
 
 SLACK_APP_ONBOARDING_IDLE_TIMEOUT = timedelta(days=7)
+# One nudge after a quiet day. The run then waits the full idle timeout again before it ends.
+SLACK_APP_ONBOARDING_REMINDER_DELAY = timedelta(days=1)
 SLACK_APP_ONBOARDING_ACTIVITY_TIMEOUT = timedelta(seconds=60)
 # Two plans cover a refresh (the top message, then the first step under it); the third is headroom.
 SLACK_APP_ONBOARDING_MAX_PLANS_PER_REFRESH = 3
@@ -41,6 +44,7 @@ class SlackAppOnboardingWorkflow(PostHogWorkflow):
     def __init__(self, inputs: SlackAppOnboardingInputs) -> None:
         # The first render needs no signal. Set here and not in run(), because buffered signals run first.
         self._render_requested = True
+        self._may_remind = True
 
     @workflow.signal
     async def refresh(self) -> None:
@@ -78,17 +82,38 @@ class SlackAppOnboardingWorkflow(PostHogWorkflow):
                 return plan.finished
         return False
 
+    async def _remind(self, inputs: SlackAppOnboardingInputs) -> None:
+        try:
+            await workflow.execute_activity(
+                remind_slack_app_onboarding_activity,
+                inputs,
+                start_to_close_timeout=SLACK_APP_ONBOARDING_ACTIVITY_TIMEOUT,
+                retry_policy=_ONE_ATTEMPT,
+                summary="remind",
+            )
+        except ActivityError:
+            workflow.logger.warning("slack_app_onboarding_remind_failed", extra={"slack_user_id": inputs.slack_user_id})
+
     @workflow.run
     async def run(self, inputs: SlackAppOnboardingInputs) -> None:
         if inputs.start_delay_seconds > 0:
             await workflow.sleep(timedelta(seconds=inputs.start_delay_seconds))
         while True:
             try:
-                await workflow.wait_condition(lambda: self._render_requested, timeout=SLACK_APP_ONBOARDING_IDLE_TIMEOUT)
+                await workflow.wait_condition(
+                    lambda: self._render_requested,
+                    timeout=SLACK_APP_ONBOARDING_REMINDER_DELAY
+                    if self._may_remind
+                    else SLACK_APP_ONBOARDING_IDLE_TIMEOUT,
+                )
             except TimeoutError:
                 # A refresh that lands between the timeout and the return must not be dropped.
                 await workflow.wait_condition(workflow.all_handlers_finished)
                 if self._render_requested:
+                    continue
+                if self._may_remind:
+                    self._may_remind = False
+                    await self._remind(inputs)
                     continue
                 return
 
