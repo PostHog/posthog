@@ -1,11 +1,11 @@
 ---
 name: syncing-migrated-self-managed-tables
 description: >
-    Turn on syncing for warehouse tables that PostHog moved from self-managed tables to managed sources (Amazon S3,
-    Google Cloud Storage, Azure Blob, Cloudflare R2 or File upload). Use when the user asks "what happened to my
-    self-managed tables", "how do I sync my migrated bucket tables", "why does my table say it is waiting for its first
-    sync", "will I be billed for these tables", or when a migrated table fails its first sync with access denied, "No
-    files are available for table", or "PostHog did not replace the self-managed table".
+  Turn on syncing for warehouse tables that PostHog moved from self-managed tables to managed sources (Amazon S3,
+  Google Cloud Storage, Azure Blob, Cloudflare R2 or File upload). Use when the user asks "what happened to my
+  self-managed tables", "how do I sync my migrated bucket tables", "why does my table say it is waiting for its first
+  sync", "will I be billed for these tables", or when a migrated table fails its first sync with access denied, "No
+  files are available for table", or "PostHog did not replace the self-managed table".
 ---
 
 # Syncing migrated self-managed tables
@@ -62,8 +62,12 @@ A table that the user does not want to import can stay as it is. It keeps readin
 Call `external-data-schemas-incremental-fields-create` for the schema to see what the table supports.
 
 - `full_refresh` is the default and the safe choice. Each sync reads all files again and replaces the table.
-- `incremental` and `append` for file tables use the file modification time. A sync reads only files that changed
-  since the last sync. Use this only when new data arrives as new or changed files.
+- `incremental` and `append` for file tables use the file modification time (`_file_modified_at`). A sync reads only
+  files that changed since the last sync.
+  - `incremental` replaces the rows of a file that was rewritten and drops the rows of a file that was deleted. Use it
+    when a writer updates existing files.
+  - `append` only adds rows. A rewritten file is imported again on top of its old rows, so the table keeps stale rows
+    and duplicates. Use `append` only when every file is written once and never changed.
 - An `incremental` Delta table reads only the data files that changed since the last sync. When the writer deletes,
   updates or rewrites data, the sync replaces the rows of the removed files and reads the new files. It reads the
   whole table again only when the table was made again (a new Delta table id), its version went back, or the
@@ -81,6 +85,21 @@ For one schema, call `external-data-schemas-partial-update` with only the fields
 { "should_sync": true, "sync_type": "full_refresh", "sync_frequency": "24hour" }
 ```
 
+For `incremental` or `append`, also send the cursor. Migrated schemas have no stored cursor, so the update is rejected
+without it. Take `field` and `field_type` from the `incremental_fields` entry that
+`external-data-schemas-incremental-fields-create` returned (`_file_modified_at` for file tables, `_delta_version` for
+Delta tables):
+
+```json
+{
+  "should_sync": true,
+  "sync_type": "incremental",
+  "incremental_field": "<field>",
+  "incremental_field_type": "<field_type>",
+  "sync_frequency": "24hour"
+}
+```
+
 For many schemas of one source, use `external-data-sources-bulk-update-schemas` with one entry per schema.
 
 Choose a `sync_frequency` that matches how often the bucket changes. A less frequent schedule bills fewer rows. To
@@ -89,7 +108,14 @@ confirmation dialog for these tables.
 
 ### Step 5 - Check the first sync
 
-Call `external-data-schemas-retrieve` until `status` is `Completed`. Report `last_synced_at`. If the status is `Failed`, read `latest_error` and see "Troubleshooting".
+Call `external-data-schemas-retrieve` a few times, a minute or more apart, until `status` is no longer `Running`. A
+large table can take a long time; if it is still running after about 15 minutes, stop polling and tell the user to
+check back later.
+
+- `Completed`: report `last_synced_at`.
+- `Failed`: read `latest_error` and see "Troubleshooting".
+- `BillingLimitReached` or `BillingLimitTooLow`: the sync stopped because of the data warehouse billing limit. Stop
+  polling and tell the user. The sync can run only after they raise the limit or the billing period resets.
 
 ## What changes after the first sync
 
@@ -109,20 +135,27 @@ new sync succeeds. No MCP tool uploads or replaces a file, so ask the user to do
 
 ## Troubleshooting
 
-Find the text in `latest_error` on the schema. These are the exact messages from the code.
+Find the text in `latest_error` on the schema. These are the exact messages from the code. Some errors turn syncing
+off (`should_sync` becomes `false`), and `latest_error` then shows a shorter message, given below. After the user
+fixes the cause, turn syncing on again with `external-data-schemas-partial-update` (`{"should_sync": true}`); waiting
+alone does not resume the sync.
 
 - `The storage provider denied access to the bucket '<location>'. Check the access key and secret, and that the key can
 list and read objects in this bucket.` The key from the old table is no longer valid, or it cannot list and read the
   table's folder. For a Delta table the message reads `... denied access to the bucket for the Delta table '<name>'.
-Check that the key can read its folder.` The key must list and read the table's whole path. Ask the user to fix the
-  key, or update the source credentials with `external-data-sources-partial-update`, then call
+Check that the key can read its folder.` The key must list and read the table's whole path. This error turns syncing
+  off and can show as `The storage provider rejected these credentials. ...`. Ask the user to fix the key, or update
+  the source credentials with `external-data-sources-partial-update`, then turn syncing on again and call
   `external-data-schemas-reload`.
 - `No files are available for table '<name>'. No file in the bucket matches '<pattern>'.` No file matches the table's
   pattern now. The files may have been moved, renamed or removed. A variant says `The files it was discovered from may
 have been renamed, moved, or removed from the bucket.` Ask the user to check the bucket.
 - `No files are available for table '<name>'. The Delta table is no longer at its folder in the bucket.` A writer
-  replaced the table and its folder is missing. The sync waits and retries, and the table often comes back by itself.
-  If it keeps failing, ask the user to check the Delta folder.
+  replaced the table and its folder is missing. Within one sync, PostHog waits and retries a few times, because the
+  table often comes back by itself.
+- Both `No files are available` errors turn syncing off when they fail the sync, and can show as
+  `The files behind this table are no longer in the bucket. ...`. Ask the user to restore the files or the Delta
+  folder, then turn syncing on again and call `external-data-schemas-reload`.
 - `PostHog did not replace the self-managed table '<name>', because <reason>. The table still reads its own files. To
 continue, an organization admin must make the access rules of this source the same as the rules of the table, then
 turn syncing on again. PostHog support can help with this.` Access rules changed after the move. The sync fails once
