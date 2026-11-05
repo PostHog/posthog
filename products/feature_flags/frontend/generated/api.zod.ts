@@ -621,9 +621,7 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
         tags: zod
             .array(zod.string().max(featureFlagsUpdateBodyTagsItemMax))
             .optional()
-            .describe(
-                'Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.'
-            ),
+            .describe('Tag names to set. Pass an empty list to clear all tags.'),
         evaluation_contexts: zod.array(zod.unknown()).optional(),
         analytics_dashboards: zod.array(zod.number()).optional(),
         has_enriched_analytics: zod.boolean().nullish(),

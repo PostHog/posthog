@@ -9071,7 +9071,7 @@ export interface InsightApi {
     description?: string | null
     readonly updated_at: string
     /**
-     * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+     * Tag names to set. Pass an empty list to clear all tags.
      * @items.maxLength 255
      */
     tags?: string[]
@@ -9234,7 +9234,7 @@ export interface PatchedInsightApi {
     description?: string | null
     readonly updated_at?: string
     /**
-     * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+     * Tag names to set. Pass an empty list to clear all tags.
      * @items.maxLength 255
      */
     tags?: string[]
@@ -9769,7 +9769,7 @@ export interface TrendingInsightApi {
     readonly last_refresh: string | null
     readonly refreshing: boolean
     /**
-     * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+     * Tag names to set. Pass an empty list to clear all tags.
      * @items.maxLength 255
      */
     tags?: string[]

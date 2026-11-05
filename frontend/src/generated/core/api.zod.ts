@@ -1145,9 +1145,7 @@ export const PropertyDefinitionsUpdateBody = /* @__PURE__ */ zod
         tags: zod
             .array(zod.string().max(propertyDefinitionsUpdateBodyTagsItemMax))
             .optional()
-            .describe(
-                'Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.'
-            ),
+            .describe('Tag names to set. Pass an empty list to clear all tags.'),
         property_type: zod
             .union([
                 zod
@@ -1172,9 +1170,7 @@ export const PropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
         tags: zod
             .array(zod.string().max(propertyDefinitionsPartialUpdateBodyTagsItemMax))
             .optional()
-            .describe(
-                'Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.'
-            ),
+            .describe('Tag names to set. Pass an empty list to clear all tags.'),
         property_type: zod
             .union([
                 zod

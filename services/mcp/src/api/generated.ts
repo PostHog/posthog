@@ -4951,7 +4951,7 @@ export namespace Schemas {
       /** Human-readable description of what this action represents. */
       description?: string;
       /**
-         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * Tag names to set. Pass an empty list to clear all tags.
          * @items.maxLength 255
          */
       tags?: string[];
@@ -11898,7 +11898,7 @@ export namespace Schemas {
       description?: string | null;
       readonly updated_at: string;
       /**
-         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * Tag names to set. Pass an empty list to clear all tags.
          * @items.maxLength 255
          */
       tags?: string[];
@@ -30407,7 +30407,7 @@ export namespace Schemas {
          */
       data_color_theme_id?: number | null;
       /**
-         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * Tag names to set. Pass an empty list to clear all tags.
          * @items.maxLength 255
          */
       tags?: string[];
@@ -30512,7 +30512,7 @@ export namespace Schemas {
       readonly deleted: boolean;
       readonly creation_mode: DashboardCreationModeEnum;
       /**
-         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * Tag names to set. Pass an empty list to clear all tags.
          * @items.maxLength 255
          */
       tags?: string[];
@@ -38336,7 +38336,7 @@ export namespace Schemas {
       /** @nullable */
       description?: string | null;
       /**
-         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * Tag names to set. Pass an empty list to clear all tags.
          * @items.maxLength 255
          */
       tags?: string[];
@@ -38385,7 +38385,7 @@ export namespace Schemas {
       /** @nullable */
       description?: string | null;
       /**
-         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * Tag names to set. Pass an empty list to clear all tags.
          * @items.maxLength 255
          */
       tags?: string[];
@@ -38446,7 +38446,7 @@ export namespace Schemas {
       /** @nullable */
       description?: string | null;
       /**
-         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * Tag names to set. Pass an empty list to clear all tags.
          * @items.maxLength 255
          */
       tags?: string[];
@@ -41916,7 +41916,7 @@ export namespace Schemas {
       last_seen_at?: string | null;
       readonly last_updated_at: string;
       /**
-         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * Tag names to set. Pass an empty list to clear all tags.
          * @items.maxLength 255
          */
       tags?: string[];
@@ -45150,7 +45150,7 @@ export namespace Schemas {
       readonly created_at: string;
       readonly updated_at: string;
       /**
-         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * Tag names to set. Pass an empty list to clear all tags.
          * @items.maxLength 255
          */
       tags?: string[];
@@ -48024,7 +48024,7 @@ export namespace Schemas {
       readonly features: FeatureFlagFeatures;
       readonly can_edit: boolean;
       /**
-         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * Tag names to set. Pass an empty list to clear all tags.
          * @items.maxLength 255
          */
       tags?: string[];
@@ -76830,7 +76830,7 @@ export namespace Schemas {
       readonly organization_id_source: string | null;
       readonly person: TicketPerson | null;
       /**
-         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * Tag names to set. Pass an empty list to clear all tags.
          * @items.maxLength 255
          */
       tags?: string[];
@@ -77316,7 +77316,7 @@ export namespace Schemas {
       readonly last_refresh: string | null;
       readonly refreshing: boolean;
       /**
-         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * Tag names to set. Pass an empty list to clear all tags.
          * @items.maxLength 255
          */
       tags?: string[];
@@ -79429,7 +79429,7 @@ export namespace Schemas {
       /** Human-readable description of what this action represents. */
       description?: string;
       /**
-         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * Tag names to set. Pass an empty list to clear all tags.
          * @items.maxLength 255
          */
       tags?: string[];
@@ -81299,7 +81299,7 @@ export namespace Schemas {
       /** @nullable */
       description?: string | null;
       /**
-         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * Tag names to set. Pass an empty list to clear all tags.
          * @items.maxLength 255
          */
       tags?: string[];
@@ -81342,7 +81342,7 @@ export namespace Schemas {
       /** @nullable */
       description?: string | null;
       /**
-         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * Tag names to set. Pass an empty list to clear all tags.
          * @items.maxLength 255
          */
       tags?: string[];
@@ -81984,7 +81984,7 @@ export namespace Schemas {
       readonly created_at?: string;
       readonly updated_at?: string;
       /**
-         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * Tag names to set. Pass an empty list to clear all tags.
          * @items.maxLength 255
          */
       tags?: string[];
@@ -83399,7 +83399,7 @@ export namespace Schemas {
       description?: string | null;
       readonly updated_at?: string;
       /**
-         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * Tag names to set. Pass an empty list to clear all tags.
          * @items.maxLength 255
          */
       tags?: string[];

@@ -662,7 +662,11 @@
             ]
         },
         "tags": {
-            "items": {},
+            "description": "Tag names to set. Pass an empty list to clear all tags.",
+            "items": {
+                "maxLength": 255,
+                "type": "string"
+            },
             "type": "array"
         }
     },

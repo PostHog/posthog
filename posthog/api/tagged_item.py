@@ -203,7 +203,7 @@ class TaggedItemSerializerMixin(serializers.Serializer):
     tags = serializers.ListField(
         child=serializers.CharField(max_length=TAG_NAME_MAX_LENGTH, allow_blank=True),
         required=False,
-        help_text="Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.",
+        help_text="Tag names to set. Pass an empty list to clear all tags.",
     )
 
     def _attempt_set_tags(self, tags, obj):

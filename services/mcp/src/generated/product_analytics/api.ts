@@ -220,9 +220,7 @@ export const InsightsCreateBody = () => zod
         tags: zod
             .array(zod.string().max(insightsCreateBodyTagsItemMax))
             .optional()
-            .describe(
-                'Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.'
-            ),
+            .describe('Tag names to set. Pass an empty list to clear all tags.'),
         favorited: zod.boolean().optional(),
         _create_in_folder: zod.string().optional(),
     })
@@ -331,9 +329,7 @@ export const InsightsPartialUpdateBody = () => zod
         tags: zod
             .array(zod.string().max(insightsPartialUpdateBodyTagsItemMax))
             .optional()
-            .describe(
-                'Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.'
-            ),
+            .describe('Tag names to set. Pass an empty list to clear all tags.'),
         favorited: zod.boolean().optional(),
         _create_in_folder: zod.string().optional(),
     })

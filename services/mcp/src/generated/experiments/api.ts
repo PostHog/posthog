@@ -701,9 +701,7 @@ export const ExperimentSavedMetricsCreateBody = () => zod
         tags: zod
             .array(zod.string().max(experimentSavedMetricsCreateBodyTagsItemMax))
             .optional()
-            .describe(
-                'Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.'
-            ),
+            .describe('Tag names to set. Pass an empty list to clear all tags.'),
     })
     .describe('Mixin for serializers to add user access control fields')
 
@@ -752,9 +750,7 @@ export const ExperimentSavedMetricsPartialUpdateBody = () => zod
         tags: zod
             .array(zod.string().max(experimentSavedMetricsPartialUpdateBodyTagsItemMax))
             .optional()
-            .describe(
-                'Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.'
-            ),
+            .describe('Tag names to set. Pass an empty list to clear all tags.'),
     })
     .describe('Mixin for serializers to add user access control fields')
 

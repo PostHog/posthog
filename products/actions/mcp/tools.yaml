@@ -38,6 +38,8 @@ tools:
         param_overrides:
             name:
                 description: Name of the action (must be unique within the project)
+            pinned_at:
+                input_schema: ActionPinnedAtSchema
         ui_app: action
     action-delete:
         operation: actions_destroy
@@ -90,6 +92,9 @@ tools:
             - bytecode_error
             - creation_context
             - last_calculated_at
+        param_overrides:
+            pinned_at:
+                input_schema: ActionPinnedAtSchema
         ui_app: action
     actions-get-all:
         operation: actions_list

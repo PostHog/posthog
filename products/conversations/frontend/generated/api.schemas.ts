@@ -428,7 +428,7 @@ export interface TicketApi {
     readonly organization_id_source: string | null
     readonly person: TicketPersonApi | null
     /**
-     * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+     * Tag names to set. Pass an empty list to clear all tags.
      * @items.maxLength 255
      */
     tags?: string[]

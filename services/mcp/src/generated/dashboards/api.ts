@@ -168,9 +168,7 @@ export const DashboardsCreateBody = () => zod
         tags: zod
             .array(zod.string().max(dashboardsCreateBodyTagsItemMax))
             .optional()
-            .describe(
-                'Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.'
-            ),
+            .describe('Tag names to set. Pass an empty list to clear all tags.'),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()

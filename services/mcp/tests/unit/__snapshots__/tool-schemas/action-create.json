@@ -20,15 +20,13 @@
         "pinned_at": {
             "anyOf": [
                 {
-                    "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
                     "type": "string"
                 },
                 {
                     "type": "null"
                 }
             ],
-            "description": "ISO 8601 timestamp when the action was pinned, or null if not pinned. Set any value to pin, null to unpin."
+            "description": "ISO 8601 timestamp. Set any value to pin the action, or null to unpin it."
         },
         "post_to_slack": {
             "description": "Whether to post a notification to Slack when this action is triggered.",
@@ -490,7 +488,11 @@
             "type": "array"
         },
         "tags": {
-            "items": {},
+            "description": "Tag names to set. Pass an empty list to clear all tags.",
+            "items": {
+                "maxLength": 255,
+                "type": "string"
+            },
             "type": "array"
         }
     },

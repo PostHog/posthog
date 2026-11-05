@@ -436,9 +436,7 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
         tags: zod
             .array(zod.string().max(dashboardsCreateBodyTagsItemMax))
             .optional()
-            .describe(
-                'Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.'
-            ),
+            .describe('Tag names to set. Pass an empty list to clear all tags.'),
         last_refresh: zod.iso.datetime({ offset: true }).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
@@ -583,9 +581,7 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
         tags: zod
             .array(zod.string().max(dashboardsUpdateBodyTagsItemMax))
             .optional()
-            .describe(
-                'Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.'
-            ),
+            .describe('Tag names to set. Pass an empty list to clear all tags.'),
         last_refresh: zod.iso.datetime({ offset: true }).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
@@ -1168,9 +1164,7 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
         tags: zod
             .array(zod.string().max(dashboardsCreateFromTemplateJsonCreateBodyTagsItemMax))
             .optional()
-            .describe(
-                'Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.'
-            ),
+            .describe('Tag names to set. Pass an empty list to clear all tags.'),
         last_refresh: zod.iso.datetime({ offset: true }).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
@@ -1322,9 +1316,7 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
         tags: zod
             .array(zod.string().max(dashboardsCreateUnlistedDashboardCreateBodyTagsItemMax))
             .optional()
-            .describe(
-                'Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.'
-            ),
+            .describe('Tag names to set. Pass an empty list to clear all tags.'),
         last_refresh: zod.iso.datetime({ offset: true }).nullish(),
         quick_filter_ids: zod
             .array(zod.string())

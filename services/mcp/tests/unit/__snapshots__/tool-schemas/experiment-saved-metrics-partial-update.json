@@ -26,7 +26,11 @@
             "description": "ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics."
         },
         "tags": {
-            "items": {},
+            "description": "Tag names to set. Pass an empty list to clear all tags.",
+            "items": {
+                "maxLength": 255,
+                "type": "string"
+            },
             "type": "array"
         }
     },

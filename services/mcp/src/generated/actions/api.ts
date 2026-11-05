@@ -76,9 +76,7 @@ export const ActionsCreateBody = () => zod
         tags: zod
             .array(zod.string().max(actionsCreateBodyTagsItemMax))
             .optional()
-            .describe(
-                'Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.'
-            ),
+            .describe('Tag names to set. Pass an empty list to clear all tags.'),
         post_to_slack: zod
             .boolean()
             .optional()
@@ -541,9 +539,7 @@ export const ActionsPartialUpdateBody = () => zod
         tags: zod
             .array(zod.string().max(actionsPartialUpdateBodyTagsItemMax))
             .optional()
-            .describe(
-                'Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.'
-            ),
+            .describe('Tag names to set. Pass an empty list to clear all tags.'),
         post_to_slack: zod
             .boolean()
             .optional()

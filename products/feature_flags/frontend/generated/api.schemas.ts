@@ -646,7 +646,7 @@ export interface FeatureFlagApi {
     readonly features: FeatureFlagApiFeatures
     readonly can_edit: boolean
     /**
-     * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+     * Tag names to set. Pass an empty list to clear all tags.
      * @items.maxLength 255
      */
     tags?: string[]

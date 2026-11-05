@@ -25,9 +25,7 @@ export const EventDefinitionsCreateBody = /* @__PURE__ */ zod
         tags: zod
             .array(zod.string().max(eventDefinitionsCreateBodyTagsItemMax))
             .optional()
-            .describe(
-                'Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.'
-            ),
+            .describe('Tag names to set. Pass an empty list to clear all tags.'),
         verified: zod.boolean().optional(),
         hidden: zod.boolean().nullish(),
         enforcement_mode: zod.enum(['allow', 'reject']).optional().describe('\* `allow` - Allow\n\* `reject` - Reject'),
@@ -59,9 +57,7 @@ export const EventDefinitionsUpdateBody = /* @__PURE__ */ zod
         tags: zod
             .array(zod.string().max(eventDefinitionsUpdateBodyTagsItemMax))
             .optional()
-            .describe(
-                'Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.'
-            ),
+            .describe('Tag names to set. Pass an empty list to clear all tags.'),
         verified: zod.boolean().optional(),
         hidden: zod.boolean().nullish(),
         enforcement_mode: zod.enum(['allow', 'reject']).optional().describe('\* `allow` - Allow\n\* `reject` - Reject'),
@@ -93,9 +89,7 @@ export const EventDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
         tags: zod
             .array(zod.string().max(eventDefinitionsPartialUpdateBodyTagsItemMax))
             .optional()
-            .describe(
-                'Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.'
-            ),
+            .describe('Tag names to set. Pass an empty list to clear all tags.'),
         verified: zod.boolean().optional(),
         hidden: zod.boolean().nullish(),
         enforcement_mode: zod.enum(['allow', 'reject']).optional().describe('\* `allow` - Allow\n\* `reject` - Reject'),

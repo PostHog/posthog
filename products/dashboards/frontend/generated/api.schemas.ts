@@ -373,7 +373,7 @@ export interface DashboardBasicApi {
     readonly deleted: boolean
     readonly creation_mode: DashboardCreationModeEnumApi
     /**
-     * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+     * Tag names to set. Pass an empty list to clear all tags.
      * @items.maxLength 255
      */
     tags?: string[]
@@ -517,7 +517,7 @@ export interface DashboardApi {
      */
     data_color_theme_id?: number | null
     /**
-     * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+     * Tag names to set. Pass an empty list to clear all tags.
      * @items.maxLength 255
      */
     tags?: string[]
@@ -10197,7 +10197,7 @@ export interface InsightApi {
     description?: string | null
     readonly updated_at: string
     /**
-     * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+     * Tag names to set. Pass an empty list to clear all tags.
      * @items.maxLength 255
      */
     tags?: string[]
