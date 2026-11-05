@@ -429,6 +429,7 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'messaging_preference:write',
     'transactional_email:read',
     'transactional_email:write',
+    'llm_prompt:read',
 ] as const
 
 export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]
