@@ -11,9 +11,16 @@ rules:
       languages: [python]
       severity: WARNING
       pattern-either:
-          - pattern: |
-                def get_urls(self, ...):
-                    ...
+          # Report the name, not the whole function, so a PR that drains URLs from a grandfathered
+          # get_urls keeps the same finding instead of looking like a new one to the baseline scan.
+          - patterns:
+                - pattern: |
+                      def $FUNC(self, ...):
+                          ...
+                - metavariable-regex:
+                      metavariable: $FUNC
+                      regex: ^get_urls$
+                - focus-metavariable: $FUNC
           - patterns:
                 - pattern: $TEMPLATE = $VALUE
                 - metavariable-regex:
