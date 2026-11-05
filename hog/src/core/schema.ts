@@ -9,9 +9,9 @@ export interface ParseFailure {
     exitCode?: number
 }
 
-// The schemas in hog set their own messages, so the first issue already reads as a sentence. A
-// problem inside a document, such as an API answer, starts with the field it is in.
-export function firstProblem(error: z.ZodError): string {
+// The schemas in hog set their own messages, so the first issue already reads as a sentence. An
+// error inside a document, such as an API answer, starts with the field it is in.
+export function errorMessage(error: z.ZodError): string {
     const issue = error.issues[0]
     if (issue === undefined) {
         return 'The value is not valid.'
@@ -19,9 +19,9 @@ export function firstProblem(error: z.ZodError): string {
     return issue.path.length > 0 ? `${issue.path.map(String).join('.')}: ${issue.message}` : issue.message
 }
 
-export function problemWith(schema: z.ZodType, raw: unknown): string | undefined {
+export function validationError(schema: z.ZodType, raw: unknown): string | undefined {
     const parsed = schema.safeParse(raw)
-    return parsed.success ? undefined : firstProblem(parsed.error)
+    return parsed.success ? undefined : errorMessage(parsed.error)
 }
 
 export function parseOrThrow<S extends z.ZodType>(schema: S, raw: unknown, failure: ParseFailure): z.output<S> {
@@ -29,12 +29,12 @@ export function parseOrThrow<S extends z.ZodType>(schema: S, raw: unknown, failu
     if (parsed.success) {
         return parsed.data
     }
-    throw failWith(failure, firstProblem(parsed.error))
+    throw failWith(failure, errorMessage(parsed.error))
 }
 
-export function failWith(failure: ParseFailure, problem: string): HogError {
-    const message = failure.context ? `${failure.context} ${problem}` : problem
-    return new HogError(failure.code, message, failure.hint, failure.exitCode)
+export function failWith(failure: ParseFailure, message: string): HogError {
+    const full = failure.context ? `${failure.context} ${message}` : message
+    return new HogError(failure.code, full, failure.hint, failure.exitCode)
 }
 
 // For stored data, where a value hog doesn't recognize reads as missing instead of failing the command.
