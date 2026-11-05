@@ -29,8 +29,6 @@ class SendowlResumeConfig:
     # Next page to fetch (1-indexed). Page-number pagination is deterministic, so a crashed
     # full-refresh sync resumes from the page after the last one yielded; merge dedupes on `id`.
     next_page: int = 1
-    # Framework fan-out resume state for the per-product licenses table, passed back to the
-    # fan-out helper unchanged.
     fanout_state: Optional[dict[str, Any]] = None
 
 
@@ -91,8 +89,7 @@ def _unwrap(wrapper_key: str):
 
 
 def _software_products(row: dict[str, Any]) -> list[dict[str, Any]]:
-    # Only software products are issued license keys, so other products are dropped before the
-    # licenses fan-out spends a request on each of them.
+    # Only software products carry license keys, so skip the licenses request for the others.
     product = row["product"]
     return [product] if product.get("product_type") == "software" else []
 
@@ -144,14 +141,12 @@ def _fanout_source(
         parent_data_map=_software_products,
         child_endpoint_extra={
             "data_selector_malformed_retryable": True,
-            # A product deleted between the products listing and this fetch 404s. Its licenses
-            # are gone with it, so skip it rather than fail the whole sync.
+            # A product deleted after the products listing returns 404 here, so skip it.
             "response_actions": [{"status_code": 404, "action": "ignore"}],
         },
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
-        # Saves the parent page too, so the checkpoint keeps two pages of finished products rather
-        # than every product in the account.
+        # Keeps the checkpoint to two pages of finished products instead of every product.
         resume_parent_pagination=True,
     )
     items = cast(Resource, resource).add_map(_unwrap(config.wrapper_key))

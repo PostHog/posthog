@@ -23,9 +23,8 @@ class SendowlEndpointConfig:
     default_incremental_field: Optional[str] = None
 
 
-# SendOwl list endpoints. All are full-refresh only. Resources are versioned per path: products,
-# bundles, subscriptions, discount codes and licenses live under `/api/v1`, while orders use
-# `/api/v1_3`. Bundles are still called packages in the API paths.
+# SendOwl list endpoints, all full refresh. Orders use `/api/v1_3` and the rest use `/api/v1`.
+# The API paths still call bundles packages.
 SENDOWL_ENDPOINTS: dict[str, SendowlEndpointConfig] = {
     "products": SendowlEndpointConfig(name="products", path="/api/v1/products", wrapper_key="product"),
     "bundles": SendowlEndpointConfig(name="bundles", path="/api/v1/packages", wrapper_key="package"),
@@ -36,9 +35,8 @@ SENDOWL_ENDPOINTS: dict[str, SendowlEndpointConfig] = {
     "discount_codes": SendowlEndpointConfig(
         name="discount_codes", path="/api/v1/discount_codes", wrapper_key="discount_code"
     ),
-    # Licenses are only listable nested under a product or an order. The per-product list also
-    # holds keys not yet issued to an order, so it is the complete set; the per-order list is a
-    # subset of it.
+    # The per-product list also holds keys not yet issued to an order, so the per-order list
+    # (a subset) is not synced.
     "licenses": SendowlEndpointConfig(
         name="licenses",
         path="/api/v1/products/{product_id}/licenses",
