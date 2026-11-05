@@ -3,18 +3,34 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { ApiConfig } from 'lib/api'
+import { isSandboxEmailSender } from 'lib/integrations/sandboxEmailSender'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
+
+import { IntegrationType } from '~/types'
 
 import { hogFlowsConvertToBroadcast } from 'products/workflows/frontend/generated/api'
 
 import { canEditInWizard, isBroadcastShaped } from '../Broadcasts/broadcastsLogic'
 import { HogFlow } from './hogflows/types'
 
+function emailSenderIds(workflow: HogFlow): string[] {
+    const email = workflow.actions.find((action) => action.type === 'function_email')
+    const from = (email?.config as { inputs?: { email?: { value?: { from?: unknown } } } } | undefined)?.inputs?.email
+        ?.value?.from as { integrationId?: unknown; integrationIds?: unknown } | undefined
+    const rotation = Array.isArray(from?.integrationIds) ? from.integrationIds : []
+    const ids = rotation.length > 0 ? rotation : [from?.integrationId]
+    return ids.filter((id) => id !== null && id !== undefined).map(String)
+}
+
 /** Mirrors is_convertible_to_broadcast on the server, which still checks on the move. */
-export function canMoveToBroadcasts(workflow: HogFlow | null): boolean {
+export function canMoveToBroadcasts(workflow: HogFlow | null, integrations: IntegrationType[] | null): boolean {
+    if (!workflow || !integrations) {
+        return false
+    }
+    const sandboxIds = new Set(integrations.filter(isSandboxEmailSender).map((integration) => String(integration.id)))
     return (
-        !!workflow &&
+        !emailSenderIds(workflow).some((id) => sandboxIds.has(id)) &&
         !workflow.origin_product &&
         workflow.status !== 'archived' &&
         workflow.exit_condition === 'exit_only_at_end' &&
