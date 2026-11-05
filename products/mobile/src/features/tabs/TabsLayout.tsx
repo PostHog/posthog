@@ -2,6 +2,7 @@ import { type BottomTabBarProps, Tabs } from 'expo-router/js-tabs'
 import { type ReactElement, useEffect, useLayoutEffect } from 'react'
 import { Platform, View } from 'react-native'
 import { useViewsOpenedEvent } from '@/features/views/list/useViewsOpenedEvent'
+import { useToasts } from '@/features/views/ViewsToast'
 import { track } from '@/lib/analytics'
 import { NAV_RAIL_WIDTH } from '@/ui/adaptiveLayout'
 import { MobileScene } from '@/ui/MobileScene'
@@ -10,6 +11,7 @@ import { SceneFrame } from '@/ui/SceneFrame'
 import { useColors } from '@/ui/theme'
 import { useAppLayout } from '@/ui/useAppLayout'
 import { NativeTabsLayout } from './NativeTabsLayout'
+import { NavToastsContext } from './navToasts'
 import { TabsChrome } from './TabsChrome'
 import { TabsNavigation } from './TabsNavigation'
 import { type TabKey, useTabHeaderStore } from './tabHeaderStore'
@@ -93,11 +95,16 @@ function CustomTabsLayout(): ReactElement {
 }
 
 export function TabsLayout(): ReactElement {
-    return Platform.OS === 'ios' ? (
-        <NativeTabsLayout />
-    ) : (
-        <MobileScene>
-            <CustomTabsLayout />
-        </MobileScene>
+    const toasts = useToasts()
+    return (
+        <NavToastsContext.Provider value={toasts}>
+            {Platform.OS === 'ios' ? (
+                <NativeTabsLayout />
+            ) : (
+                <MobileScene>
+                    <CustomTabsLayout />
+                </MobileScene>
+            )}
+        </NavToastsContext.Provider>
     )
 }

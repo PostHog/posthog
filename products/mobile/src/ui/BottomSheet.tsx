@@ -6,6 +6,7 @@ import type { NativeGesture } from '@/ui/gestureTypes'
 
 import { OverlayPortal } from './OverlayPortal'
 import { Scrim } from './Scrim'
+import { SceneDimensionsContext } from './sceneDimensions'
 import { createStyles, useTheme } from './theme'
 import { layout, motion, radii } from './tokens'
 import { useOverlayBack } from './useOverlayBack'
@@ -112,7 +113,11 @@ export function BottomSheet({
                             ]}
                         >
                             <View style={styles.grabber} />
-                            {children}
+                            <SceneDimensionsContext.Provider
+                                value={{ width: Math.min(width, 600), height: sceneHeight }}
+                            >
+                                {children}
+                            </SceneDimensionsContext.Provider>
                         </Animated.View>
                     </GestureDetector>
                 </View>

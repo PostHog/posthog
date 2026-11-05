@@ -79,7 +79,16 @@ function goBackOrInbox(router: ReturnType<typeof useRouter>): void {
 export function ReportScreen({ reportId, from }: ReportScreenProps): ReactElement {
     const demo = useDataMode() === 'demo'
     const focused = useIsFocused()
-    const { rail, railSide, paired, inboxExtent, paneAxis, paneGap, reportNavigation: navigation } = useAppLayout()
+    const {
+        rail,
+        railSide,
+        paired,
+        inboxExtent,
+        paneAxis,
+        paneGap,
+        reportPane,
+        reportNavigation: navigation,
+    } = useAppLayout()
     return (
         <OverlayHost>
             <View
@@ -102,7 +111,19 @@ export function ReportScreen({ reportId, from }: ReportScreenProps): ReactElemen
                     >
                         <ReportInbox selectedReportId={reportId} active={paired && focused} />
                     </SceneFrame>
-                    <SceneFrame>
+                    <SceneFrame
+                        style={
+                            reportPane
+                                ? {
+                                      position: 'absolute',
+                                      left: reportPane.x,
+                                      top: reportPane.y,
+                                      width: reportPane.width,
+                                      height: reportPane.height,
+                                  }
+                                : undefined
+                        }
+                    >
                         <ChartCanvasBudget active={focused}>
                             {isReportId(reportId, demo) ? (
                                 <ReportContent reportId={reportId} from={from} />

@@ -1,5 +1,5 @@
 import type { ReservedRegion } from 'react-native-reserved-regions'
-import { displayPanes } from './displayRegions'
+import { type DisplayRect, displayPanes } from './displayRegions'
 export const NAV_RAIL_WIDTH = 80
 export const INBOX_PANE_WIDTH = 300
 export const REPORT_MIN_WIDTH = 440
@@ -21,6 +21,7 @@ export function adaptiveLayout(
     inboxExtent: number
     paneGap: number
     paneAxis: 'row' | 'column'
+    reportPane: DisplayRect | null
 } {
     const safeWidth = Math.max(0, width - left - right)
     const enoughHeight = height >= 480
@@ -53,6 +54,7 @@ export function adaptiveLayout(
             ? primary.width >= 280 && detail.width >= 320 && enoughHeight
             : contentWidth >= 320 && primary.height >= 240 && detail.height >= 300)
     return {
+        reportPane: detail && !foldPair ? detail : null,
         rail,
         railSide,
         contentWidth,

@@ -4,9 +4,11 @@ import type { ChatSheetEntry } from '@/features/chat/chatSheetEvents'
 import { nativeIcons } from '@/ui/icons/nativeIcons'
 import { useOverlayDismiss } from '@/ui/overlayDismiss'
 import { useColors } from '@/ui/theme'
+import { useNativeHeaderCleanup } from '@/ui/useNativeHeaderCleanup'
 import type { TabHeaderSlot } from './tabHeaderStore'
 
 export function NativeTabChrome({ slot, onMore }: { slot: TabHeaderSlot | null; onMore: () => void }): ReactElement {
+    useNativeHeaderCleanup()
     const colors = useColors()
     const router = useRouter()
     const dismiss = useOverlayDismiss()

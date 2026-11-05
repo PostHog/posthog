@@ -23,6 +23,7 @@ import { NavPinMenu } from '../../tabs/NavPinMenu'
 import { changeNavPin } from '../../tabs/navPinActions'
 import { openNavTarget } from '../../tabs/navPinRoutes'
 import { type NavPin, useNavPinStore } from '../../tabs/navPinStore'
+import { useNavToasts } from '../../tabs/navToasts'
 import { TABS_HEADER_BOTTOM } from '../../tabs/TabsHeader'
 import { useTabHeader } from '../../tabs/tabHeaderStore'
 import {
@@ -43,7 +44,7 @@ import { INITIAL_VISIBLE_ROWS } from '../useViewRefresh'
 import { useViewsAccess, type ViewsAccess } from '../useViewsAccess'
 import { useViewsContext } from '../useViewsContext'
 import { ViewsReauthState } from '../ViewsReauthState'
-import { useToasts, ViewsToast } from '../ViewsToast'
+import { ViewsToast } from '../ViewsToast'
 import { viewHref } from '../viewRoutes'
 import { useSnapshot } from '../viewsCache'
 import { BROWSE_ENTRIES, type BrowseEntry, BrowseEntryRow, browseEntryLabel, browseEntryPin } from './BrowseEntryRow'
@@ -178,7 +179,7 @@ function ViewsBody(): ReactElement {
     const viewport = useCanvasBudgetViewport()
     const sheets = useChartSheets()
     const flows = usePinFlows(actions)
-    const navToasts = useToasts()
+    const navToasts = useNavToasts()
     const { hideToast: hidePinToast } = flows
     const { show: showToast } = navToasts
     const navPins = useNavPinStore((state) => state.pins)

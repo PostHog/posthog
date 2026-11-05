@@ -5,7 +5,7 @@ import { useAuthStore } from '@/auth/authStore'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useViewer } from '@/auth/useViewer'
 import { usePostHogStatus } from '@/features/status/usePostHogStatus'
-import { useToasts, ViewsToast } from '@/features/views/ViewsToast'
+import { ViewsToast } from '@/features/views/ViewsToast'
 import { navListWebUrl } from '@/features/views/webLinks'
 import { track } from '@/lib/analytics'
 import { useMobileProductFlags } from '@/lib/featureFlags'
@@ -16,6 +16,7 @@ import { NativeTabChrome } from './NativeTabChrome'
 import { NavMenu } from './NavMenu'
 import { changeNavPin } from './navPinActions'
 import { useNavPins } from './navPinStore'
+import { useNavToasts } from './navToasts'
 import { TabsHeader } from './TabsHeader'
 import { useFocusedTabHeader } from './tabHeaderStore'
 
@@ -32,7 +33,7 @@ export function TabsChrome(): ReactElement {
     const scope = useProjectScope()
     const status = usePostHogStatus(scope?.host)
     // The pinned list's tab has no menu of its own, so its Unpin toast draws from here, inside the tabs' overlay host.
-    const toasts = useToasts()
+    const toasts = useNavToasts()
 
     const closeMenu = (): void => {
         if (signOut.pending) {
@@ -86,6 +87,7 @@ export function TabsChrome(): ReactElement {
                 status={status}
                 onOpenStatus={() => {
                     closeMenu()
+                    track('mobile_status_opened', { source: 'tabs_menu' })
                     Linking.openURL(status.pageUrl).catch(() => toasts.show("Couldn't open PostHog status."))
                 }}
                 navList={navList}
@@ -113,7 +115,7 @@ export function TabsChrome(): ReactElement {
                 }}
                 onConfirmSignOut={() => void signOut.run()}
             />
-            <ViewsToast toast={toasts.toast} onHide={toasts.hide} />
+            {tab !== 'views' ? <ViewsToast toast={toasts.toast} onHide={toasts.hide} /> : null}
         </>
     )
 }

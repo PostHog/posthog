@@ -3,6 +3,7 @@ import { type ReactElement, useCallback, useMemo, useRef } from 'react'
 import { nativeIcons } from '@/ui/icons/nativeIcons'
 import { useOverlayDismiss } from '@/ui/overlayDismiss'
 import { useColors } from '@/ui/theme'
+import { useNativeHeaderCleanup } from '@/ui/useNativeHeaderCleanup'
 
 export function NativeChatChrome({
     onBack,
@@ -17,6 +18,7 @@ export function NativeChatChrome({
     hasActions: boolean
     disabledReason?: string
 }): ReactElement {
+    useNativeHeaderCleanup()
     const colors = useColors()
     const dismiss = useOverlayDismiss()
     const latest = useRef({ onBack, onNewChat, onMore, dismiss })

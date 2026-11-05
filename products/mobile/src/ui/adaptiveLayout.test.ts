@@ -58,3 +58,22 @@ test.each([0, 84])('leaves the rail to native navigation with a %spt leading saf
         paired: true,
     })
 })
+
+test.each([
+    {
+        width: 600,
+        height: 669,
+        frame: { x: 290, y: 0, width: 20, height: 669 },
+        pane: { x: 310, y: 0, width: 290, height: 669 },
+    },
+    {
+        width: 669,
+        height: 500,
+        frame: { x: 0, y: 230, width: 669, height: 20 },
+        pane: { x: 0, y: 250, width: 669, height: 250 },
+    },
+])('keeps a single report within the detail pane at $width × $height', ({ width, height, frame, pane }) => {
+    expect(
+        adaptiveLayout(width, height, 0, 0, [{ kind: 'division', occludesContent: false, frame }], true)
+    ).toMatchObject({ paired: false, reportPane: pane })
+})

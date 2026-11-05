@@ -1,12 +1,16 @@
+import { router as navigation, Stack } from 'expo-router'
 import { act, fireEvent, renderRouter, screen, within } from 'expo-router/testing-library'
 import { type ReactElement, useState } from 'react'
 import { Button, Dimensions, Platform, Text, View } from 'react-native'
 
+import { ViewsToast } from '@/features/views/ViewsToast'
 import { setAnalyticsClient } from '@/lib/analytics'
 import { FEATURE_FLAGS, setFeatureFlags } from '@/lib/featureFlags'
 import { OverlayPortal } from '@/ui/OverlayPortal'
 
+import { changeNavPin } from './navPinActions'
 import { restoreNavPins, setNavPinned, useNavPinStore } from './navPinStore'
+import { useNavToasts } from './navToasts'
 import { TabScene } from './TabScene'
 import { TabsLayout } from './TabsLayout'
 import { type TabHeaderSlot, type TabKey, useTabHeader, useTabHeaderStore } from './tabHeaderStore'
@@ -52,9 +56,14 @@ function ChatsStub(): ReactElement {
 }
 
 function ViewsStub(): ReactElement {
+    const toasts = useNavToasts()
+    const focused = useTabHeaderStore((state) => state.focused === 'views')
     return (
         <TabScene tab="views">
-            <View testID="views-screen" />
+            <View testID="views-screen">
+                <Button title="Pin errors" onPress={() => changeNavPin('errors', true, 'views_row', toasts.show)} />
+            </View>
+            {focused ? <ViewsToast toast={toasts.toast} onHide={toasts.hide} /> : null}
         </TabScene>
     )
 }
@@ -250,6 +259,8 @@ describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
                 '(tabs)/chats': ChatsStub,
                 '(tabs)/views': ViewsStub,
                 ...LIST_TABS,
+                settings: () => <View testID="settings-screen" />,
+                _layout: () => <Stack screenOptions={{ headerShown: false }} />,
             },
             { initialUrl: '/inbox' }
         )
@@ -270,6 +281,8 @@ describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
         expect(screen.getByTestId('inbox-nav-views').props.accessibilityState).toEqual({ selected: true })
 
         fireEvent.press(screen.getByTestId('inbox-nav-home'))
+        act(() => navigation.push('/settings'))
+        act(() => navigation.back())
 
         expect(capture.mock.calls).toEqual([
             ['mobile_inbox_opened', undefined],
@@ -352,9 +365,12 @@ describe.each(['ios', 'android'] as const)('TabsLayout (%s)', (platform) => {
         fireEvent.press(screen.getByTestId('inbox-nav-views'))
 
         expect(screen.queryByTestId('nav-pin-errors')).toBeNull()
+        fireEvent.press(screen.getByTestId('views-toast-undo'))
+        expect(useNavPinStore.getState().pins).toEqual(['errors'])
         expect(capture.mock.calls).toEqual([
             ['mobile_inbox_opened', undefined],
             ['mobile_nav_pin_changed', { pin: 'errors', pinned: false, source: 'list_menu', replaced: false }],
+            ['mobile_nav_pin_changed', { pin: 'errors', pinned: true, source: 'undo', replaced: false }],
         ])
     })
 

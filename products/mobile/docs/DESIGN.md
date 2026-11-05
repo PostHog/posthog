@@ -116,10 +116,12 @@ The native build supports rotation; iOS builds use Xcode 27.1 for the full Duo d
   Subscribe to Expo's initial edge event; its synchronous edge getter can deadlock React's event beat during startup.
   They use raster copies of the existing app glyphs, icon-only tab labels, and a distinct Chat action.
   Without a vertical rail, the native tab bar is hidden and the existing floating pill and Chat button remain.
+  Native header options reset when the vertical system rail disappears.
+  Navigation pin toasts and Undo live above the native tab host so tab visibility changes preserve them.
   The iOS navigator stays mounted across these transitions. Android retains its existing custom navigation.
   Page titles, the logomark, and header backgrounds keep the app's original styling in every pose.
   Regenerate native glyph images from their SVG components with `node scripts/make-navigation-icons.mjs` (`rsvg-convert` required).
-- Active division regions determine the inbox and report boundary, including a horizontal fold. Each pane must have enough
+- Active division regions determine the inbox and report boundary, including a horizontal fold. If the panes are too small for a pair, the report stays inside the detail pane. Each pane must have enough
   reading space; a narrow window keeps one report instance. A flat display uses the normal width-based split.
   Measure regions above navigator transitions and translate them into the scene's safe content coordinates; a provider inside an animating screen can retain a translated fold frame.
 - Paired reports keep their heading in the detail pane, leaving the inbox heading clear.
@@ -134,6 +136,7 @@ The native build supports rotation; iOS builds use Xcode 27.1 for the full Duo d
   The first visible pin anchors the list when its columns change; chart tooltips can close as their canvases resize.
   The chosen pin stays anchored through deferred row measurements until the user scrolls.
 - Sheets have a bounded width on expanded windows. Their height follows their current scene, including rotation and Split View.
+  Sheet contents receive that pane’s dimensions and shrink their scroll areas to keep controls reachable.
   Their floating presentation uses a safe pane, even when opened from a narrow report list. Active folds and occlusions keep sheets and picker cards on one side without resetting their form state.
   Floating sheets subtract their bottom margin from the available height so their top stays below the safe area.
   Resolve and Dismiss resize above the keyboard; their headings scroll with the form in short windows while Confirm stays visible.

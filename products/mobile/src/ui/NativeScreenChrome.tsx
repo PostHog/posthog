@@ -1,5 +1,6 @@
 import { Stack } from 'expo-router'
 import { Children, Fragment, isValidElement, type ReactElement, type ReactNode } from 'react'
+import { useNativeHeaderCleanup } from '@/ui/useNativeHeaderCleanup'
 import { nativeIcons } from './icons/nativeIcons'
 import { useOverlayDismiss } from './overlayDismiss'
 import type { ScreenChromeProps } from './ScreenChrome'
@@ -14,6 +15,7 @@ function toolbarItems(children: ReactNode): ReactNode[] {
 }
 
 export function NativeScreenChrome({ onBack, nativeActions }: ScreenChromeProps): ReactElement {
+    useNativeHeaderCleanup()
     const colors = useColors()
     const dismiss = useOverlayDismiss()
     return (
