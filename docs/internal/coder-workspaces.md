@@ -26,6 +26,13 @@ hogli devbox:exec -- bash -lc 'gh auth status'   # run one command on the box an
 **Connecting your IDE** —
 Open the workspace in VS Code (`hogli devbox:open --vscode`), Cursor (`--cursor`), or a browser-based editor (`--web`).
 
+**Driving a devbox from Herdr** —
+`hogli devbox:open --herdr` adds the devbox to [Herdr](https://herdr.dev) as a machine and opens a space on it in `~/posthog`.
+Terminals and agents you open in that space run on the devbox.
+The first run copies `hc` onto the box; later runs show the same space again.
+The devbox must be running, so run `hogli devbox:start` first.
+Stopping the devbox ends its terminals, and Herdr gives each pane a new shell after the next start.
+
 **Running the dev stack in detached mode** —
 Start the PostHog dev stack in the background without an interactive terminal:
 
@@ -61,7 +68,7 @@ hogli devbox:sync --status                           # check sync state
 hogli devbox:sync --terminate                        # tear down when done
 ```
 
-`devbox:open --vscode` / `--cursor` warns when sync is active, since editing over Remote-SSH while the mirror is live would conflict with the local source of truth.
+`devbox:open --vscode` / `--cursor` / `--herdr` warns when sync is active, since editing over Remote-SSH while the mirror is live would conflict with the local source of truth.
 
 **One devbox per git worktree** —
 Run `hogli devbox:worktree` from a linked worktree to give it its own labeled box and sync mirror. The label comes from the branch name, shortened with a hash when it would push the workspace name past Coder's 32-character limit. Re-running reuses the same box and mirror. `--clone-from <label>` creates the box with `devbox:clone`, and `--dry-run` prints the plan.
@@ -98,7 +105,8 @@ This does the host-side setup only:
 
 - verifies Tailscale connectivity
 - installs the `coder` CLI at the version matching the server and the `mutagen` binary (pinned v0.18.1) that powers `devbox:sync`
-- logs you into the Coder deployment
+- links `coder` into `~/.local/bin` (or `~/bin`) when that directory is on your PATH, so you can run `coder` yourself; otherwise it prints the PATH line to add
+- logs you into the Coder deployment. Login asks you to paste a token from the browser, so run setup in a terminal that takes input. In a shell without one, setup stops and tells you to run `coder login` in a terminal first
 - configures `~/.ssh/config` with Coder workspace entries (use `--skip-configure-ssh` to skip)
 - shows a compact "Currently configured:" status block with your saved settings
 - prompts for Git identity, an optional dotfiles repo, a preferred region, and an optional Claude OAuth token (stored as a Coder user secret)
