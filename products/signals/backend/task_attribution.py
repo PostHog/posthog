@@ -22,6 +22,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 
 from posthog.oauth_provenance import get_oauth_access_token
+from posthog.temporal.oauth import INTERACTIVE_RUN_SCOPE
 
 from products.signals.backend.models import ArtefactAttribution
 from products.tasks.backend.facade import api as tasks_api
@@ -89,14 +90,29 @@ def is_token_bound_task(request: Request, attribution: ArtefactAttribution) -> b
     return bound_task_id is not None and str(bound_task_id) == attribution.task_id
 
 
+def is_person_started_run(request: Request) -> bool:
+    """Whether a person started the sandbox run this token was minted for.
+
+    `INTERACTIVE_RUN_SCOPE` is granted at mint time from the run's own server-side stamp, so it
+    answers for the run rather than for the task. That distinction matters because a person can
+    start a second run on a task the pipeline created, and `Task.internal` is written once at
+    task creation, so it still names the pipeline for that run.
+    """
+    scope = getattr(get_oauth_access_token(request), "scope", "") or ""
+    return INTERACTIVE_RUN_SCOPE in scope.split()
+
+
 def is_automatic_signal_agent(request: Request, attribution: ArtefactAttribution, team_id: int) -> bool:
     """Whether a pipeline or scout task makes this request.
 
     A run a person starts from the inbox answers for that person, so it is not automatic even
     though it shares the report origin with the pipeline. The pipeline creates its tasks internal,
-    which is what separates the two.
+    which separates the two for the run that created the task, and the interactive run marker
+    separates them again for a later run a person starts on a task the pipeline already owns.
     """
     if not is_token_bound_task(request, attribution):
+        return False
+    if is_person_started_run(request):
         return False
     tasks = tasks_api.get_tasks_by_ids([attribution.task_id], [team_id]) if attribution.task_id else []
     if not tasks:
