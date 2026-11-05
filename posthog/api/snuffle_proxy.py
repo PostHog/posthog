@@ -20,6 +20,7 @@ from django.http import HttpResponse, QueryDict
 import requests
 import structlog
 from drf_spectacular.utils import extend_schema
+from requests.auth import HTTPBasicAuth
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser
@@ -119,11 +120,13 @@ class SnuffleNotConfiguredError(Exception):
     """Raised when no Snuffle URL is configured for this deployment."""
 
 
-def _snuffle_auth(ch_user: ClickHouseUser | None) -> tuple[str, str] | None:
+def _snuffle_auth(ch_user: ClickHouseUser | None) -> HTTPBasicAuth | None:
     # A token-backed user's file rotates, so the credential is read for each request.
     if ch_user is not None and (creds := connection_creds(Workload.LOGS, ch_user)) is not None:
-        return (creds.user, creds.read_password())
-    return (settings.SNUFFLE_APM_USER, settings.SNUFFLE_APM_PASSWORD) if settings.SNUFFLE_APM_USER else None
+        return HTTPBasicAuth(creds.user, creds.read_password())
+    return (
+        HTTPBasicAuth(settings.SNUFFLE_APM_USER, settings.SNUFFLE_APM_PASSWORD) if settings.SNUFFLE_APM_USER else None
+    )
 
 
 def snuffle_request(

@@ -8,6 +8,7 @@ from django.test import override_settings
 
 import requests
 from parameterized import parameterized
+from requests.auth import HTTPBasicAuth
 from rest_framework import status
 
 from posthog.api.snuffle_proxy import snuffle_request
@@ -59,7 +60,8 @@ def test_snuffle_request_authenticates_as_the_registered_user_with_its_current_t
     for rotation in ("token-1", "token-2"):
         token.write_text(rotation)
         snuffle_request(1, "POST", "/api/v1/query", data={"query": "up"}, ch_user=ch_user)
-        sent.append(request.call_args.kwargs["auth"])
+        auth = request.call_args.kwargs["auth"]
+        sent.append((auth.username, auth.password))
 
     assert sent == expected
 
@@ -84,7 +86,7 @@ class TestPrometheusQueryApi(APIBaseTest):
         assert url == "http://snuffle.test:9091/api/v1/query"
         assert kwargs["params"] == {"query": ["sum(rate(http_requests_total[5m]))"]}
         assert kwargs["headers"]["X-Team-ID"] == str(self.team.pk)
-        assert kwargs["auth"] == ("reader", "secret")
+        assert kwargs["auth"] == HTTPBasicAuth("reader", "secret")
 
     @parameterized.expand(
         [
