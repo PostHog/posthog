@@ -109,7 +109,10 @@ function previewTargetConfig(evaluation: EvaluationConfig): TestHogRequestApi['t
 
 function scope(evaluation: EvaluationConfig): Pick<TestHogRequestApi, 'conditions' | 'target' | 'target_config'> {
     return {
-        conditions: evaluation.conditions.map((conditionSet) => ({ ...conditionSet })),
+        conditions: evaluation.conditions.map((conditionSet) => ({
+            ...conditionSet,
+            properties: conditionSet.properties?.map((property) => ({ ...property })),
+        })),
         target: evaluation.target,
         target_config: previewTargetConfig(evaluation),
     }
