@@ -86,7 +86,7 @@ describe('transactionalEmailsLogic', () => {
 
     it('saves tag edits made on two rows within the same pause', async () => {
         const [reset, receipt] = ['Password reset', 'Receipt'].map(
-            (name) => logic.values.transactionalTemplates.find((t) => t.name === name)!
+            (name) => logic.values.transactionalTemplates.find((t) => t.name === name) as MessageTemplate
         )
 
         logic.actions.saveTransactionalTags(reset, ['auth', 'security'])
