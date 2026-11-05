@@ -77,7 +77,9 @@ export class RerunJobManager {
             throw new Error(`rerun window cannot exceed ${RERUN_MAX_WINDOW_DAYS} days (TTL on hog_invocation_results)`)
         }
 
-        const trimmedIds = request.filter.invocation_ids?.slice(0, this.config.maxCount)
+        // Dedupe because the paginator splits the list into pages, and a repeated ID in a later page would rerun again.
+        const uniqueIds = request.filter.invocation_ids && [...new Set(request.filter.invocation_ids)]
+        const trimmedIds = uniqueIds?.slice(0, this.config.maxCount)
         const filter = { ...request.filter, invocation_ids: trimmedIds }
 
         const state: RerunJobState = {

@@ -105,6 +105,15 @@ describe('RerunJobManager', () => {
         expect(state.request.filter.invocation_ids).toHaveLength(TEST_MAX_COUNT)
     })
 
+    it('drops repeated invocation_ids so a later page cannot rerun them again', async () => {
+        const jobId = await manager.enqueue(1, 'hog_function', uuidv7(), {
+            filter: { ...baseFilter, invocation_ids: ['a', 'b', 'a'] },
+        })
+
+        const state = fetchState(await queryJob(jobId))
+        expect(state.request.filter.invocation_ids).toEqual(['a', 'b'])
+    })
+
     it('serializes a window-only request (no invocation_ids) with undefined cursor', async () => {
         const filter = {
             ...baseFilter,

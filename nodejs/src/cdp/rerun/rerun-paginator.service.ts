@@ -256,7 +256,7 @@ export class RerunPaginatorService {
             const nextProgress: RerunJobProgress = {
                 queued: progress.queued + queued - conflictSkipped,
                 skipped: progress.skipped + skipped + conflictSkipped,
-                cursor: this.advanceCursor(state, toProcess),
+                ...this.advancePosition(state, toProcess),
                 done: this.isDone(state, rows.length, toProcess.length),
                 last_error: undefined,
                 pages_processed: (progress.pages_processed ?? 0) + 1,
@@ -350,10 +350,14 @@ export class RerunPaginatorService {
             ? `Re-run finished. queued=${nextProgress.queued} skipped=${nextProgress.skipped}`
             : pageErrorMessage
               ? `Re-run page failed: ${pageErrorMessage}. Worker will retry.`
-              : `Re-run page done. queued=${nextProgress.queued} skipped=${nextProgress.skipped} cursor=${
-                    nextProgress.cursor
-                        ? `${nextProgress.cursor.scheduled_at}/${nextProgress.cursor.invocation_id}`
-                        : 'end'
+              : `Re-run page done. queued=${nextProgress.queued} skipped=${nextProgress.skipped} ${
+                    nextProgress.invocation_id_offset !== undefined
+                        ? `ids=${nextProgress.invocation_id_offset}/${state.request.filter.invocation_ids?.length ?? 0}`
+                        : `cursor=${
+                              nextProgress.cursor
+                                  ? `${nextProgress.cursor.scheduled_at}/${nextProgress.cursor.invocation_id}`
+                                  : 'end'
+                          }`
                 }`
 
         this.monitoringService.queueLogs(
@@ -426,16 +430,35 @@ export class RerunPaginatorService {
 
     private isDone(state: RerunJobState, fetchedCount: number, processedCount: number): boolean {
         const budgetSpent = this.remainingBudget(state) <= processedCount
+        if (this.sendsIdsPageByPage(state)) {
+            const ids = state.request.filter.invocation_ids ?? []
+            return budgetSpent || (state.progress.invocation_id_offset ?? 0) + RERUN_PAGE_SIZE >= ids.length
+        }
         const pageWasPartial = fetchedCount < RERUN_PAGE_SIZE
         return budgetSpent || pageWasPartial
     }
 
-    private advanceCursor(state: RerunJobState, processed: InvocationRow[]): RerunJobState['progress']['cursor'] {
+    private advancePosition(
+        state: RerunJobState,
+        processed: InvocationRow[]
+    ): Pick<RerunJobProgress, 'cursor' | 'invocation_id_offset'> {
+        if (this.sendsIdsPageByPage(state)) {
+            return { cursor: null, invocation_id_offset: (state.progress.invocation_id_offset ?? 0) + RERUN_PAGE_SIZE }
+        }
         if (processed.length === 0) {
-            return null
+            return { cursor: null }
         }
         const last = processed[processed.length - 1]
-        return { scheduled_at: last.last_scheduled_at, invocation_id: last.invocation_id }
+        return { cursor: { scheduled_at: last.last_scheduled_at, invocation_id: last.invocation_id } }
+    }
+
+    /**
+     * A job that already holds a cursor and no offset started before IDs were sent page by page. It stays on its
+     * cursor, because restarting from the first ID would send runs again that it already reran.
+     */
+    private sendsIdsPageByPage(state: RerunJobState): boolean {
+        const { cursor, invocation_id_offset: offset } = state.progress
+        return !!state.request.filter.invocation_ids?.length && (offset !== undefined || !cursor)
     }
 
     /**
@@ -540,7 +563,14 @@ export class RerunPaginatorService {
         // Keyset pagination on (scheduled_at, invocation_id). When the cursor
         // is undefined we start from the top of the window. ClickHouse needs
         // the tuple compared via a single AND-chained inequality.
-        const cursor = state.progress.cursor
+        // A by-IDs page never needs a cursor: it sends at most RERUN_PAGE_SIZE IDs, so it can't overflow the LIMIT.
+        // Sending one page of IDs also keeps the param under ClickHouse's `http_max_field_value_size`.
+        const pageByPage = this.sendsIdsPageByPage(state)
+        const offset = state.progress.invocation_id_offset ?? 0
+        const invocationIds = pageByPage
+            ? (filter.invocation_ids ?? []).slice(offset, offset + RERUN_PAGE_SIZE)
+            : (filter.invocation_ids ?? [])
+        const cursor = pageByPage ? null : state.progress.cursor
         const cursorClause =
             cursor && cursor.scheduled_at
                 ? "   AND (scheduled_at, invocation_id) < ({cursor_scheduled_at:DateTime64(6, 'UTC')}, {cursor_invocation_id:String})"
@@ -558,9 +588,7 @@ export class RerunPaginatorService {
         // `invocation_ids` is an OPTIONAL additional restriction layered on top
         // of the time window. The window is still required — it pins the query
         // to a small set of date partitions instead of scanning everything.
-        const invocationIdsClause = filter.invocation_ids?.length
-            ? 'AND invocation_id IN {invocation_ids:Array(String)}'
-            : ''
+        const invocationIdsClause = invocationIds.length ? 'AND invocation_id IN {invocation_ids:Array(String)}' : ''
 
         const result = await this.clickhouse.query({
             query: `/* team_id:${teamId} query_type:hog_invocation_rerun_page */
@@ -602,7 +630,7 @@ export class RerunPaginatorService {
                 error_kind: filter.error_kind ?? [],
                 error_message_contains: filter.error_message_contains ?? '',
                 max_attempts: filter.max_attempts ?? 255,
-                invocation_ids: filter.invocation_ids ?? [],
+                invocation_ids: invocationIds,
                 cursor_scheduled_at: cursorScheduledAt,
                 cursor_invocation_id: cursor?.invocation_id ?? '',
                 limit: RERUN_PAGE_SIZE,
