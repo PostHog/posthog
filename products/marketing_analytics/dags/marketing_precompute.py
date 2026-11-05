@@ -268,13 +268,11 @@ def get_selected_team_ids() -> list[int]:
     return sorted(goal_team_ids & active_team_ids)
 
 
-@dataclass
+# Mutable: `materialized` flips once the team builds its first chunk, across all of its tables.
+@dataclass(frozen=False, slots=True)
 class _TeamBudget:
-    """The run deadline as one team's warming sees it, shared across all of that team's tables.
-
-    The deadline only stops the team after it has built, or failed to build, one chunk. Planning can spend the whole
-    budget before any worker starts, and without this every run would start teams that warm nothing.
-    Chunks that were already READY do not count, because they cost a Postgres check and add no coverage.
+    """Planning can spend the whole budget before any worker starts, so the deadline only stops a team after it has
+    built (or failed to build) one chunk. READY chunks don't count: they cost a Postgres check and add no coverage.
     """
 
     deadline: float
