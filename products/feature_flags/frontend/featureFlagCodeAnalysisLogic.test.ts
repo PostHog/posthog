@@ -118,15 +118,27 @@ describe('featureFlagCodeAnalysisLogic', () => {
         expect(logic.values).toMatchObject({ pollingStopped: false, isRunning: false })
     })
 
-    it('treats a flag that was never analyzed as empty, not as a load error', async () => {
+    it.each([
+        { case: 'a flag that was never analyzed as empty', code: undefined, unavailable: false },
+        {
+            case: 'the rollout gate refusing the request as unavailable',
+            code: 'code_analysis_unavailable',
+            unavailable: true,
+        },
+    ])('treats $case, not as a load error', async ({ code, unavailable }) => {
         silenceKeaLoadersErrors()
-        mockRetrieve.mockRejectedValue(new ApiError('Not found', 404))
+        mockRetrieve.mockRejectedValue(new ApiError('Not found', 404, undefined, { code }))
 
         const logic = featureFlagCodeAnalysisLogic({ id: 1 })
         logic.mount()
         await jest.advanceTimersByTimeAsync(0)
 
-        expect(logic.values).toMatchObject({ analysisLoaded: true, analysis: null, analysisLoadError: null })
+        expect(logic.values).toMatchObject({
+            analysisLoaded: true,
+            analysis: null,
+            analysisLoadError: null,
+            unavailable,
+        })
     })
 
     it('follows the analysis already running when starting one conflicts', async () => {

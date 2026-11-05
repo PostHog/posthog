@@ -38,6 +38,7 @@ export function FeatureFlagCodeTab({ id, featureFlag }: { id: number; featureFla
         isCleanupRunning,
         openingCleanupPr,
         cleanupError,
+        unavailable,
     } = useValues(logic)
     const {
         loadAnalysis,
@@ -47,6 +48,14 @@ export function FeatureFlagCodeTab({ id, featureFlag }: { id: number; featureFla
         selectCleanupOutcome,
         openCleanupPr,
     } = useActions(logic)
+
+    if (unavailable) {
+        return (
+            <LemonBanner type="info">
+                Code analysis isn't available for this project right now. Reload the page to check again.
+            </LemonBanner>
+        )
+    }
 
     if (!analysisLoaded && analysisLoadError) {
         return (

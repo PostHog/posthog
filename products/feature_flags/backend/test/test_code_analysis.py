@@ -260,6 +260,7 @@ class TestFeatureFlagCodeAnalysis(APIBaseTest):
         response = self.client.get(f"{self.base_url}/code_analysis/")
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(response.json()["code"], "code_analysis_unavailable")
 
     def _stale_flag(self, filters: dict[str, Any], *, last_called_days_ago: int = 60) -> None:
         FeatureFlag.objects.filter(pk=self.flag.pk).update(

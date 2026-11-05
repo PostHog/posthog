@@ -27,6 +27,8 @@ from products.feature_flags.backend.models import FeatureFlag
 from products.tasks.backend.facade import api as tasks_facade
 
 CODE_ANALYSIS_FEATURE_FLAG = "feature-flag-code-analysis"
+# The Code tab reads this code to tell a closed gate apart from a flag that was never analyzed.
+CODE_ANALYSIS_UNAVAILABLE_CODE = "code_analysis_unavailable"
 
 _ERROR_STATUS = {
     "ai_not_approved": status.HTTP_403_FORBIDDEN,
@@ -245,7 +247,7 @@ class FeatureFlagCodeAnalysisMixin:
             organization_id=team.organization_id,
             team_id=team.id,
         ):
-            raise exceptions.NotFound()
+            raise exceptions.NotFound(code=CODE_ANALYSIS_UNAVAILABLE_CODE)
 
     @extend_schema(request=None, responses={200: FeatureFlagCodeAnalysisSerializer})
     @action(
