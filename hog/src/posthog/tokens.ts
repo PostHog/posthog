@@ -27,8 +27,8 @@ const TOKEN_BODY = /^[A-Za-z0-9_-]+$/
 
 const JWT = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
 
-// The problem never contains the value, which would end up in logs and agent transcripts.
-function tokenProblem(value: string, name: string, rule: string): string {
+// The message never contains the value, which would end up in logs and agent transcripts.
+function tokenError(value: string, name: string, rule: string): string {
     const other = PREFIX_NAMES[value.slice(0, 4)]
     return other
         ? `This is ${other}, not ${name}. ${capitalize(name)} must ${rule}.`
@@ -36,7 +36,7 @@ function tokenProblem(value: string, name: string, rule: string): string {
 }
 
 // For a token that starts with its prefix: what is wrong with the rest of it.
-function bodyProblem(value: string, prefix: string, noun: string): string | undefined {
+function tokenBodyError(value: string, prefix: string, noun: string): string | undefined {
     const body = value.slice(prefix.length)
     if (body === '') {
         return `The ${noun} is cut off: nothing follows ${prefix}.`
@@ -51,21 +51,21 @@ function tokenSchema(kind: TokenKind): z.ZodString {
     const noun = name.replace(/^an? /, '')
     return z.string({ error: `The ${noun} must be text.` }).check((ctx) => {
         const value = ctx.value
-        const problem = value.startsWith(prefix)
-            ? bodyProblem(value, prefix, noun)
-            : tokenProblem(value, name, `start with ${prefix}`)
-        if (problem) {
-            ctx.issues.push({ code: 'custom', input: value, message: problem })
+        const message = value.startsWith(prefix)
+            ? tokenBodyError(value, prefix, noun)
+            : tokenError(value, name, `start with ${prefix}`)
+        if (message) {
+            ctx.issues.push({ code: 'custom', input: value, message })
         }
     })
 }
 
-// PostHog also accepts a custom project token without the prefix, so only an empty token or one
-// with another kind's prefix fails.
-function projectTokenProblem(value: string): string | undefined {
+// PostHog also accepts a custom project token, with or without the prefix and with any characters,
+// so only an empty token or one with another kind's prefix fails.
+function projectTokenError(value: string): string | undefined {
     const { prefix, name } = TOKEN_KINDS.projectToken
     if (value.startsWith(prefix)) {
-        return bodyProblem(value, prefix, 'project token')
+        return value === prefix ? `The project token is cut off: nothing follows ${prefix}.` : undefined
     }
     const other = PREFIX_NAMES[value.slice(0, 4)]
     if (other) {
@@ -78,9 +78,9 @@ export const PersonalApiKeySchema = tokenSchema('personalApiKey').brand<'Persona
 export const ProjectTokenSchema = z
     .string({ error: 'The project token must be text.' })
     .check((ctx) => {
-        const problem = projectTokenProblem(ctx.value)
-        if (problem) {
-            ctx.issues.push({ code: 'custom', input: ctx.value, message: problem })
+        const message = projectTokenError(ctx.value)
+        if (message) {
+            ctx.issues.push({ code: 'custom', input: ctx.value, message })
         }
     })
     .brand<'ProjectToken'>()
@@ -94,7 +94,7 @@ export const WorkloadTokenSchema = z
     .string({ error: 'The workload token must be text.' })
     .check((ctx) => {
         if (!JWT.test(ctx.value)) {
-            const message = tokenProblem(ctx.value, 'a workload token', 'be a JWT, three parts joined by dots')
+            const message = tokenError(ctx.value, 'a workload token', 'be a JWT, three parts joined by dots')
             ctx.issues.push({ code: 'custom', input: ctx.value, message })
         }
     })

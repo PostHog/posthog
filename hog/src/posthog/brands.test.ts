@@ -45,6 +45,7 @@ describe('brand factories', () => {
             'invalid_workload_token: This is a personal API key, not a workload token. A workload token must be a JWT, three parts joined by dots.',
         ],
         ['a custom project token without the prefix', () => parseProjectToken('my-team-token'), 'parsed'],
+        ['a custom project token with the prefix and punctuation', () => parseProjectToken('phc_team.v1'), 'parsed'],
         [
             'a personal API key as a project token',
             () => parseProjectToken('phx_abc123'),
