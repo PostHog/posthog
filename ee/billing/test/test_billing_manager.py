@@ -21,6 +21,7 @@ from parameterized import parameterized
 from rest_framework.exceptions import NotAuthenticated
 
 from posthog.cloud_utils import TEST_clear_instance_license_cache
+from posthog.models.events_plan_deletion import cleanup_date, next_pass_on
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
@@ -127,6 +128,10 @@ class TestFundingStatusParsing(SimpleTestCase):
     def test_rejects_invalid_funding_status(self, _name: str, payload: object) -> None:
         with self.assertRaises(FundingStatusUnavailable):
             _parse_funding_status(payload)
+
+
+_FREE_RETENTION = [{"key": "product_analytics_data_retention", "name": "Data retention", "limit": 1, "unit": "year"}]
+_SURVEYS = [{"key": "surveys", "name": "Surveys"}]
 
 
 class TestBillingManager(BaseTest):
@@ -618,28 +623,72 @@ class TestBillingManager(BaseTest):
         assert rule.enabled is True
         assert rule.version == 2
 
-    @patch("ee.billing.billing_manager.http_session.get")
-    def test_update_available_product_features_reconciles_events_retention(self, mock_get: MagicMock):
+    @parameterized.expand(
+        [
+            ("downgrade_from_the_features_sync", True, _SURVEYS, _FREE_RETENTION, 84, 12, True),
+            ("downgrade_from_the_org_details_sync", False, _SURVEYS, _FREE_RETENTION, 84, 12, True),
+            ("first_billing_sync", False, None, _FREE_RETENTION, 84, 12, False),
+            ("upgrade", False, _FREE_RETENTION, _SURVEYS, 12, 84, False),
+            ("teams_already_reconciled", False, _SURVEYS, _FREE_RETENTION, 12, 12, False),
+        ]
+    )
+    @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
+    @patch("posthog.models.events_plan_deletion.is_cloud", return_value=True)
+    @patch("posthog.models.events_plan_deletion.ph_scoped_capture")
+    def test_billing_sync_reconciles_events_retention_and_reports_a_downgrade(
+        self,
+        _name: str,
+        features_sync: bool,
+        previous_features: list[dict] | None,
+        features: list[dict],
+        team_months: int,
+        expected_team_months: int,
+        reported: bool,
+        mock_scoped_capture: MagicMock,
+        _mock_is_cloud: MagicMock,
+    ):
         organization = self.organization
-        Team.objects.filter(pk=self.team.pk).update(event_retention_months=84)
-
+        Organization.objects.filter(pk=organization.pk).update(available_product_features=previous_features)
+        organization.refresh_from_db()
+        Team.objects.filter(pk=self.team.pk).update(event_retention_months=team_months)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        User.objects.create_and_join(organization, "member@posthog.com", None)
         license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="key123::key123",
             plan="enterprise",
             valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
         )
 
-        mock_get.return_value.status_code = 200
-        mock_get.return_value.json.return_value = {
-            "available_product_features": [
-                {"key": "product_analytics_data_retention", "name": "Data retention", "limit": 1, "unit": "year"}
-            ]
-        }
-
-        BillingManager(license).update_available_product_features(organization)
+        if features_sync:
+            with patch("ee.billing.billing_manager.http_session.get") as mock_get:
+                mock_get.return_value.status_code = 200
+                mock_get.return_value.json.return_value = {"available_product_features": features}
+                BillingManager(license).update_available_product_features(organization)
+        else:
+            billing_status = {"customer": {"available_product_features": features}}
+            BillingManager(license).update_org_details(organization, cast(BillingStatus, billing_status))
 
         self.team.refresh_from_db()
-        assert self.team.event_retention_months == 12
+        assert self.team.event_retention_months == expected_team_months
+        captures = mock_scoped_capture.return_value.__enter__.return_value.call_args_list
+        assert [call.kwargs for call in captures] == (
+            [
+                {
+                    "distinct_id": self.user.distinct_id,
+                    "event": "events retention period shortened",
+                    "properties": {
+                        "organization_name": organization.name,
+                        "previous_retention_months": 84,
+                        "retention_months": 12,
+                        "deletion_scheduled_on": next_pass_on(cleanup_date()).isoformat(),
+                    },
+                    "groups": {"organization": str(organization.id)},
+                }
+            ]
+            if reported
+            else []
+        )
 
     @patch("ee.billing.billing_manager.update_org_billing_quotas", side_effect=Exception("Redis unavailable"))
     def test_update_org_details_saves_org_fields_before_recomputing_existing_quota_limits(

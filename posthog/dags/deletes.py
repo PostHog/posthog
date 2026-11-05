@@ -65,6 +65,7 @@ from posthog.models.events_plan_deletion import (
     cleanup_date,
     cleanup_timezone,
     deletion_months,
+    report_upcoming_deletions,
     reschedule_plan_deletions,
 )
 from posthog.models.events_retention_config import effective_events_retention, whole_month_cutoff
@@ -1887,8 +1888,10 @@ def advance_plan_deletion_passes(
         with transaction.atomic():
             rows = list(TeamEventsPlanDeletion.objects.select_for_update().filter(team_id__in=chunk))
             for row in rows:
-                row.next_deletion_on = after_pass(row.state, passes.run_on).next_deletion_on
-            TeamEventsPlanDeletion.objects.bulk_update(rows, ["next_deletion_on"])
+                state = after_pass(row.state, passes.run_on)
+                row.next_deletion_on = state.next_deletion_on
+                row.downgraded_from_months = state.downgraded_from_months
+            TeamEventsPlanDeletion.objects.bulk_update(rows, ["next_deletion_on", "downgraded_from_months"])
         advanced += len(rows)
     context.add_output_metadata({"passes": dagster.MetadataValue.int(advanced)})
 
@@ -1917,3 +1920,23 @@ def monthly_retention_events_cleanup_job():
 )
 def monthly_retention_events_cleanup_schedule(context: dagster.ScheduleEvaluationContext) -> dagster.RunRequest:
     return dagster.RunRequest(run_key=f"{context.scheduled_execution_time:%Y%m}")
+
+
+@dagster.op
+def report_upcoming_events_deletions(context: dagster.OpExecutionContext) -> None:
+    """Tell organization admins two weeks ahead when a pass first deletes past their downgraded plan period."""
+    context.add_output_metadata({"organizations": dagster.MetadataValue.int(report_upcoming_deletions())})
+
+
+@dagster.job(tags={"owner": JobOwners.TEAM_CLICKHOUSE.value})
+def events_deletion_notice_job():
+    report_upcoming_events_deletions()
+
+
+events_deletion_notice_schedule = dagster.ScheduleDefinition(
+    job=events_deletion_notice_job,
+    cron_schedule="0 10 * * *",
+    execution_timezone=cleanup_timezone(),
+    name="events_deletion_notice_schedule",
+    default_status=dagster.DefaultScheduleStatus.STOPPED,
+)

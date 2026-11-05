@@ -20,6 +20,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, log_act
 from posthog.models.events_plan_deletion import (
     TeamEventsPlanDeletion,
     cleanup_date,
+    deleting_plans,
     deletion_months,
     next_cleanup_on,
     next_pass_on,
@@ -45,7 +46,6 @@ from posthog.models.team.event_retention import (
     has_standard_retention,
     organization_events_retention_months,
     should_delete_past_default_period,
-    team_plan,
 )
 from posthog.models.user import User
 
@@ -241,10 +241,6 @@ def _check_allowed(retention: OrganizationEventsRetention, months: int | None) -
         )
 
 
-def _deleting_plans(teams: Iterable[Team]) -> list[TeamPlan]:
-    return [team_plan(team) for team in teams if should_delete_past_default_period(team)]
-
-
 def _schedule_passes(plans: Sequence[TeamPlan]) -> None:
     reschedule_plan_deletions(plans, cleanup_date())
 
@@ -265,7 +261,7 @@ def set_organization_events_retention(
         if months == before:
             return
         _check_allowed(organization_events_retention(organization), months)
-        plans = _deleting_plans(Team.objects.filter(organization_id=organization.id))
+        plans = deleting_plans(Team.objects.filter(organization_id=organization.id))
         _schedule_passes(plans)
         config = config or OrganizationEventsRetentionConfig(organization_id=organization.id)
         config.default_events_retention_months = months
@@ -309,7 +305,7 @@ def set_project_events_retention(
         if months == before:
             return
         _check_allowed(organization_events_retention(team.organization), months)
-        plans = _deleting_plans([team])
+        plans = deleting_plans([team])
         _schedule_passes(plans)
         if months is None:
             TeamEventsRetentionConfig.objects.filter(team_id=team.id).delete()

@@ -49,14 +49,40 @@ class TestPlanDeletionRules(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("due_pass", TODAY, date(2027, 2, 3)),
-            ("pass_moved_later_during_the_run", date(2027, 3, 3), date(2027, 3, 3)),
+            ("downgrade_records_the_previous_plan", 84, None, 24, 84, 84),
+            ("second_downgrade_keeps_the_longest_plan", 60, 84, 24, 60, 84),
+            ("settings_change_keeps_the_downgrade", 24, 84, 12, None, 84),
+            ("longer_period_keeps_the_downgrade", 24, 84, 36, None, 84),
+            ("downgrade_that_shortens_nothing", 12, None, 12, 84, None),
         ]
     )
-    def test_after_pass(self, _name: str, next_on: date, expected_next_on: date) -> None:
-        state = PlanDeletionState(months=12, next_deletion_on=next_on)
+    def test_with_period_tracks_the_downgrade(
+        self,
+        _name: str,
+        months: int,
+        downgraded_from: int | None,
+        period: int,
+        downgrade_arg: int | None,
+        expected: int | None,
+    ) -> None:
+        state = PlanDeletionState(months=months, next_deletion_on=TODAY, downgraded_from_months=downgraded_from)
 
-        assert after_pass(state, TODAY) == PlanDeletionState(months=12, next_deletion_on=expected_next_on)
+        assert with_period(state, period, TODAY, downgrade_arg).downgraded_from_months == expected
+
+    @parameterized.expand(
+        [
+            ("due_pass", TODAY, date(2027, 2, 3), None),
+            ("pass_moved_later_during_the_run", date(2027, 3, 3), date(2027, 3, 3), 84),
+        ]
+    )
+    def test_after_pass(
+        self, _name: str, next_on: date, expected_next_on: date, expected_downgraded_from: int | None
+    ) -> None:
+        state = PlanDeletionState(months=12, next_deletion_on=next_on, downgraded_from_months=84)
+
+        assert after_pass(state, TODAY) == PlanDeletionState(
+            months=12, next_deletion_on=expected_next_on, downgraded_from_months=expected_downgraded_from
+        )
 
     @parameterized.expand(
         [

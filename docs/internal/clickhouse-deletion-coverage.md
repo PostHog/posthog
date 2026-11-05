@@ -357,6 +357,16 @@ A pass completes only for a team that both plans include, and only when neither 
 The `update_plan_deletions` config has its own `team_ids`, which limits the rows it adds and removes.
 `monthly_retention_events_cleanup_schedule` starts one run on the 3rd of each month at 21:00 local time (Europe/Paris in EU, America/Los_Angeles elsewhere). It is stopped by default.
 Pass dates are dates in that local time zone, so the date shown in settings is the day its deletes start.
+
+A billing sync that shortens the plan period writes the organization's rows straight away, the same way a settings save does.
+Each row whose period got shorter keeps the plan period from before in `downgraded_from_months`.
+The sync then sends an `events retention period shortened` event to each organization admin, with the previous and new plan periods and the first pass past the shorter period.
+The first billing sync of a new organization sends nothing, because the organization has no previous plan period.
+`events_deletion_notice_schedule` runs daily at 10:00 local time and is stopped by default.
+Once the next cleanup is 14 days away or less, it sends an `events retention deletion upcoming` event to the admins of each organization with a downgraded row due at that cleanup, then clears the rows' `downgraded_from_months`.
+It sends nothing for an organization whose plan period went back up, and a completed pass also clears the field.
+Workflows turn both events into emails.
+
 The job runs `ensure_no_concurrent_deletes_run` before it plans, and that guard also runs in `deletes_job`. Each job fails at the start while a `deletes_job`, cleanup or squash run is executing, so the two never mutate the events tables at the same time.
 Both jobs and `squash_person_overrides` carry the `deletes_job_concurrency` tag. The Dagster deployment settings put a run-queue limit of 1 on that tag, so a second run of any of the three queues instead of starting.
 `sharded_events_json` keeps events dated before 2020, because it stores them in its 202001 partition and the delete addresses the event's own month.

@@ -222,6 +222,11 @@ def organization_events_retention_months(organization: Organization) -> int:
     return parse_events_feature_to_months(organization.get_available_feature(EVENTS_DATA_RETENTION_FEATURE))
 
 
+def billed_events_retention_months(organization: Organization) -> int | None:
+    """The plan period, or None before billing first sends the organization's features."""
+    return organization_events_retention_months(organization) if organization.available_product_features else None
+
+
 def has_standard_retention(organization: Organization) -> bool:
     return organization.is_feature_available(STANDARD_DATA_RETENTION_FEATURE)
 

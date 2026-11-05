@@ -28,13 +28,11 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
+from posthog.models.events_plan_deletion import apply_events_retention_change
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import OrganizationMembership, OrganizationUsageInfo
 from posthog.models.organization_provisioning import get_billing_lock_partner
-from posthog.models.team.event_retention import (
-    organization_events_retention_months,
-    reconcile_organization_events_retention,
-)
+from posthog.models.team.event_retention import billed_events_retention_months, organization_events_retention_months
 from posthog.models.team.logs_retention import reset_revoked_logs_retention
 from posthog.models.user import User
 
@@ -525,7 +523,7 @@ class BillingManager:
         previous_feature_keys = {
             feature.get("key") for feature in (organization.available_product_features or []) if feature
         }
-        previous_retention_months = organization_events_retention_months(organization)
+        previous_retention_months = billed_events_retention_months(organization)
         organization.available_product_features = available_product_features
         organization.save()
 
@@ -533,7 +531,7 @@ class BillingManager:
             available_product_features
             and organization_events_retention_months(organization) != previous_retention_months
         ):
-            reconcile_organization_events_retention(organization)
+            apply_events_retention_change(organization, previous_retention_months)
 
         # Only reset on a non-empty list: the retention reset is not self-healing, so an
         # empty error-path response must not permanently downgrade team settings.
@@ -829,6 +827,7 @@ class BillingManager:
         available_product_features = data.get("available_product_features", None)
         revoked_feature_keys: set[str] = set()
         events_retention_changed = False
+        previous_retention_months: int | None = None
         # An empty list is deliberately ignored: this runs on hot paths (get_billing, usage
         # reports) and a partial or error-path billing response must not downgrade the org.
         # Genuine cancellations still send the (non-empty) free-tier feature list.
@@ -838,7 +837,7 @@ class BillingManager:
             }
             new_feature_keys = {feature.get("key") for feature in available_product_features if feature}
             revoked_feature_keys = previous_feature_keys - new_feature_keys
-            previous_retention_months = organization_events_retention_months(organization)
+            previous_retention_months = billed_events_retention_months(organization)
             organization.available_product_features = data["available_product_features"]
             events_retention_changed = organization_events_retention_months(organization) != previous_retention_months
             org_modified = True
@@ -895,7 +894,7 @@ class BillingManager:
             organization.save()
 
         if events_retention_changed:
-            reconcile_organization_events_retention(organization)
+            apply_events_retention_change(organization, previous_retention_months)
 
         if revoked_feature_keys:
             reset_revoked_logs_retention(organization, revoked_feature_keys)
