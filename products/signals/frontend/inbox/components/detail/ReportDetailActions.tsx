@@ -14,6 +14,7 @@ import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { canCloseReport, canMonitorReport, canResolveReport } from '../../utils/reportActions'
+import { isReportClaimable } from '../../utils/reportClaim'
 import { hasMergedReportPullRequest } from '../../utils/reportPullRequests'
 import { setReportState } from '../../utils/writeTimeout'
 import { useReportDismiss } from '../cards/useReportDismiss'
@@ -226,6 +227,19 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
               ]
             : []),
         ...(canResolve ? [resolve] : []),
+        // Dismiss and Resolve need the claim, so the claim takes their place. A teammate's claim is left to them.
+        ...(!canClose && isReportClaimable(report)
+            ? [
+                  {
+                      key: 'claim',
+                      label: 'Claim',
+                      icon: <IconPerson />,
+                      loading: claimSaving,
+                      tooltip: 'Claim this report to resolve or dismiss it',
+                      onClick: () => setReportClaimed(true),
+                  },
+              ]
+            : []),
         ...(canClose
             ? [
                   {
