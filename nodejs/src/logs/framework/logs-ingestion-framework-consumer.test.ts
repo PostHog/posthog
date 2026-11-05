@@ -186,12 +186,12 @@ describe('LogsIngestionFrameworkConsumer', () => {
         await closeHub(hub)
     })
 
-    it('does not run transformations on a batch whose internal logs header fails to verify', async () => {
+    it('runs transformations on a batch whose internal logs header fails to verify, flagged as internal', async () => {
         await consumer.stop()
         const logsTransformer = {
             startBatch: jest.fn(),
             teamHasTransformations: jest.fn().mockResolvedValue(true),
-            transformRecords: jest.fn(),
+            transformRecords: jest.fn().mockResolvedValue({ recordsDropped: 0, recordsDroppedByFunctionId: new Map() }),
             flush: jest.fn().mockResolvedValue(undefined),
         }
         consumer = withoutKafka(
@@ -214,7 +214,7 @@ describe('LogsIngestionFrameworkConsumer', () => {
             })
         )
 
-        expect(logsTransformer.transformRecords).not.toHaveBeenCalled()
+        expect(logsTransformer.transformRecords).toHaveBeenCalledWith(team.id, expect.any(Array), undefined, true)
         expect(producedTo(KAFKA_LOGS_CLICKHOUSE)).toHaveLength(1)
     })
 

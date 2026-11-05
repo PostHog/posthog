@@ -2866,7 +2866,10 @@ describe('LogsIngestionConsumer', () => {
     describe('hog log transformations', () => {
         let transformerConsumer: LogsIngestionConsumer
 
-        const buildTransformer = async (hog: string): Promise<LogsTransformerService> => {
+        const buildTransformer = async (
+            hog: string,
+            monitoring = { queueAppMetric: jest.fn(), queueLogs: jest.fn(), flush: jest.fn() }
+        ): Promise<LogsTransformerService> => {
             const fn = {
                 id: '00000000-0000-0000-0000-000000000001',
                 team_id: team.id,
@@ -2883,7 +2886,6 @@ describe('LogsIngestionConsumer', () => {
                 getHogFunctionsForTeams: jest.fn().mockResolvedValue({ [team.id]: [fn] }),
                 getHogFunctionIdsForTeams: jest.fn().mockResolvedValue({ [team.id]: [fn.id] }),
             }
-            const monitoring = { queueAppMetric: jest.fn(), queueLogs: jest.fn(), flush: jest.fn() }
             return new LogsTransformerService(manager as any, monitoring as any, {
                 siteUrl: 'http://localhost:8010',
                 hogTimeoutMs: 10,
@@ -2987,6 +2989,26 @@ describe('LogsIngestionConsumer', () => {
             LOGS_INTERNAL_INGESTION_SIGNING_KEYS: 'internal-logs-test-key',
         }
 
+        it('runs transformations on a batch whose internal logs header fails to verify, and keeps its logs out of the producer', async () => {
+            const monitoring = { queueAppMetric: jest.fn(), queueLogs: jest.fn(), flush: jest.fn() }
+            const logsTransformer = await buildTransformer(`throw Error('boom')`, monitoring)
+            transformerConsumer = await createLogsIngestionConsumer(
+                hub,
+                { LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '*', ...internalLogsConfig },
+                { logsTransformer }
+            )
+
+            const [message] = await createKafkaMessages([createLogMessage()], { token: team.api_token })
+            message.headers!.push(
+                internalLogsHeaders(signInternalLogs('rotated-away-key', 'hog_function', team.id, new Date(Date.now())))
+            )
+            await waitForBackgroundTasks(transformerConsumer.processKafkaBatch([message]))
+
+            expect(monitoring.queueLogs).toHaveBeenCalledWith(expect.any(Array), 'hog_function', {
+                aboutInternalLogs: true,
+            })
+        })
+
         it.each([
             { name: 'the team is not in the allowlist', config: { LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '' } },
             {
@@ -2997,11 +3019,6 @@ describe('LogsIngestionConsumer', () => {
                 name: 'the internal logs header verifies',
                 config: { LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '*', ...internalLogsConfig },
                 signingKey: 'internal-logs-test-key',
-            },
-            {
-                name: 'the internal logs header fails to verify',
-                config: { LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '*', ...internalLogsConfig },
-                signingKey: 'rotated-away-key',
             },
         ])('does not run transformations when $name', async ({ config, signingKey }) => {
             const logsTransformer = await buildTransformer(`return null`)

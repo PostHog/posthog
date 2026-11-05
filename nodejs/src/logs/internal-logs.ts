@@ -5,8 +5,6 @@ import { buildIntegerMatcher } from '~/common/config/matchers'
 import { logger } from '~/common/utils/logger'
 import type { ValueMatcher } from '~/types'
 
-import type { LogsIngestionMessage } from './types'
-
 export const INTERNAL_LOGS_HEADER = 'posthog-internal'
 
 // The HTTP request header that capture-logs forwards as the `posthog-internal` Kafka header.
@@ -28,7 +26,7 @@ const SIGNATURE_WINDOW_SECONDS = 5 * 60
 export type InternalSourcePolicy = {
     /** Counts toward the team's logs usage, quota and rate limits. */
     billed: boolean
-    /** Runs the team's sampling, drop, metric and retention rules. Transformations never run on internal logs. */
+    /** Runs the team's sampling, drop, transformation, metric and retention rules. */
     teamRules: boolean
     /** The `service.name` a producer stamps on this source's logs. */
     serviceName: string
@@ -156,9 +154,4 @@ export class InternalLogsVerifier {
         const skewSeconds = Math.abs(Date.parse(createdAt ?? '') / 1000 - Number(signedAt))
         return skewSeconds <= SIGNATURE_WINDOW_SECONDS ? null : 'stale_signature'
     }
-}
-
-/** Transformation logs return to logs ingestion as internal logs, so any batch with the header skips transformations, verified or not. */
-export function runsTransformations(message: LogsIngestionMessage): boolean {
-    return !message.sentAsInternalLogs
 }

@@ -115,6 +115,7 @@ export type LogsPipelineContext = {
     defaultRetentionDays: (teamId: number, logsSettings: LogsSettings) => Promise<number>
 }
 
+/** Transformations write hog_function logs, which could come back here as internal logs and loop. */
 export function appliesTeamLogRules(message: LogsIngestionMessage): boolean {
     return message.verifiedAsInternalLogs?.teamRules ?? true
 }

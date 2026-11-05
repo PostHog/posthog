@@ -36,7 +36,6 @@ import {
     INTERNAL_SOURCE_HEADER,
     InternalLogsVerifier,
     type InternalSourcePolicy,
-    runsTransformations,
     withoutInternalLogsHeaders,
 } from './internal-logs'
 import { MESSAGE_KEYS } from './log-pattern-mask'
@@ -514,6 +513,7 @@ export class LogsIngestionConsumer {
         return this.canEmitMetricRules() && teamIdMatchesCsv(this.defaultMetricRulesEnabledTeamsRaw, teamId)
     }
 
+    // Transformations write hog_function logs, which could come back here as internal logs and loop.
     private appliesTeamLogRules(message: LogsIngestionMessage): boolean {
         return message.verifiedAsInternalLogs?.teamRules ?? true
     }
@@ -548,13 +548,18 @@ export class LogsIngestionConsumer {
         batchBudget?: TransformationBatchBudget
     ): Promise<LogRecordsTransform | undefined> {
         const transformer = this.deps.logsTransformer
-        if (!transformer || !runsTransformations(message) || !this.isTransformationsEnabledForTeam(message.teamId)) {
+        if (
+            !transformer ||
+            !this.appliesTeamLogRules(message) ||
+            !this.isTransformationsEnabledForTeam(message.teamId)
+        ) {
             return undefined
         }
         if (!(await transformer.teamHasTransformations(message.teamId))) {
             return undefined
         }
-        return (records) => transformer.transformRecords(message.teamId, records, batchBudget)
+        return (records) =>
+            transformer.transformRecords(message.teamId, records, batchBudget, message.sentAsInternalLogs)
     }
 
     /**

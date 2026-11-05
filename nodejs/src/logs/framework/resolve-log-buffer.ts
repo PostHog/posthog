@@ -2,7 +2,6 @@ import { trace } from '@opentelemetry/api'
 
 import type { LogsSettings } from '~/types'
 
-import { runsTransformations } from '../internal-logs'
 import { MESSAGE_KEYS } from '../log-pattern-mask'
 import { logsPatternForcedDecodeCounter, makePatternMaskingStage } from '../log-pattern-stage'
 import { type PiiScrubStats } from '../log-pii-scrub'
@@ -73,13 +72,13 @@ async function buildRecordsTransform(
     batchBudget?: TransformationBatchBudget
 ): Promise<LogRecordsTransform | undefined> {
     const transformer = context.deps.logsTransformer
-    if (!transformer || !runsTransformations(message) || !isTransformationsEnabledForTeam(context, message.teamId)) {
+    if (!transformer || !appliesTeamLogRules(message) || !isTransformationsEnabledForTeam(context, message.teamId)) {
         return undefined
     }
     if (!(await transformer.teamHasTransformations(message.teamId))) {
         return undefined
     }
-    return (records) => transformer.transformRecords(message.teamId, records, batchBudget)
+    return (records) => transformer.transformRecords(message.teamId, records, batchBudget, message.sentAsInternalLogs)
 }
 
 export async function resolveLogBuffer(
