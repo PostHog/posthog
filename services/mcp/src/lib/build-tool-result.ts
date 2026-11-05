@@ -146,11 +146,15 @@ function joinFooters(footers: string[]): string {
     return footers.length > 0 ? `\n\n${footers.join('\n\n')}` : ''
 }
 
-export function capResponseToBudget(response: ToolResultPayload, maxTokens: number | undefined): ToolResultPayload {
+export function capResponseToBudget(
+    response: ToolResultPayload,
+    maxTokens: number | undefined,
+    reservedBytes = 0
+): ToolResultPayload {
     if (maxTokens === undefined) {
         return response
     }
-    const maxBytes = maxResponseBytes(maxTokens)
+    const maxBytes = maxResponseBytes(maxTokens) - reservedBytes
     const built = builtResponseText.get(response)
     const text = response.content.map((part) => part.text).join('')
     const structuredContent = response.structuredContent
