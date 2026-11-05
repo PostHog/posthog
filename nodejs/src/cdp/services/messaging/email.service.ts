@@ -696,16 +696,15 @@ export class EmailService {
             // (workflow action or email destination hog function) resolves it the same way.
             trackingEnabled = await this.resolveTrackingEnabled(result.invocation, deliverableParams)
 
-            // Loaded before the sending budget is claimed, so a send that cannot load its files
-            // spends no pacing or team cap tokens on each retry.
-            const files = await this.loadAttachments(invocation.id, invocation.teamId, params.attachments)
-
             // User-configured per-workflow pacing. Claimed last, after every skip gate, so a
             // suspended or suppressed send never spends a token. Test sends bypass it. When the
             // limiter's Valkey is down claimUpTo returns 0, so sends wait (never drop) until it
             // recovers — same fail-closed stance as the global SES gate.
             const workflowRateLimit = parseWorkflowEmailRateLimit(invocation.hogFunction.metadata)
-            if (workflowRateLimit && this.workflowEmailRateLimiter && !isTest) {
+            // A retry after an attachment load failure skips the claim, because the try that failed
+            // the load already held a granted token and sent nothing.
+            const pacingAlreadyGranted = (invocation.queueMetadata?.attachmentLoadTries ?? 0) > 0
+            if (workflowRateLimit && this.workflowEmailRateLimiter && !isTest && !pacingAlreadyGranted) {
                 const periodSeconds = workflowRateLimit.period === 'minute' ? 60 : 3600
                 const refillPerSecond = workflowRateLimit.count / periodSeconds
                 // Burst capacity is about one second of budget, not the full count: a bucket that
@@ -743,6 +742,10 @@ export class EmailService {
                     return result
                 }
             }
+
+            // Loaded after the pacing claim, so a send the limiter parks reads no blobs, and before the
+            // team budget, so a send that cannot load its files spends no team cap tokens.
+            const files = await this.loadAttachments(invocation.id, invocation.teamId, params.attachments)
 
             // Project-wide pacing from the team's trust tier. Sits next to the per-workflow limit
             // above and behaves the same way: it delays, never drops, and test sends bypass it.

@@ -1539,6 +1539,20 @@ describe('EmailService', () => {
                     expect(claimOrReserve).not.toHaveBeenCalled()
                 }
             )
+
+            it('reads no attachment rows while the workflow pacing limit parks the send', async () => {
+                const claimOrReserve = jest.fn().mockResolvedValue({ granted: 0, retryAfterMs: 5000, reserved: true })
+                service['workflowEmailRateLimiter'] = { claimOrReserve } as unknown as RateLimiterService
+                invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 120, period: 'minute' } }
+                const load = jest.spyOn(attachments, 'load')
+                await attachments.store(invocation.id, team.id, files)
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.finished).toBe(false)
+                expect(load).not.toHaveBeenCalled()
+                expect(sendEmailSpy).not.toHaveBeenCalled()
+            })
         })
 
         const sesAccepts = (): void => {
