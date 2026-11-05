@@ -2,7 +2,10 @@ import { useId } from 'react'
 
 import { LemonSelect } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { ChartOptionLabel } from './ChartOptionLabel'
+import { QuillChartOptionSelect } from './QuillChartOptionSelect'
 
 export interface ChartOptionChoice<T extends string | number> {
     value: T
@@ -21,7 +24,12 @@ export interface ChartOptionSelectProps<T extends string | number> {
 }
 
 export function ChartOptionSelect<T extends string | number>(props: ChartOptionSelectProps<T>): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const id = useId()
+
+    if (todayRailNav) {
+        return <QuillChartOptionSelect {...props} />
+    }
 
     const { label, info, value, options, onChange, disabledReason, 'data-attr': dataAttr } = props
     const select = (

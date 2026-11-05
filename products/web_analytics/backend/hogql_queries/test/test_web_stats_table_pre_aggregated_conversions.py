@@ -21,7 +21,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.models.utils import uuid7
 from posthog.models.web_preaggregated.sql import WEB_STATS_INSERT_SQL
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.test.web_preaggregated_test_base import (
     WebAnalyticsPreAggregatedTestBase,
@@ -71,7 +71,7 @@ class TestWebStatsTablePreAggregatedConversions(WebAnalyticsPreAggregatedTestBas
         self._setup_test_data(user_prefix="hybrid")
 
         # Create a conversion action
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Converted",
             steps_json=[
@@ -268,7 +268,7 @@ class TestWebStatsTablePreAggregatedConversions(WebAnalyticsPreAggregatedTestBas
         try:
             self._setup_test_data(user_prefix="bounce")
 
-            action = Action.objects.create(
+            action = create_action(
                 team=self.team,
                 name="Converted",
                 steps_json=[

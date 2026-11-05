@@ -30,6 +30,17 @@ def events_table_clickhouse_table_ref(context) -> str:
     return DISTRIBUTED_EVENTS_JSON_TABLE if context.uses_new_events_schema() else "events"
 
 
+EVENTS_AVOID_ASTERISK_FIELDS = (
+    "$session_id_uuid",
+    "$virt_is_bot",
+    "$virt_traffic_type",
+    "$virt_traffic_category",
+    "$virt_bot_name",
+    "$virt_bot_operator",
+    "$virt_mcp_harness",
+)
+
+
 class EventsPersonSubTable(VirtualTable):
     fields: dict[str, FieldOrTable] = {
         "id": UUIDDatabaseField(name="person_id", nullable=False),
@@ -212,15 +223,7 @@ class EventsTable(Table):
         return "events"
 
     def avoid_asterisk_fields(self) -> list[str]:
-        return [
-            "$session_id_uuid",
-            "$virt_is_bot",
-            "$virt_traffic_type",
-            "$virt_traffic_category",
-            "$virt_bot_name",
-            "$virt_bot_operator",
-            "$virt_mcp_harness",
-        ]
+        return list(EVENTS_AVOID_ASTERISK_FIELDS)
 
 
 # All table types that represent the events table (including virtual subtables like poe/goe).

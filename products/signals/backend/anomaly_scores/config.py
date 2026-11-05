@@ -374,24 +374,32 @@ def in_rollout(config: AnomalyScoringConfig, organization_id: "uuid.UUID | str")
     return organization_rollout_bucket(organization_id) < threshold
 
 
-def covers_team(config: AnomalyScoringConfig, team: "Team") -> bool:
-    """Whether the tick scores this team's insights. The single-team form of `queue.eligible_teams`.
+def enrolls_team(config: AnomalyScoringConfig, team: "Team") -> bool:
+    """Whether the payload enrolls this team, by its list or by its percentage rollout.
 
-    The event quota check of `queue.eligible_teams` is left out. The skip list and the denylist win over every
-    enrollment. The percentage rollout enrolls only the projects that have an enabled signal source.
+    The skip list and the denylist win over every enrollment. `covers_team` also requires the Product analytics source.
     """
     organization_id = str(team.organization_id)
     if not config.enabled or team.id in config.skip_team_ids or organization_id in config.deny_organization_ids:
         return False
     if organization_id in config.organization_ids:
         return not config.allow_team_ids or team.id in config.allow_team_ids
-    if not in_rollout(config, organization_id):
+    return in_rollout(config, organization_id)
+
+
+def covers_team(config: AnomalyScoringConfig, team: "Team") -> bool:
+    """Whether the tick scores this team's insights. The single-team form of `queue.eligible_teams`.
+
+    The event quota check of `queue.eligible_teams` is left out. Every enrollment path requires the Product
+    analytics source, so turning that source off stops scoring.
+    """
+    if not enrolls_team(config, team):
         return False
-    from products.signals.backend.facade.api import (
-        has_enabled_source,  # noqa: PLC0415 — the facade imports this module through `search`
+    from products.signals.backend.facade.source_configs import (
+        analytics_source_enabled,  # noqa: PLC0415 — keeps the models off the import path of the flag payload parse
     )
 
-    return has_enabled_source(team.id)
+    return analytics_source_enabled(team.id)
 
 
 def deployment_payload(payload: Any, deployment: str | None) -> Any:
