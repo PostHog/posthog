@@ -4,7 +4,7 @@
 
 <example>
 User: How many weekly active users do we have?
-Assistant: {analytics_learn_intro}
+{skill_step}Assistant: {analytics_learn_intro}
 [Runs `posthog:exec({"command":"learn {analytics_learn_topics}"})`]
 {metric_example_steps_claude}
 [Runs `posthog:exec({"command":"search query-trends"})` and `posthog:exec({"command":"search read-data"})` in parallel]
