@@ -24,6 +24,8 @@ func TestCheckAccess(t *testing.T) {
 		want             int
 		remoteAddr       string
 		forwardedFor     string
+		isBehindProxy    bool
+		trustAllProxies  bool
 		trustedProxies   []string
 		wantRestrictions *PropertyRestrictions
 	}{
@@ -45,13 +47,22 @@ func TestCheckAccess(t *testing.T) {
 		{name: "IPv6 address", status: http.StatusOK, body: `{"ip_restrictions":[["2001:db8::7"]]}`, remoteAddr: "[2001:db8::7]:8000"},
 		{name: "missing IP denies", status: http.StatusOK, body: `{"ip_restrictions":[["203.0.113.0/24"]]}`, want: http.StatusUnauthorized},
 		{name: "untrusted forwarded IP cannot allow", status: http.StatusOK, body: `{"ip_restrictions":[["203.0.113.0/24"]]}`, remoteAddr: "198.51.100.7:8000", forwardedFor: "203.0.113.7", want: http.StatusUnauthorized},
-		{name: "trusted proxy forwards allowed IP", status: http.StatusOK, body: `{"ip_restrictions":[["203.0.113.0/24"]]}`, remoteAddr: "10.0.0.2:8000", forwardedFor: "203.0.113.7", trustedProxies: []string{"10.0.0.2/32"}},
-		{name: "forwarded spoof before actual client cannot allow", status: http.StatusOK, body: `{"ip_restrictions":[["203.0.113.0/24"]]}`, remoteAddr: "10.0.0.2:8000", forwardedFor: "203.0.113.7, 198.51.100.7", trustedProxies: []string{"10.0.0.2/32"}, want: http.StatusUnauthorized},
+		{name: "trusted proxy forwards allowed IP", status: http.StatusOK, body: `{"ip_restrictions":[["203.0.113.0/24"]]}`, remoteAddr: "10.0.0.2:8000", forwardedFor: "203.0.113.7", isBehindProxy: true, trustedProxies: []string{"10.0.0.2/32"}},
+		{name: "forwarded spoof before actual client cannot allow", status: http.StatusOK, body: `{"ip_restrictions":[["203.0.113.0/24"]]}`, remoteAddr: "10.0.0.2:8000", forwardedFor: "203.0.113.7, 198.51.100.7", isBehindProxy: true, trustedProxies: []string{"10.0.0.2/32"}, want: http.StatusUnauthorized},
 		{name: "private socket cannot forge forwarded IP", status: http.StatusOK, body: `{"ip_restrictions":[["203.0.113.0/24"]]}`, remoteAddr: "10.0.0.2:8000", forwardedFor: "203.0.113.7", want: http.StatusUnauthorized},
 		{name: "loopback socket cannot forge forwarded IP", status: http.StatusOK, body: `{"ip_restrictions":[["203.0.113.0/24"]]}`, remoteAddr: "127.0.0.1:8000", forwardedFor: "203.0.113.7", want: http.StatusUnauthorized},
 		{name: "link-local socket cannot forge forwarded IP", status: http.StatusOK, body: `{"ip_restrictions":[["203.0.113.0/24"]]}`, remoteAddr: "169.254.1.2:8000", forwardedFor: "203.0.113.7", want: http.StatusUnauthorized},
-		{name: "private client in forwarded chain is not a proxy", status: http.StatusOK, body: `{"ip_restrictions":[["203.0.113.0/24"]]}`, remoteAddr: "10.0.0.2:8000", forwardedFor: "203.0.113.7, 10.1.2.3", trustedProxies: []string{"10.0.0.2/32"}, want: http.StatusUnauthorized},
-		{name: "invalid proxy configuration fails closed", status: http.StatusOK, body: `{"ip_restrictions":[["203.0.113.0/24"]]}`, remoteAddr: "203.0.113.7:8000", trustedProxies: []string{"invalid"}, want: http.StatusServiceUnavailable},
+		{name: "private client in forwarded chain is not a proxy", status: http.StatusOK, body: `{"ip_restrictions":[["203.0.113.0/24"]]}`, remoteAddr: "10.0.0.2:8000", forwardedFor: "203.0.113.7, 10.1.2.3", isBehindProxy: true, trustedProxies: []string{"10.0.0.2/32"}, want: http.StatusUnauthorized},
+		{name: "invalid proxy configuration fails closed", status: http.StatusOK, body: `{"ip_restrictions":[["203.0.113.0/24"]]}`, remoteAddr: "203.0.113.7:8000", isBehindProxy: true, trustedProxies: []string{"invalid"}, want: http.StatusServiceUnavailable},
+		{name: "trust all proxies uses first forwarded IP", status: http.StatusOK, body: `{"ip_restrictions":[["203.0.113.0/24"]]}`, remoteAddr: "10.0.0.2:8000", forwardedFor: "203.0.113.7, 198.51.100.7", isBehindProxy: true, trustAllProxies: true},
+		{name: "trust all proxies still denies blocked client", status: http.StatusOK, body: `{"ip_restrictions":[["203.0.113.0/24"]]}`, remoteAddr: "203.0.113.7:8000", forwardedFor: "198.51.100.7", isBehindProxy: true, trustAllProxies: true, want: http.StatusUnauthorized},
+		{name: "trust all proxies requires behind proxy mode", status: http.StatusOK, body: `{"ip_restrictions":[["203.0.113.0/24"]]}`, remoteAddr: "198.51.100.7:8000", forwardedFor: "203.0.113.7", trustAllProxies: true, want: http.StatusUnauthorized},
+		{name: "explicit proxies require behind proxy mode", status: http.StatusOK, body: `{"ip_restrictions":[["203.0.113.0/24"]]}`, remoteAddr: "10.0.0.2:8000", forwardedFor: "203.0.113.7", trustedProxies: []string{"10.0.0.2/32"}, want: http.StatusUnauthorized},
+		{name: "behind proxy without trust rejects forwarded IP", status: http.StatusOK, body: `{"ip_restrictions":[["203.0.113.0/24"]]}`, remoteAddr: "10.0.0.2:8000", forwardedFor: "203.0.113.7", isBehindProxy: true, want: http.StatusUnauthorized},
+		{name: "trust all proxies handles absent socket address", status: http.StatusOK, body: `{"ip_restrictions":[["203.0.113.0/24"]]}`, forwardedFor: "203.0.113.7", isBehindProxy: true, trustAllProxies: true},
+		{name: "trust all proxies falls back to socket without header", status: http.StatusOK, body: `{"ip_restrictions":[["203.0.113.0/24"]]}`, remoteAddr: "203.0.113.7:8000", isBehindProxy: true, trustAllProxies: true},
+		{name: "trust all proxies rejects malformed forwarded client", status: http.StatusOK, body: `{"ip_restrictions":[["203.0.113.0/24"]]}`, remoteAddr: "203.0.113.7:8000", forwardedFor: "invalid", isBehindProxy: true, trustAllProxies: true, want: http.StatusUnauthorized},
+		{name: "trust all proxies accepts IPv6 with port", status: http.StatusOK, body: `{"ip_restrictions":[["2001:db8::7"]]}`, remoteAddr: "10.0.0.2:8000", forwardedFor: "[2001:db8::7]:443", isBehindProxy: true, trustAllProxies: true},
 		{name: "invalid policy fails closed", status: http.StatusOK, body: `{"ip_restrictions":[["invalid"]]}`, remoteAddr: "203.0.113.7:8000", want: http.StatusServiceUnavailable},
 		{name: "malformed restrictions fail closed", status: http.StatusOK, body: `not json`, want: http.StatusServiceUnavailable},
 		{name: "redirect fails closed", status: http.StatusFound, want: http.StatusServiceUnavailable},
@@ -75,6 +86,10 @@ func TestCheckAccess(t *testing.T) {
 			defer server.Close()
 			viper.Set("trusted_proxies", test.trustedProxies)
 			t.Cleanup(func() { viper.Set("trusted_proxies", nil) })
+			viper.Set("is_behind_proxy", test.isBehindProxy)
+			t.Cleanup(func() { viper.Set("is_behind_proxy", nil) })
+			viper.Set("trust_all_proxies", test.trustAllProxies)
+			t.Cleanup(func() { viper.Set("trust_all_proxies", nil) })
 			viper.Set("jwt.authorization_url", server.URL)
 			t.Cleanup(func() { viper.Set("jwt.authorization_url", "") })
 			viewer := httptest.NewRequest(http.MethodGet, "/events", nil)

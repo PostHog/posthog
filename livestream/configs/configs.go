@@ -66,6 +66,8 @@ type ConsumersConfig struct {
 }
 
 type Config struct {
+	IsBehindProxy    bool     `mapstructure:"is_behind_proxy"`
+	TrustAllProxies  bool     `mapstructure:"trust_all_proxies"`
 	TrustedProxies   []string `mapstructure:"trusted_proxies"`
 	Debug            bool     `mapstructure:"debug"`
 	MMDB             MMDBConfig
@@ -100,6 +102,8 @@ func InitConfigs(filename, configPath string) {
 	viper.SetEnvKeyReplacer(replacer)
 
 	// Core settings
+	_ = viper.BindEnv("is_behind_proxy")
+	_ = viper.BindEnv("trust_all_proxies")
 	_ = viper.BindEnv("trusted_proxies")
 	_ = viper.BindEnv("jwt.authorization_signing_keys", "LIVESTREAM_AUTHORIZATION_SIGNING_KEYS")
 	_ = viper.BindEnv("debug")              // LIVESTREAM_DEBUG

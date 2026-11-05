@@ -20,10 +20,14 @@ func TestLoadConfig(t *testing.T) {
 			setup: func() {
 				// Values already set in setupTestConfig
 				_ = os.Setenv("LIVESTREAM_JWT_SECRET", "token")
+				t.Setenv("LIVESTREAM_IS_BEHIND_PROXY", "1")
+				t.Setenv("LIVESTREAM_TRUST_ALL_PROXIES", "True")
 				t.Setenv("LIVESTREAM_TRUSTED_PROXIES", "10.0.0.2/32,2001:db8::1/128")
 				t.Setenv("LIVESTREAM_AUTHORIZATION_SIGNING_KEYS", "test-primary-service-key,test-old-service-key")
 			},
 			want: &Config{
+				IsBehindProxy:    true,
+				TrustAllProxies:  true,
 				Debug:            true,
 				TrustedProxies:   []string{"10.0.0.2/32", "2001:db8::1/128"},
 				MMDB:             MMDBConfig{Path: "mmdb.db"},

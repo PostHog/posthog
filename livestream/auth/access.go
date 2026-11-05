@@ -212,6 +212,24 @@ func mintPolicyAccessToken(header http.Header) (string, error) {
 }
 
 func viewerIPExtractor() (echo.IPExtractor, error) {
+	if !viper.GetBool("is_behind_proxy") {
+		return echo.ExtractIPDirect(), nil
+	}
+	if viper.GetBool("trust_all_proxies") {
+		return func(request *http.Request) string {
+			for _, value := range strings.Split(strings.Join(request.Header.Values(echo.HeaderXForwardedFor), ","), ",") {
+				value = strings.TrimSpace(value)
+				if value == "" {
+					continue
+				}
+				if host, _, err := net.SplitHostPort(value); err == nil {
+					return host
+				}
+				return strings.TrimPrefix(strings.TrimSuffix(value, "]"), "[")
+			}
+			return echo.ExtractIPDirect()(request)
+		}, nil
+	}
 	options := []echo.TrustOption{
 		echo.TrustPrivateNet(false), echo.TrustLoopback(false), echo.TrustLinkLocal(false),
 	}
