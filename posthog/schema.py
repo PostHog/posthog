@@ -3511,6 +3511,19 @@ class Branching(BaseModel):
     type: SurveyQuestionBranchingType
 
 
+class TicketSidebarConfiguration(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    hidden: list[str] | None = None
+    order: list[str] | None = Field(
+        default=None,
+        description=(
+            "Widget keys in display order. Typed as strings so a layout naming a removed widget still validates."
+        ),
+    )
+
+
 class TimelineEntry(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3570,6 +3583,7 @@ class UserBasicType(BaseModel):
 class UserUIConfiguration(BaseModel):
     analytics_list: AnalyticsListDisplayConfiguration | None = None
     sql_editor: SQLEditorConfiguration | None = None
+    ticket_sidebar: TicketSidebarConfiguration | None = None
     version: int = Field(
         ...,
         description=("Schema version of this configuration blob, for future format migrations."),
