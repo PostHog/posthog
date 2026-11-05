@@ -328,6 +328,12 @@ def create_ses_email_domain(
     )
 
 
+def get_ses_mail_from_subdomain(domain: str) -> str | None:
+    from products.workflows.backend import providers  # noqa: PLC0415
+
+    return providers.SESProvider().get_mail_from_subdomain(domain)
+
+
 def update_ses_mail_from_subdomain(domain: str, *, mail_from_subdomain: str) -> None:
     from products.workflows.backend import providers  # noqa: PLC0415
 

@@ -877,6 +877,17 @@ class SESProvider:
             mail_from_domain=mail_from_for_domain.get("MailFromDomain") if mail_from_for_domain else None,
         )
 
+    def get_mail_from_subdomain(self, domain: str) -> str | None:
+        """The MAIL FROM subdomain SES uses for the identity now, or None when it has none."""
+        mail_from_for_domain = self.ses_client.get_identity_mail_from_domain_attributes(Identities=[domain])[
+            "MailFromDomainAttributes"
+        ].get(domain)
+        mail_from_domain = mail_from_for_domain.get("MailFromDomain") if mail_from_for_domain else None
+        suffix = f".{domain}"
+        if mail_from_domain and mail_from_domain.endswith(suffix):
+            return mail_from_domain.removesuffix(suffix)
+        return None
+
     def update_mail_from_subdomain(self, domain: str, mail_from_subdomain: str):
         """
         Update the MAIL FROM subdomain for a given identity

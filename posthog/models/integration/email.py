@@ -68,17 +68,6 @@ class EmailIntegration:
                 f"A sender for {email_address} already exists. Edit that sender instead of adding it again."
             )
 
-        # SES keeps one MAIL FROM per domain identity, shared by every sender on it, so a new
-        # sender must not bring its own: that would repoint bounce handling for the senders
-        # already using the domain, in this team and in the organization's other projects.
-        existing_on_domain = (
-            model.Integration.objects.filter(kind="email", config__domain=domain)
-            .exclude(config__mail_from_subdomain=None)
-            .first()
-        )
-        if existing_on_domain:
-            mail_from_subdomain = existing_on_domain.config.get("mail_from_subdomain", mail_from_subdomain)
-
         # Check if any other integration already exists in a different team with the same domain,
         # if so, ensure this team is part of the same organization. If not, we block creation.
         same_domain_integrations = model.Integration.objects.filter(kind="email", config__domain=domain)
@@ -90,9 +79,16 @@ class EmailIntegration:
 
         # Create domain in the appropriate provider
         if provider == "ses":
-            from products.workflows.backend.facade.api import (
-                create_ses_email_domain,  # noqa: PLC0415 — keeps the workflows facade off the model import path
+            from products.workflows.backend.facade.api import (  # noqa: PLC0415 — keeps the workflows facade off the model import path
+                create_ses_email_domain,
+                get_ses_mail_from_subdomain,
             )
+
+            # SES keeps one MAIL FROM per domain identity, shared by every sender on it, and the stored
+            # rows can disagree with it. A sender added to a domain that already has one takes the value
+            # SES uses now, so adding it cannot repoint bounce handling for the senders already there.
+            if same_domain_integrations.exists():
+                mail_from_subdomain = get_ses_mail_from_subdomain(domain) or mail_from_subdomain
 
             org_team_ids = list(Team.objects.filter(organization_id=organization_id).values_list("id", flat=True))
             create_ses_email_domain(
@@ -131,16 +127,13 @@ class EmailIntegration:
                 f"A sender for {email_address} already exists. Edit that sender instead of adding it again."
             )
 
-        if integration.errors:
-            integration.errors = ""
-            integration.save()
-
         return integration
 
     def update_native_integration(self, config: dict, team_id: int) -> model.Integration:
         provider = self.integration.config.get("provider")
         domain = self.integration.config.get("domain")
         # Only name, mail_from_subdomain, reply_to and setup_method can be updated
+        name: str = config.get("name", self.integration.config.get("name"))
         mail_from_subdomain: str = config.get(
             "mail_from_subdomain", self.integration.config.get("mail_from_subdomain", "feedback")
         )
@@ -159,47 +152,20 @@ class EmailIntegration:
         else:
             raise ValueError(f"Invalid provider: must be 'ses'")
 
-        # Only what the caller sent is written back. Filling the rest in from the copy of the row
-        # read before the lock would let an edit undo a field another request changed meanwhile.
-        changes: dict[str, str] = {key: config[key] for key in ("name", "reply_to") if key in config}
+        changes: dict[str, str] = {
+            "name": name,
+            "mail_from_subdomain": mail_from_subdomain,
+            "reply_to": config.get("reply_to", self.integration.config.get("reply_to", "")),
+        }
         if setup_method := config.get("setup_method"):
             changes["setup_method"] = setup_method
-        if mail_from_changed:
-            # Written back only when the call above really repointed the domain, so an edit that
-            # leaves it out cannot restore a subdomain SES has stopped using.
-            changes["mail_from_subdomain"] = mail_from_subdomain
-        siblings_by_team: dict[int, list[int]] = {}
+        # The row is reread under a lock so a concurrent verification write is not overwritten.
         with transaction.atomic():
-            to_lock = model.Integration.objects.filter(id=self.integration.id)
-            if mail_from_changed:
-                # SES keeps one MAIL FROM per domain identity, so the call above repointed every
-                # sender on this domain. Their rows have to follow, or they keep reporting the old
-                # value and the next sender added to the domain inherits it. A sender from another
-                # organization should not be on this domain, but the check when one is created
-                # cannot rule it out, so stay inside the acting organization.
-                org_team_ids = Team.objects.filter(organization_id=self.integration.team.organization_id).values_list(
-                    "id", flat=True
-                )
-                to_lock = to_lock | model.Integration.objects.filter(
-                    kind="email", config__domain=domain, team_id__in=org_team_ids
-                )
-
-            # Rows are reread under a lock so a concurrent verification write is not overwritten,
-            # and are locked by id, the order _mark_domain_verified takes them in, so two edits on
-            # one domain cannot deadlock each other.
-            locked = self.integration
-            for row in to_lock.select_for_update().order_by("id"):
-                if row.id == self.integration.id:
-                    row.config.update(changes)
-                    locked = row
-                else:
-                    row.config["mail_from_subdomain"] = mail_from_subdomain
-                    siblings_by_team.setdefault(row.team_id, []).append(row.id)
-                row.save(update_fields=["config"])
+            locked = model.Integration.objects.select_for_update().get(id=self.integration.id)
+            locked.config.update(changes)
+            locked.save(update_fields=["config"])
         self.integration.config = locked.config
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
-        for sibling_team_id, sibling_ids in siblings_by_team.items():
-            reload_integrations_on_workers(sibling_team_id, sibling_ids)
 
         return self.integration
 

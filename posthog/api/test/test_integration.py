@@ -788,8 +788,9 @@ class TestEmailIntegration:
 
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
+    @patch("products.workflows.backend.facade.api.get_ses_mail_from_subdomain", return_value=None)
     def test_email_verify_updates_all_other_integrations_with_same_domain(
-        self, mock_create_email_domain, mock_verify_email_domain, settings
+        self, _mock_get_mail_from, mock_create_email_domain, mock_verify_email_domain, settings
     ):
         settings.SES_ACCESS_KEY_ID = "test_access_key"
         settings.SES_SECRET_ACCESS_KEY = "test_secret_key"
