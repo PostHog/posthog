@@ -11,6 +11,15 @@ from temporalio import activity
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
+from products.conversations.backend.ai.llms import (
+    anthropic_output_config,
+    anthropic_text,
+    build_conversations_client,
+    create_message,
+    llm_attempts,
+    strip_json_fence,
+    tracing_kwargs,
+)
 from products.conversations.backend.temporal.ai_reply.activities.draft import _hydrate_chunks
 from products.conversations.backend.temporal.ai_reply.constants import (
     MAX_CHUNK_CONTENT_CHARS,
@@ -20,15 +29,6 @@ from products.conversations.backend.temporal.ai_reply.constants import (
     TICKET_TYPE_HINTS,
     VALIDATE_BLOCKERS,
     VALIDATOR_MODEL,
-)
-from products.conversations.backend.temporal.ai_reply.llms import (
-    anthropic_output_config,
-    anthropic_text,
-    build_conversations_client,
-    create_message,
-    llm_attempts,
-    strip_json_fence,
-    tracing_kwargs,
 )
 from products.conversations.backend.temporal.ai_reply.schemas import ValidateInput, ValidateOutput, coerce_unit_interval
 

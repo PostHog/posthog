@@ -10,8 +10,8 @@ from temporalio import activity
 
 from posthog.temporal.common.heartbeat import Heartbeater
 
-from products.conversations.backend.temporal.ai_reply.constants import TICKET_TYPES, UTILITY_MODEL
-from products.conversations.backend.temporal.ai_reply.llms import (
+from products.conversations.backend.ai.llms import (
+    UTILITY_MODEL,
     anthropic_output_config,
     anthropic_text,
     build_conversations_client,
@@ -20,6 +20,7 @@ from products.conversations.backend.temporal.ai_reply.llms import (
     strip_json_fence,
     tracing_kwargs,
 )
+from products.conversations.backend.temporal.ai_reply.constants import TICKET_TYPES
 from products.conversations.backend.temporal.ai_reply.schemas import ClassifyInput, ClassifyOutput
 
 logger = structlog.get_logger(__name__)
