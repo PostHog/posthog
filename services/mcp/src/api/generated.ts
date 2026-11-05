@@ -1144,6 +1144,7 @@ export namespace Schemas {
      * * `action` - action
      * * `access_control` - access_control
      * * `account` - account
+     * * `account_note` - account_note
      * * `activity_log` - activity_log
      * * `alert` - alert
      * * `annotation` - annotation
@@ -1272,6 +1273,7 @@ export namespace Schemas {
       Action: 'action',
       AccessControl: 'access_control',
       Account: 'account',
+      AccountNote: 'account_note',
       ActivityLog: 'activity_log',
       Alert: 'alert',
       Annotation: 'annotation',
@@ -1400,6 +1402,7 @@ export namespace Schemas {
        * * `action` - action
        * * `access_control` - access_control
        * * `account` - account
+       * * `account_note` - account_note
        * * `activity_log` - activity_log
        * * `alert` - alert
        * * `annotation` - annotation
@@ -1651,6 +1654,7 @@ export namespace Schemas {
        * * `action` - action
        * * `access_control` - access_control
        * * `account` - account
+       * * `account_note` - account_note
        * * `activity_log` - activity_log
        * * `alert` - alert
        * * `annotation` - annotation
@@ -1856,6 +1860,7 @@ export namespace Schemas {
 
     /**
      * * `account` - account
+     * * `account_note` - account_note
      * * `action` - action
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
@@ -1916,6 +1921,7 @@ export namespace Schemas {
 
     export const RuleResourceEnum = {
       Account: 'account',
+      AccountNote: 'account_note',
       Action: 'action',
       ActivityLog: 'activity_log',
       AiObservabilityClusters: 'ai_observability_clusters',
@@ -1979,6 +1985,7 @@ export namespace Schemas {
       /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
        *
        * * `account` - account
+       * * `account_note` - account_note
        * * `action` - action
        * * `activity_log` - activity_log
        * * `ai_observability_clusters` - ai_observability_clusters
@@ -2068,6 +2075,7 @@ export namespace Schemas {
        * * `action` - action
        * * `access_control` - access_control
        * * `account` - account
+       * * `account_note` - account_note
        * * `activity_log` - activity_log
        * * `alert` - alert
        * * `annotation` - annotation
@@ -2252,6 +2260,7 @@ export namespace Schemas {
       /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
        *
        * * `account` - account
+       * * `account_note` - account_note
        * * `action` - action
        * * `activity_log` - activity_log
        * * `ai_observability_clusters` - ai_observability_clusters
@@ -2340,6 +2349,7 @@ export namespace Schemas {
       /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
        *
        * * `account` - account
+       * * `account_note` - account_note
        * * `action` - action
        * * `activity_log` - activity_log
        * * `ai_observability_clusters` - ai_observability_clusters
@@ -68668,6 +68678,7 @@ export namespace Schemas {
        * * `action` - action
        * * `access_control` - access_control
        * * `account` - account
+       * * `account_note` - account_note
        * * `activity_log` - activity_log
        * * `alert` - alert
        * * `annotation` - annotation
