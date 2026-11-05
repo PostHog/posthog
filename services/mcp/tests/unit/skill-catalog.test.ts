@@ -590,24 +590,43 @@ describe('SkillCatalog and exec learn', () => {
             expect(invocations).toEqual([])
         })
 
-        it('defers whole skills past the response budget and reports only the skills it returned', async () => {
-            const body = 'x'.repeat(Math.floor(maxResponseBytes(LEARN_GUIDE_TOKEN_BUDGET) * 0.6))
-            const catalog = SkillCatalog.fromZip(
-                makeArchive({
-                    'big-a/SKILL.md': makeSkill('big-a', 'First large skill.', body),
-                    'big-b/SKILL.md': makeSkill('big-b', 'Second large skill.', body),
-                })
-            )
-            const invocations: { skill: string }[] = []
+        const deferralBody = (fill: string): string =>
+            fill.repeat(Math.floor(maxResponseBytes(LEARN_GUIDE_TOKEN_BUDGET) * 0.6))
+
+        it.each([
+            {
+                batch: 'skills',
+                files: {
+                    'big-a/SKILL.md': makeSkill('big-a', 'First large skill.', deferralBody('a')),
+                    'big-b/SKILL.md': makeSkill('big-b', 'Second large skill.', deferralBody('b')),
+                },
+                command: 'posthog:big-a posthog:big-b',
+                retry: 'learn posthog:big-b',
+                returned: ['big-a'],
+            },
+            {
+                batch: 'files',
+                files: {
+                    'big/SKILL.md': makeSkill('big', 'Large skill.', 'See the references.'),
+                    'big/references/a.md': deferralBody('a'),
+                    'big/references/b.md': deferralBody('b'),
+                },
+                command: 'posthog:big references/a.md references/b.md',
+                retry: 'learn posthog:big references/b.md',
+                returned: ['references/a.md'],
+            },
+        ])('defers whole $batch past the response budget and reports only what it returned', async (testCase) => {
+            const catalog = SkillCatalog.fromZip(makeArchive(testCase.files))
+            const invocations: { skill: string; path?: string }[] = []
             const learn = new ExecLearnCatalog([], { posthog: catalog }, (inv) => invocations.push(inv))
 
-            const output = await learn.execute('posthog:big-a posthog:big-b')
+            const output = await learn.execute(testCase.command)
 
             expect([
-                output.includes('Skill: posthog:big-b'),
-                output.endsWith('Run `learn posthog:big-b` in a separate command.]'),
+                output.includes('bbbb'),
+                output.endsWith(`Run \`${testCase.retry}\` in a separate command.]`),
             ]).toEqual([false, true])
-            expect(invocations.map((inv) => inv.skill)).toEqual(['big-a'])
+            expect(invocations.map((inv) => inv.path ?? inv.skill)).toEqual(testCase.returned)
         })
 
         it('keeps learn working when the listener throws', async () => {

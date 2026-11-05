@@ -12,11 +12,22 @@ from typing import Any, cast
 import pytest
 
 from products.posthog_ai.scripts.build_skills.discovery import SkillDiscoverer
-from products.posthog_ai.scripts.build_skills.frontmatter import parse_frontmatter, validate_frontmatter
+from products.posthog_ai.scripts.build_skills.frontmatter import (
+    RUNTIME_SKILL_PREFIXES,
+    parse_frontmatter,
+    validate_frontmatter,
+)
 from products.posthog_ai.scripts.build_skills.rendering import SkillRenderer
 from products.posthog_ai.scripts.build_skills.skill_builder import SkillBuilder
 from products.posthog_ai.scripts.build_skills.skill_manifest import DiscoveredSkill, SkillResource
 from products.posthog_ai.scripts.build_skills.tool_references import _check_tool_references
+from products.review_hog.backend.reviewer.skill_loader import (
+    REVIEW_HOG_BLIND_SPOTS_PREFIX,
+    REVIEW_HOG_PERSPECTIVE_PREFIX,
+    REVIEW_HOG_RESOLUTION_PREFIX,
+    REVIEW_HOG_VALIDATION_PREFIX,
+)
+from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 
 
 @pytest.mark.parametrize(
@@ -70,6 +81,20 @@ def test_validate_frontmatter_valid() -> None:
 def test_validate_frontmatter_invalid(text: str, error_fragment: str) -> None:
     with pytest.raises(ValueError, match=error_fragment):
         validate_frontmatter(text, "test.md")
+
+
+@pytest.mark.parametrize(
+    "loader_prefix",
+    [
+        SIGNALS_SCOUT_SKILL_PREFIX,
+        REVIEW_HOG_PERSPECTIVE_PREFIX,
+        REVIEW_HOG_BLIND_SPOTS_PREFIX,
+        REVIEW_HOG_VALIDATION_PREFIX,
+        REVIEW_HOG_RESOLUTION_PREFIX,
+    ],
+)
+def test_runtime_skill_prefixes_cover_every_runtime_loader(loader_prefix: str) -> None:
+    assert loader_prefix in RUNTIME_SKILL_PREFIXES
 
 
 def test_discover_finds_j2_and_md(tmp_path: Path) -> None:
