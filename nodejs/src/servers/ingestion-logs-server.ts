@@ -185,8 +185,11 @@ export class IngestionLogsServer implements NodeServer {
                 ...service,
                 // Drains here rather than in additionalCleanup, which runs after Postgres and the HTTP agents close.
                 onShutdown: async () => {
-                    await service.onShutdown()
-                    await hogFunctionMonitoring.stop()
+                    try {
+                        await service.onShutdown()
+                    } finally {
+                        await hogFunctionMonitoring.stop()
+                    }
                 },
             }
         })
