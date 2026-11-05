@@ -87,6 +87,65 @@ class TestSurvey(APIBaseTest):
         ]
         assert response_data["created_by"]["id"] == self.user.id
 
+    @parameterized.expand(
+        [
+            (
+                "no_appearance",
+                None,
+                None,
+                {"displayThankYouMessage": True, "thankYouMessageHeader": "Thank you for your feedback!"},
+            ),
+            (
+                "partial_appearance",
+                {"backgroundColor": "#ffffff"},
+                None,
+                {
+                    "backgroundColor": "#ffffff",
+                    "displayThankYouMessage": True,
+                    "thankYouMessageHeader": "Thank you for your feedback!",
+                },
+            ),
+            ("explicit_opt_out", {"displayThankYouMessage": False}, None, {"displayThankYouMessage": False}),
+            (
+                "team_default",
+                None,
+                {"thankYouMessageHeader": "Thanks from the team"},
+                {"displayThankYouMessage": True, "thankYouMessageHeader": "Thanks from the team"},
+            ),
+            (
+                "team_appearance_not_an_object",
+                None,
+                "dark",
+                {"displayThankYouMessage": True, "thankYouMessageHeader": "Thank you for your feedback!"},
+            ),
+            (
+                "team_null_values",
+                None,
+                {"displayThankYouMessage": None, "thankYouMessageHeader": None},
+                {"displayThankYouMessage": True, "thankYouMessageHeader": "Thank you for your feedback!"},
+            ),
+        ]
+    )
+    def test_create_defaults_thank_you_screen(
+        self, _name: str, appearance: dict | None, team_appearance: dict | str | None, expected: dict
+    ) -> None:
+        if team_appearance:
+            self.team.survey_config = {"appearance": team_appearance}
+            self.team.save(update_fields=["survey_config"])
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Hosted survey",
+                "type": "external_survey",
+                "questions": [{"type": "open", "question": "How was it?"}],
+                "appearance": appearance,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert response.json()["appearance"].items() >= expected.items()
+
     def test_can_create_survey_with_translations(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
@@ -2990,7 +3049,10 @@ class TestSurvey(APIBaseTest):
                             "question": "What would you want to improve from notebooks?",
                         }
                     ],
-                    "appearance": None,
+                    "appearance": {
+                        "displayThankYouMessage": True,
+                        "thankYouMessageHeader": "Thank you for your feedback!",
+                    },
                     "created_at": ANY,
                     "created_by": ANY,
                     "targeting_flag": None,
@@ -3983,6 +4045,7 @@ class TestSurveyQuestionValidation(APIBaseTest):
             },
         ]
         assert response_data["appearance"] == {
+            "displayThankYouMessage": True,
             "thankYouMessageHeader": "Thanks for your feedback!",
             "thankYouMessageDescription": "<b>We'll use it to make notebooks better.</b>",
             "shuffleQuestions": True,
@@ -4145,6 +4208,7 @@ class TestSurveyQuestionValidation(APIBaseTest):
         assert response_data["name"] == "Notebooks beta release survey"
         assert response_data["questions"] == []
         assert response_data["appearance"] == {
+            "displayThankYouMessage": True,
             "thankYouMessageHeader": " ",
             "thankYouMessageDescription": "",
         }

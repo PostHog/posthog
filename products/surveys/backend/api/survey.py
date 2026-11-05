@@ -47,7 +47,7 @@ from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializ
 from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature
+from posthog.constants import DEFAULT_SURVEY_APPEARANCE, SURVEY_TARGETING_FLAG_PREFIX, AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
@@ -710,6 +710,18 @@ class SurveyTabPosition(models.TextChoices):
 # render it as `right`. The API replaces it so a response always validates against the position
 # enum the API documents, which generated clients turn into a strict validator.
 LEGACY_SURVEY_POSITIONS = {"bottom-right": SurveyPosition.RIGHT.value}
+
+
+def thank_you_screen_defaults(team: Team) -> dict[str, Any]:
+    survey_config = team.survey_config if isinstance(team.survey_config, dict) else {}
+    team_appearance = survey_config.get("appearance")
+    if not isinstance(team_appearance, dict):
+        team_appearance = {}
+    defaults = {}
+    for field in ("displayThankYouMessage", "thankYouMessageHeader"):
+        team_value = team_appearance.get(field)
+        defaults[field] = DEFAULT_SURVEY_APPEARANCE[field] if team_value is None else team_value
+    return defaults
 
 
 def normalize_survey_appearance(appearance: dict[str, Any]) -> dict[str, Any]:
@@ -1918,7 +1930,12 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if "remove_targeting_flag" in validated_data:
             validated_data.pop("remove_targeting_flag")
 
-        validated_data["team_id"] = self.context["team_id"]
+        team = Team.objects.get(id=self.context["team_id"])
+        validated_data["team_id"] = team.id
+        validated_data["appearance"] = {
+            **thank_you_screen_defaults(team),
+            **(validated_data.get("appearance") or {}),
+        }
         if validated_data.get("targeting_flag_id"):
             # Attaching an existing flag takes write control of it: its active state is later
             # synced to the survey's lifecycle (start/stop/archive). Require feature_flag:write
@@ -1958,7 +1975,6 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             self._associate_actions(instance, validated_data.get("conditions"))
             self._add_internal_response_sampling_filters(instance)
 
-        team = Team.objects.get(id=self.context["team_id"])
         log_activity(
             organization_id=team.organization_id,
             team_id=self.context["team_id"],
@@ -4074,6 +4090,8 @@ def public_survey_page(request: HttpRequest, survey_id: str) -> HttpResponse:
 
     serializer = SurveyAPISerializer(survey)
     survey_data = serializer.data
+    if survey_data.get("appearance") is None:
+        survey_data["appearance"] = thank_you_screen_defaults(survey.team)
     context = {
         "name": survey.name,
         "survey_id": survey_id,

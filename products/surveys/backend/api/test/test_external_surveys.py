@@ -108,6 +108,37 @@ class TestExternalSurveys(APIBaseTest):
         assert xss_payload not in content
         assert "\\u003C/script\\u003E" in content or "\\u003c/script\\u003e" in content
 
+    @parameterized.expand(
+        [
+            (
+                "null_appearance",
+                None,
+                None,
+                {"displayThankYouMessage": True, "thankYouMessageHeader": "Thank you for your feedback!"},
+            ),
+            (
+                "team_appearance_not_an_object",
+                None,
+                {"appearance": "dark"},
+                {"displayThankYouMessage": True, "thankYouMessageHeader": "Thank you for your feedback!"},
+            ),
+            ("saved_opt_out", {"displayThankYouMessage": False}, None, {"displayThankYouMessage": False}),
+            ("saved_partial", {"backgroundColor": "#1d4ed8"}, None, {"backgroundColor": "#1d4ed8"}),
+        ]
+    )
+    def test_hosted_page_shows_confirmation_screen_for_unset_appearance(
+        self, _name: str, appearance: dict | None, survey_config: dict | None, expected: dict
+    ) -> None:
+        if survey_config:
+            self.team.survey_config = survey_config
+            self.team.save(update_fields=["survey_config"])
+        survey = self.create_external_survey(appearance=appearance)
+
+        response = self.client.get(f"/external_surveys/{survey.id}/")
+
+        assert response.status_code == 200
+        assert response.context["survey_data"]["appearance"] == expected
+
     def test_valid_survey_id_required(self):
         """Test that invalid survey IDs are rejected"""
         # Invalid UUID format
