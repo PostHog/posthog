@@ -248,6 +248,14 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         assert self.client.post(url, {}, format="json").status_code == 400
         both = {"item_ids": [str(other.id)], "keep_item_ids": [str(keep.id)]}
         assert self.client.post(url, both, format="json").status_code == 400
+        # A mistyped kept id must not skip the connection it meant to keep.
+        mistyped = {"keep_item_ids": [str(uuid4())]}
+        assert self.client.post(url, mistyped, format="json").status_code == 400
+        assert (
+            not WarehouseMigrationItem.objects.for_team(self.team.pk)
+            .filter(status=WarehouseMigrationItem.Status.SKIPPED)
+            .exists()
+        )
 
         response = self.client.post(url, {"keep_item_ids": [str(keep.id)]}, format="json")
 
@@ -293,6 +301,10 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         cache.clear()
         self.addCleanup(cache.clear)
         migration = self._migration()
+        # A user without the flag is turned away before the throttle, so the team's budget is untouched.
+        self.flag.return_value = False
+        assert self.client.post(f"{self.url}{migration.id}/refresh/").status_code == 404
+        self.flag.return_value = True
         assert self.client.post(f"{self.url}{migration.id}/refresh/").status_code == 200
         assert self._create(status_code=200, json={"code": "Success", "data": {}}).status_code == 429
 
@@ -435,6 +447,11 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         # Hex-only, so they pass a loose route pattern and would reach `UUID()`.
         assert self.client.get(f"{self.url}abc/").status_code == 404
         assert self.client.post(f"{self.url}{own.id}/items/abc/skip/").status_code == 404
+        # Deleting removes the stored key, so it must never reach another team's migration.
+        assert self.client.delete(f"{self.url}{migration.id}/").status_code == 404
+        assert WarehouseMigration.objects.for_team(other_team.pk).filter(id=migration.id).exists()
+        assert self.client.delete(f"{self.url}{own.id}/").status_code == 204
+        assert not WarehouseMigration.objects.for_team(self.team.pk).filter(id=own.id).exists()
 
 
 _STRIPE_VALID = patch(

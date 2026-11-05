@@ -58,6 +58,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
     PendingSourceCredential,
     get_or_create_warehouse_destination,
+    sync_frequency_to_sync_frequency_interval,
     sync_old_schemas_with_new_schemas,
 )
 from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore, UnreadableSourceInputsError
@@ -127,6 +128,18 @@ def _payload_enabled_columns(schema: dict[str, Any]) -> list[str] | None:
     if not isinstance(payload_enabled_columns, list):
         return None
     return [str(column) for column in payload_enabled_columns if isinstance(column, str)]
+
+
+def _payload_sync_frequency_interval(frequency: Any) -> timedelta:
+    """A table's `sync_frequency` from the create payload, such as `1hour`, or the 6-hour default."""
+    if isinstance(frequency, str):
+        try:
+            interval = sync_frequency_to_sync_frequency_interval(frequency)
+        except ValueError:
+            interval = None
+        if interval is not None:
+            return interval
+    return timedelta(hours=6)
 
 
 class ExternalDataSourceListSerializer(serializers.ListSerializer):
@@ -1927,11 +1940,11 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 )
 
             # CDC schemas benefit from a tighter poll cadence — the extraction workflow is cheap
-            # and the value prop is near-real-time. Other sync types use the 6h default.
+            # and the value prop is near-real-time. Other sync types use the payload's frequency, or 6h.
             schema_sync_frequency_interval = (
                 timedelta(minutes=5)
                 if is_cdc_schema and not cdc_not_set_up and new_source_model.supports_scheduled_sync
-                else timedelta(hours=6)
+                else _payload_sync_frequency_interval(schema.get("sync_frequency"))
             )
             schema_model = ExternalDataSchema.objects.create(
                 name=schema_name,

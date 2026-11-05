@@ -92,6 +92,8 @@ class TestBuildPlannedSchemas(SimpleTestCase):
                 {"column": "status", "operator": "=", "value": "ACTIVE"},
                 {"column": "region", "operator": "IN", "value": ["eu", "us"]},
             ],
+            # Set at creation, so no table needs a second update for the planned schedule.
+            "sync_frequency": "6hour",
         }
         assert audit_log == {"name": "public.audit_log", "should_sync": False}
         assert locked == {"name": "public.locked", "should_sync": False}
@@ -110,17 +112,24 @@ class TestBuildPlannedSchemas(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("every_column_excluded", ("id", "card_number", "updated_at")),
+            ("every_column_excluded", ("id", "card_number", "updated_at"), True),
             # `id` is the detected key, which the reader reads whatever the column selection says.
-            ("key_column_excluded", ("id",)),
+            ("key_column_excluded", ("id",), True),
+            # Discovery lists no columns, so no selection can leave `card_number` out.
+            ("columns_unknown", ("card_number",), False),
         ]
     )
-    def test_a_table_whose_exclusions_cannot_hold_stays_off(self, _name: str, disabled: tuple[str, ...]) -> None:
+    def test_a_table_whose_exclusions_cannot_hold_stays_off(
+        self, _name: str, disabled: tuple[str, ...], columns_known: bool
+    ) -> None:
         proposal = _proposal(
             ProposedSchema(name="public.orders", should_sync=True, sync_type=None, disabled_columns=disabled)
         )
+        table = _table("public.orders")
+        if not columns_known:
+            table.columns = []
 
-        planned = build_planned_schemas(proposal, [_table("public.orders")], {})
+        planned = build_planned_schemas(proposal, [table], {})
 
         assert planned.schemas == [{"name": "public.orders", "should_sync": False}]
         assert (planned.kept_off, planned.planned) == (("public.orders",), ())
@@ -162,7 +171,12 @@ class TestBuildPlannedSchemas(SimpleTestCase):
         orders, users, events = planned.schemas
         assert (orders["name"], orders["should_sync"], orders["sync_time_of_day"]) == ("orders", True, "03:30:00")
         assert users == {"name": "users", "should_sync": False}
-        assert events == {"name": "events", "should_sync": False, "sync_time_of_day": "03:30:00"}
+        assert events == {
+            "name": "events",
+            "should_sync": False,
+            "sync_frequency": "6hour",
+            "sync_time_of_day": "03:30:00",
+        }
         assert (planned.unavailable, planned.webhook_only, planned.planned) == (
             ("sales.users", "sales.orders"),
             ("events",),

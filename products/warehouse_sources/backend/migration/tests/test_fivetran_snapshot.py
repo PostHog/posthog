@@ -2,9 +2,11 @@ import json
 from typing import Any
 
 import pytest
+from unittest.mock import MagicMock
 
 from django.test import SimpleTestCase
 
+import requests
 import requests_mock
 from parameterized import parameterized
 
@@ -62,6 +64,9 @@ class TestFetchSnapshot(SimpleTestCase):
                         "database": "ANALYTICS",
                         "password": "******",
                         "private_key": UNMASKED_DESTINATION_KEY,
+                        # Not a key PostHog reads for Snowflake, so it is dropped whatever its name says.
+                        "auth_secret_holder": UNMASKED_DESTINATION_KEY,
+                        "snowflake_cloud": "AWS",
                     },
                 }
             ),
@@ -139,6 +144,7 @@ class TestFetchSnapshot(SimpleTestCase):
 
         assert requested_cursors == [None, ["cursor_2"]]
         assert [d.id for d in snapshot.destinations] == ["grp_warehouse"]
+        assert snapshot.destinations[0].config == {"host": "acct.example.com", "database": "ANALYTICS"}
         assert [c.id for c in snapshot.connections] == ["conn_pg", "conn_folder"]
 
         pg, folder = snapshot.connections
@@ -347,3 +353,14 @@ class TestReadOnlyClient(SimpleTestCase):
         )
         with pytest.raises(FivetranWriteBlockedError):
             client._session.request(method, f"{base_url}/connections/conn_example")
+
+    def test_a_get_reaches_the_wrapped_adapter_with_its_options(self) -> None:
+        client = FivetranClient(FivetranCredentials(api_key=FAKE_API_KEY, api_secret=FAKE_API_SECRET))
+        adapter = client._session.get_adapter("https://")
+        inner = MagicMock()
+        adapter._inner = inner  # type: ignore[attr-defined]
+
+        request = requests.Request("GET", f"{FIVETRAN_API_URL}/account/info").prepare()
+        adapter.send(request, timeout=(5, 30), verify=True)
+
+        inner.send.assert_called_once_with(request, timeout=(5, 30), verify=True)

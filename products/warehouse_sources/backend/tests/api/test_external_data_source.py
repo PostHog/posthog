@@ -13769,8 +13769,34 @@ class TestExternalDataSourceStoreCredentials(APIBaseTest):
             assert "auth_method.selection" in response.json()["message"]
             assert not PendingSourceCredential.objects.for_team(self.team.pk).exists()
 
-    def test_store_credentials_for_an_unknown_migration_item_is_rejected(self) -> None:
-        response = self._store(migration_item_id="01a1a3b0-0000-7000-8000-000000000009")
+    @parameterized.expand([("unknown_item", False), ("other_team_item", True)])
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_store_credentials_for_an_unknown_migration_item_is_rejected(
+        self, _name: str, other_team: bool, _mock_validate: MagicMock
+    ) -> None:
+        item_id = "01a1a3b0-0000-7000-8000-000000000009"
+        if other_team:
+            team = Team.objects.create(organization=self.organization)
+            migration = WarehouseMigration.objects.for_team(team.pk).create(
+                team_id=team.pk, provider=WarehouseMigration.Provider.FIVETRAN
+            )
+            item_id = str(
+                WarehouseMigrationItem.objects.for_team(team.pk)
+                .create(
+                    team_id=team.pk,
+                    migration=migration,
+                    vendor_connection_id="conn_stripe",
+                    vendor_service="stripe",
+                    name="stripe",
+                    verdict=WarehouseMigrationItem.Verdict.AS_IS,
+                    proposal={"source_type": "Stripe", "prefill": {}},
+                )
+                .id
+            )
+        response = self._store(migration_item_id=item_id)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not PendingSourceCredential.objects.for_team(self.team.pk).exists()
 
