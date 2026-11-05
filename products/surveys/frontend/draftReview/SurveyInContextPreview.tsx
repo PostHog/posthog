@@ -142,9 +142,7 @@ export function SurveyInContextPreview({
                     <div
                         className={cn(
                             'absolute flex max-h-[calc(100%-2rem)] flex-col rounded',
-                            isMobile
-                                ? 'inset-x-3 bottom-3'
-                                : POSITION_CLASSES[survey.appearance?.position ?? SurveyPosition.Right],
+                            POSITION_CLASSES[survey.appearance?.position ?? SurveyPosition.Right],
                             highlightClasses(highlightedArea === 'survey')
                         )}
                     >
