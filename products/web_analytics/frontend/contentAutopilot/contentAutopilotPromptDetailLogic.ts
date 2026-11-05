@@ -67,9 +67,9 @@ export interface contentAutopilotPromptDetailLogicValues {
     prompt: AEOPromptApi | null
     promptArchiving: boolean
     promptEditing: boolean
-    promptSaving: boolean
     promptId: string | null
     promptLoading: boolean
+    promptSaving: boolean
     reportKpis: PromptReportKpis | null
     reportWindow: PromptReportWindow | null
     searchesQuery: DataTableNode | null
@@ -205,15 +205,6 @@ export interface contentAutopilotPromptDetailLogicActions {
     openPromptDetail: (promptId: string) => {
         promptId: string
     }
-    selectCheck: (check: AEOPromptCheckApi) => {
-        check: AEOPromptCheckApi
-    }
-    selectEngine: (engine: string) => {
-        engine: string
-    }
-    setArchiveConfirming: (confirming: boolean) => {
-        confirming: boolean
-    }
     savePromptEdit: (
         text: string,
         topic: string
@@ -226,6 +217,15 @@ export interface contentAutopilotPromptDetailLogicActions {
     }
     savePromptEditSuccess: (prompt: AEOPromptApi) => {
         prompt: AEOPromptApi
+    }
+    selectCheck: (check: AEOPromptCheckApi) => {
+        check: AEOPromptCheckApi
+    }
+    selectEngine: (engine: string) => {
+        engine: string
+    }
+    setArchiveConfirming: (confirming: boolean) => {
+        confirming: boolean
     }
     setChecksPage: (page: number) => {
         page: number
