@@ -6438,6 +6438,20 @@ class TestSignalReportClaimToCloseAPI(APIBaseTest):
         self.report.refresh_from_db()
         assert self.report.status == SignalReport.Status.READY
 
+    def test_a_task_bound_agent_cannot_close_a_report_nobody_claimed(self) -> None:
+        task_id = self._bind_task_token("signal_report", client_id=POSTHOG_AI_APP_CLIENT_ID_US)
+
+        with self._flag():
+            response = self.client.post(
+                self._state_url(), {"state": "suppressed"}, format="json", headers={"X-PostHog-Task-Id": task_id}
+            )
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        assert "claim this report" in response.json()["error"].lower()
+        self.report.refresh_from_db()
+        assert self.report.status == SignalReport.Status.READY
+        assert get_active_claim(team_id=self.team.id, report_id=self.report.id) is None
+
     @parameterized.expand(
         [
             ("unclaimed", None, status.HTTP_200_OK, SignalReport.Status.RESOLVED),
