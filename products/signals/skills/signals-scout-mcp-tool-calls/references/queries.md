@@ -24,6 +24,7 @@ throughout:
 
 - Use **only** `event = '$mcp_tool_call'` — never `IN ('$mcp_tool_call', 'mcp_tool_call')`,
   which double-counts via the transition-shim alias.
+- `<is_failure>` stands for the failure predicate `toString(properties.$mcp_is_error) IN ('true', '1') AND NOT coalesce(toString(properties.$mcp_error_expected) IN ('true', '1'), false)`: a failed call the server did not mark as an expected outcome (`$mcp_error_expected`). Substitute it before running. Compared as text because SDK versions stamp `$mcp_is_error` as a boolean, the string `'true'`, or `1`.
 - Filter `properties.$mcp_source = 'posthog_mcp_analytics'` — keeps SDK-instrumented events
   (both PostHog's hono server and external customer servers), excludes pre-SDK legacy events.
   If a project's counts look suspiciously low, re-run the coverage probe without this filter
@@ -42,7 +43,7 @@ throughout:
     `toString(properties.$mcp_error_type) IN ('internal', 'validation', 'api_4xx', 'api_5xx', 'permission', 'timeout', 'rate_limited', 'missing_context')`.
     In the hono regime the classified share can be a few percent.
   - **Unclassified failures:** compute by **subtraction**, not `NOT IN` (which mishandles the absent
-    value): `countIf(toBool($mcp_is_error)) - countIf(toBool($mcp_is_error) AND <the IN whitelist>)`.
+    value): `countIf(<is_failure>) - countIf(<is_failure> AND <the IN whitelist>)`.
     The remainder are tool-result errors (handler returned `{isError:true}` without a class) — ~96% here.
 - **Sampling real values:** wrap in `toString(...)` and `GROUP BY` — the absent bucket shows as `'None'`
   in grouped output (safe to read there; just don't turn it into a `WHERE ... IN/NOT IN` predicate).
@@ -75,10 +76,10 @@ absence tests and the `isNotNull` check for the numeric token field.
 ```sql
 SELECT
     count() AS calls,
-    countIf(toBool(properties.$mcp_is_error)) AS failures,
-    countIf(toBool(properties.$mcp_is_error) AND toString(properties.$mcp_error_type) IN ('internal', 'validation', 'api_4xx', 'api_5xx', 'permission', 'timeout', 'rate_limited', 'missing_context')) AS classified_failures,
-    round(countIf(toBool(properties.$mcp_is_error) AND toString(properties.$mcp_error_type) IN ('internal', 'validation', 'api_4xx', 'api_5xx', 'permission', 'timeout', 'rate_limited', 'missing_context')) * 100.0 / nullIf(countIf(toBool(properties.$mcp_is_error)), 0), 1) AS pct_failures_classified,
-    round(countIf(toBool(properties.$mcp_is_error) AND isNotNull(properties.$mcp_error_message)) * 100.0 / nullIf(countIf(toBool(properties.$mcp_is_error)), 0), 1) AS pct_failures_with_message,
+    countIf(<is_failure>) AS failures,
+    countIf(<is_failure> AND toString(properties.$mcp_error_type) IN ('internal', 'validation', 'api_4xx', 'api_5xx', 'permission', 'timeout', 'rate_limited', 'missing_context')) AS classified_failures,
+    round(countIf(<is_failure> AND toString(properties.$mcp_error_type) IN ('internal', 'validation', 'api_4xx', 'api_5xx', 'permission', 'timeout', 'rate_limited', 'missing_context')) * 100.0 / nullIf(countIf(<is_failure>), 0), 1) AS pct_failures_classified,
+    round(countIf(<is_failure> AND isNotNull(properties.$mcp_error_message)) * 100.0 / nullIf(countIf(<is_failure>), 0), 1) AS pct_failures_with_message,
     round(countIf(isNotNull(properties.$mcp_tool_category)) * 100.0 / count(), 1) AS pct_with_category,
     round(countIf(isNotNull(properties.$mcp_intent)) * 100.0 / count(), 1) AS pct_with_intent,
     round(countIf(isNotNull(properties.$mcp_mode)) * 100.0 / count(), 1) AS pct_with_mode,
@@ -121,8 +122,8 @@ SELECT
     coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), if(properties.$mcp_tool_name = 'exec' AND properties.$mcp_exec_verb = 'call', nullIf(nullIf(toString(properties.$mcp_exec_target_tool), ''), 'unrecognized'), NULL), toString(properties.$mcp_tool_name)) AS tool,
     any(properties.$mcp_tool_category) AS category,
     count() AS calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct,
+    countIf(<is_failure>) AS errors,
+    round(countIf(<is_failure>) * 100.0 / count(), 1) AS error_rate_pct,
     uniq(distinct_id) AS users,
     uniqIf($session_id, $session_id != '') AS sessions
 FROM events
@@ -161,7 +162,7 @@ FROM (
         coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), if(properties.$mcp_tool_name = 'exec' AND properties.$mcp_exec_verb = 'call', nullIf(nullIf(toString(properties.$mcp_exec_target_tool), ''), 'unrecognized'), NULL), toString(properties.$mcp_tool_name)) AS tool,
         any(properties.$mcp_tool_category) AS category,
         count() AS calls,
-        countIf(toBool(properties.$mcp_is_error)) AS errors
+        countIf(<is_failure>) AS errors
     FROM events
     WHERE event = '$mcp_tool_call'
         AND properties.$mcp_source = 'posthog_mcp_analytics'
@@ -198,7 +199,7 @@ SELECT
 FROM events
 WHERE event = '$mcp_tool_call'
     AND properties.$mcp_source = 'posthog_mcp_analytics'
-    AND toBool(properties.$mcp_is_error)
+    AND <is_failure>
     AND coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), if(properties.$mcp_tool_name = 'exec' AND properties.$mcp_exec_verb = 'call', nullIf(nullIf(toString(properties.$mcp_exec_target_tool), ''), 'unrecognized'), NULL), toString(properties.$mcp_tool_name)) = '<tool>'
     AND timestamp >= now() - INTERVAL 7 DAY
 GROUP BY error_type
@@ -227,7 +228,7 @@ SELECT properties.$mcp_error_message AS message, count() AS n
 FROM events
 WHERE event = '$mcp_tool_call'
     AND properties.$mcp_source = 'posthog_mcp_analytics'
-    AND toBool(properties.$mcp_is_error)
+    AND <is_failure>
     AND coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), if(properties.$mcp_tool_name = 'exec' AND properties.$mcp_exec_verb = 'call', nullIf(nullIf(toString(properties.$mcp_exec_target_tool), ''), 'unrecognized'), NULL), toString(properties.$mcp_tool_name)) = '<tool>'
     AND properties.$mcp_error_message != ''
     AND timestamp >= now() - INTERVAL 7 DAY
@@ -269,7 +270,7 @@ SELECT
     toString(properties.$mcp_intent) AS intent,
     toString(properties.$mcp_intent_source) AS source,
     count() AS n,
-    countIf(toBool(properties.$mcp_is_error)) AS errors
+    countIf(<is_failure>) AS errors
 FROM events
 WHERE event = '$mcp_tool_call'
     AND properties.$mcp_source = 'posthog_mcp_analytics'
@@ -291,8 +292,8 @@ SELECT
     coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), if(properties.$mcp_tool_name = 'exec' AND properties.$mcp_exec_verb = 'call', nullIf(nullIf(toString(properties.$mcp_exec_target_tool), ''), 'unrecognized'), NULL), toString(properties.$mcp_tool_name)) AS tool,
     coalesce(nullIf(nullIf(toString(properties.$mcp_client_name), ''), 'None'), 'unknown') AS client,
     count() AS calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct
+    countIf(<is_failure>) AS errors,
+    round(countIf(<is_failure>) * 100.0 / count(), 1) AS error_rate_pct
 FROM events
 WHERE event = '$mcp_tool_call'
     AND properties.$mcp_source = 'posthog_mcp_analytics'
@@ -319,8 +320,8 @@ worst offenders rather than every tool.
 SELECT
     coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), if(properties.$mcp_tool_name = 'exec' AND properties.$mcp_exec_verb = 'call', nullIf(nullIf(toString(properties.$mcp_exec_target_tool), ''), 'unrecognized'), NULL), toString(properties.$mcp_tool_name)) AS tool,
     count() AS calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    countIf(toBool(properties.$mcp_is_error)) - countIf(toBool(properties.$mcp_is_error) AND toString(properties.$mcp_error_type) IN ('internal', 'validation', 'api_4xx', 'api_5xx', 'permission', 'timeout', 'rate_limited', 'missing_context')) AS undiagnosable_errors
+    countIf(<is_failure>) AS errors,
+    countIf(<is_failure>) - countIf(<is_failure> AND toString(properties.$mcp_error_type) IN ('internal', 'validation', 'api_4xx', 'api_5xx', 'permission', 'timeout', 'rate_limited', 'missing_context')) AS undiagnosable_errors
 FROM events
 WHERE event = '$mcp_tool_call'
     AND properties.$mcp_source = 'posthog_mcp_analytics'
@@ -382,8 +383,8 @@ FROM (
         coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), if(properties.$mcp_tool_name = 'exec' AND properties.$mcp_exec_verb = 'call', nullIf(nullIf(toString(properties.$mcp_exec_target_tool), ''), 'unrecognized'), NULL), toString(properties.$mcp_tool_name)) AS tool,
         any(properties.$mcp_tool_category) AS category,
         count() AS calls,
-        countIf(toBool(properties.$mcp_is_error)) AS errors,
-        round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS tool_error_rate_pct,
+        countIf(<is_failure>) AS errors,
+        round(countIf(<is_failure>) * 100.0 / count(), 1) AS tool_error_rate_pct,
         uniq(distinct_id) AS users
     FROM events
     WHERE event = '$mcp_tool_call'
@@ -528,7 +529,7 @@ WITH calls AS (
         properties.$mcp_tool_category AS raw_category,
         $session_id AS session,
         distinct_id,
-        toBool(properties.$mcp_is_error) AS is_error,
+        <is_failure> AS is_failure,
         toFloat(properties.$mcp_duration_ms) AS duration_ms
     FROM events
     WHERE event = '$mcp_tool_call'
@@ -553,7 +554,7 @@ struggle AS (
             s.session AS session,
             max(s.session_calls >= 3 OR (s.session_errors > 0 AND s.session_calls > s.session_errors)) AS session_struggled
         FROM (
-            SELECT session, tool, count() AS session_calls, countIf(is_error) AS session_errors
+            SELECT session, tool, count() AS session_calls, countIf(is_failure) AS session_errors
             FROM calls
             WHERE session != ''
             GROUP BY session, tool
@@ -567,7 +568,7 @@ volume AS (
     SELECT
         arrayJoin([c.category_bucket, 'all']) AS category,
         count() AS category_calls,
-        countIf(k.is_error) AS category_errors,
+        countIf(k.is_failure) AS category_errors,
         uniqIf(k.session, k.session != '') AS category_sessions,
         uniq(k.distinct_id) AS category_users,
         quantile(0.95)(k.duration_ms) AS category_p95_ms

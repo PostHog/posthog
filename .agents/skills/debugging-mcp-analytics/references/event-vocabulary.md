@@ -254,6 +254,9 @@ intentionally omitted, matching TS `instrument()`.
 - Take failures from `$mcp_is_error` (with `$mcp_error_type` / `$mcp_error_status` for the
   reason), never from `$exception`, which can be absent by design and so returns nothing
   rather than erroring.
+- A failure is `toBool(properties.$mcp_is_error) AND NOT coalesce(toBool(properties.$mcp_error_expected), false)`
+  (`IS_FAILURE_SQL` in `hogql_queries/base.py`). `$mcp_error_expected` marks a failed call the server
+  classified as an expected outcome (a rate limit, a not-found); `$mcp_is_error` stays true on it.
 - Group clients by the resolved **harness** label, not raw `$mcp_client_name`.
 - Zombie tools = `arrayJoin($mcp_listed_tool_names)` from `$mcp_tools_list`, minus the distinct
   effective tool names seen on `$mcp_tool_call`. `$mcp_exec_inner_tool_names` is the intended

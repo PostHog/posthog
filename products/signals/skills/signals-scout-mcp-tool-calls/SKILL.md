@@ -35,7 +35,7 @@ You author reports directly via the report channel (`scout-emit-report` / `scout
 
 **"Needs improvement" is broader than "fails a lot."** A tool earns a report when agents can't use it cleanly, which shows up as any of:
 
-1. **Failures** — a high `$mcp_is_error` rate over meaningful volume and reach.
+1. **Failures** — a high failure rate (`$mcp_is_error` calls the server did not mark `$mcp_error_expected`) over meaningful volume and reach.
 2. **Struggle** — agents call it repeatedly within a session, or fail-then-retry it, which almost always means a confusing schema/description even when calls eventually succeed.
 3. **Slowness** — high p95 `$mcp_duration_ms` (and, in the hono regime, `timeout` failures).
 4. **Context bloat** — oversized responses (hono regime only).
@@ -52,7 +52,7 @@ MCP tool calls land on the `$mcp_tool_call` event, emitted by both PostHog's own
 
 | Field        | Access                                                                   | Use                                                            |
 | ------------ | ------------------------------------------------------------------------ | -------------------------------------------------------------- |
-| failure flag | `toBool(properties.$mcp_is_error)`                                       | failure rate                                                   |
+| failure flag | `<is_failure>` (defined in [the query cookbook](references/queries.md))  | failure rate                                                   |
 | duration     | `toFloat(properties.$mcp_duration_ms)`                                   | latency                                                        |
 | tool name    | Effective tool expression in [the query cookbook](references/queries.md) | grouping key (includes rejected calls to known targets)        |
 | reach        | `distinct_id`, `$session_id`                                             | reject single-user noise; compute per-session struggle         |

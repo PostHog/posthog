@@ -115,6 +115,8 @@ Four cases, all via `posthog:execute-sql`.
 **1. The typed tools aren't in your tool list.** Everything below still works;
 this query is the plain session listing:
 
+In this query `<is_failure>` stands for the failure predicate `toString(properties.$mcp_is_error) IN ('true', '1') AND NOT coalesce(toString(properties.$mcp_error_expected) IN ('true', '1'), false)`: a failed call the server did not mark as an expected outcome (`$mcp_error_expected`). Substitute it before running.
+
 ```sql
 SELECT
     $session_id AS session_id,
@@ -122,7 +124,7 @@ SELECT
     max(timestamp) AS session_end,
     dateDiff('second', min(timestamp), max(timestamp)) AS duration_seconds,
     count() AS tool_calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
+    countIf(<is_failure>) AS errors,
     any(properties.$mcp_client_name) AS client
 FROM events
 WHERE event = '$mcp_tool_call'
