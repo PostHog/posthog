@@ -1,9 +1,12 @@
 from datetime import timedelta
+from io import StringIO
 
 import pytest
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -11,6 +14,8 @@ from posthoganalytics.types import FeatureFlagResult
 from temporalio.client import ScheduleActionStartWorkflow, ScheduleAlreadyRunningError, ScheduleListActionStartWorkflow
 from temporalio.service import RPCError, RPCStatusCode
 
+from posthog.models.organization import Organization
+from posthog.models.team import Team
 from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_TYPE_KEY
 
 from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule_id
@@ -682,6 +687,31 @@ class TestMaybeReconcileDag(BaseTest):
 
     def test_organization_reconcile_treats_a_stale_schedule_that_is_already_gone_as_deleted(self):
         self._reconcile_organization_with_stale_tier(RPCError("gone", RPCStatusCode.NOT_FOUND, b""))
+
+    def test_reconcile_command_tries_every_organization_then_fails(self):
+        failing_dag = self._dag_with_target()
+        other_organization = Organization.objects.create(name="other")
+        other_team = Team.objects.create(organization=other_organization, name="other")
+        other_dag = DAG.objects.create(team=other_team, name="other")
+
+        def list_schedules(dag_id):
+            if dag_id == str(failing_dag.id):
+                raise RuntimeError("temporal down")
+            return {f"{dag_id}:21600"}
+
+        with (
+            mock.patch(f"{RECONCILE}.list_existing_schedule_ids", side_effect=list_schedules),
+            mock.patch(f"{RECONCILE}.reconcile_dag_schedules", return_value=[]) as reconcile,
+            self.assertRaisesMessage(CommandError, str(self.organization.id)),
+        ):
+            call_command(
+                "reconcile_organization_schedules",
+                f"--organization-ids={self.organization.id},{other_organization.id}",
+                stdout=StringIO(),
+                stderr=StringIO(),
+            )
+
+        self.assertEqual([call.args[0] for call in reconcile.call_args_list], [other_dag])
 
     def test_unreadable_plan_floor_retries_the_write_until_the_floor_reads(self):
         dag = self._dag_with_target()
