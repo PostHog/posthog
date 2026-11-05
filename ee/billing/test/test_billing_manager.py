@@ -48,6 +48,10 @@ from ee.billing.billing_manager import (
 from ee.billing.billing_types import BillingProvider, BillingStatus, Product
 from ee.models.license import License, LicenseManager
 
+_NO_PACKAGE_PRODUCTS = [
+    {"type": "platform_and_support", "addons": [{"type": "teams", "subscribed": False, "plans": []}]},
+]
+
 
 def create_default_products_response(**kwargs) -> dict[str, list[Product]]:
     data: Any = {
@@ -550,10 +554,11 @@ class TestBillingManager(BaseTest):
                 },
                 False,
             ),
-            ("first_package_sync", True, None, {"billing_plan": "paid"}, True),
+            ("first_package_sync", True, None, {"billing_plan": "paid", "products": _NO_PACKAGE_PRODUCTS}, True),
             ("free_first_package_sync", False, None, {"has_active_subscription": False, "billing_plan": "free"}, False),
-            ("package_removed", True, True, {"billing_plan": "paid"}, True),
-            ("still_no_package", True, False, {"billing_plan": "paid"}, False),
+            ("paid_plan_missing_products", True, True, {"billing_plan": "paid"}, False),
+            ("paid_plan_empty_products", True, True, {"billing_plan": "paid", "products": []}, False),
+            ("still_no_package", True, False, {"billing_plan": "paid", "products": _NO_PACKAGE_PRODUCTS}, False),
             (
                 "flat_fee_stays_unknown",
                 True,
@@ -573,7 +578,11 @@ class TestBillingManager(BaseTest):
                 "expired_package_trial",
                 True,
                 True,
-                {"billing_plan": "paid", "trial": {"status": "expired", "target": "scale"}},
+                {
+                    "billing_plan": "paid",
+                    "products": _NO_PACKAGE_PRODUCTS,
+                    "trial": {"status": "expired", "target": "scale"},
+                },
                 True,
             ),
             *[
@@ -608,15 +617,7 @@ class TestBillingManager(BaseTest):
                 "inactive_package",
                 True,
                 True,
-                {
-                    "billing_plan": "paid",
-                    "products": [
-                        {
-                            "type": "platform_and_support",
-                            "addons": [{"type": "teams", "subscribed": False, "plans": []}],
-                        }
-                    ],
-                },
+                {"billing_plan": "paid", "products": _NO_PACKAGE_PRODUCTS},
                 True,
             ),
             (

@@ -161,14 +161,17 @@ def _subscribes_to_paid_package(products: object) -> bool:
 def _paid_package_status(customer: CustomerInfo) -> bool | None:
     billing_plan = customer.get("billing_plan")
     trial = customer.get("trial")
+    products = customer.get("products")
     if (
         billing_plan in _PAID_PACKAGES
         or customer.get("subscription_level") == "custom"
         or (isinstance(trial, dict) and trial.get("status") == "active" and trial.get("target") in _PAID_PACKAGES)
-        or _subscribes_to_paid_package(customer.get("products"))
+        or _subscribes_to_paid_package(products)
     ):
         return True
-    return False if billing_plan in ("free", "paid") else None
+    if billing_plan == "free" or (billing_plan == "paid" and products):
+        return False
+    return None
 
 
 def _free_trial_active(customer: CustomerInfo) -> bool:
