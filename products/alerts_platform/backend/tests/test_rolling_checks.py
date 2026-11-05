@@ -12,6 +12,7 @@ from parameterized import parameterized
 
 from products.alerts_platform.backend.facade.rolling_checks import (
     CHECKPOINT_MAX_STALENESS,
+    CheckWindow,
     derive_breaches,
     resolve_check_end,
     rolling_check_ranges,
@@ -152,43 +153,43 @@ class TestRollingCheckRanges(unittest.TestCase):
 
     def test_m_equals_1_returns_single_latest_window(self):
         ranges = rolling_check_ranges(self.NCA, window_minutes=15, cadence_minutes=5, period_count=1)
-        assert ranges == [(self.NCA - dt.timedelta(minutes=15), self.NCA)]
+        assert ranges == [CheckWindow(start=self.NCA - dt.timedelta(minutes=15), end=self.NCA)]
 
     def test_m_equals_3_window_15_cadence_5(self):
         ranges = rolling_check_ranges(self.NCA, window_minutes=15, cadence_minutes=5, period_count=3)
         assert ranges == [
-            (datetime(2026, 5, 3, 5, 35, tzinfo=UTC), datetime(2026, 5, 3, 5, 50, tzinfo=UTC)),
-            (datetime(2026, 5, 3, 5, 40, tzinfo=UTC), datetime(2026, 5, 3, 5, 55, tzinfo=UTC)),
-            (datetime(2026, 5, 3, 5, 45, tzinfo=UTC), datetime(2026, 5, 3, 6, 0, tzinfo=UTC)),
+            CheckWindow(start=datetime(2026, 5, 3, 5, 35, tzinfo=UTC), end=datetime(2026, 5, 3, 5, 50, tzinfo=UTC)),
+            CheckWindow(start=datetime(2026, 5, 3, 5, 40, tzinfo=UTC), end=datetime(2026, 5, 3, 5, 55, tzinfo=UTC)),
+            CheckWindow(start=datetime(2026, 5, 3, 5, 45, tzinfo=UTC), end=datetime(2026, 5, 3, 6, 0, tzinfo=UTC)),
         ]
 
     def test_m_equals_3_window_30_cadence_5(self):
         ranges = rolling_check_ranges(self.NCA, window_minutes=30, cadence_minutes=5, period_count=3)
         assert ranges == [
-            (datetime(2026, 5, 3, 5, 20, tzinfo=UTC), datetime(2026, 5, 3, 5, 50, tzinfo=UTC)),
-            (datetime(2026, 5, 3, 5, 25, tzinfo=UTC), datetime(2026, 5, 3, 5, 55, tzinfo=UTC)),
-            (datetime(2026, 5, 3, 5, 30, tzinfo=UTC), datetime(2026, 5, 3, 6, 0, tzinfo=UTC)),
+            CheckWindow(start=datetime(2026, 5, 3, 5, 20, tzinfo=UTC), end=datetime(2026, 5, 3, 5, 50, tzinfo=UTC)),
+            CheckWindow(start=datetime(2026, 5, 3, 5, 25, tzinfo=UTC), end=datetime(2026, 5, 3, 5, 55, tzinfo=UTC)),
+            CheckWindow(start=datetime(2026, 5, 3, 5, 30, tzinfo=UTC), end=datetime(2026, 5, 3, 6, 0, tzinfo=UTC)),
         ]
 
     def test_cadence_equals_window_produces_non_overlapping_back_to_back(self):
         ranges = rolling_check_ranges(self.NCA, window_minutes=15, cadence_minutes=15, period_count=3)
         assert ranges == [
-            (datetime(2026, 5, 3, 5, 15, tzinfo=UTC), datetime(2026, 5, 3, 5, 30, tzinfo=UTC)),
-            (datetime(2026, 5, 3, 5, 30, tzinfo=UTC), datetime(2026, 5, 3, 5, 45, tzinfo=UTC)),
-            (datetime(2026, 5, 3, 5, 45, tzinfo=UTC), datetime(2026, 5, 3, 6, 0, tzinfo=UTC)),
+            CheckWindow(start=datetime(2026, 5, 3, 5, 15, tzinfo=UTC), end=datetime(2026, 5, 3, 5, 30, tzinfo=UTC)),
+            CheckWindow(start=datetime(2026, 5, 3, 5, 30, tzinfo=UTC), end=datetime(2026, 5, 3, 5, 45, tzinfo=UTC)),
+            CheckWindow(start=datetime(2026, 5, 3, 5, 45, tzinfo=UTC), end=datetime(2026, 5, 3, 6, 0, tzinfo=UTC)),
         ]
 
     def test_cadence_greater_than_window_produces_gaps(self):
         ranges = rolling_check_ranges(self.NCA, window_minutes=5, cadence_minutes=10, period_count=3)
         assert ranges == [
-            (datetime(2026, 5, 3, 5, 35, tzinfo=UTC), datetime(2026, 5, 3, 5, 40, tzinfo=UTC)),
-            (datetime(2026, 5, 3, 5, 45, tzinfo=UTC), datetime(2026, 5, 3, 5, 50, tzinfo=UTC)),
-            (datetime(2026, 5, 3, 5, 55, tzinfo=UTC), datetime(2026, 5, 3, 6, 0, tzinfo=UTC)),
+            CheckWindow(start=datetime(2026, 5, 3, 5, 35, tzinfo=UTC), end=datetime(2026, 5, 3, 5, 40, tzinfo=UTC)),
+            CheckWindow(start=datetime(2026, 5, 3, 5, 45, tzinfo=UTC), end=datetime(2026, 5, 3, 5, 50, tzinfo=UTC)),
+            CheckWindow(start=datetime(2026, 5, 3, 5, 55, tzinfo=UTC), end=datetime(2026, 5, 3, 6, 0, tzinfo=UTC)),
         ]
 
     def test_oldest_first_ordering(self):
         ranges = rolling_check_ranges(self.NCA, window_minutes=15, cadence_minutes=5, period_count=5)
-        starts = [start for start, _ in ranges]
+        starts = [window.start for window in ranges]
         assert starts == sorted(starts)
 
     @parameterized.expand(
@@ -202,11 +203,11 @@ class TestRollingCheckRanges(unittest.TestCase):
     )
     def test_newest_range_ends_exactly_at_nca(self, _name: str, m: int):
         ranges = rolling_check_ranges(self.NCA, window_minutes=15, cadence_minutes=5, period_count=m)
-        assert ranges[-1][1] == self.NCA
+        assert ranges[-1].end == self.NCA
 
     def test_total_lookback_matches_window_plus_m_minus_1_times_cadence(self):
         ranges = rolling_check_ranges(self.NCA, window_minutes=15, cadence_minutes=5, period_count=3)
-        oldest_start = ranges[0][0]
+        oldest_start = ranges[0].start
         expected_lookback = dt.timedelta(minutes=15 + (3 - 1) * 5)
         assert self.NCA - oldest_start == expected_lookback
 
@@ -222,8 +223,8 @@ class TestRollingCheckRanges(unittest.TestCase):
     )
     def test_each_range_is_exactly_window_minutes_wide(self, _name: str, m: int, window: int, cadence: int):
         ranges = rolling_check_ranges(self.NCA, window_minutes=window, cadence_minutes=cadence, period_count=m)
-        for start, end in ranges:
-            assert end - start == dt.timedelta(minutes=window)
+        for check_window in ranges:
+            assert check_window.end - check_window.start == dt.timedelta(minutes=window)
 
     @parameterized.expand(
         [
@@ -235,5 +236,5 @@ class TestRollingCheckRanges(unittest.TestCase):
     def test_adjacent_ranges_offset_by_cadence(self, _name: str, m: int, window: int, cadence: int):
         ranges = rolling_check_ranges(self.NCA, window_minutes=window, cadence_minutes=cadence, period_count=m)
         for i in range(len(ranges) - 1):
-            assert ranges[i + 1][0] - ranges[i][0] == dt.timedelta(minutes=cadence)
-            assert ranges[i + 1][1] - ranges[i][1] == dt.timedelta(minutes=cadence)
+            assert ranges[i + 1].start - ranges[i].start == dt.timedelta(minutes=cadence)
+            assert ranges[i + 1].end - ranges[i].end == dt.timedelta(minutes=cadence)

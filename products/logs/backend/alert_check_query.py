@@ -28,7 +28,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 
-from products.alerts_platform.backend.facade.rolling_checks import rolling_check_ranges
+from products.alerts_platform.backend.facade.rolling_checks import CheckWindow, rolling_check_ranges
 from products.logs.backend.alert_group_columns import GROUP_COLUMNS
 from products.logs.backend.alert_utils import MAX_BYTES_TO_READ
 from products.logs.backend.logs_query_runner import LIVE_LOGS_CHECKPOINT_QUERY, LogsFilterBuilder
@@ -85,13 +85,11 @@ def _build_logs_query(alert: AlertQuerySubject, date_range: DateRange) -> LogsQu
     )
 
 
-def _period_ranges(
-    date_from: dt.datetime, period_minutes: int, period_count: int
-) -> list[tuple[dt.datetime, dt.datetime]]:
+def _period_ranges(date_from: dt.datetime, period_minutes: int, period_count: int) -> list[CheckWindow]:
     return [
-        (
-            date_from + dt.timedelta(minutes=i * period_minutes),
-            date_from + dt.timedelta(minutes=(i + 1) * period_minutes),
+        CheckWindow(
+            start=date_from + dt.timedelta(minutes=i * period_minutes),
+            end=date_from + dt.timedelta(minutes=(i + 1) * period_minutes),
         )
         for i in range(period_count)
     ]
@@ -107,11 +105,13 @@ def _timestamp_in_range(start: dt.datetime, end: dt.datetime) -> ast.Expr:
     )
 
 
-def _period_count_columns(ranges: list[tuple[dt.datetime, dt.datetime]]) -> list[ast.Expr]:
+def _period_count_columns(ranges: list[CheckWindow]) -> list[ast.Expr]:
     """One `period_<i>` count per range, oldest first."""
     return [
-        ast.Alias(alias=f"period_{i}", expr=ast.Call(name="countIf", args=[_timestamp_in_range(start, end)]))
-        for i, (start, end) in enumerate(ranges)
+        ast.Alias(
+            alias=f"period_{i}", expr=ast.Call(name="countIf", args=[_timestamp_in_range(window.start, window.end)])
+        )
+        for i, window in enumerate(ranges)
     ]
 
 
@@ -326,7 +326,7 @@ class AlertCheckQuery:
         ranges = rolling_check_ranges(nca, window_minutes, cadence_minutes, period_count)
         return self._execute_count_per_range(ranges)
 
-    def _execute_count_per_range(self, ranges: list[tuple[dt.datetime, dt.datetime]]) -> list[BucketedCount]:
+    def _execute_count_per_range(self, ranges: list[CheckWindow]) -> list[BucketedCount]:
         query = ast.SelectQuery(
             select=_period_count_columns(ranges),
             select_from=ast.JoinExpr(table=ast.Field(chain=["logs"])),
@@ -334,7 +334,7 @@ class AlertCheckQuery:
         )
         response = self._run_query(query)
         row = response.results[0] if response.results else [0] * len(ranges)
-        return [BucketedCount(timestamp=start, count=count) for (start, _), count in zip(ranges, row)]
+        return [BucketedCount(timestamp=window.start, count=count) for window, count in zip(ranges, row)]
 
     def _run_query(self, query: ast.SelectQuery | ast.SelectSetQuery) -> HogQLQueryResponse:
         if not isinstance(query, ast.SelectQuery):
@@ -493,7 +493,7 @@ class BatchedAlertCheckQuery:
         ranges = rolling_check_ranges(nca, window_minutes, cadence_minutes, period_count)
         return self._execute_count_per_range(ranges)
 
-    def _execute_count_per_range(self, ranges: list[tuple[dt.datetime, dt.datetime]]) -> BatchedBucketedResult:
+    def _execute_count_per_range(self, ranges: list[CheckWindow]) -> BatchedBucketedResult:
         query = self._build_count_per_range_query(ranges)
 
         start_ms = time.monotonic_ns() // 1_000_000
@@ -507,8 +507,8 @@ class BatchedAlertCheckQuery:
         for alert_i, alert in enumerate(self.alerts):
             offset = alert_i * len(ranges)
             per_alert[str(alert.id)] = [
-                BucketedCount(timestamp=start, count=row[offset + period_i])
-                for period_i, (start, _) in enumerate(ranges)
+                BucketedCount(timestamp=window.start, count=row[offset + period_i])
+                for period_i, window in enumerate(ranges)
             ]
         return BatchedBucketedResult(per_alert=per_alert, query_duration_ms=duration_ms)
 
@@ -545,17 +545,17 @@ class BatchedAlertCheckQuery:
             limit=ast.Constant(value=limit),
         )
 
-    def _build_count_per_range_query(self, ranges: list[tuple[dt.datetime, dt.datetime]]) -> ast.SelectQuery:
+    def _build_count_per_range_query(self, ranges: list[CheckWindow]) -> ast.SelectQuery:
         select_columns: list[ast.Expr] = [
             ast.Alias(
                 alias=f"alert_{alert_i}_period_{period_i}",
                 expr=ast.Call(
                     name="countIf",
-                    args=[ast.And(exprs=[alert_expr, _timestamp_in_range(start, end)])],
+                    args=[ast.And(exprs=[alert_expr, _timestamp_in_range(window.start, window.end)])],
                 ),
             )
             for alert_i, alert_expr in enumerate(self._alert_where_exprs)
-            for period_i, (start, end) in enumerate(ranges)
+            for period_i, window in enumerate(ranges)
         ]
 
         return ast.SelectQuery(
@@ -658,18 +658,20 @@ class GroupedAlertCheckQuery:
         groups = [
             GroupCounts(
                 labels={column: str(value) for column, value in zip(self.group_by, row[:width])},
-                counts=[BucketedCount(timestamp=start, count=count) for (start, _), count in zip(ranges, row[width:])],
+                counts=[
+                    BucketedCount(timestamp=window.start, count=count) for window, count in zip(ranges, row[width:])
+                ],
             )
             for row in response.results
         ]
         return GroupedRollingResult(
             groups=groups,
-            period_starts=[start for start, _ in ranges],
+            period_starts=[window.start for window in ranges],
             query_duration_ms=duration_ms,
             truncated=len(groups) > self.limit,
         )
 
-    def _build_query(self, ranges: list[tuple[dt.datetime, dt.datetime]]) -> ast.SelectQuery:
+    def _build_query(self, ranges: list[CheckWindow]) -> ast.SelectQuery:
         columns: list[ast.Expr] = [ast.Field(chain=[column]) for column in self.group_by]
         periods = _period_count_columns(ranges)
         breach_op = ast.CompareOperationOp.Gt if self.worst_is_highest else ast.CompareOperationOp.Lt

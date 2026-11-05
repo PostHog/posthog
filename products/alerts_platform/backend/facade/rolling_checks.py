@@ -7,6 +7,8 @@ import datetime as dt
 from collections.abc import Sequence
 from typing import Final
 
+from posthog.dataclasses import frozen
+
 # Fall back to the scheduled time when the checkpoint is older than this. A quiet partition
 # can pin `min(...)` hours behind while other partitions have fresh data.
 CHECKPOINT_MAX_STALENESS: Final = dt.timedelta(minutes=5)
@@ -19,18 +21,26 @@ def rolling_check_lookback_minutes(window_minutes: int, cadence_minutes: int, pe
     return window_minutes + (period_count - 1) * cadence_minutes
 
 
+@frozen
+class CheckWindow:
+    """One window a check counts over: `start` inclusive, `end` exclusive."""
+
+    start: dt.datetime
+    end: dt.datetime
+
+
 def rolling_check_ranges(
     check_end: dt.datetime,
     window_minutes: int,
     cadence_minutes: int,
     period_count: int,
-) -> list[tuple[dt.datetime, dt.datetime]]:
+) -> list[CheckWindow]:
     """M cadence-stepped rolling windows ending at `check_end`, oldest-first."""
-    ranges: list[tuple[dt.datetime, dt.datetime]] = []
+    ranges: list[CheckWindow] = []
     for k in range(period_count - 1, -1, -1):
         end = check_end - dt.timedelta(minutes=k * cadence_minutes)
         start = end - dt.timedelta(minutes=window_minutes)
-        ranges.append((start, end))
+        ranges.append(CheckWindow(start=start, end=end))
     return ranges
 
 
