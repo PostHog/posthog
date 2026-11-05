@@ -77,6 +77,7 @@ from products.signals.backend.report_content_gates import team_report_monitoring
 from products.signals.backend.report_monitoring_attempts import current_monitoring_attempt
 from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
+from products.signals.backend.source_issues import source_issues_by_report
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
@@ -89,7 +90,13 @@ if TYPE_CHECKING:
     from products.signals.backend.report_claims import ReportClaim
     from products.signals.backend.report_plan import ReportPlan, ReportPlanStep
 
-from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES, ActionabilityChoice, SourceSuggestion, priority_from_judgment
+from .artefact_schemas import (
+    NON_WRITABLE_ARTEFACT_TYPES,
+    ActionabilityChoice,
+    SourceIssue,
+    SourceSuggestion,
+    priority_from_judgment,
+)
 from .briefing_reports import SUMMARY_LEAD_LIMIT, summary_lead
 from .daily_limit import reports_generated_today, team_day_start
 from .implementation_repositories import (
@@ -2050,6 +2057,14 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "request. Null when the team tracks no issues, or the issue could not be opened."
         ),
     )
+    source_issues = serializers.SerializerMethodField(
+        help_text=(
+            "URLs of the external issues this report is about, as recorded by the scout or person that "
+            "filed it, oldest first. Normalized to `https://github.com/<owner>/<repo>/issues/<number>`. "
+            "Empty when the report names none. Issues the report learned about from a GitHub issue signal "
+            "are not listed here."
+        ),
+    )
     tracker_issue_reference = serializers.SerializerMethodField(
         help_text=(
             "How that tracker issue reads in its provider, for example '#12' or 'ENG-123'. Null "
@@ -2150,6 +2165,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "tracker_issue_url",
             "tracker_issue_reference",
             "tracker_issue_error",
+            "source_issues",
             "work_state",
             "assignee",
             "refund",
@@ -2504,6 +2520,13 @@ class SignalReportSerializer(serializers.ModelSerializer):
         if tracker is None or tracker.status != SignalReportTrackerIssue.Status.CREATED:
             return None
         return tracker.issue_url or None
+
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
+    def get_source_issues(self, obj: SignalReport) -> list[str]:
+        by_report: dict[str, list[SourceIssue]] | None = self.context.get("source_issues_map")
+        if by_report is None:
+            by_report = source_issues_by_report(team_id=obj.team_id, report_ids=[str(obj.id)])
+        return [issue.url for issue in by_report.get(str(obj.id), [])]
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_tracker_issue_reference(self, obj: SignalReport) -> str | None:
