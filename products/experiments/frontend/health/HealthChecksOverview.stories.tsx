@@ -53,7 +53,7 @@ const meta: Meta<typeof HealthChecksOverview> = {
     args: { onFindingActedOn: () => {} },
     decorators: [
         (Story) => (
-            <div className="w-96">
+            <div className="w-[60rem]">
                 <Story />
             </div>
         ),
@@ -280,6 +280,22 @@ export const CheckDetailsOfACheckThatDoesNotApply: Story = {
     play: async ({ canvasElement }) => {
         await userEvent.click(
             await within(canvasElement).findByRole('button', { name: /Variant split changes since launch/ })
+        )
+    },
+}
+
+export const NarrowWithACheckPicked: Story = {
+    args: CheckDetailsWithAMeasurement.args,
+    decorators: [
+        (Story) => (
+            <div className="w-[32rem]">
+                <Story />
+            </div>
+        ),
+    ],
+    play: async ({ canvasElement }) => {
+        await userEvent.click(
+            await within(canvasElement).findByRole('button', { name: /Split of users across variants/ })
         )
     },
 }

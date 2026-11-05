@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, renderHook, waitFor } from '@testing-library/react-native'
 import { createElement, type ReactNode } from 'react'
@@ -9,6 +10,7 @@ import { setSessionTokens } from '@/auth/tokens'
 import { OfflineError, useConnectivity } from '@/lib/connectivity'
 
 import { pinView, unpinView, usePinActions } from './pinHooks'
+import { usePinPrefs } from './pinPrefsStore'
 import { useViewsContext } from './useViewsContext'
 
 jest.mock('@react-native-async-storage/async-storage', () =>
@@ -195,4 +197,36 @@ describe('pin writes', () => {
         expect(deleteShortcut).toHaveBeenCalledTimes(first === 'unpin' ? 1 : 0)
         expect(client.getQueryData(listKey)).toBeUndefined()
     })
+})
+
+test('drag reorder saves per-project phone preferences without writing server shortcuts', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity } } })
+    const scope = { host: 'https://example.com', projectId: 7 }
+    jest.mocked(useViewsContext).mockReturnValue({
+        mode: 'live',
+        offline: false,
+        identity: 'example-session',
+        scope,
+        dataScope: `${scope.host}|${scope.projectId}`,
+        ready: false,
+        access: { state: 'ok', missingScope: null },
+        item: { client, scope, demo: false },
+    })
+    usePinPrefs.getState().setOrder('https://example.com|8', ['other-pin'])
+    jest.mocked(createShortcut).mockClear()
+    jest.mocked(deleteShortcut).mockClear()
+    const { result, unmount } = renderHook(() => usePinActions(), {
+        wrapper: ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client }, children),
+    })
+    act(() => result.current.reorder(['third', 'first', 'second']))
+    await waitFor(async () => {
+        const saved = JSON.parse((await AsyncStorage.getItem('views-pin-prefs:v2')) ?? '{}')
+        expect(saved.state.projects['https://example.com|7'].rank).toEqual({ third: 0, first: 1, second: 2 })
+        expect(saved.state.projects['https://example.com|8'].rank).toEqual({ 'other-pin': 0 })
+    })
+    expect(createShortcut).not.toHaveBeenCalled()
+    expect(deleteShortcut).not.toHaveBeenCalled()
+    unmount()
+    client.clear()
+    usePinPrefs.getState().clear()
 })
