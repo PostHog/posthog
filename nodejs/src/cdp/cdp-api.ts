@@ -60,6 +60,7 @@ import {
     TransactionalEmailRequestSchema,
     TransactionalEmailStageTimer,
     TransactionalSendRefusal,
+    isRecipientFormatIssue,
     transactionalEmailRequestsTotal,
 } from './services/hogflows/transactional-email'
 import { TransactionalSends } from './services/hogflows/transactional-sends'
@@ -1210,7 +1211,7 @@ export class CdpApi {
                 if (!parsed.success) {
                     const issues = parsed.error.issues
                     // Signup accepts some addresses this check refuses, and no retry can fix an address.
-                    if (issues.every((issue) => issue.path[0] === 'to' && issue.code === 'invalid_format')) {
+                    if (issues.every(isRecipientFormatIssue)) {
                         return reply('recipient_unreachable', 422, { error: 'recipient_unreachable' })
                     }
                     // Paths and codes only: the values include the recipient's address.

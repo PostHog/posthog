@@ -20,9 +20,11 @@ import { checkHogFlowQuotaLimits } from './hogflow-quota-limiting'
 import { TRANSACTIONAL_EMAIL_EVENT } from './hogflow-sensitivity'
 import { IdempotencyKeys } from './idempotency-keys'
 import {
+    AcceptedSend,
     TransactionalEmailRequest,
     TransactionalEmailStageTimer,
     TransactionalSendRefusal,
+    transactionalEmailRecipients,
 } from './transactional-email'
 
 const ACCEPTED_SEND_FINGERPRINT_MARKER = 'accepted_send'
@@ -39,7 +41,7 @@ const transactionalEmailFingerprint = (
 ): string => {
     const request: unknown[] = [hogFlowId, to, distinct_id, variables]
     if (send) {
-        request.push(ACCEPTED_SEND_FINGERPRINT_MARKER, send)
+        request.push(ACCEPTED_SEND_FINGERPRINT_MARKER, withSenderTheCallerChose(send))
     }
     if (scheduledAt) {
         request.push(SCHEDULED_AT_FINGERPRINT_MARKER, scheduledAt.toISOString())
@@ -52,6 +54,23 @@ const warnTelemetryFlushFailed = (error: unknown, invocationId: string): void =>
         error: error instanceof Error ? error.message : String(error),
         invocation_id: invocationId,
     })
+}
+
+type CallerChosenSender = Partial<NonNullable<AcceptedSend['from']>>
+
+const withSenderTheCallerChose = ({
+    from,
+    ...send
+}: AcceptedSend): Omit<AcceptedSend, 'from'> & { from?: CallerChosenSender } => ({
+    ...send,
+    from: senderTheCallerChose(from),
+})
+
+const senderTheCallerChose = (from: AcceptedSend['from']): CallerChosenSender | undefined => {
+    if (!from) {
+        return undefined
+    }
+    return from.email ? { email: from.email, name: from.name } : { integrationId: from.integrationId, name: from.name }
 }
 
 export type TransactionalSendsDeps = {
@@ -117,7 +136,9 @@ export class TransactionalSends {
         }
         try {
             stages.start('checks')
-            const refusal = tooFarAhead ? 'invalid_scheduled_at' : await this.refusal(team.id, hogFlow, to)
+            const refusal = tooFarAhead
+                ? 'invalid_scheduled_at'
+                : await this.refusal(team.id, hogFlow, transactionalEmailRecipients(request))
             if (refusal) {
                 if (idempotencyKey) {
                     stages.start('idempotency')
@@ -211,7 +232,11 @@ export class TransactionalSends {
     // The email worker skips a send for these reasons too, but only after the caller has its answer. Checking them
     // here tells the caller that the email will not go out. The worker keeps its checks, because the state can
     // change while the job waits on the queue.
-    private async refusal(teamId: number, hogFlow: HogFlow, to: string): Promise<TransactionalSendRefusal | null> {
+    private async refusal(
+        teamId: number,
+        hogFlow: HogFlow,
+        recipients: string[]
+    ): Promise<TransactionalSendRefusal | null> {
         if (hogFlow.status !== 'active') {
             return 'not_sendable'
         }
@@ -219,12 +244,16 @@ export class TransactionalSends {
         // order wins. The MX check's DNS lookup runs even when an earlier check refuses, which is acceptable because
         // refusals are rare and the verdict is cached per domain.
         const suspension = this.deps.teamWorkflowsConfig.getEmailSendingSuspension(teamId)
-        const suppressed = this.deps.emailSuppression.isSuppressed(teamId, to, { transactional: true })
+        const suppressed = Promise.all(
+            recipients.map((email) => this.deps.emailSuppression.isSuppressed(teamId, email, { transactional: true }))
+        )
         const quota = checkHogFlowQuotaLimits(hogFlow, teamId, this.deps.quotaLimiting)
         // A DNS failure lets the send through.
-        const recipientSkipReason = this.deps.emailValidation.getRecipientSkipReason(teamId, to)
+        const recipientSkipReasons = Promise.all(
+            recipients.map((email) => this.deps.emailValidation.getRecipientSkipReason(teamId, email))
+        )
         // An earlier refusal returns before the later lookups are awaited, so their failures must not go unhandled.
-        const lookups: Promise<unknown>[] = [suspension, suppressed, quota, recipientSkipReason]
+        const lookups: Promise<unknown>[] = [suspension, suppressed, quota, recipientSkipReasons]
         for (const lookup of lookups) {
             lookup.catch(() => undefined)
         }
@@ -235,13 +264,13 @@ export class TransactionalSends {
         if (hogFlow.email_sending_paused_at) {
             return 'sending_paused'
         }
-        if (await suppressed) {
+        if ((await suppressed).some(Boolean)) {
             return 'recipient_suppressed'
         }
         if ((await quota).isLimited) {
             return 'quota_limited'
         }
-        if (await recipientSkipReason) {
+        if ((await recipientSkipReasons).some(Boolean)) {
             return 'recipient_unreachable'
         }
         return null

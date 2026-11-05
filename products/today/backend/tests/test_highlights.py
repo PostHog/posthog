@@ -518,7 +518,11 @@ class TestProgressiveHighlights(BaseTest):
             source_name="routine",
             highlights_id=str(row.id),
         )
-        slots = [contracts.PulseSlot(key="fast", name="Fast"), contracts.PulseSlot(key="slow", name="Slow")]
+        slots = [
+            contracts.PulseSlot(key="fast", name="Fast"),
+            contracts.PulseSlot(key="slow", name="Slow"),
+            contracts.PulseSlot(key="no-data", name="No data", status=PulseSlotStatus.EMPTY),
+        ]
         highlights.publish_pulse(inputs, HighlightFindings(), slots)
         highlights.publish_pulse(inputs, HighlightFindings(pulse=(metric("fast"),)), slots)
         highlights.publish_pulse(inputs, HighlightFindings(), slots)

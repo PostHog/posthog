@@ -3362,6 +3362,8 @@ describe('Hogflow Executor', () => {
             content: { subject: 'Reset your password', html: '<p>Hi {{ variables.name }}</p>', text: 'Hi' },
             from: { integrationId, email: 'security@posthog.com', name: 'Security' },
             replyTo: ['help@example.com', 'support@example.com'],
+            cc: ['manager@example.com', 'team@example.com'],
+            bcc: ['audit@example.com'],
             tracking: { captureEngagement: true },
         })
 
@@ -3610,14 +3612,15 @@ if (not res.success) { throw Error(res.error) }`,
                 expected: () => ({ type: 'email', ...storedStep() }),
             },
             {
-                name: "a code send with the caller's content, sender and reply-to over the step",
+                name: "a code send with the caller's content, sender, reply-to and copies over the step",
                 step: codeKeyStep,
                 send: codeSend,
                 expected: () => ({
                     type: 'email',
                     to: { email: 'recipient@example.com', name: 'Recipient' },
                     from: { integrationId, email: 'security@posthog.com', name: 'Security' },
-                    cc: 'cc@example.com',
+                    cc: 'manager@example.com, team@example.com',
+                    bcc: 'audit@example.com',
                     replyTo: 'help@example.com, support@example.com',
                     subject: 'Reset your password',
                     preheader: '',

@@ -1,10 +1,13 @@
+from datetime import timedelta
 from typing import cast
 
 from products.warehouse_sources.sources.scrunch._config import ScrunchSourceConfig
 from products.warehouse_sources.sources.scrunch.scrunch import ScrunchResumeConfig, scrunch_source, validate_credentials
 from products.warehouse_sources.sources.scrunch.settings import (
+    AGENT_TRAFFIC_HISTORY_DAYS,
     API_VERSION,
     ENDPOINTS,
+    FANOUT_PARENTS,
     INCREMENTAL_FIELDS,
     NON_RETRYABLE_ERRORS,
 )
@@ -41,6 +44,16 @@ class ScrunchSource(ResumableSource[ScrunchSourceConfig, ScrunchResumeConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SCRUNCH
 
+    def history_lookback_for_schema(
+        self, schema_name: str, config: ScrunchSourceConfig | None = None
+    ) -> timedelta | None:
+        # Agent traffic requires a start date; the other tables return every row.
+        return timedelta(days=AGENT_TRAFFIC_HISTORY_DAYS) if schema_name == "agent_traffic" else None
+
+    def resume_covers_run(self, *, incremental_or_append: bool, schema_name: str | None = None) -> bool:
+        # A two-level fan-out carries no resume state, so a retry reads it again from the start.
+        return schema_name not in FANOUT_PARENTS
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return NON_RETRYABLE_ERRORS
 
@@ -58,7 +71,7 @@ class ScrunchSource(ResumableSource[ScrunchSourceConfig, ScrunchResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only={"responses"})
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=set(INCREMENTAL_FIELDS))
 
     def validate_credentials(
         self,
