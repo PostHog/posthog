@@ -7575,43 +7575,60 @@ class TestHogFlowSecretInputs(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("live_test_away_from_default", "invocations", {"host": "attacker.example.com"}, False, 403),
-            ("live_test_with_the_default", "invocations", {"host": "example.com"}, False, 200),
-            ("mocked_test_away_from_default", "invocations", {"host": "attacker.example.com"}, True, 200),
-            # A run now always sends for real.
-            ("run_now_away_from_default", "run", {"host": "attacker.example.com"}, False, 403),
-            ("run_now_with_the_default", "run", {"host": "example.com"}, False, 200),
+            ("live_test_away_from_default", "invocations", {"host": "attacker.example.com"}, True),
+            ("live_test_with_the_default", "invocations", {"host": "example.com"}, False),
+            ("mocked_test_away_from_default", "mocked_invocations", {"host": "attacker.example.com"}, False),
+            ("run_now_away_from_default", "run", {"host": "attacker.example.com"}, True),
+            ("run_now_with_the_default", "run", {"host": "example.com"}, False),
+            ("batch_away_from_default", "batch_jobs", {"host": "attacker.example.com"}, True),
+            # Every firing of a schedule runs with its overrides.
+            ("schedule_away_from_default", "schedules", {"host": "attacker.example.com"}, True),
+            ("schedule_with_the_default", "schedules", {"host": "example.com"}, False),
         ]
     )
-    def test_a_run_that_overrides_a_variable_needs_recent_authentication(
-        self, _name: str, endpoint: str, overrides: dict, mock_async_functions: bool, expected_status: int
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    @patch("products.workflows.backend.presentation.views.hog_flow.create_hog_flow_scheduled_invocation")
+    @patch("products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test")
+    def test_a_real_run_that_overrides_a_variable_needs_recent_authentication(
+        self,
+        _name: str,
+        endpoint: str,
+        overrides: dict,
+        refused: bool,
+        mock_test: MagicMock,
+        mock_run: MagicMock,
+        mock_batch: MagicMock,
     ) -> None:
+        for mock in (mock_test, mock_run):
+            mock.return_value = MagicMock(status_code=200, json=lambda: {"status": "queued", "invocation_id": "i"})
+        endpoints: dict[str, tuple[str, str, dict[str, Any]]] = {
+            "invocations": ("event", "invocations/", {"mock_async_functions": False}),
+            "mocked_invocations": ("event", "invocations/", {"mock_async_functions": True}),
+            "run": ("schedule", "run/", {"variables": overrides}),
+            "batch_jobs": ("batch", "batch_jobs", {"variables": overrides}),
+            "schedules": (
+                "schedule",
+                "schedules",
+                {"rrule": "FREQ=DAILY", "starts_at": "2026-01-01T00:00:00Z", "variables": overrides},
+            ),
+        }
+        trigger, path, body = endpoints[endpoint]
+        if path == "invocations/":
+            body["globals"] = {"event": {"event": "$pageview", "distinct_id": "d"}, "variables": overrides}
         payload = self._linked_flow_payload()
-        if endpoint == "run":
-            payload["actions"][0]["config"] = {"type": "schedule"}
+        payload["actions"][0]["config"] = {**payload["actions"][0]["config"], "type": trigger}
         flow_id = self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload, format="json").json()["id"]
         HogFlow.objects.filter(id=flow_id).update(status=HogFlow.State.ACTIVE)
         self._make_session_stale()
-        body = (
-            {"variables": overrides}
-            if endpoint == "run"
-            else {
-                "globals": {"event": {"event": "$pageview", "distinct_id": "d"}, "variables": overrides},
-                "mock_async_functions": mock_async_functions,
-            }
-        )
-        dispatch = "create_hog_flow_scheduled_invocation" if endpoint == "run" else "create_hog_flow_invocation_test"
 
-        with patch(f"products.workflows.backend.presentation.views.hog_flow.{dispatch}") as mock_dispatch:
-            mock_dispatch.return_value = MagicMock(
-                status_code=200, json=lambda: {"status": "queued", "invocation_id": "inv-1"}
-            )
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/{endpoint}/", data=body, format="json"
-            )
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/{path}", body, format="json")
 
-        assert response.status_code == expected_status, response.json()
-        assert mock_dispatch.called == (expected_status == 200)
+        assert (response.status_code == 403) == refused, response.json()
+        schedules = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/schedules").json()
+        dispatched = mock_test.called or mock_run.called or mock_batch.called or bool(schedules)
+        assert dispatched == (not refused)
 
     def test_a_test_run_of_a_step_only_in_the_draft_gets_its_own_secret(self) -> None:
         # The builder tests the staged draft by sending it as `configuration`, so a secret saved only
@@ -7645,27 +7662,50 @@ class TestHogFlowSecretInputs(APIBaseTest):
             "DRAFT-ONLY"
         )
 
-    @parameterized.expand([("step_redirected", True, False), ("variable_redirected", False, True)])
+    @parameterized.expand(
+        [
+            ("step_redirected", True, False, False),
+            ("variable_redirected", False, True, False),
+            # The graph endpoint writes live for a web session, whatever `stage_draft` the body carries.
+            ("graph_step_redirected_with_stage_draft", True, False, True),
+        ]
+    )
     def test_a_live_save_compares_with_live_rather_than_the_staged_draft(
-        self, _name: str, redirect_step: bool, redirect_variable: bool
+        self, _name: str, redirect_step: bool, redirect_variable: bool, via_graph: bool
     ) -> None:
         # A proposal or a revision restore stages a draft without a recent-login check, so saving
         # the same config live must not take that draft as the config the credential was saved with.
         payload = self._linked_flow_payload()
         flow_id = self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload).json()["id"]
-        if redirect_step:
-            self._function_inputs(payload)["url"] = {"value": "https://attacker.example.com"}
-        if redirect_variable:
-            payload["variables"] = [{**payload["variables"][0], "default": "attacker.example.com"}]
-        flow = HogFlow.objects.get(id=flow_id)
-        flow.status = HogFlow.State.ACTIVE
-        flow.draft = {"actions": payload["actions"], "variables": payload["variables"]}
-        flow.draft_encrypted_inputs = flow.encrypted_inputs
-        flow.save()
-        self._make_session_stale()
-        self._function_inputs(payload)["api_key"] = {"secret": True}
+        if via_graph:
+            graph_url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph"
+            redirect = {
+                "op": "update_action",
+                "id": "action_1",
+                "patch": {"config": {"inputs": {"url": {"value": "https://attacker.example.com"}}}},
+            }
+            HogFlow.objects.filter(id=flow_id).update(status=HogFlow.State.ACTIVE)
+            staged = self.client.patch(
+                graph_url, {"operations": [redirect]}, format="json", HTTP_X_POSTHOG_CLIENT="mcp"
+            )
+            assert staged.status_code == 200, staged.json()
+            self._make_session_stale()
 
-        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", payload)
+            response = self.client.patch(graph_url, {"stage_draft": True, "operations": [redirect]}, format="json")
+        else:
+            if redirect_step:
+                self._function_inputs(payload)["url"] = {"value": "https://attacker.example.com"}
+            if redirect_variable:
+                payload["variables"] = [{**payload["variables"][0], "default": "attacker.example.com"}]
+            flow = HogFlow.objects.get(id=flow_id)
+            flow.status = HogFlow.State.ACTIVE
+            flow.draft = {"actions": payload["actions"], "variables": payload["variables"]}
+            flow.draft_encrypted_inputs = flow.encrypted_inputs
+            flow.save()
+            self._make_session_stale()
+            self._function_inputs(payload)["api_key"] = {"secret": True}
+
+            response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", payload)
 
         assert response.status_code == 403, response.json()
         assert response.json()["code"] == "sensitive_action_required_reauth"

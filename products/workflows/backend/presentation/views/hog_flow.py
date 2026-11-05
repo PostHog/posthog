@@ -3780,7 +3780,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                 # A nested `configuration` on a test run reads `stage_draft` from the outer body,
                 # which writes nothing, so it must not pick the draft baseline.
                 and self.instance is not None
-                and self._stages_draft()
+                and self.context.get("writes_draft", self._stages_draft())
                 and not self.context.get("publishing_draft")
                 and not self.context.get("live_secrets_only")
             )
@@ -5940,11 +5940,19 @@ class HogFlowViewSet(
             )
 
     def _validate_locked_content(
-        self, state: WorkflowEditState, data: dict, enforce_graph_structure: bool = False, publishing: bool = False
+        self,
+        state: WorkflowEditState,
+        data: dict,
+        enforce_graph_structure: bool = False,
+        publishing: bool = False,
+        writes_draft: bool = False,
     ) -> dict:
         # Runs inside the write's row lock, against the locked row the service passes in.
         serializer = self.get_serializer(state, data=data, partial=True)
         serializer.context["publishing_draft"] = publishing
+        # These endpoints route by the caller, not by `stage_draft` in the body, so the credential
+        # check has to compare with where the write actually lands.
+        serializer.context["writes_draft"] = writes_draft
         if enforce_graph_structure:
             # The surgical endpoints are the paths where structural corruption would be newly introduced,
             # so they enforce graph validation as a hard error (unlike the lenient full-save path).
@@ -5968,7 +5976,10 @@ class HogFlowViewSet(
         def edit(state: WorkflowEditState, base_actions: list[dict], base_edges: list[dict]) -> dict:
             new_actions, new_edges = apply_graph_operations(base_actions, base_edges, operations)
             return self._validate_locked_content(
-                state, {"actions": new_actions, "edges": new_edges}, enforce_graph_structure=True
+                state,
+                {"actions": new_actions, "edges": new_edges},
+                enforce_graph_structure=True,
+                writes_draft=self._is_mcp_request(request) and state.status == HogFlowState.ACTIVE,
             )
 
         try:
@@ -6036,7 +6047,12 @@ class HogFlowViewSet(
 
         def edit(state: WorkflowEditState, base_actions: list[dict], base_edges: list[dict]) -> dict:
             new_actions = _apply_action_email_edit(base_actions, action_id, email_patch, rendered)
-            return self._validate_locked_content(state, {"actions": new_actions}, enforce_graph_structure=True)
+            return self._validate_locked_content(
+                state,
+                {"actions": new_actions},
+                enforce_graph_structure=True,
+                writes_draft=self._is_mcp_request(request) and state.status == HogFlowState.ACTIVE,
+            )
 
         # Same staleness and draft contract as /graph, but no action-redirect refresh or timing
         # reschedule: an email edit can't delete steps or change timing config.
@@ -7664,7 +7680,11 @@ class HogFlowViewSet(
             audience_cohort = realtime_audience_cohort(self.team.project_id, hog_flow.trigger_filters)
             if audience_cohort is not None and not audience_cohort.can_finish:
                 raise exceptions.ValidationError(realtime_cohort_cant_finish_error(audience_cohort))
-            self._require_replay_vision_caller_access(request, self._edit_state().actions)
+            edit_state = self._edit_state()
+            self._require_replay_vision_caller_access(request, edit_state.actions)
+            self._require_recent_authentication_for_variable_overrides(
+                edit_state, serializer.validated_data.get("variables"), hog_flow.variables
+            )
 
             batch_job = create_batch_job(
                 team_id=self.team_id,
@@ -7789,7 +7809,12 @@ class HogFlowViewSet(
 
             serializer = HogFlowScheduleSerializer(data=request.data, context=self.get_serializer_context())
             serializer.is_valid(raise_exception=True)
-            self._require_replay_vision_caller_access(request, self._edit_state().actions)
+            edit_state = self._edit_state()
+            self._require_replay_vision_caller_access(request, edit_state.actions)
+            # Every firing runs with these overrides, so they need the same check as a run now.
+            self._require_recent_authentication_for_variable_overrides(
+                edit_state, serializer.validated_data.get("variables"), hog_flow.variables
+            )
             schedule = create_schedule(team_id=self.team_id, hog_flow_id=hog_flow.id, fields=serializer.validated_data)
             self._log_schedule_activity(hog_flow, before=None, after=schedule)
             self._report_workflow_action("hog_flow_schedule_created", hog_flow, {"schedule_id": str(schedule.id)})
@@ -7830,7 +7855,11 @@ class HogFlowViewSet(
         )
         serializer.is_valid(raise_exception=True)
         if "variables" in serializer.validated_data:
-            self._require_replay_vision_caller_access(request, self._edit_state().actions)
+            edit_state = self._edit_state()
+            self._require_replay_vision_caller_access(request, edit_state.actions)
+            self._require_recent_authentication_for_variable_overrides(
+                edit_state, serializer.validated_data["variables"], hog_flow.variables
+            )
         previous = schedule
         schedule = update_schedule(
             team_id=self.team_id, hog_flow_id=hog_flow.id, schedule_id=schedule.id, fields=serializer.validated_data
