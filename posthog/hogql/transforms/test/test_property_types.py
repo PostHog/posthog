@@ -644,48 +644,44 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
         ]
     )
     def test_json_function_conversions_and_defaults_match_the_blob(self, _name: str, keys: list[str]) -> None:
-        documents = [
-            "{}",
-            '{"value":null}',
-            '{"value":""}',
-            '{"value":"hello"}',
-            '{"value":"2.5"}',
-            '{"value":"1e3"}',
-            '{"value":true}',
-            '{"value":false}',
-            '{"value":1.5}',
-            '{"value":2.0}',
-            '{"value":1e21}',
-            '{"value":-1.5e-7}',
-            '{"value":-2}',
-            '{"value":0}',
-            '{"value":[1,"two"]}',
-            '{"value":{"name":"example"}}',
+        values = [
+            "null",
+            '""',
+            '"hello"',
+            '"2.5"',
+            '"1e3"',
+            "true",
+            "false",
+            "1.5",
+            "2.0",
+            "1e21",
+            "-1.5e-7",
+            "-2",
+            "0",
+            '[1,"two"]',
+            '{"name":"example"}',
         ]
-        for index, document in enumerate(documents):
-            parsed = json.loads(document)
-            if "value" in parsed:
-                value = parsed["value"]
-                for key in reversed(keys):
-                    value = {key: value}
-                documents[index] = json.dumps(value)
+        # Wrap the raw value text, because re-serializing it would rewrite number tokens such as `1e21`.
+        prefix = "".join(f"{{{json.dumps(key)}:" for key in keys)
+        suffix = "}" * len(keys)
+        documents = ["{}", *(prefix + value + suffix for value in values)]
+        path = ", ".join(escape_hogql_string(key) for key in keys)
         expressions = [
-            "JSONExtractString(properties, 'value')",
-            "JSONExtractInt(properties, 'value')",
-            "JSONExtractUInt(properties, 'value')",
-            "JSONExtractFloat(properties, 'value')",
-            "JSONExtractBool(properties, 'value')",
-            "JSONExtract(properties, 'value', 'Nullable(Int64)')",
-            "JSONExtract(properties, 'value', 'Nullable(Bool)')",
-            "JSONExtract(properties, 'value', 'String')",
-            "JSONExtract(properties, 'value', 'Nullable(String)')",
-            "JSONExtract(properties, 'value', 'Float64')",
-            "JSONExtract(properties, 'value', 'Nullable(Float64)')",
-            "JSONLength(properties, 'value')",
-            "JSONType(properties, 'value')",
+            f"JSONExtractString(properties, {path})",
+            f"JSONExtractInt(properties, {path})",
+            f"JSONExtractUInt(properties, {path})",
+            f"JSONExtractFloat(properties, {path})",
+            f"JSONExtractBool(properties, {path})",
+            f"JSONExtract(properties, {path}, 'Nullable(Int64)')",
+            f"JSONExtract(properties, {path}, 'Nullable(Bool)')",
+            f"JSONExtract(properties, {path}, 'String')",
+            f"JSONExtract(properties, {path}, 'Nullable(String)')",
+            f"JSONExtract(properties, {path}, 'Float64')",
+            f"JSONExtract(properties, {path}, 'Nullable(Float64)')",
+            f"JSONLength(properties, {path})",
+            f"JSONType(properties, {path})",
         ]
         query = "SELECT distinct_id, " + ", ".join(expressions) + " FROM events ORDER BY distinct_id"
-        query = query.replace("'value'", ", ".join(escape_hogql_string(key) for key in keys))
         results = []
         for native in (False, True):
             context = self._context(use_new_events_schema=native)

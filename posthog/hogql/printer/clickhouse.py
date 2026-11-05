@@ -1520,21 +1520,21 @@ class ClickHousePrinter(BasePrinter):
             expr = self.visit(node.expr)
 
         # The native table stores a dotted key as one path named with `%2E` (EVENTS_JSON_INSERT_SETTINGS), so a
-        # dot inside one key must not read as a path separator. The escaped key then takes the bound-parameter
-        # branch below, as `%` would otherwise break the SQL's own parameter placeholders.
+        # dot inside one key must not read as a path separator.
         keys = [key.replace(".", "%2E") for key in node.keys]
 
-        # getSubcolumn accepts empty keys, but SQL identifiers cannot be empty.
-        if any(key == "" or "%" in key for key in keys):
+        # An empty key is not a valid SQL identifier, and a `%` would break the SQL's own parameter placeholders,
+        # so those paths go to getSubcolumn as bound values.
+        if any(not key or "%" in key for key in keys):
             if node.access_type == "sub_object":
-                for key in keys:
-                    # Bound sub-object paths use backslash escapes, unlike SQL identifiers' doubled backticks.
-                    escaped_key = key.replace("\\", "\\\\").replace("`", "\\`")
-                    subcolumn = f"^`{escaped_key}`"
-                    expr = f"getSubcolumn({expr}, {self.context.add_value(subcolumn)})"
-                return expr
-            subcolumn = ".".join(keys)
-            return f"getSubcolumn({expr}, {self.context.add_value(subcolumn)})"
+                # getSubcolumn's path parser reads a backslash-escaped backtick, not SQL's doubled backtick.
+                escaped_keys = (key.replace("\\", "\\\\").replace("`", "\\`") for key in keys)
+                subcolumns = [f"^`{key}`" for key in escaped_keys]
+            else:
+                subcolumns = [".".join(keys)]
+            for subcolumn in subcolumns:
+                expr = f"getSubcolumn({expr}, {self.context.add_value(subcolumn)})"
+            return expr
 
         for index, key in enumerate(keys):
             separator = ".^" if node.access_type == "sub_object" and index == 0 else "."
