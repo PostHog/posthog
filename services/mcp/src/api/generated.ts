@@ -74774,6 +74774,8 @@ export namespace Schemas {
          * @nullable
          */
       ranker?: string | null;
+      /** True when `count` stopped at a cap, so it is a lower bound and `next` keeps paging past it. Only a search with a full page can cap the count. */
+      count_is_capped?: boolean;
       /**
          * Whether the client shows a ranking score pill on each card, when sort=recommended. The same flag arm sets this and the ranker. Null for every other sort.
          * @nullable
