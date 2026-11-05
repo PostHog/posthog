@@ -101,6 +101,11 @@ def _authorized_source(
     )
 
 
+def enable(*, team: Team) -> None:
+    """Opt the team in: create its managed viewset and sync the views once. Idempotent."""
+    logic.enroll(team)
+
+
 def get_ci_signals_config(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> CISignalsConfig:
     return logic.get_ci_signals_config(team=team, user_access_control=user_access_control)
 

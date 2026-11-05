@@ -1739,6 +1739,58 @@ class TestScoutReportAPI(APIBaseTest):
         )
         assert reviewers is not None and reviewers.root[0].user_uuid == str(self.user.uuid)
 
+    @parameterized.expand([("without_reason", None), ("with_reason", "Nobody in this project owns the billing export")])
+    @patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=True)
+    @patch("products.signals.backend.reviewer_rules.assignment_side_effects_enabled", return_value=False)
+    def test_no_suitable_owner_clears_existing_reviewers_only_with_a_reason(
+        self, _name: str, reason: str | None, _effects, _writer
+    ) -> None:
+        human = APIClient()
+        human.force_login(self.user)
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="A report")
+        run = _make_run(self.team)
+        root = f"/api/projects/{self.team.id}/signals/reports/{report.id}"
+        state = human.get(f"{root}/").json()["reviewer_assignment"]["state"]
+        with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()):
+            picked = self.client.post(
+                self._edit_url(str(run.id)),
+                {
+                    "report_id": str(report.id),
+                    "suggested_reviewers": [{"user_uuid": str(self.user.uuid), "reason": "Named owner in the skill"}],
+                    "expected_reviewers": state,
+                },
+                format="json",
+            )
+            assert picked.json()["reviewers_set"] is True, picked.json()
+            state = human.get(f"{root}/").json()["reviewer_assignment"]["state"]
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                {
+                    "report_id": str(report.id),
+                    "expected_reviewers": state,
+                    "reviewer_outcome": "no_suitable_owner",
+                    **({"reviewer_outcome_reason": reason} if reason else {}),
+                },
+                format="json",
+            )
+
+        assert response.status_code == 200, response.json()
+        reviewers = SignalReportArtefact.latest_content(
+            team_id=self.team.id, report_id=str(report.id), model=SuggestedReviewers
+        )
+        assert reviewers is not None
+        if reason is None:
+            assert not response.json()["reviewers_set"]
+            assert response.json()["warnings"][0]["field"] == "suggested_reviewers"
+            assert [entry.user_uuid for entry in reviewers.root] == [str(self.user.uuid)]
+        else:
+            assert response.json()["reviewers_set"] is True
+            assert reviewers.root == []
+            notes = report.artefacts.filter(type=SignalReportArtefact.ArtefactType.NOTE).values_list(
+                "content", flat=True
+            )
+            assert any(f"Cleared suggested reviewers: {reason}" in note for note in notes)
+
     def test_edit_report_sets_reviewers_and_reruns_autostart(self) -> None:
         # The routing rescue: a report that surfaced with no reviewer can have one set via edit_report,
         # which writes the suggested_reviewers artefact and re-fires autostart (so a report that already
@@ -3232,6 +3284,21 @@ class TestUserReportCreateAPI(APIBaseTest):
         assert (report.user_authored, report.created_by_id) == (True, self.user.id)
         assert {call.kwargs["metadata"]["source_product"] for call in embed.call_args_list} == {"user_authored"}
 
+    def test_reviewer_named_in_a_filed_report_reads_as_added_by_teammate(self) -> None:
+        payload = self._payload(
+            suggested_reviewers=[{"user_uuid": str(self.user.uuid), "reason": "Owns the checkout handler."}]
+        )
+        with _safe_judge(), patch(EMBED_PATH):
+            response = self.client.post(self._url(), payload, format="json")
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+
+        artefacts = self.client.get(f"{self._url()}{response.json()['report_id']}/artefacts/")
+        assert artefacts.status_code == status.HTTP_200_OK, artefacts.content
+        reviewers = next(a["content"] for a in artefacts.json()["results"] if a["type"] == "suggested_reviewers")
+        assert [(r["source_label"], r["explanation"]) for r in reviewers] == [
+            ("Added by teammate", "Owns the checkout handler.")
+        ]
+
     @parameterized.expand(
         [
             ("inbox_write", ["inbox:write"], status.HTTP_201_CREATED),
@@ -3262,6 +3329,16 @@ class TestUserReportCreateAPI(APIBaseTest):
         with _safe_judge() as judge, patch(EMBED_PATH):
             response = self.client.post(self._url(), self._payload(), format="json")
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        judge.assert_not_awaited()
+        assert not SignalReport.objects.filter(team=self.team).exists()
+
+    def test_create_is_refused_when_the_organization_has_not_approved_ai_processing(self) -> None:
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        with _safe_judge() as judge, patch(EMBED_PATH):
+            response = self.client.post(self._url(), self._payload(), format="json")
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert "AI data processing" in response.json()["detail"]
         judge.assert_not_awaited()
         assert not SignalReport.objects.filter(team=self.team).exists()
 

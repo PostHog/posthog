@@ -141,6 +141,7 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadClusters: 'products.ai_observability.frontend.redesign.trace.traceClustersLogic', // The trace view hides the clusters chip
     loadTraceFeedback: 'products.ai_observability.frontend.redesign.trace.traceFeedbackLogic', // The trace view's Feedback mode shows the error
     loadSearchResults: 'products.ai_observability.frontend.redesign.trace.traceSearchLogic', // The trace view's search box shows the error
+    loadReviewStatus: 'products.ai_observability.frontend.redesign.trace.traceReviewLogic', // The trace view keeps the last review state and disables the review actions
     // The trace view's Summary mode shows the error
     loadSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
     requestSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
@@ -228,6 +229,19 @@ the code in products/ai_observability/backend/api/summarization.py.
 */
 const CONTENT_EXPIRED_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     generateSummary: 'products.ai_observability.frontend.summary-view.summaryViewLogic',
+}
+
+// projectLogic toasts a duplicate project name 409 from these actions.
+const CONFLICT_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
+    createProject: 'scenes.projectLogic',
+    updateCurrentProject: 'scenes.projectLogic',
+}
+
+function isExpectedFailureOwnedByLogic(error: any, actionKey: string, logicPath: string): boolean {
+    if (error?.status === 404 && error?.code === 'content_expired') {
+        return isOwnedByLogic(CONTENT_EXPIRED_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
+    }
+    return error?.status === 409 && isOwnedByLogic(CONFLICT_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
 }
 
 interface InitKeaProps {
@@ -383,15 +397,11 @@ export function initKea({
                     NOT_FOUND_SELF_HANDLED.has(String(actionKey)) && isUnavailableEndpointError(error)
                 const isSelfHandledExistingMember =
                     error?.code === 'existing_member' && EXISTING_MEMBER_SELF_HANDLED.has(String(actionKey))
-                const isSelfHandledContentExpired =
-                    error?.status === 404 &&
-                    error?.code === 'content_expired' &&
-                    isOwnedByLogic(CONTENT_EXPIRED_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logic.pathString)
                 if (
                     shouldReportApiFailure(error) &&
                     !isSelfHandledNotFound &&
                     !isSelfHandledExistingMember &&
-                    !isSelfHandledContentExpired &&
+                    !isExpectedFailureOwnedByLogic(error, actionKey, logic.pathString) &&
                     !isSelfHandledValidationError
                 ) {
                     posthog.captureException(error)

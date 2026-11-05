@@ -62,6 +62,11 @@ from products.warehouse_sources.backend.presentation.views.external_data_destina
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+REDSHIFT_ROLE_ARN = "arn:aws:iam::123456789012:role/posthog-redshift"
+REDSHIFT_CLUSTER_HOST = "my-cluster.abc123.us-east-1.redshift.amazonaws.com"
+REDSHIFT_WORKGROUP_HOST = "my-wg.123456789012.us-east-1.redshift-serverless.amazonaws.com"
+REDSHIFT_WORKGROUP_ARN = "arn:aws:redshift-serverless:us-east-1:123456789012:workgroup/1a2b3c4d"
+
 
 def _destination_test(step_count: int) -> DestinationTest:
     return DestinationTest(
@@ -117,9 +122,30 @@ class DestinationAPITestBase(APIBaseTest):
         self.schema = ExternalDataSchema.objects.create(team=self.team, source=self.source, name="charges")
 
     def _integration(self, kind: str = Integration.IntegrationKind.POSTGRESQL) -> Integration:
+        if kind == Integration.IntegrationKind.AWS_REDSHIFT:
+            return self._redshift_integration("password")
         self._integration_seq = getattr(self, "_integration_seq", 0) + 1
         return Integration.objects.create(
             team=self.team, kind=kind, integration_id=f"{kind}-{self._integration_seq}", config={}
+        )
+
+    def _redshift_integration(self, mode: str, **config) -> Integration:
+        self._integration_seq = getattr(self, "_integration_seq", 0) + 1
+        sensitive_config: dict[str, str] = {}
+        if mode == "role":
+            config = {"aws_role_arn": REDSHIFT_ROLE_ARN, "user": "posthog", **config}
+        elif mode == "access_key":
+            config = {"name": "keys", "user": "posthog", **config}
+            sensitive_config = {"aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "fake-secret"}
+        else:
+            config = {"host": "my-cluster.example.com", "port": 5439, "user": "posthog", **config}
+            sensitive_config = {"password": "fake-secret"}
+        return Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.AWS_REDSHIFT,
+            integration_id=f"redshift-{self._integration_seq}",
+            config=config,
+            sensitive_config=sensitive_config,
         )
 
     def _create_destination(self, **overrides) -> ExternalDataDestination:
@@ -392,6 +418,180 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
 
         self.describe_test.assert_not_called()
         self.run_test_step.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("password_needs_no_host", "password", {}, {}, None),
+            ("role_with_cluster_host", "role", {}, {"host": REDSHIFT_CLUSTER_HOST}, None),
+            ("role_with_cluster_host_and_port", "role", {}, {"host": REDSHIFT_CLUSTER_HOST, "port": 5440}, None),
+            ("access_key_with_cluster_host", "access_key", {}, {"host": REDSHIFT_CLUSTER_HOST}, None),
+            ("host_with_stray_space", "access_key", {}, {"host": f" {REDSHIFT_CLUSTER_HOST} "}, None),
+            (
+                "role_with_workgroup_host_and_arn",
+                "role",
+                {"workgroup_arn": REDSHIFT_WORKGROUP_ARN},
+                {"host": REDSHIFT_WORKGROUP_HOST},
+                None,
+            ),
+            ("access_key_with_workgroup_host", "access_key", {}, {"host": REDSHIFT_WORKGROUP_HOST}, None),
+            ("role_without_host", "role", {}, {}, "Add the cluster endpoint"),
+            ("access_key_without_host", "access_key", {}, {}, "Add the cluster endpoint"),
+            ("role_with_blank_host", "role", {}, {"host": "  "}, "Add the cluster endpoint"),
+            ("host_not_a_redshift_endpoint", "role", {}, {"host": "db.example.com"}, "not a recognized"),
+            ("role_with_workgroup_host_no_arn", "role", {}, {"host": REDSHIFT_WORKGROUP_HOST}, "workgroup_arn"),
+            (
+                "role_with_workgroup_arn_in_another_account",
+                "role",
+                {"workgroup_arn": REDSHIFT_WORKGROUP_ARN.replace("123456789012", "210987654321")},
+                {"host": REDSHIFT_WORKGROUP_HOST},
+                "does not match",
+            ),
+            ("port_zero", "role", {}, {"host": REDSHIFT_CLUSTER_HOST, "port": 0}, "Port must be"),
+            ("port_too_large", "role", {}, {"host": REDSHIFT_CLUSTER_HOST, "port": 70000}, "Port must be"),
+            ("port_as_text", "role", {}, {"host": REDSHIFT_CLUSTER_HOST, "port": "5439"}, "Port must be"),
+        ]
+    )
+    def test_a_redshift_destination_names_the_cluster_when_its_connection_has_none(
+        self, _name: str, mode: str, integration_config: dict, target: dict, error: str | None
+    ) -> None:
+        response = self.client.post(
+            self.base,
+            {
+                "type": ExternalDataDestination.Type.REDSHIFT,
+                "name": "analytics redshift",
+                "integration": self._redshift_integration(mode, **integration_config).pk,
+                "config": {"database": "dev", "schema": "public", **target},
+            },
+            format="json",
+        )
+
+        if error is None:
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+            if "host" in target:
+                assert response.json()["config"]["host"] == target["host"].strip()
+        else:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert response.json()["attr"] == "config"
+            assert error in response.json()["detail"]
+
+    @parameterized.expand(
+        [
+            ("empty", {}, {}, "host, port, username or password"),
+            ("no_password", {"host": "my-cluster.example.com", "port": 5439, "user": "posthog"}, {}, "password"),
+            (
+                "blank_password",
+                {"host": "my-cluster.example.com", "port": 5439, "user": "posthog"},
+                {"password": ""},
+                "password",
+            ),
+            ("no_host", {"port": 5439, "user": "posthog"}, {"password": "fake-secret"}, "host"),
+            ("blank_host", {"host": "  ", "port": 5439, "user": "posthog"}, {"password": "fake-secret"}, "host"),
+            ("no_port", {"host": "my-cluster.example.com", "user": "posthog"}, {"password": "fake-secret"}, "port"),
+            (
+                "no_user",
+                {"host": "my-cluster.example.com", "port": 5439},
+                {"password": "fake-secret"},
+                "username",
+            ),
+        ]
+    )
+    def test_a_redshift_destination_rejects_an_incomplete_password_connection(
+        self, _name: str, config: dict, sensitive_config: dict, missing: str
+    ) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.AWS_REDSHIFT,
+            integration_id=f"redshift-incomplete-{_name}",
+            config=config,
+            sensitive_config=sensitive_config,
+        )
+
+        response = self.client.post(
+            self.base,
+            {
+                "type": ExternalDataDestination.Type.REDSHIFT,
+                "name": "broken redshift",
+                "integration": integration.pk,
+                "config": {"database": "dev", "schema": "public", "host": REDSHIFT_CLUSTER_HOST},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "integration"
+        assert f"This Redshift connection has no {missing}." in response.json()["detail"]
+        assert "fake-secret" not in response.content.decode()
+        assert not ExternalDataDestination.objects.for_team(self.team.pk).filter(name="broken redshift").exists()
+
+    @parameterized.expand(
+        [
+            ("another_host", {"host": "other.abc123.us-east-1.redshift.amazonaws.com"}, "keeps the host"),
+            ("port_negative", {"port": -1}, "Port must be"),
+            ("port_too_large", {"port": 70000}, "Port must be"),
+            ("port_as_text", {"port": "5440"}, "Port must be"),
+            ("port_as_bool", {"port": True}, "Port must be"),
+            ("valid_port", {"port": 5440}, None),
+        ]
+    )
+    def test_a_redshift_destination_update_keeps_the_host_and_checks_the_port(
+        self, _name: str, patch: dict, error: str | None
+    ) -> None:
+        created = {"database": "dev", "schema": "public", "host": REDSHIFT_CLUSTER_HOST, "port": 5439}
+        destination = self._create_destination(
+            type=ExternalDataDestination.Type.REDSHIFT,
+            integration=self._redshift_integration("access_key").pk,
+            config=created,
+        )
+
+        response = self.client.patch(f"{self.base}/{destination.id}", {"config": patch}, format="json")
+
+        destination.refresh_from_db()
+        if error is None:
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert destination.config == {**created, **patch}
+        else:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert response.json()["attr"] == "config"
+            assert error in response.json()["detail"]
+            assert destination.config == created
+
+    @parameterized.expand(
+        [
+            ("list_on_create", "create", ["invalid"]),
+            ("text_on_create", "create", "invalid"),
+            ("number_on_create", "create", 5439),
+            ("list_on_update", "update", ["invalid"]),
+            ("text_on_update", "update", "invalid"),
+        ]
+    )
+    def test_a_destination_config_must_be_an_object(self, _name: str, action: str, config: object) -> None:
+        integration = self._redshift_integration("role")
+        if action == "create":
+            response = self.client.post(
+                self.base,
+                {
+                    "type": ExternalDataDestination.Type.REDSHIFT,
+                    "name": "malformed redshift",
+                    "integration": integration.pk,
+                    "config": config,
+                },
+                format="json",
+            )
+        else:
+            destination = self._create_destination(
+                type=ExternalDataDestination.Type.REDSHIFT,
+                name="malformed redshift",
+                integration=integration.pk,
+                config={"database": "dev", "schema": "public", "host": REDSHIFT_CLUSTER_HOST},
+            )
+            response = self.client.patch(f"{self.base}/{destination.id}", {"config": config}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "config"
+        assert "Config must be an object" in response.json()["detail"]
+        if action == "update":
+            destination.refresh_from_db()
+            assert destination.config == {"database": "dev", "schema": "public", "host": REDSHIFT_CLUSTER_HOST}
 
     def test_updating_a_destination_does_not_run_the_connection_test(self) -> None:
         destination = self._create_destination()

@@ -1,10 +1,11 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { memo } from 'react'
 
 import { SaveToDatasetButton } from '../../../datasets/SaveToDatasetButton'
 import { TraceView, TraceViewProps, TraceViewReadyProps } from '../components/TraceView'
 import { traceExportLogic } from '../traceExportLogic'
 import { traceMessagesOpeningLogic } from '../traceMessagesOpeningLogic'
+import { traceReviewLogic, traceReviewLogicValues } from '../traceReviewLogic'
 import { traceViewModelLogic, traceViewModelLogicValues } from '../traceViewModelLogic'
 import {
     FeedbackEntry,
@@ -15,6 +16,9 @@ import {
     SummaryItemKind,
     TraceMode,
 } from '../types'
+import { confirmRemoveFromQueue } from './confirmRemoveFromQueue'
+import { TraceReviewActions } from './TraceReviewActions'
+import { traceReviewBridgeLogic } from './traceReviewBridgeLogic'
 
 export interface TraceViewContainerProps {
     hostId: string
@@ -53,12 +57,17 @@ type ReadyValues = Pick<
     | 'feedbackCountByNodeId'
     | 'feedbackMode'
     | 'selectedStepFeedback'
-> & {
-    traceExportLoading: boolean
-    traceCopying: boolean
-    backLink: LabeledLink | null
-    messagesOpening: MessagesOpening
-}
+> &
+    Pick<
+        traceReviewLogicValues,
+        'reviewStatus' | 'reviewStatusFailed' | 'queueHref' | 'canEditReviews' | 'removeFromQueueLoading'
+    > & {
+        traceId: string
+        traceExportLoading: boolean
+        traceCopying: boolean
+        backLink: LabeledLink | null
+        messagesOpening: MessagesOpening
+    }
 
 interface ReadyActions {
     setMode: (mode: TraceMode) => void
@@ -78,6 +87,8 @@ interface ReadyActions {
     summaryStepClicked: (nodeId: string, kind: SummaryItemKind) => void
     showFeedback: (nodeId: string | null, entry: FeedbackEntry) => void
     retryTraceFeedback: () => void
+    loadReviewStatus: () => void
+    removeFromQueue: () => void
     setMessagesOpening: (opening: MessagesOpening) => void
 }
 
@@ -85,12 +96,21 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
     if (!values.summary) {
         return null
     }
+    const queue = values.reviewStatus?.queue ?? null
     return {
         header: {
             ...values.header,
             backLink: values.backLink,
             copyAction: { loading: values.traceCopying, onCopy: actions.copyTrace },
             exportAction: { loading: values.traceExportLoading, onExport: actions.exportTrace },
+            actions: (
+                <TraceReviewActions
+                    traceId={values.traceId}
+                    status={values.reviewStatus}
+                    failed={values.reviewStatusFailed}
+                    onQueueChanged={actions.loadReviewStatus}
+                />
+            ),
         },
         summary: {
             ...values.summary,
@@ -100,6 +120,16 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
                 ? { chip: values.feedbackChip, onClick: () => actions.showFeedback(null, 'chip') }
                 : null,
             git: values.gitBranch,
+            review: values.reviewStatus
+                ? {
+                      status: values.reviewStatus,
+                      queueHref: values.queueHref,
+                      onRemoveFromQueue:
+                          values.canEditReviews && queue && !values.removeFromQueueLoading
+                              ? () => confirmRemoveFromQueue(queue.name, actions.removeFromQueue)
+                              : null,
+                  }
+                : null,
         },
         mode: values.mode,
         onModeChange: actions.setMode,
@@ -193,6 +223,11 @@ export const TraceViewContainer = memo(function TraceViewContainer({
     const exportLogic = traceExportLogic({ traceId, timestampHint })
     const { traceExportLoading, traceCopying } = useValues(exportLogic)
     const { exportTrace, copyTrace } = useActions(exportLogic)
+    const reviewLogic = traceReviewLogic({ traceId })
+    const { reviewStatus, reviewStatusFailed, queueHref, canEditReviews, removeFromQueueLoading } =
+        useValues(reviewLogic)
+    const { loadReviewStatus, removeFromQueue } = useActions(reviewLogic)
+    useMountedLogic(traceReviewBridgeLogic({ traceId }))
     const { messagesOpening } = useValues(traceMessagesOpeningLogic)
     const { setMessagesOpening } = useActions(traceMessagesOpeningLogic)
 
@@ -231,9 +266,15 @@ export const TraceViewContainer = memo(function TraceViewContainer({
                       traceExportLoading,
                       traceCopying,
                       backLink,
+                      traceId,
+                      reviewStatus,
+                      reviewStatusFailed,
+                      queueHref,
+                      canEditReviews,
+                      removeFromQueueLoading,
                       messagesOpening,
                   },
-                  { ...actions, exportTrace, copyTrace, setMessagesOpening }
+                  { ...actions, exportTrace, copyTrace, loadReviewStatus, removeFromQueue, setMessagesOpening }
               )
             : null
 

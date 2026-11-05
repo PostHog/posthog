@@ -119,11 +119,14 @@ class WizardWorkerExecutionError(Exception):
         exit_code: int,
         detail: str | None = None,
         wizard_error: WizardErrorLine | None = None,
+        *,
+        retryable: bool = False,
     ) -> None:
         self.stage = stage
         self.exit_code = exit_code
         self.detail = detail
         self.wizard_error = wizard_error
+        self.retryable = retryable
 
         message = f"Wizard Worker {stage} failed with exit code {exit_code}."
         if detail:
@@ -326,7 +329,7 @@ def create_git_repository_handoff(request: GitRepositoryHandoffRequest) -> Wizar
             )
 
     except RepositoryPublishingError as error:
-        raise WizardWorkerExecutionError("publishing", 1, str(error)) from error
+        raise WizardWorkerExecutionError("publishing", 1, str(error), retryable=error.retryable) from error
 
     return WizardWorkerResult(diff=diff, pull_request=pull_request)
 
