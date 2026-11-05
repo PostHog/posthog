@@ -9,7 +9,7 @@ import {
     vec,
 } from '@shopify/react-native-skia'
 import { type ReactElement, useMemo } from 'react'
-import type { ComposedGesture } from 'react-native-gesture-handler'
+import type { LegacyComposedGesture as ComposedGesture } from 'react-native-gesture-handler'
 import { type SharedValue, useDerivedValue } from 'react-native-reanimated'
 import { Area, CartesianChart, Line, type PointsArray } from 'victory-native'
 
