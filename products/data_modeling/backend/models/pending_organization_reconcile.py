@@ -11,4 +11,4 @@ class PendingOrganizationReconcile(models.Model):
 
     organization_id = models.UUIDField(primary_key=True)
     requested_at = models.DateTimeField()
-    first_requested_at = models.DateTimeField()
+    plan_changed_at = models.DateTimeField()

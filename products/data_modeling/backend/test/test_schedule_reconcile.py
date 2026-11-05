@@ -744,36 +744,53 @@ class TestMaybeReconcileDag(BaseTest):
                 reconcile_organization_schedules(organization_id)
         self.assertFalse(PendingOrganizationReconcile.objects.filter(organization_id=organization_id).exists())
 
-    def test_plan_change_recorded_during_a_reconcile_stays_pending(self):
+    @parameterized.expand(
+        [
+            ("newer_request_on_an_existing_row", True, timedelta(minutes=1)),
+            ("first_request_stamped_before_the_start_commits_late", False, timedelta(minutes=-1)),
+        ]
+    )
+    def test_plan_change_committed_during_a_reconcile_stays_pending(self, _name, row_at_start, stamp_offset):
         organization_id = str(self.organization.id)
         now = timezone.now()
-        PendingOrganizationReconcile.objects.create(
-            organization_id=organization_id, requested_at=now, first_requested_at=now
-        )
-
-        def plan_changes_again(_organization_id):
-            PendingOrganizationReconcile.objects.filter(organization_id=organization_id).update(
-                requested_at=timezone.now()
+        if row_at_start:
+            PendingOrganizationReconcile.objects.create(
+                organization_id=organization_id, requested_at=now, plan_changed_at=now
             )
 
-        with mock.patch(f"{RECONCILE}.reconcile_organization_dags", side_effect=plan_changes_again):
+        def plan_change_commits(_organization_id):
+            stamp = now + stamp_offset
+            PendingOrganizationReconcile.objects.update_or_create(
+                organization_id=organization_id, defaults={"requested_at": stamp, "plan_changed_at": stamp}
+            )
+
+        with mock.patch(f"{RECONCILE}.reconcile_organization_dags", side_effect=plan_change_commits):
             reconcile_organization_schedules(organization_id)
 
         self.assertTrue(PendingOrganizationReconcile.objects.filter(organization_id=organization_id).exists())
 
-    def test_sweep_gives_up_on_a_reconcile_that_keeps_failing(self):
+    @parameterized.expand(
+        [
+            ("no_plan_change_since", False, False),
+            ("a_later_plan_change_restarts_the_clock", True, True),
+        ]
+    )
+    def test_sweep_gives_up_on_a_reconcile_that_keeps_failing(self, _name, plan_changes_again, expect_retry):
         organization_id = str(self.organization.id)
         now = timezone.now()
 
         with mock.patch(f"{RECONCILE_TASKS}.reconcile_organization_schedules.delay") as dispatch:
             with time_machine.travel(now - timedelta(days=8), tick=False):
                 schedule_organization_schedule_reconcile(organization_id)
-            with time_machine.travel(now - timedelta(hours=5), tick=False):
-                schedule_organization_schedule_reconcile(organization_id)
+            if plan_changes_again:
+                with time_machine.travel(now - timedelta(hours=5), tick=False):
+                    schedule_organization_schedule_reconcile(organization_id)
             retry_pending_organization_reconciles()
 
-        dispatch.assert_not_called()
-        self.assertFalse(PendingOrganizationReconcile.objects.filter(organization_id=organization_id).exists())
+        self.assertEqual(dispatch.called, expect_retry)
+        self.assertEqual(
+            PendingOrganizationReconcile.objects.filter(organization_id=organization_id).exists(), expect_retry
+        )
 
     def test_failed_write_is_retried_after_it_reaches_the_database(self):
         dag = self._dag_with_target()
