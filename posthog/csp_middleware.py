@@ -165,6 +165,23 @@ def narrowed_app_policy(csp_parts: list[str], replacements: dict[str, list[str]]
     return narrowed
 
 
+def dev_connect_sources() -> list[str]:
+    """The `connect-src` sources that only a local or test run needs."""
+    sources = []
+    if settings.DEBUG or settings.TEST:
+        sources.append("ws://localhost:8234")
+    if settings.DEBUG and settings.DEV_CODE_INSPECTOR:
+        # Port 5678 is the opt-in code-inspector-plugin server in frontend/vite.config.mts. The
+        # click-to-source request goes to it, and the policy refuses that request without this source.
+        sources.append("http://localhost:5678")
+    if settings.DEBUG:
+        # "Sign in with PostHog cloud" runs only under DEBUG (see `login_required` in
+        # posthog/views.py), and its token request and API calls go to the cloud region from
+        # the browser. Cloud pages already admit these hosts through `https://*.posthog.com`.
+        sources.extend(CLOUD_OAUTH_REGION_HOSTS)
+    return sources
+
+
 def app_bundle_origin() -> str:
     js_url = urlsplit(settings.JS_URL)
     return f"{js_url.scheme}://{js_url.netloc}" if js_url.scheme and js_url.netloc else ""
@@ -310,16 +327,7 @@ class CSPMiddleware:
             elif settings.SITE_URL.endswith(".dev.posthog.dev"):
                 resource_url = "https://*.dev.posthog.dev"
 
-            connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
-            if settings.DEBUG and settings.DEV_CODE_INSPECTOR:
-                # Port 5678 is the opt-in code-inspector-plugin server in frontend/vite.config.mts. The
-                # click-to-source request goes to it, and the policy refuses that request without this source.
-                connect_debug_url += " http://localhost:5678"
-            if settings.DEBUG:
-                # "Sign in with PostHog cloud" runs only under DEBUG (see `login_required` in
-                # posthog/views.py), and its token request and API calls go to the cloud region from
-                # the browser. Cloud pages already admit these hosts through `https://*.posthog.com`.
-                connect_debug_url += " " + " ".join(CLOUD_OAUTH_REGION_HOSTS)
+            connect_debug_url = " ".join(dev_connect_sources())
             object_storage_source = object_storage_upload_source()
             # The image exporter renders replay exports in the bare /exporter document, and a frame of
             # that render calls eval. 'report-sample' puts the first 40 characters of the evaluated
