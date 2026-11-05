@@ -12,7 +12,7 @@ scan, so the rules decide which scans pay for a second table, and which shapes t
 from collections.abc import Callable
 from functools import cache, partial
 from math import floor
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import structlog
 
@@ -29,11 +29,14 @@ from posthog.hogql.database.lazy_join_tags import (
     PERSON_DISTINCT_IDS,
     PERSONS,
 )
+from posthog.hogql.database.models import Table
 from posthog.hogql.database.schema.events_with_flag_calls import (
     EVENTS_WITH_FLAG_CALLS_CHAIN,
     EVENTS_WITH_FLAG_CALLS_TABLE,
     EventsWithFlagCallsTable,
     FlagEvaluationsColumns,
+    property_read,
+    union_table_of,
 )
 from posthog.hogql.database.schema.util.where_clause_extractor import (
     contains_in_cohort,
@@ -41,7 +44,6 @@ from posthog.hogql.database.schema.util.where_clause_extractor import (
     is_nondeterministic_function,
 )
 from posthog.hogql.errors import QueryError, ResolutionError
-from posthog.hogql.property_metadata import load_property_metadata
 from posthog.hogql.restricted_properties import key_read_overlaps_restriction, restricted_property_keys_for_table_type
 from posthog.hogql.transforms.events_predicate_pushdown import PREDICATE_SAFE_JOIN_TYPES, SelectAliasInliner
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
@@ -60,10 +62,11 @@ from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
     ratio_sample_fraction,
     team_flag_key_compares_as_string,
 )
-from posthog.hogql.transforms.property_types import STRING_INPUT_CONVERSIONS
+from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.visitor import CloningVisitor
 
 from posthog.dataclasses import frozen
+from posthog.property_columns import TableColumn
 
 if TYPE_CHECKING:
     from posthog.hogql.database.database import Database
@@ -194,25 +197,25 @@ def union_unreadable_reason(node: ast.AST, context: HogQLContext) -> str | None:
     for chain in collector.chains:
         if columns.chain(chain) is None:
             return f"it reads {'.'.join(str(part) for part in chain)}, which that table doesn't have"
-    return _typed_property_parsed_as_string(collector.string_parsed, context)
+    return _typed_materialized_property(columns.events, collector.chains, context)
 
 
-def _typed_property_parsed_as_string(reads: list[tuple[str, str]], context: HogQLContext) -> str | None:
-    # Each branch converts a typed property before the union returns it, so a call that parses the raw string, such
-    # as toFloatOrZero, would get the converted value.
-    if not reads or context.team_id is None:
+def _typed_materialized_property(union: Table, chains: list[list[str | int]], context: HogQLContext) -> str | None:
+    # A raw read of a typed materialized column keeps the column's type, but the flag_evaluations branch reads a JSON
+    # String, so the UNION ALL has no common type. The native events schema and disabled materialization read JSON.
+    if context.uses_new_events_schema() or context.modifiers.materializationMode == "disabled":
         return None
-    metadata = load_property_metadata(
-        context,
-        event_property_names={name for kind, name in reads if kind == "event"},
-        person_property_names={name for kind, name in reads if kind == "person"},
-        group_property_names={},
-    )
-    for kind, name in reads:
-        types = metadata.event_properties if kind == "event" else metadata.person_properties
-        property_type = types.get(name, {}).get("type")
-        if property_type not in (None, "String"):
-            return f"it parses the {property_type} {kind} property {name} as a string"
+    reads = {read for chain in chains if (read := property_read(union, chain)) is not None}
+    if not reads:
+        return None
+    # Deferred: the registry reads Django models, which this module does not import.
+    from posthog.clickhouse.materialized_columns import get_enabled_materialized_columns_by_table  # noqa: PLC0415
+
+    materialized = get_enabled_materialized_columns_by_table().get("events", {})
+    for read in sorted(reads, key=lambda read: (read.column, read.key)):
+        backing = materialized.get((read.key, cast(TableColumn, read.column)))
+        if backing is not None and parse_sql_runtime_type(backing.type).family != "string":
+            return f"it reads {read.key}, which events stores in a {backing.type} column"
     return None
 
 
@@ -265,7 +268,7 @@ def union_scan_sample(node: ast.SelectQuery, union: EventsWithFlagCallsTable) ->
     """The SAMPLE that `node` puts on its scan of the union, or None."""
     join = node.select_from
     while join is not None:
-        if join.sample is not None and _union_table_of(join.table.type if join.table else join.type) is union:
+        if join.sample is not None and union_table_of(join.table.type if join.table else join.type) is union:
             return join.sample
         join = join.next_join
     return None
@@ -331,14 +334,6 @@ def _flag_key_is_restricted(database: "Database", context: HogQLContext) -> bool
     return key_read_overlaps_restriction("$feature_flag", restricted)
 
 
-def _union_table_of(table_type: ast.Type | None) -> EventsWithFlagCallsTable | None:
-    while isinstance(table_type, (ast.TableAliasType, ast.VirtualTableType)):
-        table_type = table_type.table_type
-    if isinstance(table_type, ast.LazyTableType) and isinstance(table_type.table, EventsWithFlagCallsTable):
-        return table_type.table
-    return None
-
-
 def _union_chain(field_type: ast.Type | None) -> tuple[EventsWithFlagCallsTable, list[str | int]] | None:
     """The union scan that a resolved field reads directly, and its chain there, or None."""
     property_chain: list[str | int] = []
@@ -350,7 +345,7 @@ def _union_chain(field_type: ast.Type | None) -> tuple[EventsWithFlagCallsTable,
     chain: list[str | int] = [field_type.name, *property_chain]
     if isinstance(field_type.table_type, ast.VirtualTableType):
         chain = [field_type.table_type.field, *chain]
-    union = _union_table_of(field_type.table_type)
+    union = union_table_of(field_type.table_type)
     return (union, chain) if union is not None else None
 
 
@@ -625,22 +620,12 @@ class _UnionChainCollector(SyntaxVisitor):
         self.exports: dict[tuple[int, str], list[str | int]] = {}
         self._select: ast.SelectQuery | None = None
         self.export_collision: tuple[list[str | int], list[str | int]] | None = None
-        # The event and person properties that a string-parsing call such as toFloatOrZero reads from the scan.
-        self.string_parsed: list[tuple[str, str]] = []
-        self._in_string_input = False
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         outer = self._select
         self._select = node
         super().visit_select_query(node)
         self._select = outer
-
-    def visit_call(self, node: ast.Call) -> None:
-        # The property type swapper keeps a property raw only as the direct argument of such a call.
-        outer = self._in_string_input
-        self._in_string_input = node.name in STRING_INPUT_CONVERSIONS
-        super().visit_call(node)
-        self._in_string_input = outer
 
     def visit_field(self, node: ast.Field) -> None:
         read = _union_chain(node.type)
@@ -653,8 +638,6 @@ class _UnionChainCollector(SyntaxVisitor):
             first = self.exports.setdefault((id(self._select), name), chain)
             if first != chain and self.export_collision is None:
                 self.export_collision = (first, chain)
-            if self._in_string_input and chain[:-1] in (["properties"], ["poe", "properties"]):
-                self.string_parsed.append(("event" if chain[0] == "properties" else "person", str(chain[-1])))
             return
         field_type = node.type.field_type if isinstance(node.type, ast.PropertyType) else node.type
         if not isinstance(field_type, ast.FieldType):
@@ -667,7 +650,7 @@ class _UnionChainCollector(SyntaxVisitor):
             source = table_type.table_type
             while isinstance(source, ast.TableAliasType):
                 source = source.table_type
-            if _union_table_of(source) is not None:
+            if union_table_of(source) is not None:
                 lazy_join = table_type.lazy_join
                 if isinstance(source, ast.VirtualTableType) or lazy_join.resolver not in _UNION_JOIN_RESOLVERS:
                     self.unreadable_joins.append(table_type.field)

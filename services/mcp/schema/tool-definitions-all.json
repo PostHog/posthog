@@ -8214,11 +8214,11 @@
         }
     },
     "inbox-report-checks-replace": {
-        "description": "Replace one open metric check after investigating a better measure or threshold. Read the current check and report first. Supply a bounded live Trends query or a report metric ID, an explicit comparison, and a measured baseline. The old check stays live if the replacement fails validation. A successful replacement starts unapproved and is scheduled independently of human approval. Do not use this to change an agent check. The replacement preserves the existing soak and remaining recurrence. The measurement also requires event_definition:read for event series, action:read for action series, and cohort:read for cohort filters when present.",
+        "description": "Replace one open agent or metric check with a metric check after investigating a better measure or threshold. Read the current check and report first. Supply a bounded live Trends query or a report metric ID, an explicit comparison, and a measured baseline. The old check stays live if the replacement fails validation. A successful replacement starts unapproved and is scheduled independently of human approval. The replacement preserves the existing soak and remaining recurrence. The measurement also requires event_definition:read for event series, action:read for action series, and cohort:read for cohort filters when present.",
         "category": "Signals",
         "feature": "signals",
-        "summary": "Replace a metric follow-up check",
-        "title": "Replace a metric follow-up check",
+        "summary": "Replace a follow-up check with a metric",
+        "title": "Replace a follow-up check with a metric",
         "required_scopes": ["inbox:write", "query:read"],
         "api_operations": ["POST /api/projects/{project_id}/signals/reports/{report_id}/checks/{id}/replace/"],
         "annotations": {
@@ -8323,7 +8323,7 @@
         }
     },
     "inbox-reports-for-me": {
-        "description": "Get the current user's own open inbox reports, ranked for them. One language model call ranks the reports that need them (suggested reviewer, claimed, waiting on their input) and the reports the ranking model rates highest, using their activity summary. Use it for \"what should I work on\" and \"my top N\" questions in place of paging inbox-reports-list. Each entry has a rank, a tier, a short reason, a next step for the top entries and a compact report. Read the full report with inbox-reports-retrieve before you act on it. The list is personal: only the user it describes can read it. The call never waits on the model. A current stored list comes back quickly, as is. Otherwise the call reads every candidate report, which can take some seconds, starts a background build and returns the last stored list with `stale: true`, or the reports in inbox order with `fallback_reason: building`, and sets `building: true`. `refresh` and `focus` always start a build, and builds are rate limited. A report created after the stored list joins at the next build. When `building` is true, call again a little later, or pass `wait_seconds` (up to 30, counted from the start of the call) to wait for the new list in the same call. `personalized: false` means the user has no activity summary yet or the list is in inbox order (see `fallback_reason`). `stale: true` without `building` means the build limit was reached and the list may miss recent changes. `status: unavailable` means personal ranking is off for now.",
+        "description": "Get the current user's own open inbox reports, ranked for them. One language model call ranks only the reports tied to them (suggested reviewer, claimed, waiting on their input), using their activity summary and the ranking model's scores. Use it for \"what should I work on\" and \"my top N\" questions in place of paging inbox-reports-list. Each entry has a rank, a tier, a short reason, a next step for the top entries and a compact report. Read the full report with inbox-reports-retrieve before you act on it. The list is personal: only the user it describes can read it. The call never waits on the model. A current stored list comes back quickly, as is. Otherwise the call reads every candidate report, which can take some seconds, starts a background build and returns the last stored list with `stale: true`, or the reports in inbox order with `fallback_reason: building`, and sets `building: true`. `refresh` and `focus` always start a build, and builds are rate limited. A report created after the stored list joins at the next build. When `building` is true, call again a little later, or pass `wait_seconds` (up to 30, counted from the start of the call) to wait for the new list in the same call. `personalized: false` means the user has no activity summary yet or the list is in inbox order (see `fallback_reason`). `stale: true` without `building` means the build limit was reached and the list may miss recent changes. `status: unavailable` means personal ranking is off for now.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Get your personal ranked inbox",
@@ -8903,6 +8903,22 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "integrations-push-tokens-create": {
+        "description": "Register existing mobile devices, for example exported from another push provider, on an APNs or Firebase push channel so workflows can send them push notifications. Find the channel with integrations-list: kind apns takes hex APNs device tokens, kind firebase takes FCM registration tokens. Expo push tokens (ExponentPushToken[...]) work on neither and are always rejected. Each row pairs a device token with a distinct_id, which must be the ID the app passes to identify, so the device lands on the person workflows target. A distinct ID with no person fails as unknown_person unless create_missing_persons is true; leave it false unless the user confirms those IDs are right. Always call with dry_run=true first: it reports every failing row (unknown_person, token_mismatch) without storing anything. Fix or drop those rows, then call again without dry_run. Send at most 1000 rows per call and at most 60 calls per minute per project; on HTTP 429 wait a minute and retry. Rows that fail as not_stored can be sent again. Importing the same row twice stores it once.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "Import push device tokens",
+        "title": "Import push device tokens",
+        "required_scopes": ["integration:write", "person:write"],
+        "api_operations": ["POST /api/projects/{project_id}/integrations/{id}/push_tokens/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-push-token-import-mcp"
     },
     "integrations-users-retrieve": {
         "description": "List the Slack workspace members a Slack integration can send direct messages to. Slack-only — non-Slack integration ids return an error (400 if the integration is otherwise visible, 404 if it isn't). Returns each member's id (e.g. U0123ABC), name (handle without the leading @), and display_name; bots, deactivated accounts, and Slackbot are excluded. Supports `search` (fuzzy match on display name and handle, plus id-contains), `limit`, `offset`, and a `user_id` query parameter for a direct lookup. Results are cached for 1 hour (no force-refresh exposed via MCP). Use this to find member ids when configuring a scout's Slack DM destination — pass them as `output_destinations.slack.users` entries (`member_id|@display-name`) via scout-config-update or scout-create. Requires the Slack integration's id; use integrations-list (filter by kind=slack) to find it.",
