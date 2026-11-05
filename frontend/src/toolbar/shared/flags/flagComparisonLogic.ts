@@ -4,12 +4,14 @@ import type { PostHog } from 'posthog-js/dist/module'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import { objectsEqual } from 'lib/utils/objects'
 
 import { toolbarLogic } from '~/toolbar/shared/bar/toolbarLogic'
 import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
 
 import {
+    FlagOverridesChangedError,
     capturePage,
     comparisonStates,
     imagesMatch,
@@ -139,7 +141,7 @@ export const flagComparisonLogic = kea<flagComparisonLogicType>([
         closeComparison: true,
         setAfterValue: (value: string | boolean) => ({ value }),
     }),
-    loaders(({ values, actions }) => ({
+    loaders(({ values, actions, cache }) => ({
         comparison: [
             null as FlagComparison | null,
             {
@@ -157,11 +159,33 @@ export const flagComparisonLogic = kea<flagComparisonLogicType>([
                     })
 
                     const previousOverrides = readFlagOverrides(posthog)
+                    // Logout, an expired token or an impersonation load can replace the overrides during the run.
+                    // Their state then wins, so the comparison stops and does not restore over it.
+                    let lastWritten = previousOverrides
+                    const ownsOverrides = (): boolean => objectsEqual(readFlagOverrides(posthog), lastWritten)
+                    const restoreOverrides = (): void => {
+                        if (ownsOverrides()) {
+                            writeFlagOverrides(posthog, previousOverrides)
+                        }
+                    }
+                    // The SDK persists overrides, and a reload or a link click during the run skips the `finally` below.
+                    cache.disposables.add(
+                        () => {
+                            window.addEventListener('pagehide', restoreOverrides)
+                            return () => window.removeEventListener('pagehide', restoreOverrides)
+                        },
+                        'restoreOverridesOnPageHide',
+                        { pauseOnPageHidden: false }
+                    )
                     const captures: FlagComparisonCapture[] = []
                     let offBlob: Blob | null = null
                     try {
                         for (const state of states) {
-                            writeFlagOverrides(posthog, { ...previousOverrides, [flag.key]: state.value })
+                            if (!ownsOverrides()) {
+                                throw new FlagOverridesChangedError()
+                            }
+                            lastWritten = { ...previousOverrides, [flag.key]: state.value }
+                            writeFlagOverrides(posthog, lastWritten)
                             await waitForPageToSettle()
                             const { blob, width, height } = await capturePage()
                             offBlob ??= blob
@@ -177,7 +201,8 @@ export const flagComparisonLogic = kea<flagComparisonLogicType>([
                         captures.forEach((capture) => URL.revokeObjectURL(capture.url))
                         throw error
                     } finally {
-                        writeFlagOverrides(posthog, previousOverrides)
+                        cache.disposables.dispose('restoreOverridesOnPageHide')
+                        restoreOverrides()
                         actions.checkLocalOverrides()
                     }
 
@@ -237,6 +262,10 @@ export const flagComparisonLogic = kea<flagComparisonLogicType>([
         },
         compareFlagFailure: ({ error, errorObject }) => {
             toolbarPosthogJS.capture('toolbar feature flag comparison failed', { reason: error })
+            if (errorObject instanceof FlagOverridesChangedError) {
+                lemonToast.info('The comparison stopped because the flag overrides changed. Start it again to compare.')
+                return
+            }
             captureToolbarException(errorObject ?? error, 'flag_comparison')
             lemonToast.error(
                 "Couldn't capture the page. Images or fonts from other sites can block the capture. Try again on a page without them."
