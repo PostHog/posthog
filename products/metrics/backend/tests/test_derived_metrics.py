@@ -9,11 +9,15 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Team
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.metrics.backend.derived import DerivedMetricQueryRunner
-from products.metrics.backend.facade.api import list_metric_names, run_metric_query
+from products.metrics.backend.facade.api import list_metric_names, list_metric_picker_names, run_metric_query
 from products.metrics.backend.facade.contracts import (
     METRICS_DERIVED_SERIES_FEATURE_FLAG,
     MetricFilter,
@@ -23,7 +27,7 @@ from products.metrics.backend.facade.contracts import (
     MetricQueryTooManyRowsError,
     MetricSeries,
 )
-from products.metrics.backend.facade.enums import FilterOp, MetricAggregation, MetricRangeFunction
+from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation, MetricRangeFunction
 
 REQUESTS = "posthog.derived.spans.requests"
 ERRORS = "posthog.derived.spans.errors"
@@ -36,20 +40,23 @@ DATE_TO = dt.datetime(2026, 6, 2, 9, 0, tzinfo=dt.UTC)
 SERVER, INTERNAL, CLIENT = 2, 1, 3
 OK, ERROR = 0, 2
 
-# (service, kind, is_root, duration_ms, status, http.route)
+# (service, kind, is_root, duration_ms, status, http.route, deployment.environment)
 # "web" has server spans, so its root internal span (a cron job) and its client child do not count.
 # "worker" has no server spans, so its root spans count as requests and its child does not.
+# "jobs" has server spans only in production, so its staging root span counts in staging.
 SPANS = [
-    ("web", SERVER, True, 10, OK, "/a"),
-    ("web", SERVER, True, 20, OK, "/a"),
-    ("web", SERVER, True, 30, OK, "/a"),
-    ("web", SERVER, True, 40, ERROR, "/a"),
-    ("web", CLIENT, False, 500, OK, None),
-    ("web", INTERNAL, True, 900, OK, None),
-    ("worker", INTERNAL, True, 100, OK, None),
-    ("worker", INTERNAL, True, 300, ERROR, None),
-    ("worker", INTERNAL, False, 700, ERROR, None),
-    ("api", SERVER, True, 5, OK, "/b"),
+    ("web", SERVER, True, 10, OK, "/a", "production"),
+    ("web", SERVER, True, 20, OK, "/a", "production"),
+    ("web", SERVER, True, 30, OK, "/a", "production"),
+    ("web", SERVER, True, 40, ERROR, "/a", "production"),
+    ("web", CLIENT, False, 500, OK, None, "production"),
+    ("web", INTERNAL, True, 900, OK, None, "production"),
+    ("worker", INTERNAL, True, 100, OK, None, "production"),
+    ("worker", INTERNAL, True, 300, ERROR, None, "production"),
+    ("worker", INTERNAL, False, 700, ERROR, None, "production"),
+    ("api", SERVER, True, 5, OK, "/b", "production"),
+    ("jobs", SERVER, True, 15, OK, None, "production"),
+    ("jobs", INTERNAL, True, 60, OK, None, "staging"),
 ]
 
 # (service, severity)
@@ -62,7 +69,7 @@ def _flags(*enabled: str):
 
 def _insert_spans(team_id: int) -> None:
     rows: list[str] = []
-    for index, (service, kind, is_root, duration_ms, status, route) in enumerate(SPANS):
+    for index, (service, kind, is_root, duration_ms, status, route, environment) in enumerate(SPANS):
         start = DATE_FROM + dt.timedelta(minutes=10, seconds=index)
         end = start + dt.timedelta(milliseconds=duration_ms)
         parent = "" if is_root else f"parent{index}"
@@ -70,11 +77,13 @@ def _insert_spans(team_id: int) -> None:
         rows.append(
             f"('019e8756-0000-0000-0000-{index:012d}', {team_id}, 'trace{index}', 'span{index}', '{parent}', "
             f"'op', {kind}, '{start:%Y-%m-%d %H:%M:%S.%f}', '{end:%Y-%m-%d %H:%M:%S.%f}', "
-            f"'{start:%Y-%m-%d %H:%M:%S.%f}', {status}, '{service}', {attributes})"
+            f"'{start:%Y-%m-%d %H:%M:%S.%f}', {status}, '{service}', {attributes}, "
+            f"{{'deployment.environment': '{environment}'}})"
         )
     sync_execute(
         "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, timestamp, "
-        "end_time, observed_timestamp, status_code, service_name, attributes_map_str) VALUES " + ",".join(rows)
+        "end_time, observed_timestamp, status_code, service_name, attributes_map_str, resource_attributes) VALUES "
+        + ",".join(rows)
     )
 
 
@@ -129,25 +138,40 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("requests", REQUESTS, MetricAggregation.SUM, None, None, {"web": 4, "worker": 2, "api": 1}),
-            ("requests_increase", REQUESTS, MetricAggregation.INCREASE, None, None, {"web": 4, "worker": 2, "api": 1}),
-            ("errors", ERRORS, MetricAggregation.SUM, None, None, {"web": 1, "worker": 1}),
+            ("requests", REQUESTS, MetricAggregation.SUM, None, None, {"web": 4, "worker": 2, "api": 1, "jobs": 1}),
+            (
+                "requests_increase",
+                REQUESTS,
+                MetricAggregation.INCREASE,
+                None,
+                None,
+                {"web": 4, "worker": 2, "api": 1, "jobs": 1},
+            ),
+            # A service without errors keeps a zero series, so `errors / requests` keeps it.
+            ("errors", ERRORS, MetricAggregation.SUM, None, None, {"web": 1, "worker": 1, "api": 0, "jobs": 0}),
             (
                 "request_rate",
                 REQUESTS,
                 MetricAggregation.SUM,
                 None,
                 MetricRangeFunction.RATE,
-                {"web": 4 / 3600, "worker": 2 / 3600, "api": 1 / 3600},
+                {"web": 4 / 3600, "worker": 2 / 3600, "api": 1 / 3600, "jobs": 1 / 3600},
             ),
-            ("max_duration_ms", DURATION, MetricAggregation.MAX, None, None, {"web": 40, "worker": 300, "api": 5}),
+            (
+                "max_duration_ms",
+                DURATION,
+                MetricAggregation.MAX,
+                None,
+                None,
+                {"web": 40, "worker": 300, "api": 5, "jobs": 15},
+            ),
             (
                 "p50_duration_ms",
                 DURATION,
                 MetricAggregation.HISTOGRAM_QUANTILE,
                 0.5,
                 None,
-                {"web": 25, "worker": 200, "api": 5},
+                {"web": 25, "worker": 200, "api": 5, "jobs": 15},
             ),
         ]
     )
@@ -165,6 +189,30 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
 
         assert _by_label(series, "service.name") == expected
 
+    def test_a_new_counter_selection_without_aggregation_counts_requests(self) -> None:
+        # The picker sends `none` for a counter that the user has not aggregated yet.
+        with _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG):
+            series = self._run(REQUESTS, MetricAggregation.NONE, group_by=())
+
+        assert _by_label(series, "service.name") == {"": 8}
+
+    def test_root_span_fallback_follows_the_environment_filter(self) -> None:
+        with _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG):
+            series = self._run(
+                REQUESTS,
+                MetricAggregation.SUM,
+                filters=(
+                    MetricFilter(
+                        key="deployment.environment",
+                        op=FilterOp.EQ,
+                        value="staging",
+                        scope=AttributeScope.RESOURCE,
+                    ),
+                ),
+            )
+
+        assert _by_label(series, "service.name") == {"jobs": 1}
+
     def test_span_attribute_group_by_and_filter(self) -> None:
         with _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG):
             series = self._run(
@@ -174,7 +222,7 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
                 filters=(MetricFilter(key="service.name", op=FilterOp.NEQ, value="worker"),),
             )
 
-        assert _by_label(series, "http.route") == {"/a": 4, "/b": 1}
+        assert _by_label(series, "http.route") == {"/a": 4, "/b": 1, "": 1}
 
     def test_log_records_per_severity(self) -> None:
         with _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG):
@@ -212,6 +260,79 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
         assert {REQUESTS, ERRORS, DURATION, LOG_RECORDS} <= names
         assert not any(name.startswith("posthog.derived.") for name in empty_names)
 
+    @time_machine.travel(DATE_TO, tick=False)
+    def test_catalog_lookups_respect_the_limit_and_resolve_derived_names(self) -> None:
+        with _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG):
+            limited = list_metric_names(team=self.team, limit=1)
+            limited_picker = list_metric_picker_names(team=self.team, limit=1)
+            exact = list_metric_names(team=self.team, names=[REQUESTS, LOG_RECORDS])
+
+        assert len(limited) == 1
+        assert len(limited_picker) == 1
+        assert {row["name"] for row in exact} == {REQUESTS, LOG_RECORDS}
+
+    @time_machine.travel(DATE_TO, tick=False)
+    def test_a_failed_presence_check_keeps_the_other_names(self) -> None:
+        def fail_on_spans(*args, **kwargs):
+            if kwargs["query"].select_from.table.chain == ["posthog", "trace_spans"]:
+                raise TimeoutError("presence check timed out")
+            return execute_hogql_query(*args, **kwargs)
+
+        with (
+            _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG),
+            patch("products.metrics.backend.derived.execute_hogql_query", side_effect=fail_on_spans),
+        ):
+            names = {row["name"] for row in list_metric_picker_names(team=self.team)}
+
+        with _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG):
+            retried = {row["name"] for row in list_metric_picker_names(team=self.team)}
+
+        assert LOG_RECORDS in names
+        assert REQUESTS not in names
+        assert REQUESTS in retried
+
+    @parameterized.expand(
+        [
+            ("token_without_tracing_scope", ["metrics:read"], True, 403),
+            ("token_with_tracing_scope", ["metrics:read", "tracing:read"], True, 200),
+            ("user_without_tracing_access", None, False, 403),
+        ]
+    )
+    def test_derived_queries_need_access_to_the_source(
+        self, _name: str, scopes: list[str] | None, has_source_access: bool, expected_status: int
+    ) -> None:
+        headers = {}
+        if scopes is not None:
+            value = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="test", user=self.user, secure_value=hash_key_value(value), scopes=scopes
+            )
+            headers["HTTP_AUTHORIZATION"] = f"Bearer {value}"
+
+        with (
+            _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG),
+            patch(
+                "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_resource",
+                side_effect=lambda resource, *_, **__: resource != "tracing" or has_source_access,
+            ),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/metrics/query/",
+                {
+                    "query": {
+                        "metricName": REQUESTS,
+                        "aggregation": "sum",
+                        "dateFrom": DATE_FROM.isoformat(),
+                        "dateTo": DATE_TO.isoformat(),
+                        "interval": "hour",
+                    }
+                },
+                format="json",
+                **headers,
+            )
+
+        assert response.status_code == expected_status, response.json()
+
     def test_query_event_marks_derived_queries(self) -> None:
         with (
             _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG),
@@ -232,7 +353,7 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
         assert response.status_code == 200, response.json()
-        assert sum(point["value"] for point in response.json()["results"][0]["points"]) == 7
+        assert sum(point["value"] for point in response.json()["results"][0]["points"]) == 8
         assert report.call_args.args[2]["is_derived"] is True
 
 
@@ -243,7 +364,6 @@ class TestDerivedMetricQueryCaps(SimpleTestCase):
             ("three_group_by_keys", REQUESTS, MetricAggregation.SUM, None, ("a", "b", "c"), 1),
             ("count_of_a_counter", REQUESTS, MetricAggregation.COUNT, None, (), 1),
             ("sum_of_durations", DURATION, MetricAggregation.SUM, None, (), 1),
-            ("raw_series", REQUESTS, MetricAggregation.NONE, None, (), 1),
             ("unknown_derived_name", "posthog.derived.spans.nope", MetricAggregation.SUM, None, (), 1),
         ]
     )

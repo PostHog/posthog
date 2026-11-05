@@ -765,6 +765,8 @@ class TestProductIntent(BaseTest):
             # No engagement and no data is not activation.
             ("first-ingested context but no data found", {"metrics_first_ingested": 1}, False, False),
             ("no engagement at all", {}, False, False),
+            # Derived series are computed from spans and logs, so charting them is not metrics use.
+            ("charted only derived series", {"metrics_derived_query_run": 4}, False, False),
         ]
     )
     def test_has_activated_metrics(self, _name: str, contexts: dict, has_data: bool, expected: bool) -> None:
