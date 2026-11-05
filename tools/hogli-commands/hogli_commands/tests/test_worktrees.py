@@ -268,6 +268,24 @@ class TestWorktreeRoots:
 
         assert [p.resolve() for p in _discover_root_worktrees(roots["phw"], registry)] == [wt.resolve()]
 
+    @pytest.mark.parametrize(
+        ("selected_sources", "mode", "expected_other"),
+        [(None, "deps,build", True), (None, "full", False), ({"other"}, "full", True), ({"claude"}, "deps", False)],
+        ids=["artifacts_by_default", "full_skips_by_default", "full_when_named", "other_source_selected"],
+    )
+    def test_worktree_registered_outside_every_tool_root_is_other(
+        self, tmp_path, monkeypatch, selected_sources: set[str] | None, mode: str, expected_other: bool
+    ) -> None:
+        monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+        monkeypatch.setattr(worktrees, "_claude_scratchpad_root", lambda: tmp_path / "scratchpads")
+        hand_made = tmp_path / "projects" / "repo-wt-feature"
+        hand_made.mkdir(parents=True)
+        registry = {hand_made.resolve(): {"locked": False, "branch": "feature"}}
+
+        discovered = worktrees._discover_candidate_worktrees(tmp_path / "repo", registry, selected_sources, mode)
+
+        assert discovered == ([("other", hand_made.resolve())] if expected_other else [])
+
 
 def _git_worktree(path: Path, files: dict[str, str], tracked: tuple[str, ...] = ()) -> Path:
     for relative, content in files.items():
@@ -278,23 +296,6 @@ def _git_worktree(path: Path, files: dict[str, str], tracked: tuple[str, ...] = 
     if tracked:
         subprocess.run(["git", "add", "--", *tracked], cwd=path, check=True)
     return path
-
-    @pytest.mark.parametrize(
-        ("selected_sources", "mode", "expected_other"),
-        [(None, "deps,build", True), (None, "full", False), ({"other"}, "full", True), ({"claude"}, "deps", False)],
-        ids=["artifacts_by_default", "full_skips_by_default", "full_when_named", "other_source_selected"],
-    )
-    def test_worktree_registered_outside_every_tool_root_is_other(
-        self, tmp_path, monkeypatch, selected_sources: set[str] | None, mode: str, expected_other: bool
-    ) -> None:
-        monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
-        hand_made = tmp_path / "projects" / "repo-wt-feature"
-        hand_made.mkdir(parents=True)
-        registry = {hand_made.resolve(): {"locked": False, "branch": "feature"}}
-
-        discovered = worktrees._discover_candidate_worktrees(tmp_path / "repo", registry, selected_sources, mode)
-
-        assert discovered == ([("other", hand_made.resolve())] if expected_other else [])
 
 
 class TestCollectDepsItems:
@@ -924,6 +925,18 @@ class TestExecute:
         assert not first.exists()
         assert second.exists()
         assert [call.args[0].path for call in before_remove.call_args_list] == [first]
+
+    def test_artifact_with_a_repo_anywhere_inside_is_kept(self, tmp_path) -> None:
+        worktree = tmp_path / "wt"
+        nested_repo = worktree / "node_modules" / ".pnpm" / "pkg@1.0.0" / "node_modules" / "pkg" / "src"
+        (nested_repo / ".git").mkdir(parents=True)
+        wt = Worktree(source="claude", path=worktree, registered=True, locked=False, branch="", last_activity=0.0)
+        wt.artifact_items = [worktree / "node_modules"]
+
+        reap = _execute([wt], "deps", tmp_path)
+
+        assert (reap.removed, reap.failed) == (0, 1)
+        assert (nested_repo / ".git").is_dir()
 
     @pytest.mark.parametrize("read_only_go_module_cache", [True, False], ids=["read_only_tree", "already_removed"])
     def test_full_mode_counts_worktree_as_removed(self, tmp_path, read_only_go_module_cache) -> None:

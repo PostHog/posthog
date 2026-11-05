@@ -1563,7 +1563,7 @@ def _cargo_built_since(path: Path, cutoff: float) -> bool:
 
 def _clean_shared_cargo_targets(cutoff: float, dry_run: bool, yes: bool) -> None:
     for shared in shared_cargo_targets():
-        if unused_cargo_target(shared.path, cutoff):
+        if unused_cargo_target(shared.path, cutoff) and not _holds_nested_repo(shared.path):
             _clean_shared_cargo_target(shared, cutoff, dry_run, yes)
 
 
@@ -1723,12 +1723,22 @@ def _rmtree(path: Path) -> None:
 
 
 def _delete_paths(paths: Sequence[Path]) -> int:
-    """Remove artifact directories and files; return how many could not be removed."""
+    """Remove artifact directories and files; return how many could not be removed.
+
+    Every removal outside --mode full goes through here, so the nested-repo
+    guard sits here too. A folder that holds a `.git` entry at any depth may
+    hold commits or edits that no other copy has, and it is kept whatever rule
+    selected it.
+    """
 
     failures = 0
     for path in paths:
         try:
             if path.is_dir() and not path.is_symlink():
+                if _holds_git_entry(path):
+                    click.echo(f"  ⚠️  kept {_display_path(path)} because a git repository is inside it.")
+                    failures += 1
+                    continue
                 _rmtree(path)
             else:
                 path.unlink(missing_ok=True)
@@ -1736,6 +1746,21 @@ def _delete_paths(paths: Sequence[Path]) -> int:
             click.echo(f"  ⚠️  could not remove {_display_path(path)}: {err}")
             failures += 1
     return failures
+
+
+def _holds_git_entry(directory: Path) -> bool:
+    pending = [str(directory)]
+    while pending:
+        try:
+            with os.scandir(pending.pop()) as entries:
+                for entry in entries:
+                    if entry.name == ".git":
+                        return True
+                    if entry.is_dir(follow_symlinks=False):
+                        pending.append(entry.path)
+        except OSError:
+            return True
+    return False
 
 
 def _cleanup_empty_parent(path: Path) -> None:
