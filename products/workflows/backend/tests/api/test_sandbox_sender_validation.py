@@ -196,7 +196,17 @@ class TestSandboxSenderValidation(APIBaseTest):
     def test_mapping_sender_is_compared_only_with_its_own_stored_mapping(
         self, _name: str, stored_in: str, submitted: list[str], expected_status: int
     ) -> None:
-        mapping = {"name": "Mapping", "inputs_schema": self.email_schema, "inputs": {"email": {"value": self._email()}}}
+        own_sender = Integration.objects.create(
+            team=self.team,
+            kind="email",
+            config={"provider": "ses", "domain": "example.com", "email": "sender@example.com", "verified": True},
+        )
+        backup = {**self._email(), "from": {"integrationId": own_sender.id}}
+        mapping = {
+            "name": "Mapping",
+            "inputs_schema": [*self.email_schema, {**self.email_schema[0], "key": "backup"}],
+            "inputs": {"email": {"value": self._email()}, "backup": {"value": backup}},
+        }
         function = HogFunction.objects.create(
             team=self.team,
             name="Stored destination",
@@ -205,11 +215,6 @@ class TestSandboxSenderValidation(APIBaseTest):
             inputs_schema=self.email_schema if stored_in == "top_level" else [],
             inputs={"email": {"value": self._email()}} if stored_in == "top_level" else {},
             mappings=[mapping] if stored_in == "mapping" else None,
-        )
-        own_sender = Integration.objects.create(
-            team=self.team,
-            kind="email",
-            config={"provider": "ses", "domain": "example.com", "email": "sender@example.com", "verified": True},
         )
         mappings = [deepcopy(mapping) for _ in submitted]
         for sent, sender in zip(mappings, submitted):
