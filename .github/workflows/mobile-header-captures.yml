@@ -1,0 +1,91 @@
+name: Mobile report header captures
+
+on:
+    push:
+        branches: [posthog/android-report-blur-captures]
+        paths:
+            - 'products/mobile/**'
+            - '.github/workflows/mobile-header-captures.yml'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: false
+
+permissions:
+    contents: read
+
+jobs:
+    ios:
+        runs-on: macos-26
+        timeout-minutes: 60
+        defaults:
+            run:
+                working-directory: products/mobile
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+              with:
+                  persist-credentials: false
+                  fetch-depth: 2
+                  sparse-checkout: products/mobile
+                  sparse-checkout-cone-mode: false
+            - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271
+              with:
+                  package_json_file: products/mobile/package.json
+            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+              with:
+                  node-version-file: products/mobile/.node-version
+            - run: pnpm install --frozen-lockfile
+            - run: DO_NOT_TRACK=1 npm install --prefix /tmp/mobile-argent-tools --no-audit --no-fund @swmansion/argent@0.30.1
+            - run: bash scripts/capture-report-header.sh ios
+            - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+              if: ${{ !cancelled() }}
+              with:
+                  name: report-header-ios
+                  path: /tmp/report-header-captures
+                  retention-days: 7
+
+    android:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 60
+        defaults:
+            run:
+                working-directory: products/mobile
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+              with:
+                  persist-credentials: false
+                  fetch-depth: 2
+                  sparse-checkout: products/mobile
+                  sparse-checkout-cone-mode: false
+            - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271
+              with:
+                  package_json_file: products/mobile/package.json
+            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+              with:
+                  node-version-file: products/mobile/.node-version
+            - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+              with:
+                  distribution: temurin
+                  java-version: '17'
+            - run: pnpm install --frozen-lockfile
+            - run: DO_NOT_TRACK=1 npm install --prefix /tmp/mobile-argent-tools --no-audit --no-fund @swmansion/argent@0.30.1
+            - name: Enable KVM
+              run: |
+                  echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+                  sudo udevadm control --reload-rules
+                  sudo udevadm trigger --name-match=kvm
+            - uses: reactivecircus/android-emulator-runner@ed009f5318f15b1cf93a191b856c4f1748a2d4c1
+              with:
+                  api-level: 36
+                  target: google_apis
+                  arch: x86_64
+                  profile: pixel_7
+                  disable-animations: false
+                  emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -grpc-use-token
+                  script: cd products/mobile && bash scripts/capture-report-header.sh android
+            - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+              if: ${{ !cancelled() }}
+              with:
+                  name: report-header-android
+                  path: /tmp/report-header-captures
+                  retention-days: 7
