@@ -2,6 +2,7 @@ import json
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from typing import cast
 from uuid import UUID
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
@@ -11,6 +12,8 @@ from django.test import SimpleTestCase
 
 from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
+
+from posthog.models import Team
 
 from products.data_catalog.backend.facade.enums import HOGQL_DEFINITION_KIND, JudgeRelation, MetricStatus
 from products.data_catalog.backend.logic.effectiveness import (
@@ -234,6 +237,10 @@ class TestSessionOutcomes(SimpleTestCase):
         assert (first.start, second.end) == (datetime(2026, 10, 26, tzinfo=UTC), datetime(2026, 11, 9, tzinfo=UTC))
 
 
+def _team() -> Team:
+    return cast(Team, SimpleNamespace(id=2, organization_id="org", uuid="project"))
+
+
 def _result(rows: tuple[OutcomeRow, ...], analysis_sessions: int = 2) -> TeamEffectiveness:
     return TeamEffectiveness(
         team_id=2,
@@ -300,7 +307,7 @@ class TestTeamEffectiveness(SimpleTestCase):
     @patch("products.data_catalog.backend.logic.effectiveness.ph_scoped_capture")
     def test_a_skipped_team_sends_the_team_event_with_the_reason(self, scoped_capture: MagicMock) -> None:
         capture = scoped_capture.return_value.__enter__.return_value
-        team = SimpleNamespace(id=2, organization_id="org", uuid="project")
+        team = _team()
 
         capture_team_skipped(
             TeamSkipped(team_id=2, reason=SkipReason.NO_AI_CONSENT),
@@ -316,7 +323,7 @@ class TestTeamEffectiveness(SimpleTestCase):
     @patch("products.data_catalog.backend.logic.effectiveness.ph_scoped_capture")
     def test_a_rerun_sends_the_same_event_ids_and_no_query_text(self, scoped_capture: MagicMock) -> None:
         capture = scoped_capture.return_value.__enter__.return_value
-        team = SimpleNamespace(id=2, organization_id="org", uuid="project")
+        team = _team()
         result = _result(
             (
                 _row("s1", SessionOutcome.USED, AssetKind.METRIC),
