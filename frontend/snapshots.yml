@@ -12710,6 +12710,14 @@ snapshots:
         hash: v1.k794b7964.0050df5c3012833eead1b81a2123a56b477fe74fb6b46b5783214710ee5fb544.p3o_gkqaXVdjA1w3Tui2NnurpXCqich7ZgmEBB9l_o4
     scenes-app-inbox-scene--settings-with-spend-billing--light:
         hash: v1.k794b7964.56f690456ad3301907844cfe39b2849b7325345f5297bf3c7b0d471f10e8f567.AAKoUpX188aeXsLH6DR7djCvzFjgFy3YKlSD-IMnrqo
+    scenes-app-inbox-scene--today-style-report--dark:
+        hash: v1.k794b7964.9dc7a616641a4febf0ab30eee8e793d5c599496cfb43ea13fe35a667d85654db.auP0DoDY0kvnGKnlz8x8blPpY5FEKclBCQeAJWyONPE
+    scenes-app-inbox-scene--today-style-report--light:
+        hash: v1.k794b7964.62f677dba7cf5848a68a68cde0fa1bde2c1b3243d7a8426befb5e6fc326f57ac.oaL7dG2-tO4LP9ZhCtR_vwT8FE9aeyIH60bnYjeVWq4
+    scenes-app-inbox-scene--today-style-reports--dark:
+        hash: v1.k794b7964.1ac2d98a874b8e5a4009092978c33d91f7fc60001e261f28a6d92d8a56ba80b9.8TjGjK_zhauyAuckiRTp9NDUs668c9xfa9fZGiFqkEg
+    scenes-app-inbox-scene--today-style-reports--light:
+        hash: v1.k794b7964.2401ff86808593778bda1a6617b5c3bb6ae5786208e237e84c3034403a1a66cc.is1pkm66mXQJIDLwtKdraTUIfvPNDqLNvR8aIW_vws8
     scenes-app-inbox-scene--triage--dark:
         hash: v1.k794b7964.77e43b36fdcd81befecf4de80e489050f525840924ec6ddef37c23a9179dbe8a.B3qkZFYBncFaPn2EBg4cBoYu_LIwW29imNwBdLXF5eo
     scenes-app-inbox-scene--triage--light:
