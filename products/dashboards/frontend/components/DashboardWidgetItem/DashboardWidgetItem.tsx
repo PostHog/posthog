@@ -73,6 +73,8 @@ type DashboardWidgetItemProps = {
         description?: string
     }) => void | Promise<void>
     toggleShowDescription?: () => void
+    /** Hide the description for this viewer without changing the tile's saved setting. */
+    hideDescription?: boolean
     showResizeHandles?: boolean
     canEnterEditModeFromEdge?: boolean
     onEnterEditModeFromEdge?: (event: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => void
@@ -155,6 +157,7 @@ function DashboardWidgetItemContent({
     onUpdateWidgetTile,
     onConfigPublished,
     toggleShowDescription,
+    hideDescription,
     onDragHandleMouseDown,
     showEditingControls,
     isDashboardEditMode,
@@ -174,7 +177,7 @@ function DashboardWidgetItemContent({
     const defaultTitle = headerCatalogEntry.headerTitle ?? widgetTypeLabel
     const title = widget.name?.trim() || ''
     const description = widget.description?.trim() || ''
-    const showDescription = tile.show_description !== false
+    const showDescription = tile.show_description !== false && !hideDescription
     const headerLayout = headerCatalogEntry.headerLayout
 
     const hasProductAccess = userHasDashboardWidgetProductAccess(definition?.productAccess)
@@ -408,6 +411,7 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
             onUpdateWidgetTile,
             onConfigPublished,
             toggleShowDescription,
+            hideDescription,
             showResizeHandles,
             canEnterEditModeFromEdge,
             onEnterEditModeFromEdge,
@@ -503,6 +507,7 @@ export const DashboardWidgetItem = React.forwardRef<HTMLDivElement, DashboardWid
                     onConfigPublished={onConfigPublished}
                     canEditDashboard={canEditDashboard}
                     toggleShowDescription={toggleShowDescription}
+                    hideDescription={hideDescription}
                     isDashboardEditMode={isDashboardEditMode}
                     onDragHandleMouseDown={onDragHandleMouseDown}
                     showEditingControls={showEditingControls}

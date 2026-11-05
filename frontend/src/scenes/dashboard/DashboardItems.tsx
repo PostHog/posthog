@@ -142,7 +142,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             loadQueue: queryLoadQueue,
         })
     )
-    const { layoutZoom = 1 } = useValues(dashboardLogic)
+    const { layoutZoom = 1, hideTileDescriptions } = useValues(dashboardLogic)
     const {
         stageLayouts,
         updateContainerWidth,
@@ -720,6 +720,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     breakdownColorOverride={effectiveBreakdownColors}
                     dataColorThemeId={dataColorThemeId}
                     surveyOpportunity={tile.id === bestSurveyOpportunityFunnel?.id}
+                    hideDescription={hideTileDescriptions}
                     showCreateAnomalyAlertButton={showCreateAnomalyAlertButton}
                     decorations={decorations}
                     {...commonTileProps}
@@ -799,6 +800,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     onUpdateWidgetTile={tileActions.updateWidget}
                     onConfigPublished={onWidgetConfigPublished}
                     toggleShowDescription={tileActions.toggleDescription}
+                    hideDescription={hideTileDescriptions}
                     onDuplicate={tileActions.duplicate}
                     onRemove={commonTileProps.removeFromDashboard}
                     onMoveToDashboard={commonTileProps.moveToDashboard}

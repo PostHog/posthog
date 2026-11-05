@@ -4,7 +4,7 @@ import { render } from '@testing-library/react'
 
 import { getEffectiveDateOverride } from 'scenes/dashboard/dashboardUtils'
 
-import { InsightMetaContent } from './InsightMeta'
+import { InsightMetaContent, isTileDescriptionHidden } from './InsightMeta'
 
 describe('InsightMeta', () => {
     describe('getEffectiveDateOverride', () => {
@@ -47,10 +47,19 @@ describe('InsightMeta', () => {
 
     const description = 'Test description content'
 
-    // The caller (InsightMeta) computes showDescription from tile.show_description:
-    //   showDescription={tile?.show_description !== false}
-    // So null/undefined → true (show by default), false → false (explicitly hidden).
-    // These tests verify the rendering behavior given those computed values.
+    it.each([
+        { show_description: undefined, hideDescription: false, hidden: false },
+        { show_description: true, hideDescription: false, hidden: false },
+        { show_description: false, hideDescription: false, hidden: true },
+        { show_description: true, hideDescription: true, hidden: true },
+        { show_description: undefined, hideDescription: true, hidden: true },
+    ])(
+        'tile show_description=$show_description, dashboard hide=$hideDescription → hidden: $hidden',
+        ({ show_description, hideDescription, hidden }) => {
+            expect(isTileDescriptionHidden({ show_description }, hideDescription)).toBe(hidden)
+        }
+    )
+
     describe('description visibility in compact mode', () => {
         it.each([
             { showDescription: true, visible: true, label: 'show_description=true' },

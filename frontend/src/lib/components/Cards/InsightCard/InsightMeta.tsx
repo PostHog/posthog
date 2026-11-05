@@ -95,6 +95,7 @@ interface InsightMetaProps extends Pick<
     | 'ribbonColor'
     | 'updateColor'
     | 'toggleShowDescription'
+    | 'hideDescription'
     | 'removeFromDashboard'
     | 'deleteWithUndo'
     | 'refresh'
@@ -138,6 +139,13 @@ interface InsightMetaProps extends Pick<
 
 const NO_DISPLAY_OPTION_TABS: DisplayOptionTab[] = []
 
+export function isTileDescriptionHidden(
+    tile: Pick<DashboardTile, 'show_description'> | undefined,
+    hideDescription?: boolean
+): boolean {
+    return tile?.show_description === false || !!hideDescription
+}
+
 // SQL tiles have no display option tabs, so they skip the hook and the insight logics it mounts.
 export function InsightMeta(props: InsightMetaProps): JSX.Element {
     return isDataVisualizationNode(props.insight.query) ? (
@@ -164,6 +172,7 @@ function InsightMetaBody({
     canEditDashboard,
     updateColor,
     toggleShowDescription,
+    hideDescription,
     filtersOverride,
     variablesOverride,
     removeFromDashboard,
@@ -455,8 +464,9 @@ function InsightMetaBody({
     ) : null
     const popoverTopHeadingEl = showCompactTile ? <TopHeading {...topHeadingProps} /> : undefined
 
+    const descriptionHidden = isTileDescriptionHidden(tile, hideDescription)
     const metaDescriptionEl =
-        insight.description && tile?.show_description === false ? (
+        insight.description && descriptionHidden ? (
             <LemonMarkdown className="text-xs" lowKeyHeadings>
                 {insight.description}
             </LemonMarkdown>
@@ -531,7 +541,7 @@ function InsightMetaBody({
                         loadingQueued={loadingQueued}
                         tags={insight.tags}
                         compact={showCompactTile}
-                        showDescription={tile?.show_description !== false}
+                        showDescription={!descriptionHidden}
                         dataRetentionWarning={dataRetentionWarning}
                         queryScanTooltip={queryScanTooltip}
                         warehouseSyncTooltip={warehouseSyncTooltip}

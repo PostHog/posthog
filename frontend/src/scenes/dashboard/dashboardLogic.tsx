@@ -800,6 +800,8 @@ export interface dashboardLogicValues {
     hasUnsavedColorChanges: boolean
     hasUnsavedLayoutChanges: boolean
     hasVariables: boolean
+    hasTileDescriptions: boolean
+    hideTileDescriptions: boolean
     highlightedInsightId: any
     initialDashboardSettingsOverride: DashboardSettings
     initialVariablesLoaded: boolean
@@ -1582,6 +1584,9 @@ export interface dashboardLogicActions {
     toggleAddWidgetSelectedType: (widgetType: string) => {
         widgetType: string
     }
+    toggleHideTileDescriptions: () => {
+        value: true
+    }
     togglePinned: () => {
         value: true
     }
@@ -1830,6 +1835,7 @@ export interface dashboardLogicMeta {
             activeTileGroupTab: string | null
         ) => string[]
         collapsedTileIds: (tileGroupKeys: Map<number, string>, collapsedTileGroupKeys: string[]) => Set<number>
+        hasTileDescriptions: (tiles: DashboardTile[]) => boolean
         insightTiles: (tiles: DashboardTile[]) => DashboardTile[]
         textTiles: (tiles: DashboardTile[]) => DashboardTile[]
         dashboardControlScopes: (insightTiles: DashboardTile[]) => Record<DashboardControl, DashboardControlScope>
@@ -2273,6 +2279,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setLayoutZoom: (layoutZoom: number) => ({ layoutZoom }),
         /** Optimistic pin/unpin toggle. */
         togglePinned: true,
+        toggleHideTileDescriptions: true,
         /** Open/close the Terraform export modal. */
         setTerraformModalOpen: (open: boolean) => ({ open }),
 
@@ -3374,6 +3381,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
 
+        hideTileDescriptions: [
+            false,
+            { persist: true },
+            {
+                toggleHideTileDescriptions: (state) => !state,
+            },
+        ],
+
         isPinned: [
             false,
             {
@@ -4097,6 +4112,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (tiles: DashboardTile[]) => tiles.filter((t) => !!t.insight).filter((i) => !i.insight?.deleted),
         ],
         textTiles: [(s) => [s.tiles], (tiles: DashboardTile[]) => tiles.filter((t) => !!t.text)],
+        hasTileDescriptions: [
+            (s) => [s.tiles],
+            (tiles: DashboardTile[]): boolean =>
+                tiles.some((t) => !!t.insight?.description?.trim() || !!t.widget?.description?.trim()),
+        ],
         dashboardControlScopes: [
             (s) => [s.insightTiles],
             (insightTiles: DashboardTile[]): Record<DashboardControl, DashboardControlScope> =>
@@ -4875,6 +4895,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (open) {
                 actions.clearAddWidgetSelectedTypes()
             }
+        },
+        toggleHideTileDescriptions: () => {
+            posthog.capture('dashboard tile descriptions toggled', {
+                dashboard_id: values.dashboard?.id,
+                hidden: values.hideTileDescriptions,
+                layout_size: values.currentLayoutSize,
+            })
         },
         togglePinned: () => {
             if (values.dashboard) {
