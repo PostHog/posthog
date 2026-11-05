@@ -29,7 +29,7 @@ import { Hub, Team } from '../../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
-import { EmailAttachmentsService } from './email-attachments.service'
+import { EMAIL_ATTACHMENTS_MAX_AGE_MS, EmailAttachmentsService } from './email-attachments.service'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailStatusService } from './email-status.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
@@ -1492,6 +1492,16 @@ describe('EmailService', () => {
                         await assertPool.query(
                             `UPDATE cyclotron_email_attachments SET content = 'other bytes' WHERE job_id = $1 AND position = 1`,
                             [invocation.id]
+                        )
+                    },
+                ],
+                [
+                    'the attachment store fails to answer and the job is older than the janitor keeps files',
+                    async () => {
+                        await attachments.store(invocation.id, team.id, files)
+                        invocation.queueCreatedAt = DateTime.utc().minus({ milliseconds: EMAIL_ATTACHMENTS_MAX_AGE_MS })
+                        jest.spyOn(attachments, 'load').mockRejectedValue(
+                            new Error('timeout exceeded when trying to connect')
                         )
                     },
                 ],

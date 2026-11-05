@@ -10,6 +10,8 @@ import type { DecodedAttachment } from '../hogflows/transactional-email'
 
 export const EMAIL_ATTACHMENTS_MAX_CONNECTIONS = 5
 
+export const EMAIL_ATTACHMENTS_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
+
 export type EmailAttachmentOutcome = 'stored' | 'loaded' | 'missing' | 'unavailable' | 'deleted' | 'swept'
 
 export const emailAttachmentOutcomesTotal = new Counter({

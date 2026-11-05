@@ -9,8 +9,9 @@ import {
     deserializeResolverState,
     serializeResolverState,
 } from '../hogflows/batch-resolver.types'
+import { EMAIL_ATTACHMENTS_MAX_AGE_MS } from '../messaging/email-attachments.service'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
-import { CyclotronV2Janitor, EMAIL_ATTACHMENTS_MAX_AGE_MS, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
+import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
 import { CyclotronV2Manager } from './manager'
 import {
     CYCLOTRON_COUNTER_MAX,
