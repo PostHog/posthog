@@ -1,7 +1,7 @@
 """Size limits for a ticket brief.
 
-Here rather than beside the serializer so the Temporal activity can read them without
-importing the API package, which imports the activity's own caller back.
+A brief is a ten-second read, and the writer is an agent, so a field without a cap grows
+until it is no faster to read than the ticket.
 """
 
 MAX_AFFECTED_ITEMS = 5
