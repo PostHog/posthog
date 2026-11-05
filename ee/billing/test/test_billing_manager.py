@@ -446,6 +446,7 @@ class TestBillingManager(BaseTest):
             "mcp_events": {"usage": 30, "limit": 500, "todays_usage": 0},
             "ai_credits": {"usage": 1200, "limit": 20000, "todays_usage": 150},
             "signals_credits": {},
+            "signals_spend_credits": {},
             "replay_vision_credits": {},
             "posthog_code_credits": {},
             "workflow_emails": {"usage": 100, "limit": 10000, "todays_usage": 10},
