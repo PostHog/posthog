@@ -75,6 +75,8 @@ class TestMetricsTableWidgetConfig(SimpleTestCase):
             ("order_column_out_of_range", {"columns": [QUEUE_COLUMN], "orderByColumn": 1}),
             ("limit_above_max", {"limit": 101}),
             ("date_range_wider_than_metrics_queries_allow", {"dateRange": {"date_from": "-90d"}}),
+            # A tile runs without the source access checks, so derived series cannot fill a column.
+            ("derived_metric_column", {"columns": [{**QUEUE_COLUMN, "metricName": "posthog.derived.spans.requests"}]}),
         ]
     )
     def test_rejects_invalid_config(self, _name: str, config: dict[str, Any]) -> None:
