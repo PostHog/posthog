@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 
-import { errorMessage, failWith, type ParseFailure } from './schema'
+import { getFirstError, failWith, type ParseFailure } from './schema'
 
 // The only module that calls JSON.parse. Its result is `unknown` until a schema checks it, so no
 // caller casts JSON to the type it hopes for.
@@ -37,7 +37,7 @@ export function decodeJson<S extends z.ZodType>(
     const parsed = schema.safeParse(raw)
     return parsed.success
         ? { ok: true, value: parsed.data }
-        : { ok: false, reason: 'schema', message: errorMessage(parsed.error), issues: parsed.error.issues }
+        : { ok: false, reason: 'schema', message: getFirstError(parsed.error), issues: parsed.error.issues }
 }
 
 export function parseJson<S extends z.ZodType>(text: string, schema: S, failure: ParseFailure): z.output<S> {

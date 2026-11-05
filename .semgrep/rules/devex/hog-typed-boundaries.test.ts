@@ -77,3 +77,7 @@ import {
 
 // ruleid: hog-host-cast-outside-host-module
 const afterCall = load('x') as Host
+
+// A URL in a string is not a comment.
+// ruleid: hog-host-cast-outside-host-module
+const afterUrl = 'https://example.com/?q=1' as Host

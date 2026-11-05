@@ -7,7 +7,7 @@ import { parser } from '@/core/schema'
 export const HostSchema = z
     .string({ error: 'The host must be a URL, like https://us.posthog.com.' })
     .check((ctx) => {
-        const message = hostError(ctx.value)
+        const message = validateHost(ctx.value)
         if (message) {
             ctx.issues.push({ code: 'custom', input: ctx.value, message, abort: true })
         }
@@ -21,7 +21,7 @@ export const HostSchema = z
 export type Host = z.output<typeof HostSchema>
 
 // The messages never repeat the value, because it can hold a password or a token in its query.
-function hostError(value: string): string | undefined {
+function validateHost(value: string): string | undefined {
     const url = URL.parse(value)
     if (url === null) {
         return 'The host must be a URL, like https://us.posthog.com.'
