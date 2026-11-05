@@ -77,8 +77,8 @@ impl K8sResourceAttributes {
                 if value == EMPTY_JSON_STRING {
                     continue;
                 }
-                row.resource_attributes
-                    .insert(resource_key.to_string(), value.clone());
+                let key = resource_key.to_string();
+                row.resource_attributes.insert(key, value.clone());
                 changed = true;
             }
             if !changed {
@@ -116,35 +116,10 @@ impl K8sResourceAttributes {
 mod tests {
     use super::*;
     use capture_logs::endpoints::prometheus::write_timeseries_to_kafka_rows;
+    use chrono::Utc;
     use prometheus_rw_proto::prometheus::v1::{Label, Sample, TimeSeries};
 
     const TOKEN: &str = "phc_internal";
-
-    fn series(labels: &[(&str, &str)]) -> TimeSeries {
-        TimeSeries {
-            labels: labels
-                .iter()
-                .map(|(name, value)| Label {
-                    name: name.to_string(),
-                    value: value.to_string(),
-                })
-                .collect(),
-            samples: vec![
-                Sample {
-                    value: 1.0,
-                    timestamp: chrono::Utc::now().timestamp_millis(),
-                },
-                Sample {
-                    value: 2.0,
-                    timestamp: chrono::Utc::now().timestamp_millis(),
-                },
-            ],
-        }
-    }
-
-    fn rows(labels: &[(&str, &str)]) -> Vec<KafkaMetricRow> {
-        write_timeseries_to_kafka_rows(vec![series(labels)], &[]).0
-    }
 
     const POD_SERIES: [(&str, &str); 6] = [
         ("__name__", "capture_kafka_producer_queue_depth"),
@@ -155,81 +130,97 @@ mod tests {
         ("node", ""),
     ];
 
+    fn label(name: &str, value: &str) -> Label {
+        Label {
+            name: name.to_string(),
+            value: value.to_string(),
+        }
+    }
+
+    fn sample(value: f64) -> Sample {
+        Sample {
+            value,
+            timestamp: Utc::now().timestamp_millis(),
+        }
+    }
+
+    /// Two samples of one series, built by the real remote-write row builder.
+    fn pod_rows() -> Vec<KafkaMetricRow> {
+        let series = TimeSeries {
+            labels: POD_SERIES.iter().map(|(n, v)| label(n, v)).collect(),
+            samples: vec![sample(1.0), sample(2.0)],
+        };
+        write_timeseries_to_kafka_rows(vec![series], &[]).0
+    }
+
+    fn resource<'a>(row: &'a KafkaMetricRow, key: &str) -> Option<&'a str> {
+        row.resource_attributes.get(key).map(String::as_str)
+    }
+
+    fn step(tokens: &str) -> K8sResourceAttributes {
+        K8sResourceAttributes::from_token_list(tokens)
+    }
+
     #[test]
-    fn copies_labels_to_resource_attributes_for_listed_tokens() {
-        let mut rows = rows(&POD_SERIES);
-        K8sResourceAttributes::from_token_list(&format!(" other ,{TOKEN}"))
-            .apply(TOKEN, &mut rows);
+    fn copies_labels_for_listed_tokens() {
+        let mut rows = pod_rows();
+        step(&format!(" other ,{TOKEN}")).apply(TOKEN, &mut rows);
 
         for row in &rows {
-            assert_eq!(
-                row.resource_attributes.get("k8s.namespace.name").unwrap(),
-                "\"capture\""
-            );
-            assert_eq!(
-                row.resource_attributes.get("k8s.pod.name").unwrap(),
-                "\"capture-abc\""
-            );
+            let namespace = resource(row, "k8s.namespace.name");
+            assert_eq!(namespace, Some("\"capture\""));
+            let pod = resource(row, "k8s.pod.name");
+            assert_eq!(pod, Some("\"capture-abc\""));
             // An empty label does not become an attribute.
-            assert!(!row.resource_attributes.contains_key("k8s.node.name"));
+            assert_eq!(resource(row, "k8s.node.name"), None);
             // The label stays queryable under its Prometheus name.
-            assert_eq!(row.attributes.get("namespace").unwrap(), "\"capture\"");
+            assert!(row.attributes.contains_key("namespace"));
         }
     }
 
     #[test]
     fn recomputes_one_fingerprint_per_series() {
-        let original = rows(&POD_SERIES);
-        let mut copied = rows(&POD_SERIES);
-        K8sResourceAttributes::from_token_list(TOKEN).apply(TOKEN, &mut copied);
+        let original = pod_rows();
+        let mut rows = pod_rows();
+        step(TOKEN).apply(TOKEN, &mut rows);
 
-        assert_ne!(copied[0].series_fingerprint, original[0].series_fingerprint);
-        assert_eq!(copied[0].series_fingerprint, copied[1].series_fingerprint);
-        assert_eq!(
-            copied[0].series_fingerprint,
-            compute_series_fingerprint(
-                &copied[0].metric_name,
-                &copied[0].metric_type,
-                &copied[0].service_name,
-                &copied[0].resource_attributes,
-                &copied[0].attributes,
-            )
+        let row = &rows[0];
+        let expected = compute_series_fingerprint(
+            &row.metric_name,
+            &row.metric_type,
+            &row.service_name,
+            &row.resource_attributes,
+            &row.attributes,
         );
+        assert_ne!(row.series_fingerprint, original[0].series_fingerprint);
+        assert_eq!(row.series_fingerprint, expected);
+        assert_eq!(rows[1].series_fingerprint, expected);
     }
 
     #[test]
     fn leaves_other_tokens_unchanged() {
-        let original = rows(&POD_SERIES);
-        let mut untouched = rows(&POD_SERIES);
-        K8sResourceAttributes::from_token_list(TOKEN).apply("phc_customer", &mut untouched);
-        K8sResourceAttributes::from_token_list("").apply(TOKEN, &mut untouched);
+        let original = pod_rows();
+        let mut rows = pod_rows();
+        step(TOKEN).apply("phc_customer", &mut rows);
+        step("").apply(TOKEN, &mut rows);
 
-        assert_eq!(
-            untouched[0].resource_attributes,
-            original[0].resource_attributes
-        );
-        assert_eq!(
-            untouched[0].series_fingerprint,
-            original[0].series_fingerprint
-        );
+        let (row, before) = (&rows[0], &original[0]);
+        assert_eq!(row.resource_attributes, before.resource_attributes);
+        assert_eq!(row.series_fingerprint, before.series_fingerprint);
     }
 
     #[test]
     fn keeps_an_existing_resource_attribute() {
-        let mut rows = rows(&POD_SERIES);
+        let mut rows = pod_rows();
         for row in rows.iter_mut() {
-            row.resource_attributes
-                .insert("k8s.namespace.name".into(), "\"explicit\"".into());
+            let key = "k8s.namespace.name".to_string();
+            row.resource_attributes.insert(key, "\"explicit\"".into());
         }
-        K8sResourceAttributes::from_token_list(TOKEN).apply(TOKEN, &mut rows);
+        step(TOKEN).apply(TOKEN, &mut rows);
 
-        assert_eq!(
-            rows[0].resource_attributes.get("k8s.namespace.name").unwrap(),
-            "\"explicit\""
-        );
-        assert_eq!(
-            rows[0].resource_attributes.get("k8s.pod.name").unwrap(),
-            "\"capture-abc\""
-        );
+        let namespace = resource(&rows[0], "k8s.namespace.name");
+        assert_eq!(namespace, Some("\"explicit\""));
+        let pod = resource(&rows[0], "k8s.pod.name");
+        assert_eq!(pod, Some("\"capture-abc\""));
     }
 }
