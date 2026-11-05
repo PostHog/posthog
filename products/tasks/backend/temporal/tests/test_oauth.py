@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import timedelta
 
 import pytest
@@ -11,6 +12,7 @@ from posthog.models.user import User
 from posthog.temporal.oauth import RESEARCH_WITHHELD_SCOPES, PosthogMcpScopes, resolve_scopes
 
 from products.tasks.backend.exceptions import TaskInvalidStateError
+from products.tasks.backend.facade.profiles import OAuthApp, get_task_profile
 from products.tasks.backend.models import (
     INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN,
     TASK_OWNERSHIP_VERSION_STATE_KEY,
@@ -44,6 +46,7 @@ def test_built_in_agent_origins_use_restricted_oauth_scope(
     task = MagicMock(
         id="task-id",
         created_by=MagicMock(),
+        stored_profile=None,
         team_id=123,
         origin_product=origin_product,
     )
@@ -79,6 +82,7 @@ def test_posthog_ai_task_keeps_member_token_and_posthog_ai_oauth_application(
     task = MagicMock(
         id="task-id",
         created_by=MagicMock(),
+        stored_profile=None,
         team_id=123,
         origin_product=origin,
     )
@@ -96,6 +100,52 @@ def test_posthog_ai_task_keeps_member_token_and_posthog_ai_oauth_application(
     )
 
 
+@pytest.mark.parametrize(
+    "origin_product,state,profile_fields,application,restricted",
+    [
+        (Task.OriginProduct.POSTHOG_AI, {}, {}, "array", False),
+        (Task.OriginProduct.SIGNAL_REPORT, {"billing_product": "posthog_ai"}, {}, "posthog_ai", False),
+        (
+            Task.OriginProduct.USER_CREATED,
+            {},
+            {"oauth_app": OAuthApp.SIGNALS, "mcp_agent": "support"},
+            "signals",
+            True,
+        ),
+    ],
+)
+@patch("products.tasks.backend.temporal.oauth.is_builtin_agent_enforcement_enabled", return_value=True)
+@patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
+def test_profiled_task_takes_its_oauth_application_and_agent_scope_from_the_profile(
+    mock_create: MagicMock,
+    mock_enforcement: MagicMock,
+    origin_product: Task.OriginProduct,
+    state: dict[str, str],
+    profile_fields: dict,
+    application: str,
+    restricted: bool,
+) -> None:
+    task = MagicMock(
+        id="task-id",
+        created_by=MagicMock(),
+        team_id=123,
+        origin_product=origin_product,
+        stored_profile=replace(get_task_profile("business_knowledge"), **profile_fields),
+    )
+
+    assert create_oauth_access_token(task, run_state=state) == "token"
+
+    expected = {"include_mcp_builtin_agent_scope": True} if restricted else {}
+    mock_create.assert_called_once_with(
+        task.created_by,
+        123,
+        scopes="read_only",
+        application=application,
+        sandbox_task_id=task.id,
+        **expected,
+    )
+
+
 @patch("products.tasks.backend.temporal.oauth.is_builtin_agent_enforcement_enabled", return_value=False)
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
 def test_built_in_agent_origin_keeps_member_token_until_gateway_flag_rollout(
@@ -105,6 +155,7 @@ def test_built_in_agent_origin_keeps_member_token_until_gateway_flag_rollout(
     task = MagicMock(
         id="task-id",
         created_by=MagicMock(),
+        stored_profile=None,
         team_id=123,
         origin_product=Task.OriginProduct.SUPPORT_REPLY,
     )
@@ -134,6 +185,7 @@ def test_array_task_mints_only_slack_runs_with_the_slack_provenance_marker(
     task = MagicMock(
         id="task-id",
         created_by=MagicMock(),
+        stored_profile=None,
         team_id=123,
         origin_product=origin_product,
     )
@@ -194,6 +246,7 @@ def test_signals_origins_mint_under_the_signals_app_and_mark_only_user_started_r
     task = MagicMock(
         id="task-id",
         created_by=MagicMock(),
+        stored_profile=None,
         team_id=123,
         origin_product=origin_product,
         internal=internal,
@@ -258,6 +311,7 @@ def test_oauth_token_can_disable_task_creator_fallback() -> None:
     task = MagicMock(
         id="task-id",
         created_by=MagicMock(),
+        stored_profile=None,
         team_id=123,
         origin_product=Task.OriginProduct.USER_CREATED,
     )
@@ -461,6 +515,7 @@ def test_subscription_run_withholds_the_gateway_scope(mock_create: MagicMock, ad
     task = MagicMock(
         id="task-id",
         created_by=MagicMock(),
+        stored_profile=None,
         team_id=123,
         origin_product=Task.OriginProduct.USER_CREATED,
     )
@@ -475,6 +530,7 @@ def test_gateway_billed_run_keeps_the_gateway_scope(mock_create: MagicMock) -> N
     task = MagicMock(
         id="task-id",
         created_by=MagicMock(),
+        stored_profile=None,
         team_id=123,
         origin_product=Task.OriginProduct.USER_CREATED,
     )
