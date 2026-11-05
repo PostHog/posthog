@@ -81,7 +81,7 @@ export function DestinationConnectScene(): JSX.Element {
                 }
             />
             <div className="max-w-200">
-                {showPrefillConfirm && <DestinationMigrationPrefillConfirm kind={kind} />}
+                {showPrefillConfirm && <DestinationMigrationPrefillConfirm />}
                 {integrationId !== null ? (
                     <LemonBanner type={handBackStatus === 'sending' ? 'info' : 'success'}>
                         <p className="font-semibold mb-1">{typeLabel} connection saved</p>

@@ -41,6 +41,7 @@ export interface destinationConnectSceneLogicValues {
     migrationItemId: string | null
     migrationPrefillLoading: boolean
     openSetupDisabledReason: string | undefined
+    plainSetupUrl: string
     prefillConfirmed: boolean
     prefilledFieldRows: PrefilledField[]
     setupLock: LockedSetupValues | undefined
@@ -116,6 +117,7 @@ export interface destinationConnectSceneLogicMeta {
             lockedSetupValues: Record<string, any> | undefined,
             integrationId: number | null
         ) => boolean
+        plainSetupUrl: (kind: string | null, connectToken: string | null) => string
         openSetupDisabledReason: (
             lockedSetupValues: Record<string, any> | undefined,
             prefillConfirmed: boolean
@@ -265,11 +267,12 @@ export const destinationConnectSceneLogic = kea<destinationConnectSceneLogicType
                 if (!keys || !vendorConfig) {
                     return undefined
                 }
-                return Object.fromEntries(
+                const locked = Object.fromEntries(
                     Object.entries(keys)
                         .filter(([, vendorKey]) => vendorConfig[vendorKey] != null && vendorConfig[vendorKey] !== '')
                         .map(([field, vendorKey]) => [field, vendorConfig[vendorKey]])
                 )
+                return Object.keys(locked).length > 0 ? locked : undefined
             },
         ],
         prefilledFieldRows: [
@@ -302,6 +305,12 @@ export const destinationConnectSceneLogic = kea<destinationConnectSceneLogicType
             (s) => [s.lockedSetupValues, s.integrationId],
             (lockedSetupValues: Record<string, any> | undefined, integrationId: number | null): boolean =>
                 !!lockedSetupValues && integrationId === null,
+        ],
+        // The plain connect page for the same kind. It keeps the connect token, so the agent still gets the result.
+        plainSetupUrl: [
+            (s) => [s.kind, s.connectToken],
+            (kind: string | null, connectToken: string | null): string =>
+                `${urls.warehouseDestinationConnect(kind ?? undefined)}${connectToken ? `&token=${encodeURIComponent(connectToken)}` : ''}`,
         ],
         openSetupDisabledReason: [
             (s) => [s.lockedSetupValues, s.prefillConfirmed],
@@ -378,7 +387,10 @@ export const destinationConnectSceneLogic = kea<destinationConnectSceneLogicType
                     migrationId,
                     itemId
                 )
-                vendorConfig = item.proposal?.destination?.config ?? null
+                // A link whose kind does not match the planned destination gets no prefill.
+                if (item.proposal?.destination?.type === values.destinationDefinition?.type) {
+                    vendorConfig = item.proposal?.destination?.config ?? null
+                }
                 creator = item.created_by ?? null
             } catch (e: any) {
                 // The user can still fill the form by hand, so only a server error gets reported.

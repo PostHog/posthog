@@ -1311,7 +1311,7 @@ class TestDestinationConnectLink(DestinationAPITestBase):
         assert f"type='{destination_type}'" in data["instructions"]
         assert ("tests the connection" in data["instructions"]) == tested_on_create
 
-    def _planned_item(self, team: Team) -> WarehouseMigrationItem:
+    def _planned_item(self, team: Team, destination_type: str = "Postgres") -> WarehouseMigrationItem:
         return WarehouseMigrationItem.objects.for_team(team.pk).create(
             team_id=team.pk,
             migration=WarehouseMigration.objects.for_team(team.pk).create(team_id=team.pk, provider="fivetran"),
@@ -1327,7 +1327,7 @@ class TestDestinationConnectLink(DestinationAPITestBase):
                 sync_frequency="6hour",
                 sync_time_of_day=None,
                 destination=ProposedDestination(
-                    type="Postgres",
+                    type=destination_type,
                     config={"host": "db.example.com", "port": 5432, "database": "analytics", "user": "loader"},
                 ),
             ).to_json(),
@@ -1361,24 +1361,54 @@ class TestDestinationConnectLink(DestinationAPITestBase):
 
     @parameterized.expand(
         [
-            ("matching_settings", {"host": "db.example.com", "port": 5432, "user": "loader"}, status.HTTP_201_CREATED),
-            ("port_as_text", {"host": "db.example.com", "port": "5432", "user": "loader"}, status.HTTP_201_CREATED),
+            ("matching_settings", "own", "Postgres", "db.example.com", 5432, status.HTTP_201_CREATED, None),
+            ("port_as_text", "own", "Postgres", "db.example.com", "5432", status.HTTP_201_CREATED, None),
             (
                 "changed_host",
-                {"host": "elsewhere.example.net", "port": 5432, "user": "loader"},
+                "own",
+                "Postgres",
+                "elsewhere.example.net",
+                5432,
                 status.HTTP_400_BAD_REQUEST,
+                "integration",
+            ),
+            (
+                "other_team_item",
+                "other",
+                "Postgres",
+                "db.example.com",
+                5432,
+                status.HTTP_400_BAD_REQUEST,
+                "migration_item_id",
+            ),
+            (
+                "other_type_item",
+                "own",
+                "Snowflake",
+                "db.example.com",
+                5432,
+                status.HTTP_400_BAD_REQUEST,
+                "migration_item_id",
             ),
         ]
     )
     def test_create_rejects_an_integration_that_changes_the_migration_prefill(
-        self, _name: str, integration_config: dict, expected_status: int
+        self,
+        _name: str,
+        item_owner: str,
+        planned_type: str,
+        host: str,
+        port: int | str,
+        expected_status: int,
+        error_attr: str | None,
     ) -> None:
-        item = self._planned_item(self.team)
+        team = self.team if item_owner == "own" else self.create_team_with_organization(organization=self.organization)
+        item = self._planned_item(team, planned_type)
         integration = Integration.objects.create(
             team=self.team,
             kind=Integration.IntegrationKind.POSTGRESQL,
             integration_id="pg-shop",
-            config=integration_config,
+            config={"host": host, "port": port, "user": "loader"},
         )
 
         response = self.client.post(
@@ -1397,8 +1427,7 @@ class TestDestinationConnectLink(DestinationAPITestBase):
         if expected_status == status.HTTP_201_CREATED:
             self.check_connection.assert_called_once()
         else:
-            assert response.json()["attr"] == "integration"
-            assert "host" in response.json()["detail"]
+            assert response.json()["attr"] == error_attr
             self.check_connection.assert_not_called()
 
     @time_machine.travel("2026-03-01T12:00:00Z", tick=False)

@@ -34,6 +34,17 @@ const ITEMS: Record<string, Record<string, any>> = {
             destination: { type: 'Postgres', config: { host: 'billing.example.com' } },
         },
     },
+    'item-snowflake': {
+        id: 'item-snowflake',
+        proposal: {
+            prefix: 'ads',
+            destination: { type: 'Snowflake', config: { host: 'acme.snowflakecomputing.com' } },
+        },
+    },
+    'item-no-server': {
+        id: 'item-no-server',
+        proposal: { prefix: 'crm', destination: { type: 'Postgres', config: { database: 'analytics' } } },
+    },
 }
 
 describe('destinationConnectSceneLogic', () => {
@@ -141,6 +152,38 @@ describe('destinationConnectSceneLogic', () => {
         expect(created).toHaveLength(1)
         expect(created[0].config).toMatchObject({ host: 'db.example.com', port: 6543, user: 'loader' })
         formLogic.unmount()
+    })
+
+    it.each(['item-snowflake', 'item-no-server'])(
+        'locks nothing when %s has no matching server settings',
+        async (itemId) => {
+            await expectLogic(destinationConnectSceneLogic, () =>
+                router.actions.push('/data-warehouse/connect-destination', {
+                    kind: 'postgresql',
+                    migration_id: 'migration-1',
+                    migration_item_id: itemId,
+                })
+            ).toFinishAllListeners()
+
+            expect(destinationConnectSceneLogic.values).toMatchObject({
+                lockedSetupValues: undefined,
+                showPrefillConfirm: false,
+                setupModalOpen: true,
+            })
+        }
+    )
+
+    it('keeps the connect token on the link to a plain connect page', () => {
+        router.actions.push('/data-warehouse/connect-destination', {
+            kind: 'postgresql',
+            token: 'abc_123',
+            migration_id: 'migration-1',
+            migration_item_id: 'item-1',
+        })
+
+        expect(destinationConnectSceneLogic.values.plainSetupUrl).toEqual(
+            '/data-warehouse/connect-destination?kind=postgresql&token=abc_123'
+        )
     })
 
     it('follows the latest migration item link and drops the connection saved for the previous one', async () => {
