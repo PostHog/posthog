@@ -11,6 +11,7 @@ import deltalake
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import HISTORY_NAMING
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta import history_upsert
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.history_upsert import (
+    HistoryChunkTooLargeError,
     HistoryFinalizeResult,
     finalize,
     stage,
@@ -159,18 +160,20 @@ class TestHistoryUpsert:
         assert await tables.finalize() is None
 
     @pytest.mark.parametrize(
-        "name_width,chunk_kwargs",
+        "name_width,chunk_kwargs,files_per_pass",
         [
-            (1, _TINY_CHUNKS),
+            (1, _TINY_CHUNKS, 256),
+            # A disk that holds two chunk files at a time spills the sync in several passes.
+            (1, _TINY_CHUNKS, 2),
             # Parquet stores the repeated names in a few bytes, so only their decoded size crosses the limit.
-            (1000, {"max_call_bytes": 20_000, "chunk_target_bytes": 10_000}),
+            (1000, {"max_call_bytes": 20_000, "chunk_target_bytes": 10_000}, 256),
             # Narrow rows decode under the limit, and only deltalite's key copies and per-row index entries cross it.
-            (1, {"max_call_bytes": 3_000, "chunk_target_bytes": 1_500}),
+            (1, {"max_call_bytes": 3_000, "chunk_target_bytes": 1_500}, 256),
         ],
     )
     @pytest.mark.asyncio
     async def test_a_chunked_finalize_writes_the_same_history_as_one_call(
-        self, tmp_path: Path, name_width: int, chunk_kwargs: dict[str, int]
+        self, tmp_path: Path, name_width: int, chunk_kwargs: dict[str, int], files_per_pass: int
     ) -> None:
         one_call, chunked = _Tables(tmp_path / "one"), _Tables(tmp_path / "chunked")
         syncs = [
@@ -179,17 +182,31 @@ class TestHistoryUpsert:
         ]
         tag = {"run_uuid": "run-1", "batch_index": "2"}
         for index, batches in enumerate(syncs):
-            await one_call.run(f"run-{index}", *batches)
             last_sync = index == len(syncs) - 1
-            result = await chunked.run(
-                f"run-{index}", *batches, commit_metadata=tag if last_sync else None, **chunk_kwargs
-            )
+            await one_call.run(f"run-{index}", *batches, commit_metadata=tag if last_sync else None)
+            with patch.object(history_upsert, "_MAX_OPEN_CHUNK_FILES", files_per_pass):
+                result = await chunked.run(
+                    f"run-{index}", *batches, commit_metadata=tag if last_sync else None, **chunk_kwargs
+                )
             assert result is not None and result.calls > 1
 
         assert chunked.rows() == one_call.rows()
-        history = deltalake.DeltaTable(str(chunked.path))
-        tagged = [commit["version"] for commit in history.history() if commit_matches(commit, tag)]
-        assert tagged == [history.version()]
+        for tables in (one_call, chunked):
+            history = deltalake.DeltaTable(str(tables.path))
+            tagged = [commit["version"] for commit in history.history() if commit_matches(commit, tag)]
+            assert tagged == [history.version()]
+
+    @pytest.mark.asyncio
+    async def test_a_chunk_above_the_source_limit_is_refused_and_stays_staged(self, tmp_path: Path) -> None:
+        tables = _Tables(tmp_path)
+        await tables.stage(_keys(40, "a", _at(1)), "run-1", 0)
+
+        with patch.object(history_upsert, "_SOURCE_GUARD_BYTES", 1):
+            with pytest.raises(HistoryChunkTooLargeError):
+                await tables.finalize(**_TINY_CHUNKS)
+
+        assert (await tables.finalize()) is not None
+        assert len(tables.rows()) == 40
 
     @pytest.mark.parametrize("chunk_kwargs", [{}, _TINY_CHUNKS])
     @pytest.mark.asyncio
@@ -225,11 +242,14 @@ class TestHistoryUpsert:
                 raise RuntimeError("crash")
             return await real_upsert(*args, **kwargs)
 
+        tag = {"run_uuid": "run-2", "batch_index": "0"}
         with patch.object(history_upsert, "_history_upsert", side_effect=_crash_on_second_chunk):
             with pytest.raises(RuntimeError):
-                await tables.finalize(**_TINY_CHUNKS)
-        await tables.finalize(**_TINY_CHUNKS)
+                await tables.finalize(commit_metadata=tag, **_TINY_CHUNKS)
+        await tables.finalize(commit_metadata=tag, **_TINY_CHUNKS)
 
+        table = deltalake.DeltaTable(str(tables.path))
+        assert [commit["version"] for commit in table.history() if commit_matches(commit, tag)] == [table.version()]
         history = tables.rows()
         assert len(history) == 80
         assert [row for row in history if row[0] == 7] == [
