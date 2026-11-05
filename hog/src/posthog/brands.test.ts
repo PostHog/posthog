@@ -31,7 +31,7 @@ describe('brand factories', () => {
         [
             'a personal API key copied with a line break',
             () => parsePersonalApiKey('phx_abc\n'),
-            "invalid_personal_api_key: The personal API key has characters a token can't have, such as a space or a quote. Copy it again.",
+            "invalid_personal_api_key: This token is cut off, or has characters a token can't have, such as a space or a quote. Copy it again.",
         ],
         [
             'a personal API key as an OAuth access token',
