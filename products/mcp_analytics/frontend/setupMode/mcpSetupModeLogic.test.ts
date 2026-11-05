@@ -220,21 +220,34 @@ describe('mcpSetupModeLogic', () => {
         })
 
         it.each([
-            { state: 'the last step', signals: ONE_CALL, setupStep: 'useful' as const, step: 'useful' },
-            { state: 'a reopened first call', signals: RETURNING, setupStep: undefined, step: 'first-call' },
-        ])('loads the calls once on $state instead of polling them', async ({ signals, setupStep, step }) => {
-            jest.spyOn(api, 'query').mockResolvedValue({ results: [signals] } as any)
-            const overview = jest.mocked(mcpAnalyticsSessionsActivityOverview).mockReset()
-            overview.mockResolvedValue({ recent_calls: [] } as any)
-            logic.actions.loadSignals()
-            await jest.advanceTimersByTimeAsync(0)
+            { state: 'the last step', signals: ONE_CALL, setupStep: 'useful' as const, failsFirst: false, loads: 1 },
+            { state: 'a reopened first call', signals: RETURNING, setupStep: undefined, failsFirst: false, loads: 1 },
+            {
+                state: 'a reopened first call that failed to load',
+                signals: RETURNING,
+                setupStep: undefined,
+                failsFirst: true,
+                loads: 2,
+            },
+        ])(
+            'loads the calls $loads time(s) on $state instead of polling them',
+            async ({ signals, setupStep, failsFirst, loads }) => {
+                jest.spyOn(api, 'query').mockResolvedValue({ results: [signals] } as any)
+                const overview = jest.mocked(mcpAnalyticsSessionsActivityOverview).mockReset()
+                overview.mockResolvedValue({ recent_calls: [] } as any)
+                if (failsFirst) {
+                    overview.mockRejectedValueOnce(new Error('overview failed'))
+                }
+                logic.actions.loadSignals()
+                await jest.advanceTimersByTimeAsync(0)
 
-            await openAgentSetup(setupStep)
-            await jest.advanceTimersByTimeAsync(31000)
+                await openAgentSetup(setupStep)
+                await jest.advanceTimersByTimeAsync(31000)
 
-            expect(logic.values.step).toBe(step)
-            expect(overview).toHaveBeenCalledTimes(1)
-        })
+                expect(overview).toHaveBeenCalledTimes(loads)
+                expect(logic.values.recentCallsFailed).toBe(false)
+            }
+        )
 
         it('retries soon when the first signals query fails, instead of spinning until the slow poll', async () => {
             logic.unmount()

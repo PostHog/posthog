@@ -42,7 +42,8 @@ const RECENT_CALLS = 2
 
 // Faster than the onboarding logic's own poll: someone in setup mode is watching for the moment
 // their server answers. Only a new project polls, and its queries stay cheap while it has a handful
-// of events. A project with earlier calls, reopened from the scene, loads each step once.
+// of events. A project with earlier calls, reopened from the scene, loads each step once and
+// retries only after a failed load.
 const CONNECT_POLL_MS = 5000
 const FIRST_CALL_POLL_MS = 10000
 const SERVER_TOOLS_POLL_MS = 10000
@@ -407,12 +408,12 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
                 }, 'setupPoll')
             } else if (pollTarget === 'calls') {
                 actions.loadRecentCalls()
-                if (!isNewProject(values.signals)) {
-                    return
-                }
                 cache.disposables.add(() => {
                     const id = window.setInterval(
-                        () => !values.recentCallsLoading && actions.loadRecentCalls(),
+                        () =>
+                            !values.recentCallsLoading &&
+                            (isNewProject(values.signals) || values.recentCallsFailed) &&
+                            actions.loadRecentCalls(),
                         FIRST_CALL_POLL_MS
                     )
                     return () => clearInterval(id)
@@ -423,12 +424,12 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
             cache.disposables.dispose('serverToolsPoll')
             if (pollsServerTools) {
                 actions.loadServerTools()
-                if (!isNewProject(values.signals)) {
-                    return
-                }
                 cache.disposables.add(() => {
                     const id = window.setInterval(
-                        () => !values.serverToolsLoading && actions.loadServerTools(),
+                        () =>
+                            !values.serverToolsLoading &&
+                            (isNewProject(values.signals) || values.serverToolsFailed) &&
+                            actions.loadServerTools(),
                         SERVER_TOOLS_POLL_MS
                     )
                     return () => clearInterval(id)
