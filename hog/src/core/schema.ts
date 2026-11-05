@@ -1,7 +1,6 @@
 import { HogError } from './errors'
 
-// The part of a schema that hog's parsing helpers rely on. zod schemas have this shape, so the
-// helpers don't depend on zod's types, and a schema from another library can stand in for one.
+// zod schemas have this shape, so hog's parsing helpers don't depend on zod's types.
 export interface Schema<T> {
     safeParse(raw: unknown): { success: true; data: T } | { success: false; error: { issues: readonly SchemaIssue[] } }
 }

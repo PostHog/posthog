@@ -51,7 +51,6 @@ export default defineCommand({
             }
             throw error
         }
-        // `response` keeps every field PostHog sent, for --raw.
         return {
             columns: (response.columns ?? []).map((name, index) => ({ name, type: response.types?.[index]?.[1] })),
             rows: response.results,
