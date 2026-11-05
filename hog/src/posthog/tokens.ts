@@ -28,7 +28,7 @@ const TOKEN_BODY = /^[A-Za-z0-9_-]+$/
 const JWT = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
 
 // The message never contains the value, which would end up in logs and agent transcripts.
-function tokenError(value: string, name: string, rule: string): string {
+function tokenErrorMessage(value: string, name: string, rule: string): string {
     const other = PREFIX_NAMES[value.slice(0, 4)]
     return other
         ? `This is ${other}, not ${name}. ${capitalize(name)} must ${rule}.`
@@ -36,7 +36,7 @@ function tokenError(value: string, name: string, rule: string): string {
 }
 
 // For a token that starts with its prefix: what is wrong with the rest of it.
-function tokenBodyError(value: string, prefix: string, noun: string): string | undefined {
+function tokenBodyErrorMessage(value: string, prefix: string, noun: string): string | undefined {
     const body = value.slice(prefix.length)
     if (body === '') {
         return `The ${noun} is cut off: nothing follows ${prefix}.`
@@ -52,8 +52,8 @@ function tokenSchema(kind: TokenKind): z.ZodString {
     return z.string({ error: `The ${noun} must be text.` }).check((ctx) => {
         const value = ctx.value
         const message = value.startsWith(prefix)
-            ? tokenBodyError(value, prefix, noun)
-            : tokenError(value, name, `start with ${prefix}`)
+            ? tokenBodyErrorMessage(value, prefix, noun)
+            : tokenErrorMessage(value, name, `start with ${prefix}`)
         if (message) {
             ctx.issues.push({ code: 'custom', input: value, message })
         }
@@ -62,7 +62,7 @@ function tokenSchema(kind: TokenKind): z.ZodString {
 
 // PostHog also accepts a custom project token, with or without the prefix and with any characters,
 // so only an empty token or one with another kind's prefix fails.
-function projectTokenError(value: string): string | undefined {
+function projectTokenErrorMessage(value: string): string | undefined {
     const { prefix, name } = TOKEN_KINDS.projectToken
     if (value.startsWith(prefix)) {
         return value === prefix ? `The project token is cut off: nothing follows ${prefix}.` : undefined
@@ -78,7 +78,7 @@ export const PersonalApiKeySchema = tokenSchema('personalApiKey').brand<'Persona
 export const ProjectTokenSchema = z
     .string({ error: 'The project token must be text.' })
     .check((ctx) => {
-        const message = projectTokenError(ctx.value)
+        const message = projectTokenErrorMessage(ctx.value)
         if (message) {
             ctx.issues.push({ code: 'custom', input: ctx.value, message })
         }
@@ -94,7 +94,7 @@ export const WorkloadTokenSchema = z
     .string({ error: 'The workload token must be text.' })
     .check((ctx) => {
         if (!JWT.test(ctx.value)) {
-            const message = tokenError(ctx.value, 'a workload token', 'be a JWT, three parts joined by dots')
+            const message = tokenErrorMessage(ctx.value, 'a workload token', 'be a JWT, three parts joined by dots')
             ctx.issues.push({ code: 'custom', input: ctx.value, message })
         }
     })
