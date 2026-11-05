@@ -147,6 +147,9 @@ export type IngestionConsumerConfig = {
     INGESTION_API_GRPC_SESSION_IDLE_TIMEOUT_MS: number
     INGESTION_API_GRPC_READ_MAX_BYTES: number
     INGESTION_API_GRPC_DRAIN_TIMEOUT_MS: number
+    // A pipeline await cannot be cancelled, so a sub-batch in flight longer than
+    // this fails the server and the process restarts. `0` disables the check.
+    INGESTION_API_GRPC_STUCK_BATCH_TIMEOUT_MS: number
 
     // Person batch writing config
     PERSON_BATCH_WRITING_DB_WRITE_MODE: PersonBatchWritingDbWriteMode
@@ -349,6 +352,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         INGESTION_API_GRPC_SESSION_IDLE_TIMEOUT_MS: 300_000,
         INGESTION_API_GRPC_READ_MAX_BYTES: 32 * 1024 * 1024,
         INGESTION_API_GRPC_DRAIN_TIMEOUT_MS: 15_000,
+        INGESTION_API_GRPC_STUCK_BATCH_TIMEOUT_MS: 300_000,
 
         // Person batch writing config
         PERSON_BATCH_WRITING_DB_WRITE_MODE: 'NO_ASSERT',

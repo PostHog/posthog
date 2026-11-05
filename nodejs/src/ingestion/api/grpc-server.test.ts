@@ -403,6 +403,62 @@ describe('WorkerIngestServer', () => {
         expect(onFatal).toHaveBeenCalledWith(expect.objectContaining({ message: 'pipeline poisoned' }))
     })
 
+    it('fails the stream and reports fatal when a sub-batch never settles within the stuck-batch deadline', async () => {
+        const watched = new WorkerIngestServer(
+            { port: 0, maxConcurrentBatches: 4, capacityRetryMs: 1, pumpIdleMs: 1, stuckBatchTimeoutMs: 50 },
+            { driver, feedOrderSentinel: sentinel, onFatal }
+        )
+        await watched.start()
+        try {
+            const baseline = await metricValue('ingestion_api_grpc_stuck_batches_total')
+            const source = new FrameSource()
+            const collected = collect(watched, source)
+
+            source.push(hello())
+            source.push(subBatch(1, [10]))
+            await until(() => driver.feeds.length === 1)
+            driver.complete({ streamId: driver.feeds[0].streamId, seq: 1, accepted: 1 }, new Deferred<void>().promise)
+            await until(() => onFatal.mock.calls.length === 1)
+            await collected.ended
+
+            expect(collected.error!.code).toBe(Code.Internal)
+            expect(onFatal).toHaveBeenCalledWith(
+                expect.objectContaining({ message: expect.stringContaining('stuck-batch deadline') })
+            )
+            expect(await metricValue('ingestion_api_grpc_stuck_batches_total')).toBe(baseline + 1)
+        } finally {
+            await watched.stop()
+        }
+    })
+
+    it('measures the stuck-batch deadline per sub-batch, so an idle stream outlives it', async () => {
+        const watched = new WorkerIngestServer(
+            { port: 0, maxConcurrentBatches: 4, capacityRetryMs: 1, pumpIdleMs: 1, stuckBatchTimeoutMs: 100 },
+            { driver, feedOrderSentinel: sentinel, onFatal }
+        )
+        await watched.start()
+        try {
+            const source = new FrameSource()
+            const collected = collect(watched, source)
+
+            source.push(hello())
+            source.push(subBatch(1, [10]))
+            await until(() => driver.feeds.length === 1)
+            driver.complete({ streamId: driver.feeds[0].streamId, seq: 1, accepted: 1 })
+            await until(() => collected.acks.length === 1)
+
+            // Absence check: the stream stays open, settled, for several deadlines.
+            await new Promise((resolve) => setTimeout(resolve, 400))
+            expect(onFatal).not.toHaveBeenCalled()
+
+            source.end()
+            await collected.ended
+            expect(collected.error).toBeNull()
+        } finally {
+            await watched.stop()
+        }
+    })
+
     it('nacks a rejected sub-batch before closing the stream', async () => {
         const source = new FrameSource()
         const collected = collect(server, source)
