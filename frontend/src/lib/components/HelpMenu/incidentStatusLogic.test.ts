@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { STATUS_PAGE_BASE } from 'lib/lemon-ui/LemonToast/incidentStatus'
 import { preflightLogic } from 'lib/logic/preflightLogic'
@@ -42,5 +43,34 @@ describe('incidentStatusLogic', () => {
 
         expect(statusPageRequestCount()).toBe(expectedRequests)
         expect(logic.values.summary === null).toBe(expectedRequests === 0)
+    })
+
+    it('falls back to operational when the status page returns a 2xx body without the incident arrays', async () => {
+        useMocks({ get: { '/_preflight': [200, { ...preflightJson, region: Region.US }] } })
+        initKeaTests()
+        const realFetch = global.fetch
+        fetchSpy = jest
+            .spyOn(global, 'fetch')
+            .mockImplementation((input, init) =>
+                String(input).startsWith(STATUS_PAGE_BASE)
+                    ? Promise.resolve(new Response(JSON.stringify({ page_title: 'PostHog' }), { status: 200 }))
+                    : realFetch(input, init)
+            )
+        const captureSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+
+        logic = incidentStatusLogic()
+        logic.mount()
+
+        await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(statusPageRequestCount()).toBe(1)
+        expect(captureSpy).toHaveBeenCalledTimes(1)
+        expect(logic.values).toMatchObject({
+            summary: null,
+            rawStatus: 'operational',
+            aiIncidentAlerts: [],
+            statusDescription: null,
+        })
     })
 })

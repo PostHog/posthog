@@ -119,6 +119,15 @@ function hasRelevantComponents(affectedComponents: AffectedComponent[], relevant
     return affectedComponents.some((component) => normalizeGroupName(component.group_name ?? '') === relevantGroupName)
 }
 
+function isSummary(data: unknown): data is Summary {
+    return (
+        typeof data === 'object' &&
+        data !== null &&
+        Array.isArray((data as Summary).ongoing_incidents) &&
+        Array.isArray((data as Summary).in_progress_maintenances)
+    )
+}
+
 function getWorstStatusForRegion(summary: Summary, relevantGroupName: string | null): NormalizedStatus {
     // Filter incidents to only those affecting the current region
     const relevantIncidents = summary.ongoing_incidents.filter((incident) =>
@@ -300,7 +309,13 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
                             )
                             return null
                         }
-                        const data: Summary = await response.json()
+                        const data: unknown = await response.json()
+                        if (!isSummary(data)) {
+                            // A 2xx body without the incident arrays would throw in every selector that
+                            // reads them, and that error reaches RootErrorBoundary and blanks the app.
+                            posthog.captureException(new Error('incident.io summary has an unexpected shape'))
+                            return null
+                        }
                         return data
                     } catch (error) {
                         if (!isBrowserNetworkFailure(error)) {
