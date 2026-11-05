@@ -662,8 +662,9 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
         self.root = root
         self.reader = scan
         self.aliases = aliases
-        # The names that the enclosing lambdas bind, or None outside a lambda.
-        self.lambda_names: frozenset[str] | None = None
+        # The names that the enclosing lambdas bind, or None outside a lambda. A lambda argument maps to None. An alias
+        # inside a lambda maps to the expression that it names.
+        self.lambda_names: dict[str, ast.Expr | None] | None = None
         self.found = False
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
@@ -672,16 +673,16 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
 
     def visit_lambda(self, node: ast.Lambda) -> None:
         outer = self.lambda_names
-        self.lambda_names = (outer or frozenset()).union(node.args)
+        self.lambda_names = {**(outer or {}), **dict.fromkeys(node.args)}
         super().visit_lambda(node)
         self.lambda_names = outer
 
     def visit_alias(self, node: ast.Alias) -> None:
         super().visit_alias(node)
-        # The resolver registers an alias inside a lambda in that lambda's scope once it reads the alias, so the name
-        # reads the alias for the rest of the lambda.
+        # Inside a lambda, the resolver binds an alias's name in the lambda's scope when it visits the alias. Later
+        # uses of the name in that lambda resolve to the alias's expression, not to a select alias.
         if self.lambda_names is not None:
-            self.lambda_names = self.lambda_names.union([node.alias])
+            self.lambda_names = {**self.lambda_names, node.alias: self._resolve(node.expr)}
 
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
         pass
@@ -694,17 +695,25 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
         self._check(node)
         super().visit_call(node)
 
-    def _check(self, expr: ast.Expr) -> None:
-        def resolve(read: ast.Expr) -> ast.Expr:
-            return self.aliases.target(read, self.lambda_names or frozenset())
+    def _resolve(self, read: ast.Expr) -> ast.Expr:
+        read = unwrap_alias(read)
+        names = self.lambda_names or {}
+        if isinstance(read, ast.Field) and len(read.chain) == 1 and str(read.chain[0]) in names:
+            named = names[str(read.chain[0])]
+            return read if named is None else named
+        return self.aliases.target(read, frozenset(names))
 
-        values = compared_values(expr, lambda read: self.reader.column(resolve(read)) == ["event"])
+    def _check(self, expr: ast.Expr) -> None:
+        values = compared_values(expr, lambda read: self.reader.column(self._resolve(read)) == ["event"])
         items = [
             item
-            for value in map(resolve, values or [])
+            for value in map(self._resolve, values or [])
             for item in (value.exprs if isinstance(value, (ast.Tuple, ast.Array)) else [value])
         ]
-        if any(isinstance(value := resolve(item), ast.Constant) and value.value == FLAG_CALLED_EVENT for item in items):
+        if any(
+            isinstance(value := self._resolve(item), ast.Constant) and value.value == FLAG_CALLED_EVENT
+            for item in items
+        ):
             self.found = True
 
 

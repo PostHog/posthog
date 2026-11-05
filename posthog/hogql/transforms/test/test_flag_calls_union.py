@@ -284,6 +284,19 @@ class TestRenameFlagCallScansToUnion(SimpleTestCase):
                 [],
             ),
             (
+                "alias_of_event_inside_a_lambda",
+                "SELECT count() FROM events "
+                "WHERE arrayExists(x -> ((event AS ev), ev IN ('$pageview', '$feature_flag_called')).2, [1])",
+                [UNION],
+                [],
+            ),
+            (
+                "alias_inside_a_lambda_of_an_alias_of_event",
+                "SELECT event AS e, arrayMap(x -> ((e AS ev), ev = '$feature_flag_called'), [1]) AS m FROM events",
+                [UNION],
+                [],
+            ),
+            (
                 "alias_inside_a_lambda_named_like_an_alias_of_event",
                 "SELECT arrayMap(x -> (x AS a), [1]) AS m, event AS a FROM events "
                 "WHERE a IN ('$pageview', '$feature_flag_called')",
