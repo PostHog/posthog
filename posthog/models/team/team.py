@@ -953,14 +953,10 @@ class Team(UUIDTClassicModel):
 
     def _persist_api_token_change(self, *, old_token: str, user: "User", is_impersonated_session: bool) -> None:
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+        from posthog.storage.team_metadata_signal_handlers import enqueue_team_metadata_clear_on_commit
         from posthog.tasks.remote_config import update_team_remote_config
-        from posthog.tasks.team_metadata import clear_team_metadata_cache_for_token_task
 
         self.save()
-        # The post_save receiver also dispatches the plain remote config sync for this save.
-        # A worker that predates the old_token argument rejects this task. That worker still
-        # runs the plain sync, which writes the new token's Redis entry.
-        transaction.on_commit(lambda: update_team_remote_config.delay(self.id, old_token=old_token))
         if settings.FLAGS_REDIS_URL:
             # The flags service resolves a token to a team through the team metadata cache, and it
             # trusts a hit without a Postgres check. The cache key is the token, so the post_save
@@ -968,7 +964,18 @@ class Team(UUIDTClassicModel):
             # object-storage copy has no TTL, so the retired token keeps evaluating flags until
             # this delete runs. The delete waits for the commit, because before the commit the old
             # token is still the team's token in Postgres, and a concurrent read restores the entry.
-            transaction.on_commit(lambda: clear_team_metadata_cache_for_token_task.delay(old_token))
+            #
+            # Nothing repairs a delete that never runs, because the hourly refresh resolves each
+            # tracked token to a team and a retired token resolves to none. Only the manual
+            # sweep_orphaned_team_metadata_cache command finds the entry again. So this enqueue
+            # comes before the remote config hook below, and it records a broker failure instead
+            # of raising, because Django stops the remaining commit hooks at the first one that
+            # raises.
+            enqueue_team_metadata_clear_on_commit(old_token, team_id=self.id)
+        # The post_save receiver also dispatches the plain remote config sync for this save.
+        # A worker that predates the old_token argument rejects this task. That worker still
+        # runs the plain sync, which writes the new token's Redis entry.
+        transaction.on_commit(lambda: update_team_remote_config.delay(self.id, old_token=old_token))
         set_team_in_cache(old_token, None)
         set_team_in_cache(self.api_token, self)
         log_activity(

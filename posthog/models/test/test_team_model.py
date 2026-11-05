@@ -523,7 +523,7 @@ class TestTeamSetTokenAndSave(BaseTest):
         assert cached_new is not None
         assert cached_new.api_token == "phc_new_token_value"
 
-    @override_settings(FLAGS_REDIS_URL="redis://localhost:6379")
+    @override_settings(FLAGS_REDIS_URL="redis://localhost:6379", OBJECT_STORAGE_ENABLED=True)
     @patch("posthog.tasks.integrations.push_vercel_secrets.delay")
     def test_set_token_and_save_clears_old_token_metadata_cache_in_redis_and_s3(self, _mock_push_vercel) -> None:
         update_team_metadata_cache(self.team)
