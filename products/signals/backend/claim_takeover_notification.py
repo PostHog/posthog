@@ -1,3 +1,5 @@
+from django.utils.text import Truncator
+
 from celery import shared_task
 
 from posthog.exceptions_capture import capture_exception
@@ -16,6 +18,10 @@ from products.signals.backend.models import SignalReport
 from products.signals.backend.report_access import may_read_reports
 from products.signals.backend.report_claims import ReportClaim
 
+_TITLE_SUFFIX = " took over a report you were working on"
+# NotificationEvent.title is a varchar(255), and an MCP client name alone can run to 200 characters.
+_DISPLAY_NAME_LIMIT = 255 - len(_TITLE_SUFFIX)
+
 
 def notify_claim_taken_over(*, report: SignalReport, previous: ReportClaim, actor: ArtefactAttribution) -> None:
     """Queue the notification for the person whose claim was taken over. Call after the takeover commits."""
@@ -28,7 +34,7 @@ def notify_claim_taken_over(*, report: SignalReport, previous: ReportClaim, acto
             report_id=str(report.id),
             recipient_id=previous.actor_user_id,
             previous_claim_id=str(previous.claim_id),
-            title=f"{claim_display_name(report, actor)} took over a report you were working on",
+            title=f"{Truncator(claim_display_name(report, actor)).chars(_DISPLAY_NAME_LIMIT)}{_TITLE_SUFFIX}",
         )
     except Exception as error:
         capture_exception(error)

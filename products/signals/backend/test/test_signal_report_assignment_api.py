@@ -614,6 +614,7 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         [
             ("agent_without_claim_id", "codex", False, status.HTTP_409_CONFLICT, SignalActorKind.USER),
             ("agent_with_claim_id", "codex", True, status.HTTP_200_OK, SignalActorKind.AGENT),
+            ("agent_with_overlong_client_name", "c" * 200, True, status.HTTP_200_OK, SignalActorKind.AGENT),
             ("person_with_claim_id", None, True, status.HTTP_200_OK, SignalActorKind.USER),
             # The notification carries the report title, so someone who lost Inbox access gets none.
             ("holder_without_inbox_access", None, True, status.HTTP_200_OK, SignalActorKind.USER),
@@ -667,6 +668,7 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
             notification = mock_create_notification.call_args.args[0]
             assert notification.target_id == str(teammate.id)
             assert notification.body == "Checkout fails"
+            assert len(notification.title) <= 255
 
     def test_claimants_own_task_works_under_their_claim(self):
         Task = apps.get_model("tasks", "Task")
