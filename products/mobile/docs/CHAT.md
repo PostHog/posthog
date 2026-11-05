@@ -103,7 +103,7 @@ A tap on an object link, an insight card, a SQL card or a markdown link opens it
 `object_kind` (the registry kind, null for a markdown link) and `app_link` (a markdown link that was an app path).
 
 Insight summaries need the `insight:read` OAuth scope. Existing sessions need a new sign-in,
-and the server's mobile OAuth application must allow the scope; see [AUTH.md](AUTH.md).
+and the server's mobile OAuth application must allow the scope.
 
 ## Starting a chat
 
