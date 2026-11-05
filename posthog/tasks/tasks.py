@@ -782,7 +782,7 @@ def clickhouse_clear_removed_data() -> None:
     from posthog.models.async_deletion.celery_fallback import CELERY_SWEEP_MAX_COHORTS, celery_sweeps_enabled
     from posthog.models.async_deletion.delete_cohorts import sweep_cohort_deletions
 
-    # Also guarded at registration; this covers a stale beat schedule or a hand-run task.
+    # Registration only checks for a hobby deployment, so this also holds when Dagster runs the sweep.
     if not celery_sweeps_enabled():
         return
     sweep_cohort_deletions(max_cohorts=CELERY_SWEEP_MAX_COHORTS)
