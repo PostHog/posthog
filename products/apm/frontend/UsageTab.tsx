@@ -155,6 +155,7 @@ export function UsageTab(): JSX.Element {
                         ? "Couldn't load usage. Check your connection and try again."
                         : 'No logs, spans, or metrics in this time range. Send telemetry from your services to see their usage here.'
                 }
+                pagination={{ pageSize: 50 }}
                 data-attr="apm-usage-table"
             />
         </div>

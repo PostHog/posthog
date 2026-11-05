@@ -505,7 +505,8 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
             cache.reloadServices = cache.reloadServices || includeServices
             cache.disposables.add(() => {
                 const timerId = setTimeout(() => {
-                    if (cache.reloadServices) {
+                    // Usage reads no service health, so the reload stays pending until a tab that does opens.
+                    if (cache.reloadServices && values.tab !== 'usage') {
                         cache.reloadServices = false
                         actions.loadServicesHealth()
                     }
