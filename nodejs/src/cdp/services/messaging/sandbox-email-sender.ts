@@ -354,15 +354,18 @@ function conditionHolds(condition: string, client: ConditionalClient): boolean {
 }
 
 class AttributeBoundedParser extends Parser<DefaultTreeAdapterMap> {
+    static maxAttributesPerTag = MAX_ATTRIBUTES_PER_TAG
+
     constructor(...args: ConstructorParameters<typeof Parser<DefaultTreeAdapterMap>>) {
         super(...args)
+        const maxAttributesPerTag = (new.target as typeof AttributeBoundedParser).maxAttributesPerTag
         const tokenizer = this.tokenizer as unknown as {
             currentToken: { attrs: unknown[] } | null
             _leaveAttrName: () => void
         }
         const leaveAttrName = tokenizer._leaveAttrName.bind(tokenizer)
         tokenizer._leaveAttrName = () => {
-            if ((tokenizer.currentToken?.attrs.length ?? 0) >= MAX_ATTRIBUTES_PER_TAG) {
+            if ((tokenizer.currentToken?.attrs.length ?? 0) >= maxAttributesPerTag) {
                 throw new Error(
                     'The sandbox email template could not retain its identification footer. Update the template and try again.'
                 )
@@ -404,8 +407,16 @@ const depthBoundedTreeAdapter: TreeAdapter<DefaultTreeAdapterMap> = {
     },
 }
 
+class FooterStyleAttributeBoundedParser extends AttributeBoundedParser {
+    static maxAttributesPerTag = MAX_ATTRIBUTES_PER_TAG + 1
+}
+
 function parseBounded(html: string, scriptingEnabled = false): DefaultTreeAdapterMap['document'] {
     return AttributeBoundedParser.parse(html, { scriptingEnabled, treeAdapter: depthBoundedTreeAdapter })
+}
+
+function parseBuiltEmail(html: string, scriptingEnabled = false): DefaultTreeAdapterMap['document'] {
+    return FooterStyleAttributeBoundedParser.parse(html, { scriptingEnabled, treeAdapter: depthBoundedTreeAdapter })
 }
 
 class TooLargeForSandbox extends Error {
@@ -439,7 +450,7 @@ function conditionalMarker(comment: string): ConditionalMarker | null {
 }
 
 function outlookViews(html: string): DefaultTreeAdapterMap['document'][] {
-    const document = parseBounded(html)
+    const document = parseBuiltEmail(html)
     const marker = `outlook-conditional-${randomUUID()}-`
     const markers: ConditionalMarker[] = []
     const parents: DefaultTreeAdapterMap['parentNode'][] = [document]
@@ -470,13 +481,18 @@ function outlookViews(html: string): DefaultTreeAdapterMap['document'][] {
     for (const client of CONDITIONAL_CLIENTS) {
         let view = pieces[0]
         let skipping = false
+        let insideRevealedBranch = false
         for (let index = 1; index < pieces.length; index += 2) {
             const found = markers[Number(pieces[index])]
             if (found.kind === 'close') {
                 skipping = false
+                insideRevealedBranch = false
+            } else if (found.kind === 'open' && insideRevealedBranch) {
+                throw new UnreadableConditional()
             } else if (skipping) {
                 continue
             } else if (found.kind === 'open') {
+                insideRevealedBranch = true
                 skipping = !conditionHolds(found.condition, client)
             } else if (conditionHolds(found.condition, client)) {
                 view += found.content
@@ -485,7 +501,7 @@ function outlookViews(html: string): DefaultTreeAdapterMap['document'][] {
         }
         views.add(view)
     }
-    return [...views].map((view) => parseBounded(view))
+    return [...views].map((view) => parseBuiltEmail(view))
 }
 
 function insertPreheader(body: DefaultTreeAdapterMap['element'], preheaderHtml: string): void {
@@ -554,7 +570,7 @@ function appendHtmlFooter(html: string, footer: string, preheader?: string): str
         }
         throw error
     }
-    const renderings = [parseBounded(serialized), parseBounded(serialized, true), ...conditionalRenderings]
+    const renderings = [parseBuiltEmail(serialized), parseBuiltEmail(serialized, true), ...conditionalRenderings]
     for (const rendering of renderings) {
         const deliveredFooter = htmlBody(rendering)?.childNodes.at(-1)
         if (
