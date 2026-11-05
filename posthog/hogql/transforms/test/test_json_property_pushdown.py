@@ -10,8 +10,8 @@ from posthog.hogql.printer import prepare_and_print_ast
 
 
 class TestJSONPropertyPushdown(BaseTest):
-    def _print(self, query: str) -> str:
-        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+    def _print(self, query: str, **context_options) -> str:
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, **context_options)
         printed, _ = prepare_and_print_ast(parse_select(query), context, dialect="clickhouse")
         return printed
 
@@ -31,20 +31,12 @@ class TestJSONPropertyPushdown(BaseTest):
         self.assertIn("properties___probe", printed)
 
     def test_event_and_person_reads_through_a_join_to_events_read_their_own_columns(self):
-        context = HogQLContext(
-            team_id=self.team.pk,
-            enable_select_queries=True,
+        printed = self._print(
+            "SELECT JSONExtractString(events.properties, 'label'), "
+            "JSONExtractString(events.person.properties, 'label') FROM raw_session_replay_events",
             modifiers=HogQLQueryModifiers(
                 personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
             ),
-        )
-        printed, _ = prepare_and_print_ast(
-            parse_select(
-                "SELECT JSONExtractString(events.properties, 'label'), "
-                "JSONExtractString(events.person.properties, 'label') FROM raw_session_replay_events"
-            ),
-            context,
-            dialect="clickhouse",
         )
         self.assertIn("JSONExtractRaw(events.properties,", printed)
         self.assertIn("JSONExtractRaw(events.person_properties,", printed)
