@@ -516,6 +516,7 @@ export class EmailService {
         let rescheduled: boolean = false
         let assetRow: MessageAssetRow | null = null
         let trackingEnabled = true
+        let sendingDomain = ''
         let failureReason: EmailStatusReason = 'provider_error'
 
         try {
@@ -602,6 +603,7 @@ export class EmailService {
             }
 
             const from = this.resolveFromSender(integration, params.from, addLog)
+            sendingDomain = from.email.split('@').pop()?.toLowerCase() ?? ''
 
             // An empty `to` comes from the customer's data (a person without an email property, or no
             // person at all), not from a fault in the send path. SES rejects it as an invalid address,
@@ -913,6 +915,7 @@ export class EmailService {
                     messageId: invocation.id,
                     status: success ? 'sent' : 'failed',
                     reason: success ? undefined : failureReason,
+                    sendingDomain,
                 })
             }
         }
