@@ -807,6 +807,11 @@ class TestFinestTimeBucket(SimpleTestCase):
                 "select bucket, count() from events array join [toStartOfMinute(timestamp)] as bucket group by bucket",
                 "minute",
             ),
+            (
+                "inside_order_by",
+                "select event from events order by toStartOfMinute(timestamp) desc limit 10",
+                "minute",
+            ),
         ]
     )
     def test_finest_time_bucket(self, _name: str, sql: str, expected: Optional[str]) -> None:

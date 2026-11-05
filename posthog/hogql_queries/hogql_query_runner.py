@@ -99,6 +99,8 @@ class TimeBucketCollector(TraversingVisitor):
             self.visit(expr)
         for expr in node.group_by or []:
             self.visit(expr)
+        for expr in node.order_by or []:
+            self.visit(expr)
         self.window_exprs = parent_window_exprs
 
     def visit_join_expr(self, node: ast.JoinExpr) -> None:
