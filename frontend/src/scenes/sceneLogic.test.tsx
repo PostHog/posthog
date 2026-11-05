@@ -73,6 +73,7 @@ const testScenes: Record<string, () => any> = {
     [Scene.AIObservabilityOfflineExperiments]: sceneImport,
     [Scene.Billing]: sceneImport,
     [Scene.DataManagement]: sceneImport,
+    [Scene.ErrorTracking]: sceneImport,
     [Scene.OrganizationCreateFirst]: sceneImport,
     [Scene.OrganizationDeactivated]: sceneImport,
     [Scene.OrganizationPendingDeletion]: sceneImport,
@@ -320,6 +321,26 @@ describe('sceneLogic', () => {
         router.actions.push('/billing')
         await expectLogic(logic).delay(1)
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.organizationBilling())
+    })
+
+    it.each([
+        ['/error-tracking/configuration', undefined],
+        ['/error-tracking/settings', undefined],
+        ['/error-tracking/configuration/symbol_sets', 'error-tracking-symbol-sets'],
+        ['/error-tracking/settings/alerting', 'error-tracking-alerting'],
+    ])('redirects %s to configuration before matching the issue route', async (path, selectedSetting) => {
+        await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
+            sceneId: Scene.DataManagement,
+        })
+        await expectLogic(logic, () => {
+            router.actions.push(path)
+        })
+            .toDispatchActions(['openScene', 'loadScene', 'setScene'])
+            .toMatchValues({ activeSceneId: Scene.ErrorTracking })
+
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe('/error-tracking')
+        expect(router.values.searchParams).toEqual({ activeTab: 'configuration' })
+        expect(router.values.hashParams).toEqual(selectedSetting ? { selectedSetting } : {})
     })
 
     it('keeps /billing/authorization_status on its own scene route, not the billing redirect', async () => {

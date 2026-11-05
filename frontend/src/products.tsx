@@ -553,6 +553,14 @@ export const productRedirects: Record<
         combineUrl(urls.engineeringAnalyticsTests(), searchParams, hashParams).url,
     '/engineering-analytics/health': (_params, searchParams, hashParams): string =>
         combineUrl(urls.engineeringAnalyticsDeploys(), searchParams, hashParams).url,
+    '/error-tracking/configuration': (_params, searchParams, hashParams) =>
+        configurationRedirect(resolveSettingSlug(searchParams.tab), searchParams, hashParams),
+    '/error-tracking/configuration/:tab': (params, searchParams, hashParams) =>
+        configurationRedirect(resolveSettingSlug(params.tab), searchParams, hashParams),
+    '/error-tracking/settings': (_params, searchParams, hashParams) =>
+        configurationRedirect(resolveSettingSlug(searchParams.tab), searchParams, hashParams),
+    '/error-tracking/settings/:tab': (params, searchParams, hashParams) =>
+        configurationRedirect(resolveSettingSlug(params.tab), searchParams, hashParams),
     '/error_tracking/:id/fingerprints': (params) =>
         combineUrl(`/error-tracking/${params.id}`, { manageFingerprints: 'true' }).url,
     '/error_tracking/configuration': (_params, searchParams, hashParams) =>
