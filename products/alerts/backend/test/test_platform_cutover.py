@@ -30,6 +30,7 @@ class TestInsightPlatformCutover(APIBaseTest):
     @parameterized.expand(
         [
             ("quiet", {}, "not_firing"),
+            ("firing", {"state": AlertState.FIRING}, "firing"),
             ("errored", {"state": AlertState.ERRORED}, "errored"),
             (
                 "snoozed_keeps_checking_muted",
@@ -69,7 +70,6 @@ class TestInsightPlatformCutover(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("firing", {"state": AlertState.FIRING}, CutoverSkip.FIRING),
             ("check_due", {"next_check_at": NOW}, CutoverSkip.CHECK_DUE),
             ("never_scheduled", {"next_check_at": None}, CutoverSkip.CHECK_DUE),
         ]
@@ -103,10 +103,13 @@ class TestInsightPlatformCutover(APIBaseTest):
             ),
             ("notification_sent", InvestigationStatus.DONE, NOW, timedelta(minutes=10), None),
             ("past_the_horizon", InvestigationStatus.RUNNING, None, timedelta(hours=2), None),
+            ("firing_not_yet_notified", None, None, timedelta(minutes=5), CutoverSkip.NOTIFICATION_PENDING),
+            ("firing_notified", None, NOW, timedelta(minutes=5), None),
+            ("firing_past_its_workflow", None, None, timedelta(minutes=30), None),
         ]
     )
-    def test_an_alert_moves_only_once_its_investigation_settles(
-        self, _name: str, status: str, sent_at: datetime | None, age: timedelta, reason: CutoverSkip | None
+    def test_an_alert_moves_only_once_its_last_firing_settles(
+        self, _name: str, status: str | None, sent_at: datetime | None, age: timedelta, reason: CutoverSkip | None
     ) -> None:
         alert = self._alert(investigation_agent_enabled=True, detector_config={"type": "zscore"})
         check = AlertCheck.objects.create(

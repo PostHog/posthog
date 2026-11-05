@@ -1351,6 +1351,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "Watchmode": "watchmode",
     "Waydev": "waydev",
     "Wayfair": "wayfair",
+    "Webengage": "webengage",
     "Webflow": "webflow",
     "WeightsAndBiases": "weights-and-biases",
     "WhatsappBusinessManagement": "whatsapp-business-management",
