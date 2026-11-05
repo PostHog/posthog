@@ -4,6 +4,7 @@ from unittest.mock import patch
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.test import override_settings
 
 from parameterized import parameterized
 
@@ -13,6 +14,8 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.team.team_caching import get_team_in_cache, set_team_in_cache
 from posthog.models.user import User
+from posthog.storage import object_storage
+from posthog.storage.team_metadata_cache import team_metadata_hypercache, update_team_metadata_cache
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
@@ -519,6 +522,26 @@ class TestTeamSetTokenAndSave(BaseTest):
         cached_new = get_team_in_cache("phc_new_token_value")
         assert cached_new is not None
         assert cached_new.api_token == "phc_new_token_value"
+
+    @override_settings(FLAGS_REDIS_URL="redis://localhost:6379")
+    @patch("posthog.tasks.integrations.push_vercel_secrets.delay")
+    def test_set_token_and_save_clears_old_token_metadata_cache_in_redis_and_s3(self, _mock_push_vercel) -> None:
+        update_team_metadata_cache(self.team)
+        old_cache_key = team_metadata_hypercache.get_cache_key("phc_old_token_value")
+        assert team_metadata_hypercache.cache_client.get(old_cache_key) is not None
+        assert object_storage.read(old_cache_key, missing_ok=True) is not None
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.team.set_token_and_save(
+                new_token="phc_new_token_value",
+                user=self.user,
+                is_impersonated_session=False,
+            )
+
+        # The flags service reads this cache to resolve a token to a team, so an entry left under
+        # the old token keeps the revoked token evaluating flags.
+        assert team_metadata_hypercache.cache_client.get(old_cache_key) is None
+        assert object_storage.read(old_cache_key, missing_ok=True) is None
 
     @patch("posthog.tasks.integrations.push_vercel_secrets.delay")
     def test_set_token_and_save_rejection_leaves_cache_untouched(self, _mock_push_vercel) -> None:
