@@ -24,16 +24,10 @@ const MESSAGING_CHANNEL_TYPES = ['email', 'slack', 'twilio', 'firebase', 'apns']
 export type ChannelType = (typeof MESSAGING_CHANNEL_TYPES)[number]
 
 export function MessageChannels(): JSX.Element {
-    const {
-        setupModalOpen,
-        userManagedIntegrations,
-        setupModalType,
-        selectedIntegration,
-        sandboxEmailSender,
-        integrationsLoading,
-    } = useValues(integrationsLogic)
+    const { setupModalOpen, userManagedIntegrations, setupModalType, selectedIntegration, sandboxEmailSender } =
+        useValues(integrationsLogic)
     const { closeSetupModal, markTaskAsCompleted } = useActions(integrationsLogic)
-    const { sandboxSetupError, sandboxProvisionErrorLoading } = useValues(channelCatalogLogic)
+    const { sandboxSetupError, sandboxProvisionErrorLoading, sandboxRefreshPending } = useValues(channelCatalogLogic)
     const { setUpSandboxSender } = useActions(channelCatalogLogic)
     const { openImport } = useActions(pushTokenImportLogic)
     const supabaseAuthEmailsEnabled = useFeatureFlag('WORKFLOWS_SUPABASE_AUTH_EMAILS')
@@ -69,7 +63,7 @@ export function MessageChannels(): JSX.Element {
                         action={{
                             children: 'Try again',
                             onClick: () => setUpSandboxSender(),
-                            loading: sandboxProvisionErrorLoading || integrationsLoading,
+                            loading: sandboxProvisionErrorLoading || sandboxRefreshPending,
                         }}
                     >
                         {sandboxSetupError}
