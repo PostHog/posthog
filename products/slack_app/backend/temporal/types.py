@@ -31,8 +31,8 @@ class SlackAppOnboardingInputs:
 
 @frozen
 class SlackAppOnboardingMessage:
-    """One message of a person's DM setup thread. For an edit, ``ts`` names the message; ``progress`` and
-    ``summarizes_step`` say what to store after it."""
+    """One message of a person's DM setup thread. For an edit, ``ts`` names the message. ``planned``,
+    ``progress`` and ``summarizes_step`` say what to store after it."""
 
     kind: Literal["root", "step", "ready"]
     text: str
@@ -40,6 +40,7 @@ class SlackAppOnboardingMessage:
     step: str | None = None
     ts: str | None = None
     progress: str | None = None
+    planned: list[str] | None = None
     summarizes_step: bool = False
 
     @property

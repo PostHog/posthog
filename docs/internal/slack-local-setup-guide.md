@@ -143,8 +143,9 @@ Django must be up at that moment.
 > The `app_home` block + `app_home_opened` bot event power the App Home tab. With the
 > `slack-app-onboarding` flag on, the same event, an install, a reinstall and a `team_join` start the
 > `slack-app-onboarding` Temporal workflow, which posts a person's onboarding thread in the PostHog DM
-> once. It needs the Temporal worker running. People with a Slack settings row from before the
-> onboarding migration count as done, so to see it again in a dev workspace, delete your row in
+> once. It needs the Temporal worker running. The thread checks each step again before it shows it,
+> so a person who already linked their account or chose a model sees that step as already set.
+> To see the thread again in a dev workspace, clear the `onboarding` field of your row in
 > `slack_app_slacksettings`. The
 > Sign in with Slack (OpenID Connect) flow needs `user` scopes `openid` + `email` + `profile` and
 > the second redirect URL (`/complete/slack-link/`). Drop those if you don't want either feature

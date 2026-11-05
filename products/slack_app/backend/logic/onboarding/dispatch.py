@@ -23,8 +23,7 @@ def request_onboarding(
     integration: WorkspaceIntegration, slack_user_id: str, *, may_start: bool, spread_burst: bool = False
 ) -> None:
     """Start the person's onboarding, or refresh the one in progress. Only a ``may_start`` trigger can start
-    one, and only for a person with no onboarding state: people who used the app before onboarding existed
-    are stored as done. Never raises: the onboarding catches up on the next trigger."""
+    one, and only for a person with no onboarding state. Never raises: the onboarding catches up on the next trigger."""
     try:
         slack_workspace_id = integration.integration_id
         state = resolve_onboarding(slack_workspace_id, slack_user_id)

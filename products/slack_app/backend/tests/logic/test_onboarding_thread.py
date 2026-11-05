@@ -20,7 +20,7 @@ from products.slack_app.backend.logic.onboarding.interactivity import (
     handle_onboarding_action,
     onboarding_integration_hint,
 )
-from products.slack_app.backend.models import SlackSettings, UntaggedFollowupMode
+from products.slack_app.backend.models import UntaggedFollowupMode
 from products.slack_app.backend.services.slack_settings import (
     resolve_auto_model_choice,
     resolve_onboarding,
@@ -40,6 +40,8 @@ from products.slack_app.backend.tests.helpers import all_block_text
 CARD = "products.slack_app.backend.logic.onboarding.card"
 CLICKS = "products.slack_app.backend.logic.onboarding.interactivity"
 STEP = "products.slack_app.backend.logic.onboarding.step"
+MODEL_STEP = "products.slack_app.backend.logic.onboarding.model_step"
+INBOX_STEP = "products.slack_app.backend.logic.onboarding.inbox_channel_step"
 LINK_SCOPES = "chat:write,users:read,users:read.email"
 ADMIN_SCOPES = f"{LINK_SCOPES},channels:manage,channels:read,groups:read"
 
@@ -126,9 +128,10 @@ def test_first_open_starts_a_thread_with_the_first_step_and_later_refreshes_post
 
     root, step = _posts(slack_client)
     assert root["channel"] == SLACK_USER_ID and "thread_ts" not in root
-    assert "No steps done yet" in all_block_text(root["blocks"])
+    assert "0 of 3 steps done" in all_block_text(root["blocks"])
+    assert "1. :arrow_right: *Link your PostHog account*" in all_block_text(root["blocks"])
     assert (step["channel"], step["thread_ts"]) == ("D1", "100.1")
-    assert f"<@{SLACK_USER_ID}> Step 1" in all_block_text(step["blocks"])
+    assert f"<@{SLACK_USER_ID}> Step 1 of 3" in all_block_text(step["blocks"])
     assert "Link your PostHog account" in all_block_text(step["blocks"])
     # The second refresh only renders the shown step again, which keeps its link fresh.
     assert list(_edits(slack_client)) == ["100.2"]
@@ -170,16 +173,16 @@ def test_each_step_is_a_new_reply_and_done_steps_shrink_to_one_line(
     edits_after_link = _edits(slack_client)
     update_onboarding(SLACK_TEAM_ID, SLACK_USER_ID, skip_step="model")
     assert plan_onboarding(integration, SLACK_USER_ID).status == (
-        "2 steps done · current step: replies_in_threads · skipped: model"
+        "2 of 3 steps done · current step: replies_in_threads · skipped: model"
     )
     set_untagged_followup_mode(SLACK_TEAM_ID, SLACK_USER_ID, UntaggedFollowupMode.AUTO)
     capture.reset_mock()
     finished = _refresh(integration)
 
-    assert "Step 2" in all_block_text(model_step["blocks"]) and model_step["thread_ts"] == "100.1"
+    assert "Step 2 of 3" in all_block_text(model_step["blocks"]) and model_step["thread_ts"] == "100.1"
     assert ":white_check_mark: PostHog account linked" in edits_after_link["100.2"]
     assert "Link account" not in edits_after_link["100.2"]
-    assert "1 step done" in edits_after_link["100.1"]
+    assert "1 of 3 steps done" in edits_after_link["100.1"]
     ready = _posts(slack_client)[-1]
     edits = _edits(slack_client)
     assert finished is True
@@ -238,8 +241,8 @@ def test_a_model_that_cannot_be_saved_tells_the_person_why(org_team_user) -> Non
     model = "claude-opus-example"
 
     with (
-        patch(f"{CLICKS}.offered_model_choices", return_value=[MagicMock(model=model)]),
-        patch(f"{CLICKS}.set_personal_model", side_effect=ValidationError("Link your PostHog account first.")),
+        patch(f"{MODEL_STEP}.offered_model_choices", return_value=[MagicMock(model=model)]),
+        patch(f"{MODEL_STEP}.set_personal_model", side_effect=ValidationError("Link your PostHog account first.")),
         patch(f"{CLICKS}.request_onboarding") as refresh,
         patch(f"{CLICKS}.post_response_url") as reply,
     ):
@@ -261,7 +264,6 @@ def test_a_model_that_cannot_be_saved_tells_the_person_why(org_team_user) -> Non
         ("none", False, True, False),
         ("open", False, False, True),
         ("completed", True, True, False),
-        ("legacy", True, True, False),
     ],
 )
 def test_only_people_with_onboarding_left_start_the_workflow(
@@ -273,12 +275,6 @@ def test_only_people_with_onboarding_left_start_the_workflow(
         update_onboarding(SLACK_TEAM_ID, SLACK_USER_ID, root=("D1", "100.1"))
     elif stored == "completed":
         update_onboarding(SLACK_TEAM_ID, SLACK_USER_ID, completed_reason="finished")
-    elif stored == "legacy":
-        SlackSettings.objects.create(
-            slack_workspace_id=SLACK_TEAM_ID,
-            slack_user_id=SLACK_USER_ID,
-            onboarding={"completed_at": "2026-01-01T00:00:00+00:00", "completed_reason": "legacy", "version": 1},
-        )
 
     with (
         patch.object(dispatch, "is_slack_app_onboarding_enabled", return_value=flag_on),
@@ -335,10 +331,10 @@ def test_a_workspace_admin_also_gets_the_workspace_steps_after_linking(
     _refresh(integration)
 
     assert plan_onboarding(integration, SLACK_USER_ID).status == (
-        "1 step done · current step: ai_consent · skipped: none"
+        "1 of 7 steps done · current step: ai_consent · skipped: none"
     )
     second_step = all_block_text(_posts(slack_client)[-1]["blocks"])
-    assert f"<@{SLACK_USER_ID}> Step 2" in second_step and "Allow AI data processing" in second_step
+    assert f"<@{SLACK_USER_ID}> Step 2 of 7" in second_step and "Allow AI data processing" in second_step
 
 
 @pytest.mark.django_db
@@ -355,10 +351,29 @@ def test_steps_done_before_the_thread_are_left_out_of_the_numbering(
     finished = _refresh(integration)
 
     root, link_step, ready = _posts(slack_client)
-    assert "No steps done yet" in all_block_text(root["blocks"])
-    assert f"<@{SLACK_USER_ID}> Step 1" in all_block_text(link_step["blocks"])
+    assert "0 of 1 step done" in all_block_text(root["blocks"])
+    assert f"<@{SLACK_USER_ID}> Step 1 of 1" in all_block_text(link_step["blocks"])
     assert finished is True and ready["thread_ts"] == "100.1"
     assert "Setup done" in _edits(slack_client)["100.1"]
+
+
+@pytest.mark.django_db
+def test_a_step_set_elsewhere_keeps_its_number_and_says_it_is_already_set(
+    org_team_user, link_user, slack_client: MagicMock, capture: MagicMock
+) -> None:
+    _, team, user = org_team_user
+    integration = _install(team)
+
+    _refresh(integration)
+    link_user(user)
+    set_auto_model_choice(SLACK_TEAM_ID, SLACK_USER_ID, True)
+    _refresh(integration)
+
+    replies_step = all_block_text(_posts(slack_client)[-1]["blocks"])
+    assert f"<@{SLACK_USER_ID}> Step 3 of 3" in replies_step
+    assert "Step 2, Your model, is already set, so I skipped it." in replies_step
+    root = _edits(slack_client)["100.1"]
+    assert "2 of 3 steps done" in root and "2. :white_check_mark: Your model: already set" in root
 
 
 @pytest.mark.django_db
@@ -394,14 +409,15 @@ def test_workspace_step_clicks(
             }
         ]
     else:
-        payload = _click(integration, f"slack_onboarding:{action.removesuffix('_fails')}")
+        payload = _click(integration, f"slack_onboarding:{action.removesuffix('_fails')}", step="sources")
 
     with (
         patch(f"{CLICKS}.request_onboarding") as refresh,
         patch(f"{CLICKS}.post_response_url") as reply,
         patch(f"{CLICKS}.capture_slack_event"),
-        patch(f"{CLICKS}.ensure_inbox_channel", return_value=("C_INBOX", "#posthog-inbox")),
-        patch(f"{CLICKS}.invite_user_to_inbox", return_value=action != "inbox_join_fails") as invite,
+        patch(f"{STEP}.capture_slack_event"),
+        patch(f"{INBOX_STEP}.ensure_inbox_channel", return_value=("C_INBOX", "#posthog-inbox")),
+        patch(f"{INBOX_STEP}.invite_user_to_inbox", return_value=action != "inbox_join_fails") as invite,
         patch("products.signals.backend.facade.api.set_sources") as set_sources,
     ):
         handle_onboarding_action(payload)
@@ -416,3 +432,6 @@ def test_workspace_step_clicks(
         assert "inbox_channel" in get_state(SLACK_TEAM_ID, SLACK_USER_ID).used
     if action == "sources":
         set_sources.assert_called_once_with(team.id, user.id, ["session_replay"])
+    if action == "continue":
+        # Continue with no signal ticked closes the step, so the thread moves on.
+        assert _skipped() == ("sources",)

@@ -194,18 +194,19 @@ def set_auto_model_choice(slack_workspace_id: str, slack_user_id: str, enabled: 
 # Bump when onboarding gains steps that people who already finished it should see.
 ONBOARDING_VERSION = 1
 
-OnboardingCompletedReason = Literal["finished", "nothing_to_set_up", "legacy"]
+OnboardingCompletedReason = Literal["finished", "nothing_to_set_up"]
 
 
 @frozen(slots=False)
 class OnboardingState:
     """A person's onboarding thread in the PostHog DM. ``root_ts`` is None until the top message is posted,
-    and stays None when there was nothing to set up. ``completed_reason`` is "legacy" for people who used
-    the app before onboarding existed."""
+    and stays None when there was nothing to set up. ``planned`` holds the step keys the thread promised at
+    its start, in display order."""
 
     channel: str | None
     root_ts: str | None
     progress: str | None
+    planned: tuple[str, ...]
     step_ts: dict[str, str]
     summarized: tuple[str, ...]
     skipped: tuple[str, ...]
@@ -231,12 +232,13 @@ def parse_onboarding(stored: object) -> OnboardingState | None:
         channel=stored.get("channel") or None,
         root_ts=stored.get("root_ts") or None,
         progress=stored.get("progress") or None,
+        planned=_keys(stored.get("planned")),
         step_ts={str(key): str(ts) for key, ts in step_ts.items()} if isinstance(step_ts, dict) else {},
         summarized=_keys(stored.get("summarized")),
         skipped=_keys(stored.get("skipped")),
         started_at=stored.get("started_at") or None,
         completed_at=stored.get("completed_at") or None,
-        completed_reason=reason if reason in ("finished", "nothing_to_set_up", "legacy") else None,
+        completed_reason=reason if reason in ("finished", "nothing_to_set_up") else None,
     )
 
 
@@ -261,6 +263,7 @@ def update_onboarding(
     *,
     start: bool = False,
     root: tuple[str, str] | None = None,
+    planned: list[str] | None = None,
     progress: str | None = None,
     step_ts: tuple[str, str] | None = None,
     summarized_step: str | None = None,
@@ -282,6 +285,8 @@ def update_onboarding(
             card.setdefault("version", ONBOARDING_VERSION)
         if root is not None:
             card["channel"], card["root_ts"] = root
+        if planned is not None:
+            card["planned"] = planned
         if progress is not None:
             card["progress"] = progress
         if step_ts is not None:
