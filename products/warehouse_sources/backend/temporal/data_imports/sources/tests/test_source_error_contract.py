@@ -470,6 +470,11 @@ def test_allowlists_name_only_extracting_sources(allowlist: dict[str, Any]) -> N
             "Appdynamics",
             "AppDynamics OAuth token request failed. Check your API client name, client secret, and account name.",
         ),
+        # DataForSEO doesn't reliably send the standard reason phrase ("Unauthorized", "Payment
+        # Required") on every response (observed in production: "402 Client Error: Unknown for
+        # url: ...").
+        ("DataForSEO", "401 Client Error: Unknown for url: https://api.dataforseo.com/v3/backlinks/summary/live"),
+        ("DataForSEO", "402 Client Error: Unknown for url: https://api.dataforseo.com/v3/backlinks/summary/live"),
         ("IP2Whois", "IP2WHOIS API error [10000]: Invalid API key."),
         ("IP2Whois", "IP2WHOIS API error: unexpected status 418"),
         ("Marketo", "Marketo authentication failed: status=401, body={}"),

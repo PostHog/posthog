@@ -124,7 +124,7 @@ export const AGENT_ROSTER_GROUPS: AgentRosterGroup[] = [
                 sourceProduct: SignalSourceProduct.Analytics,
                 label: 'Product analytics',
                 watches: 'Unexpected shifts in your product metrics',
-                detail: 'Fires when an anomaly alert goes off, and only for the alerts where you turned the investigation agent on.',
+                detail: 'Fires when an insight alert goes off. By default, only alerts with the investigation agent turned on count.',
                 docsUrl: 'https://posthog.com/docs/product-analytics',
                 docsLabel: 'Product analytics',
                 steerable: true,

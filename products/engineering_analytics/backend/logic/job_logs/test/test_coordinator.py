@@ -33,6 +33,7 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     create_github_source,
     create_github_warehouse_table,
     create_warehouse_table_row,
+    enroll_team,
     link_schema,
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
@@ -84,6 +85,7 @@ class TestDiscoverFailedDepotAttempts(ClickhouseTestMixin, BaseTest):
         # Only recent failed attempts are fetched, keyed by the integer ids the curated views and CI
         # traces carry. A push run's id has no integer form, so its logs could never join and it is
         # skipped rather than emitted under a wrong run_id.
+        enroll_team(self.team)
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="src-depot",

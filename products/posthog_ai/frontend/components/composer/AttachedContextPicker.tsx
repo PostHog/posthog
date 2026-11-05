@@ -10,9 +10,13 @@ import { CONTEXT_PICKER_GROUP_TYPES, contextPickerLogic } from '../../logics/con
 
 export interface AttachedContextPickerProps {
     className?: string
+    taskId?: string
 }
 
-export function AttachedContextPicker({ className = 'h-6 min-h-6 shrink-0' }: AttachedContextPickerProps): JSX.Element {
+export function AttachedContextPicker({
+    className = 'h-6 min-h-6 shrink-0',
+    taskId,
+}: AttachedContextPickerProps): JSX.Element {
     const { handleTaxonomicFilterChange } = useActions(contextPickerLogic)
     return (
         <Tooltip title="Add context to help PostHog AI answer your question">
@@ -27,7 +31,11 @@ export function AttachedContextPicker({ className = 'h-6 min-h-6 shrink-0' }: At
                     className={className}
                     groupType={TaxonomicFilterGroupType.Events}
                     groupTypes={CONTEXT_PICKER_GROUP_TYPES}
-                    onChange={handleTaxonomicFilterChange}
+                    onChange={(value, groupType, item) => {
+                        if (value !== null) {
+                            handleTaxonomicFilterChange(value, groupType, item, taskId)
+                        }
+                    }}
                     icon={<IconAtSign className="text-secondary" />}
                     placeholder="Add context"
                     aria-label="Add context"
