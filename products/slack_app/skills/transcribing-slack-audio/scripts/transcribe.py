@@ -29,6 +29,7 @@ import argparse
 import tempfile
 import subprocess
 from pathlib import Path
+from dataclasses import dataclass
 
 # Matches TASK_RUN_ARTIFACT_MAX_SIZE_BYTES, the largest attachment that reaches the sandbox.
 # The duration and processing limits below are the real bounds. This cap only stops a file
@@ -51,6 +52,13 @@ _NON_SPEECH_MARKER = re.compile(r"\[(?:BLANK_AUDIO|MUSIC|NOISE|SILENCE|INAUDIBLE
 
 class TranscriptionError(Exception):
     pass
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class Transcript:
+    text: str
+    language: str | None
+    duration_seconds: float
 
 
 def _error(message: str) -> None:
@@ -135,8 +143,7 @@ def transcribe_file(
     max_duration_seconds: int,
     timeout_seconds: int,
     threads: int,
-) -> tuple[str, str | None, float]:
-    """Return the transcript, the detected language, and the duration in seconds."""
+) -> Transcript:
     if not audio.is_file():
         raise TranscriptionError("file not found")
     size = audio.stat().st_size
@@ -223,7 +230,11 @@ def transcribe_file(
     if not text:
         raise TranscriptionError("no speech was detected in the recording")
     detected = (data.get("result") or {}).get("language")
-    return text, detected if isinstance(detected, str) and detected else None, duration
+    return Transcript(
+        text=text,
+        language=detected if isinstance(detected, str) and detected else None,
+        duration_seconds=duration,
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -269,7 +280,7 @@ def main(argv: list[str] | None = None) -> int:
     failed = False
     for audio in args.files:
         try:
-            text, language, duration = transcribe_file(
+            transcript = transcribe_file(
                 audio,
                 model_path=model_path,
                 language=args.language,
@@ -281,8 +292,12 @@ def main(argv: list[str] | None = None) -> int:
             failed = True
             _error(f"{audio.name}: {error}")
             continue
-        print(f"{audio.name}: transcribed {duration:.0f}s of audio, language {language or args.language}", file=sys.stderr)
-        print(f"=== {audio.name} ===\n{text}\n")
+        print(
+            f"{audio.name}: transcribed {transcript.duration_seconds:.0f}s of audio, "
+            f"language {transcript.language or args.language}",
+            file=sys.stderr,
+        )
+        print(f"=== {audio.name} ===\n{transcript.text}\n")
     return EXIT_FAILED if failed else EXIT_OK
 
 
