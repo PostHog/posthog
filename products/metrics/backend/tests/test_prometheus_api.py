@@ -1,3 +1,5 @@
+from typing import Any
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -9,6 +11,8 @@ from rest_framework import status
 
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+from products.metrics.backend.query_counts import list_metric_query_counts
 
 
 def _upstream() -> MagicMock:
@@ -40,6 +44,38 @@ class TestPrometheusQueryApi(APIBaseTest):
         assert kwargs["params"] == {"query": ["sum(rate(http_requests_total[5m]))"]}
         assert kwargs["headers"]["X-Team-ID"] == str(self.team.pk)
         assert kwargs["auth"] == ("reader", "secret")
+
+    @parameterized.expand(
+        [
+            (
+                "instant_query",
+                "GET",
+                "query",
+                {"query": "sum(rate(http_requests_total[5m])) / up"},
+                ["http_requests_total", "up"],
+            ),
+            (
+                "form_range_query",
+                "POST",
+                "query_range",
+                "query=rate(http_requests_total%5B5m%5D)&step=60",
+                ["http_requests_total"],
+            ),
+            ("series_lookup", "GET", "series", {"match[]": "http_requests_total"}, []),
+        ]
+    )
+    def test_query_requests_count_the_metrics_they_read(
+        self, _name: str, method: str, path: str, payload: Any, expected: list[str]
+    ):
+        if method == "POST":
+            response = self.client.post(
+                f"{self.base}/{path}", payload, content_type="application/x-www-form-urlencoded"
+            )
+        else:
+            response = self.client.get(f"{self.base}/{path}", payload)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted(count.metric_name for count in list_metric_query_counts(self.team)) == sorted(expected)
 
     @parameterized.expand(
         [

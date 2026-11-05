@@ -199,6 +199,11 @@ describe('traceDrawerLogic', () => {
     it.each<[TraceDrawerListId, string, Record<string, unknown>]>([
         ['traces', LIST_PATH, { mode: 'spans', detailTab: 'messages', openingMode: null }],
         [
+            'offline-experiment',
+            urls.aiObservabilityOfflineEvaluationExperiment('experiment-1'),
+            { mode: 'spans', detailTab: 'messages', openingMode: null },
+        ],
+        [
             'evaluation-runs',
             urls.aiObservabilityEvaluation('e1'),
             { mode: 'spans', detailTab: 'evals', openingMode: null },
@@ -437,6 +442,7 @@ describe('traceDrawerLogic', () => {
         ['generations', urls.aiObservabilityGenerations()],
         ['prompt-traces', urls.aiObservabilityPrompt('p1')],
         ['reviews', urls.aiObservabilityReviews()],
+        ['review-queue', urls.aiObservabilityReviews()],
         ['evaluation-runs', urls.aiObservabilityEvaluation('e1')],
         ['evaluation-runs', `/project/1${urls.aiObservabilityEvaluation('e1')}`],
         ['dataset-items', urls.aiObservabilityDataset('d1')],
@@ -597,6 +603,15 @@ describe('traceDrawerLogic', () => {
         expect(searchParams).toMatchObject({
             back_to: 'prompt',
             back_url: '/prompt-management/prompts/p1?tab=usage',
+        })
+    })
+
+    it('links a queue trace to the full page with the back target and queue the legacy page understands', () => {
+        setUp({ url: `${urls.aiObservabilityReviews()}?queue_id=q1&trace=a`, listId: 'review-queue' })
+
+        expect(combineUrl(logic.values.fullPageHref ?? '').searchParams).toMatchObject({
+            back_to: 'reviews',
+            queue_id: 'q1',
         })
     })
 

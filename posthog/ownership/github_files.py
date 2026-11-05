@@ -490,6 +490,11 @@ class AuthenticatedRepoFiles(CachedRepoFiles):
             self._remember_head(sha)
         return sha
 
+    @property
+    def head_sha(self) -> str | None:
+        """The default-branch commit that every read of this tree uses. None for a repository with no commits."""
+        return self._head_sha
+
     def _commit(self) -> str:
         if self._head_sha is None:
             raise OwnershipUnavailable(f"{self.repository} has no commits")
