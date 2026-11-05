@@ -55,7 +55,6 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSchemaDestination,
     ExternalDataSource,
-    SettableSyncFrequency,
     UnsupportedSyncTypeError,
     clear_masked_column_bounds,
     discovered_schema_finder,
@@ -106,7 +105,11 @@ from products.warehouse_sources.backend.facade.source_management import (
     tables_wait_for_repair,
     validate_and_coerce_row_filters,
 )
-from products.warehouse_sources.backend.facade.types import IncrementalFieldType, IncrementalSyncBlockedReason
+from products.warehouse_sources.backend.facade.types import (
+    IncrementalFieldType,
+    IncrementalSyncBlockedReason,
+    SettableSyncFrequency,
+)
 from products.warehouse_sources.backend.presentation.history_tracking import report_history_change
 from products.warehouse_sources.backend.presentation.views.destination_links import (
     DestinationLinkSerializer,
