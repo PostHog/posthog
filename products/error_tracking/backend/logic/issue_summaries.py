@@ -240,18 +240,16 @@ def get_issue_summary(team_id: int, issue_id: UUID | str) -> ErrorTrackingIssueS
 def read_issue_summary(team_id: int, issue_id: UUID | str, user: User) -> IssueSummaryState:
     """The stored summary, or the reason none is shown. Never starts generation."""
     if not issue_summaries_enabled(team_id):
-        # Turning the flag off also hides stored summaries.
         return IssueSummaryState(status=IssueSummaryStatus.UNAVAILABLE, reason=IssueSummaryUnavailableReason.DISABLED)
     if not summary_sources_readable(team_id, user):
         return IssueSummaryState(status=IssueSummaryStatus.UNAVAILABLE, reason=IssueSummaryUnavailableReason.RESTRICTED)
-    stored = get_issue_summary(team_id, issue_id)
-    if stored is not None:
-        return IssueSummaryState(status=IssueSummaryStatus.READY, summary=stored)
-    # Checked only when nothing is stored, because a summary written before the approval was withdrawn stays readable.
     if not is_ai_data_processing_approved(team_id):
         return IssueSummaryState(
             status=IssueSummaryStatus.UNAVAILABLE, reason=IssueSummaryUnavailableReason.AI_NOT_APPROVED
         )
+    stored = get_issue_summary(team_id, issue_id)
+    if stored is not None:
+        return IssueSummaryState(status=IssueSummaryStatus.READY, summary=stored)
     return IssueSummaryState(status=IssueSummaryStatus.NOT_GENERATED)
 
 

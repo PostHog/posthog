@@ -1,4 +1,9 @@
-import { type ContextMenuPlacement, type ContextMenuPlacementInput, placeContextMenu } from './contextMenuPlacement'
+import {
+    type ContextMenuPlacement,
+    type ContextMenuPlacementInput,
+    placeAnchoredMenu,
+    placeContextMenu,
+} from './contextMenuPlacement'
 
 const limits = { topLimit: 100, bottomLimit: 700 }
 
@@ -37,4 +42,29 @@ describe('placeContextMenu', () => {
     ])('%s', (_name, input, expected) => {
         expect(placeContextMenu(input)).toEqual(expected)
     })
+})
+
+test.each([0, 84])('keeps a row menu aligned inside a host shifted %s points', (x) => {
+    expect(
+        placeAnchoredMenu({
+            anchor: { x: x + 24, y: 220, width: 300, height: 50 },
+            frame: { x, y: 20, width: 400, height: 700 },
+            pane: { x: 0, y: 0, width: 400, height: 700 },
+            width: 272,
+            height: 300,
+        })
+    ).toMatchObject({ left: 24, top: 258, width: 272 })
+})
+
+test('constrains a tall menu to the anchored side of a fold', () => {
+    const menu = placeAnchoredMenu({
+        anchor: { x: 540, y: 300, width: 300, height: 50 },
+        frame: { x: 84, y: 0, width: 867, height: 669 },
+        pane: { x: 450, y: 0, width: 417, height: 320 },
+        width: 500,
+        height: 600,
+    })
+    expect(menu.left).toBeGreaterThanOrEqual(464)
+    expect(menu.left + menu.width).toBeLessThanOrEqual(853)
+    expect(menu.top + menu.maxHeight).toBeLessThanOrEqual(306)
 })
