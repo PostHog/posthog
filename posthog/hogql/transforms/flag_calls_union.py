@@ -9,6 +9,7 @@ The rename runs before type resolution, so every rule here is syntactic. The uni
 scan, so the rules decide which scans pay for a second table, and which shapes the union cannot read yet.
 """
 
+import math
 from collections.abc import Callable
 from functools import cached_property
 from typing import TYPE_CHECKING, cast
@@ -466,13 +467,13 @@ class _Aliases(CloningVisitor):
     def aliases(self) -> dict[str, tuple[int, ast.Expr]]:
         # Most SELECTs read no events scan, so the aliases are collected only when a scan needs them.
         declared: dict[str, tuple[int, ast.Expr]] = {}
-        for position, (name, expr) in enumerate(select_aliases(self.node)):
+        for position, (name, expr) in enumerate(select_aliases(self.node, in_scope_only=True)):
             declared.setdefault(name, (position, expr))
         return declared
 
     def target(self, expr: ast.Expr, lambda_args: frozenset[str] = frozenset()) -> ast.Expr:
         """The expression that `expr`, without its own alias, names through a chain of select aliases."""
-        visible = len(self.aliases)
+        visible: float = math.inf
         expr = unwrap_alias(expr)
         while isinstance(expr, ast.Field) and len(expr.chain) == 1 and expr.chain[0] not in lambda_args:
             declared = self.aliases.get(str(expr.chain[0]))
@@ -687,18 +688,17 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
         super().visit_call(node)
 
     def _check(self, expr: ast.Expr) -> None:
-        def target(read: ast.Expr) -> ast.Expr:
+        def resolve(read: ast.Expr) -> ast.Expr:
             return self.aliases.target(read, self.lambda_args)
 
-        values = compared_values(expr, lambda read: self.reader.column(target(read)) == ["event"])
-        targets = [target(compared) for compared in values or []]
+        values = compared_values(expr, lambda read: self.reader.column(resolve(read)) == ["event"])
         # `event IN names` reads the list that the alias `names` holds.
         items = [
             item
-            for target in targets
-            for item in (target.exprs if isinstance(target, (ast.Tuple, ast.Array)) else [target])
+            for value in map(resolve, values or [])
+            for item in (value.exprs if isinstance(value, (ast.Tuple, ast.Array)) else [value])
         ]
-        if any(isinstance(value := target(item), ast.Constant) and value.value == FLAG_CALLED_EVENT for item in items):
+        if any(isinstance(value := resolve(item), ast.Constant) and value.value == FLAG_CALLED_EVENT for item in items):
             self.found = True
 
 

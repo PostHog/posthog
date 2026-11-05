@@ -877,17 +877,22 @@ class SyntaxVisitor(TraversingVisitor):
         pass
 
 
-def select_aliases(node: ast.SelectQuery) -> list[tuple[str, ast.Expr]]:
-    """Each alias that `node` defines outside its subqueries, with the expression it names."""
-    collector = _AliasCollector(node)
+def select_aliases(node: ast.SelectQuery, *, in_scope_only: bool = False) -> list[tuple[str, ast.Expr]]:
+    """Each alias that `node` defines outside its subqueries, with the expression it names.
+
+    With `in_scope_only`, the list leaves out the aliases that the resolver does not register in the scope of `node`:
+    an alias inside a lambda, and a hidden alias.
+    """
+    collector = _AliasCollector(node, in_scope_only)
     collector.visit(node)
     return collector.aliases
 
 
 class _AliasCollector(SyntaxVisitor):
-    def __init__(self, root: ast.SelectQuery) -> None:
+    def __init__(self, root: ast.SelectQuery, in_scope_only: bool) -> None:
         super().__init__()
         self.root = root
+        self.in_scope_only = in_scope_only
         self.aliases: list[tuple[str, ast.Expr]] = []
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
@@ -898,8 +903,14 @@ class _AliasCollector(SyntaxVisitor):
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
         pass
 
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        # The resolver registers an alias inside a lambda in the scope of that lambda.
+        if not self.in_scope_only:
+            super().visit_lambda(node)
+
     def visit_alias(self, node: ast.Alias) -> None:
-        self.aliases.append((node.alias, node.expr))
+        if not (self.in_scope_only and node.hidden):
+            self.aliases.append((node.alias, node.expr))
         super().visit_alias(node)
 
 
