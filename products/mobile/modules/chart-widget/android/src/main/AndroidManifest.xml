@@ -14,6 +14,8 @@
     </receiver>
 
     <!-- The launcher starts it in its own task, so it must not bring the app's task forward. -->
+    <!-- Android launchers require access; the activity validates a bound Chart widget and returns only its ID after confirmation. -->
+    <!-- nosemgrep: java.android.security.exported_activity.exported_activity -->
     <activity
       android:name=".ChartWidgetConfigureActivity"
       android:excludeFromRecents="true"

@@ -317,6 +317,7 @@ A corrupt or restored keystore file is deleted and counts as signed out; the app
 ### Configure flow
 
 1. Placing a Chart widget opens "Choose a pin". It starts with `RESULT_CANCELED`, so backing out does not place the widget.
+   The activity is exported for Android launchers. It accepts only IDs bound to the Chart widget, checks the ID again before saving, and returns only that ID after Done.
 2. Eligible pins are radio rows (name and the catalog `subtitle`). Ineligible pins follow, grayed, under "Can't show on the widget" with their `reason`.
 3. "Also show (large widget)" offers checkboxes for up to two more eligible pins, never the chosen one.
 4. Done writes `chart.widget.<id>`, calls `refreshAll`, and returns `RESULT_OK` with the widget id.

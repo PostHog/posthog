@@ -2,6 +2,7 @@ package com.posthog.code.mobile.chart
 
 import android.app.Activity
 import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Typeface
@@ -32,13 +33,17 @@ class ChartWidgetConfigureActivity : Activity() {
     private lateinit var content: LinearLayout
     private var footer: View? = null
 
+    private fun isChartWidget(): Boolean = widgetId != AppWidgetManager.INVALID_APPWIDGET_ID &&
+        AppWidgetManager.getInstance(this).getAppWidgetInfo(widgetId)?.provider ==
+        ComponentName(this, ChartWidgetProvider::class.java)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // Leaving any other way than Done must not place the widget.
         setResult(RESULT_CANCELED)
         widgetId = intent?.extras?.getInt(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
             ?: AppWidgetManager.INVALID_APPWIDGET_ID
-        if (widgetId == AppWidgetManager.INVALID_APPWIDGET_ID) {
+        if (!isChartWidget()) {
             finish()
             return
         }
@@ -162,6 +167,10 @@ class ChartWidgetConfigureActivity : Activity() {
     }
 
     private fun save(catalog: Catalog) {
+        if (!isChartWidget()) {
+            finish()
+            return
+        }
         val pin = catalog.pin(selected ?: return) ?: return
         ChartStore.setWidgetConfig(
             this, widgetId, pin.id, extras.filter { it != pin.id }.take(2),

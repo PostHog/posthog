@@ -1,12 +1,16 @@
 package com.posthog.code.mobile.chart
 
+import android.app.Activity
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProviderInfo
 import android.content.ComponentName
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.Intent
 import android.os.Bundle
 import android.view.View
+import android.view.ViewGroup
+import android.widget.Button
 import android.widget.TextView
 import java.util.concurrent.TimeUnit
 import org.json.JSONObject
@@ -14,6 +18,7 @@ import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
@@ -50,6 +55,67 @@ class ChartWidgetRefreshTest {
             this.provider = provider
         })
         ChartStore.setWidgetConfig(context, 1, "first", listOf("second"))
+    }
+
+    private fun doneButton(activity: Activity): Button {
+        fun descendants(view: View): Sequence<View> = sequence {
+            yield(view)
+            if (view is ViewGroup) {
+                for (index in 0 until view.childCount) yieldAll(descendants(view.getChildAt(index)))
+            }
+        }
+        return descendants(activity.findViewById(android.R.id.content)).filterIsInstance<Button>()
+            .single { it.text == context.getString(R.string.chart_widget_configure_done) }
+    }
+
+    @Test
+    fun configurationRejectsMissingUnknownAndOtherProvidersWidgetIds() {
+        shadowOf(AppWidgetManager.getInstance(context)).addBoundWidget(2, AppWidgetProviderInfo().apply {
+            provider = ComponentName("com.example.other", "com.example.other.WidgetProvider")
+        })
+        for (id in listOf(AppWidgetManager.INVALID_APPWIDGET_ID, 999, 2)) {
+            val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_CONFIGURE)
+                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
+            val controller = Robolectric.buildActivity(ChartWidgetConfigureActivity::class.java, intent).create()
+            val activity = controller.get()
+            assertTrue(activity.isFinishing)
+            assertEquals(Activity.RESULT_CANCELED, shadowOf(activity).resultCode)
+            assertNull(ChartStore.widgetConfig(context, id))
+            controller.destroy()
+        }
+    }
+
+    @Test
+    fun configurationReturnsOnlyTheConfirmedWidgetId() {
+        val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_CONFIGURE)
+            .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, 1)
+        val controller = Robolectric.buildActivity(ChartWidgetConfigureActivity::class.java, intent).create()
+        val activity = controller.get()
+        assertFalse(activity.isFinishing)
+        assertEquals(Activity.RESULT_CANCELED, shadowOf(activity).resultCode)
+        doneButton(activity).performClick()
+        assertTrue(activity.isFinishing)
+        assertEquals(Activity.RESULT_OK, shadowOf(activity).resultCode)
+        val result = shadowOf(activity).resultIntent
+        assertEquals(setOf(AppWidgetManager.EXTRA_APPWIDGET_ID), result.extras!!.keySet())
+        assertEquals(1, result.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, -1))
+        controller.destroy()
+    }
+
+    @Test
+    fun configurationRechecksWidgetOwnershipBeforeSaving() {
+        val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_CONFIGURE)
+            .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, 1)
+        val controller = Robolectric.buildActivity(ChartWidgetConfigureActivity::class.java, intent).create()
+        val activity = controller.get()
+        ChartStore.removeWidget(context, 1)
+        shadowOf(AppWidgetManager.getInstance(context)).addBoundWidget(1, AppWidgetProviderInfo().apply {
+            provider = ComponentName("com.example.other", "com.example.other.WidgetProvider")
+        })
+        doneButton(activity).performClick()
+        assertEquals(Activity.RESULT_CANCELED, shadowOf(activity).resultCode)
+        assertNull(ChartStore.widgetConfig(context, 1))
+        controller.destroy()
     }
 
     @Test
