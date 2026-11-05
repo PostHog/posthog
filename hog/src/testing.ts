@@ -269,13 +269,9 @@ export interface HogRun {
     elapsedMs: number
     tls: { verify: boolean }
     keychain: Record<string, string>
-    json: JsonReader
-    error: () => ErrorOutput
-}
-
-interface JsonReader {
-    (): unknown
-    <S extends z.ZodType>(schema: S): z.output<S>
+    json(): unknown
+    json<S extends z.ZodType>(schema: S): z.output<S>
+    error(): ErrorOutput
 }
 
 const ErrorOutputSchema = z.object({
@@ -292,7 +288,7 @@ export function readJson(text: string, schema: z.ZodType = z.unknown()): unknown
     return parseJson(text, schema, UNREADABLE_OUTPUT)
 }
 
-function jsonReader(text: () => string): JsonReader {
+function jsonReader(text: () => string): HogRun['json'] {
     function read(): unknown
     function read<S extends z.ZodType>(schema: S): z.output<S>
     function read(schema: z.ZodType = z.unknown()): unknown {
