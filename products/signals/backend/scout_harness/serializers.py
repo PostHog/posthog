@@ -1028,7 +1028,7 @@ class ScratchpadEntrySerializer(serializers.Serializer):
 
 
 # pg_trgm pads a word where a literal separator bounds it, so `ai_` still yields the trigram "AI ".
-_TRIGRAM_INDEXABLE_TEXT = re.compile(r"[^\W_]{3}|(?<=[\W_])[^\W_]{2}|[^\W_]{2}(?=[\W_])")
+TRIGRAM_INDEXABLE_TEXT = re.compile(r"[^\W_]{3}|(?<=[\W_])[^\W_]{2}|[^\W_]{2}(?=[\W_])")
 
 
 class SearchMemoryQuerySerializer(serializers.Serializer):
@@ -1104,7 +1104,7 @@ class SearchMemoryQuerySerializer(serializers.Serializer):
     def validate_text(self, value: str) -> str:
         # The trigram indexes extract nothing from a term without an indexable word, so Postgres
         # reads and upper-cases every body the team holds to answer it.
-        if value and not _TRIGRAM_INDEXABLE_TEXT.search(value):
+        if value and not TRIGRAM_INDEXABLE_TEXT.search(value):
             raise serializers.ValidationError(
                 "Use 3 letters or digits in a row, or 2 next to a symbol such as `ai_`, for example a whole word or identifier. "
                 "To read one known entry, pass `key` instead."
