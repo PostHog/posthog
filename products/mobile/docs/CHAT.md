@@ -1,7 +1,27 @@
 # Chat
 
-The chat screen talks to PostHog AI on the task runtime, as the web app's side-panel chat does.
-Every chat is a task with interactive runs in a sandbox.
+## Choosing the chat version
+
+New general chats use the Tasks agent only in project 2 on `https://us.posthog.com`.
+Every other project uses classic PostHog AI through the existing `conversations/` API.
+This temporary routing rule is local to the mobile app. It does not evaluate rollout flags
+or request an AI access field from the server. Organization approval and personal consent
+still apply before sending messages.
+
+Saved conversation links read their runtime from the existing conversation detail response.
+Report discussions and existing task links keep the Tasks path and its report-specific access
+exemptions. **New chat** starts the version selected for the current project. Demo mode keeps
+its local Tasks fixtures.
+
+Classic chat supports streamed responses, saved history, follow-up messages, stopping a reply,
+and approving or rejecting a requested change. Generated charts and insights link to the web.
+Its composer omits the model and permission controls that only the Tasks runtime supports.
+The Chats list combines unlinked conversations and tasks. Conversations with a linked task use the task row. Classic
+conversation links use `conversationId`; Tasks links continue to use `taskId` and `runId`.
+Only task rows offer Archive, because classic conversations have no reversible archive API.
+
+The Tasks chat screen talks to PostHog AI on the task runtime.
+Each Tasks chat has interactive runs in a sandbox.
 A new chat creates the task on its first message; the Chats list reopens one by its task id.
 New and existing chats open as full-screen stack pages. Back returns to the previous screen or the
 configured default page for a direct link. The title-free header uses the shared blur and fading edge.
@@ -59,6 +79,15 @@ The same approval rules cover Chat, Create PR/task handoff, and replay summariza
 
 These client checks supplement existing server scopes, resource RBAC and product checks. They do not grant an organization role or replace server authorization. Revocation after a check must still be enforced by the backend; mobile cannot stop an agent that is already running on the server.
 
+Classic chat refreshes history whenever it opens, even while the cached response is fresh, and reuses that download.
+An accepted message leaves draft recovery as soon as the server accepts it, while the reply continues streaming.
+If its stream disconnects or times out, classic chat checks the saved conversation automatically without sending the message again.
+Completed replies and pending decisions load from that saved state. If recovery still needs a connection, received messages stay visible with Reconnect.
+Linked conversations stay visible when their task is absent from the list.
+Opening a linked chat checks its conversation runtime before continuing.
+If one chat history source fails, Chats keeps the loaded rows and offers a retry for the remaining history.
+Classic chat shows draft save failures with a retry action, and checks AI approval before each message or approval response.
+
 ## Composer drafts
 
 The message input wraps long text onto multiple lines and grows up to 120 points tall.
@@ -103,7 +132,7 @@ A tap on an object link, an insight card, a SQL card or a markdown link opens it
 `object_kind` (the registry kind, null for a markdown link) and `app_link` (a markdown link that was an app path).
 
 Insight summaries need the `insight:read` OAuth scope. Existing sessions need a new sign-in,
-and the server's mobile OAuth application must allow the scope; see [AUTH.md](AUTH.md).
+and the server's mobile OAuth application must allow the scope.
 
 ## Starting a chat
 
@@ -467,13 +496,14 @@ The route takes an optional `entry` param; `chatSheetSource` falls back on `repo
 - A long press (or the screen reader's "Show actions") opens the row menu (`ChatRowMenu`) with Archive.
   `useArchiveChat()` hides the row at once and sends `PATCH tasks/{id}/` with `{ "archived": true }`; the server stamps `archived_at`
   and leaves the task out of every later list. The toast offers Undo, which puts the row back and sends `{ "archived": false }` after any pending archive request finishes.
+  Archive and Undo update linked conversations in the cached history too, so they cannot recreate a hidden task row.
   Repeated archive submissions share the pending request. A failed archive puts the row back and shows "Couldn't archive this chat. Try again."
   A failed Undo hides the row again and shows "Couldn't restore this chat. Try again."
   There is no archived list in the app: the web app and PostHog Desktop show archived tasks.
 - `mobile_chat_row_menu_opened`, `mobile_chat_archived` and `mobile_chat_archive_undone` carry the row's `origin` and `status`;
   `mobile_chat_archive_failed` carries `action` (`archive` or `restore`) and `code` (the `ChatError` kind).
 - Regaining focus (closing the sheet) invalidates the list, so a new chat appears with its title.
-- Legacy LangGraph conversations are not listed. The web's new side panel does not list them either.
+- Classic conversations are listed once; their mirrored tasks are omitted.
 
 ## Demo mode
 

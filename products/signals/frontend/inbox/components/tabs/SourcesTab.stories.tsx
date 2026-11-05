@@ -441,7 +441,7 @@ export const ErrorTrackingExpanded: Story = {
     },
 }
 
-/** Product analytics opened with the all-alerts flag on: the choice between investigated alerts and every firing alert. */
+/** Product analytics opened with the all-alerts flag on: the choice between investigated alerts, every firing alert, and off. */
 export const ProductAnalyticsAlertScope: Story = {
     args: { productAnalyticsArmed: true },
     parameters: {
