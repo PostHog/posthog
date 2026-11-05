@@ -28,6 +28,7 @@ export function ChatEntryScreen({ conversationId, ...props }: ChatEntryScreenPro
         queryFn: ({ signal }) => getConversation(conversationId as string, signal),
         enabled: mode === 'live' && !!scope && !!conversationId && !newChat,
         retry: false,
+        refetchOnMount: 'always',
     })
     const detail = conversation.isFetchedAfterMount ? conversation.data : undefined
     const restart = (): void => {

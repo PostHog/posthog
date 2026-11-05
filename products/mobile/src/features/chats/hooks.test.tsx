@@ -131,6 +131,15 @@ describe('chats hooks', () => {
                 session('task-1', '2026-10-15T10:00:00Z'),
                 session('task-2', '2026-10-14T10:00:00Z'),
             ])
+            jest.mocked(listConversations).mockResolvedValue([
+                {
+                    id: 'conversation-1',
+                    title: 'Linked chat',
+                    task: { id: 'task-1', archived: false },
+                    created_at: '2026-10-15T10:00:00Z',
+                    updated_at: '2026-10-15T10:00:00Z',
+                },
+            ] as unknown as Awaited<ReturnType<typeof listConversations>>)
         })
 
         test.each([

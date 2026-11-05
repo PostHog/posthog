@@ -79,7 +79,7 @@ The same approval rules cover Chat, Create PR/task handoff, and replay summariza
 
 These client checks supplement existing server scopes, resource RBAC and product checks. They do not grant an organization role or replace server authorization. Revocation after a check must still be enforced by the backend; mobile cannot stop an agent that is already running on the server.
 
-Classic chat waits for refreshed history when it opens and reuses that download.
+Classic chat refreshes history whenever it opens, even while the cached response is fresh, and reuses that download.
 An accepted message leaves draft recovery as soon as the server accepts it, while the reply continues streaming.
 Linked conversations stay visible when their task is absent from the list.
 Opening a linked chat checks its conversation runtime before continuing.
@@ -494,6 +494,7 @@ The route takes an optional `entry` param; `chatSheetSource` falls back on `repo
 - A long press (or the screen reader's "Show actions") opens the row menu (`ChatRowMenu`) with Archive.
   `useArchiveChat()` hides the row at once and sends `PATCH tasks/{id}/` with `{ "archived": true }`; the server stamps `archived_at`
   and leaves the task out of every later list. The toast offers Undo, which puts the row back and sends `{ "archived": false }` after any pending archive request finishes.
+  Archive and Undo update linked conversations in the cached history too, so they cannot recreate a hidden task row.
   Repeated archive submissions share the pending request. A failed archive puts the row back and shows "Couldn't archive this chat. Try again."
   A failed Undo hides the row again and shows "Couldn't restore this chat. Try again."
   There is no archived list in the app: the web app and PostHog Desktop show archived tasks.

@@ -1,5 +1,5 @@
 import { onlineManager, QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, fireEvent, render, screen } from '@testing-library/react-native'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 import type { ReactElement } from 'react'
 
 import { getConversation } from '@/api/conversations'
@@ -54,7 +54,9 @@ function open(
     props: Partial<React.ComponentProps<typeof ChatEntryScreen>> = {},
     seed?: (client: QueryClient) => void
 ): void {
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
+    const client = new QueryClient({
+        defaultOptions: { queries: { retry: false, gcTime: Infinity, staleTime: 30_000 } },
+    })
     seed?.(client)
     render(
         <QueryClientProvider client={client}>
@@ -172,6 +174,7 @@ describe('mobile AI runtime selection', () => {
             })
         })
         expect(screen.queryByTestId('classic')).toBeNull()
+        await waitFor(() => expect(getConversation).toHaveBeenCalledTimes(1))
         await act(async () => {
             refresh({ id: 'saved-chat', title: 'Updated history', agent_runtime: 'langgraph' } as Awaited<
                 ReturnType<typeof getConversation>

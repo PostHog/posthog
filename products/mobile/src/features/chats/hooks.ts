@@ -154,19 +154,38 @@ function useLiveArchiveChat(): ChatArchiveActions {
     const hidden = useRef(new Map<string, TaskSummaryApi>())
     const archivesInFlight = useRef(new Map<string, Promise<void>>())
 
-    const putBack = useCallback(
-        (taskId: string): void => {
-            const session = hidden.current.get(taskId)
-            if (!session || !scope) {
-                return
-            }
-            queryClient.setQueriesData<TaskSummaryApi[]>({ queryKey: sessionListKeys.all(scope) }, (sessions) =>
-                !sessions || sessions.some((entry) => entry.id === taskId)
-                    ? sessions
-                    : [...sessions, { ...session, archived: false }]
+    const updateLinkedConversations = useCallback(
+        (taskId: string, archived: boolean): void => {
+            if (!scope) return
+            queryClient.setQueriesData<Awaited<ReturnType<typeof listConversations>>>(
+                { queryKey: conversationListKeys.all(scope) },
+                (conversations) =>
+                    conversations?.map((conversation) =>
+                        conversation.task?.id === taskId
+                            ? { ...conversation, task: { ...conversation.task, archived } }
+                            : conversation
+                    )
             )
         },
         [queryClient, scope]
+    )
+
+    const putBack = useCallback(
+        (taskId: string): void => {
+            if (!scope) {
+                return
+            }
+            const session = hidden.current.get(taskId)
+            if (session) {
+                queryClient.setQueriesData<TaskSummaryApi[]>({ queryKey: sessionListKeys.all(scope) }, (sessions) =>
+                    !sessions || sessions.some((entry) => entry.id === taskId)
+                        ? sessions
+                        : [...sessions, { ...session, archived: false }]
+                )
+            }
+            updateLinkedConversations(taskId, false)
+        },
+        [queryClient, scope, updateLinkedConversations]
     )
 
     const archive = useCallback(
@@ -180,7 +199,10 @@ function useLiveArchiveChat(): ChatArchiveActions {
                     throw new NotSignedInError()
                 }
                 const filters = { queryKey: sessionListKeys.all(scope) }
-                await queryClient.cancelQueries(filters)
+                await Promise.all([
+                    queryClient.cancelQueries(filters),
+                    queryClient.cancelQueries({ queryKey: conversationListKeys.all(scope) }),
+                ])
                 for (const [, sessions] of queryClient.getQueriesData<TaskSummaryApi[]>(filters)) {
                     const session = sessions?.find((entry) => entry.id === item.sourceId)
                     if (session) {
@@ -190,6 +212,7 @@ function useLiveArchiveChat(): ChatArchiveActions {
                 queryClient.setQueriesData<TaskSummaryApi[]>(filters, (sessions) =>
                     sessions?.filter((entry) => entry.id !== item.sourceId)
                 )
+                updateLinkedConversations(item.sourceId, true)
                 try {
                     await setTaskArchived(item.sourceId, true)
                 } catch (error) {
@@ -204,7 +227,7 @@ function useLiveArchiveChat(): ChatArchiveActions {
             void request.then(settled, settled)
             return request
         },
-        [queryClient, scope, putBack]
+        [queryClient, scope, putBack, updateLinkedConversations]
     )
 
     const restore = useCallback(
@@ -220,13 +243,15 @@ function useLiveArchiveChat(): ChatArchiveActions {
                 queryClient.setQueriesData<TaskSummaryApi[]>({ queryKey: sessionListKeys.all(scope) }, (sessions) =>
                     sessions?.filter((entry) => entry.id !== item.sourceId)
                 )
+                updateLinkedConversations(item.sourceId, true)
                 throw error
             }
             hidden.current.delete(item.sourceId)
             // The server orders the list, so a refetch puts the row back where it belongs.
             void queryClient.invalidateQueries({ queryKey: sessionListKeys.all(scope) })
+            void queryClient.invalidateQueries({ queryKey: conversationListKeys.all(scope) })
         },
-        [queryClient, scope, putBack]
+        [queryClient, scope, putBack, updateLinkedConversations]
     )
 
     return useMemo(() => ({ archive, restore }), [archive, restore])
