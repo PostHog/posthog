@@ -7,8 +7,11 @@ import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 
 // Prompt tracking and bots work without a site. Only content autopilot tabs need one.
 export const ContentAutopilotSiteGate = ({ children }: { children: JSX.Element }): JSX.Element => {
-    const { profile, profileDataLoaded, workspaceErrors } = useValues(contentAutopilotLogic)
+    const { profile, profileDataLoaded, workspaceErrors, workspaceInitialized } = useValues(contentAutopilotLogic)
 
+    if (!workspaceInitialized) {
+        return <LemonSkeleton className="h-72 w-full" />
+    }
     if (workspaceErrors.profiles && !profile) {
         return (
             <LemonCard hoverEffect={false} className="p-8 text-center">

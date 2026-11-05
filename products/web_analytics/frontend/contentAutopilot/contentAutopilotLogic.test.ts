@@ -207,11 +207,16 @@ describe('contentAutopilotLogic', () => {
         expect(mountedLogic.values.selectedOpportunityIds).toEqual([])
         expect(mountedLogic.values.workspaceTab).toBe('drafts')
 
-        // A row's draft button sends only that row and leaves the table selection alone.
+        // A row's draft button sends only that row, leaves the table selection alone,
+        // and blocks every other draft trigger until the request settles.
         mountedLogic.actions.toggleOpportunitySelection(first.id)
-        await expectLogic(mountedLogic, () =>
-            mountedLogic.actions.draftOpportunities([second.id])
-        ).toFinishAllListeners()
+        const rowDraft = deferred<ContentAutopilotRunApi>()
+        mockOpportunitiesDraft.mockReturnValueOnce(rowDraft.promise)
+        mountedLogic.actions.draftOpportunities([second.id])
+        expect(mountedLogic.values.rowDraftDisabledReason).toBe('Wait for the current run to finish')
+        expect(mountedLogic.values.draftDisabledReason).toBe('Wait for the current run to finish')
+        rowDraft.resolve({ ...EXAMPLE_RUN, run_status: 'pending', profile_id: EXAMPLE_PROFILE.id })
+        await expectLogic(mountedLogic).toFinishAllListeners()
         expect(mockOpportunitiesDraft).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
             profile_id: EXAMPLE_PROFILE.id,
             opportunity_ids: [second.id],

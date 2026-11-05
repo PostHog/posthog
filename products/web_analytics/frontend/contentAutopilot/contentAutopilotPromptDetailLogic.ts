@@ -607,7 +607,8 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
                     text_changed: patch.prompt !== undefined,
                     topic_changed: patch.topic !== undefined,
                 })
-                if (updated.version_count > 1) {
+                // The user may have opened another prompt while this save was in flight.
+                if (updated.version_count > 1 && values.promptId === updated.id) {
                     actions.loadAeoPromptVersions(updated.id)
                 }
                 actions.loadAeoPrompts()

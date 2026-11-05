@@ -604,7 +604,8 @@ export interface contentAutopilotLogicMeta {
         dismissedOpportunityCount: (opportunities: ContentAutopilotOpportunityApi[] | null) => number
         rowDraftDisabledReason: (
             activeRun: ContentAutopilotRunApi | null,
-            profileDataLoaded: boolean
+            profileDataLoaded: boolean,
+            runMutationLoading: boolean
         ) => string | undefined
         draftDisabledReason: (
             selectedOpportunityIds: string[],
@@ -1254,12 +1255,16 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
                 (opportunities ?? []).filter(({ status }) => status === 'dismissed').length,
         ],
         rowDraftDisabledReason: [
-            (selectors) => [selectors.activeRun, selectors.profileDataLoaded],
-            (activeRun: ContentAutopilotRunApi | null, profileDataLoaded: boolean): string | undefined => {
+            (selectors) => [selectors.activeRun, selectors.profileDataLoaded, selectors.runMutationLoading],
+            (
+                activeRun: ContentAutopilotRunApi | null,
+                profileDataLoaded: boolean,
+                runMutationLoading: boolean
+            ): string | undefined => {
                 if (!profileDataLoaded) {
                     return 'Wait for this site to finish loading'
                 }
-                if (activeRun) {
+                if (activeRun || runMutationLoading) {
                     return 'Wait for the current run to finish'
                 }
                 return undefined

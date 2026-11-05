@@ -115,6 +115,13 @@ class TestAEOPromptAPI(APIBaseTest):
         assert response.json() == {"created": 0, "updated": 2, "skipped": 1}
         assert AEOPrompt.objects.for_team(self.team.id).get(id=replay_id).active is False
 
+        self.client.post(
+            f"{self.url}bulk_import/",
+            {"prompts": [{"prompt": "Best session replay tool?", "topic": "Session replay"}]},
+            format="json",
+        )
+        assert self.client.get(f"{self.url}{replay_id}/").json()["external_visibility"] == 42.5
+
         flags_id = listed["Best feature flag tool?"]["id"]
         self.client.delete(f"{self.url}{flags_id}/")
         response = self.client.post(f"{self.url}bulk_import/", payload, format="json")
