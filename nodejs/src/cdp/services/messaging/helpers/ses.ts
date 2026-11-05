@@ -234,8 +234,8 @@ const sesUnattributedEventsCounter = new Counter({
     labelNames: ['event_type', 'reason'],
 })
 
-// Kept off `email_tracking_errors_total`: an SNS message that is not an SES event (for example the
-// plain-text test SES publishes when an event destination is added) is acknowledged, not a fault.
+// Kept off `email_tracking_errors_total` because the SES webhook errors alert sums that counter, and an
+// SNS message that is not an SES event is acknowledged, not a fault.
 const sesIgnoredNotificationsCounter = new Counter({
     name: 'ses_webhook_ignored_notifications_total',
     help: 'SNS notifications on the SES webhook acknowledged without processing',
