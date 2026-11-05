@@ -237,11 +237,9 @@ def _build_invocation_results_filters(
     # `after`/`before` come in as team-timezone-aware datetimes; convert to UTC before formatting so
     # the naive string matches the UTC `first_scheduled_at` column (toDateTime64 reads it as UTC). Skipping
     # this shifts the window by the team's offset — wrong for short windows on non-UTC teams.
-    #
-    # Rows of one run can sit in different daily `scheduled_at` partitions, which never merge, so a
-    # `scheduled_at` window collapses only some of them to a stale status. Every row of a run shares
-    # `first_scheduled_at`. There is no `scheduled_at` bound, because a rescheduled row can land before
-    # the run's start.
+
+    # Every row of a run shares `first_scheduled_at`, while its `scheduled_at` days can differ and never
+    # merge. There is no `scheduled_at` bound, because a rescheduled row can land before the run's start.
     if after:
         where.append("first_scheduled_at >= toDateTime64(%(after)s, 6)")
         kwargs["after"] = after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S")

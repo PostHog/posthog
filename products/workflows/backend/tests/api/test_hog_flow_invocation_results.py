@@ -188,18 +188,14 @@ class TestHogFlowInvocationResults(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            # A delay step: the run starts in the window and finishes the next day.
             ("finishes_a_day_later", [("running", 0), ("success", 1)], {"inv": "success"}),
-            # A scheduled send moved earlier: its final row lands days before its start.
             ("moved_earlier", [("running", 0), ("success", -2)], {"inv": "success"}),
-            # Started the day before the window: its final row inside the window doesn't list it.
             ("started_before_the_window", [("running", -1), ("failed", 0)], {}),
         ]
     )
     def test_run_counts_in_the_window_of_its_start(
         self, _name: str, rows: list[tuple[str, int]], expected: dict[str, str]
     ):
-        # Lifecycle rows of one run sit in different daily partitions, which never merge.
         window_day = (datetime.now(tz=UTC) - timedelta(days=5)).replace(hour=12, minute=0, second=0, microsecond=0)
         run_start = window_day + timedelta(days=rows[0][1])
         for version, (invocation_status, day_offset) in enumerate(rows, start=1):
