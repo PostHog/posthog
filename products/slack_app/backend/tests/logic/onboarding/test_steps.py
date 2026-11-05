@@ -84,7 +84,16 @@ def test_each_button_on_a_step_reaches_a_handler(step: OnboardingStep, org_team_
         ("member_with_team_github", ["link_account", "github", "model", "replies_in_threads"]),
         (
             "installer",
-            ["link_account", "ai_consent", "github", "inbox_channel", "sources", "model", "replies_in_threads"],
+            [
+                "link_account",
+                "ai_consent",
+                "github",
+                "inbox_channel",
+                "sources",
+                "channel_welcome",
+                "model",
+                "replies_in_threads",
+            ],
         ),
         ("linked_org_admin", ["ai_consent", "model", "replies_in_threads"]),
     ],
