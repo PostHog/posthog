@@ -69,6 +69,10 @@ from products.experiments.backend.hogql_queries.utils import (
     get_variant_results,
     split_baseline_and_test_variants,
 )
+from products.experiments.backend.metric_calculation.config import (
+    ExperimentCalculationSettings,
+    MetricCalculationConfig,
+)
 from products.experiments.backend.metric_resolution import (
     metric_reads_data_warehouse,
     metric_uses_warehouse_native_source,
@@ -712,8 +716,25 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             f":max_execution_time={self.max_execution_time}"
         )
 
+    @cached_property
+    def calculation_config(self) -> MetricCalculationConfig:
+        self.experiment.team = self.team
+        settings = ExperimentCalculationSettings.from_experiment(
+            self.experiment, team_config=self._team_experiments_config
+        )
+        return settings.build_metric_config(
+            metric_id=self.query.metric.uuid or "",
+            role="primary",
+            definition=self.query.metric.model_dump(mode="json", exclude_none=True),
+        )
+
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
         payload["experiment_response_version"] = 2
         payload["stats_method"] = self.stats_method
+        # The window ends at the experiment's end date, which the query does not carry, so a new end date must miss
+        # the result of the earlier window. A running experiment adds nothing, so its key stays the same and the cache
+        # age limit refreshes its moving window end.
+        if self.experiment.end_date is not None:
+            payload["end_date"] = self.experiment.end_date.isoformat()
         return payload

@@ -26,7 +26,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.schema_enums import FilterLogicalOperator
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
 from products.web_analytics.backend.hogql_queries.bot_ip_definitions import BOT_IP_DEFINITIONS
 
@@ -691,7 +691,7 @@ class TestMacroExpansionGuard(BaseTest):
         # matchesAction expands a user-defined action, whose hogql property filters re-parse
         # arbitrary user HogQL. A guarded macro referenced there must still expand — the guard
         # must not fire across matchesAction's (bounded) action expansion.
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             steps_json=[
                 {
@@ -702,7 +702,7 @@ class TestMacroExpansionGuard(BaseTest):
                 }
             ],
         )
-        printed = self._print(f"SELECT matchesAction({action.pk}) FROM events")
+        printed = self._print(f"SELECT matchesAction({action.id}) FROM events")
         assert "multiMatchAnyIndex" in printed
 
 
@@ -1090,6 +1090,8 @@ class TestServerAndMobileSdkClassification(ClickhouseTestMixin, BaseTest):
         [
             ("node", "posthog-node", {}),
             ("python_empty_user_agent", "posthog-python", {"$raw_user_agent": ""}),
+            ("laravel", "posthog-laravel", {}),
+            ("laravel_empty_user_agent", "posthog-laravel", {"$raw_user_agent": ""}),
             ("react_native", "posthog-react-native", {}),
             ("ios", "posthog-ios", {}),
         ]

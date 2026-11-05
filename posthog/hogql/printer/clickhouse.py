@@ -27,12 +27,7 @@ from posthog.hogql.database.schema.util.where_clause_extractor import (
     get_events_session_id_table_type,
 )
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError
-from posthog.hogql.escape_sql import (
-    escape_clickhouse_identifier,
-    escape_clickhouse_string,
-    quote_clickhouse_identifier,
-    safe_identifier,
-)
+from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string, safe_identifier
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
 from posthog.hogql.functions.clickhouse.json import JSON_FUNCTIONS
 from posthog.hogql.functions.embed_text import resolve_embed_text
@@ -52,7 +47,7 @@ from posthog.hogql.type_system import infer_tuple_access_constant_type, parse_sq
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
 from posthog.clickhouse.client.escape import substitute_params
-from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_COLUMN
+from posthog.clickhouse.events_json import NULL_KEYS_COLUMNS, TEMPORARY_PROPERTIES_COLUMN
 from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION, EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.uuidt import UUIDT
 from posthog.week_start_day import WeekStartDay
@@ -691,16 +686,24 @@ class ClickHousePrinter(BasePrinter):
         if resolved_field is None:
             return None
 
+        prefix = field_sql.removesuffix(self._print_identifier(resolved_field.name))
+        null_keys_sql = f"{prefix}{self._print_identifier(NULL_KEYS_COLUMNS[resolved_field.name])}"
         if resolved_field.name == "properties":
-            prefix = field_sql.removesuffix(self._print_identifier("properties"))
             temporary_properties_sql = f"{prefix}{self._print_identifier(TEMPORARY_PROPERTIES_COLUMN)}"
+            temporary_null_keys_sql = (
+                f"{prefix}{self._print_identifier(NULL_KEYS_COLUMNS[TEMPORARY_PROPERTIES_COLUMN])}"
+            )
             serialized = event_document_sql(
-                field_sql, temporary_properties_sql, self._document_feature_flags_sql(type, field_sql)
+                field_sql,
+                null_keys_sql,
+                temporary_properties_sql,
+                temporary_null_keys_sql,
+                self._document_feature_flags_sql(type, field_sql),
             )
         elif resolved_field.name == "person_properties":
-            serialized = person_document_sql(field_sql)
+            serialized = person_document_sql(field_sql, null_keys_sql)
         else:
-            serialized = json_document_sql(field_sql)
+            serialized = json_document_sql(field_sql, null_keys_sql)
         return serialized
 
     def _document_feature_flags_sql(self, type: ast.FieldType, field_sql: str) -> str | None:
@@ -1517,18 +1520,21 @@ class ClickHousePrinter(BasePrinter):
             expr = self.visit(node.expr)
 
         # The native table stores a dotted key as one path named with `%2E` (EVENTS_JSON_INSERT_SETTINGS), so a
-        # dot inside one key must not read as a path separator. The escaped key then takes the bound-parameter
-        # branch below, as `%` would otherwise break the SQL's own parameter placeholders.
+        # dot inside one key must not read as a path separator.
         keys = [key.replace(".", "%2E") for key in node.keys]
 
-        if any("%" in key for key in keys):
+        # An empty key is not a valid SQL identifier, and a `%` would break the SQL's own parameter placeholders,
+        # so those paths go to getSubcolumn as bound values.
+        if any(not key or "%" in key for key in keys):
             if node.access_type == "sub_object":
-                for key in keys:
-                    subcolumn = f"^{quote_clickhouse_identifier(key)}"
-                    expr = f"getSubcolumn({expr}, {self.context.add_value(subcolumn)})"
-                return expr
-            subcolumn = ".".join(keys)
-            return f"getSubcolumn({expr}, {self.context.add_value(subcolumn)})"
+                # getSubcolumn's path parser reads a backslash-escaped backtick, not SQL's doubled backtick.
+                escaped_keys = (key.replace("\\", "\\\\").replace("`", "\\`") for key in keys)
+                subcolumns = [f"^`{key}`" for key in escaped_keys]
+            else:
+                subcolumns = [".".join(keys)]
+            for subcolumn in subcolumns:
+                expr = f"getSubcolumn({expr}, {self.context.add_value(subcolumn)})"
+            return expr
 
         for index, key in enumerate(keys):
             separator = ".^" if node.access_type == "sub_object" and index == 0 else "."

@@ -20,7 +20,8 @@ from rest_framework.response import Response
 from posthog.models import Organization, Team
 from posthog.storage.object_storage import ObjectStorageError
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.contracts import ActionNotFound
+from products.actions.backend.facade.testing import create_action, update_action
 from products.autoresearch.backend.dataset.templates import TEMPLATES
 from products.autoresearch.backend.dataset.validation import ValidationResult, ValidationWarning
 from products.autoresearch.backend.facade import api
@@ -122,9 +123,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert AutoresearchPipeline.objects.filter(team=self.team, name="My Pipeline").exists()
 
     def test_create_pipeline_with_action_target(self):
-        action = Action.objects.create(
-            team=self.team, name="Interacted with file", steps_json=[{"event": "uploaded_file"}]
-        )
+        action = create_action(team=self.team, name="Interacted with file", steps_json=[{"event": "uploaded_file"}])
         resp = self.client.post(
             f"{self.base_url}/",
             {
@@ -144,7 +143,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
     def test_create_pipeline_with_foreign_action_rejected(self):
         other_org = Organization.objects.create(name="Other Org")
         other_team = Team.objects.create(organization=other_org, name="Other Team")
-        action = Action.objects.create(team=other_team, name="Foreign", steps_json=[{"event": "uploaded_file"}])
+        action = create_action(team=other_team, name="Foreign", steps_json=[{"event": "uploaded_file"}])
         resp = self.client.post(
             f"{self.base_url}/",
             {"name": "Bad", "target_definition": {"type": "action", "action_id": action.id}},
@@ -153,9 +152,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_create_pipeline_with_deleted_action_rejected(self):
-        action = Action.objects.create(
-            team=self.team, name="Gone", steps_json=[{"event": "uploaded_file"}], deleted=True
-        )
+        action = create_action(team=self.team, name="Gone", steps_json=[{"event": "uploaded_file"}], deleted=True)
         resp = self.client.post(
             f"{self.base_url}/",
             {"name": "Bad", "target_definition": {"type": "action", "action_id": action.id}},
@@ -798,9 +795,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
     def test_action_targets_need_the_action_scope(
         self, _name: str, path: str, scopes: list[str], ok_status: int, _mock: MagicMock
     ):
-        action = Action.objects.create(
-            team=self.team, name="Interacted with file", steps_json=[{"event": "uploaded_file"}]
-        )
+        action = create_action(team=self.team, name="Interacted with file", steps_json=[{"event": "uploaded_file"}])
         body = {"name": "Action Pipeline", "target_definition": {"type": "action", "action_id": action.id}}
         self.client.logout()
         without = self.create_personal_api_key_with_scopes(scopes)
@@ -921,7 +916,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         # The run must not exist before the call: the endpoint rejects pipelines that
         # already have a live run, so the mock creates it the way run_training would.
         def _fake_run_training(
-            *, pipeline: AutoresearchPipeline, iteration_budget: int, user_id: Any, kickoff_reason: str
+            *, pipeline: AutoresearchPipeline, iteration_budget: int, user_id: Any, kickoff_reason: str, limits: Any
         ):
             return AutoresearchTrainingRun.objects.create(
                 pipeline=pipeline,
@@ -949,7 +944,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         ]
     )
     def test_action_target_actions_need_the_action_scope(self, path: str, ok_status: int):
-        action = Action.objects.create(team=self.team, name="Uploaded", steps_json=[{"event": "uploaded_file"}])
+        action = create_action(team=self.team, name="Uploaded", steps_json=[{"event": "uploaded_file"}])
         pipeline = self._make_pipeline(
             target_event="Uploaded", target_definition={"type": "action", "action_id": action.id}
         )
@@ -1005,7 +1000,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         pipeline = self._make_trained_pipeline()
         with patch(
             "products.autoresearch.backend.evaluation.online_validation.run_online_validation_for_pipeline",
-            side_effect=Action.DoesNotExist,
+            side_effect=ActionNotFound,
         ):
             resp = self.client.post(f"{self.base_url}/{pipeline.id}/validate_online/")
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
@@ -1019,15 +1014,14 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         ]
     )
     def test_scoring_actions_refuse_a_stale_target_action(self, _name: str, path: str, staleness: str):
-        action = Action.objects.create(team=self.team, name="Uploaded", steps_json=[{"event": "uploaded_file"}])
+        action = create_action(team=self.team, name="Uploaded", steps_json=[{"event": "uploaded_file"}])
         pipeline = self._make_trained_pipeline()
         pipeline.target_definition = {"type": "action", "action_id": action.id}
         pipeline.save(update_fields=["target_definition"])
         if staleness == "deleted":
-            action.deleted = True
+            update_action(action, deleted=True)
         else:
-            action.steps_json = []
-        action.save()
+            update_action(action, steps_json=[])
         with (
             patch(f"{_FACADE}._start_inference_workflow") as mock_score,
             patch(
@@ -1040,13 +1034,12 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         mock_validate.assert_not_called()
 
     def test_start_training_with_a_deleted_target_action_returns_400(self):
-        action = Action.objects.create(team=self.team, name="Uploaded", steps_json=[{"event": "uploaded_file"}])
+        action = create_action(team=self.team, name="Uploaded", steps_json=[{"event": "uploaded_file"}])
         pipeline = self._make_pipeline(
             target_event="Uploaded", target_definition={"type": "action", "action_id": action.id}
         )
         # The Action API soft-deletes, so the row stays behind.
-        action.deleted = True
-        action.save(update_fields=["deleted"])
+        update_action(action, deleted=True)
         resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
         assert not AutoresearchTrainingRun.objects.for_team(self.team.pk).filter(pipeline=pipeline).exists()
@@ -1084,6 +1077,36 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
 
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        mock_run_training.assert_not_called()
+
+    @parameterized.expand([("limit_reached", 1), ("training_turned_off", 0)])
+    def test_start_training_at_the_project_daily_cap_returns_429(self, _name: str, limit: int):
+        other_pipeline = self._make_pipeline(name="Other pipeline")
+        started_at = django_timezone.now() - timedelta(hours=3)
+        AutoresearchTrainingRun.objects.create(
+            pipeline=other_pipeline,
+            status=AutoresearchTrainingRun.Status.COMPLETED,
+            iteration_budget=5,
+            task_id=uuid.uuid4(),
+        )
+        AutoresearchTrainingRun.objects.filter(pipeline=other_pipeline).update(created_at=started_at)
+        pipeline = self._make_pipeline()
+        with (
+            patch(
+                "products.autoresearch.backend.limits.posthoganalytics.get_feature_flag_payload",
+                return_value={"default_team_config": {"max_training_runs_per_day": limit}},
+            ),
+            patch("products.autoresearch.backend.training.runner.run_training") as mock_run_training,
+        ):
+            resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
+
+        assert resp.status_code == status.HTTP_429_TOO_MANY_REQUESTS, resp.content
+        body = resp.json()
+        assert (body["used"], body["limit"]) == (1, limit)
+        if limit:
+            assert body["next_slot_at"] == (started_at + timedelta(hours=24)).isoformat().replace("+00:00", "Z")
+        else:
+            assert body["next_slot_at"] is None
         mock_run_training.assert_not_called()
 
     # ──────────────────────────────────── update restrictions ─────────────────────────────────────
@@ -1257,7 +1280,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_oversized_action_name_target_rejected(self):
-        action = Action.objects.create(team=self.team, name="x" * 300, steps_json=[{"event": "uploaded_file"}])
+        action = create_action(team=self.team, name="x" * 300, steps_json=[{"event": "uploaded_file"}])
         resp = self.client.post(
             f"{self.base_url}/",
             {"name": "Oversized", "target_definition": {"type": "action", "action_id": action.id}},

@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import json
 import logging
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from typing import TYPE_CHECKING
 
 from django.db.models import Case, IntegerField, Value, When
@@ -340,6 +340,43 @@ def _filter_candidates_by_source_visibility(
     return [repo for repo in candidate_repos if repo == source_repository or visibility.get(repo) is True]
 
 
+def _filter_repository_sources(
+    candidate_repos: list[str],
+    source_repositories: Collection[str],
+    visibility: Mapping[str, bool | None],
+    require_private_destination: bool,
+) -> list[str]:
+    allowed = candidate_repos
+    for source in source_repositories:
+        allowed = _filter_candidates_by_source_visibility(source, allowed, visibility)
+    if require_private_destination:
+        allowed = [repository for repository in allowed if visibility.get(repository) is True]
+    return allowed
+
+
+def filter_repository_candidates_for_sources(
+    team_id: int,
+    candidate_repos: list[str],
+    source_repositories: Collection[str],
+    require_private_destination: bool = False,
+) -> list[str]:
+    github = resolve_team_github_integration(team_id)
+    if github is None:
+        return []
+    sources = {repository.strip().lower() for repository in source_repositories}
+    normalized = {repository: repository.strip().lower() for repository in candidate_repos}
+    if github.repository_cache_is_stale():
+        try:
+            github.sync_repository_cache(priority=Priority.BATCH)
+        except Exception:
+            logger.warning("repo_selection.visibility_refresh_failed", exc_info=True)
+    visibility = (
+        {} if github.repository_cache_is_stale() else _candidate_visibility(github, [*normalized.values(), *sources])
+    )
+    allowed = _filter_repository_sources(list(normalized.values()), sources, visibility, require_private_destination)
+    return [repository for repository, name in normalized.items() if name in allowed]
+
+
 def _build_repo_selection_prompt(
     context_block: str,
     candidate_repos: list[str],
@@ -647,6 +684,8 @@ async def select_repository(
     service_tier: str | None = None,
     past_corrections: str | None = None,
     source_repository: str | None = None,
+    source_repositories: Collection[str] = (),
+    require_private_destination: bool = False,
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a free-form request context.
 
@@ -710,10 +749,13 @@ async def select_repository(
         )
 
     source_repository = (source_repository or "").strip().lower() or None
+    sources = {repository.lower() for repository in source_repositories}
+    if source_repository:
+        sources.add(source_repository)
     visibility = await database_sync_to_async(_candidate_visibility, thread_sensitive=False)(
-        github, [*candidate_repos, source_repository] if source_repository else candidate_repos
+        github, [*candidate_repos, *sources]
     )
-    candidate_repos = _filter_candidates_by_source_visibility(source_repository, candidate_repos, visibility)
+    candidate_repos = _filter_repository_sources(candidate_repos, sources, visibility, require_private_destination)
     if not candidate_repos:
         return RepoSelectionResult(
             repository=None,

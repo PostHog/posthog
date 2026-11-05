@@ -1,4 +1,5 @@
 import re
+import json
 import uuid
 import functools
 import contextlib
@@ -206,63 +207,6 @@ def _mysql_job_inputs(mysql_config: dict) -> dict[str, str | dict[str, str]]:
         "schema": mysql_config["schema"],
         "using_ssl": "false",
     }
-
-
-@pytest.fixture
-def mock_paddle_client():
-    # Paddle now flows through the shared REST framework, so pagination is mocked by
-    # `_execute_run`'s `PostHogRESTClient.paginate` patch. This fixture only bypasses
-    # credential validation; `set_response` is a no-op kept for call-site compatibility.
-    def set_response(items: Any) -> None:
-        pass
-
-    with mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.paddle.paddle.validate_credentials",
-        return_value=True,
-    ):
-        yield set_response
-
-
-@pytest.fixture
-def mock_customer_io_client():
-    """Mock the Customer.io App API session inside `api_client`.
-
-    The Customer.io source skips the REST framework patched by `_execute_run`
-    and talks to the App API through a tracked `requests.Session` returned by
-    `_session(api_key)`. We patch that helper to return a stub session whose
-    `.get(...)` yields a canned payload.
-    """
-    response_data: dict[str, Any] = {"payload": {}}
-
-    class MockResponse:
-        def __init__(self, json_data: dict):
-            self.json_data = json_data
-            self.status_code = 200
-
-        def json(self):
-            return self.json_data
-
-        def raise_for_status(self):
-            pass
-
-    class _StubSession:
-        def get(self, *args, **kwargs):
-            return MockResponse(response_data["payload"])
-
-    def set_response(payload: dict) -> None:
-        response_data["payload"] = payload
-
-    with (
-        mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.api_client._session",
-            return_value=_StubSession(),
-        ),
-        mock.patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.api_client.validate_credentials",
-            return_value=(True, None),
-        ),
-    ):
-        yield set_response
 
 
 def _create_worker(activity_environment: WorkflowEnvironment, activity_executor: ThreadPoolExecutor) -> Worker:
@@ -740,91 +684,6 @@ async def test_zendesk_source(
         source_type="Zendesk",
         job_inputs=_ZENDESK_JOB_INPUTS,
         mock_data_response=fixture_data[fixture_data_key],
-        activity_environment=warehouse_workflow_environment,
-    )
-
-
-_PADDLE_JOB_INPUTS: dict[str, str | dict[str, str]] = {"paddle_api_key": "test_api_key"}
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "schema_name,table_name,fixture_name",
-    [
-        ("customers", "paddle_customers", "paddle_customers"),
-        ("subscriptions", "paddle_subscriptions", "paddle_subscriptions"),
-    ],
-)
-async def test_paddle_source(team, mock_paddle_client, request, schema_name, table_name, fixture_name):
-    fixture_data = request.getfixturevalue(fixture_name)
-    mock_paddle_client(fixture_data["data"])
-    await _run(
-        team=team,
-        schema_name=schema_name,
-        table_name=table_name,
-        source_type="Paddle",
-        job_inputs=_PADDLE_JOB_INPUTS,
-        mock_data_response=fixture_data["data"],
-    )
-
-
-async def _run_customer_io(
-    team,
-    schema_name,
-    table_name,
-    mock_data,
-    mock_customer_io_client,
-    payload,
-    activity_environment: Optional[WorkflowEnvironment] = None,
-):
-    mock_customer_io_client(payload)
-    await _run(
-        team=team,
-        schema_name=schema_name,
-        table_name=table_name,
-        source_type="CustomerIO",
-        job_inputs={"app_api_key": "test-key", "region": "us"},
-        mock_data_response=mock_data,
-        activity_environment=activity_environment,
-    )
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "schema_name,table_name,fixture_name,fixture_data_key",
-    [
-        ("broadcasts", "customerio_broadcasts", "customer_io_broadcasts", "broadcasts"),
-        ("campaigns", "customerio_campaigns", "customer_io_campaigns", "campaigns"),
-        ("collections", "customerio_collections", "customer_io_collections", "collections"),
-        ("newsletters", "customerio_newsletters", "customer_io_newsletters", "newsletters"),
-        ("object_types", "customerio_object_types", "customer_io_object_types", "types"),
-        ("segments", "customerio_segments", "customer_io_segments", "segments"),
-        ("sender_identities", "customerio_sender_identities", "customer_io_sender_identities", "sender_identities"),
-        ("snippets", "customerio_snippets", "customer_io_snippets", "snippets"),
-        ("subscription_topics", "customerio_subscription_topics", "customer_io_subscription_topics", "topics"),
-        ("transactional", "customerio_transactional", "customer_io_transactional", "messages"),
-    ],
-)
-async def test_customer_io_source(
-    team,
-    mock_customer_io_client,
-    request,
-    schema_name,
-    table_name,
-    fixture_name,
-    fixture_data_key,
-    warehouse_workflow_environment,
-):
-    fixture_data = request.getfixturevalue(fixture_name)
-    await _run_customer_io(
-        team,
-        schema_name=schema_name,
-        table_name=table_name,
-        mock_data=fixture_data[fixture_data_key],
-        mock_customer_io_client=mock_customer_io_client,
-        payload=fixture_data,
         activity_environment=warehouse_workflow_environment,
     )
 
@@ -3060,8 +2919,22 @@ async def test_worker_shutdown_desc_sort_order(team):
     def mock_raise_if_is_worker_shutdown(self):
         raise WorkerShuttingDownError("test_id", "test_type", "test_queue", 1, "test_workflow", "test_workflow_type")
 
-    def mock_get_rows(*args, **kwargs):
-        yield [{"_board_id": "1", "id": "test-log-id", "created_at": datetime.now().isoformat()}]
+    # A custom source is not resumable, and its manifest can declare the descending sort mode.
+    manifest = {
+        "client": {"base_url": "https://api.example.com", "auth": {"type": "bearer"}},
+        "resources": [
+            {
+                "name": "logs",
+                "primary_key": "id",
+                "sort_mode": "desc",
+                "endpoint": {
+                    "path": "/logs",
+                    "data_selector": "data",
+                    "incremental": {"cursor_path": "created_at", "start_param": "since"},
+                },
+            }
+        ],
+    }
 
     with (
         mock.patch.object(ShutdownMonitor, "raise_if_is_worker_shutdown", mock_raise_if_is_worker_shutdown),
@@ -3071,18 +2944,14 @@ async def test_worker_shutdown_desc_sort_order(team):
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher.DEFAULT_CHUNK_SIZE", 1
         ),
-        mock.patch(
-            "products.warehouse_sources.sources.monday.monday.get_rows",
-            mock_get_rows,
-        ),
     ):
         _, inputs = await _run(
             team=team,
-            schema_name="board_activity_logs",
-            table_name="monday_board_activity_logs",
-            source_type="Monday",
-            job_inputs={"api_token": "test_token"},
-            mock_data_response=[],
+            schema_name="logs",
+            table_name="custom_logs",
+            source_type="Custom",
+            job_inputs={"manifest_json": json.dumps(manifest), "auth_token": "test_token"},
+            mock_data_response=[{"id": "test-log-id", "created_at": datetime.now().isoformat()}],
             sync_type=ExternalDataSchemaSyncType.INCREMENTAL,
             sync_type_config={"incremental_field": "created_at", "incremental_field_type": "datetime"},
             ignore_assertions=True,

@@ -11,6 +11,7 @@ response post-processing, metrics, and failure signals. Kind-specific behavior
 import re
 import time
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Literal, Union, cast
 
@@ -55,7 +56,12 @@ from posthog.clickhouse.query_tagging import (
     tag_queries,
     tags_context,
 )
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import (
+    CHQueryErrorUnknownIdentifier,
+    CHQueryErrorUnknownTable,
+    CHQueryErrorUnsupportedMethod,
+    ExposedCHQueryError,
+)
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.exceptions import (
     APIQueriesBudgetExceeded,
@@ -66,6 +72,7 @@ from posthog.exceptions import (
     ClickHouseQueryTimeOut,
 )
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.user_query_errors import USER_QUERY_ERRORS
 from posthog.models import Team, User
 from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.schema_migrations.upgrade import upgrade
@@ -125,29 +132,23 @@ _QUERY_PERFORMANCE_ERRORS: dict[type[Exception], tuple[str, str]] = {
     ),
 }
 
-# Cost guardrails, budget refusals and transient capacity: customer problems, not faults. Skipped
-# from capture and re-raised past the materialized/ducklake inline fallback.
-_QUERY_GUARDRAIL_ERRORS: tuple[type[Exception], ...] = (
+_ENDPOINT_USER_QUERY_ERRORS = tuple(
+    error for error in USER_QUERY_ERRORS if error not in (CHQueryErrorUnknownIdentifier, CHQueryErrorUnsupportedMethod)
+)
+
+_NON_REPORTABLE_QUERY_ERRORS: tuple[type[Exception], ...] = (
     *_QUERY_PERFORMANCE_ERRORS,
+    *_ENDPOINT_USER_QUERY_ERRORS,
     ClickHouseAtCapacity,
     APIQueriesBudgetExceeded,
+    ConcurrencyLimitExceeded,
 )
 
 
-def _is_query_guardrail_error(error: BaseException) -> bool:
-    return isinstance(error, _QUERY_GUARDRAIL_ERRORS)
-
-
-# ClickHouse cannot parse a value the customer sent (e.g. a bad date variable). execute() returns a 400.
-_CUSTOMER_INPUT_ERROR_CODES = frozenset(
-    {"cannot_parse_date", "cannot_parse_datetime", "cannot_parse_number", "decimal_overflow"}
-)
-
-
-def _is_customer_input_error(error: BaseException) -> bool:
-    if isinstance(error, ValidationError):
-        return True
-    return isinstance(error, ExposedCHQueryError) and error.code_name in _CUSTOMER_INPUT_ERROR_CODES
+def _is_non_reportable_query_error(error: Exception, *, materialized: bool) -> bool:
+    if materialized and isinstance(error, CHQueryErrorUnknownTable):
+        return False
+    return isinstance(error, _NON_REPORTABLE_QUERY_ERRORS)
 
 
 # Connection loss outside SQLSTATE class 08 (connection_exception).
@@ -518,6 +519,7 @@ class EndpointExecutionService(PydanticModelMixin):
         version_obj: EndpointVersion | None,
         limit: int | None = None,
         offset: int | None = None,
+        before_inline_fallback: Callable[[], None] | None = None,
     ) -> Response:
         """Run an endpoint version and return the HTTP response.
 
@@ -605,6 +607,8 @@ class EndpointExecutionService(PydanticModelMixin):
                     result = None
 
             if result is None:
+                if materialized_failed and before_inline_fallback is not None:
+                    before_inline_fallback()
                 result = self._execute_inline_endpoint(
                     endpoint,
                     data,
@@ -677,6 +681,8 @@ class EndpointExecutionService(PydanticModelMixin):
             code, detail = _query_performance_code_and_detail(e)
             logger.warning("Endpoint query hit a performance limit", endpoint_name=endpoint.name, reason=error_label)
             raise EndpointQueryTooExpensive(detail, code=code)
+        except Throttled:
+            raise
         except ClickHouseAtCapacity as e:
             execution_status = "capacity"
             error_label = "ClickHouseAtCapacity"
@@ -916,8 +922,7 @@ class EndpointExecutionService(PydanticModelMixin):
 
             return result
         except Exception as e:
-            # Guardrail and input errors are customer-caused, not faults: skip capture and let execute() classify them.
-            if _is_query_guardrail_error(e) or _is_customer_input_error(e):
+            if _is_non_reportable_query_error(e, materialized=True):
                 raise
             logger.exception(
                 "Materialized endpoint execution failed",
@@ -1026,8 +1031,7 @@ class EndpointExecutionService(PydanticModelMixin):
 
         except Exception as e:
             self.handle_column_ch_error(e)
-            # Guardrail and input errors are customer-caused, not faults: skip capture and let execute() classify them.
-            if _is_query_guardrail_error(e) or _is_customer_input_error(e):
+            if _is_non_reportable_query_error(e, materialized=False):
                 raise
             logger.exception(
                 "Inline endpoint execution failed",

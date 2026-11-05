@@ -59,6 +59,13 @@ Circular dependencies fail with a query error. Soft saves skip column inference 
 Query preparation shares a 60-second cooperative deadline across parsing, resolution, transformations, and printing.
 AST visitors check the deadline while walking; native parser calls are checked when they return, rather than interrupted mid-call.
 
+## Disabling projection optimization
+
+Set `HOGQL_PROJECTION_OPTIMIZATION_ENABLED` to `false` in Django admin's instance settings to disable unused-column pruning and exported event-property narrowing for every project.
+The setting defaults to `true` and overrides the `optimizeProjections` query modifier when disabled.
+Workers pick up the change within about a minute; it affects newly compiled queries, not running queries or cached results.
+Disabling these optimizations can increase query time and memory use. Set the instance setting back to `true` to restore the normal per-query behavior.
+
 ## Pattern matching during query preparation
 
 Expressions inside HogQL placeholders execute in the Python HogVM.
@@ -136,6 +143,9 @@ Pass the printed SQL and `HogQLContext.values` together to the database driver.
 Built-in tables also accept the `posthog` namespace, such as `SELECT id FROM posthog.persons` and `SELECT count() FROM posthog.groups`.
 Explicit aliases work with these names, for example `SELECT p.id FROM posthog.persons AS p`.
 
+Trusted internal ASTs can set `JoinExpr.table_schema` to bind a table without adding it to the public catalog.
+User SQL still resolves tables through the catalog. Never bind table names taken from user expressions.
+
 The HogQL database schema is in flux. You will soon be able to explore it in the [PostHog app itself](https://github.com/PostHog/posthog/pull/14591).
 
 The most up to date resource is [hogql/database.py](https://github.com/PostHog/posthog/blob/master/posthog/hogql/database.py) on Github. At the time of writing, these tables were available:
@@ -185,12 +195,14 @@ In practice, you should avoid both and access `person.properties.$browser`, whic
 
 On the native JSON events table, HogQL compares non-empty string constants directly with declared String paths and casts Dynamic paths to Nullable(String) for properties with String or unknown definition types.
 This keeps equality and membership predicates visible to the JSON skip index without failing on mixed scalar types.
-Numeric and Boolean properties on the native table compare as text when a string literal cannot be converted to the property's definition type.
+Numeric and Boolean properties on the native table compare as text when a string literal cannot be converted to the property's definition type, including the empty string and text that starts with `[` or `{`.
 Boolean literals keep ClickHouse's case-insensitive spellings, including yes/no, on/off and enable/disable.
-DateTime property definitions keep their conversions when compared with strings, for both event and person properties.
+DateTime property definitions keep their conversions when compared with strings, for both event and person properties; only a comparison with the empty string alone compares as text, and an `IN` list that also holds dates keeps the conversion.
 Boolean conversion reads the native path directly because object and array text cannot match `true` or `false`; numeric conversions already read native paths directly.
-Constants starting with `[` or `{` keep the full property read because arrays and objects serialize differently from scalars.
+For String and untyped properties, constants starting with `[` or `{` keep the full property read because arrays and objects serialize differently from scalars.
 Single-property reads serialize sub-objects with ClickHouse's JSON formatter; whole-document reads still remove declared defaults.
+Empty property names, including nested path segments, use bound `getSubcolumn` calls because ClickHouse rejects empty SQL identifiers.
+Bound sub-object paths escape backticks with backslashes rather than SQL identifier quoting.
 A JSON function on the native `properties` column needs JSON text, and rebuilding the whole document as text from every path is the slowest way to get it.
 A call with a constant first key, such as `JSONLength(properties, 'details')`, serializes only that key's value and runs the function on it. This includes calls through `toString(properties)` and keys stored among the temporary properties.
 String, floating-point and Boolean extraction skip the serialization as well: they read the native value and apply the function's conversion and missing-value rules, independently of property-definition types. A stored floating-point value keeps the parser for string extraction, because JSON number formatting decides the result. It reads as false for Boolean extraction and as `Double` for `JSONType`, because the serialized form of an integral value is an integer token.

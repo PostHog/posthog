@@ -4775,6 +4775,7 @@ export namespace Schemas {
     export type YAxisPosition = "left" | "right";
     export type ChartSettingsDisplay = Partial<{
         color: string | null;
+        description: string | null;
         displayType: DisplayType | null;
         excludeFromTotal: boolean | null;
         label: string | null;
@@ -4911,6 +4912,7 @@ export namespace Schemas {
         settings?: (Settings | null) | undefined;
     };
     export type ChartSettings = Partial<{
+        annotationsScope: AnnotationScope | null;
         barGap: number | null;
         boxPlot: BoxPlotSettings | null;
         chartStyle: ChartStyle | null;
@@ -8591,6 +8593,7 @@ export namespace Schemas {
         personId?: (string | null) | undefined;
         response?: (ErrorTrackingQueryResponse | null) | undefined;
         searchQuery?: (string | null) | undefined;
+        severity?: (ErrorTrackingQueryIssueSeverity | null) | undefined;
         status?: (ErrorTrackingIssueStatus | string | null) | undefined;
         tags?: (QueryLogTags | null) | undefined;
         useQueryV2?: (boolean | null) | undefined;
@@ -9103,6 +9106,7 @@ export namespace Schemas {
      * * `subscription_usage_limit` - subscription_usage_limit
      * * `task_spend_limit` - task_spend_limit
      * * `agent_error` - agent_error
+     * * `ActiveSessionCapError` - ActiveSessionCapError
      */
     export type ErrorTypeEnum =
         | "agent_reported"
@@ -9120,7 +9124,8 @@ export namespace Schemas {
         | "turn_ended_without_response"
         | "subscription_usage_limit"
         | "task_spend_limit"
-        | "agent_error";
+        | "agent_error"
+        | "ActiveSessionCapError";
     /**
      * * `active` - Active
      * * `paused` - Paused
@@ -10072,6 +10077,55 @@ export namespace Schemas {
         | "add_secondary_metric"
         | "edit_exposure_criteria"
         | "edit_release_conditions";
+    /**
+     * * `flag_state` - Flag State
+     * * `flag_shared` - Flag Shared
+     * * `flag_history` - Flag History
+     * * `split_changed_mid_run` - Split Changed Mid Run
+     * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+     * * `flag_variants_mismatch` - Flag Variants Mismatch
+     * * `forced_variant_release_condition` - Forced Variant Release Condition
+     * * `new_flag_no_traffic` - New Flag No Traffic
+     * * `no_metric` - No Metric
+     * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_cannot_compile` - Metric Cannot Compile
+     * * `metric_calculation_failed` - Metric Calculation Failed
+     * * `metric_all_zero` - Metric All Zero
+     * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `exposure_filters` - Exposure Filters
+     * * `early_significance` - Early Significance
+     * * `metrics_not_matured` - Metrics Not Matured
+     * * `zero_exposures` - Zero Exposures
+     * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
+     * * `srm` - Srm
+     * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+     * * `multiple_variants_share` - Multiple Variants Share
+     */
+    export type ExperimentHealthCheckKeyEnum =
+        | "flag_state"
+        | "flag_shared"
+        | "flag_history"
+        | "split_changed_mid_run"
+        | "bucketing_changed_mid_run"
+        | "release_conditions_changed_mid_run"
+        | "flag_variants_mismatch"
+        | "forced_variant_release_condition"
+        | "new_flag_no_traffic"
+        | "no_metric"
+        | "metric_event_not_ingested"
+        | "metric_cannot_compile"
+        | "metric_calculation_failed"
+        | "metric_all_zero"
+        | "exposure_criteria_cannot_match"
+        | "exposure_filters"
+        | "early_significance"
+        | "metrics_not_matured"
+        | "zero_exposures"
+        | "test_account_filter_removes_exposures"
+        | "srm"
+        | "bias_risk_multiple_excluded"
+        | "multiple_variants_share";
     export type ExperimentHealthFinding = {
         /**
          * Stable identifier of the problem. Each code has one meaning across every surface that reports it.
@@ -10139,56 +10193,35 @@ export namespace Schemas {
          * The id of the matching diagnostic in the diagnosing-experiment-health skill, for example 'A5'. Null when the skill has none.
          */
         diagnostic_ref: string | null;
+        /**
+         * The key of the check in `checks` that reported the finding. A check can report several codes, so the code doesn't name the check.
+         *
+         * * `flag_state` - Flag State
+         * * `flag_shared` - Flag Shared
+         * * `flag_history` - Flag History
+         * * `split_changed_mid_run` - Split Changed Mid Run
+         * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+         * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+         * * `flag_variants_mismatch` - Flag Variants Mismatch
+         * * `forced_variant_release_condition` - Forced Variant Release Condition
+         * * `new_flag_no_traffic` - New Flag No Traffic
+         * * `no_metric` - No Metric
+         * * `metric_event_not_ingested` - Metric Event Not Ingested
+         * * `metric_cannot_compile` - Metric Cannot Compile
+         * * `metric_calculation_failed` - Metric Calculation Failed
+         * * `metric_all_zero` - Metric All Zero
+         * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+         * * `exposure_filters` - Exposure Filters
+         * * `early_significance` - Early Significance
+         * * `metrics_not_matured` - Metrics Not Matured
+         * * `zero_exposures` - Zero Exposures
+         * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
+         * * `srm` - Srm
+         * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+         * * `multiple_variants_share` - Multiple Variants Share
+         */
+        check: ExperimentHealthCheckKeyEnum;
     };
-    /**
-     * * `flag_state` - Flag State
-     * * `flag_shared` - Flag Shared
-     * * `flag_history` - Flag History
-     * * `split_changed_mid_run` - Split Changed Mid Run
-     * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
-     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
-     * * `flag_variants_mismatch` - Flag Variants Mismatch
-     * * `forced_variant_release_condition` - Forced Variant Release Condition
-     * * `new_flag_no_traffic` - New Flag No Traffic
-     * * `no_metric` - No Metric
-     * * `metric_event_not_ingested` - Metric Event Not Ingested
-     * * `metric_cannot_compile` - Metric Cannot Compile
-     * * `metric_calculation_failed` - Metric Calculation Failed
-     * * `metric_all_zero` - Metric All Zero
-     * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
-     * * `exposure_filters` - Exposure Filters
-     * * `early_significance` - Early Significance
-     * * `metrics_not_matured` - Metrics Not Matured
-     * * `zero_exposures` - Zero Exposures
-     * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
-     * * `srm` - Srm
-     * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
-     * * `multiple_variants_share` - Multiple Variants Share
-     */
-    export type ExperimentHealthCheckKeyEnum =
-        | "flag_state"
-        | "flag_shared"
-        | "flag_history"
-        | "split_changed_mid_run"
-        | "bucketing_changed_mid_run"
-        | "release_conditions_changed_mid_run"
-        | "flag_variants_mismatch"
-        | "forced_variant_release_condition"
-        | "new_flag_no_traffic"
-        | "no_metric"
-        | "metric_event_not_ingested"
-        | "metric_cannot_compile"
-        | "metric_calculation_failed"
-        | "metric_all_zero"
-        | "exposure_criteria_cannot_match"
-        | "exposure_filters"
-        | "early_significance"
-        | "metrics_not_matured"
-        | "zero_exposures"
-        | "test_account_filter_removes_exposures"
-        | "srm"
-        | "bias_risk_multiple_excluded"
-        | "multiple_variants_share";
     /**
      * * `passed` - Passed
      * * `finding` - Finding
@@ -10200,6 +10233,137 @@ export namespace Schemas {
         | "finding"
         | "not_applicable"
         | "not_checked";
+    /**
+     * * `exposed_count` - Users or groups exposed since launch, as the exposure criteria count them, including those exposed to multiple variants
+     * * `compared_count` - Exposed users or groups in the variants that the sample ratio test compares, without those exposed to multiple variants
+     * * `multiple_variant_count` - Users or groups exposed to more than one variant
+     * * `multiple_variant_percentage` - multiple_variant_count as a share of exposed_count
+     * * `multiple_variant_handling` - What the results do with users exposed to more than one variant: exclude or first_seen
+     * * `p_value` - P-value of the sample ratio test
+     * * `since_launch_hours` - Hours since launch
+     * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
+     * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+     * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
+     * * `primary_metric_count` - Primary metrics that the calculation computes
+     * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
+     * * `metric_count` - Metrics that the calculation computes
+     * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
+     * * `failed_metric_count` - Metrics whose latest calculation failed
+     * * `calculated_at` - When the latest calculation of the metrics finished
+     * * `flag_active` - Whether the feature flag is enabled
+     * * `flag_deleted` - Whether the feature flag is deleted
+     * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
+     * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+     */
+    export type ExperimentHealthValueKeyEnum =
+        | "exposed_count"
+        | "compared_count"
+        | "multiple_variant_count"
+        | "multiple_variant_percentage"
+        | "multiple_variant_handling"
+        | "p_value"
+        | "since_launch_hours"
+        | "exposed_without_test_account_filter_count"
+        | "kept_by_test_account_filter_percentage"
+        | "only_count_matured_users"
+        | "primary_metric_count"
+        | "waiting_metric_count"
+        | "metric_count"
+        | "completed_metric_count"
+        | "failed_metric_count"
+        | "calculated_at"
+        | "flag_active"
+        | "flag_deleted"
+        | "flag_rolled_out"
+        | "shipped_variant";
+    /**
+     * * `above` - Finding above the threshold
+     * * `below` - Finding below the threshold
+     */
+    export type ExperimentHealthRuleSideEnum = "above" | "below";
+    /**
+     * * `chi_squared` - Chi-squared goodness-of-fit test
+     */
+    export type ExperimentHealthRuleTestEnum = "chi_squared";
+    export type ExperimentHealthRuleMinimum = {
+        /**
+         * The key in `values` that must reach the threshold before the check judges.
+         *
+         * * `exposed_count` - Users or groups exposed since launch, as the exposure criteria count them, including those exposed to multiple variants
+         * * `compared_count` - Exposed users or groups in the variants that the sample ratio test compares, without those exposed to multiple variants
+         * * `multiple_variant_count` - Users or groups exposed to more than one variant
+         * * `multiple_variant_percentage` - multiple_variant_count as a share of exposed_count
+         * * `multiple_variant_handling` - What the results do with users exposed to more than one variant: exclude or first_seen
+         * * `p_value` - P-value of the sample ratio test
+         * * `since_launch_hours` - Hours since launch
+         * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
+         * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+         * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
+         * * `primary_metric_count` - Primary metrics that the calculation computes
+         * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
+         * * `metric_count` - Metrics that the calculation computes
+         * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
+         * * `failed_metric_count` - Metrics whose latest calculation failed
+         * * `calculated_at` - When the latest calculation of the metrics finished
+         * * `flag_active` - Whether the feature flag is enabled
+         * * `flag_deleted` - Whether the feature flag is deleted
+         * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
+         * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+         */
+        value: ExperimentHealthValueKeyEnum;
+        /**
+         * The value that the key must reach. Below it, the check reports no finding.
+         */
+        threshold: number;
+    };
+    export type ExperimentHealthCheckRule = {
+        /**
+         * The key in `values` that the check compares with the threshold.
+         *
+         * * `exposed_count` - Users or groups exposed since launch, as the exposure criteria count them, including those exposed to multiple variants
+         * * `compared_count` - Exposed users or groups in the variants that the sample ratio test compares, without those exposed to multiple variants
+         * * `multiple_variant_count` - Users or groups exposed to more than one variant
+         * * `multiple_variant_percentage` - multiple_variant_count as a share of exposed_count
+         * * `multiple_variant_handling` - What the results do with users exposed to more than one variant: exclude or first_seen
+         * * `p_value` - P-value of the sample ratio test
+         * * `since_launch_hours` - Hours since launch
+         * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
+         * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+         * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
+         * * `primary_metric_count` - Primary metrics that the calculation computes
+         * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
+         * * `metric_count` - Metrics that the calculation computes
+         * * `completed_metric_count` - Metrics whose result of the latest calculation the page shows
+         * * `failed_metric_count` - Metrics whose latest calculation failed
+         * * `calculated_at` - When the latest calculation of the metrics finished
+         * * `flag_active` - Whether the feature flag is enabled
+         * * `flag_deleted` - Whether the feature flag is deleted
+         * * `flag_rolled_out` - Whether a release condition of the feature flag rolls out to more than 0%
+         * * `shipped_variant` - The key of the variant that the feature flag serves to everyone, or null when it serves more than one
+         */
+        value: ExperimentHealthValueKeyEnum;
+        /**
+         * The threshold, in the unit that the suffix of the key gives.
+         */
+        threshold: number;
+        /**
+         * above: the check reports a finding when the value is above the threshold. below: when the value is below it. A value at the threshold passes.
+         *
+         * * `above` - Finding above the threshold
+         * * `below` - Finding below the threshold
+         */
+        warns: ExperimentHealthRuleSideEnum;
+        /**
+         * The statistical test that computes the value, for example chi_squared. Null for a count or a share.
+         *
+         * * `chi_squared` - Chi-squared goodness-of-fit test
+         */
+        test: ExperimentHealthRuleTestEnum | NullEnum;
+        /**
+         * What the check needs before it judges. Null when the check judges from the first value.
+         */
+        minimum: ExperimentHealthRuleMinimum | null;
+    };
     export type ExperimentHealthCheckResult = {
         /**
          * Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
@@ -10234,6 +10398,10 @@ export namespace Schemas {
          */
         name: string;
         /**
+         * What the check looks for and why it matters. The same for every experiment and every status.
+         */
+        description: string;
+        /**
          * passed: the check found no problem. finding: the check reported a finding in `findings`. not_applicable: the check does not cover the experiment's current state, for example a check of the changes since launch on a draft. not_checked: the check covers the experiment, but it could not read an input or it failed, so a problem it looks for can be present without a finding.
          *
          * * `passed` - Passed
@@ -10246,6 +10414,14 @@ export namespace Schemas {
          * Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding.
          */
         reason: string | null;
+        /**
+         * What the check read on the experiment, for every status, as numbers, strings, booleans or null. Empty when the check read nothing or shows nothing. The suffix of a key gives the unit: _count is a count, _percentage is on the 0-100 scale, _hours is hours and _at is an ISO 8601 time in UTC. A key without a suffix is a setting or a state. A key means the same thing in every check. `rule.value` names the key that decides.
+         */
+        values: Record<string, string | number | boolean | null>;
+        /**
+         * How the check decides. The same for every experiment and every status. Null for a check without a numeric rule.
+         */
+        rule: ExperimentHealthCheckRule | null;
     };
     export type ExperimentHealth = {
         /**
@@ -10589,12 +10765,56 @@ export namespace Schemas {
         | "bias_risk_multiple_excluded"
         | "multiple_variants_share"
         | "test_account_filter_removes_exposures";
+    export type ExperimentExposureHealthValueKey =
+        | "exposed_count"
+        | "compared_count"
+        | "multiple_variant_count"
+        | "multiple_variant_percentage"
+        | "multiple_variant_handling"
+        | "p_value"
+        | "since_launch_hours"
+        | "exposed_without_test_account_filter_count"
+        | "kept_by_test_account_filter_percentage";
+    export type ExperimentExposureHealthRuleMinimum = {
+        /**
+         * The value that the key must reach. Below it, the check reports no finding.
+         */
+        threshold: number;
+        /**
+         * The key in `values` that must reach the threshold before the check judges.
+         */
+        value: ExperimentExposureHealthValueKey;
+    };
+    export type ExperimentExposureHealthRuleSide = "above" | "below";
+    export type ExperimentExposureHealthCheckRule = {
+        /**
+         * What the check needs before it judges. Null when the check judges from the first value.
+         */
+        minimum: ExperimentExposureHealthRuleMinimum | null;
+        /**
+         * The statistical test that computes the value. Null for a count or a share.
+         */
+        test: string | null;
+        /**
+         * The threshold, in the unit that the suffix of the key gives.
+         */
+        threshold: number;
+        /**
+         * The key in `values` that the check compares with the threshold.
+         */
+        value: ExperimentExposureHealthValueKey;
+        /**
+         * above: the check reports a finding when the value is above the threshold. below: when the value is below it. A value at the threshold passes.
+         */
+        warns: ExperimentExposureHealthRuleSide;
+    };
     export type ExperimentExposureHealthCheckStatus =
         | "passed"
         | "finding"
         | "not_applicable"
         | "not_checked";
     export type ExperimentExposureHealthCheck = {
+        description?: (string | null) | undefined;
         /**
          * Stable identifier of the check.
          */
@@ -10607,10 +10827,14 @@ export namespace Schemas {
          * Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding.
          */
         reason: string | null;
+        rule?: (ExperimentExposureHealthCheckRule | null) | undefined;
         /**
          * passed: no problem found. finding: a finding in `health_findings`. not_applicable: the check doesn't cover the experiment's state. not_checked: an input was missing or the check failed.
          */
         status: ExperimentExposureHealthCheckStatus;
+        values?:
+            | (Record<string, string | number | boolean | null> | null)
+            | undefined;
     };
     export type ExperimentExposureHealthFindingActionKind =
         | "open_feature_flag"
@@ -10632,6 +10856,7 @@ export namespace Schemas {
          * The actions that fix the problem, in order of preference.
          */
         actions: Array<ExperimentExposureHealthFindingActionKind>;
+        check?: (ExperimentExposureHealthCheckKey | null) | undefined;
         /**
          * Stable identifier of the problem. Each code has one meaning across every surface that reports it.
          */
@@ -11079,9 +11304,17 @@ export namespace Schemas {
          */
         incremental_sync_blocked: IncrementalSyncBlockedReasonEnum | NullEnum;
         /**
+         * Whether this table uses webhook sync, but its source has no enabled webhook. Such a table gets no webhook updates. Each sync polls the source API instead, which is slower and can read the whole table. Set up the webhook on the source, or change `sync_type`.
+         */
+        webhook_not_registered: boolean;
+        /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
         enabled_columns?: (Array<string> | null) | undefined;
+        /**
+         * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
+         */
+        masked_columns?: (Array<string> | null) | undefined;
         /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
@@ -11167,6 +11400,7 @@ export namespace Schemas {
         primary_key_columns?: (Array<string> | null) | undefined;
         cdc_table_mode?: (CdcTableModeEnum | NullEnum) | undefined;
         enabled_columns?: (Array<string> | null) | undefined;
+        masked_columns?: (Array<string> | null) | undefined;
         row_filters?:
             | (Array<{
                   column: string;
@@ -11303,6 +11537,10 @@ export namespace Schemas {
          */
         user_access_level: string | null;
         supports_webhooks: boolean;
+        /**
+         * Whether at least one table of this source uses webhook sync, but the source has no enabled webhook. Those tables get no webhook updates. Each of their syncs polls the source API instead, which is slower and can read the whole table. Set up the webhook, or change the sync method of those tables.
+         */
+        webhook_not_registered: boolean;
         /**
          * Whether this source supports per-column sync selection via `enabled_columns`.
          */
@@ -11552,11 +11790,13 @@ export namespace Schemas {
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
      * * `transactional_emails` - Transactional emails
+     * * `transactional_email_keys` - Transactional email keys
      */
     export type HogFlowOriginProductEnum =
         | "loops"
         | "broadcasts"
-        | "transactional_emails";
+        | "transactional_emails"
+        | "transactional_email_keys";
     export type HogFlowMasking = {
         ttl?: (number | null) | undefined;
         threshold?: (number | null) | undefined;
@@ -11996,6 +12236,7 @@ export namespace Schemas {
          * * `loops` - Loops
          * * `broadcasts` - Broadcasts
          * * `transactional_emails` - Transactional emails
+         * * `transactional_email_keys` - Transactional email keys
          */
         origin_product: HogFlowOriginProductEnum | NullEnum;
         created_at: string;
@@ -12380,6 +12621,10 @@ export namespace Schemas {
          * GitHub only, null otherwise. `unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer mint tokens for it; `connected` otherwise.
          */
         installation_status: InstallationStatusEnum | NullEnum;
+        /**
+         * Linear only, null otherwise. True when the workspace last authorized PostHog before the Linear app had webhooks, so linked error tracking issues may not follow their tickets until someone reconnects it.
+         */
+        needs_webhook_reconnect: boolean | null;
     };
     /**
      * * `burst` - burst
@@ -12414,6 +12659,10 @@ export namespace Schemas {
     export type MCPServerInstallation = {
         id: string;
         template_id: string | null;
+        /**
+         * ID of the MCP server this connection belongs to. The MCP server page takes this ID, not the connection id. Null for older connections that are not linked to a server yet.
+         */
+        gateway_server_id: string | null;
         name: string;
         /**
          * Deprecated: use icon_domain instead. Lowercase key from the linked template for clients that still render bundled icon assets. Empty if custom install (no template).
@@ -15345,6 +15594,7 @@ export namespace Schemas {
             unknown;
         user_access_level: string | null;
         supports_webhooks: boolean;
+        webhook_not_registered: boolean;
         supports_column_selection: boolean;
         file_name: string | null;
         api_version: string | null;
@@ -16072,6 +16322,10 @@ export namespace Schemas {
     export type ProjectBackwardCompat = {
         id: number;
         organization: string;
+        /**
+         * Whether the project's organization approved AI data processing. AI features need this approval.
+         */
+        is_ai_data_processing_approved: boolean | null;
         /**
          * A project and its settings, including the settings that live on its passthrough Team.
          *
@@ -18556,6 +18810,7 @@ export namespace Endpoints {
                 id: string;
                 latest_send_first: boolean;
                 limit: number;
+                name: string;
                 offset: number;
                 optimization_enabled: boolean;
                 origin_product: "broadcasts" | "loops" | "transactional_emails";

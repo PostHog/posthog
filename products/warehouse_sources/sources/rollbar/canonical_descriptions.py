@@ -70,4 +70,20 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "name": "The environment's name.",
         },
     },
+    "occurrence_counts": {
+        "description": "Daily count of active occurrences in the Rollbar project, at all levels. Each row is one day bucket in GMT.",
+        "docs_url": "https://docs.rollbar.com/reference/get-occurrence-counts",
+        "columns": {
+            "timestamp": "Start of the day bucket (Unix seconds).",
+            "count": "Number of active occurrences from the bucket start to the end of that day.",
+        },
+    },
+    "activated_item_counts": {
+        "description": "Daily count of items that were first seen or reactivated in the Rollbar project. Each row is one day bucket in the project timezone.",
+        "docs_url": "https://docs.rollbar.com/reference/get-activated-item-counts",
+        "columns": {
+            "timestamp": "Start of the day bucket (Unix seconds).",
+            "count": "Number of items first seen or reactivated in that day.",
+        },
+    },
 }

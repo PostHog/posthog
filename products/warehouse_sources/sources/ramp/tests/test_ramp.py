@@ -7,14 +7,13 @@ import pytest
 
 from products.warehouse_sources.sources.ramp._config import RampSourceConfig
 from products.warehouse_sources.sources.ramp.ramp import (
-    PAGE_SIZE,
     RampResumeConfig,
     _base_url,
     _format_timestamp,
     check_endpoint_access,
     validate_credentials,
 )
-from products.warehouse_sources.sources.ramp.settings import TOKEN_SCOPES
+from products.warehouse_sources.sources.ramp.settings import PAGE_SIZE, TOKEN_SCOPES
 from products.warehouse_sources.sources.ramp.source import RampSource
 from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
@@ -111,32 +110,59 @@ class TestCheckEndpointAccess:
 
 
 class TestGetRows:
-    def test_incremental_transactions_use_from_date(self):
+    @pytest.mark.parametrize(
+        "endpoint, incremental, expected_from_date, expected_page_size, expected_sort_mode",
+        [
+            ("transactions", True, "2024-01-02T00:00:00Z", PAGE_SIZE, "desc"),
+            ("transfers", True, "2024-01-02T00:00:00Z", PAGE_SIZE, None),
+            ("statements", True, "2024-01-02T00:00:00Z", 10, None),
+            ("transfers", False, None, PAGE_SIZE, None),
+            ("statements", False, None, 10, None),
+            ("locations", False, None, PAGE_SIZE, "asc"),
+        ],
+    )
+    def test_request_shaping_and_sort_mode(
+        self, endpoint, incremental, expected_from_date, expected_page_size, expected_sort_mode
+    ):
         result = _source(
-            "transactions",
+            endpoint,
             [_page([])],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
+            should_use_incremental_field=incremental,
+            db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC) if incremental else None,
         )
 
-        data_requests = [request for request in result.requests if request.path.endswith("/transactions")]
-        assert data_requests[0].param("from_date") == "2024-01-02T00:00:00Z"
-        assert data_requests[0].param("page_size") == str(PAGE_SIZE)
+        assert result.raised is None
+        data_requests = [request for request in result.requests if request.path.endswith(f"/{endpoint}")]
+        assert data_requests[0].param("from_date") == expected_from_date
+        assert data_requests[0].param("page_size") == str(expected_page_size)
+        assert result.response is not None
+        assert result.response.sort_mode == expected_sort_mode
 
-    def test_billing_statements_mint_only_their_own_scope_and_walk_pages(self):
+    @pytest.mark.parametrize(
+        "endpoint, path, scope",
+        [
+            ("billing_statements", "billing/statements", "billing_statements:read"),
+            ("locations", "locations", "locations:read"),
+            ("entities", "entities", "entities:read"),
+            ("transfers", "transfers", "transfers:read"),
+            ("statements", "statements", "statements:read"),
+        ],
+    )
+    def test_endpoints_mint_only_their_own_scope_and_walk_pages(self, endpoint, path, scope):
         result = _source(
-            "billing_statements",
+            endpoint,
             [
-                _page([{"id": "s1"}], next_url="https://api.ramp.com/developer/v1/billing/statements?start=s1"),
-                _page([{"id": "s2"}]),
+                _page([{"id": "r1"}], next_url=f"https://api.ramp.com/developer/v1/{path}?start=r1"),
+                _page([{"id": "r2"}]),
             ],
-            path="billing/statements",
+            path=path,
         )
 
         assert result.raised is None
         token_request = next(request for request in result.requests if request.path.endswith("/token"))
-        assert parse_qs((token_request.body or b"").decode())["scope"] == ["billing_statements:read"]
-        assert [row["id"] for row in result.rows] == ["s1", "s2"]
+        assert parse_qs((token_request.body or b"").decode())["scope"] == [scope]
+        assert [row["id"] for row in result.rows] == ["r1", "r2"]
+        assert result.urls[-1] == f"https://api.ramp.com/developer/v1/{path}?start=r1"
 
     def test_a_run_with_no_saved_state_starts_from_the_first_page(self):
         result = _source("transactions", [_page([{"id": "t1"}])])

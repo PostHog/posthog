@@ -928,6 +928,7 @@
     'dashboards',
     'dive_dashboard',
     'dive_dashboard_id',
+    'explanations',
     'exportedasset_set',
     'filters_hash',
     'funnel',

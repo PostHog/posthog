@@ -1,7 +1,12 @@
+import { z } from 'zod'
+
 import { HogError } from '@/core/errors'
+import { parseJson, parseJsonOrUndefined } from '@/core/json'
 import type { Runtime } from '@/core/runtime'
+import { parseOrThrow } from '@/core/schema'
 import { USER_AGENT } from '@/posthog/api'
-import type { Credentials } from '@/posthog/credentials'
+import { hostUrl } from '@/posthog/host'
+import type { KeySession } from '@/posthog/key-session'
 
 import { contentHash } from './container'
 
@@ -44,6 +49,12 @@ function transferTimeout(bytes: number): number {
 }
 const RATE_LIMIT_PER_MINUTE = 480
 
+const ErrorBody = z.object({ code: z.string() })
+
+export function errorCode(body: string): string | undefined {
+    return parseJsonOrUndefined(body, ErrorBody)?.code
+}
+
 class ApiFailure extends Error {
     constructor(
         readonly status: number | undefined,
@@ -59,12 +70,7 @@ class ApiFailure extends Error {
 
     // posthog-cli matches error codes in the parsed body, or anywhere in the raw text as a fallback.
     hasCode(code: string): boolean {
-        try {
-            if ((JSON.parse(this.body) as { code?: unknown }).code === code) {
-                return true
-            }
-        } catch {}
-        return this.body.includes(code)
+        return errorCode(this.body) === code || this.body.includes(code)
     }
 }
 
@@ -123,18 +129,23 @@ export function uuidv7(now: number): string {
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
-interface PresignedPost {
-    url: string
-    fields: Record<string, string>
-}
+const PresignedPost = z.object({ url: z.string(), fields: z.record(z.string(), z.string()) })
 
-interface StartEntry {
-    presigned_url: PresignedPost
-    fallback_presigned_url?: PresignedPost | null
-    presigned_put_url?: string | null
-    fallback_presigned_put_url?: string | null
-    symbol_set_id: string
-}
+type PresignedPost = z.output<typeof PresignedPost>
+
+const StartEntry = z.object({
+    // Null when PostHog couldn't sign a POST, in which case it sends a PUT URL.
+    presigned_url: PresignedPost.nullish(),
+    fallback_presigned_url: PresignedPost.nullish(),
+    presigned_put_url: z.string().nullish(),
+    fallback_presigned_put_url: z.string().nullish(),
+    symbol_set_id: z.string(),
+})
+
+type StartEntry = z.output<typeof StartEntry>
+
+const CheckResponse = z.object({ chunk_ids_to_upload: z.array(z.string()) })
+const StartResponse = z.object({ id_map: z.record(z.string(), StartEntry).nullish() })
 
 type Target = { kind: 'put'; url: string } | { kind: 'post'; form: PresignedPost }
 
@@ -145,40 +156,54 @@ export class SymbolSetClient {
 
     constructor(
         private readonly runtime: Runtime,
-        private readonly credentials: Credentials,
+        private readonly session: KeySession,
         private readonly onFallback: () => void = () => {}
     ) {
         this.throttle = new Throttle(runtime, RATE_LIMIT_PER_MINUTE)
     }
 
-    // Project-scoped API URL, resolved the way posthog-cli's `Url::join` does.
+    // Project-scoped API URL. hostUrl keeps the path a self-hosted PostHog sits under, which
+    // posthog-cli's `Url::join` drops, and gives the same URL for a host without one.
     projectUrl(path: string): URL {
-        return new URL(path, new URL(`api/projects/${this.credentials.projectId}/`, this.credentials.host))
+        const { projectId, host } = this.session.current
+        return new URL(path, hostUrl(host, `api/projects/${projectId}/`))
     }
 
-    async api(method: 'GET' | 'POST', path: string, body?: unknown): Promise<unknown> {
+    async api<S extends z.ZodType>(
+        method: 'GET' | 'POST',
+        path: string,
+        schema: S,
+        body?: unknown
+    ): Promise<z.output<S>> {
         await this.throttle.wait()
         const url = this.projectUrl(path)
-        let response: Response
-        try {
-            response = await this.runtime.fetch(url, {
-                method,
-                headers: {
-                    Authorization: `Bearer ${this.credentials.apiKey}`,
-                    'Content-Type': 'application/json',
-                    'User-Agent': USER_AGENT,
-                },
-                body: body === undefined ? undefined : JSON.stringify(body),
-                timeoutMs: REQUEST_TIMEOUT_MS,
-            })
-        } catch (error) {
-            throw new ApiFailure(undefined, error instanceof Error ? error.message : String(error), url.toString())
+        // Only a failed request becomes an ApiFailure. A renewal that fails keeps its own error and hint.
+        const send = async (token: string): Promise<Response> => {
+            try {
+                return await this.runtime.fetch(url, {
+                    method,
+                    headers: {
+                        Authorization: `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                        'User-Agent': USER_AGENT,
+                    },
+                    body: body === undefined ? undefined : JSON.stringify(body),
+                    timeoutMs: REQUEST_TIMEOUT_MS,
+                })
+            } catch (error) {
+                throw new ApiFailure(undefined, error instanceof Error ? error.message : String(error), url.toString())
+            }
         }
+        const response = await this.session.send(send, (answer) => answer.status === 401)
         const text = await response.text()
         if (!response.ok) {
             throw new ApiFailure(response.status, text, url.toString())
         }
-        return text ? JSON.parse(text) : undefined
+        const failure = {
+            code: 'unexpected_response',
+            context: `PostHog's answer to ${method} ${url.pathname} isn't what hog expects.`,
+        }
+        return text ? parseJson(text, schema, failure) : parseOrThrow(schema, undefined, failure)
     }
 
     async upload(uploads: SymbolSetUpload[], options: UploadOptions): Promise<UploadOutcome> {
@@ -254,11 +279,13 @@ export class SymbolSetClient {
         for (let start = 0; start < uploads.length; start += CHECK_BATCH_SIZE) {
             const slice = uploads.slice(start, start + CHECK_BATCH_SIZE)
             try {
-                const response = (await withRetries(
+                // The answer is checked after the retries, because an answer of the wrong shape is
+                // not worth sending the request again for.
+                const answer = await withRetries(
                     this.runtime,
                     3,
                     () =>
-                        this.api('POST', 'error_tracking/symbol_sets/bulk_check_upload', {
+                        this.api('POST', 'error_tracking/symbol_sets/bulk_check_upload', z.unknown(), {
                             symbol_sets: slice.map((upload) => this.entry(upload)),
                             force: options.force,
                             skip_on_conflict: options.skipOnConflict,
@@ -270,12 +297,13 @@ export class SymbolSetClient {
                             error.status >= 400 &&
                             error.status < 500
                         )
-                )) as { chunk_ids_to_upload?: unknown }
-                if (!Array.isArray(response?.chunk_ids_to_upload)) {
-                    throw new Error('unexpected check response')
-                }
+                )
+                const response = parseOrThrow(CheckResponse, answer, {
+                    code: 'unexpected_response',
+                    context: "PostHog's answer to the upload check isn't what hog expects.",
+                })
                 for (const chunkId of response.chunk_ids_to_upload) {
-                    needed.add(String(chunkId))
+                    needed.add(chunkId)
                 }
             } catch {
                 for (const upload of uploads.slice(start)) {
@@ -295,16 +323,20 @@ export class SymbolSetClient {
         const attemptId = uuidv7(this.runtime.now())
         let idMap: Record<string, StartEntry>
         try {
-            const response = (await withRetries(this.runtime, 3, () =>
-                this.api('POST', 'error_tracking/symbol_sets/bulk_start_upload', {
+            const answer = await withRetries(this.runtime, 3, () =>
+                this.api('POST', 'error_tracking/symbol_sets/bulk_start_upload', z.unknown(), {
                     symbol_sets: batch.map((upload) => this.entry(upload)),
                     upload_attempt_id: attemptId,
                     upload_run_id: runId,
                     force: options.force,
                     skip_on_conflict: options.skipOnConflict,
                 })
-            )) as { id_map?: Record<string, StartEntry> }
-            idMap = response?.id_map ?? {}
+            )
+            idMap =
+                parseOrThrow(StartResponse, answer, {
+                    code: 'unexpected_response',
+                    context: "PostHog's answer to the upload start isn't what hog expects.",
+                }).id_map ?? {}
         } catch (error) {
             throw startFailure(error)
         }
@@ -338,7 +370,7 @@ export class SymbolSetClient {
         }
         try {
             await withRetries(this.runtime, 3, () =>
-                this.api('POST', 'error_tracking/symbol_sets/bulk_finish_upload', {
+                this.api('POST', 'error_tracking/symbol_sets/bulk_finish_upload', z.unknown(), {
                     content_hashes: finishHashes,
                     upload_attempt_id: attemptId,
                     upload_run_id: runId,
@@ -357,9 +389,18 @@ export class SymbolSetClient {
     // Sends one container to object storage. A target falls back to its alternate endpoint after two
     // transport errors in a row on the primary, like posthog-cli's endpoint router.
     private async store(data: Uint8Array, entry: StartEntry): Promise<void> {
-        const primary: Target = entry.presigned_put_url
+        const primary: Target | undefined = entry.presigned_put_url
             ? { kind: 'put', url: entry.presigned_put_url }
-            : { kind: 'post', form: entry.presigned_url }
+            : entry.presigned_url
+              ? { kind: 'post', form: entry.presigned_url }
+              : undefined
+        if (primary === undefined) {
+            throw new HogError(
+                'unexpected_response',
+                `PostHog sent no upload URL for symbol set ${entry.symbol_set_id}.`,
+                'Run the upload again.'
+            )
+        }
         const fallbackUrl = entry.presigned_put_url ? entry.fallback_presigned_put_url : entry.fallback_presigned_url
         const fallback: Target | undefined = !fallbackUrl
             ? undefined

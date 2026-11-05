@@ -89,6 +89,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_rows_synced_in_period,
     get_teams_with_sdk_logs_records_in_period,
     get_teams_with_signals_credits_used_in_period,
+    get_teams_with_signals_spend_credits_used_in_period,
     get_teams_with_survey_responses_count_in_period,
     get_teams_with_task_sandbox_usage_in_period,
     get_teams_with_workflow_transactional_emails_sent_in_period,
@@ -346,6 +347,7 @@ QUERIES: list[QuerySpec] = [
             "ruby_events": "teams_with_ruby_events_count_in_period",
             "python_events": "teams_with_python_events_count_in_period",
             "php_events": "teams_with_php_events_count_in_period",
+            "laravel_events": "teams_with_laravel_events_count_in_period",
             "dotnet_events": "teams_with_dotnet_events_count_in_period",
             "elixir_events": "teams_with_elixir_events_count_in_period",
             "unity_events": "teams_with_unity_events_count_in_period",
@@ -402,6 +404,12 @@ QUERIES: list[QuerySpec] = [
     QuerySpec(
         name="teams_with_local_evaluation_requests_count_in_period",
         fn=lambda b, e: UsageCounterService().get_legacy(UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS, b, e),
+    ),
+    QuerySpec(
+        name="teams_with_local_evaluation_not_modified_requests_count_in_period",
+        fn=lambda b, e: UsageCounterService().get_legacy(
+            UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_NOT_MODIFIED_REQUESTS, b, e
+        ),
     ),
     # ---- ClickHouse: query metrics -------------------------------------------
     QuerySpec(
@@ -538,6 +546,10 @@ QUERIES: list[QuerySpec] = [
     QuerySpec(
         name="teams_with_signals_credits_used_in_period",
         fn=get_teams_with_signals_credits_used_in_period,
+    ),
+    QuerySpec(
+        name="teams_with_signals_spend_credits_used_in_period",
+        fn=get_teams_with_signals_spend_credits_used_in_period,
     ),
     QuerySpec(
         name="teams_with_posthog_code_credits_used_in_period",

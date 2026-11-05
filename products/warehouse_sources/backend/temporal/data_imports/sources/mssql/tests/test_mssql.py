@@ -686,6 +686,13 @@ class TestMSSQLSourceRetryableErrors:
             # pymssql's own InterfaceError, raised when a query runs on a connection that died
             # between opening and use (see `MSSQLSource.get_retryable_errors`).
             pymssql.InterfaceError("Not connected to any MS SQL server"),
+            # SQL Server error 1205 raised mid-stream from `cursor.fetchmany`, past the point
+            # `retry_on_deadlock` can safely rerun the query (see `MSSQLSource.get_retryable_errors`).
+            pymssql.OperationalError(
+                1205,
+                b"Transaction (Process ID 116) was deadlocked on lock resources with another process and has been "
+                b"chosen as the deadlock victim. Rerun the transaction.",
+            ),
         ],
     )
     def test_transient_connection_errors_are_retryable(self, error):

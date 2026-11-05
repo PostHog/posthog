@@ -16,7 +16,6 @@ import { traceDrawerLogic } from './traceDrawerLogic'
 import { withoutTraceDrawerParams } from './traceDrawerRows'
 import { TraceListRow } from './traceListRows'
 import { traceViewHostLogic } from './traceViewHostLogic'
-import { traceViewPreferenceLogic } from './traceViewPreferenceLogic'
 
 jest.mock('lib/utils/product-intents', () => ({
     ...jest.requireActual('lib/utils/product-intents'),
@@ -200,6 +199,11 @@ describe('traceDrawerLogic', () => {
     it.each<[TraceDrawerListId, string, Record<string, unknown>]>([
         ['traces', LIST_PATH, { mode: 'spans', detailTab: 'messages', openingMode: null }],
         [
+            'offline-experiment',
+            urls.aiObservabilityOfflineEvaluationExperiment('experiment-1'),
+            { mode: 'spans', detailTab: 'messages', openingMode: null },
+        ],
+        [
             'evaluation-runs',
             urls.aiObservabilityEvaluation('e1'),
             { mode: 'spans', detailTab: 'evals', openingMode: null },
@@ -354,12 +358,8 @@ describe('traceDrawerLogic', () => {
         expect(host.values).toMatchObject({ requestedStepId: null, requestedTraceId: 'b' })
     })
 
-    it.each([
-        ['the flag is off', (): void => undefined, false],
-        ['the person is on the old view', (): void => traceViewPreferenceLogic.actions.switchView('legacy'), true],
-    ])('sends a link to the trace page, without tracking, when %s', (_name, prepare, flag) => {
-        setUp({ flag })
-        prepare()
+    it('sends a link to the trace page, without tracking, when the flag is off', () => {
+        setUp({ flag: false })
         logic.unmount()
         goTo(`${LIST_PATH}?date_from=-7d&trace=a%2Fb&ts=2026-01-01&step=gen-1`)
 
@@ -442,6 +442,7 @@ describe('traceDrawerLogic', () => {
         ['generations', urls.aiObservabilityGenerations()],
         ['prompt-traces', urls.aiObservabilityPrompt('p1')],
         ['reviews', urls.aiObservabilityReviews()],
+        ['review-queue', urls.aiObservabilityReviews()],
         ['evaluation-runs', urls.aiObservabilityEvaluation('e1')],
         ['evaluation-runs', `/project/1${urls.aiObservabilityEvaluation('e1')}`],
         ['dataset-items', urls.aiObservabilityDataset('d1')],
@@ -602,6 +603,15 @@ describe('traceDrawerLogic', () => {
         expect(searchParams).toMatchObject({
             back_to: 'prompt',
             back_url: '/prompt-management/prompts/p1?tab=usage',
+        })
+    })
+
+    it('links a queue trace to the full page with the back target and queue the legacy page understands', () => {
+        setUp({ url: `${urls.aiObservabilityReviews()}?queue_id=q1&trace=a`, listId: 'review-queue' })
+
+        expect(combineUrl(logic.values.fullPageHref ?? '').searchParams).toMatchObject({
+            back_to: 'reviews',
+            queue_id: 'q1',
         })
     })
 
