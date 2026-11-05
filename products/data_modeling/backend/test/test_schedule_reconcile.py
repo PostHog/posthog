@@ -713,6 +713,26 @@ class TestMaybeReconcileDag(BaseTest):
 
         self.assertEqual([call.args[0] for call in reconcile.call_args_list], [other_dag])
 
+    @parameterized.expand(
+        [
+            ("malformed", "bogus"),
+            ("no_such_organization", "01890000-0000-0000-0000-000000000000"),
+        ]
+    )
+    def test_reconcile_command_refuses_an_unknown_organization_before_reconciling_any(self, _name, unknown_id):
+        with (
+            mock.patch(f"{RECONCILE}.list_existing_schedule_ids") as list_schedules,
+            self.assertRaisesMessage(CommandError, unknown_id),
+        ):
+            call_command(
+                "reconcile_organization_schedules",
+                f"--organization-ids={self.organization.id}, {unknown_id}",
+                stdout=StringIO(),
+                stderr=StringIO(),
+            )
+
+        list_schedules.assert_not_called()
+
     def test_unreadable_plan_floor_retries_the_write_until_the_floor_reads(self):
         dag = self._dag_with_target()
         temporal = self._temporal_listing([])
