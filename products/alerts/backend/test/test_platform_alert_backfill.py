@@ -5,6 +5,7 @@ from uuid import UUID
 from posthog.test.base import APIBaseTest
 
 from django.core.management import call_command
+from django.db.models.signals import pre_delete
 
 from parameterized import parameterized
 
@@ -13,6 +14,7 @@ from posthog.schema import ChartDisplayType, EventsNode, IntervalType, TrendsFil
 from posthog.models.scoping import team_scope
 from posthog.schema_enums import AlertCalculationInterval
 
+from products.alerts.backend.activity_logging import delete_platform_shadow_copy
 from products.alerts.backend.models.alert import AlertConfiguration, Threshold
 from products.alerts.backend.platform_alert_backfill import (
     backfill_platform_insight_alert_configurations,
@@ -155,3 +157,36 @@ class TestPlatformInsightAlertBackfill(APIBaseTest):
 
         copy = self._copies().get(created.id)
         assert (copy.name if copy else None) == copy_name
+
+    @parameterized.expand([("with_the_alert",), ("with_its_insight",)])
+    def test_deleting_an_alert_deletes_its_copy_and_no_other(self, route: str) -> None:
+        deleted = self._alert()
+        kept = self._alert()
+        backfill_platform_insight_alert_configurations(team_id=self.team.id)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            if route == "with_the_alert":
+                deleted.delete()
+            else:
+                deleted.insight.delete()
+
+        assert set(self._copies()) == {kept.id}
+
+    def test_the_cleanup_command_deletes_only_copies_whose_alert_is_gone(self) -> None:
+        orphaned = self._alert()
+        orphaned_id = orphaned.id
+        kept = self._alert()
+        backfill_platform_insight_alert_configurations(team_id=self.team.id)
+        pre_delete.disconnect(delete_platform_shadow_copy, sender=AlertConfiguration)
+        try:
+            orphaned.delete()
+        finally:
+            pre_delete.connect(delete_platform_shadow_copy, sender=AlertConfiguration)
+
+        dry_run = StringIO()
+        call_command("delete_orphaned_platform_insight_alert_copies", dry_run=True, stdout=dry_run)
+        assert set(self._copies()) == {orphaned_id, kept.id}
+        call_command("delete_orphaned_platform_insight_alert_copies", stdout=StringIO())
+
+        assert "Would delete 1 " in dry_run.getvalue()
+        assert set(self._copies()) == {kept.id}

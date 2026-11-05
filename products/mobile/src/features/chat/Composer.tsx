@@ -1,4 +1,5 @@
 import { forwardRef, type ReactElement, type ReactNode } from 'react'
+import type { TextInputInstance } from 'react-native'
 import { ScrollView, Text, TextInput, View } from 'react-native'
 
 import { ArrowUpIcon } from '@/ui/icons/ArrowUpIcon'
@@ -80,7 +81,7 @@ function OptionChip({
     )
 }
 
-export const Composer = forwardRef<TextInput, ComposerProps>(function Composer(
+export const Composer = forwardRef<TextInputInstance, ComposerProps>(function Composer(
     {
         compact = false,
         text,

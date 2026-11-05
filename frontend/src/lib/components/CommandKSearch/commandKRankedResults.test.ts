@@ -2,6 +2,7 @@ import { SearchItem } from 'lib/components/Search/searchItems'
 
 import { buildRankedResults } from './commandKRankedResults'
 import type { CommandKSection } from './commandKSections'
+import { RESULTS_LIMIT } from './commandKSources'
 
 const result = (
     id: string,
@@ -231,6 +232,21 @@ describe('buildRankedResults', () => {
             ],
         },
         {
+            name: 'with unified ranking, the app Settings row ranks above a product tab with the same name',
+            query: 'settings',
+            results: [],
+            products: [
+                {
+                    ...product('Workflows Settings'),
+                    displayName: 'Settings',
+                    parentName: 'Workflows',
+                },
+            ],
+            settings: [{ id: 'settings', name: 'Settings', category: 'settings' }],
+            unifiedRanking: true,
+            expected: ['Results: Settings, Workflows Settings'],
+        },
+        {
             name: 'with unified ranking, an account that matches only inside a word ranks below a name match',
             query: 'stripe',
             results: [result('1', 'Stripe revenue', 'insight', [-1, 0, 0, 0, -1, 0, 1, 0, -1])],
@@ -352,21 +368,90 @@ describe('buildRankedResults', () => {
             unifiedRanking: true,
             expected: ['Results: Metrics, Data catalog'],
         },
-    ])('$name', ({ query, results, products, persons = [], accounts = [], unifiedRanking = false, expected }) => {
-        expect(
-            summary(
-                buildRankedResults({
-                    query,
-                    highlightWords: query.split(' '),
-                    results,
-                    products,
-                    persons,
-                    accounts,
-                    state: 'ready',
-                    scoped: false,
-                    unifiedRanking,
+        {
+            name: 'a flat list of one saved-object type that hits the cap ends with its see-all row',
+            query: 'revenue',
+            results: Array.from({ length: RESULTS_LIMIT + 5 }, (_, n) =>
+                result(`dashboard-${n}`, `Revenue ${n}`, 'dashboard', exactWordRank(100 - n), {
+                    typeCount: RESULTS_LIMIT + 5,
                 })
-            )
-        ).toEqual(expected)
-    })
+            ),
+            products: [],
+            expected: [
+                `Results: ${Array.from({ length: RESULTS_LIMIT }, (_, n) => `Revenue ${n}`).join(', ')}, (See all ${RESULTS_LIMIT + 5} dashboards)`,
+            ],
+        },
+        {
+            name: 'with unified ranking, a flat list of one saved-object type that hits the cap ends with its see-all row',
+            query: 'revenue',
+            results: Array.from({ length: RESULTS_LIMIT + 5 }, (_, n) =>
+                result(`dashboard-${n}`, `Revenue ${n}`, 'dashboard', exactWordRank(100 - n), {
+                    typeCount: RESULTS_LIMIT + 5,
+                })
+            ),
+            products: [],
+            unifiedRanking: true,
+            expected: [
+                `Results: ${Array.from({ length: RESULTS_LIMIT }, (_, n) => `Revenue ${n}`).join(', ')}, (See all ${RESULTS_LIMIT + 5} dashboards)`,
+            ],
+        },
+        {
+            name: 'every product shows when products are the only match, past the flat list cap',
+            query: 'pricing',
+            results: [],
+            products: Array.from({ length: RESULTS_LIMIT + 2 }, (_, n) => product(`Pricing ${n}`)),
+            expected: [`Results: ${Array.from({ length: RESULTS_LIMIT + 2 }, (_, n) => `Pricing ${n}`).join(', ')}`],
+        },
+        {
+            name: 'with unified ranking, every product shows when products are the only match, past the flat list cap',
+            query: 'pricing',
+            results: [],
+            unifiedRanking: true,
+            products: Array.from({ length: RESULTS_LIMIT + 2 }, (_, n) => product(`Pricing ${n}`)),
+            expected: [`Results: ${Array.from({ length: RESULTS_LIMIT + 2 }, (_, n) => `Pricing ${n}`).join(', ')}`],
+        },
+        {
+            name: 'a broad query that matches only settings lists every match with no see-all row',
+            query: 'project settings',
+            results: [],
+            products: [],
+            settings: Array.from({ length: RESULTS_LIMIT + 5 }, (_, n) => ({
+                id: `settings-${n}`,
+                name: `Project settings ${n}`,
+                category: 'settings',
+            })),
+            expected: [
+                `Results: ${Array.from({ length: RESULTS_LIMIT + 5 }, (_, n) => `Project settings ${n}`).join(', ')}`,
+            ],
+        },
+    ])(
+        '$name',
+        ({
+            query,
+            results,
+            products,
+            persons = [],
+            accounts = [],
+            settings = [],
+            unifiedRanking = false,
+            expected,
+        }) => {
+            expect(
+                summary(
+                    buildRankedResults({
+                        query,
+                        highlightWords: query.split(' '),
+                        results,
+                        products,
+                        persons,
+                        accounts,
+                        settings,
+                        state: 'ready',
+                        scoped: false,
+                        unifiedRanking,
+                    })
+                )
+            ).toEqual(expected)
+        }
+    )
 })

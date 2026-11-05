@@ -209,6 +209,7 @@ Integer extraction keeps ClickHouse's JSON parser on the serialized value, becau
 Grouping keys and expressions evaluated after grouping use the general property reader so conversions reference the same expression as GROUP BY.
 This includes window inputs, HAVING, ORDER BY and LIMIT BY; ordinary aggregate inputs and row-level predicates retain direct-path optimizations.
 When a grouping key is a whole JSON document, JSON functions in these clauses keep that document argument instead of reading an ungrouped subcolumn.
+Direct property reads also extract from the grouped document, including person-property documents.
 This also applies when the document is grouped by a select-list position or as part of a tuple.
 Grouping by an extracted key still reads only that key.
 When a join constraint needs a lazy join of the joined events table, HogQL wraps that table in a subquery and the outer query reads the subquery's columns.

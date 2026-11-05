@@ -40,6 +40,7 @@ from posthog.hogql.functions.clickhouse.json import JSON_FUNCTIONS
 from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.printer.base import resolve_field_type
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.property_metadata import PropertyMetadata
@@ -53,6 +54,7 @@ from posthog.hogql.property_planner import (
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.test.utils import json_dynamic_read_sql, pretty_print_in_tests
+from posthog.hogql.transforms.grouped_clauses import GroupedJSONDocuments
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
 from posthog.hogql.type_system import ComparisonCompatibility
 
@@ -244,6 +246,46 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
         assert "JSONExtractString(concat(" in printed
         assert "JSONExtractString(ifNull(toJSONString(" not in printed
         assert printed.count("dynamicType(accurateCast(events.properties.value,") == 3
+
+    @parameterized.expand([("legacy", False), ("native", True)])
+    def test_grouped_cte_and_select_alias_can_share_a_name(self, _name: str, native: bool) -> None:
+        printed = self._print_select(
+            "WITH 1 AS x SELECT x AS x, count() FROM events GROUP BY x", use_new_events_schema=native
+        )
+        assert "GROUP BY x" in printed
+
+    def test_grouped_document_aliases_collect_unique_fields(self) -> None:
+        context = self._context()
+        expressions = ["properties AS a0"] + [
+            f"toString(tuple(a{index - 1}, a{index - 1})) AS a{index}" for index in range(1, 13)
+        ]
+        query = resolve_types(
+            parse_select("SELECT " + ", ".join(expressions) + ", count() FROM events GROUP BY a12"),
+            context,
+            dialect="clickhouse",
+        )
+        assert isinstance(query, ast.SelectQuery)
+        documents = GroupedJSONDocuments(query, context)
+        assert len(documents.fields) == 1
+
+    def test_grouped_documents_keep_self_join_bindings_distinct(self) -> None:
+        context = self._context()
+        query = resolve_types(
+            parse_select(
+                "SELECT a.properties, b.properties, a.poe.properties, b.poe.properties "
+                "FROM events a CROSS JOIN events b GROUP BY a.properties, a.poe.properties"
+            ),
+            context,
+            dialect="clickhouse",
+        )
+        assert isinstance(query, ast.SelectQuery)
+        documents = GroupedJSONDocuments(query, context)
+        matches = []
+        for expr in query.select:
+            field_type = resolve_field_type(expr)
+            assert isinstance(field_type, ast.FieldType)
+            matches.append(documents.contains(field_type))
+        assert matches == [True, False, True, False]
 
     @parameterized.expand(
         [("expression", "JSONExtractString(properties, 'value')"), ("alias", "value"), ("all", "ALL")]
@@ -821,6 +863,37 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                         [("blue", 1), ("green", 2)],
                     ),
                     (
+                        "direct_select",
+                        "SELECT properties.value, count() FROM events GROUP BY properties ORDER BY properties.value",
+                        [("blue", 1), ("green", 2)],
+                    ),
+                    (
+                        "direct_order",
+                        "SELECT count() FROM events GROUP BY properties ORDER BY properties.value",
+                        [(1,), (2,)],
+                    ),
+                    (
+                        "direct_having",
+                        "SELECT count() FROM events GROUP BY properties HAVING properties.value = 'green'",
+                        [(2,)],
+                    ),
+                    (
+                        "direct_window",
+                        "SELECT sum(length(properties.value)) OVER () FROM events GROUP BY properties",
+                        [(9,), (9,)],
+                    ),
+                    (
+                        "person_function",
+                        "SELECT JSONExtractString(poe.properties, 'value') AS value, count() "
+                        "FROM events GROUP BY poe.properties ORDER BY value",
+                        [("blue", 1), ("green", 2)],
+                    ),
+                    (
+                        "person_direct",
+                        "SELECT poe.properties.value, count() FROM events GROUP BY poe.properties ORDER BY 1",
+                        [("blue", 1), ("green", 2)],
+                    ),
+                    (
                         "having",
                         "SELECT count() FROM events GROUP BY properties "
                         "HAVING JSONExtractString(properties, 'value') = 'green'",
@@ -886,6 +959,14 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                 ("blob", "native"),
             ),
             (
+                "document_direct_numeric",
+                "SELECT toFloat(properties.value), count() FROM events GROUP BY properties ORDER BY 1",
+                ['{"value":"2"}', '{"value":"7"}', '{"value":"7"}'],
+                [(2.0, 1), (7.0, 2)],
+                "Numeric",
+                ("blob", "native"),
+            ),
+            (
                 "null_and_invalid",
                 "SELECT properties.value AS original, toFloat(properties.value), count() "
                 "FROM events GROUP BY properties.value ORDER BY original",
@@ -924,10 +1005,12 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                     "events_json AS (SELECT 1 AS team_id, CAST(document, %(event_type)s) AS properties, "
                     "CAST('{}', %(temporary_type)s) AS temporary_properties, "
                     "CAST([], 'Array(String)') AS properties_null_keys, "
-                    "CAST([], 'Array(String)') AS temporary_properties_null_keys "
+                    "CAST([], 'Array(String)') AS temporary_properties_null_keys, "
+                    "CAST(document, %(person_type)s) AS person_properties, "
+                    "CAST([], 'Array(String)') AS person_properties_null_keys "
                     "FROM (SELECT arrayJoin(%(documents)s) AS document)) "
                     if reader == "native"
-                    else "events AS (SELECT 1 AS team_id, document AS properties, "
+                    else "events AS (SELECT 1 AS team_id, document AS properties, document AS person_properties, "
                     "CAST(JSONExtractKeysAndValues(document, 'String'), 'Map(String, String)') AS properties_group_custom "
                     "FROM (SELECT arrayJoin(%(documents)s) AS document)) "
                 )
@@ -939,6 +1022,7 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                     "documents": documents,
                     "event_type": EVENTS_PROPERTIES_JSON_TYPE(),
                     "temporary_type": TEMPORARY_PROPERTIES_JSON_TYPE,
+                    "person_type": PERSON_PROPERTIES_JSON_TYPE(),
                 }
                 if expected is None:
                     with pytest.raises(ServerException, match="not under aggregate function and not in GROUP BY"):

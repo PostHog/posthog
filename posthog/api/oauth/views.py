@@ -112,6 +112,7 @@ from posthog.security.url_validation import has_ambiguous_authority
 from posthog.user_permissions import UserPermissions
 from posthog.utils import absolute_uri, get_instance_region, get_trusted_client_ip, render_template
 from posthog.views import login_required
+from posthog.workload_identity import token_exchange as workload_token_exchange
 
 from products.access_control.backend.facade.api import user_organizations_use_access_controls
 from products.security.backend.facade.api import access_refused as security_access_refused
@@ -1147,7 +1148,8 @@ class OAuthValidator(OAuth2Validator):
         # A rotating family holds every access token of one login, so revoking it ends only that
         # login. A token already rotated away still ends its family: during the grace period it can
         # still refresh.
-        if rt and self._is_dynamic_client(request) and self.rotate_refresh_token(request):
+        dynamic_or_device = self._is_dynamic_client(request) or self._is_device_client(request)
+        if rt and dynamic_or_device and self.rotate_refresh_token(request):
             revoke_oauth_refresh_family(rt)
             return
         # A non-rotating token can't be traced to its access tokens, so the whole connection goes.
@@ -2265,6 +2267,46 @@ class OAuthTokenView(TokenView):
             }
         )
 
+    def _handle_token_exchange_grant(self, request) -> JsonResponse:
+        """Workload OIDC token exchange (RFC 8693). A workload has no client registration, so the grant takes
+        no client authentication: the OIDC token, checked against a trust policy, is the only credential."""
+        grant_type = workload_token_exchange.TOKEN_EXCHANGE_GRANT_TYPE
+        try:
+            issued = workload_token_exchange.exchange_workload_token(
+                subject_token=request.POST.get("subject_token") or "",
+                subject_token_type=request.POST.get("subject_token_type") or "",
+                resource=request.POST.get("resource") or "",
+            )
+        except workload_token_exchange.WorkloadExchangeError as e:
+            logger.info("workload_token_exchange_rejected", error_code=e.code.value)
+            self._capture_token_rejected(grant_type, "", e.code.value)
+            return JsonResponse(e.body(), status=e.http_status)
+        except (OperationalError, RedisError) as e:
+            logger.warning("workload_token_exchange_unavailable", error=str(e))
+            return _temporarily_unavailable_response()
+
+        posthoganalytics.capture(
+            distinct_id=f"workload_trust_policy:{issued.policy_id}",
+            event="oauth_token_issued",
+            properties={
+                "grant_type": grant_type,
+                "granted_scope_count": len(issued.scopes),
+                "$process_person_profile": False,
+                **(get_region_info() or {}),
+            },
+        )
+        # RFC 6749 section 5.1: a response that carries a token must not be cached.
+        return JsonResponse(
+            {
+                "access_token": issued.access_token,
+                "issued_token_type": workload_token_exchange.ISSUED_TOKEN_TYPE,
+                "token_type": "Bearer",
+                "expires_in": issued.expires_in_seconds,
+                "scope": " ".join(issued.scopes),
+            },
+            headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
+        )
+
     def post(self, request, *args, **kwargs):
         if request.content_type == "application/json" and request.body:
             try:
@@ -2303,6 +2345,8 @@ class OAuthTokenView(TokenView):
 
         if grant_type == id_jag.JWT_BEARER_GRANT_TYPE:
             return self._handle_jwt_bearer_grant(request)
+        if grant_type == workload_token_exchange.TOKEN_EXCHANGE_GRANT_TYPE:
+            return self._handle_token_exchange_grant(request)
 
         # DOT reads `device_code` with a bare subscript, which turns a missing one into a 500.
         if grant_type == DEVICE_CODE_GRANT_TYPE and not request.POST.get("device_code"):

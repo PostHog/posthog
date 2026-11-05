@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import datetime
 from typing import Literal, Optional
 
@@ -6,13 +7,13 @@ from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES, is_virtua
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import BooleanDatabaseField, DateTimeDatabaseField, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import S3Table
-from posthog.hogql.database.schema.events import (
-    EVENTS_TABLE_TYPES,
-    EventsGroupSubTable,
-    EventsPersonSubTable,
-    EventsTable,
+from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES, EventsGroupSubTable, EventsPersonSubTable
+from posthog.hogql.database.schema.events_with_flag_calls import (
+    EVENT_ROW_TABLES,
+    EventsWithFlagCallsTable,
+    union_table_of,
 )
-from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable, FlagEvaluationsTable
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 from posthog.hogql.escape_sql import escape_hogql_identifier
@@ -21,7 +22,12 @@ from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.property_metadata import load_property_metadata
 from posthog.hogql.property_planner import PropertySourceKind, plan_property_access
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
-from posthog.hogql.transforms.grouped_clauses import GroupedClauseTracker, is_grouped, visit_after_grouping
+from posthog.hogql.transforms.grouped_clauses import (
+    GroupedClauseTracker,
+    GroupedJSONDocuments,
+    is_grouped,
+    visit_after_grouping,
+)
 from posthog.hogql.type_system import normalized_runtime_type, parse_sql_runtime_type
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
@@ -119,7 +125,7 @@ class PropertyFinder(TraversingVisitor):
                     self.person_properties.add(property_name)
                 elif isinstance(resolved_table, EventsGroupSubTable):
                     pass  # group properties are handled above via GroupsTable
-                elif isinstance(resolved_table, EventsTable | FlagEvaluationsTable):
+                elif isinstance(resolved_table, EVENT_ROW_TABLES):
                     self.event_properties.add(property_name)
 
     def visit_field(self, node: ast.Field):
@@ -138,6 +144,16 @@ class ToTimeZoneParts:
     swapped: bool
 
 
+_PERSON_PROPERTIES_TABLES = (*EVENTS_TABLE_TYPES, EventsWithFlagCallsTable)
+
+# ClickHouse string-parsing conversions (toFloat64OrZero, toInt64OrZero,
+# toFloat64OrDefault, toInt64OrDefault) require a String first argument and raise
+# ILLEGAL_TYPE_OF_ARGUMENT on numeric input. When a user explicitly wraps a
+# Numeric-typed property in one of these, we must not auto-convert the property
+# to Float, the raw String value has to flow through for the parser to work.
+STRING_INPUT_CONVERSIONS = frozenset({"toFloatOrZero", "toIntOrZero", "toFloatOrDefault", "toIntOrDefault"})
+
+
 class PropertySwapper(GroupedClauseTracker, CloningVisitor):
     _RANGE_OPS: set[str] = {
         ast.CompareOperationOp.Gt,
@@ -145,13 +161,6 @@ class PropertySwapper(GroupedClauseTracker, CloningVisitor):
         ast.CompareOperationOp.Lt,
         ast.CompareOperationOp.LtEq,
     }
-
-    # ClickHouse string-parsing conversions (toFloat64OrZero, toInt64OrZero,
-    # toFloat64OrDefault, toInt64OrDefault) require a String first argument and raise
-    # ILLEGAL_TYPE_OF_ARGUMENT on numeric input. When a user explicitly wraps a
-    # Numeric-typed property in one of these, we must not auto-convert the property
-    # to Float, the raw String value has to flow through for the parser to work.
-    _STRING_INPUT_CONVERSIONS: set[str] = {"toFloatOrZero", "toIntOrZero", "toFloatOrDefault", "toIntOrDefault"}
 
     # ClickHouse array-membership functions whose first argument must be an array. Users write these
     # against exception properties (e.g. hasAny(properties.$exception_values, [...])), but those
@@ -168,7 +177,10 @@ class PropertySwapper(GroupedClauseTracker, CloningVisitor):
         group_properties: dict[str, dict[str, str | None]],
         context: HogQLContext,
         setTimeZones: bool,
+        before_lazy_tables: bool = False,
     ):
+        """`before_lazy_tables` marks the pass that runs before lazy tables resolve. Of the event and person
+        properties, that pass converts only the reads of a union scan, and the pass after it converts the rest."""
         super().__init__(clear_types=False)
         self.timezone = timezone
         self.event_properties = event_properties
@@ -179,52 +191,35 @@ class PropertySwapper(GroupedClauseTracker, CloningVisitor):
         self._inside_call_depth = 0
         self._inside_where_depth = 0
         self._suppress_numeric_conversion = False
-        self._grouped_json_fields: list[ast.FieldType] = []
+        self._grouped_json_documents: GroupedJSONDocuments | None = None
+        self.before_lazy_tables = before_lazy_tables
+        self._union_scan_depth = 0
 
-    def _json_document_grouping_fields(self, expr: ast.Expr, aliases: dict[str, ast.Expr]) -> list[ast.FieldType]:
-        if isinstance(expr, ast.Alias):
-            return self._json_document_grouping_fields(expr.expr, aliases)
-        if isinstance(expr, ast.Tuple):
-            return [field for item in expr.exprs for field in self._json_document_grouping_fields(item, aliases)]
-        if isinstance(expr, ast.Call) and expr.name == "tuple":
-            return [field for item in expr.args for field in self._json_document_grouping_fields(item, aliases)]
-        if isinstance(expr, ast.Call) and expr.name == "toString" and len(expr.args) == 1:
-            return self._json_document_grouping_fields(expr.args[0], aliases)
-        if not isinstance(expr, ast.Field):
-            return []
-        field_type = expr.type
-        if isinstance(field_type, ast.FieldAliasType) and field_type.alias in aliases:
-            return self._json_document_grouping_fields(aliases[field_type.alias], aliases)
-        while isinstance(field_type, ast.FieldAliasType):
-            field_type = field_type.type
-        if isinstance(field_type, ast.FieldType) and isinstance(
-            field_type.resolve_database_field(self.context), StringJSONDatabaseField
+    def visit_join_expr(self, node: ast.JoinExpr) -> ast.JoinExpr:
+        if not (
+            isinstance(node.type, ast.SelectQueryAliasType)
+            and isinstance(node.type.lazy_table, EventsWithFlagCallsTable)
         ):
-            return [field_type]
-        return []
+            return super().visit_join_expr(node)
+        # Only the table is the union. The constraint and the joins after it read other tables.
+        self._union_scan_depth += 1
+        try:
+            table = self.visit(node.table)
+        finally:
+            self._union_scan_depth -= 1
+        joined = super().visit_join_expr(dataclasses.replace(node, table=None))
+        joined.table = table
+        return joined
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         # We need to track when we're inside WHERE/PREWHERE so that the
         # toTimeZone stripping only fires where it helps (partition/PK pruning).
         # Stripping in JOIN ON, SELECT, HAVING etc. is unnecessary.
         saved_where_depth = self._inside_where_depth
-        saved_grouped_json_fields = self._grouped_json_fields
+        saved_grouped_json_documents = self._grouped_json_documents
         self._inside_where_depth = 0
-        aliases = {expr.alias: expr.expr for expr in node.select if isinstance(expr, ast.Alias)}
-        grouping_keys = node.select if node.group_by_mode == "all" else node.group_by or []
-        self._grouped_json_fields = []
-        for key in grouping_keys:
-            for expr in key.exprs if isinstance(key, ast.GroupingSet) else [key]:
-                if (
-                    node.group_by_mode != "all"
-                    and isinstance(expr, ast.Constant)
-                    and isinstance(expr.value, int)
-                    and not isinstance(expr.value, bool)
-                    and 1 <= expr.value <= len(node.select)
-                ):
-                    expr = node.select[expr.value - 1]
-                self._grouped_json_fields.extend(self._json_document_grouping_fields(expr, aliases))
         try:
+            self._grouped_json_documents = GroupedJSONDocuments(node, self.context) if is_grouped(node) else None
             with self._grouped_clause(False):
                 ctes = {key: self.visit(expr) for key, expr in node.ctes.items()} if node.ctes else None
                 select_from = self.visit(node.select_from)
@@ -241,7 +236,7 @@ class PropertySwapper(GroupedClauseTracker, CloningVisitor):
                 grouped_clauses = visit_after_grouping(node, self.visit)
         finally:
             self._inside_where_depth = saved_where_depth
-            self._grouped_json_fields = saved_grouped_json_fields
+            self._grouped_json_documents = saved_grouped_json_documents
 
         return ast.SelectQuery(
             start=None if self.clear_locations else node.start,
@@ -274,7 +269,7 @@ class PropertySwapper(GroupedClauseTracker, CloningVisitor):
             # string. Re-evaluated per call, so nested non-parsing calls (e.g.
             # toFloatOrZero(toString(prop))) correctly reset the flag.
             saved_suppress = self._suppress_numeric_conversion
-            self._suppress_numeric_conversion = node.name in self._STRING_INPUT_CONVERSIONS
+            self._suppress_numeric_conversion = node.name in STRING_INPUT_CONVERSIONS
 
             self._inside_call_depth += 1
             try:
@@ -313,7 +308,7 @@ class PropertySwapper(GroupedClauseTracker, CloningVisitor):
         table_type = type.field_type.table_type
         if not isinstance(table_type, ast.BaseTableType):
             return False
-        return isinstance(table_type.resolve_database_table(self.context), EventsTable | FlagEvaluationsTable)
+        return isinstance(table_type.resolve_database_table(self.context), EVENT_ROW_TABLES)
 
     @staticmethod
     def _extract_string_array(field: ast.Expr) -> ast.Call:
@@ -376,9 +371,10 @@ class PropertySwapper(GroupedClauseTracker, CloningVisitor):
         if not isinstance(database_field, StringJSONDatabaseField):
             return None
 
-        if self._in_grouped_clause and any(
-            field_type.name == grouped.name and field_type.table_type is grouped.table_type
-            for grouped in self._grouped_json_fields
+        if (
+            self._in_grouped_clause
+            and self._grouped_json_documents is not None
+            and self._grouped_json_documents.contains(field_type)
         ):
             # A subcolumn is not a grouping key when GROUP BY holds the whole document.
             return None
@@ -771,14 +767,14 @@ class PropertySwapper(GroupedClauseTracker, CloningVisitor):
                 if isinstance(resolved_table, EventsPersonSubTable | FlagEvaluationsPersonSubTable):
                     if property_name in self.person_properties:
                         return ("person", property_name)
-                elif isinstance(resolved_table, EventsTable | FlagEvaluationsTable):
+                elif isinstance(resolved_table, EVENT_ROW_TABLES):
                     if property_name in self.event_properties:
                         return ("event", property_name)
         if type.field_type.name == "person_properties" and len(type.chain) == 1:
             property_name = str(type.chain[0])
             if isinstance(type.field_type.table_type, ast.BaseTableType):
                 resolved_table = type.field_type.table_type.resolve_database_table(self.context)
-                if isinstance(resolved_table, EVENTS_TABLE_TYPES):
+                if isinstance(resolved_table, _PERSON_PROPERTIES_TABLES):
                     if property_name in self.person_properties:
                         return ("person", property_name)
         return None
@@ -808,6 +804,8 @@ class PropertySwapper(GroupedClauseTracker, CloningVisitor):
             "person": self.person_properties,
             "group": self.group_properties,
         }
+        if property_type != "group" and not self._converts_event_or_person_property(node):
+            return node
         prop_info = properties_by_type[property_type].get(property_name, {})
         field_type = "Float" if prop_info.get("type") == "Numeric" else prop_info.get("type") or "String"
 
@@ -824,6 +822,16 @@ class PropertySwapper(GroupedClauseTracker, CloningVisitor):
         # printer swaps the field to `dmat_string_<idx>`), so they need the same cast as
         # the JSON fallback.
         return self._field_type_to_property_call(node, field_type)
+
+    def _converts_event_or_person_property(self, node: ast.Field) -> bool:
+        # Lazy tables move a union scan's property reads into branches, away from a call such as toFloatOrZero that
+        # needs the raw value. The pass before lazy tables converts each read at its call, so the branches stay raw.
+        if self._union_scan_depth > 0:
+            return False
+        if not self.before_lazy_tables:
+            return True
+        assert isinstance(node.type, ast.PropertyType)
+        return union_table_of(node.type.field_type.table_type) is not None
 
     def _field_type_to_property_call(self, node: ast.Field, field_type: str):
         if field_type == "DateTime":

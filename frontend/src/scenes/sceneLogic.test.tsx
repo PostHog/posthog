@@ -342,11 +342,21 @@ describe('sceneLogic', () => {
         ['/organization/projects/new', urls.projectCreateFirst(), Scene.ProjectCreateFirst],
         ['/organization/create', urls.organizationCreateFirst(), Scene.OrganizationCreateFirst],
         ['/organization/new', urls.organizationCreateFirst(), Scene.OrganizationCreateFirst],
+        ['/project/settings/environment-replay', urls.settings('environment-replay'), Scene.Settings],
+        // Bookmarks of the doubled path an id-less settings link once turned into must reach settings too
+        ['/project/123/project/settings/project-details', urls.settings('project-details'), Scene.Settings],
     ])('sends the unrouted %s to %s instead of the 404 scene', async (path, expected, expectedScene) => {
         router.actions.push(path)
         await expectLogic(logic).delay(1)
         expect(logic.values.activeSceneId).toEqual(expectedScene)
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expected)
+    })
+
+    it('keeps the setting anchor when redirecting an id-less settings section link', async () => {
+        router.actions.push('/project/settings/environment-replay#replay-triggers')
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.settings('environment-replay'))
+        expect(router.values.location.hash).toEqual('#replay-triggers')
     })
 
     // The redirect table is keyed on exact paths, so a later `/organization/*` prefix entry would
