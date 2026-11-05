@@ -1,3 +1,5 @@
+from collections.abc import Iterable
+
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -7,48 +9,62 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import EventDefinition, ObjectMediaPreview, UploadedMedia
+from posthog.models.utils import strict_fetch
 from posthog.permissions import is_scout_sandbox_request
 from posthog.taxonomy.scout_writes import refuse_scout_taxonomy_write
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.exports.backend.facade.auth import can_user_view_exported_asset
-from products.exports.backend.facade.exporters import is_product_export
+from products.exports.backend.facade.auth import viewable_exported_asset_ids
+
+PREVIEW_SELECT_RELATED = ("uploaded_media", "exported_asset__dashboard", "exported_asset__insight")
+
+PREFERRED_EXPORTED_SCAN_LIMIT = 50
 
 
-def media_url_for_viewer(
-    preview: ObjectMediaPreview, *, user_id: int | None, user_access_control: UserAccessControl | None
-) -> str:
-    """The preview's URL, or "" when the viewer may not read the exported asset behind it.
+def visible_exported_asset_ids(previews: Iterable[ObjectMediaPreview], view: object) -> set[int]:
+    """Ids of the exported assets behind these previews that the requesting user may read.
 
     An exported asset's URL is a long-lived token that works without a session, so it is only handed to
-    viewers the exports API would serve the asset to.
+    viewers the exports API would serve the asset to. Without a request user and access control, no
+    exported asset is visible.
     """
-    if preview.uploaded_media_id:
-        return preview.media_url
-    asset = preview.exported_asset
-    if asset is None or user_access_control is None:
-        return ""
-    if is_product_export(export_format=asset.export_format, kind=asset.export_kind):
-        return ""
-    if not can_user_view_exported_asset(asset, user_id=user_id, user_access_control=user_access_control):
-        return ""
-    return preview.media_url
+    user_access_control = getattr(view, "user_access_control", None)
+    user_id = getattr(getattr(getattr(view, "request", None), "user", None), "id", None)
+    assets = [preview.exported_asset for preview in previews if preview.exported_asset is not None]
+    if user_access_control is None or user_id is None or not assets:
+        return set()
+    return viewable_exported_asset_ids(assets, user_id=user_id, user_access_control=user_access_control)
 
 
-def media_url_for_request(preview: ObjectMediaPreview, view: object) -> str:
-    request = getattr(view, "request", None)
-    return media_url_for_viewer(
-        preview,
-        user_id=getattr(getattr(request, "user", None), "id", None),
-        user_access_control=getattr(view, "user_access_control", None),
-    )
+def visible_previews(previews: Iterable[ObjectMediaPreview], view: object) -> list[ObjectMediaPreview]:
+    """The previews the requesting user may see, in their original order."""
+    previews = list(previews)
+    visible_ids = visible_exported_asset_ids(previews, view)
+    return [
+        preview
+        for preview in previews
+        if preview.uploaded_media_id or (preview.exported_asset_id and preview.exported_asset_id in visible_ids)
+    ]
 
 
 class ObjectMediaPreviewSerializer(serializers.ModelSerializer):
-    media_url = serializers.SerializerMethodField()
-    media_type = serializers.SerializerMethodField()
-    uploaded_media_id = serializers.UUIDField(write_only=True, required=False, allow_null=True)
-    event_definition_id = serializers.UUIDField(write_only=True, required=False, allow_null=True)
+    media_url = serializers.SerializerMethodField(
+        help_text="URL of the preview image. For an exported asset this is a signed link that works without a session."
+    )
+    media_type = serializers.SerializerMethodField(
+        help_text="Where the image comes from: 'uploaded' for user-uploaded media, 'exported' for an exported asset."
+    )
+    uploaded_media_id = serializers.UUIDField(
+        write_only=True,
+        required=False,
+        allow_null=True,
+        help_text="ID of uploaded media in this project to use as the preview. Required when creating a preview.",
+    )
+    event_definition_id = serializers.UUIDField(
+        write_only=True,
+        required=False,
+        allow_null=True,
+        help_text="ID of the event definition the preview belongs to. Required when creating a preview.",
+    )
 
     class Meta:
         model = ObjectMediaPreview
@@ -65,7 +81,13 @@ class ObjectMediaPreviewSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "created_at", "updated_at", "media_url", "media_type")
 
     def get_media_url(self, obj: ObjectMediaPreview) -> str:
-        return media_url_for_request(obj, self.context.get("view"))
+        if obj.uploaded_media_id:
+            return obj.media_url
+        # The viewset leaves out previews the viewer may not read and passes the asset ids it allowed. A
+        # serializer used without that context therefore returns no long-lived token for an exported asset.
+        if obj.exported_asset_id and obj.exported_asset_id in self.context.get("visible_exported_asset_ids", set()):
+            return obj.media_url
+        return ""
 
     def get_media_type(self, obj: ObjectMediaPreview) -> str:
         """Return 'uploaded' or 'exported' based on which media is set"""
@@ -121,18 +143,26 @@ class ObjectMediaPreviewViewSet(
             refuse_scout_taxonomy_write(is_scout_sandbox_request(request))
 
     def safely_get_queryset(self, queryset):
-        # Filter by event_definition if provided
+        queryset = queryset.select_related(*PREVIEW_SELECT_RELATED, "event_definition").order_by("-updated_at", "-id")
         event_definition_id = self.request.query_params.get("event_definition")
         if event_definition_id:
-            return (
-                queryset.filter(event_definition_id=event_definition_id)
-                .select_related("uploaded_media", "exported_asset", "event_definition")
-                .order_by("-updated_at", "-id")
-            )
+            queryset = queryset.filter(event_definition_id=event_definition_id)
+        if self.action == "list":
+            queryset = strict_fetch(queryset)
+        return self._without_hidden_exports(queryset)
 
-        return queryset.select_related("uploaded_media", "exported_asset", "event_definition").order_by(
-            "-updated_at", "-id"
-        )
+    def _without_hidden_exports(self, queryset):
+        # Hidden previews are removed from the result, not returned with an empty URL, because their metadata
+        # (session id, page URL) is about the recording the viewer may not read.
+        exported = list(queryset.filter(exported_asset__isnull=False))
+        self._visible_exported_asset_ids = visible_exported_asset_ids(exported, self)
+        hidden_ids = [p.id for p in exported if p.exported_asset_id not in self._visible_exported_asset_ids]
+        return queryset.exclude(id__in=hidden_ids) if hidden_ids else queryset
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["visible_exported_asset_ids"] = getattr(self, "_visible_exported_asset_ids", set())
+        return context
 
     @action(methods=["GET"], detail=False, url_path="preferred_for_event")
     def preferred_for_event(self, request, *args, **kwargs):
@@ -161,21 +191,19 @@ class ObjectMediaPreviewViewSet(
             serializer = self.get_serializer(user_uploaded)
             return Response(serializer.data)
 
-        # Fall back to most recent exported asset
-        exported = (
+        exported = list(
             ObjectMediaPreview.objects.filter(
                 event_definition_id=event_definition_id,
                 team=self.team,
                 exported_asset__isnull=False,
             )
-            .select_related("exported_asset", "event_definition")
-            .order_by("-updated_at", "-id")
-            .first()
+            .select_related(*PREVIEW_SELECT_RELATED, "event_definition")
+            .order_by("-updated_at", "-id")[:PREFERRED_EXPORTED_SCAN_LIMIT]
         )
+        self._visible_exported_asset_ids = visible_exported_asset_ids(exported, self)
+        preferred = next((p for p in exported if p.exported_asset_id in self._visible_exported_asset_ids), None)
 
-        if exported:
-            serializer = self.get_serializer(exported)
-            if serializer.data["media_url"]:
-                return Response(serializer.data)
+        if preferred:
+            return Response(self.get_serializer(preferred).data)
 
         return Response({"detail": "No media preview found"}, status=status.HTTP_404_NOT_FOUND)

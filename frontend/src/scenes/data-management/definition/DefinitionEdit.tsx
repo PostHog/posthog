@@ -76,7 +76,7 @@ export function DefinitionEdit(rawProps: DefinitionLogicProps): JSX.Element {
     const showHiddenOption = 'hidden' in editDefinition
 
     const { previews, previewsLoading } = useValues(definitionLogicInstance)
-    // The API returns an empty URL for a screenshot the viewer may not see
+    // A preview without a URL has nothing to show, and the delete handler below matches previews by URL
     const visiblePreviews = previews?.filter((p: ObjectMediaPreview) => p.media_url) ?? []
     const { createMediaPreview, deleteMediaPreview } = useActions(definitionLogicInstance)
 

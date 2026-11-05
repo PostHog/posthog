@@ -2,12 +2,15 @@ import uuid
 
 from posthog.test.base import APIBaseTest
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import EventDefinition, ObjectMediaPreview, UploadedMedia, User
+from posthog.session_recordings.models.session_recording import SessionRecording
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 
@@ -49,15 +52,12 @@ class TestObjectMediaPreviewAPI(APIBaseTest):
     def test_create_links_only_the_uploaded_media(self):
         event_definition = EventDefinition.objects.create(team=self.team, name="purchase")
         media = UploadedMedia.objects.create(team=self.team, file_name="screenshot.png", content_type="image/png")
-        asset = ExportedAsset.objects.create(team=self.team, export_format="text/csv", created_by=self.user)
-
         response = self.client.post(
             f"/api/projects/{self.team.pk}/object_media_previews/",
             {
                 "event_definition_id": str(event_definition.pk),
                 "uploaded_media_id": str(media.pk),
-                # Asset ids are integers, which a UUID field accepted in this form
-                "exported_asset_id": str(uuid.UUID(int=asset.pk)),
+                "exported_asset_id": str(uuid.uuid4()),
             },
             format="json",
         )
@@ -97,10 +97,64 @@ class TestObjectMediaPreviewAPI(APIBaseTest):
         )
 
         assert list_response.status_code == status.HTTP_200_OK
-        media_url = list_response.json()["results"][0]["media_url"]
+        results = list_response.json()["results"]
         if expects_url:
-            assert "token=" in media_url
-            assert preferred_response.json()["media_url"] == media_url
+            assert "token=" in results[0]["media_url"]
+            assert preferred_response.json()["media_url"] == results[0]["media_url"]
         else:
-            assert media_url == ""
+            assert results == []
             assert preferred_response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_preferred_for_event_skips_a_newer_export_the_viewer_may_not_read(self):
+        event_definition = EventDefinition.objects.create(team=self.team, name="purchase")
+        screenshot = ExportedAsset.objects.create(
+            team=self.team, export_format="image/png", export_context={"session_recording_id": "session-1"}
+        )
+        visible = ObjectMediaPreview.objects.create(
+            team=self.team, event_definition=event_definition, exported_asset=screenshot
+        )
+        other_member = User.objects.create_and_join(self.organization, "other@example.com", "password")
+        hidden_asset = ExportedAsset.objects.create(team=self.team, export_format="text/csv", created_by=other_member)
+        ObjectMediaPreview.objects.create(
+            team=self.team, event_definition=event_definition, exported_asset=hidden_asset
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/object_media_previews/preferred_for_event/?event_definition={event_definition.pk}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == str(visible.id)
+
+    @parameterized.expand(
+        [
+            ("object_media_previews", "/api/projects/{team}/object_media_previews/"),
+            ("event_definitions", "/api/projects/{team}/event_definitions/"),
+        ]
+    )
+    def test_screenshot_access_checks_do_not_add_queries_per_preview(self, _name, path):
+        event_definition = EventDefinition.objects.create(team=self.team, name="purchase")
+
+        def add_screenshots(count: int) -> None:
+            for _ in range(count):
+                session_id = str(uuid.uuid4())
+                SessionRecording.objects.create(team=self.team, session_id=session_id, distinct_id="user")
+                asset = ExportedAsset.objects.create(
+                    team=self.team, export_format="image/png", export_context={"session_recording_id": session_id}
+                )
+                ObjectMediaPreview.objects.create(
+                    team=self.team, event_definition=event_definition, exported_asset=asset
+                )
+
+        def count_queries() -> int:
+            with CaptureQueriesContext(connection) as queries:
+                response = self.client.get(path.format(team=self.team.pk))
+            assert response.status_code == status.HTTP_200_OK
+            return len(queries)
+
+        add_screenshots(1)
+        self.client.get(path.format(team=self.team.pk))
+        with_one = count_queries()
+        add_screenshots(3)
+
+        assert count_queries() == with_one

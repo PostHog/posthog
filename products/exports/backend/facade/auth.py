@@ -1,8 +1,13 @@
-from typing import TYPE_CHECKING
+from collections.abc import Iterable, Mapping
+from typing import TYPE_CHECKING, cast
+
+from django.db.models import Model
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 
 if TYPE_CHECKING:
+    from posthog.session_recordings.models.session_recording import SessionRecording
+
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
@@ -26,9 +31,17 @@ def get_export_renderer_asset_context(
 
 
 def can_user_view_exported_asset(
-    asset: ExportedAsset, *, user_id: int | None, user_access_control: "UserAccessControl"
+    asset: ExportedAsset,
+    *,
+    user_id: int | None,
+    user_access_control: "UserAccessControl",
+    recordings: Mapping[tuple[int, str], "SessionRecording"] | None = None,
 ) -> bool:
-    """Whether a user may read an asset's content. Product exports are not covered: their owner authorizes them."""
+    """Whether a user may read an asset's content. Product exports are not covered: their owner authorizes them.
+
+    `recordings` maps (team_id, session_id) to the SessionRecording rows already loaded by the caller. When it is
+    given, a session id missing from it means no row exists, and no query is made.
+    """
     export_context = asset.export_context or {}
 
     if not asset.is_session_recording_export and asset.created_by_id != user_id:
@@ -53,9 +66,12 @@ def can_user_view_exported_asset(
 
     # Reached even when a dashboard or insight authorized above: an asset carrying both renders
     # the recording too, so a viewable dashboard must not stand in for access to it.
-    from posthog.session_recordings.models.session_recording import SessionRecording
+    if recordings is not None:
+        recording = recordings.get((asset.team_id, session_recording_id))
+    else:
+        from posthog.session_recordings.models.session_recording import SessionRecording
 
-    recording = SessionRecording.objects.filter(team_id=asset.team_id, session_id=session_recording_id).first()
+        recording = SessionRecording.objects.filter(team_id=asset.team_id, session_id=session_recording_id).first()
     if recording is not None:
         return user_access_control.check_access_level_for_object(recording, required_level="viewer")
     if asset.created_by_id != user_id:
@@ -69,3 +85,46 @@ def can_user_view_exported_asset(
         # SessionRecording row exists.
         return user_access_control.check_access_level_for_resource("session_recording", required_level="viewer")
     return True
+
+
+def viewable_exported_asset_ids(
+    assets: Iterable[ExportedAsset], *, user_id: int | None, user_access_control: "UserAccessControl"
+) -> set[int]:
+    """Ids of the assets a user may read, under the rules of can_user_view_exported_asset.
+
+    Use this instead of calling can_user_view_exported_asset in a loop: it loads the session recordings and their
+    access controls once for all assets, so the cost does not grow with the number of assets. Product exports are
+    never included, because their owning product authorizes them on its own endpoints.
+    """
+    from posthog.session_recordings.models.session_recording import SessionRecording
+
+    from products.exports.backend.facade.exporters import is_product_export
+
+    candidates = [
+        asset for asset in assets if not is_product_export(export_format=asset.export_format, kind=asset.export_kind)
+    ]
+
+    wanted: set[tuple[int, str]] = set()
+    for asset in candidates:
+        session_id = (asset.export_context or {}).get("session_recording_id")
+        if session_id:
+            wanted.add((asset.team_id, session_id))
+
+    recordings: dict[tuple[int, str], SessionRecording] = {}
+    if wanted:
+        rows = list(
+            SessionRecording.objects.filter(
+                team_id__in={team_id for team_id, _ in wanted},
+                session_id__in={session_id for _, session_id in wanted},
+            )
+        )
+        user_access_control.preload_object_access_controls(cast(list[Model], rows))
+        recordings = {(row.team_id, row.session_id): row for row in rows}
+
+    return {
+        asset.id
+        for asset in candidates
+        if can_user_view_exported_asset(
+            asset, user_id=user_id, user_access_control=user_access_control, recordings=recordings
+        )
+    }
