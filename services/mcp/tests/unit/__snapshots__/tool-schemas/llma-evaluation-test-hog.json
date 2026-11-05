@@ -1,5 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "What a preview samples from: the unsaved evaluation's conditions and target.",
     "properties": {
         "allows_na": {
             "default": false,
@@ -156,6 +157,15 @@
             "maximum": 10,
             "minimum": 1,
             "type": "number"
+        },
+        "sample_ids": {
+            "description": "Test exactly these units instead of sampling: generation event UUIDs, trace IDs, or session IDs, matching `target`. Up to 10, and only units from the last 7 days. Conditions and sampling are ignored for pinned units, and unknown IDs are skipped. A session target tests at most 3 sessions.",
+            "items": {
+                "maxLength": 400,
+                "type": "string"
+            },
+            "maxItems": 10,
+            "type": "array"
         },
         "source": {
             "description": "Hog source code to test. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.",
