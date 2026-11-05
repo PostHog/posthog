@@ -32,11 +32,10 @@ export function parseOrThrow<S extends z.ZodType>(schema: S, raw: unknown, failu
     if (parsed.success) {
         return parsed.data
     }
-    const message = getErrorMessage(parsed.error)
-    throw new HogError(
-        failure.code,
-        failure.context ? `${failure.context} ${message}` : message,
-        failure.hint,
-        failure.exitCode
-    )
+    throw failWith(failure, getErrorMessage(parsed.error))
+}
+
+export function failWith(failure: ParseFailure, message: string): HogError {
+    const full = failure.context ? `${failure.context} ${message}` : message
+    return new HogError(failure.code, full, failure.hint, failure.exitCode)
 }

@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { HostSchema } from '@/posthog/host'
 
 import { HogError } from './errors'
+import { JsonObject, parseJson } from './json'
 import type { Runtime } from './runtime'
 
 export const CONFIG_FILE = 'posthog.json'
@@ -156,11 +157,9 @@ export async function findConfig(runtime: Runtime): Promise<string | undefined> 
 export function validateConfig(contents: string): { config?: PostHogConfig; problems: ConfigProblem[] } {
     let raw: unknown
     try {
-        raw = JSON.parse(contents)
+        raw = parseJson(contents, z.unknown(), { code: 'invalid_config' })
     } catch (error) {
-        return {
-            problems: [{ path: '', message: `Not valid JSON: ${error instanceof Error ? error.message : error}` }],
-        }
+        return { problems: [{ path: '', message: error instanceof Error ? error.message : String(error) }] }
     }
     const parsed = PostHogConfig.safeParse(raw)
     if (parsed.success) {
@@ -202,7 +201,12 @@ export async function updateConfig(
     change: (raw: Record<string, unknown>) => void
 ): Promise<string> {
     const path = loaded?.path ?? join(runtime.cwd(), CONFIG_FILE)
-    const raw: Record<string, unknown> = loaded ? JSON.parse(await runtime.readFile(path)) : { $schema: SCHEMA_URL }
+    const raw = loaded
+        ? parseJson(await runtime.readFile(path), JsonObject, {
+              code: 'invalid_config',
+              context: `${path} is not valid.`,
+          })
+        : { $schema: SCHEMA_URL }
     change(raw)
     await runtime.writeFile(path, `${JSON.stringify(raw, null, 2)}\n`)
     return path

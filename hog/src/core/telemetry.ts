@@ -1,10 +1,12 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { z } from 'zod'
 
 import type { AccessKey } from '@/posthog/access-key'
 import { posthogFile, type Credentials } from '@/posthog/credentials'
 import { VERSION } from '@/version'
 
 import type { Mode } from './agent'
+import { parseJsonOrUndefined } from './json'
 import type { Env, Runtime } from './runtime'
 
 // PostHog's own project, where posthog-cli release builds send their events too.
@@ -91,9 +93,17 @@ interface Identity {
     project?: string
 }
 
-interface CachedIdentity extends Identity {
-    checkedAt: number
-}
+const CachedIdentitySchema = z.object({
+    checkedAt: z.number(),
+    distinctId: z.string().optional(),
+    organization: z.string().optional(),
+    project: z.string().optional(),
+})
+
+type CachedIdentity = z.output<typeof CachedIdentitySchema>
+
+// hog writes this file itself, so a cache it can't read is broken and hog starts a new one.
+const IdentityCacheSchema = z.record(z.string(), CachedIdentitySchema)
 
 // Only PostHog Cloud users exist in the project telemetry goes to.
 function isCloudHost(host: string): boolean {
@@ -219,15 +229,7 @@ export class Telemetry {
         const cacheKey = createHash('sha256').update(`${key.host}\n${key.projectId}\n${key.loginKey}`).digest('hex')
         let cache: Record<string, CachedIdentity> = {}
         try {
-            const parsed: unknown = JSON.parse(await this.runtime.readFile(path))
-            // A cache that isn't an object is broken, so hog starts a new one instead of failing the command.
-            if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-                cache = Object.fromEntries(
-                    Object.entries(parsed).filter(
-                        ([, entry]) => typeof (entry as Partial<CachedIdentity> | null)?.checkedAt === 'number'
-                    )
-                ) as Record<string, CachedIdentity>
-            }
+            cache = parseJsonOrUndefined(await this.runtime.readFile(path), IdentityCacheSchema) ?? {}
         } catch {
             // No cache yet.
         }

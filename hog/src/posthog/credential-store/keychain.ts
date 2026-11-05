@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto'
 
 import { HogError } from '@/core/errors'
+import { parseJsonOrUndefined } from '@/core/json'
 import type { Runtime } from '@/core/runtime'
 import { hostKey, type Host } from '@/posthog/host'
 
-import { parseJson, parseSecret } from './helpers'
+import { StoredSecretSchema } from './helpers'
 import type { CredentialStore, StoredSecret } from './types'
 
 // The keychain dialog on macOS never times out by itself, and a person may not notice it, so hog
@@ -78,7 +79,7 @@ export class KeychainStore implements CredentialStore {
 
     async read(host: Host): Promise<StoredSecret | undefined> {
         const value = await keychainCall(this.runtime, () => this.runtime.secrets.get(hostKey(host)))
-        return value === null ? undefined : parseSecret(parseJson(value))
+        return value === null ? undefined : parseJsonOrUndefined(value, StoredSecretSchema)
     }
 
     async write(host: Host, secret: StoredSecret, options: { removeIfLate?: boolean } = {}): Promise<void> {

@@ -1,5 +1,6 @@
 import { Command as Commander, CommanderError, Option } from 'commander'
 import { parseArgs, type ParseArgsOptionsConfig } from 'node:util'
+import { z } from 'zod'
 
 import { COMMANDS } from '@/commands'
 import { resolveMode, type Mode, type OutputFormat } from '@/core/agent'
@@ -18,6 +19,7 @@ import { findConfig, loadConfig } from '@/core/config'
 import { Context } from '@/core/context'
 import { EXIT_FAILURE, EXIT_USAGE, HogError } from '@/core/errors'
 import { DRY_RUN_ENV, envFlag, GLOBAL_OPTIONS, networkRuntime, optOutFlag, resolveGlobals } from '@/core/globals'
+import { parseJsonOrUndefined } from '@/core/json'
 import { Output } from '@/core/output'
 import type { Runtime } from '@/core/runtime'
 import { Telemetry } from '@/core/telemetry'
@@ -414,7 +416,9 @@ function toHogError(caught: unknown): HogError {
     return new HogError('internal_error', caught instanceof Error ? caught.message : String(caught))
 }
 
-// Read without the schema, so an opt-out still counts in a file another check rejects. A file
+const TelemetryOptOut = z.object({ cli: z.object({ telemetry: z.literal(false) }) })
+
+// Read without the full schema, so an opt-out still counts in a file another check rejects. A file
 // that isn't JSON stops the command later, with telemetry on.
 async function configOptsOut(runtime: Runtime): Promise<boolean> {
     const path = await findConfig(runtime)
@@ -422,7 +426,7 @@ async function configOptsOut(runtime: Runtime): Promise<boolean> {
         return false
     }
     try {
-        return (JSON.parse(await runtime.readFile(path)) as { cli?: { telemetry?: unknown } })?.cli?.telemetry === false
+        return parseJsonOrUndefined(await runtime.readFile(path), TelemetryOptOut) !== undefined
     } catch {
         return false
     }

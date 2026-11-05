@@ -1,8 +1,9 @@
+import { JsonObject, parseJsonOrUndefined } from '@/core/json'
 import { hogFile } from '@/core/paths'
 import type { Runtime } from '@/core/runtime'
 import { hostKey, HostSchema, type Host } from '@/posthog/host'
 
-import { parseJson, parseSecret } from './helpers'
+import { StoredSecretSchema } from './helpers'
 import type { CredentialStore, StoredSecret } from './types'
 
 // One JSON file, readable only by its owner, for machines without a keychain hog can use.
@@ -25,10 +26,7 @@ export class FileStore implements CredentialStore {
             }
             throw error
         }
-        const parsed = parseJson(text)
-        return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)
-            ? (parsed as Record<string, unknown>)
-            : {}
+        return parseJsonOrUndefined(text, JsonObject) ?? {}
     }
 
     async hosts(): Promise<Host[]> {
@@ -36,7 +34,8 @@ export class FileStore implements CredentialStore {
     }
 
     async read(host: Host): Promise<StoredSecret | undefined> {
-        return parseSecret((await this.readAll())[hostKey(host)])
+        // A stored value hog doesn't recognize, such as one a later version wrote, reads as no login.
+        return StoredSecretSchema.safeParse((await this.readAll())[hostKey(host)]).data
     }
 
     async write(host: Host, secret: StoredSecret): Promise<void> {

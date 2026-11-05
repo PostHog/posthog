@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
+import { z } from 'zod'
 
-import { runHog, TEST_CREDENTIALS } from '@/testing'
+import { readJson, runHog, TEST_CREDENTIALS } from '@/testing'
 
 import { pushPlanLines } from './push'
 
@@ -94,7 +95,7 @@ describe('hog endpoints', () => {
             result.stdout
                 .trim()
                 .split('\n')
-                .map((line) => JSON.parse(line).name)
+                .map((line) => readJson(line, z.object({ name: z.string() })).name)
         ).toEqual(['weekly', 'by-type'])
     })
 
@@ -157,7 +158,7 @@ describe('hog endpoints', () => {
         })
         expect(result.exitCode).toBe(1)
         expect(result.files).toMatchObject(expected)
-        expect(result.json().problems).toEqual([expect.objectContaining({ path: 'weekly.yaml' })])
+        expect(result.json()).toMatchObject({ problems: [expect.objectContaining({ path: 'weekly.yaml' })] })
     })
 
     test.each([
@@ -199,7 +200,17 @@ describe('hog endpoints', () => {
             respond: server([TRENDS, HOGQL]),
         })
         expect(result.exitCode).toBe(exitCode)
-        const plan = result.json().plan as { name: string; action: string; changes: { field: string }[] }[]
+        const { plan } = result.json(
+            z.object({
+                plan: z.array(
+                    z.object({
+                        name: z.string(),
+                        action: z.string(),
+                        changes: z.array(z.object({ field: z.string() })),
+                    })
+                ),
+            })
+        )
         expect(
             plan
                 .filter((item) => item.action !== 'skip')
