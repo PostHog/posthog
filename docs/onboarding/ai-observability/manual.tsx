@@ -17,6 +17,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
         { key: 'Go', label: 'Go' },
         { key: 'Ruby', label: 'Ruby' },
         { key: 'PHP', label: 'PHP' },
+        { key: 'Android', label: 'Android' },
     ]
 
     return [
@@ -26,9 +27,9 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                 <>
                     <Markdown>
                         {dedent`
-                            If you use a different server-side SDK, or prefer to use the API, capture the data
-                            manually. Call the \`capture\` method, or use the [capture
-                            API](https://posthog.com/docs/api/capture).
+                            If you use a different server-side SDK or the Android SDK, or prefer to use the API, capture
+                            the data manually. Call the \`capture\` method (\`captureAi\` on Android), or use the
+                            [capture API](https://posthog.com/docs/api/capture).
 
                             \`$ai_trace_id\` groups the events of one LLM interaction into a trace.
                             \`$ai_session_id\` is optional and groups related traces into a session, which is what the
@@ -274,6 +275,68 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                                                 // '$ai_time_to_first_token' => 0.25
                                                             ]
                                                         ]);
+                                                    `}
+                                                />
+                                            </>
+                                        )}
+
+                                        {l.key === 'Android' && (
+                                            <>
+                                                <Markdown>
+                                                    {dedent`
+                                                        Requires posthog-android 4.0 or later. \`captureAi\` sends events to
+                                                        PostHog's AI endpoint, which accepts much larger events than
+                                                        \`capture\`. The SDK doesn't redact prompts or outputs, so use
+                                                        \`beforeSend\` to remove anything you don't want to send.
+                                                    `}
+                                                </Markdown>
+
+                                                <Markdown>### 1. Install</Markdown>
+                                                <CodeBlock
+                                                    language="kotlin"
+                                                    code={dedent`
+                                                        dependencies {
+                                                            implementation("com.posthog:posthog-android:4.+")
+                                                        }
+                                                    `}
+                                                />
+
+                                                <Markdown>### 2. Initialize PostHog</Markdown>
+                                                <CodeBlock
+                                                    language="kotlin"
+                                                    code={dedent`
+                                                        // In your Application's onCreate()
+                                                        val config = PostHogAndroidConfig(
+                                                            projectToken = "<ph_project_token>",
+                                                            host = "<ph_client_api_host>"
+                                                        )
+                                                        PostHogAndroid.setup(this, config)
+                                                    `}
+                                                />
+
+                                                <Markdown>### 3. Capture Event</Markdown>
+                                                <CodeBlock
+                                                    language="kotlin"
+                                                    code={dedent`
+                                                        // After your LLM call. Returns the event's uuid, or null if it wasn't queued
+                                                        // (for example, the user opted out).
+                                                        val eventId = PostHog.captureAi(
+                                                            "\\$ai_generation",
+                                                            properties = mapOf(
+                                                                "\\$ai_trace_id" to "trace_id_here",
+                                                                "\\$ai_session_id" to "conversation-abc", // optional: groups traces into one session
+                                                                "\\$ai_model" to "gpt-5-mini",
+                                                                "\\$ai_provider" to "openai",
+                                                                "\\$ai_input" to listOf(mapOf("role" to "user", "content" to "Tell me a fun fact about hedgehogs")),
+                                                                "\\$ai_input_tokens" to 10,
+                                                                "\\$ai_output_choices" to listOf(mapOf("role" to "assistant", "content" to "Hedgehogs have around 5,000 to 7,000 spines on their backs!")),
+                                                                "\\$ai_output_tokens" to 20,
+                                                                "\\$ai_latency" to 1.5,
+                                                                // For streaming responses, also include:
+                                                                // "\\$ai_stream" to true,
+                                                                // "\\$ai_time_to_first_token" to 0.25,
+                                                            ),
+                                                        )
                                                     `}
                                                 />
                                             </>
