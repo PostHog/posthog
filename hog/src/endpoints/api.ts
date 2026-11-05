@@ -1,37 +1,58 @@
 import { z } from 'zod'
 
-import type { PostHogApi } from '@/posthog/api'
+import { ApiError, type PostHogApi } from '@/posthog/api'
+import { findNamed, getPage, listTooLong, readAll, type Page } from '@/posthog/pagination'
 
 import { Endpoint, InsightVariable } from './model'
 
-// Follows `next` links
-async function all<S extends z.ZodType>(api: PostHogApi, path: string, item: S): Promise<z.output<S>[]> {
-    const page = z.looseObject({ results: z.array(item), next: z.string().nullish() })
-    const results: z.output<S>[] = []
-    let next: string | null | undefined = path
-    while (next) {
-        const current: { results: z.output<S>[]; next?: string | null } = await api.get(next, page)
-        results.push(...current.results)
-        next = current.next ? new URL(current.next).pathname + new URL(current.next).search : undefined
-    }
-    return results
+export function listEndpoints(api: PostHogApi, limit: number, offset: number): Promise<Page<Endpoint>> {
+    return getPage(api, `endpoints/?limit=${limit}${offset > 0 ? `&offset=${offset}` : ''}`, Endpoint)
 }
 
-export function listEndpoints(api: PostHogApi): Promise<Endpoint[]> {
-    return all(api, 'endpoints/', Endpoint)
+export function readAllEndpoints(api: PostHogApi): Promise<Endpoint[]> {
+    return readAll(api, 'endpoints/', Endpoint, listTooLong('endpoints', 'Pull the endpoints you need by name.'))
 }
 
 export function getEndpoint(api: PostHogApi, name: string): Promise<Endpoint> {
     return api.get(`endpoints/${encodeURIComponent(name)}/`, Endpoint)
 }
 
-// PostHog allows a variable without a code name, which no query can reference, so the list leaves
-// it out.
+// Reads the list until it has every name. In a project too large for that, it looks up each name
+// it hasn't found yet, so the cost grows with the names instead of the project.
+export async function findEndpoints(api: PostHogApi, names: readonly string[]): Promise<Map<string, Endpoint>> {
+    const { found, complete } = await findNamed(api, 'endpoints/', Endpoint, names, (endpoint) => endpoint.name)
+    if (!complete) {
+        for (const name of names.filter((name) => !found.has(name))) {
+            try {
+                found.set(name, await getEndpoint(api, name))
+            } catch (error) {
+                if (!(error instanceof ApiError && error.status === 404)) {
+                    throw error
+                }
+            }
+        }
+    }
+    return found
+}
+
+// PostHog allows a variable without a code name, which no query can reference, so a lookup skips it.
 const ListedVariable = InsightVariable.extend({ code_name: z.string().nullable() })
 
-export async function listInsightVariables(api: PostHogApi): Promise<InsightVariable[]> {
-    const variables = await all(api, 'insight_variables/', ListedVariable)
-    return variables.flatMap(({ code_name, ...variable }) => (code_name === null ? [] : [{ ...variable, code_name }]))
+export async function findInsightVariables(
+    api: PostHogApi,
+    names: readonly string[]
+): Promise<Map<string, InsightVariable>> {
+    const { found, complete } = await findNamed(
+        api,
+        'insight_variables/',
+        ListedVariable,
+        names,
+        (variable) => variable.code_name
+    )
+    if (!complete && found.size < new Set(names).size) {
+        throw listTooLong('insight variables', 'Delete the insight variables the project no longer uses.')
+    }
+    return new Map([...found].map(([name, variable]) => [name, { ...variable, code_name: name }]))
 }
 
 export function createInsightVariable(
