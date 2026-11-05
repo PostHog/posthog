@@ -189,7 +189,6 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
         return self._column_facet_query_from_rollup()
 
     def _column_facet_filter_exprs(self, filter_builder: LogsFilterBuilder) -> list[ast.Expr]:
-        # Both rollups have service_name and severity_text. These filters omit the filter of this facet.
         facet = ast.Field(chain=[cast(str, self.facet_field)])
         exprs: list[ast.Expr] = []
         if self.query.serviceNames and self.facet_field != "service_name":
@@ -276,13 +275,9 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
         return query
 
     def _column_facet_query_from_attributes(self, filter_builder: LogsFilterBuilder) -> ast.SelectQuery:
-        # logs_volume_buckets has no resource_fingerprint, so it cannot apply a resource-attribute
-        # filter. log_attributes has resource_fingerprint, service_name, and severity_text. Each
-        # resource attribute of a log makes one row, so the rows of one resource count its logs once
-        # for each attribute key. resource_fingerprint is a hash of all the resource attributes, thus
-        # each key of one resource has the same count. The inner query counts each key, and the
-        # middle query keeps one count for each resource. A log with no resource attributes has no
-        # row here. Thus, with only negative resource filters, the counts do not include these logs.
+        # log_attributes has one row per resource attribute key, so the middle query keeps one count
+        # per resource instead of one per key. Logs with no resource attributes have no row here,
+        # so negative-only resource filters do not count them.
         facet = ast.Field(chain=[cast(str, self.facet_field)])
         date_range = self._attributes_query_date_range
         exprs = self._column_facet_filter_exprs(filter_builder)
@@ -302,7 +297,7 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
                         sum(attribute_count) AS key_count
                     FROM log_attributes
                     WHERE time_bucket >= {date_from_start_of_interval}
-                    AND time_bucket <= {date_to_start_of_interval} + {one_interval_period}
+                    AND time_bucket < {date_to}
                     AND attribute_type = 'resource'
                     AND {where}
                     GROUP BY time_bucket, resource_fingerprint, service_name, severity_text, attribute_key
