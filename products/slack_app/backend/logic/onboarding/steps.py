@@ -8,7 +8,6 @@ from products.slack_app.backend.logic.onboarding.sources_step import SourcesStep
 from products.slack_app.backend.logic.onboarding.step import OnboardingStep
 
 # In display order. The account link comes first, because the steps after it act for the linked user.
-# The workspace steps (AI consent, #posthog-inbox, signals) show only for admins.
 ONBOARDING_STEPS: tuple[OnboardingStep, ...] = (
     LinkAccountStep(),
     AiConsentStep(),

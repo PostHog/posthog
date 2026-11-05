@@ -57,6 +57,10 @@ def _check_planned(
     return checked
 
 
+def _current(checked: list[_PlannedStep]) -> _PlannedStep | None:
+    return next((item for item in checked if item.status == "pending"), None)
+
+
 def _progress(checked: list[_PlannedStep]) -> str:
     finished = sum(1 for item in checked if item.status != "pending")
     return f"{finished} of {len(checked)} {'step' if len(checked) == 1 else 'steps'} done"
@@ -72,7 +76,7 @@ _CHECKLIST_LINES: dict[StepStatus, str] = {
 
 
 def _checklist(checked: list[_PlannedStep]) -> str:
-    current = next((item for item in checked if item.status == "pending"), None)
+    current = _current(checked)
     lines = []
     for item in checked:
         if item is current:
@@ -84,8 +88,7 @@ def _checklist(checked: list[_PlannedStep]) -> str:
 
 
 def _root_status(checked: list[_PlannedStep]) -> str:
-    """The progress line, then the checklist. A step can change its line and keep the count, such as a
-    skipped step that the person sets in the Home tab, so the thread compares all of it."""
+    """Stored so the thread can tell when any checklist line changes, even when the count stays the same."""
     return f"{_progress(checked)}\n{_checklist(checked)}"
 
 
@@ -99,7 +102,7 @@ def _root_message(checked: list[_PlannedStep], *, ready: bool, ts: str | None = 
             context_block(_checklist(checked)),
         ],
         ts=ts,
-        progress=_root_status(checked),
+        root_status=_root_status(checked),
     )
 
 
@@ -151,10 +154,10 @@ def _ready_message(ctx: OnboardingContext, checked: list[_PlannedStep]) -> Slack
     return SlackAppOnboardingMessage(kind="ready", text=text, blocks=blocks)
 
 
-def _status(progress: str, checked: list[_PlannedStep]) -> str:
-    current = next((item.step.key for item in checked if item.status == "pending"), None)
+def _status(checked: list[_PlannedStep]) -> str:
+    current = _current(checked)
     skips = ", ".join(item.step.key for item in checked if item.status == "skipped") or "none"
-    return f"{progress} · {f'current step: {current}' if current else 'ready'} · skipped: {skips}"
+    return f"{_progress(checked)} · {f'current step: {current.step.key}' if current else 'ready'} · skipped: {skips}"
 
 
 def plan_onboarding(integration: WorkspaceIntegration, slack_user_id: str) -> SlackAppOnboardingPlan:
@@ -166,30 +169,32 @@ def plan_onboarding(integration: WorkspaceIntegration, slack_user_id: str) -> Sl
 
     ctx = OnboardingContext(integration=integration, slack_user_id=slack_user_id)
     if state is None or state.root_ts is None:
-        # The thread promises these steps at its start. A step set before the start is left out.
-        planned = tuple(step.key for step in ONBOARDING_STEPS if step.applies(ctx) and not step.is_done(ctx))
-        if not planned:
+        # The thread promises these steps at its start.
+        steps = [step for step in ONBOARDING_STEPS if step.applies(ctx) and not step.is_done(ctx)]
+        if not steps:
             # Storing this saves a workflow run on each later open of the DM.
             update_onboarding(slack_workspace_id, slack_user_id, completed_reason="nothing_to_set_up")
             return ONBOARDING_DONE_PLAN
-        checked = _check_planned(ctx, planned, {}, ())
-        root = replace(_root_message(checked, ready=False), planned=list(planned))
-        return SlackAppOnboardingPlan(edits=[], post=root, finished=False, status=_status(_progress(checked), checked))
+        checked = [
+            _PlannedStep(number=number, step=step, status="pending", shown=False)
+            for number, step in enumerate(steps, start=1)
+        ]
+        root = replace(_root_message(checked, ready=False), planned=[step.key for step in steps])
+        return SlackAppOnboardingPlan(edits=[], post=root, finished=False, status=_status(checked))
 
     checked = _check_planned(ctx, state.planned, state.step_ts, state.skipped)
-    progress = _progress(checked)
-    status = _status(progress, checked)
+    status = _status(checked)
     edits = [
         _summary_message(item, state.step_ts[item.step.key])
         for item in checked
         if item.shown and item.status != "pending" and item.step.key not in state.summarized
     ]
-    current = next((item for item in checked if item.status == "pending"), None)
+    current = _current(checked)
     if current is None:
         edits.append(_root_message(checked, ready=True, ts=state.root_ts))
         return SlackAppOnboardingPlan(edits=edits, post=_ready_message(ctx, checked), finished=True, status=status)
 
-    if state.progress != _root_status(checked):
+    if state.root_status != _root_status(checked):
         edits.append(_root_message(checked, ready=False, ts=state.root_ts))
     message = _step_message(ctx, checked, current)
     current_ts = state.step_ts.get(current.step.key)
@@ -204,7 +209,6 @@ def post_onboarding_message(
     integration: WorkspaceIntegration, slack_user_id: str, message: SlackAppOnboardingMessage
 ) -> None:
     slack_workspace_id = integration.integration_id
-    state = resolve_onboarding(slack_workspace_id, slack_user_id)
     client = SlackIntegration(integration).client
     if message.kind == "root":
         response = client.chat_postMessage(channel=slack_user_id, text=message.text, blocks=message.blocks)
@@ -213,11 +217,12 @@ def post_onboarding_message(
             slack_user_id,
             root=(str(response["channel"]), str(response["ts"])),
             planned=message.planned,
-            progress=message.progress,
+            root_status=message.root_status,
         )
         capture_slack_event(integration, SETUP_STARTED_EVENT, slack_user_id=slack_user_id)
         return
 
+    state = resolve_onboarding(slack_workspace_id, slack_user_id)
     if state is None or state.channel is None or state.root_ts is None:
         raise ValueError("A setup reply needs the top message of the thread")
     response = client.chat_postMessage(
@@ -243,7 +248,7 @@ def edit_onboarding_message(
     SlackIntegration(integration).client.chat_update(
         channel=state.channel, ts=message.ts, text=message.text, blocks=message.blocks
     )
-    if message.kind == "root" and message.progress:
-        update_onboarding(slack_workspace_id, slack_user_id, progress=message.progress)
+    if message.kind == "root" and message.root_status:
+        update_onboarding(slack_workspace_id, slack_user_id, root_status=message.root_status)
     if message.summarizes_step and message.step:
         update_onboarding(slack_workspace_id, slack_user_id, summarized_step=message.step)

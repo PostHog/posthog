@@ -1,3 +1,4 @@
+import json
 from enum import StrEnum
 from functools import cached_property
 from typing import Any
@@ -8,6 +9,7 @@ from posthog.models.integration import SlackIntegration
 
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
+from products.slack_app.backend.onboarding import installer_slack_user_id
 from products.slack_app.backend.services.onboarding_checks import is_org_admin
 from products.slack_app.backend.services.slack_app_home import linked_posthog_user
 from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
@@ -47,8 +49,7 @@ class OnboardingContext:
     @cached_property
     def is_workspace_admin(self) -> bool:
         """The person who installed the app, or a Slack workspace admin or owner."""
-        installer = ((self.integration.config or {}).get("authed_user") or {}).get("id")
-        if installer == self.slack_user_id:
+        if installer_slack_user_id(self.integration) == self.slack_user_id:
             return True
         return is_slack_workspace_admin(SlackIntegration(self.integration), self.integration, self.slack_user_id)
 
@@ -56,6 +57,15 @@ class OnboardingContext:
     def is_org_admin(self) -> bool:
         user = self.posthog_user
         return user is not None and is_org_admin(user.id, self.integration.team_id)
+
+
+def read_action_value(action: dict[str, Any]) -> dict[str, Any] | None:
+    raw = action.get("value") or (action.get("selected_option") or {}).get("value")
+    try:
+        value = json.loads(raw or "")
+    except json.JSONDecodeError:
+        return None
+    return value if isinstance(value, dict) else None
 
 
 @frozen
@@ -92,6 +102,9 @@ class OnboardingStep:
 
     def handles(self, action_id: str) -> bool:
         return action_id in self.action_ids
+
+    def read_value(self, action: dict[str, Any]) -> dict[str, Any] | None:
+        return read_action_value(action)
 
     def apply_action(self, ctx: OnboardingContext, action_id: str, value: dict[str, Any]) -> StepClick:
         raise NotImplementedError

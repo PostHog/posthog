@@ -196,9 +196,8 @@ def is_slack_app_forking_enabled(integration: IntegrationRecord) -> bool:
 
 
 def is_slack_app_onboarding_enabled(integration: IntegrationRecord) -> bool:
-    """Gate for the setup card in the PostHog DM. The card posts through the ``chat:write`` that every
-    install has, and each step checks its own scopes, so this is the flag alone. It is keyed on the
-    workspace, because the people who get the card are mostly not linked to a PostHog user yet."""
+    """Keyed on the workspace, because most people who get the onboarding thread are not linked to a PostHog user
+    yet. Each step checks its own scopes."""
     return _workspace_flag_enabled(
         SLACK_APP_ONBOARDING_FLAG,
         integration,

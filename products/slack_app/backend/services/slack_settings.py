@@ -1,7 +1,6 @@
 """Read helpers for per-(Slack workspace, Slack user) settings backed by
 `models.SlackSettings` (today: the untagged follow-up and question modes, the thread
-join mode, the channel welcome mode, the automatic model choice and where the DM setup
-card is), plus the shared AI-triple value object.
+join mode, the channel welcome mode, the automatic model choice and the onboarding thread), plus the shared AI-triple value object.
 
 Model preferences themselves live in the central tasks config
 (`products.tasks.backend.facade.ai_run_defaults`); `AIPreferences` keeps the
@@ -191,7 +190,7 @@ def set_auto_model_choice(slack_workspace_id: str, slack_user_id: str, enabled: 
     )
 
 
-# Bump when onboarding gains steps that people who already finished it should see.
+# Stored with each onboarding, so a later version can find people who finished an earlier one.
 ONBOARDING_VERSION = 1
 
 OnboardingCompletedReason = Literal["finished", "nothing_to_set_up"]
@@ -205,7 +204,7 @@ class OnboardingState:
 
     channel: str | None
     root_ts: str | None
-    progress: str | None
+    root_status: str | None
     planned: tuple[str, ...]
     step_ts: dict[str, str]
     summarized: tuple[str, ...]
@@ -231,7 +230,7 @@ def parse_onboarding(stored: object) -> OnboardingState | None:
     return OnboardingState(
         channel=stored.get("channel") or None,
         root_ts=stored.get("root_ts") or None,
-        progress=stored.get("progress") or None,
+        root_status=stored.get("root_status") or None,
         planned=_keys(stored.get("planned")),
         step_ts={str(key): str(ts) for key, ts in step_ts.items()} if isinstance(step_ts, dict) else {},
         summarized=_keys(stored.get("summarized")),
@@ -264,7 +263,7 @@ def update_onboarding(
     start: bool = False,
     root: tuple[str, str] | None = None,
     planned: list[str] | None = None,
-    progress: str | None = None,
+    root_status: str | None = None,
     step_ts: tuple[str, str] | None = None,
     summarized_step: str | None = None,
     skip_step: str | None = None,
@@ -287,8 +286,8 @@ def update_onboarding(
             card["channel"], card["root_ts"] = root
         if planned is not None:
             card["planned"] = planned
-        if progress is not None:
-            card["progress"] = progress
+        if root_status is not None:
+            card["root_status"] = root_status
         if step_ts is not None:
             card["step_ts"] = {**(card.get("step_ts") or {}), step_ts[0]: step_ts[1]}
         if summarized_step is not None:

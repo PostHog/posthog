@@ -31,15 +31,15 @@ class SlackAppOnboardingInputs:
 
 @frozen
 class SlackAppOnboardingMessage:
-    """One message of a person's DM setup thread. For an edit, ``ts`` names the message. ``planned``,
-    ``progress`` and ``summarizes_step`` say what to store after it."""
+    """One message of a person's onboarding thread. For an edit, ``ts`` names the message. ``planned``,
+    ``root_status`` and ``summarizes_step`` say what to store after it."""
 
     kind: Literal["root", "step", "ready"]
     text: str
     blocks: list[dict[str, Any]]
     step: str | None = None
     ts: str | None = None
-    progress: str | None = None
+    root_status: str | None = None
     planned: list[str] | None = None
     summarizes_step: bool = False
 
@@ -51,7 +51,8 @@ class SlackAppOnboardingMessage:
         if self.kind == "step":
             return f"{self.step}: show step"
         if self.kind == "root":
-            return f"top message: {(self.progress or '').partition(chr(10))[0]}"
+            progress, _, _ = (self.root_status or "").partition("\n")
+            return f"top message: {progress}"
         return "ready message"
 
 

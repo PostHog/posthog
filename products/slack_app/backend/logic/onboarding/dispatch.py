@@ -34,7 +34,8 @@ def request_onboarding(
             if not may_start or not is_slack_app_onboarding_enabled(integration):
                 return
             update_onboarding(slack_workspace_id, slack_user_id, start=True)
-            start_delay_seconds = _burst_delay_seconds(slack_workspace_id) if spread_burst else 0
+            if spread_burst:
+                start_delay_seconds = _burst_delay_seconds(slack_workspace_id)
         _signal_with_start(integration, slack_user_id, start_delay_seconds=start_delay_seconds)
     except Exception:
         logger.warning("slack_app_onboarding_dispatch_failed", slack_user_id=slack_user_id, exc_info=True)

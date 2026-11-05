@@ -184,7 +184,7 @@ ONBOARDING_INTRO_TEXT = (
 def build_onboarding_ready(
     integration: WorkspaceIntegration, slack_user_id: str, skipped_titles: list[str]
 ) -> tuple[str, list[dict[str, Any]]]:
-    """The last reply of the onboarding thread: the welcome a new member used to get, now that they're set up."""
+    """The last reply of the onboarding thread."""
     text = (
         f"<@{slack_user_id}> *You're all set.* Message me here, or tag `@PostHog` in any channel, and I'll dig "
         "into your product data or open a pull request in a connected repo."
@@ -202,7 +202,7 @@ def build_team_join_welcome(integration: WorkspaceIntegration) -> tuple[str, lis
     """DM'd to someone who just joined a workspace that already has the app.
 
     They inherited a tool nobody introduced them to, so this says what it is before it
-    says what it can do. The examples drop the `@PostHog` prefix because a DM needs none.
+    says what it can do.
     """
     blocks: list[dict[str, Any]] = [
         section_block(
@@ -246,6 +246,17 @@ def github_connect_url(team_id: int) -> str:
     return _public_url(f"/integrations/connect/github/?project_id={team_id}&connect_from=slack")
 
 
+def github_connect_button(team_id: int) -> dict:
+    # Pure URL button (no action_id): clicking just opens OAuth in the browser and fires no
+    # interaction. The callback returns to Slack; the message updates next time it's rebuilt.
+    return {
+        "type": "button",
+        "text": {"type": "plain_text", "text": "Connect GitHub"},
+        "url": github_connect_url(team_id),
+        "style": "primary",
+    }
+
+
 def _github_blocks(integration: WorkspaceIntegration, *, done: bool) -> list[dict]:
     blocks: list[dict] = [
         section_block(
@@ -256,15 +267,7 @@ def _github_blocks(integration: WorkspaceIntegration, *, done: bool) -> list[dic
     if done:
         blocks.append(_done("Connected"))
         return blocks
-    # Pure URL button (no action_id): clicking just opens OAuth in the browser and fires no
-    # interaction. The callback returns to Slack; the message updates next time it's rebuilt.
-    button = {
-        "type": "button",
-        "text": {"type": "plain_text", "text": "Connect GitHub"},
-        "url": github_connect_url(integration.team_id),
-        "style": "primary",
-    }
-    blocks.append({"type": "actions", "elements": [button]})
+    blocks.append({"type": "actions", "elements": [github_connect_button(integration.team_id)]})
     return blocks
 
 

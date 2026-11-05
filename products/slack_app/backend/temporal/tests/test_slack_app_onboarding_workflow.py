@@ -31,7 +31,7 @@ def _message(kind: str, ts: str | None = None) -> SlackAppOnboardingMessage:
         blocks=[],
         ts=ts,
         step="model" if kind == "step" else None,
-        progress="1 of 3 steps done" if kind == "root" else None,
+        root_status="1 of 3 steps done" if kind == "root" else None,
         summarizes_step=kind == "step" and ts is not None,
     )
 

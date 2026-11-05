@@ -47,6 +47,14 @@ class SourcesStep(OnboardingStep):
             },
         ]
 
+    def read_value(self, action: dict[str, Any]) -> dict[str, Any] | None:
+        # Checkbox options carry the source key as their value, so the integration id rides on the block id.
+        prefix, _, integration_id = str(action.get("block_id") or "").partition(":")
+        if prefix != SOURCES_BLOCK_PREFIX or not integration_id.isdigit():
+            return None
+        selected = [str(option.get("value")) for option in action.get("selected_options") or []]
+        return {"integration_id": int(integration_id), "selected": selected}
+
     def apply_action(self, ctx: OnboardingContext, action_id: str, value: dict[str, Any]) -> StepClick:
         from products.signals.backend.facade.api import (  # noqa: PLC0415 — keeps the signals stack off the slack import path
             set_sources,

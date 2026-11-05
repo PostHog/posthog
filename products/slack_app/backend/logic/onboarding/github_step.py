@@ -2,7 +2,7 @@ from products.slack_app.backend.logic.onboarding.actions import skip_button
 from products.slack_app.backend.logic.onboarding.step import OnboardingContext, OnboardingStep, OnboardingStepKey
 from products.slack_app.backend.services.onboarding_checks import has_personal_github, has_team_github
 from products.slack_app.backend.services.slack_messages import section_block
-from products.slack_app.backend.services.slack_welcome_messages import github_connect_url
+from products.slack_app.backend.services.slack_welcome_messages import github_connect_button
 
 
 class GithubStep(OnboardingStep):
@@ -27,13 +27,7 @@ class GithubStep(OnboardingStep):
             {
                 "type": "actions",
                 "elements": [
-                    # A URL button: GitHub connects in the browser, and the thread updates when you come back.
-                    {
-                        "type": "button",
-                        "text": {"type": "plain_text", "text": "Connect GitHub"},
-                        "url": github_connect_url(ctx.integration.team_id),
-                        "style": "primary",
-                    },
+                    github_connect_button(ctx.integration.team_id),
                     skip_button(ctx, self.key),
                 ],
             },

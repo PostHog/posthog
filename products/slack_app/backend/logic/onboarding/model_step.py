@@ -9,6 +9,7 @@ from products.slack_app.backend.logic.onboarding.actions import (
     AUTO_MODEL_ACTION_ID,
     MODEL_ACTION_ID,
     action_value,
+    button,
     skip_button,
 )
 from products.slack_app.backend.logic.onboarding.step import (
@@ -49,15 +50,7 @@ class ModelStep(OnboardingStep):
             }
             for choice in offered_model_choices()[:SLACK_SELECT_MAX_OPTIONS]
         ]
-        elements: list[dict] = [
-            {
-                "type": "button",
-                "text": {"type": "plain_text", "text": "Let PostHog choose"},
-                "style": "primary",
-                "action_id": AUTO_MODEL_ACTION_ID,
-                "value": action_value(ctx),
-            }
-        ]
+        elements: list[dict] = [button(ctx, "Let PostHog choose", AUTO_MODEL_ACTION_ID, primary=True)]
         if options:
             elements.append(
                 {

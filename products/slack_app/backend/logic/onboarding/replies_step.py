@@ -1,6 +1,6 @@
 from typing import Any
 
-from products.slack_app.backend.logic.onboarding.actions import REPLIES_ACTION_ID, action_value, skip_button
+from products.slack_app.backend.logic.onboarding.actions import REPLIES_ACTION_ID, button, skip_button
 from products.slack_app.backend.logic.onboarding.step import (
     OnboardingContext,
     OnboardingStep,
@@ -26,12 +26,7 @@ class RepliesInThreadsStep(OnboardingStep):
 
     def render(self, ctx: OnboardingContext) -> list[dict]:
         buttons = [
-            {
-                "type": "button",
-                "text": {"type": "plain_text", "text": UNTAGGED_FOLLOWUP_MODE_LABELS[mode]},
-                "action_id": f"{REPLIES_ACTION_ID}:{mode}",
-                "value": action_value(ctx, mode=mode),
-            }
+            button(ctx, UNTAGGED_FOLLOWUP_MODE_LABELS[mode], f"{REPLIES_ACTION_ID}:{mode}", mode=mode)
             for mode in (UntaggedFollowupMode.AUTO, UntaggedFollowupMode.ASK, UntaggedFollowupMode.NEVER)
         ]
         return [
