@@ -4,19 +4,19 @@ import asyncio
 from collections.abc import Awaitable, Callable
 
 import structlog
+import posthoganalytics
 from prometheus_client import Counter
 
 from posthog.egress.limiter.outbound import OutboundRateLimiter, get_outbound_rate_limiter
 from posthog.egress.limiter.policies import RatePolicy, register_policy
-from posthog.models.instance_setting import get_instance_setting
-from posthog.settings import CONSTANCE_CONFIG
-from posthog.sync import database_sync_to_async_pool
 
 logger = structlog.get_logger(__name__)
 
+WAREHOUSE_CDP_PRODUCER_RATE_FLAG = "warehouse-cdp-producer-rate-limits"
+_FLAG_DISTINCT_ID = "internal_warehouse_cdp_producer"
 _RATE_DOMAIN = "warehouse_cdp_producer"
 _MIN_ROWS_PER_SECOND = 0.01
-_DEFAULT_ROWS_PER_SECOND = float(CONSTANCE_CONFIG["WAREHOUSE_CDP_PRODUCER_MAX_ROWS_PER_SEC"][0])
+_DEFAULT_ROWS_PER_SECOND = 2000.0
 _live_rates: dict[str, float] = {}
 
 CDP_PRODUCER_THROTTLE_WAITS_TOTAL = Counter(
@@ -26,40 +26,39 @@ CDP_PRODUCER_THROTTLE_WAITS_TOTAL = Counter(
 )
 
 
-def parse_rate_overrides(raw: object) -> dict[str, float]:
-    if not isinstance(raw, str):
-        logger.warning("warehouse_cdp_producer.invalid_rate_override", raw_value=raw)
-        return {}
-
-    overrides: dict[str, float] = {}
-    for entry in raw.split(","):
-        if not entry.strip():
-            continue
-        table_id, separator, raw_rate = entry.partition(":")
-        table_id = table_id.strip()
+def _valid_rate(value: object, field: str) -> float | None:
+    rate: float | None = None
+    if isinstance(value, int | float) and not isinstance(value, bool):
         try:
-            rate = float(raw_rate)
+            rate = float(value)
         except (TypeError, ValueError, OverflowError):
-            rate = 0.0
-        if not separator or not table_id or not math.isfinite(rate) or rate <= 0:
-            logger.warning("warehouse_cdp_producer.invalid_rate_override", entry=entry)
-            continue
-        overrides[table_id] = rate
-    return overrides
+            pass
+    if rate is None or not math.isfinite(rate) or rate <= 0:
+        logger.warning("warehouse_cdp_producer.invalid_rate", field=field, value_type=type(value).__name__)
+        return None
+    return rate
 
 
-def resolve_rows_per_second(table_id: str, default_raw: object, overrides_raw: object) -> float:
-    overrides = parse_rate_overrides(overrides_raw)
-    if table_id in overrides:
-        rate = overrides[table_id]
-    else:
-        try:
-            rate = float(default_raw) if isinstance(default_raw, int | float | str) else _DEFAULT_ROWS_PER_SECOND
-        except (ValueError, OverflowError):
-            rate = _DEFAULT_ROWS_PER_SECOND
-        if not math.isfinite(rate) or rate <= 0:
-            rate = _DEFAULT_ROWS_PER_SECOND
-    return max(_MIN_ROWS_PER_SECOND, rate)
+def resolve_rows_per_second(table_id: str, payload: object) -> float:
+    if not isinstance(payload, dict):
+        if payload is not None:
+            logger.warning("warehouse_cdp_producer.invalid_rate_payload", value_type=type(payload).__name__)
+        return _DEFAULT_ROWS_PER_SECOND
+
+    default_rate = _DEFAULT_ROWS_PER_SECOND
+    if "default_rows_per_second" in payload:
+        default_rate = _valid_rate(payload["default_rows_per_second"], "default_rows_per_second") or default_rate
+
+    if "overrides" in payload:
+        overrides = payload["overrides"]
+        if not isinstance(overrides, dict):
+            logger.warning("warehouse_cdp_producer.invalid_rate_overrides", value_type=type(overrides).__name__)
+        elif table_id in overrides:
+            override_rate = _valid_rate(overrides[table_id], "overrides")
+            if override_rate is not None:
+                return max(_MIN_ROWS_PER_SECOND, override_rate)
+
+    return max(_MIN_ROWS_PER_SECOND, default_rate)
 
 
 def rate_limits(rows_per_second: float) -> tuple[int, float]:
@@ -69,9 +68,14 @@ def rate_limits(rows_per_second: float) -> tuple[int, float]:
 
 
 async def aget_rows_per_second(table_id: str) -> float:
-    default_raw = await database_sync_to_async_pool(get_instance_setting)("WAREHOUSE_CDP_PRODUCER_MAX_ROWS_PER_SEC")
-    overrides_raw = await database_sync_to_async_pool(get_instance_setting)("WAREHOUSE_CDP_PRODUCER_RATE_OVERRIDES")
-    return resolve_rows_per_second(table_id, default_raw, overrides_raw)
+    try:
+        payload: object = await asyncio.to_thread(
+            posthoganalytics.get_feature_flag_payload, WAREHOUSE_CDP_PRODUCER_RATE_FLAG, _FLAG_DISTINCT_ID
+        )
+    except Exception:
+        logger.warning("warehouse_cdp_producer.rate_flag_fetch_failed", exc_info=True)
+        payload = None
+    return resolve_rows_per_second(table_id, payload)
 
 
 def _rate_policy(key: str) -> RatePolicy:

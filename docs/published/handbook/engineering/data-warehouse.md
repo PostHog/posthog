@@ -12,15 +12,26 @@ Onboarding only checks warehouse setup for non-demo projects without events. Sou
 
 ## Warehouse CDP producer
 
-`WAREHOUSE_CDP_PRODUCER_MAX_ROWS_PER_SEC` sets the default limit to 2,000 rows per second for each table.
+The `warehouse-cdp-producer-rate-limits` feature flag payload sets `default_rows_per_second` for each table.
+The rate is 2,000 rows per second when this value is unset or invalid.
 Overlapping runs of the same table share a rate limit.
-Operators can change the settings live.
+Operators can change the flag payload live.
 The producer refreshes the rate at most once every 60 seconds, when its local allowance is empty.
 
-`WAREHOUSE_CDP_PRODUCER_RATE_OVERRIDES` accepts comma-separated `<table id>:<rows per second>` pairs.
+The `overrides` object sets a rate for each table id.
 Use the `ExternalDataSchema` id for a source table or the `DataWarehouseSavedQuery` id for a materialized view.
-Fractional rates are supported: `table-id:0.5` permits one row every two seconds.
-Invalid overrides are ignored, and rates have a minimum of 0.01 rows per second.
+Rates can be fractional, and the minimum is 0.01 rows per second.
+Invalid overrides fall back to the payload default.
+For example, this payload sets one table to 0.5 rows per second:
+
+```json
+{
+  "default_rows_per_second": 1000,
+  "overrides": {
+    "source-table-id": 0.5
+  }
+}
+```
 
 The producer deletes each staged file only after Kafka confirms delivery of its rows.
 Checkpoints record progress after 10,000 produced rows or 30 seconds while processing rows.

@@ -6,41 +6,57 @@ from unittest.mock import AsyncMock, Mock, call, patch
 
 from posthog.egress.limiter.outbound import OutboundRateLimiter
 from posthog.egress.limiter.policies import resolve_policy
-from posthog.settings import CONSTANCE_CONFIG
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer import ProduceCheckpoint
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer_rate import (
     RowThrottle,
+    aget_rows_per_second,
     rate_limits,
     resolve_rows_per_second,
 )
 
-DEFAULT_RATE = float(CONSTANCE_CONFIG["WAREHOUSE_CDP_PRODUCER_MAX_ROWS_PER_SEC"][0])
+DEFAULT_RATE = 2000.0
 
 
 @pytest.mark.parametrize(
-    "default,overrides,expected",
+    "payload,expected",
     [
-        (100, "table:50", 50),
-        (100, "another:50", 100),
-        (100, "broken, :50, table:nope, table:inf, table:nan, table: 25, , another:20:30", 25),
-        (100, "table:0", 100),
-        (100, "table:-1", 100),
-        ("unreadable", "", DEFAULT_RATE),
-        (None, None, DEFAULT_RATE),
-        (0, "", DEFAULT_RATE),
-        (-1, "", DEFAULT_RATE),
-        (float("nan"), "", DEFAULT_RATE),
-        (float("inf"), "", DEFAULT_RATE),
-        (100, " table : 0.5 ", 0.5),
-        (100, "table:0.001", 0.01),
-        (0.001, "", 0.01),
-        ("unreadable", "table:5", 5),
-        (100, 123, 100),
+        (None, DEFAULT_RATE),
+        ("invalid payload", DEFAULT_RATE),
+        ({}, DEFAULT_RATE),
+        ({"default_rows_per_second": 100, "overrides": {"table": 50}}, 50),
+        ({"default_rows_per_second": 100, "overrides": {"another": 50}}, 100),
+        ({"default_rows_per_second": 100}, 100),
+        ({"overrides": {"table": 50}}, 50),
+        ({"default_rows_per_second": 100, "overrides": {"table": "50"}}, 100),
+        ({"default_rows_per_second": 100, "overrides": {"table": True}}, 100),
+        ({"default_rows_per_second": 100, "overrides": {"table": 0}}, 100),
+        ({"default_rows_per_second": 100, "overrides": {"table": -1}}, 100),
+        ({"default_rows_per_second": 100, "overrides": {"table": float("nan")}}, 100),
+        ({"default_rows_per_second": 100, "overrides": "invalid"}, 100),
+        ({"default_rows_per_second": "100"}, DEFAULT_RATE),
+        ({"default_rows_per_second": True}, DEFAULT_RATE),
+        ({"default_rows_per_second": 0}, DEFAULT_RATE),
+        ({"default_rows_per_second": -1}, DEFAULT_RATE),
+        ({"default_rows_per_second": float("nan")}, DEFAULT_RATE),
+        ({"default_rows_per_second": float("inf")}, DEFAULT_RATE),
+        ({"default_rows_per_second": 10**1000}, DEFAULT_RATE),
+        ({"default_rows_per_second": 100, "overrides": {"table": 0.5}}, 0.5),
+        ({"default_rows_per_second": 100, "overrides": {"table": 0.001}}, 0.01),
+        ({"default_rows_per_second": 0.001}, 0.01),
     ],
 )
-def test_resolve_rows_per_second(default: object, overrides: object, expected: float) -> None:
-    assert resolve_rows_per_second("table", default, overrides) == expected
+def test_resolve_rows_per_second(payload: object, expected: float) -> None:
+    assert resolve_rows_per_second("table", payload) == expected
+
+
+@pytest.mark.asyncio
+async def test_aget_rows_per_second_uses_default_when_flag_fetch_fails() -> None:
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer_rate.posthoganalytics.get_feature_flag_payload",
+        side_effect=RuntimeError("flag service unavailable"),
+    ):
+        assert await aget_rows_per_second("table") == DEFAULT_RATE
 
 
 @pytest.mark.parametrize("rate,expected", [(2000, (2000, 1.0)), (1, (1, 1.0)), (0.5, (1, 2.0))])
