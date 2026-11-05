@@ -26,7 +26,7 @@ describe('classic conversation events', () => {
         expect(state.messages).toHaveLength(2)
         expect(classicThreadItems(state, '')).toEqual([
             { kind: 'user', id: 'stream-0', text: 'A question' },
-            { kind: 'assistant', id: 'stream-1', text: 'The answer.', complete: true },
+            { kind: 'assistant', id: 'stream-1', text: 'The answer.', complete: true, projectUrl: '' },
         ])
     })
 
@@ -119,5 +119,65 @@ describe('classic conversation events', () => {
         const item = classicThreadItems(state, 'https://app.example.com/project/42')[0]
         const encoded = item && 'text' in item ? (item.text.split('#q=')[1]?.slice(0, -1) ?? '') : ''
         expect(JSON.parse(decodeURIComponent(encoded))).toEqual(expected)
+    })
+    test.each(['Saved answer', 'Saved'])('reconciles replayed %s with unique IDs across model calls', (snapshot) => {
+        let state = classicHistory(
+            [
+                { id: 'earlier', type: 'ai', content: 'Earlier turn' },
+                { id: 'saved', type: 'ai', content: 'Saved answer' },
+            ],
+            null
+        )
+        state = appendClassicMessage(state, { id: 'temp-0', type: 'ai', content: snapshot })
+        state = appendClassicMessage(state, { id: 'temp-1', type: 'ai', content: 'Next answer' })
+        const nextId = state.messages.at(-1)?.id
+        state = appendClassicMessage(state, { id: 'saved', type: 'ai', content: 'Saved answer' })
+        expect(state.messages.map((message) => message.data.content)).toEqual([
+            'Earlier turn',
+            'Saved answer',
+            'Next answer',
+        ])
+        state = appendClassicMessage(state, { id: 'next', type: 'ai', content: 'Next answer' })
+        expect(state.messages.at(-1)?.id).toBe(nextId)
+        state = appendClassicMessage(state, { id: 'temp-0', type: 'ai', content: 'Another call' })
+        state = appendClassicMessage(state, { id: 'final', type: 'ai', content: 'Another call' })
+        state = appendClassicMessage(state, { id: 'temp-0', type: 'ai', content: 'Last call' })
+        const items = classicThreadItems(state, '')
+        expect(new Set(items.map((item) => item.id)).size).toBe(items.length)
+        expect(state.messages.map((message) => message.data.content)).toEqual([
+            'Earlier turn',
+            'Saved answer',
+            'Next answer',
+            'Another call',
+            'Last call',
+        ])
+    })
+
+    test.each(['stream', 'history'])('preserves notebook blocks from %s', (source) => {
+        const data = {
+            id: 'notebook-message',
+            type: 'ai/artifact',
+            source: 'artifact',
+            artifact_id: 'report-1',
+            content: {
+                content_type: 'notebook',
+                is_saved: true,
+                blocks: [
+                    { type: 'markdown', content: '# Report\n\nA synthetic summary.' },
+                    { type: 'session_replay', session_id: 'session-1', timestamp_ms: 0 },
+                    { type: 'markdown', content: 'A conclusion.' },
+                ],
+            },
+        }
+        const state =
+            source === 'history'
+                ? classicHistory([data], null)
+                : reduceClassicEvent(EMPTY_CLASSIC_STATE, { event: 'message', data: JSON.stringify(data) })
+        expect(classicThreadItems(state, 'https://app.example.com/project/42')[0]).toMatchObject({
+            text: '# Report\n\nA synthetic summary.\n\nOpen this report on the web to view this content.\n\nA conclusion.\n\n[View notebook](https://app.example.com/project/42/notebooks/report-1)',
+        })
+        data.content.is_saved = false
+        const draft = classicThreadItems(classicHistory([data], null), 'https://app.example.com/project/42')[0]
+        expect(draft && 'text' in draft ? draft.text : '').not.toContain('[View notebook]')
     })
 })

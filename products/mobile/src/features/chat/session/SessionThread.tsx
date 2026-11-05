@@ -27,7 +27,7 @@ const AssistantRow = memo(function AssistantRow({ item }: { item: SessionAssista
     const styles = useStyles()
     return (
         <View style={styles.assistant} testID="session-assistant">
-            <ChatMarkdown text={item.text} streaming={!item.complete} />
+            <ChatMarkdown text={item.text} streaming={!item.complete} projectUrl={item.projectUrl} />
         </View>
     )
 })

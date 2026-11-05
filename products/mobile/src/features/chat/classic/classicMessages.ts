@@ -15,19 +15,28 @@ export interface ClassicApproval {
     toolName: string
 }
 
+export interface ClassicForm {
+    id: string
+    questions: Record<string, unknown>[]
+}
+
 export interface ClassicState {
     messages: ClassicMessage[]
+    nextMessageId: number
     title: string | null
     progress: string | null
     approval: ClassicApproval | null
+    form: ClassicForm | null
     error: string | null
 }
 
 export const EMPTY_CLASSIC_STATE: ClassicState = {
     messages: [],
+    nextMessageId: 0,
     title: null,
     progress: null,
     approval: null,
+    form: null,
     error: null,
 }
 
@@ -40,6 +49,16 @@ function approvalFrom(value: unknown): ClassicApproval | null {
               toolName: typeof data.tool_name === 'string' ? data.tool_name : 'PostHog AI',
           }
         : null
+}
+
+function pendingForm(messages: ClassicMessage[]): ClassicForm | null {
+    const data = messages.at(-1)?.data
+    if (data?.type !== 'ai' || !Array.isArray(data.tool_calls)) return null
+    const call = data.tool_calls.find((call) => isRecord(call) && call.name === 'create_form')
+    const args = asRecord(call?.args)
+    if (typeof call?.id !== 'string' || !Array.isArray(args?.questions)) return null
+    const questions = args.questions.filter(isRecord)
+    return questions.length ? { id: call.id, questions } : null
 }
 
 export function appendClassicMessage(state: ClassicState, data: Record<string, unknown>): ClassicState {
@@ -57,19 +76,43 @@ export function appendClassicMessage(state: ClassicState, data: Record<string, u
                 (data.trace_id ? message.data.trace_id === data.trace_id : message.data.content === data.content)
         )
     }
+    const finalCalls = Array.isArray(data.tool_calls) ? data.tool_calls.filter(isRecord) : []
+    const pendingIndex = state.messages.findIndex((message) => {
+        if (message.complete || message.data.type !== data.type) return false
+        const calls = Array.isArray(message.data.tool_calls) ? message.data.tool_calls.filter(isRecord) : []
+        if (calls.length) return calls.some((call) => finalCalls.some((finalCall) => finalCall.id === call.id))
+        return (
+            typeof message.data.content === 'string' &&
+            message.data.content.length > 0 &&
+            typeof data.content === 'string' &&
+            data.content.startsWith(message.data.content)
+        )
+    })
     if (index < 0 && data.type !== 'human' && (!wireId || complete)) {
-        index = state.messages.findLastIndex((message) => !message.complete && message.data.type === data.type)
+        index =
+            pendingIndex >= 0
+                ? pendingIndex
+                : state.messages.findIndex((message) => !message.complete && message.data.type === data.type)
     }
-    const entry: ClassicMessage = { id: wireId ?? `stream-${state.messages.length}`, data, complete }
+    const entry: ClassicMessage = {
+        id: complete && wireId ? wireId : `stream-${state.nextMessageId}`,
+        data,
+        complete,
+    }
     const messages = [...state.messages]
     if (index >= 0) {
         messages[index] = { ...entry, id: messages[index]?.id ?? entry.id }
     } else {
         messages.push(entry)
     }
+    if (complete && index >= 0 && pendingIndex >= 0 && pendingIndex !== index) {
+        messages.splice(pendingIndex, 1)
+    }
     return {
         ...state,
         messages,
+        form: pendingForm(messages),
+        nextMessageId: state.nextMessageId + (index < 0 ? 1 : 0),
         progress: data.type === 'ai' ? null : state.progress,
         error:
             data.type === 'ai/failure'
@@ -83,14 +126,17 @@ export function classicHistory(
     title: string | null,
     approvals: readonly Record<string, unknown>[] = []
 ): ClassicState {
+    const entries = messages.map((data, index) => ({
+        id: typeof data.id === 'string' ? data.id : `history-${index}`,
+        data,
+        complete: true,
+    }))
     return {
         ...EMPTY_CLASSIC_STATE,
         title,
-        messages: messages.map((data, index) => ({
-            id: typeof data.id === 'string' ? data.id : `history-${index}`,
-            data,
-            complete: true,
-        })),
+        messages: entries,
+        nextMessageId: entries.length,
+        form: pendingForm(entries),
         approval: approvals.map(approvalFrom).find((approval) => approval !== null) ?? null,
     }
 }
@@ -151,6 +197,23 @@ function visualizationLink(data: Record<string, unknown>, projectUrl: string): s
     return `[View chart](${projectUrl}/insights/new#q=${encodeURIComponent(JSON.stringify(visualization))})`
 }
 
+function notebookText(data: Record<string, unknown>, projectUrl: string): string {
+    const content = asRecord(data.content) ?? {}
+    const blocks = Array.isArray(content.blocks) ? content.blocks : []
+    const parts = blocks.map((value): string => {
+        const block = asRecord(value) ?? {}
+        if (block.type === 'markdown' && typeof block.content === 'string') return block.content
+        if (block.type === 'visualization')
+            return visualizationLink({ content: block }, projectUrl) ?? 'Chart unavailable.'
+        if (block.type === 'error' && typeof block.message === 'string') return block.message
+        return 'Open this report on the web to view this content.'
+    })
+    if (content.is_saved === true && typeof data.artifact_id === 'string') {
+        parts.push(`[View notebook](${projectUrl}/notebooks/${encodeURIComponent(data.artifact_id)})`)
+    }
+    return parts.filter(Boolean).join('\n\n') || 'This report has no content yet.'
+}
+
 export function classicThreadItems(state: ClassicState, projectUrl: string): SessionThreadItem[] {
     return state.messages.flatMap((message): SessionThreadItem[] => {
         const data = message.data
@@ -159,13 +222,16 @@ export function classicThreadItems(state: ClassicState, projectUrl: string): Ses
             case 'human':
                 return [{ kind: 'user', id: message.id, text }]
             case 'ai':
-                return text ? [{ kind: 'assistant', id: message.id, text, complete: message.complete }] : []
+                return text ? [{ kind: 'assistant', id: message.id, text, complete: message.complete, projectUrl }] : []
             case 'ai/reasoning':
                 return text ? [{ kind: 'thought', id: message.id, text, complete: message.complete }] : []
             case 'ai/viz':
             case 'ai/artifact': {
-                const link = visualizationLink(data, projectUrl)
-                return link ? [{ kind: 'assistant', id: message.id, text: link, complete: true }] : []
+                const link =
+                    asRecord(data.content)?.content_type === 'notebook'
+                        ? notebookText(data, projectUrl)
+                        : visualizationLink(data, projectUrl)
+                return link ? [{ kind: 'assistant', id: message.id, text: link, complete: true, projectUrl }] : []
             }
             case 'ai/multi_viz':
                 return Array.isArray(data.visualizations)

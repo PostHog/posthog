@@ -291,4 +291,75 @@ describe('classic chat transport', () => {
         await act(async () => result.current.reload())
         expect(result.current.historyError).toBeNull()
     })
+    test.each(['stream', 'history'])(
+        'exposes and resumes forms from %s without reconnecting or duplicating submissions',
+        async (source) => {
+            const form = {
+                id: 'form-call',
+                name: 'create_form',
+                args: {
+                    questions: [{ id: 'q1', title: 'Scope', question: 'Which events?', options: [{ value: 'All' }] }],
+                },
+            }
+            const message = { id: 'form-message', type: 'ai', content: '', tool_calls: [form] }
+            const saved = {
+                messages: [message],
+                title: 'A chat',
+                pending_approvals: [],
+                status: 'in_progress',
+            } as unknown as Awaited<ReturnType<typeof getConversation>>
+            if (source === 'history') jest.mocked(getConversation).mockResolvedValueOnce(saved)
+            const { result } = renderHook(() => useClassicChat(source === 'history' ? 'saved-chat' : undefined), {
+                wrapper,
+            })
+            await act(async () => undefined)
+            if (source === 'stream') {
+                jest.mocked(readSse).mockImplementationOnce(async (_response, onEvent) => {
+                    onEvent({ event: 'message', data: JSON.stringify(message) })
+                })
+                jest.mocked(getConversation).mockRejectedValueOnce(new Error('Connection lost'))
+                await act(async () => {
+                    await result.current.send('Question')
+                })
+            } else {
+                expect(streamConversation).not.toHaveBeenCalled()
+            }
+            expect(result.current.form).toEqual({ id: 'form-call', questions: form.args.questions })
+            jest.mocked(streamConversation).mockClear()
+            let finish!: (response: Response) => void
+            jest.mocked(streamConversation).mockReturnValueOnce(
+                new Promise((resolve) => {
+                    finish = resolve
+                })
+            )
+            let pending!: Promise<boolean>
+            act(() => {
+                pending = result.current.submitForm({ q1: ['All', 'Custom'] })
+            })
+            await act(async () => {
+                expect(await result.current.dismissForm()).toBe(false)
+            })
+            expect(streamConversation).toHaveBeenCalledTimes(1)
+            expect(jest.mocked(streamConversation).mock.lastCall?.[0]).toMatchObject({
+                content: null,
+                resume_payload: { action: 'form', form_answers: { q1: ['All', 'Custom'] } },
+            })
+            await act(async () => {
+                finish({} as Response)
+                await pending
+            })
+            expect(result.current.form).toBeNull()
+            jest.mocked(getConversation).mockResolvedValueOnce(saved)
+            await act(async () => result.current.reload())
+            await act(async () => {
+                expect(await result.current.dismissForm()).toBe(true)
+            })
+            expect(jest.mocked(streamConversation).mock.lastCall?.[0]).toMatchObject({
+                content: null,
+                resume_payload: { action: 'dismiss_form' },
+            })
+            expect(result.current.form).toBeNull()
+            expect(result.current.state.messages).toEqual([])
+        }
+    )
 })

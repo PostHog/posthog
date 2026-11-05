@@ -11,7 +11,13 @@ import { conversationListKeys } from '@/features/chats/conversationKeys'
 import { sessionListKeys } from '@/features/chats/hooks'
 
 import { toChatError } from '../chatErrors'
-import { appendClassicMessage, classicHistory, EMPTY_CLASSIC_STATE, reduceClassicEvent } from './classicMessages'
+import {
+    appendClassicMessage,
+    type ClassicForm,
+    classicHistory,
+    EMPTY_CLASSIC_STATE,
+    reduceClassicEvent,
+} from './classicMessages'
 
 export function useClassicChat(initialId?: string): {
     id: string | null
@@ -23,6 +29,9 @@ export function useClassicChat(initialId?: string): {
     error: string | null
     send: (text: string) => Promise<boolean>
     answer: (approved: boolean) => Promise<boolean>
+    form: ClassicForm | null
+    submitForm: (answers: Record<string, string | string[]>) => Promise<boolean>
+    dismissForm: () => Promise<boolean>
     stop: () => Promise<void>
     reload: () => Promise<void>
     reset: () => void
@@ -45,7 +54,13 @@ export function useClassicChat(initialId?: string): {
     const controller = useRef<AbortController | null>(null)
 
     const stream = useCallback(
-        async (content: string | null, proposal?: { id: string; approved: boolean }): Promise<boolean> => {
+        async (
+            content: string | null,
+            resumePayload?:
+                | { proposal_id: string; action: 'approve' | 'reject' }
+                | { action: 'form'; form_answers: Record<string, string | string[]> }
+                | { action: 'dismiss_form' }
+        ): Promise<boolean> => {
             if (busy.current) return false
             busy.current = true
             const generation = epoch.current
@@ -71,14 +86,7 @@ export function useClassicChat(initialId?: string): {
                                 content,
                                 trace_id: traceId,
                                 is_sandbox: false,
-                                ...(proposal
-                                    ? {
-                                          resume_payload: {
-                                              proposal_id: proposal.id,
-                                              action: proposal.approved ? 'approve' : 'reject',
-                                          },
-                                      }
-                                    : {}),
+                                ...(resumePayload ? { resume_payload: resumePayload } : {}),
                             },
                             signal
                         ),
@@ -88,7 +96,7 @@ export function useClassicChat(initialId?: string): {
                 if (!active()) return true
                 idRef.current = conversation
                 setId(conversation)
-                if (proposal) setState((previous) => ({ ...previous, approval: null }))
+                if (resumePayload) setState((previous) => ({ ...previous, approval: null, form: null }))
                 await readSse(
                     response,
                     (event) => {
@@ -155,10 +163,12 @@ export function useClassicChat(initialId?: string): {
         try {
             const saved = await getConversation(conversation, abort.signal)
             if (generation !== epoch.current) return
-            setState(classicHistory(saved.messages, saved.title, saved.pending_approvals))
+            const history = classicHistory(saved.messages, saved.title, saved.pending_approvals)
+            setState(history)
             if (
                 saved.status === 'in_progress' &&
-                !saved.pending_approvals.some((approval) => approval.decision_status === 'pending')
+                !saved.pending_approvals.some((approval) => approval.decision_status === 'pending') &&
+                !history.form
             )
                 void stream(null)
         } catch (failure) {
@@ -225,7 +235,13 @@ export function useClassicChat(initialId?: string): {
         error: error ?? state.error,
         send: (text) => stream(text),
         answer: (approved) =>
-            state.approval ? stream(null, { id: state.approval.id, approved }) : Promise.resolve(false),
+            state.approval
+                ? stream(null, { proposal_id: state.approval.id, action: approved ? 'approve' : 'reject' })
+                : Promise.resolve(false),
+        form: state.form,
+        submitForm: (answers) =>
+            state.form ? stream(null, { action: 'form', form_answers: answers }) : Promise.resolve(false),
+        dismissForm: () => (state.form ? stream(null, { action: 'dismiss_form' }) : Promise.resolve(false)),
         stop,
         reload,
         reset,

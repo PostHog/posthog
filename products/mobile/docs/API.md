@@ -15,7 +15,13 @@ not reported as connectivity failures.
 The classic conversation transport uses a 30-second connection deadline and a 60-second inactivity deadline.
 Each received chunk, including a heartbeat, resets the inactivity deadline.
 An interrupted accepted reply offers reconnection; the app does not resend it automatically.
-History reconciliation retains streamed generation failures, and only approvals with a pending decision pause reconnection.
+History reconciliation retains streamed generation failures.
+Pending approvals and clarification forms pause reconnection until the person responds.
+The classic chat hook exposes form questions from both streamed replies and history, with submit and dismiss methods.
+Form responses send no new chat message; they resume the conversation with the selected answers or a dismissal.
+Notebook artifacts retain their Markdown and chart blocks, with links to saved notebooks and a web fallback for other content.
+Reply links without a project prefix use the conversation's project; explicit project links and external links keep their destination.
+Canceling a classic reply requires `conversation:write` for OAuth and personal API tokens.
 
 Most existing types are written by hand per module and name the Django serializer they mirror.
 PR checks use `PullRequestChecksResponseApi` from the Signals generated schemas. New API
