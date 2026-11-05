@@ -28,7 +28,12 @@ INBOX_CLAIM_TO_CLOSE_FLAG = "signals-inbox-claim-to-close"
 
 
 def _organization_flag_enabled(
-    flag: str, organization_id: UUID, *, enable_in_debug: bool = True, only_evaluate_locally: bool = False
+    flag: str,
+    organization_id: UUID,
+    *,
+    enable_in_debug: bool = True,
+    only_evaluate_locally: bool = False,
+    on_error: bool = False,
 ) -> bool:
     """Read one organization-keyed rollout flag.
 
@@ -51,11 +56,16 @@ def _organization_flag_enabled(
         logger.warning(
             "signals report content flag check failed", flag=flag, organization_id=organization_id, exc_info=True
         )
-        return False
+        return on_error
 
 
 def _team_flag_enabled(
-    flag: str, team_id: int, *, enable_in_debug: bool = True, only_evaluate_locally: bool = False
+    flag: str,
+    team_id: int,
+    *,
+    enable_in_debug: bool = True,
+    only_evaluate_locally: bool = False,
+    on_error: bool = False,
 ) -> bool:
     """The `team_id` adapter for callers that hold an id instead of a `Team`, such as a Temporal
     activity input. Fails closed, so a team that cannot be read gets no report content."""
@@ -67,9 +77,13 @@ def _team_flag_enabled(
         logger.warning(
             "signals report content flag check could not resolve the team", flag=flag, team_id=team_id, exc_info=True
         )
-        return False
+        return on_error
     return _organization_flag_enabled(
-        flag, organization_id, enable_in_debug=enable_in_debug, only_evaluate_locally=only_evaluate_locally
+        flag,
+        organization_id,
+        enable_in_debug=enable_in_debug,
+        only_evaluate_locally=only_evaluate_locally,
+        on_error=on_error,
     )
 
 
@@ -105,13 +119,16 @@ def organization_inbox_cached_filters_enabled(organization_id: UUID) -> bool:
     )
 
 
+# The claim rule is a permission gate, so a failed evaluation enforces it rather than letting a close through.
 def organization_inbox_claim_to_close_enabled(organization_id: UUID) -> bool:
     # Serialization and the close path both read this, and the close path holds the report row lock,
     # so it must never wait on the flag service.
     return _organization_flag_enabled(
-        INBOX_CLAIM_TO_CLOSE_FLAG, organization_id, enable_in_debug=False, only_evaluate_locally=True
+        INBOX_CLAIM_TO_CLOSE_FLAG, organization_id, enable_in_debug=False, only_evaluate_locally=True, on_error=True
     )
 
 
 def team_inbox_claim_to_close_enabled(team_id: int) -> bool:
-    return _team_flag_enabled(INBOX_CLAIM_TO_CLOSE_FLAG, team_id, enable_in_debug=False, only_evaluate_locally=True)
+    return _team_flag_enabled(
+        INBOX_CLAIM_TO_CLOSE_FLAG, team_id, enable_in_debug=False, only_evaluate_locally=True, on_error=True
+    )

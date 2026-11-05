@@ -12,6 +12,7 @@ from products.signals.backend.report_content_gates import (
     organization_report_metrics_enabled,
     organization_report_monitoring_enabled,
     team_first_report_email_enabled,
+    team_inbox_claim_to_close_enabled,
     team_report_metrics_enabled,
     team_report_monitoring_enabled,
 )
@@ -72,30 +73,34 @@ class TestReportContentGates(SimpleTestCase):
             assert organization_report_metrics_enabled(organization_id)
             remote_flags.assert_called_once()
 
-    @parameterized.expand(
-        [("monitoring", team_report_monitoring_enabled), ("first_report_email", team_first_report_email_enabled)]
-    )
+    # A lifecycle feature stays off when its flag cannot be read. The claim rule is a permission gate, so it stays
+    # on: turning it off would let a close through for an organization that enabled it.
+    _UNREADABLE_FLAG_CASES = [
+        ("monitoring", team_report_monitoring_enabled, False),
+        ("first_report_email", team_first_report_email_enabled, False),
+        ("claim_to_close", team_inbox_claim_to_close_enabled, True),
+    ]
+
+    @parameterized.expand(_UNREADABLE_FLAG_CASES)
     @override_settings(DEBUG=True)
-    def test_lifecycle_feature_fails_closed_when_flag_evaluation_fails(
-        self, _name: str, gate: Callable[[int], bool]
+    def test_unreadable_flag_falls_back_to_the_safe_value(
+        self, _name: str, gate: Callable[[int], bool], expected: bool
     ) -> None:
         with patch(_TEAM_LOOKUP) as team_lookup, patch(_FLAG_EVALUATION, side_effect=RuntimeError("unavailable")):
             team_lookup.return_value.get.return_value = UUID("00000000-0000-0000-0000-000000000001")
 
-            assert not gate(7)
+            assert gate(7) is expected
 
-    @parameterized.expand(
-        [("monitoring", team_report_monitoring_enabled), ("first_report_email", team_first_report_email_enabled)]
-    )
+    @parameterized.expand(_UNREADABLE_FLAG_CASES)
     @override_settings(DEBUG=True)
-    def test_lifecycle_feature_fails_closed_when_the_team_cannot_be_read(
-        self, _name: str, gate: Callable[[int], bool]
+    def test_unreadable_team_falls_back_to_the_safe_value(
+        self, _name: str, gate: Callable[[int], bool], expected: bool
     ) -> None:
         with (
             patch(_TEAM_LOOKUP, side_effect=RuntimeError("unavailable")),
             patch(_FLAG_EVALUATION) as evaluate,
         ):
-            assert not gate(7)
+            assert gate(7) is expected
 
         evaluate.assert_not_called()
 
