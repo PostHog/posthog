@@ -36,6 +36,7 @@ import {
 } from '~/types'
 
 import { groupTablesBySchema } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
+import { confirmPendingSelfManagedSync } from 'products/data_warehouse/frontend/shared/confirmPendingSelfManagedSync'
 import { FILE_UPLOAD_SOURCE_LABEL, isFileUploadSource } from 'products/data_warehouse/frontend/shared/fileUploadSources'
 import {
     clonePayloadPreservingFiles,
@@ -1332,6 +1333,12 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
 
         return {
             updateSchema: (schema) => {
+                const current = values.source?.schemas.find((s) => s.id === schema.id)
+                const turnsSyncingOn = schema.should_sync && !current?.should_sync
+                if (turnsSyncingOn && schema.pending_self_managed_table) {
+                    confirmPendingSelfManagedSync(1, () => queueSchemaUpdates([schema]))
+                    return
+                }
                 queueSchemaUpdates([schema])
             },
             updateSchemas: ({ schemas }) => {
@@ -1498,25 +1505,32 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 }
             },
             reloadSchema: async ({ schema }) => {
-                // Optimistic UI updates before sending updates to the backend
-                const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
-                const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
-                clonedSource.status = ExternalDataJobStatus.Running
-                clonedSource.schemas[schemaIndex].status = ExternalDataSchemaStatus.Running
+                const runReload = async (): Promise<void> => {
+                    // Optimistic UI updates before sending updates to the backend
+                    const clonedSource = JSON.parse(JSON.stringify(values.source)) as ExternalDataSource
+                    const schemaIndex = clonedSource.schemas.findIndex((n) => n.id === schema.id)
+                    clonedSource.status = ExternalDataJobStatus.Running
+                    clonedSource.schemas[schemaIndex].status = ExternalDataSchemaStatus.Running
 
-                actions.loadSourceSuccess(clonedSource)
+                    actions.loadSourceSuccess(clonedSource)
 
-                try {
-                    await api.externalDataSchemas.reload(schema.id)
+                    try {
+                        await api.externalDataSchemas.reload(schema.id)
 
-                    posthog.capture('schema reloaded', { sourceType: clonedSource.source_type })
-                } catch (e: any) {
-                    if (e.message) {
-                        lemonToast.error(e.message)
-                    } else {
-                        lemonToast.error('Cant reload schema at this time')
+                        posthog.capture('schema reloaded', { sourceType: clonedSource.source_type })
+                    } catch (e: any) {
+                        if (e.message) {
+                            lemonToast.error(e.message)
+                        } else {
+                            lemonToast.error('Cant reload schema at this time')
+                        }
                     }
                 }
+                if (schema.pending_self_managed_table) {
+                    confirmPendingSelfManagedSync(1, () => void runReload())
+                    return
+                }
+                await runReload()
             },
             resyncSchema: async ({ schema }) => {
                 // Optimistic UI updates before sending updates to the backend

@@ -9,7 +9,13 @@ from django.db.models import Count
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, PolymorphicProxySerializer, extend_schema, extend_schema_field
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    PolymorphicProxySerializer,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_serializer,
+)
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action as drf_action
 from rest_framework.renderers import BaseRenderer
@@ -599,6 +605,23 @@ def count_action_references_bulk(action_ids: list[int], team: Team) -> dict[int,
     return dict(counts)
 
 
+class ActionListPagingQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        required=False, min_value=0, help_text="Maximum number of actions to return. Omit to return all."
+    )
+    offset = serializers.IntegerField(
+        required=False, default=0, min_value=0, help_text="Number of actions to skip before returning results."
+    )
+
+
+@extend_schema_serializer(many=False)
+class ActionListResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField(
+        help_text="Number of actions that match the filters. Without `limit`, it is `offset` plus the number of actions returned."
+    )
+    results = ActionSerializer(many=True, help_text="Actions on this page, or every matching action without `limit`.")
+
+
 class ActionViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,
@@ -679,16 +702,6 @@ class ActionViewSet(
         refs = find_action_references(action_obj.id, action_obj.team)
         return Response(ActionReferenceSerializer(refs, many=True).data)
 
-    @staticmethod
-    def _parse_non_negative_int(raw: str | None) -> int | None:
-        if raw is None:
-            return None
-        try:
-            value = int(raw)
-        except (TypeError, ValueError):
-            return None
-        return value if value >= 0 else None
-
     _ORDERING_WHITELIST = {"name", "created_at", "pinned_at", "created_by"}
 
     def _ordering_from_request(self, request: request.Request) -> list[str] | None:
@@ -735,7 +748,8 @@ class ActionViewSet(
                 OpenApiTypes.STR,
                 description="Field to order by (name, created_at, pinned_at, created_by). Prefix with '-' for descending.",
             ),
-        ]
+        ],
+        responses={200: ActionListResponseSerializer(many=False)},
     )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         # :HACKY: we need to override this viewset method until actions support
@@ -773,8 +787,10 @@ class ActionViewSet(
         if ordering:
             actions = actions.order_by(*ordering)
 
-        offset = self._parse_non_negative_int(request.query_params.get("offset")) or 0
-        limit = self._parse_non_negative_int(request.query_params.get("limit"))
+        paging = ActionListPagingQuerySerializer(data=request.query_params)
+        paging.is_valid(raise_exception=True)
+        offset: int = paging.validated_data["offset"]
+        limit: int | None = paging.validated_data.get("limit")
         # Only pay for a COUNT query when actually paginating. The full-list default
         # (no `limit`) is a hot path shared with the taxonomic filter, so we derive the
         # count from the serialized results there instead of hitting the DB again.

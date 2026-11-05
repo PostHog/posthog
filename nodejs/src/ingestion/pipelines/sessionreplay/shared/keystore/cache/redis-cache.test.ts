@@ -1,3 +1,4 @@
+import { parseJSON } from '~/common/utils/json-parse'
 import { SessionBatchMetrics } from '~/ingestion/pipelines/sessionreplay/sessions/metrics'
 import { KeyStore, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 
@@ -29,6 +30,8 @@ describe('RedisCachedKeyStore', () => {
         mockRedisClient = {
             get: jest.fn().mockResolvedValue(null),
             setex: jest.fn().mockResolvedValue('OK'),
+            set: jest.fn().mockResolvedValue('OK'),
+            eval: jest.fn().mockResolvedValue(1),
             del: jest.fn().mockResolvedValue(1),
         }
 
@@ -70,10 +73,12 @@ describe('RedisCachedKeyStore', () => {
 
             expect(mockDelegate.generateKey).toHaveBeenCalledWith('session-123', 1, 30)
             expect(mockRedisPool.acquire).toHaveBeenCalled()
-            expect(mockRedisClient.setex).toHaveBeenCalledWith(
+            expect(mockRedisClient.eval).toHaveBeenCalledWith(
+                expect.stringContaining("'deleted'"),
+                1,
                 '@posthog/replay/recording-key:1:session-123',
-                86400,
-                expect.any(String)
+                expect.any(String),
+                86400
             )
             expect(mockRedisPool.release).toHaveBeenCalledWith(mockRedisClient)
             expect(result).toEqual(mockSessionKey)
@@ -85,8 +90,8 @@ describe('RedisCachedKeyStore', () => {
             await expect(cachedKeyStore.generateKey('session-123', 1, 30)).rejects.toThrow('Generate failed')
         })
 
-        it('should return the key and release Redis client if setex fails', async () => {
-            mockRedisClient.setex.mockRejectedValue(new Error("READONLY You can't write against a read only replica."))
+        it('should return the key and release Redis client if the cache write fails', async () => {
+            mockRedisClient.eval.mockRejectedValue(new Error("READONLY You can't write against a read only replica."))
 
             const result = await cachedKeyStore.generateKey('session-123', 1, 30)
 
@@ -119,16 +124,31 @@ describe('RedisCachedKeyStore', () => {
             const result = await cachedKeyStore.getKey('session-123', 1)
 
             expect(mockDelegate.getKey).toHaveBeenCalledWith('session-123', 1)
-            expect(mockRedisClient.setex).toHaveBeenCalledWith(
+            expect(mockRedisClient.set).toHaveBeenCalledWith(
                 '@posthog/replay/recording-key:1:session-123',
+                expect.any(String),
+                'EX',
                 86400,
-                expect.any(String)
+                'NX'
             )
             expect(result).toEqual(mockSessionKey)
         })
 
         it.each([
-            ['setex rejects', () => mockRedisClient.setex.mockRejectedValue(new Error('READONLY'))],
+            ['caches', 'ciphertext' as const, 1],
+            ['skips caching', 'cleartext' as const, 0],
+        ])('%s a %s key when built not to cache a missing key', async (_, sessionState, expectedWrites) => {
+            mockRedisClient.get.mockResolvedValue(null)
+            mockDelegate.getKey.mockResolvedValue({ ...mockSessionKey, sessionState })
+            const store = new RedisCachedKeyStore(mockDelegate, mockRedisPool, undefined, false)
+
+            await store.getKey('session-123', 1)
+
+            expect(mockRedisClient.set).toHaveBeenCalledTimes(expectedWrites)
+        })
+
+        it.each([
+            ['set rejects', () => mockRedisClient.set.mockRejectedValue(new Error('READONLY'))],
             [
                 'pool acquire rejects',
                 () =>
@@ -195,6 +215,86 @@ describe('RedisCachedKeyStore', () => {
             expect(result).toEqual({ status: 'deleted', deletedAt: 1700000000, deletedBy: 'test@example.com' })
         })
 
+        const useInMemoryRedis = (): void => {
+            const store = new Map<string, string>()
+            mockRedisClient.get.mockImplementation((key: string) => Promise.resolve(store.get(key) ?? null))
+            mockRedisClient.del.mockImplementation((key: string) => Promise.resolve(store.delete(key) ? 1 : 0))
+            mockRedisClient.setex.mockImplementation((key: string, _ttl: number, value: string) => {
+                store.set(key, value)
+                return Promise.resolve('OK')
+            })
+            mockRedisClient.set.mockImplementation((key: string, value: string, ...flags: unknown[]) => {
+                if (flags.includes('NX') && store.has(key)) {
+                    return Promise.resolve(null)
+                }
+                store.set(key, value)
+                return Promise.resolve('OK')
+            })
+            // The unless-deleted script: write unless the entry holds a deletion marker.
+            mockRedisClient.eval.mockImplementation((_script: string, _n: number, key: string, value: string) => {
+                const current = store.get(key)
+                if (current && parseJSON(current).sessionState === 'deleted') {
+                    return Promise.resolve(0)
+                }
+                store.set(key, value)
+                return Promise.resolve(1)
+            })
+        }
+
+        it('keeps the deletion when a lookup that read the live key finishes after the delete', async () => {
+            useInMemoryRedis()
+            let releaseLookup: (key: SessionKey) => void = () => {}
+            mockDelegate.getKey.mockImplementation(() => new Promise((resolve) => (releaseLookup = resolve)))
+
+            const lookup = cachedKeyStore.getKey('session-123', 1)
+            await new Promise((resolve) => setImmediate(resolve))
+            await cachedKeyStore.deleteKey('session-123', 1, 'test@example.com')
+            releaseLookup(mockSessionKey)
+            await lookup
+
+            mockDelegate.getKey.mockClear()
+            const after = await cachedKeyStore.getKey('session-123', 1)
+            expect(after.sessionState).toBe('deleted')
+            expect(mockDelegate.getKey).not.toHaveBeenCalled()
+        })
+
+        it('keeps the deletion when a key generation finishes caching after the delete', async () => {
+            useInMemoryRedis()
+            let releaseGeneration: (key: SessionKey) => void = () => {}
+            mockDelegate.generateKey.mockImplementation(() => new Promise((resolve) => (releaseGeneration = resolve)))
+
+            const generation = cachedKeyStore.generateKey('session-123', 1, 30)
+            await new Promise((resolve) => setImmediate(resolve))
+            await cachedKeyStore.deleteKey('session-123', 1, 'test@example.com')
+            releaseGeneration(mockSessionKey)
+            await generation
+
+            mockDelegate.getKey.mockClear()
+            const after = await cachedKeyStore.getKey('session-123', 1)
+            expect(after.sessionState).toBe('deleted')
+            expect(mockDelegate.getKey).not.toHaveBeenCalled()
+        })
+
+        it('lets a new key replace a cached missing key', async () => {
+            useInMemoryRedis()
+            mockDelegate.getKey.mockResolvedValue({ ...mockSessionKey, sessionState: 'cleartext' })
+            await cachedKeyStore.getKey('session-123', 1)
+
+            await cachedKeyStore.generateKey('session-123', 1, 30)
+
+            mockDelegate.getKey.mockClear()
+            expect((await cachedKeyStore.getKey('session-123', 1)).sessionState).toBe('ciphertext')
+        })
+
+        it('reports a committed deletion even when the cache cannot record it', async () => {
+            mockRedisClient.setex.mockRejectedValue(new Error('READONLY'))
+
+            const result = await cachedKeyStore.deleteKey('session-123', 1, 'test@example.com')
+
+            expect(result).toEqual({ status: 'deleted', deletedAt: 1700000000, deletedBy: 'test@example.com' })
+            expect(SessionBatchMetrics.incrementKeystoreRedisWriteErrors).toHaveBeenCalled()
+        })
+
         it('should clear cache even if delegate returns already_deleted', async () => {
             mockDelegate.deleteKey.mockResolvedValue({
                 status: 'already_deleted',
@@ -234,7 +334,6 @@ describe('RedisCachedKeyStore', () => {
             // Should only delete team 1's cache key
             expect(mockRedisClient.del).toHaveBeenCalledWith('@posthog/replay/recording-key:1:session-123')
             expect(mockRedisClient.del).not.toHaveBeenCalledWith('@posthog/replay/recording-key:2:session-123')
-            expect(mockRedisClient.del).toHaveBeenCalledTimes(1)
         })
     })
 
@@ -252,10 +351,12 @@ describe('RedisCachedKeyStore', () => {
 
             await customTtlCachedKeyStore.generateKey('session-123', 1, 30)
 
-            expect(mockRedisClient.setex).toHaveBeenCalledWith(
+            expect(mockRedisClient.eval).toHaveBeenCalledWith(
+                expect.any(String),
+                1,
                 '@posthog/replay/recording-key:1:session-123',
-                3600,
-                expect.any(String)
+                expect.any(String),
+                3600
             )
         })
     })

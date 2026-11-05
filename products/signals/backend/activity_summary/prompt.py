@@ -21,6 +21,10 @@ from products.signals.backend.activity_summary.render import (
     days_text,
 )
 
+# The document key that `summary_text` is embedded under.
+EMBEDDING_DOCUMENT_TYPE = "activity_summary"
+EMBEDDING_RENDERING = "summary_text"
+
 PROMPT_VERSION = 8
 
 MAX_THEMES = 6
@@ -371,3 +375,15 @@ def summary_text(summary: dict[str, Any]) -> str:
     """The text that gets embedded: the headline, then the theme labels in the model's order."""
     labels = [theme["label"] for theme in summary.get("themes", [])]
     return f"{summary['headline']}\nThemes: {'; '.join(labels)}" if labels else summary["headline"]
+
+
+def summary_profile_text(summary: dict[str, Any]) -> str | None:
+    """The `summary_text`, then the profile. None when the summary has no profile, because the text would
+    match `summary_text`.
+
+    A second embedded rendering, so a backtest can compare it with `summary_text` on the same builds. A
+    format change needs a new rendering name, so old and new vectors never share one."""
+    profile = summary.get("profile")
+    if not isinstance(profile, str) or not profile.strip():
+        return None
+    return f"{summary_text(summary)}\n\n{profile.strip()}"

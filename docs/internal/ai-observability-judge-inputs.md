@@ -44,11 +44,15 @@ They reserve space for the complete output, then sample input and tool definitio
 If the output and section labels alone exceed that limit, the run is skipped with reason `generation_output_too_long` without calling the judge.
 An exception applies when the judge sees images (the `llm-analytics-judge-images` flag is on and the evaluation does not turn attachments off).
 Then each image becomes an `[image N]` marker and each PDF a `[file N]` marker instead of its base64 or link, so an output with large inline attachments can fit and the run continues.
-The attachment labels sent next to the transcript sit outside the 150,000-character limit, but they are bounded: at most 20 attachments, plus one summary line for the rest.
-PDFs reach only OpenAI, Anthropic and Gemini judges, up to 10 MB each.
-WAV and MP3 audio becomes an `[audio N]` marker and reaches Gemini judges and OpenAI audio models, always inline.
-MP4, MPEG, QuickTime and WebM video becomes a `[video N]` marker and reaches Gemini judges only, up to 15 MB each.
-Attachments a judge can't read take none of its 20 slots, and one summary line counts them.
+The attachment labels sent next to the transcript sit outside the 150,000-character limit, but they are bounded: at most 20 attachments, plus one summary line that names the rest.
+PDFs reach OpenAI, Anthropic and Gemini judges, up to 10 MB each.
+WAV, MP3, AAC, AIFF, FLAC and OGG audio becomes an `[audio N]` marker and always goes inline.
+Gemini judges read all six. OpenAI audio models and non-Gemini OpenRouter models get WAV and MP3 only.
+MP4, MPEG, QuickTime and WebM video becomes a `[video N]` marker and reaches Gemini judges, up to 15 MB each.
+OpenRouter judges get each type that OpenRouter's model catalogue lists as an input of their model. PDFs need the `file` input, so OpenRouter never parses them with its paid OCR engine. Everything except images goes inline, and a model the catalogue doesn't list gets images only.
+Attachments a judge can't read take none of its 20 slots, and one summary line names them.
+Media the event never carried, such as an SDK's `[base64 image redacted]` placeholder, becomes `[image, not attached]`.
+When any attachment is left out, the judge is told it can't see it and not to guess what it contains.
 
 Generation evaluation and LLM tagger user prompts repair UTF-16 surrogate sequences after sampling.
 Lone surrogates become replacement characters (`�`), while valid pairs become their Unicode character.

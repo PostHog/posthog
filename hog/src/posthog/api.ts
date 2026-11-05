@@ -3,7 +3,8 @@ import { parseLossless } from '@/core/raw-json'
 import type { RuntimeFetch } from '@/core/runtime'
 import { VERSION } from '@/version'
 
-import type { Credentials } from './credentials'
+import { hostUrl } from './host'
+import type { KeySession } from './key-session'
 
 export const USER_AGENT = `hog/${VERSION}`
 // Generous, because a HogQL query can run for minutes. It only stops a connection that hangs.
@@ -14,7 +15,9 @@ type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE'
 export interface HttpRequest {
     method: Method
     body?: unknown
-    apiKey?: string
+    // Sent form encoded instead of `body`, as the OAuth endpoints expect.
+    form?: Record<string, string>
+    token?: string
     timeoutMs?: number
 }
 
@@ -28,9 +31,12 @@ export interface HttpResponse {
 // Sends one JSON request to PostHog. Any failure before the whole body arrives, including the
 // deadline, is a `network_error`, so callers handle a dropped connection in one place.
 export async function sendRequest(fetchFn: RuntimeFetch, url: URL, request: HttpRequest): Promise<HttpResponse> {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json', 'User-Agent': USER_AGENT }
-    if (request.apiKey) {
-        headers.Authorization = `Bearer ${request.apiKey}`
+    const headers: Record<string, string> = {
+        'Content-Type': request.form ? 'application/x-www-form-urlencoded' : 'application/json',
+        'User-Agent': USER_AGENT,
+    }
+    if (request.token) {
+        headers.Authorization = `Bearer ${request.token}`
     }
     let response: Response
     let text: string
@@ -38,7 +44,11 @@ export async function sendRequest(fetchFn: RuntimeFetch, url: URL, request: Http
         response = await fetchFn(url, {
             method: request.method,
             headers,
-            body: request.body === undefined ? undefined : JSON.stringify(request.body),
+            body: request.form
+                ? new URLSearchParams(request.form).toString()
+                : request.body === undefined
+                  ? undefined
+                  : JSON.stringify(request.body),
             timeoutMs: request.timeoutMs ?? REQUEST_TIMEOUT_MS,
         })
         text = await response.text()
@@ -77,17 +87,28 @@ export class ApiError extends HogError {
 
 export class PostHogApi {
     constructor(
-        private readonly credentials: Credentials,
+        private readonly session: KeySession,
         private readonly fetchFn: RuntimeFetch
     ) {}
 
     // Paths are relative to the project, so `query` is /api/environments/<project id>/query. A path
     // that starts with `/`, like `/api/users/@me/`, is relative to the host instead.
     private url(path: string): URL {
-        const base = path.startsWith('/')
-            ? this.credentials.host
-            : new URL(`api/environments/${this.credentials.projectId}/`, this.credentials.host)
-        return new URL(path, base)
+        const { host, projectId } = this.session.current
+        // hostUrl keeps the path a self-hosted PostHog can sit under, which `new URL` would drop. A
+        // path from a pagination link already starts with it.
+        const root = hostUrl(host, '')
+        let url: URL
+        if (path.startsWith('/')) {
+            url = path.startsWith(root.pathname) ? new URL(path, root) : hostUrl(host, path.slice(1))
+        } else {
+            url = new URL(path, hostUrl(host, `api/environments/${projectId}/`))
+        }
+        // A path from a link PostHog sent, such as `//other.example/`, must not carry the token elsewhere.
+        if (url.origin !== root.origin) {
+            throw new HogError('unexpected_response', `PostHog sent a link to another host: ${url.origin}.`)
+        }
+        return url
     }
 
     get<T>(path: string): Promise<T> {
@@ -107,11 +128,11 @@ export class PostHogApi {
     }
 
     private async request<T>(method: Method, path: string, body?: unknown): Promise<T> {
-        const response = await sendRequest(this.fetchFn, this.url(path), {
-            method,
-            body,
-            apiKey: this.credentials.apiKey,
-        })
+        const url = this.url(path)
+        const response = await this.session.send(
+            (token) => sendRequest(this.fetchFn, url, { method, body, token }),
+            (answer) => answer.status === 401
+        )
         if (response.text && response.json === undefined) {
             throw new HogError(
                 'unexpected_response',

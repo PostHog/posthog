@@ -36,6 +36,7 @@ import {
     featureFlagLogic as sceneFeatureFlagLogic,
 } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { insightsApi } from 'scenes/insights/utils/api'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -82,6 +83,7 @@ import {
     type ExperimentHealthFindingOpenKind,
     type ExperimentHealthUi,
     captureExperimentHealthChecked,
+    captureExperimentHealthCheckExpanded,
     captureExperimentHealthChecksOpened,
     captureExperimentHealthFindingActedOn,
     captureExperimentHealthFindingOpened,
@@ -758,8 +760,11 @@ export interface experimentLogicActions {
         experiment: Experiment
         forceRefresh: boolean
     }
+    reportHealthCheckExpanded: (check: HealthPanelCheck) => {
+        check: HealthPanelCheck
+    }
     reportHealthChecksOpened: (openedFrom: ExperimentHealthChecksOpenedFrom) => {
-        openedFrom: 'meta_bar'
+        openedFrom: ExperimentHealthChecksOpenedFrom
     }
     reportHealthFindingActedOn: (
         finding: ExperimentHealthFinding,
@@ -1088,6 +1093,7 @@ export const experimentLogic = kea<experimentLogicType>([
             actionKind: ExperimentHealthFindingActionKind
         ) => ({ finding, actionKind }),
         reportHealthChecksOpened: (openedFrom: ExperimentHealthChecksOpenedFrom) => ({ openedFrom }),
+        reportHealthCheckExpanded: (check: HealthPanelCheck) => ({ check }),
         setExperimentMissing: true,
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
         setLaunchExperimentLoading: (loading: boolean) => ({ loading }),
@@ -1572,6 +1578,9 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         reportHealthFindingActedOn: ({ finding, actionKind }) => {
             captureExperimentHealthFindingActedOn(values.experiment, finding, values.healthUi, actionKind)
+        },
+        reportHealthCheckExpanded: ({ check }) => {
+            captureExperimentHealthCheckExpanded(values.experiment, check, values.healthUi)
         },
         reportHealthChecksOpened: ({ openedFrom }) => {
             captureExperimentHealthChecksOpened(
@@ -2311,12 +2320,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     for (const query of metrics) {
                         const insightQuery = queryBuilder(query)
 
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use insightsCreate() from 'products/product_analytics/frontend/generated/api' instead.
-                        await api.create(`api/projects/${projectLogic.values.currentProjectId}/insights`, {
-                            name: query.name || undefined,
-                            query: insightQuery,
-                            dashboards: [dashboard.id],
-                        })
+                        await insightsApi.create({ name: query.name || undefined, query: insightQuery }, [dashboard.id])
                     }
                 }
 

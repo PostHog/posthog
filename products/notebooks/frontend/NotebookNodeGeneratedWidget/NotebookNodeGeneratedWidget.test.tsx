@@ -103,7 +103,13 @@ describe('NotebookNodeGeneratedWidget', () => {
             is_reusable: false,
             build_hash: null,
         })
-        jest.mocked(notebooksWidgetVersions).mockResolvedValue({ results: [], count: 0, next_offset: null })
+        jest.mocked(notebooksWidgetVersions).mockResolvedValue({
+            results: [],
+            count: 0,
+            next: null,
+            previous: null,
+            next_offset: null,
+        })
 
         logic = notebookLogic(logicProps)
         logic.mount()
@@ -312,6 +318,8 @@ describe('NotebookNodeGeneratedWidget', () => {
                     },
                 ],
                 count: 1,
+                next: null,
+                previous: null,
                 next_offset: null,
             })
             jest.mocked(notebooksWidgetSource).mockResolvedValue({
@@ -437,6 +445,8 @@ describe('NotebookNodeGeneratedWidget', () => {
                 },
             ],
             count: 1,
+            next: null,
+            previous: null,
             next_offset: null,
         })
         const { container } = render(
@@ -621,6 +631,8 @@ describe('NotebookNodeGeneratedWidget', () => {
                 },
             ],
             count: 1,
+            next: null,
+            previous: null,
             next_offset: null,
         })
         const { container } = render(
@@ -712,6 +724,8 @@ describe('NotebookNodeGeneratedWidget', () => {
                 },
             ],
             count: 1,
+            next: null,
+            previous: null,
             next_offset: null,
         })
         logic.unmount()

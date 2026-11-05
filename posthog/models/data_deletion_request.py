@@ -1048,6 +1048,41 @@ def count_pending_hogql_event_removals(request: "DataDeletionRequest") -> int:
         )
 
 
+@frozen
+class AdhocEventDeletionBacklog:
+    """Event uuids queued in ``adhoc_events_deletion`` that the scheduled deletes job has not removed yet."""
+
+    total: int
+    for_team: int
+
+
+def count_adhoc_event_deletion_backlog(team_id: int) -> AdhocEventDeletionBacklog:
+    from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
+    from posthog.clickhouse.client import sync_execute
+    from posthog.clickhouse.client.connection import ClickHouseUser
+    from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+    from posthog.clickhouse.workload import Workload
+
+    with tags_context(
+        product=Product.INTERNAL,
+        feature=Feature.DATA_DELETION,
+        team_id=team_id,
+        workload=Workload.OFFLINE,
+        query_type="data_deletion_request_adhoc_backlog",
+    ):
+        result = sync_execute(
+            f"SELECT count(), countIf(team_id = %(team_id)s) FROM {ADHOC_EVENTS_DELETION_TABLE} FINAL "
+            "WHERE is_deleted = 0",
+            {"team_id": team_id},
+            team_id=team_id,
+            readonly=True,
+            workload=Workload.OFFLINE,
+            ch_user=ClickHouseUser.META,
+        )
+    total, for_team = result[0] if result else (0, 0)
+    return AdhocEventDeletionBacklog(total=int(total), for_team=int(for_team))
+
+
 def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
     """Count rows still matching an event-removal request's criteria in ClickHouse.
 
