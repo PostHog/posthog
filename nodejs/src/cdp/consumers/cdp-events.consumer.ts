@@ -18,6 +18,7 @@ import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { EventNameGate, buildEventNameGate, runsOnEvents, triggersOnEvents } from './event-name-gate'
 import { parseBatch, readEventNameHeader, readTeamIdHeader } from './message-parsing'
 import {
+    counterEventNameSource,
     counterParseError,
     counterTeamIdHeaderMismatch,
     counterTeamIdSource,
@@ -255,6 +256,7 @@ export class CdpEventsConsumer<
                 if (headerTeamId !== null) {
                     counterTeamIdSource.labels({ source: 'header' }).inc()
                     const headerEventName = readEventNameHeader(message)
+                    counterEventNameSource.labels({ source: headerEventName === null ? 'none' : 'header' }).inc()
                     // The body stays unparsed until `toGlobals` runs, and it only runs for a team that
                     // has a destination or a flow. Most events belong to a team with neither.
                     return {

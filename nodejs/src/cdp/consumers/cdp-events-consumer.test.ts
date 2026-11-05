@@ -36,7 +36,7 @@ import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { currentRuntimeContractHash } from '../utils/filter-runtime'
 import { CdpEventsConsumer } from './cdp-events.consumer'
-import { counterUnmatchedEventName, counterUnmatchedEventNameInvoked } from './metrics'
+import { counterEventNameSource, counterUnmatchedEventName, counterUnmatchedEventNameInvoked } from './metrics'
 
 jest.setTimeout(1000)
 
@@ -969,6 +969,34 @@ describe('CdpEventsConsumer', () => {
 
                     expect(await outcome(true)).toEqual(parsed)
                     expect(await counted()).toEqual({ unmatched: { true: 1 }, invoked: 0 })
+                })
+
+                it('parses an event without the name header and leaves it to the pre-filter, with skipping on', async () => {
+                    hub.CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES = true
+                    counterUnmatchedEventName.reset()
+                    counterEventNameSource.reset()
+                    const signup = createIncomingEvent(team.id, { event: 'signed_up' })
+
+                    await handleBatch([
+                        createKafkaMessage(signup, { headers: [{ team_id: String(team.id) }] }),
+                        withHeaders(createIncomingEvent(team.id, { event: '$autocapture' }), 1),
+                    ])
+
+                    expect((await counterUnmatchedEventName.get()).values).toEqual([])
+                    expect(
+                        Object.fromEntries(
+                            (await counterEventNameSource.get()).values.map(({ labels, value }) => [
+                                labels.source,
+                                value,
+                            ])
+                        )
+                    ).toEqual({ none: 1, header: 1 })
+                    const metrics = mockProducerObserver
+                        .getProducedKafkaMessagesForTopic('clickhouse_app_metrics2_test')
+                        .filter(({ value }: any) => value.app_source_id === pageviewFunction.id)
+                        .map(({ value }: any) => `${value.metric_name} ${value.count}`)
+                        .sort()
+                    expect(metrics).toEqual(['filtered 1', 'triggered 1'])
                 })
 
                 it('counts an event the gate rejects that a destination still invokes, while skipping is off', async () => {

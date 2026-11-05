@@ -24,6 +24,12 @@ export const counterBatchHogFlowTriggerFailed = new Counter({
     labelNames: ['hog_flow_id', 'reason'],
 })
 
+export const counterEventNameSource = new Counter({
+    name: 'cdp_events_event_name_source',
+    help: 'For events whose team id came from the header, whether the event name header was there too. Only "header" events go through the name gate; "none" events are parsed and pre-filtered as before.',
+    labelNames: ['source'],
+})
+
 export const counterTeamIdSource = new Counter({
     name: 'cdp_events_team_id_source',
     help: 'Where the consumer read an event team id from. "body" means the message carried no usable team id header, so the consumer parsed the event to find one.',
