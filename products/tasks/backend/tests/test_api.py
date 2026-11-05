@@ -528,7 +528,11 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
         with (
             patch("products.tasks.backend.models.TaskRun.heartbeat_workflow"),
             patch.object(object_storage, "read", side_effect=lambda key, **_kwargs: log_objects.get(key)),
-            patch.object(object_storage, "write", side_effect=log_objects.__setitem__),
+            patch.object(
+                object_storage,
+                "append",
+                side_effect=lambda key, content, **_kwargs: log_objects.__setitem__(key, content.decode()),
+            ),
             patch.object(object_storage, "tag"),
         ):
             response = client.post(f"{base}append_log/", {"entries": [entry]}, format="json")
