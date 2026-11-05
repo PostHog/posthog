@@ -379,6 +379,14 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderPaths).not.toContain('Empty')
     })
 
+    it('rejects a folder name that only another product uses', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.folderPaths).not.toContain('Reports')
+        logic.actions.startFolderDraft('')
+        logic.actions.setFolderDraftName('reports')
+        expect(logic.values.folderDraftError).toBe(EXISTS)
+    })
+
     it.each([
         ['a case-only rename of the same folder', 'billing', 'Billing', ['Billing'], null],
         ['a case-only rename onto a separate folder', 'billing', 'Billing', ['Billing', 'billing'], EXISTS],
