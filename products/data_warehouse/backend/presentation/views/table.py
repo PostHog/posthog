@@ -65,7 +65,6 @@ from products.warehouse_sources.backend.facade.file_upload_sources import (
     can_replace_file,
     create_file_upload_source,
     discard_unused_upload,
-    file_upload_sources_enabled,
     has_file_upload_source,
     hosted_upload_in_use,
     is_legacy_upload_url,
@@ -979,9 +978,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
         table.save()
         log_table_activity(table, "created")
-        if file_upload_sources_enabled(self.team_id):
-            # The table reads the file in place until the source's first sync imports it.
-            create_file_upload_source(self.team_id, table.pk, upload, read_settings)
+        # The table reads the file in place until the source's first sync imports it.
+        create_file_upload_source(self.team_id, table.pk, upload, read_settings)
 
         validate_data_warehouse_table_columns.delay(self.team_id, str(table.id))
 
