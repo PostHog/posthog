@@ -1097,8 +1097,8 @@ class StamphogGitHubClient:
             "refusing to review a truncated thread"
         )
 
-    def get_check_runs(self, repo: str, head_sha: str) -> list[dict]:
-        """Fetch the check runs for a commit, paginating through GitHub's endpoint.
+    def get_check_runs(self, repo: str, head_sha: str, check_name: str | None = None) -> list[dict]:
+        """Fetch the check runs for a commit, or only those named ``check_name``, paginating through GitHub's endpoint.
 
         Returns the raw GitHub check-run objects (``name``, ``conclusion``, ``status``, ...). The engine's
         migration gate uses them: a passing ``Migration risk`` check lets a migration-only PR bypass the
@@ -1111,7 +1111,7 @@ class StamphogGitHubClient:
                 "GET",
                 f"/repos/{repo}/commits/{head_sha}/check-runs",
                 endpoint="/repos/{owner}/{repo}/commits/{ref}/check-runs",
-                params={"per_page": _PER_PAGE, "page": page},
+                params={**({"check_name": check_name} if check_name else {}), "per_page": _PER_PAGE, "page": page},
             )
             if response.status_code != 200:
                 raise StamphogGitHubError(

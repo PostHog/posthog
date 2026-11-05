@@ -397,7 +397,7 @@ An entry is read from the head commit's check runs, and must name the numeric id
 A PR that edits a publisher file ran its own copy of it, so the result lifts nothing and waits for nothing.
 See `attestations.py` for the model.
 
-If an attestation hasn't reported yet and the PR changes a file it judges, `review_local.py` returns `WAIT` rather than a verdict, and the review runs again on the next push.
+If an attestation hasn't reported yet and the PR changes a file it judges, `review_local.py` returns `WAIT` rather than a verdict, and the hosted server polls for the result and re-runs the review once it reports.
 `review_pr.py` has no such caller and returns `REFUSED` instead.
 
 ### Ownership

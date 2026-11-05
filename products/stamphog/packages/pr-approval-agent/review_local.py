@@ -489,8 +489,7 @@ def _pending_attestation_wait(pipeline: Pipeline) -> dict:
         "verdict": "WAIT",
         "reasoning": (
             f"The {pipeline.pending_attestation_names()} check has not finished for this commit, and only "
-            "its result can lift the deny on these files. The review runs again on the next push, or you can "
-            "re-request it once the check reports."
+            "its result can lift the deny on these files. The review runs again when it finishes."
         ),
         "risk": "unknown",
         "issues": [],
@@ -660,7 +659,7 @@ def run(context: dict) -> dict:
 
         # An attestation that has not reported yet is a race with CI, and not a judgment on the PR.
         # The verdict is WAIT rather than REFUSE because the hosted runtime strips the trigger label
-        # on a refusal.
+        # on a refusal, and wakes a WAIT when the check finishes.
         if _blocked_only_by_pending_attestations(pipeline):
             pipeline.final_verdict = "WAIT"
             pipeline.reviewer_output = _pending_attestation_wait(pipeline)

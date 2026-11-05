@@ -70,6 +70,7 @@ from products.stamphog.backend.facade.review_evidence import (
     get_review_evidence_providers,
 )
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
+from products.stamphog.backend.logic.attestations import check_attestations, check_attestations_reported
 from products.stamphog.backend.logic.audiences import resolve_audiences
 from products.stamphog.backend.logic.engine_pregate import (
     ENGINE_DIR,
@@ -104,7 +105,11 @@ from products.stamphog.backend.logic.reviewer import (
 )
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
-from products.stamphog.backend.tasks.tasks import queue_routing_after_verdict, request_rereview_after_external_review
+from products.stamphog.backend.tasks.tasks import (
+    pending_attestation_names,
+    queue_routing_after_verdict,
+    request_rereview_after_external_review,
+)
 from products.stamphog.backend.temporal.constants import (
     ACTIVITY_RETRY_POLICY,
     CLONE_STEP_TIMEOUT_SECONDS,
@@ -1715,6 +1720,50 @@ def rereview_after_external_review_finished(input: StamphogReviewInput) -> dict:
 
 @activity.defn
 @asyncify
+def poll_pending_attestations(input: StamphogReviewInput) -> dict:
+    """Whether the workflow can stop polling for the attestations that this run's WAIT waits on.
+
+    Polling stops when this run is no longer the PR's latest, when the PR closed or moved its head,
+    and when every pending attestation has reported. In the last case it queues the re-review. A
+    dispatch error raises, so Temporal retries it, because a lost dispatch leaves the PR at WAIT
+    until the next push. The rules come from the default-branch policy that the run read, never
+    from the sandbox's report, which only names the attestations that are pending.
+    """
+    run = _load_run(input)
+    names = pending_attestation_names(run)
+    pull_request = run.pull_request
+    latest_id = (
+        ReviewRun.objects.for_team(input.team_id)
+        .using(router.db_for_write(ReviewRun))
+        .filter(pull_request=pull_request)
+        .order_by("-created_at")
+        .values_list("id", flat=True)
+        .first()
+    )
+    if not names or latest_id != run.id:
+        return {"done": True}
+    policy_text = ((run.output or {}).get("policy_files") or {}).get(STAMPHOG_POLICY_ENTRYPOINT)
+    checks = [rule for rule in check_attestations(policy_text) if rule.name in names]
+    repo_config = pull_request.repo_config
+    # An uninstall disables the repo, and every GitHub read would fail until the budget ran out.
+    if not checks or not (
+        repo_config.enabled and repo_config.installation_id and repo_config.connected_by_user_id is not None
+    ):
+        return {"done": True}
+    client = StamphogGitHubClient(repo_config.installation_id)
+    pr = client.get_pr(repo_config.repository, pull_request.pr_number)
+    if pr.get("state") != "open" or (pr.get("head") or {}).get("sha") != run.head_sha:
+        return {"done": True}
+    if not check_attestations_reported(client, repo_config.repository, run.head_sha, checks):
+        return {"done": False}
+    request_rereview_after_external_review(
+        repository=repo_config.repository, pr_number=pull_request.pr_number, head_sha=run.head_sha
+    )
+    return {"done": True}
+
+
+@activity.defn
+@asyncify
 def post_verdict(input: StamphogReviewInput) -> dict:
     """Parse the engine output and post the approval or sticky comment."""
     post_started = time.monotonic()
@@ -1967,7 +2016,11 @@ def post_verdict(input: StamphogReviewInput) -> dict:
 
     _capture_review_timings(run, str(parsed.verdict), int((time.monotonic() - post_started) * 1000))
     activity.logger.info(f"Posted verdict {parsed.verdict} for run {run.id}")
-    return {"verdict": str(parsed.verdict), "waited_on_external_review": _waited_on_external_review(run)}
+    return {
+        "verdict": str(parsed.verdict),
+        "waited_on_external_review": _waited_on_external_review(run),
+        "waits_on_attestations": bool(pending_attestation_names(run)),
+    }
 
 
 def _notify_finished_review(
