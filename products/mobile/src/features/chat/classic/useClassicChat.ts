@@ -140,7 +140,20 @@ export function useClassicChat(
             } catch (failure) {
                 if (active() && !abort.signal.aborted) {
                     if (accepted) {
-                        setHistoryError('The reply was interrupted. Reconnect to load the latest messages.')
+                        try {
+                            const saved = await getConversation(conversation, abort.signal)
+                            if (!active()) return true
+                            const history = classicHistory(saved.messages, saved.title, saved.pending_approvals)
+                            if (saved.status === 'idle' || history.approval || history.form) {
+                                setState((previous) => ({ ...history, error: previous.error }))
+                                setHistoryError(null)
+                            } else {
+                                setHistoryError('The reply was interrupted. Reconnect to load the latest messages.')
+                            }
+                        } catch {
+                            if (active() && !abort.signal.aborted)
+                                setHistoryError('The reply was interrupted. Reconnect to load the latest messages.')
+                        }
                     } else {
                         setError(toChatError(failure).message)
                     }

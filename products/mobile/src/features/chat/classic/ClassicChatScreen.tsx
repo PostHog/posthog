@@ -72,7 +72,7 @@ export function ClassicChatScreen({
     const items = useMemo(() => classicThreadItems(chat.state, projectUrl), [chat.state, projectUrl])
     const thread: SessionThreadState = {
         history: {
-            status: chat.loading ? 'loading' : chat.historyError ? 'error' : 'idle',
+            status: items.length > 0 ? 'idle' : chat.loading ? 'loading' : chat.historyError ? 'error' : 'idle',
             error: chat.historyError ? { kind: 'unknown', message: chat.historyError } : null,
         },
         items,
@@ -166,6 +166,25 @@ export function ClassicChatScreen({
                                 topInset={insets.top + CHAT_HEADER_HEIGHT}
                             />
                         )}
+                        {items.length > 0 && (chat.historyError || chat.loading) ? (
+                            <View style={styles.recovery}>
+                                <ChatErrorNotice
+                                    message={chat.historyError ?? 'Reconnecting…'}
+                                    actions={
+                                        <Pressable44
+                                            disabled={chat.loading || chat.working}
+                                            accessibilityRole="button"
+                                            accessibilityLabel="Reconnect"
+                                            onPress={() => void chat.reload()}
+                                            style={styles.action}
+                                        >
+                                            {chat.loading ? <ActivityIndicator color={colors.ink} /> : null}
+                                            <Text style={styles.label}>Reconnect</Text>
+                                        </Pressable44>
+                                    }
+                                />
+                            </View>
+                        ) : null}
                         <ChatAccessGate onDecline={close}>
                             {draft.draftError ? (
                                 <ChatErrorNotice
@@ -246,6 +265,7 @@ const useStyles = createStyles(({ colors }) => ({
     screen: { flex: 1, backgroundColor: colors.surface },
     fill: { flex: 1 },
     content: { flex: 1, width: '100%', maxWidth: READING_WIDTH, alignSelf: 'center' },
+    recovery: { margin: 10 },
     approval: {
         margin: 10,
         padding: 12,

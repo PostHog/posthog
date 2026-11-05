@@ -2,11 +2,14 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-
 
 import { useChatDraft } from '../useChatDraft'
 import { ClassicChatScreen } from './ClassicChatScreen'
-import { EMPTY_CLASSIC_STATE } from './classicMessages'
+import { classicHistory, EMPTY_CLASSIC_STATE } from './classicMessages'
 import { useClassicChat } from './useClassicChat'
 
 jest.mock('react-native-worklets', () => jest.requireActual('react-native-worklets/src/mock'))
-jest.mock('react-native-reanimated', () => jest.requireActual('react-native-reanimated/mock'))
+jest.mock('react-native-reanimated', () => ({
+    ...jest.requireActual('react-native-reanimated/mock'),
+    useReducedMotion: () => true,
+}))
 jest.mock('react-native-keyboard-controller', () => jest.requireActual('react-native-keyboard-controller/jest'))
 jest.mock(
     'react-native-safe-area-context',
@@ -27,7 +30,6 @@ jest.mock('../ChatHeader', () => {
         ),
     }
 })
-jest.mock('../session/SessionThread', () => ({ SessionThread: () => null }))
 jest.mock('../chatSheetEvents', () => ({
     useChatSheetEvents: () => ({ countSent: jest.fn(), countNewChat: jest.fn() }),
 }))
@@ -35,6 +37,55 @@ jest.mock('../useChatDraft', () => ({ useChatDraft: jest.fn() }))
 jest.mock('./useClassicChat', () => ({ useClassicChat: jest.fn() }))
 
 describe('classic chat draft recovery', () => {
+    test.each(['empty', 'partial', 'reloading'] as const)(
+        'keeps %s history recoverable without hiding received messages',
+        (kind) => {
+            const reload = jest.fn(async () => undefined)
+            jest.mocked(useChatDraft).mockReturnValue({
+                draft: { text: '', reportIds: [] },
+                ready: true,
+            } as unknown as ReturnType<typeof useChatDraft>)
+            jest.mocked(useClassicChat).mockReturnValue({
+                id: 'saved-chat',
+                loading: kind === 'reloading',
+                working: false,
+                stopping: false,
+                historyError: kind === 'reloading' ? null : 'The reply was interrupted.',
+                error: null,
+                state: classicHistory(
+                    kind === 'empty' ? [] : [{ id: 'reply-1', type: 'ai', content: 'Received reply' }],
+                    'A chat'
+                ),
+                form: null,
+                send: jest.fn(),
+                answer: jest.fn(),
+                submitForm: jest.fn(),
+                dismissForm: jest.fn(),
+                stop: jest.fn(),
+                reload,
+                reset: jest.fn(),
+                dismissError: jest.fn(),
+            })
+            render(
+                <ClassicChatScreen
+                    conversationId="saved-chat"
+                    source={{ entry: 'chats_list', origin: 'chat' }}
+                    autoFocus={false}
+                    onBack={jest.fn()}
+                    onNewChat={jest.fn()}
+                />
+            )
+            if (kind === 'empty') {
+                expect(screen.getByText("Couldn't load this session")).toBeTruthy()
+                fireEvent.press(screen.getByText('Try again'))
+            } else {
+                expect(screen.getByText('Received reply')).toBeTruthy()
+                expect(screen.queryByText("Couldn't load this session")).toBeNull()
+                fireEvent.press(screen.getByLabelText('Reconnect'))
+            }
+            expect(reload).toHaveBeenCalledTimes(kind === 'reloading' ? 0 : 1)
+        }
+    )
     test('keeps the unsaved text visible and guards retry until storage settles', async () => {
         let finish!: () => void
         const retrySave = jest.fn(

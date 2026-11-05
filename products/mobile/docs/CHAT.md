@@ -81,6 +81,8 @@ These client checks supplement existing server scopes, resource RBAC and product
 
 Classic chat refreshes history whenever it opens, even while the cached response is fresh, and reuses that download.
 An accepted message leaves draft recovery as soon as the server accepts it, while the reply continues streaming.
+If its stream disconnects or times out, classic chat checks the saved conversation automatically without sending the message again.
+Completed replies and pending decisions load from that saved state. If recovery still needs a connection, received messages stay visible with Reconnect.
 Linked conversations stay visible when their task is absent from the list.
 Opening a linked chat checks its conversation runtime before continuing.
 If one chat history source fails, Chats keeps the loaded rows and offers a retry for the remaining history.
