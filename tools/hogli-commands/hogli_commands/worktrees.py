@@ -136,7 +136,6 @@ class _ArtifactRule:
     applies_to: Callable[[Path], bool] = lambda path: True
 
 
-# Directory names matched at any depth and never descended into once matched.
 ARTIFACT_DIRS: dict[str, _ArtifactRule] = {
     "node_modules": _ArtifactRule(kinds=_DEPS),
     ".venv": _ArtifactRule(kinds=_DEPS, applies_to=_is_python_venv),
@@ -378,8 +377,7 @@ def worktrees_clean(
     if box_action:
         pending = _boxes_of_removed_worktrees(load_worktree_boxes(), repo_root, repo_common, selected_sources)
         _clean_boxes_of_removed_worktrees(pending, box_action, cutoff, dry_run, yes)
-    # A shared Cargo target belongs to no single worktree, so a run narrowed by --source leaves it alone.
-    # Any repo can build into it, so --repo does not narrow it, and it goes only once no build has used it since the cutoff.
+    # A shared Cargo target belongs to no single worktree, so --source leaves it alone, but any repo can build into it, so --repo does not.
     if mode != "full" and selected_sources is None:
         _clean_shared_cargo_targets(cutoff, dry_run, yes)
     _clean_leftover_worktree_dirs(_leftover_worktree_dirs(repo_root, selected_sources, cutoff), dry_run, yes)

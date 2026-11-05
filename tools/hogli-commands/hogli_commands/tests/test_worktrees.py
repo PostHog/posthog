@@ -469,7 +469,6 @@ class TestCargoTargets:
         cutoff = time.time() - 7 * 86400
 
         assert unused_legacy_cargo_target(cutoff) == (target if expected_offered and not cargo_target_dir_set else None)
-        # The command also offers the target that CARGO_TARGET_DIR names, under the same build-age checks.
         assert [shared.path for shared in shared_cargo_targets() if unused_cargo_target(shared.path, cutoff)] == (
             [target] if expected_offered else []
         )
