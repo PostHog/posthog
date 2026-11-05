@@ -29,9 +29,10 @@ class TestTaskProfileRegistry(SimpleTestCase):
         [
             ("read_without_channel", {"read_without_channel": Read.TEAM}),
             ("idle_minutes", {"idle_minutes": 5}),
+            ("too_many_hidden_mcp_tools", {"mcp_exclude_tools": tuple(f"tool-{i}" for i in range(33))}),
         ]
     )
-    def test_rejects_a_profile_that_disagrees_with_its_origin(self, _name: str, overrides: dict) -> None:
+    def test_rejects_an_invalid_profile(self, _name: str, overrides: dict) -> None:
         conflicting = replace(BUSINESS_KNOWLEDGE, key="test.conflicting", **overrides)
 
         with self.assertRaises(TaskProfileError):
