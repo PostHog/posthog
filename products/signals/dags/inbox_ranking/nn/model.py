@@ -12,6 +12,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 import numpy as np
+import pandas as pd
 
 from posthog import settings
 from posthog.dataclasses import frozen
@@ -34,7 +35,7 @@ from products.signals.dags.inbox_ranking.training.families import PAIR_GRAIN, Mo
 from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, Head
 from products.signals.dags.inbox_ranking.training.recipe import model_recipe, with_recipe
 from products.signals.dags.inbox_ranking.training.train import HeadMetrics, HoldoutGrade, _auc, holdout_grade
-from products.signals.dags.inbox_ranking.training.within_team import within_team_auc
+from products.signals.dags.inbox_ranking.training.within_team import group_aucs, summarize_groups, team_interval
 
 HOLDOUT_MODEL_FILE = "model.holdout.onnx"
 
@@ -253,14 +254,20 @@ def vs_baseline_block(
     seeds: Sequence[int],
     experiment_scores: Sequence[np.ndarray],
     baseline_scores: Sequence[np.ndarray],
+    experiment_seeds: Sequence[int] | None = None,
 ) -> dict[str, Any]:
     """The experiment against its baseline, per head, on the same holdout rows.
 
     Each seed fits both arms on the same train rows, so the two AUCs of one seed form a pair. One
     seed's gap can be noise from the network's initialization alone, so the block keeps the range
-    of the gaps across seeds. `within_team` is the read the inbox order depends on, and `pooled` is
-    there for reference. `within_team_non_dogfood` leaves out PostHog's own project, whose inbox use
-    is not a customer's. A seed where either arm has no AUC drops out of the pairs.
+    of the gaps across seeds. `experiment_seeds` are the experiment arm's seeds when they differ from
+    the baseline's `seeds`, as in an A/A experiment.
+
+    `within_team` is the read the inbox order depends on, and `pooled` is there for reference.
+    `within_team_non_dogfood` leaves out PostHog's own project, whose inbox use is not a customer's.
+    Each `_macro` read weighs every team the same, so a few large inboxes cannot carry it. The
+    non-dogfood macro delta also gets a team bootstrap interval. A seed where either arm has no AUC
+    drops out of the pairs.
     """
     train_rows = table.network_train_rows()
     heads: dict[str, dict[str, Any]] = {}
@@ -268,28 +275,35 @@ def vs_baseline_block(
         rows = table.head_rows(index, holdout=True)
         y = table.labels[rows, index].astype(int)
         team_ids = table.team_ids(rows)
-        customer = team_ids != LABELS_TEAM_ID
-        heads[name] = {
+        grade: dict[str, Any] = {
             "train_rows": int((~np.isnan(table.labels[train_rows, index])).sum()),
             "holdout_rows": len(rows),
             "holdout_positives": int(y.sum()),
-            "within_team": _paired(
-                [within_team_auc(y, scores[rows, index], team_ids).auc for scores in experiment_scores],
-                [within_team_auc(y, scores[rows, index], team_ids).auc for scores in baseline_scores],
-            ),
-            "within_team_non_dogfood": _paired(
-                [
-                    within_team_auc(y[customer], scores[rows, index][customer], team_ids[customer]).auc
-                    for scores in experiment_scores
-                ],
-                [
-                    within_team_auc(y[customer], scores[rows, index][customer], team_ids[customer]).auc
-                    for scores in baseline_scores
-                ],
-            ),
-            "pooled": _paired(
-                [_auc(y, scores[rows, index]) for scores in experiment_scores],
-                [_auc(y, scores[rows, index]) for scores in baseline_scores],
-            ),
         }
-    return {"baseline": baseline, "seeds": list(seeds), "heads": heads}
+        scopes = {"within_team": np.ones(len(rows), dtype=bool), "within_team_non_dogfood": team_ids != LABELS_TEAM_ID}
+        for scope, mask in scopes.items():
+            scoped_y, scoped_rows, scoped_teams = y[mask], rows[mask], team_ids[mask]
+            experiment = [
+                group_aucs(scoped_y, scores[scoped_rows, index], scoped_teams) for scores in experiment_scores
+            ]
+            base = [group_aucs(scoped_y, scores[scoped_rows, index], scoped_teams) for scores in baseline_scores]
+            experiment_reads = [summarize_groups(per_team) for per_team in experiment]
+            base_reads = [summarize_groups(per_team) for per_team in base]
+            grade[scope] = _paired([read.auc for read in experiment_reads], [read.auc for read in base_reads])
+            grade[f"{scope}_macro"] = _paired(
+                [read.macro for read in experiment_reads], [read.macro for read in base_reads]
+            )
+            if scope == "within_team_non_dogfood":
+                teams = pd.Series(scoped_teams, index=scoped_teams).groupby(level=0).first()
+                grade[f"{scope}_macro_team_interval"] = team_interval(experiment, base, teams)
+        grade["pooled"] = _paired(
+            [_auc(y, scores[rows, index]) for scores in experiment_scores],
+            [_auc(y, scores[rows, index]) for scores in baseline_scores],
+        )
+        heads[name] = grade
+    return {
+        "baseline": baseline,
+        "seeds": list(seeds),
+        "experiment_seeds": list(experiment_seeds if experiment_seeds is not None else seeds),
+        "heads": heads,
+    }

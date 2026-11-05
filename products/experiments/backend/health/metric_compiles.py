@@ -53,7 +53,7 @@ from products.experiments.backend.metric_calculation.config import (
     calculation_metric_name,
     team_experiments_configs,
 )
-from products.experiments.backend.metric_resolution import build_metric
+from products.experiments.backend.metric_resolution import build_metric, metric_uses_warehouse_native_source
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
@@ -184,6 +184,9 @@ class _MetricCompiler:
             metric = build_metric(definition)
         except pydantic.ValidationError as error:
             return _failure(ExperimentHealthMetricCompileErrorKind.DEFINITION, _definition_message(error))
+        if metric_uses_warehouse_native_source(metric):
+            # No query runs in the customer's warehouse yet, so the compile would report a defect of PostHog.
+            return _Outcome.UNKNOWN
         runner = ExperimentQueryRunner(
             query=ExperimentQuery(experiment_id=self.experiment.id, metric=metric),
             team=self.experiment.team,

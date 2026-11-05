@@ -37,19 +37,23 @@ from products.today.backend.facade.enums import (
     HighlightInterval,
     HighlightLabel,
     HighlightMetricReason,
+    HighlightPinStatus,
     HighlightPriority,
     HighlightsStatus,
     HighlightUnit,
     PulseSlotStatus,
 )
-from products.today.backend.logic import highlight_registry, highlight_types, highlights
+from products.today.backend.logic import highlight_registry, highlight_types, highlights, pulse_pins
 from products.today.backend.logic.highlight_types import Context
 from products.today.backend.logic.highlights import MAX_ITEMS, rank
+from products.today.backend.logic.pinned import PINNED_METRICS
 from products.today.backend.models import TodayHighlights
 from products.today.backend.temporal.inputs import (
     FinalizeHighlightsInputs,
     HighlightSourceInputs,
     HighlightSourceResult,
+    PinnedNumber,
+    ResolvePinsInputs,
 )
 
 DAY = date(2026, 10, 13)
@@ -560,6 +564,103 @@ class TestProgressiveHighlights(BaseTest):
         highlights.publish_pulse(inputs, HighlightFindings(pulse=(metric("slow"),)), slots)
         row.refresh_from_db()
         self.assertEqual(row.content, before)
+
+    def test_a_pinned_number_shows_before_the_sources_finish_and_stays_after_the_pins_step_fails(self) -> None:
+        row = TodayHighlights.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, local_day=DAY, key="progress", pins_key="pins"
+        )
+        source = HighlightSourceInputs(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            local_day=DAY.isoformat(),
+            scopes=None,
+            source_name="routine",
+            highlights_id=str(row.id),
+        )
+        pins = ResolvePinsInputs(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            local_day=DAY.isoformat(),
+            scopes=None,
+            pins=[],
+            highlights_id=str(row.id),
+        )
+        highlights.publish_pulse(source, HighlightFindings(), [contracts.PulseSlot(key="slow", name="Slow")])
+        highlights.publish_pinned(pins, metric("kept"))
+        row.refresh_from_db()
+        partial = HIGHLIGHTS.validate_python(row.content)
+        highlights.finalize(
+            FinalizeHighlightsInputs(
+                team_id=self.team.id,
+                highlights_id=str(row.id),
+                results=[HighlightSourceResult(source_name="routine", found=None, failed=True)],
+                pins=[PinnedNumber(key="kept")],
+            )
+        )
+        row.refresh_from_db()
+        final = HIGHLIGHTS.validate_python(row.content)
+
+        self.assertEqual(
+            (
+                partial.status,
+                [(slot.key, slot.status) for slot in partial.pulse_slots or []],
+                [(pin.key, pin.status) for pin in final.pins],
+                [m.key for m in final.pulse],
+            ),
+            (
+                HighlightsStatus.COMPUTING,
+                [("kept", PulseSlotStatus.READY), ("slow", PulseSlotStatus.PENDING)],
+                [("kept", HighlightPinStatus.READY)],
+                ["kept"],
+            ),
+        )
+
+    @parameterized.expand([(False,), (True,)])
+    def test_a_failed_pins_step_marks_the_row_for_a_retry(self, pins_failed: bool) -> None:
+        row = TodayHighlights.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, local_day=DAY, key="pins-failed", pins_key="pins"
+        )
+        highlights.finalize(
+            FinalizeHighlightsInputs(
+                team_id=self.team.id,
+                highlights_id=str(row.id),
+                results=[HighlightSourceResult(source_name="routine", found="{}", failed=False)],
+                pins=[PinnedNumber(key="insight:slow")],
+                pins_failed=pins_failed,
+            )
+        )
+        row.refresh_from_db()
+
+        self.assertEqual(row.failed_sources, pins_failed)
+
+    def test_a_refresh_keeps_a_pinned_number_until_the_new_pins_step_publishes_it(self) -> None:
+        cache.clear()
+        pulse_pins.set_pins(team=self.team, user_id=self.user.id, pins=[contracts.PulsePin("insight:p", "P")])
+        connect = MagicMock()
+        connect.return_value.start_workflow = AsyncMock()
+        with (
+            patch.object(highlights, "progressive_pulse_enabled", return_value=True),
+            patch.object(highlights, "sync_connect", connect),
+        ):
+            highlights.get_highlights(team=self.team, user=self.user, scopes=None)
+            rows = TodayHighlights.objects.for_team(self.team.id)
+            first = rows.get()
+            highlights.finalize(
+                FinalizeHighlightsInputs(
+                    team_id=self.team.id,
+                    highlights_id=str(first.id),
+                    results=[HighlightSourceResult(source_name="routine", found=None, failed=True)],
+                    pins=[PinnedNumber(key="insight:p")],
+                    pinned=PINNED_METRICS.dump_json([metric("insight:p")]).decode(),
+                )
+            )
+            rows.filter(id=first.id).update(created_at=timezone.now() - timedelta(seconds=1))
+            refreshing = highlights.get_highlights(team=self.team, user=self.user, scopes=None, refresh=True)
+
+        self.assertEqual(
+            (refreshing.status, rows.count(), [m.key for m in refreshing.pulse]),
+            (HighlightsStatus.COMPUTING, 2, ["insight:p"]),
+        )
 
     @parameterized.expand([5, 6])
     def test_progress_keeps_source_ranking_limit_and_dates_after_failure(self, routine_count: int) -> None:

@@ -16,10 +16,12 @@ from posthog.models import Team
 
 from products.metrics.backend.facade.contracts import MetricPoint, MetricSeries, PromQLQueryError
 from products.metrics.backend.metric_query_runner import _align_to_interval, _interval_step, _resolve_interval
+from products.metrics.backend.query_counts import record_promql_query
 from products.metrics.backend.series import rank_and_fill_series
 
 # The label that builderToPromql adds to keep the series of a multi-series query apart.
 CLAUSE_LABEL = "clause"
+_QUERY_PATHS = frozenset({"/api/v1/query", "/api/v1/query_range"})
 # builderToPromql sets the label with `label_replace(<series>, "clause", "<alias>", "", "")`. Without
 # that call, a `clause` label belongs to the user's data.
 _SETS_CLAUSE_LABEL = re.compile(r'label_replace\s*\(.*,\s*"clause"\s*,\s*"', re.DOTALL)
@@ -78,6 +80,8 @@ def snuffle_payload(
     timeout: float | None = None,
 ) -> dict[str, Any]:
     """Send one Prometheus API request to Snuffle and return its JSON body. Errors are safe to show."""
+    if path in _QUERY_PATHS and data and data.get("query"):
+        record_promql_query(team, data["query"])
     try:
         response = snuffle_request(team.pk, method, path, data=data, params=params, timeout=timeout)
     except SnuffleNotConfiguredError as exc:
