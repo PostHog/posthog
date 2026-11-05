@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.db.models import F, QuerySet
 from django.db.models.functions import Coalesce, Now
 from django.utils import timezone
@@ -44,7 +45,33 @@ def add_manual_suppression(team_id: int, identifier: str, created_by_id: int | N
     return suppression, created
 
 
-def remove_suppression(team_id: int, identifier: str) -> bool:
+class ComplaintConfirmationRequired(Exception):
+    def __init__(self, identifiers: list[str]) -> None:
+        super().__init__(f"Removing spam complaints needs confirmation: {', '.join(identifiers)}")
+        self.identifiers = identifiers
+
+
+def remove_suppressions(team_id: int, identifiers: list[str], confirm_complaints: bool) -> list[str]:
+    """Remove `identifiers` from the team's list, and return the ones the team had a row for.
+
+    Raises `ComplaintConfirmationRequired`, and removes nothing, when a spam complaint is among them unconfirmed.
+    """
+    with transaction.atomic():
+        rows = MessageSuppression.objects.for_team(team_id).filter(identifier__in=identifiers)
+        # The lock stops a complaint that lands during the check from being removed unconfirmed.
+        locked = list(rows.select_for_update().values_list("identifier", "source", "suppressed", "deleted"))
+        complaints = sorted(
+            identifier
+            for identifier, source, suppressed, deleted in locked
+            if source == SuppressionSource.COMPLAINT and suppressed and not deleted
+        )
+        if complaints and not confirm_complaints:
+            raise ComplaintConfirmationRequired(complaints)
+        _remove(rows)
+    return sorted(identifier for identifier, *_ in locked)
+
+
+def _remove(rows: QuerySet[MessageSuppression]) -> None:
     # Soft-delete and un-suppress. Reset the bounce counter and the hard-bounce mark so a
     # previously-dead address that a user deliberately re-enables starts from a clean slate. The reason is cleared too,
     # because the node writes treat a BOUNCE row with a legacy hard-bounce reason as hard-bounced, and the next soft
@@ -52,20 +79,15 @@ def remove_suppression(team_id: int, identifier: str) -> bool:
     # a future auto-suppression can re-suppress this row — the node upserts skip rows with
     # source='MANUAL' (to protect user-managed entries), so a removed MANUAL row would otherwise
     # be permanently invisible to the bounce-driven write path.
-    updated = (
-        MessageSuppression.objects.for_team(team_id)
-        .filter(identifier=identifier)
-        .update(
-            suppressed=False,
-            deleted=True,
-            transient_bounce_count=0,
-            hard_bounced_at=None,
-            reason=None,
-            source=SuppressionSource.BOUNCE,
-            updated_at=timezone.now(),
-        )
+    rows.update(
+        suppressed=False,
+        deleted=True,
+        transient_bounce_count=0,
+        hard_bounced_at=None,
+        reason=None,
+        source=SuppressionSource.BOUNCE,
+        updated_at=timezone.now(),
     )
-    return bool(updated)
 
 
 def add_global_hard_bounces(emails: list[str]) -> None:

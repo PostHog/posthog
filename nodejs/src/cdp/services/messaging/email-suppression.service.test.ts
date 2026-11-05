@@ -418,6 +418,27 @@ describe('EmailSuppressionService', () => {
             expect(await newService(true).isSuppressed(team.id, email)).toBe(false)
         })
 
+        it.each([
+            ['bounced once, an hour ago', 1 / 24, 1 / 24, true],
+            ['bounced once, two days ago', 2, 2, false],
+            ['bounced for ten days, last five days ago', 15, 5, true],
+            ['bounced for two months, last fifteen days ago', 75, 15, false],
+        ] as const)(
+            'holds an entry for as long as the address has been bouncing, up to 14 days: %s',
+            async (_label, firstDaysAgo, lastDaysAgo, blocked) => {
+                const email = `held-${firstDaysAgo}-${lastDaysAgo}-${team.id}@example.com`
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO posthog_emailhardbounce (email, first_bounced_at, last_bounced_at)
+                     VALUES ($1, NOW() - $2 * INTERVAL '1 day', NOW() - $3 * INTERVAL '1 day')`,
+                    [email, firstDaysAgo, lastDaysAgo],
+                    'test-insert-global-hard-bounce'
+                )
+
+                expect(await newService(true).isSuppressed(team.id, email, { transactional: true })).toBe(blocked)
+            }
+        )
+
         it("blocks transactional email when the team's own entry only blocks other email", async () => {
             const email = `complained-${team.id}@example.com`
             await bounceForAnotherTeam(email)

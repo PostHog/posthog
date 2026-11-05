@@ -13,6 +13,8 @@ import type {
     AddSuppressionRequestApi,
     BulkAddOptOutsRequestApi,
     BulkAddOptOutsResultApi,
+    BulkRemoveSuppressionsRequestApi,
+    BulkRemoveSuppressionsResponseApi,
     EmailStatusApi,
     GenerateLinkRequestApi,
     ImportProviderOptionApi,
@@ -37,6 +39,7 @@ import type {
     PreferencesLinkApi,
     ProviderImportRunApi,
     RemoveOptOutRequestApi,
+    RemoveSuppressionRequestApi,
     SendEmailApi,
     SendTransactionalEmailApi,
     SendTransactionalEmailResponseApi,
@@ -768,6 +771,30 @@ export const messagingSuppressionsAddSuppressionCreate = async (
     })
 }
 
+export const getMessagingSuppressionsBulkRemoveSuppressionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_suppressions/bulk_remove_suppressions/`
+}
+
+/**
+ * Remove up to 100 addresses from the suppression list so they can receive messages again.
+ * @summary Remove several email addresses from the suppression list
+ */
+export const messagingSuppressionsBulkRemoveSuppressionsCreate = async (
+    projectId: string,
+    bulkRemoveSuppressionsRequestApi: BulkRemoveSuppressionsRequestApi,
+    options?: RequestInit
+): Promise<BulkRemoveSuppressionsResponseApi> => {
+    return apiMutator<BulkRemoveSuppressionsResponseApi>(
+        getMessagingSuppressionsBulkRemoveSuppressionsCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(bulkRemoveSuppressionsRequestApi),
+        }
+    )
+}
+
 export const getMessagingSuppressionsRemoveSuppressionCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/messaging_suppressions/remove_suppression/`
 }
@@ -778,14 +805,14 @@ export const getMessagingSuppressionsRemoveSuppressionCreateUrl = (projectId: st
  */
 export const messagingSuppressionsRemoveSuppressionCreate = async (
     projectId: string,
-    addSuppressionRequestApi: AddSuppressionRequestApi,
+    removeSuppressionRequestApi: RemoveSuppressionRequestApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getMessagingSuppressionsRemoveSuppressionCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(addSuppressionRequestApi),
+        body: JSON.stringify(removeSuppressionRequestApi),
     })
 }
 
