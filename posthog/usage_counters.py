@@ -39,6 +39,9 @@ class UsageCounter(StrEnum):
     CDP_INVOCATIONS = "teams_with_cdp_billable_invocations_in_period"
     FEATURE_FLAG_REQUESTS = "teams_with_decide_requests_count_in_period"
     FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS = "teams_with_local_evaluation_requests_count_in_period"
+    FEATURE_FLAG_LOCAL_EVALUATION_NOT_MODIFIED_REQUESTS = (
+        "teams_with_local_evaluation_not_modified_requests_count_in_period"
+    )
     WORKFLOW_EMAILS = "teams_with_workflow_emails_sent_in_period"
     WORKFLOW_PUSH = "teams_with_workflow_push_sent_in_period"
     WORKFLOW_SMS = "teams_with_workflow_sms_sent_in_period"
@@ -65,6 +68,10 @@ LEGACY_QUERY_NAMES = {
     UsageCounter.LOGS_RETENTION_30D_BYTES: "logs_retention_bytes",
     UsageCounter.SANDBOX_COMPUTE_CREDITS: "sandbox_compute_usage",
 }
+# Temporal workers decode a plan's modes into UsageCounter, so a worker without a counter rejects any plan that names it.
+# During a rolling deploy or a rollback, older workers still run, so a new counter stays out of plans until every worker
+# can decode it. Usage reports v2 reads these counters from their legacy query specs meanwhile.
+PLAN_DEFERRED_COUNTERS = frozenset({UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_NOT_MODIFIED_REQUESTS})
 
 
 class UsageCounterMode(StrEnum):
@@ -102,6 +109,7 @@ RECORD_USAGE_KEYS = {
     UsageCounter.CDP_INVOCATIONS: "cdp_billable_invocations",
     UsageCounter.FEATURE_FLAG_REQUESTS: "feature_flag_requests",
     UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS: "feature_flag_local_evaluation_requests",
+    UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_NOT_MODIFIED_REQUESTS: "feature_flag_local_evaluation_not_modified_requests",
     UsageCounter.WORKFLOW_EMAILS: "workflow_emails_sent",
     UsageCounter.WORKFLOW_PUSH: "workflow_push_sent",
     UsageCounter.WORKFLOW_SMS: "workflow_sms_sent",
@@ -118,6 +126,7 @@ RECORD_USAGE_UNITS = {
     "cdp_billable_invocations": "invocations",
     "feature_flag_requests": "requests",
     "feature_flag_local_evaluation_requests": "requests",
+    "feature_flag_local_evaluation_not_modified_requests": "requests",
     "workflow_emails_sent": "invocations",
     "workflow_push_sent": "invocations",
     "workflow_sms_sent": "invocations",
@@ -135,6 +144,7 @@ COUNTER_FLAG_NAMES = {
     UsageCounter.CDP_INVOCATIONS: "cdp-invocations",
     UsageCounter.FEATURE_FLAG_REQUESTS: "feature-flag-requests",
     UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS: "feature-flag-local-evaluation-requests",
+    UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_NOT_MODIFIED_REQUESTS: "feature-flag-local-evaluation-not-modified-requests",
     UsageCounter.WORKFLOW_EMAILS: "workflow-emails",
     UsageCounter.WORKFLOW_PUSH: "workflow-push",
     UsageCounter.WORKFLOW_SMS: "workflow-sms",
@@ -282,6 +292,11 @@ class UsageCounterService:
                     begin, end, usage_report.FlagRequestType.LOCAL_EVALUATION
                 )
             ),
+            UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_NOT_MODIFIED_REQUESTS: lambda begin, end: (
+                usage_report.get_teams_with_feature_flag_requests_count_in_period(
+                    begin, end, usage_report.FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED
+                )
+            ),
             UsageCounter.WORKFLOW_EMAILS: usage_report.get_teams_with_workflow_emails_sent_in_period,
             UsageCounter.WORKFLOW_PUSH: usage_report.get_teams_with_workflow_push_sent_in_period,
             UsageCounter.WORKFLOW_SMS: usage_report.get_teams_with_workflow_sms_sent_in_period,
@@ -317,7 +332,11 @@ class UsageCounterService:
         return UsageCounterPlan(
             period=period,
             caller="usage_reports_v2",
-            modes={counter: mode for counter, mode in modes.items() if counters is None or counter in counters},
+            modes={
+                counter: mode
+                for counter, mode in modes.items()
+                if counter not in PLAN_DEFERRED_COUNTERS and (counters is None or counter in counters)
+            },
             complete=complete,
         )
 
