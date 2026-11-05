@@ -116,7 +116,12 @@ export class IngestionMetricsServer implements NodeServer {
                 unit: 'bytes',
                 isTeamEnabled: usageReportTeamMatcher(this.config),
             })
-            const consumer = new MetricsPipelineConsumer(this.config, { teamManager, quotaLimiting, outputs, usageBatch })
+            const consumer = new MetricsPipelineConsumer(this.config, {
+                teamManager,
+                quotaLimiting,
+                outputs,
+                usageBatch,
+            })
             await consumer.start()
             return consumer.service
         })
