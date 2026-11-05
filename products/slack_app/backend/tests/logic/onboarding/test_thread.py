@@ -17,12 +17,14 @@ from products.slack_app.backend.logic.onboarding.card import (
     edit_onboarding_message,
     plan_onboarding,
     post_onboarding_message,
+    remind_onboarding,
 )
 from products.slack_app.backend.logic.onboarding.interactivity import (
     handle_onboarding_action,
     onboarding_integration_hint,
 )
 from products.slack_app.backend.logic.onboarding.sources_step import NO_PROJECT_ACCESS_TEXT
+from products.slack_app.backend.logic.onboarding.tools_step import ToolsStep
 from products.slack_app.backend.models import ChannelWelcomeMode, UntaggedFollowupMode
 from products.slack_app.backend.services.slack_settings import (
     resolve_auto_model_choice,
@@ -75,6 +77,13 @@ def _click(integration: WorkspaceIntegration, action_id: str, **value: str) -> d
         "response_url": "https://hooks.slack.example/response",
         "actions": [action],
     }
+
+
+@pytest.fixture(autouse=True)
+def without_tools_step() -> Iterator[None]:
+    # These tests count a member's steps, so they keep the member's step list fixed. test_steps.py covers this step.
+    with patch.object(ToolsStep, "applies", return_value=False):
+        yield
 
 
 @pytest.fixture
@@ -276,17 +285,21 @@ def test_a_model_that_cannot_be_saved_tells_the_person_why(org_team_user) -> Non
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "stored, may_start, flag_on, starts",
+    "stored, may_start, flag_on, start_only, starts",
     [
-        ("none", True, True, True),
-        ("none", True, False, False),
-        ("none", False, True, False),
-        ("open", False, False, True),
-        ("completed", True, True, False),
+        ("none", True, True, False, True),
+        ("none", True, False, False, False),
+        ("none", False, True, False, False),
+        ("open", False, False, False, True),
+        ("completed", True, True, False, False),
+        ("none", True, True, True, True),
+        ("open", True, True, True, False),
+        # A start that failed after the state was stored has no thread yet, so the next mention tries again.
+        ("failed_start", True, True, True, True),
     ],
 )
 def test_only_people_with_onboarding_left_start_the_workflow(
-    stored: str, may_start: bool, flag_on: bool, starts: bool, org_team_user
+    stored: str, may_start: bool, flag_on: bool, start_only: bool, starts: bool, org_team_user
 ) -> None:
     _, team, _ = org_team_user
     integration = _install(team)
@@ -294,12 +307,14 @@ def test_only_people_with_onboarding_left_start_the_workflow(
         update_onboarding(SLACK_TEAM_ID, SLACK_USER_ID, root=("D1", "100.1"))
     elif stored == "completed":
         update_onboarding(SLACK_TEAM_ID, SLACK_USER_ID, completed_reason="finished")
+    elif stored == "failed_start":
+        update_onboarding(SLACK_TEAM_ID, SLACK_USER_ID, start=True)
 
     with (
         patch.object(dispatch, "is_slack_app_onboarding_enabled", return_value=flag_on),
         patch.object(dispatch, "_signal_with_start") as start,
     ):
-        dispatch.request_onboarding(integration, SLACK_USER_ID, may_start=may_start)
+        dispatch.request_onboarding(integration, SLACK_USER_ID, may_start=may_start, start_only=start_only)
 
     assert start.called is starts
     if stored == "none":
@@ -392,6 +407,26 @@ def test_a_step_set_elsewhere_keeps_its_number_and_shows_as_checked_in_the_threa
     assert ":white_check_mark: PostHog account linked" in edits["100.2"]
     assert ":white_check_mark: Your model: already set" in edits["100.2"]
     assert "▰▰▱  2/3 done" in edits["100.1"]
+
+
+@pytest.mark.django_db
+def test_a_stalled_thread_gets_one_reminder_that_names_the_waiting_step(
+    org_team_user, link_user, slack_client: MagicMock, capture: MagicMock
+) -> None:
+    _, team, user = org_team_user
+    integration = _install(team)
+    _refresh(integration)
+    link_user(user)
+    _refresh(integration)
+    posts_before = slack_client.chat_postMessage.call_count
+
+    remind_onboarding(integration, SLACK_USER_ID)
+    remind_onboarding(integration, SLACK_USER_ID)
+
+    assert slack_client.chat_postMessage.call_count == posts_before + 1
+    reminder = _posts(slack_client)[-1]
+    assert reminder["thread_ts"] == "100.1"
+    assert reminder["text"].startswith(f"<@{SLACK_USER_ID}> Your PostHog setup is waiting at step 2 of 3, Your model.")
 
 
 @pytest.mark.django_db

@@ -32,6 +32,7 @@ from products.signals.backend.temporal.inbox_notification import (
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInput, SafetyJudgeOutput
 from products.signals.backend.temporal.signal_queries import FetchSignalsForReportInput, FetchSignalsForReportOutput
 from products.signals.backend.temporal.summary import (
+    CheckReportQuotaGateInput,
     ImplementationBufferInput,
     MarkReportInProgressInput,
     MarkReportReadyInput,
@@ -183,7 +184,11 @@ async def _run_summary_workflow(
     recorder: _Recorder, *, requested_user_id: int | None = None, requested_after_run_count: int | None = None
 ) -> None:
     @activity.defn(name="check_report_quota_gate_activity")
-    async def fake_quota(input) -> bool:
+    async def fake_quota(input: CheckReportQuotaGateInput) -> bool:
+        # Simulate the limit being crossed during the first pass. Any further stage or
+        # buffered research must carry the original admission through implementation.
+        if recorder.researches > 0:
+            assert input.admitted
         return False
 
     @activity.defn(name="fetch_signals_for_report_activity")
