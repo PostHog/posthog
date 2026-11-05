@@ -38,7 +38,9 @@ function pullPlanLines(plan: PlannedItem[], style: Styler): string[] {
 // each type from the variable's value instead, as posthog-cli does.
 async function variableTypes(api: PostHogApi, names: readonly string[]): Promise<Map<string, string>> {
     try {
-        return new Map([...(await findInsightVariables(api, names))].map(([name, variable]) => [name, variable.type]))
+        return new Map(
+            [...(await findInsightVariables(api, names)).found].map(([name, variable]) => [name, variable.type])
+        )
     } catch (error) {
         if (error instanceof ApiError && error.status === 403) {
             return new Map()
