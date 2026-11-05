@@ -4,7 +4,7 @@ from functools import cached_property
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
-from django.db.models import Count, Q, QuerySet, Sum
+from django.db.models import Count, Exists, OuterRef, Q, QuerySet, Sum
 from django.utils import timezone
 
 from posthog.schema import (
@@ -260,7 +260,7 @@ class InboxUsageQueryRunner(AnalyticsQueryRunner[InboxUsageQueryResponse]):
             SignalScoutRun.objects.for_team(self.team.id)
             .filter(created_at__gte=self.period_start, created_at__lt=min(self.period_end, self.as_of))
             .exclude(metadata__has_key="scout_trial")
-            .exclude(id__in=self.receipts.filter(kind=SignalSpend.Kind.SCOUT_RUN).values("scout_run_id"))
+            .filter(~Exists(self.receipts.filter(kind=SignalSpend.Kind.SCOUT_RUN, scout_run_id=OuterRef("pk"))))
             .count()
         )
         buckets: list[InboxUsageSource | InboxUsageScout] = [*sources, *scouts]
