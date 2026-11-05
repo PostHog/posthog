@@ -82,8 +82,7 @@ class TestAdminConsoleAssets(SimpleTestCase):
         )
 
     def test_every_asset_the_templates_link_to_ships(self) -> None:
-        # A path with a template tag stops at "{", which is not a closing quote or "?", so this skips crest paths.
-        # test_every_owner_crest_ships covers those.
+        # The regex skips crest paths, which hold a template tag. test_every_owner_crest_ships covers those.
         linked = {
             name
             for template in TEMPLATE_DIR.glob("*.html")

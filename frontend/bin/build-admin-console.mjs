@@ -44,8 +44,7 @@ function inlineFonts(css) {
     })
 }
 
-// The head of the color icon is near-black, so it disappears on a dark surface. The web app uses the
-// white mono logomark in dark mode, and this is the same mark as a file the templates can link to.
+// The color icon's near-black head disappears on a dark surface, so dark mode uses a white mark, as the web app does.
 function writeMonoIcon() {
     const icon = fs.readFileSync(path.join(FRONTEND, 'public/posthog-icon.svg'), 'utf8')
     fs.writeFileSync(path.join(OUT_DIR, 'posthog-icon-mono.svg'), icon.replace(/fill="[^"]+"/g, 'fill="#fff"'))
