@@ -79,8 +79,21 @@ class TestReadsEventsWithoutLowerBound(BaseTest):
                 False,
             ),
             (
-                "column_unix_timestamp",
-                "select count() from events where toUnixTimestamp(timestamp) >= 1700000000",
+                "column_unix_timestamp_milli",
+                "select count() from events where toUnixTimestamp64Milli(timestamp) >= 1700000000000",
+                False,
+            ),
+            ("cast_to_date", "select count() from events where timestamp::Date >= '2026-01-01'", False),
+            ("cast_to_datetime", "select count() from events where timestamp::DateTime >= '2026-01-01'", False),
+            ("in_constants", "select count() from events where timestamp in ('2026-01-01')", False),
+            (
+                "call_form_or_every_branch_bounded",
+                f"select count() from events where or(timestamp > {RECENT}, timestamp > now() - interval 1 day)",
+                False,
+            ),
+            (
+                "outer_bound_across_a_plain_group_by",
+                f"select count() from (select timestamp, count() from events group by timestamp) where timestamp > {RECENT}",
                 False,
             ),
             (
@@ -270,6 +283,81 @@ class TestReadsEventsWithoutLowerBound(BaseTest):
                 "outer_bound_across_a_union_limit",
                 "select count() from ((select timestamp from events union all select timestamp from events) limit 10) "
                 f"where timestamp >= {RECENT}",
+                True,
+            ),
+            (
+                "unix_timestamp_does_not_prune",
+                "select count() from events where toUnixTimestamp(timestamp) >= 1700000000",
+                True,
+            ),
+            (
+                "datetime64_does_not_prune",
+                "select count() from events where toDateTime64(timestamp, 6) >= '2026-01-01'",
+                True,
+            ),
+            ("cast_to_string", "select count() from events where timestamp::String >= '2026-01-01'", True),
+            ("cast_call_to_string", "select count() from events where cast(timestamp as String) >= '2026-01-01'", True),
+            (
+                "outer_bound_across_except",
+                f"select count() from (select timestamp from events except select timestamp from events) where timestamp > {RECENT}",
+                True,
+            ),
+            (
+                "outer_bound_across_intersect",
+                f"select count() from (select timestamp from events intersect select timestamp from events) where timestamp > {RECENT}",
+                True,
+            ),
+            (
+                "outer_bound_across_rollup",
+                f"select count() from (select timestamp, count() from events group by rollup(timestamp)) where timestamp > {RECENT}",
+                True,
+            ),
+            (
+                "outer_bound_across_cube",
+                f"select count() from (select timestamp, count() from events group by cube(timestamp)) where timestamp > {RECENT}",
+                True,
+            ),
+            (
+                "outer_bound_across_grouping_sets",
+                "select count() from (select timestamp, event, count() from events "
+                f"group by grouping sets ((timestamp), (event))) where timestamp > {RECENT}",
+                True,
+            ),
+            (
+                "outer_bound_across_limit_by",
+                f"select count() from (select timestamp from events limit 1 by event) where timestamp > {RECENT}",
+                True,
+            ),
+            (
+                "outer_bound_on_union_branches_of_different_widths",
+                "select count() from (select timestamp, event from events union all select timestamp from events) "
+                f"where timestamp > {RECENT}",
+                True,
+            ),
+            (
+                "not_between",
+                "select count() from events where timestamp not between '2026-01-01' and '2026-02-01'",
+                True,
+            ),
+            (
+                "between_low_reads_a_column",
+                "select count() from events where timestamp between toDateTime(event) and now()",
+                True,
+            ),
+            (
+                "flipped_comparison_with_a_column",
+                "select count() from events where toDateTime(event) <= timestamp",
+                True,
+            ),
+            (
+                "call_form_or_one_branch_bounded",
+                f"select count() from events where or(timestamp > {RECENT}, event = 'a')",
+                True,
+            ),
+            ("uuid_compared_to_a_column", "select count() from events where uuid = event", True),
+            (
+                "scalar_cte_reads_events_without_a_bound",
+                "with (select max(timestamp) from events) as latest select count() from events where timestamp > latest",
                 True,
             ),
             (

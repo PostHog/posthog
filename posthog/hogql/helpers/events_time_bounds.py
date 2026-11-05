@@ -6,10 +6,11 @@ partition the team ever wrote to. The check runs on a resolved AST and answers p
 conjunct of WHERE or PREWHERE, in the select that reads the table or in an enclosing select that
 filters a column taken from that table's `timestamp`. A point lookup by `uuid` also counts.
 
-An enclosing filter does not count across a LIMIT, OFFSET, LIMIT BY or window function in the inner
-select, or a LIMIT or OFFSET on an inner set query, because moving the filter inside would change the
-result, so it cannot restrict the read. It also does not count for a CTE that the query references
-more than once, because the filter restricts only one of those reads.
+An enclosing filter does not count across a LIMIT, OFFSET, LIMIT BY, window function, ROLLUP, CUBE or
+GROUPING SETS in the inner select, or a LIMIT, OFFSET, INTERSECT or EXCEPT on an inner set query,
+because ClickHouse does not move the filter inside, so it cannot restrict the read. It also does not
+count for a CTE that the query references more than once, because the filter restricts only one of
+those reads.
 
 The check reads the shape of the query and not the value of the bound, so `timestamp > '1970-01-01'`
 passes. It guides callers and does not guarantee a scan size.
@@ -50,8 +51,6 @@ _ORDER_PRESERVING_FUNCTIONS = frozenset(
     {
         "toDate",
         "to_date",
-        "toDateTime64",
-        "toUnixTimestamp",
         "toUnixTimestamp64Milli",
         "toYear",
         "toYYYYMM",
@@ -60,6 +59,10 @@ _ORDER_PRESERVING_FUNCTIONS = frozenset(
     }
 )
 _DATE_TRUNC_FUNCTIONS = frozenset({"dateTrunc", "date_trunc"})
+_ORDER_PRESERVING_CAST_TYPES = frozenset(
+    {"date", "datetime", "timestamp", "timestamptz", "timestamp with time zone", "timestamp with local time zone"}
+)
+_SUBTOTAL_GROUP_BY_MODES = frozenset({"rollup", "cube", "grouping_sets"})
 
 
 def reads_events_without_lower_bound(
@@ -101,13 +104,22 @@ class _SelectScan(TraversingVisitor):
             super().visit(node)
 
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
-        if node.limit is not None or node.offset is not None:
+        if (
+            node.limit is not None
+            or node.offset is not None
+            or not all(branch.set_operator.startswith("UNION") for branch in node.subsequent_select_queries)
+        ):
             self.pushdown_blocked.add(id(node.type))
         super().visit_select_set_query(node)
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         self.selects.append(node)
-        if node.limit is not None or node.offset is not None or node.limit_by is not None:
+        if (
+            node.limit is not None
+            or node.offset is not None
+            or node.limit_by is not None
+            or node.group_by_mode in _SUBTOTAL_GROUP_BY_MODES
+        ):
             self.pushdown_blocked.add(id(node.type))
         self._enclosing_selects.append(node)
         super().visit_select_query(node)
@@ -214,6 +226,9 @@ class _EventsTimestampVisitor(IsSimpleTimestampFieldExpressionVisitor):
         if node.op == ast.ArithmeticOperationOp.Sub:
             return self.visit(node.left) and _is_constant(node.right, self.scan)
         return False
+
+    def visit_type_cast(self, node: ast.TypeCast) -> bool:
+        return node.type_name.lower() in _ORDER_PRESERVING_CAST_TYPES and self.visit(node.expr)
 
     def visit_call(self, node: ast.Call) -> bool:
         if node.args and (node.name in _ORDER_PRESERVING_FUNCTIONS or node.name.startswith("toStartOf")):
