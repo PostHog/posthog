@@ -44,19 +44,25 @@ class TestOrganizationFeatureFlagsConfig(BaseTest):
 class TestFlagEvaluationsTableGate(BaseTest):
     @parameterized.expand(
         [
-            ("events", FlagEvaluationsMode.EVENTS, False, False),
-            ("read_flag_evaluations", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False, True),
-            ("flag_evaluations_only", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False, True),
-            ("no_config_row", None, False, False),
+            ("self_hosted_events", FlagEvaluationsMode.EVENTS, False, False, False),
+            ("self_hosted_read_flag_evaluations", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False, False, True),
+            ("self_hosted_flag_evaluations_only", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False, False, True),
+            ("self_hosted_no_config_row", None, False, False, False),
             (
-                "read_flag_evaluations_while_reads_are_forced_to_events",
+                "self_hosted_read_flag_evaluations_while_reads_are_forced_to_events",
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                False,
                 True,
                 True,
             ),
+            ("cloud_events", FlagEvaluationsMode.EVENTS, True, False, True),
+            ("cloud_no_config_row", None, True, False, True),
+            ("cloud_read_flag_evaluations", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True, False, True),
         ]
     )
-    def test_table_is_enabled_by_the_organization_mode(self, _name, mode, reads_forced_to_events, expected):
+    def test_table_is_enabled_on_cloud_or_by_the_organization_mode(
+        self, _name, mode, cloud, reads_forced_to_events, expected
+    ):
         config = OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization)
         if mode is None:
             config.delete()
@@ -65,6 +71,7 @@ class TestFlagEvaluationsTableGate(BaseTest):
 
         with (
             self.settings(DEBUG=False, E2E_TESTING=False),
+            self.is_cloud(cloud),
             override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", reads_forced_to_events),
         ):
             self.assertEqual(is_flag_evaluations_table_enabled(self.team), expected)

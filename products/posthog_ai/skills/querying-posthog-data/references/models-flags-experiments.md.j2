@@ -58,7 +58,7 @@ PostHog is moving these calls from `events` to `posthog.flag_evaluations`, one o
 
 Mode | Where the flag calls are | `posthog.flag_evaluations`
 --- | --- | ---
-0 | `events` | Unknown table
+0 | `events` | Queryable on PostHog Cloud
 1 | `events` and `posthog.flag_evaluations` | Queryable
 2 | `posthog.flag_evaluations` only, for 90 days | Queryable
 

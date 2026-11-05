@@ -10,11 +10,12 @@ class FlagEvaluationsMode(LabeledIntEnum):
     allowlist includes.
     """
 
-    # Every reader of $feature_flag_called reads the events table. The flag_evaluations HogQL table stays hidden.
+    # Every reader of $feature_flag_called reads the events table. On PostHog Cloud the flag_evaluations HogQL
+    # table is still queryable. A self-hosted instance hides it.
     EVENTS = 0, "Events"
     # The Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only
     # $feature_flag_called read flag_evaluations. Other readers, such as experiment exposures, still read events.
-    # The HogQL table is visible.
+    # The HogQL table is visible on every instance.
     # Ingestion still writes every flag call to events, so FLAG_EVALUATIONS_READS_FORCE_EVENTS can move these
     # readers back to events.
     READ_FLAG_EVALUATIONS = 1, "Read flag evaluations"

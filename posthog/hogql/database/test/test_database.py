@@ -555,6 +555,42 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         context = HogQLContext(team_id=self.team.pk, database=database)
         assert "posthog.events_with_flag_calls" not in database.serialize(context, include_hidden_posthog_tables=True)
 
+    @parameterized.expand(
+        [
+            ("events_mode", FlagEvaluationsMode.EVENTS, False),
+            ("read_mode", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True),
+        ]
+    )
+    def test_cloud_has_the_table_on_every_mode_and_moves_flag_calls_only_off_events_mode(
+        self, _name: str, mode: FlagEvaluationsMode, reads_flag_evaluations: bool
+    ) -> None:
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization, defaults={"flag_evaluations_mode": mode}
+        )
+
+        with (
+            self.is_cloud(True),
+            patch(
+                "posthog.hogql.database.database.feature_enabled_or_false",
+                side_effect=lambda key, *args, **kwargs: key == "hogql-flag-calls-union",
+            ),
+        ):
+            database = Database.create_for(team=self.team)
+            execute_hogql_query("SELECT flag_key FROM posthog.flag_evaluations", team=self.team, pretty=False)
+            # The read mode swaps this query onto flag_evaluations, because it keeps to one flag key and to days
+            # inside the table's coverage.
+            flag_calls = execute_hogql_query(
+                "SELECT count() FROM events WHERE event = '$feature_flag_called' "
+                "AND properties.$feature_flag = 'my-flag' AND timestamp >= now() - INTERVAL 7 DAY",
+                team=self.team,
+                pretty=False,
+            )
+
+        assert database.has_table(["posthog", "flag_evaluations"])
+        assert database.read_flag_calls_from_flag_evaluations is reads_flag_evaluations
+        assert database.read_flag_calls_with_union is reads_flag_evaluations
+        assert ("flag_evaluations" in (flag_calls.clickhouse or "")) is reads_flag_evaluations
+
     def test_serialize_database_without_fields_matches_full_metadata(self):
         credential = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
         warehouse_table = DataWarehouseTable.objects.create(
