@@ -1355,8 +1355,23 @@ def _squash_commit(worktree: Path, head: str, default: str) -> str | None:
             *files,
         ],
     )
-    own_id = next(iter(own))
-    return candidates.get(own_id)
+    commit = candidates.get(next(iter(own)))
+    if commit is None or not _contains_branch(worktree, commit, head):
+        return None
+    return commit
+
+
+def _contains_branch(worktree: Path, commit: str, head: str) -> bool:
+    """Whether merging *head* into *commit* changes nothing.
+
+    A patch id leaves out where each hunk applies, so an edit moved to another block with the same
+    context lines has the id of the squash it no longer matches. Merging catches that."""
+
+    merged = _git(worktree, ["merge-tree", "--write-tree", commit, head])
+    tree = _git(worktree, ["rev-parse", f"{commit}^{{tree}}"])
+    if merged is None or tree is None or merged.returncode != 0 or tree.returncode != 0:
+        return False
+    return merged.stdout.split("\n", 1)[0].strip() == tree.stdout.strip()
 
 
 def _patch_ids(cwd: Path, git_args: Sequence[str], timeout: float = 120.0) -> dict[str, str]:
@@ -1369,14 +1384,23 @@ def _patch_ids(cwd: Path, git_args: Sequence[str], timeout: float = 120.0) -> di
 
     try:
         with subprocess.Popen(["git", *git_args], cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as patch:
-            ids = subprocess.run(
-                ["git", "patch-id", "--verbatim"], cwd=cwd, stdin=patch.stdout, capture_output=True, timeout=timeout
-            )
-            # Closed here too, so git exits on a broken pipe instead of blocking if patch-id stopped reading.
-            patch.stdout.close()
-            if patch.wait(timeout=timeout) != 0:
+            try:
+                ids = subprocess.run(
+                    ["git", "patch-id", "--verbatim"],
+                    cwd=cwd,
+                    stdin=patch.stdout,
+                    capture_output=True,
+                    timeout=timeout,
+                )
+                # Closed here too, so git exits on a broken pipe instead of blocking if patch-id stopped reading.
+                patch.stdout.close()
+                if patch.wait(timeout=timeout) != 0:
+                    return {}
+            except subprocess.TimeoutExpired:
+                # Leaving the with block waits for git without a timeout, so a stalled git is killed first.
+                patch.kill()
                 return {}
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+    except (FileNotFoundError, OSError):
         return {}
     commits: dict[str, str] = {}
     for line in ids.stdout.decode(errors="replace").splitlines():
