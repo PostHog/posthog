@@ -749,6 +749,7 @@ const inboxReportsForMe = (): ToolBase<ReturnType<typeof InboxReportsForMeSchema
             query: {
                 focus: params.focus,
                 limit: params.limit,
+                max_age_minutes: params.max_age_minutes,
                 refresh: params.refresh,
                 wait_seconds: params.wait_seconds,
             },
@@ -2144,6 +2145,7 @@ const scoutNotesList = (): ToolBase<
                 include_expired: params.include_expired,
                 include_general: params.include_general,
                 limit: params.limit,
+                only_without_expiry: params.only_without_expiry,
                 skill_name: params.skill_name,
                 text: params.text,
             },
