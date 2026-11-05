@@ -980,6 +980,8 @@ export interface HogQLMetadataColumn {
 export interface HogQLMetadataResponse {
     query?: string
     isValid?: boolean
+    /** The validator raised an internal error, such as a database failure, so the errors do not prove that the query is invalid. */
+    internalError?: boolean
     isUsingIndices?: QueryIndexUsage
     /** One entry per property filter, in query order. */
     index_usage?: PredicateIndexUsage[]
@@ -1094,6 +1096,8 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     debug?: boolean
     /** Analyze how each property filter reads its data. Costs a second type-resolution pass, so only editors that render the result should ask for it. */
     indexUsage?: boolean
+    /** Validate on the Python validator with freshly fetched sources, the same sources query execution uses. Adds a sources fetch on every request, so only set it where the result blocks an action. */
+    freshSources?: boolean
     /** Infer output column names and types without executing the query. Adds a type-resolution pass, so callers must opt in. */
     includeOutputTypes?: boolean
 }
