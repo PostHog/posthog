@@ -351,7 +351,7 @@ def _bound_run(launch: TrialLaunch) -> SignalScoutRun | None:
         or task.created_by_id != launch.user_id
         or task.deleted
         or task.origin_product != "signals_scout"
-        or task.origin_key != f"scout-trial:{launch.id}"
+        or task.stored_idempotency_key != f"scout-trial:{launch.id}"
         or not isinstance(marker, dict)
         or marker.get("version") != 1
         or marker.get("context_id") != str(launch.context_id)
