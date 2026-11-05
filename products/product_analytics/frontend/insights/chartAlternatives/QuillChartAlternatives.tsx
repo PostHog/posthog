@@ -24,7 +24,7 @@ export function QuillChartAlternatives({
                 render={<Button variant="outline" disabledReason={disabledReason} data-attr="chart-alternatives-all" />}
             >
                 {currentOption && <ChartDisplayIcon icon={currentOption.icon} />}
-                {currentOption?.label ?? 'Chart type'}
+                <span>{currentOption?.label ?? 'Chart type'}</span>
                 <SelectTriggerIcon />
             </PopoverTrigger>
             <PopoverContent

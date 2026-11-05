@@ -117,7 +117,7 @@ export function QuillChartFilter({
                 }
             >
                 {current && <ChartDisplayIcon icon={current.icon} />}
-                {current?.label ?? value}
+                <span>{current?.label ?? value}</span>
                 <SelectTriggerIcon />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
