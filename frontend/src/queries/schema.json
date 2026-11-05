@@ -30062,6 +30062,10 @@
                     "$ref": "#/definitions/HogQLFilters",
                     "description": "Extra filters applied to query via {filters} or the column-bound {filters(expr AS key, ...)} placeholder"
                 },
+                "freshSources": {
+                    "description": "Validate on the Python validator with freshly fetched sources, the same sources query execution uses. Adds a sources fetch on every request, so only set it where the result blocks an action.",
+                    "type": "boolean"
+                },
                 "globals": {
                     "description": "Extra globals for the query",
                     "type": "object"
@@ -30151,6 +30155,10 @@
                         "$ref": "#/definitions/PredicateIndexUsage"
                     },
                     "type": "array"
+                },
+                "internalError": {
+                    "description": "The validator raised an internal error, such as a database failure, so the errors do not prove that the query is invalid.",
+                    "type": "boolean"
                 },
                 "isUsingIndices": {
                     "$ref": "#/definitions/QueryIndexUsage"
@@ -43505,6 +43513,10 @@
                                 "$ref": "#/definitions/PredicateIndexUsage"
                             },
                             "type": "array"
+                        },
+                        "internalError": {
+                            "description": "The validator raised an internal error, such as a database failure, so the errors do not prove that the query is invalid.",
+                            "type": "boolean"
                         },
                         "isUsingIndices": {
                             "$ref": "#/definitions/QueryIndexUsage"
