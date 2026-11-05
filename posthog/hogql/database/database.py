@@ -384,7 +384,7 @@ def _build_raw_trino_view_catalog(
     passes the name to Trino unchanged, so both modes read the table.
     """
     views = {
-        saved_query.name.lower(): RawTrinoView(name=saved_query.name, sql=raw_trino_view_sql(saved_query.query))
+        saved_query.name: RawTrinoView(name=saved_query.name, sql=raw_trino_view_sql(saved_query.query))
         for chain, table, saved_query in raw_trino_tables
         if database.tables.has_child(chain) and database.tables.get_child(chain).table is table
     }

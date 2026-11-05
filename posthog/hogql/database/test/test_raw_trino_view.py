@@ -21,9 +21,7 @@ from posthog.schema_enums import PersonsOnEventsMode
 
 
 def _catalog(views: dict[str, str], **names: frozenset[str]) -> RawTrinoViewCatalog:
-    return RawTrinoViewCatalog(
-        views={name.lower(): RawTrinoView(name=name, sql=sql) for name, sql in views.items()}, **names
-    )
+    return RawTrinoViewCatalog(views={name: RawTrinoView(name=name, sql=sql) for name, sql in views.items()}, **names)
 
 
 CATALOG = _catalog(
@@ -43,6 +41,11 @@ CATALOG = _catalog(
         "reads_hogql": "SELECT * FROM hogql_view",
         "reads_gone": "SELECT * FROM gone",
         "reads_real": "SELECT * FROM real_table",
+        "other.daily": "SELECT 6 AS w",
+        "Mixed": "SELECT 7 AS m",
+        "mixed": "SELECT 8 AS m",
+        "reads_mixed": "SELECT * FROM mixed",
+        "uses_paren": "SELECT h.h FROM (helper) h",
     },
     denied_names=frozenset({"secret"}),
     hogql_view_names=frozenset({"hogql_view"}),
@@ -121,6 +124,18 @@ def test_leaves_sql_without_view_references_unchanged(sql: str) -> None:
             'WITH __ph_rv_0 AS (\nSELECT 2 AS y\n)\nSELECT * FROM __ph_rv_0 AS "daily", __ph_rv_0 r',
         ),
         (
+            "SELECT reports.daily.y, reports.daily.*, r.y FROM reports.daily JOIN reports.daily r ON true",
+            'WITH __ph_rv_0 AS (\nSELECT 2 AS y\n)\nSELECT "daily".y, "daily".*, r.y '
+            'FROM __ph_rv_0 AS "daily" JOIN __ph_rv_0 r ON true',
+        ),
+        ("SELECT d.x FROM (daily) d", f"WITH {DAILY}\nSELECT d.x FROM (__ph_rv_0) d"),
+        ("WITH daily AS (SELECT 5) SELECT * FROM (daily) d", "WITH daily AS (SELECT 5) SELECT * FROM (daily) d"),
+        (
+            "SELECT * FROM uses_paren",
+            "WITH __ph_rv_0 AS (\nSELECT 3 AS h\n), __ph_rv_1 AS (\nSELECT h.h FROM (__ph_rv_0) h\n)\n"
+            'SELECT * FROM __ph_rv_1 AS "uses_paren"',
+        ),
+        (
             "SELECT * FROM a",
             "WITH __ph_rv_0 AS (\nSELECT 5 AS z\n), "
             '__ph_rv_1 AS (\nSELECT * FROM __ph_rv_0 AS "d"\n), '
@@ -153,6 +168,9 @@ def test_hoists_each_referenced_view_once(sql: str, expected: str) -> None:
         ("SELECT * FROM reads_hogql", CATALOG, "'hogql_view' is a HogQL view"),
         ("SELECT * FROM reads_gone", CATALOG, "reads view 'gone', which was deleted"),
         ("SELECT FROM WHERE daily", CATALOG, "Could not parse the query to expand view 'daily'"),
+        ("SELECT * FROM mixed", CATALOG, "Several views are named 'mixed' when case is ignored"),
+        ("SELECT * FROM reads_mixed", CATALOG, "Several views are named 'mixed' when case is ignored"),
+        ("SELECT * FROM reports.daily, other.daily", CATALOG, "both named 'daily'. Give one an alias"),
         (
             "SELECT * FROM view_a",
             _catalog({"view_a": "SELECT * FROM view_b", "view_b": "SELECT * FROM view_a"}),
@@ -170,12 +188,13 @@ def test_refuses_expansions_trino_cannot_run(sql: str, catalog: RawTrinoViewCata
         expand_raw_trino_view_references(sql, catalog)
 
 
-def test_refuses_expansions_over_the_size_cap() -> None:
+@pytest.mark.parametrize("sql", ["SELECT * FROM a", "SELECT * FROM t" + " JOIN daily ON true" * 4])
+def test_refuses_expansions_over_the_size_cap(sql: str) -> None:
     with (
-        patch("posthog.hogql.database.raw_trino_view.MAX_EXPANDED_SQL_LENGTH", 20),
+        patch("posthog.hogql.database.raw_trino_view.MAX_EXPANDED_SQL_LENGTH", 60),
         pytest.raises(ExposedHogQLError, match="too much SQL"),
     ):
-        expand_raw_trino_view_references("SELECT * FROM a", CATALOG)
+        expand_raw_trino_view_references(sql, CATALOG)
 
 
 def test_many_leading_comments_do_not_backtrack() -> None:
@@ -189,7 +208,7 @@ def _context(
     catalog: RawTrinoViewCatalog | None, table_class: type[RawTrinoViewTable] = RawTrinoViewTable
 ) -> HogQLContext:
     database = Database(include_posthog_tables=False)
-    for name in ["daily", "reports.daily", "a", "reads_hogql"]:
+    for name in ["daily", "reports.daily", "a", "reads_hogql", "Mixed"]:
         database.tables.add_child(
             TableNode.create_nested_for_chain(
                 name.split("."), table=table_class(name=name, fields={"x": IntegerDatabaseField(name="x")})
@@ -219,6 +238,7 @@ def _context(
             '__ph_rv_2 AS (\nSELECT * FROM __ph_rv_0 AS "d"\n)\n'
             'SELECT * FROM __ph_rv_1 AS "b" JOIN __ph_rv_2 AS "c" ON true\n) AS "a"',
         ),
+        ("SELECT x FROM Mixed", 'SELECT "Mixed"."x" FROM (\nSELECT 7 AS m\n) AS "Mixed"'),
     ],
 )
 def test_trino_printer_inlines_raw_trino_views(query: str, expected: str) -> None:

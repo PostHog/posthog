@@ -9,6 +9,8 @@ from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
+    from sqlglot import exp
+    from sqlglot.optimizer.scope import Scope
     from sqlglot.tokens import Token as DialectToken
 
     from posthog.hogql.context import HogQLContext
@@ -32,7 +34,7 @@ class RawTrinoView:
 
 @frozen
 class RawTrinoViewCatalog:
-    """The raw Trino views a caller can read. Every key is a lowercase view name, because Trino ignores identifier case."""
+    """The raw Trino views a caller can read, keyed by exact view name. The name sets hold lowercase names."""
 
     views: Mapping[str, RawTrinoView]
     denied_names: frozenset[str] = frozenset()
@@ -92,10 +94,36 @@ def _clean_body(view: RawTrinoView) -> str:
     return "".join(pieces)
 
 
-def _apply(sql: str, edits: list[tuple[int, int, str]]) -> str:
-    for start, end, text in sorted(edits, reverse=True):
-        sql = sql[:start] + text + sql[end:]
-    return sql
+@frozen
+class _Edit:
+    """Replace `sql[start:end]` with `text`."""
+
+    start: int
+    end: int
+    text: str
+
+
+def _apply(sql: str, edits: list[_Edit]) -> str:
+    pieces: list[str] = []
+    position = 0
+    for edit in sorted(edits, key=lambda edit: (edit.start, edit.end)):
+        pieces.append(sql[position : edit.start])
+        pieces.append(edit.text)
+        position = edit.end
+    pieces.append(sql[position:])
+    return "".join(pieces)
+
+
+def _has_alias(table: "exp.Table") -> bool:
+    from sqlglot import exp  # noqa: PLC0415 -- load dialect grammars only for Trino queries
+
+    node: exp.Expression = table
+    while True:
+        if node.args.get("alias"):
+            return True
+        if not isinstance(node.parent, exp.Subquery):
+            return False
+        node = node.parent
 
 
 class _Expansion:
@@ -106,9 +134,25 @@ class _Expansion:
         self.ctes: list[str] = []
         self.cte_names: dict[str, str] = {}
         self.size = 0
+        # Trino ignores identifier case, so views whose names differ only by case cannot be told apart.
+        self.views: dict[str, RawTrinoView] = {}
+        self.ambiguous_names: set[str] = set()
+        for view in catalog.views.values():
+            key = view.name.lower()
+            if key in self.views:
+                self.ambiguous_names.add(key)
+            self.views[key] = view
+        for key in self.ambiguous_names:
+            del self.views[key]
         self.lookup_words = {
             word
-            for name in (*catalog.views, *catalog.denied_names, *catalog.hogql_view_names, *catalog.deleted_names)
+            for name in (
+                *self.views,
+                *self.ambiguous_names,
+                *catalog.denied_names,
+                *catalog.hogql_view_names,
+                *catalog.deleted_names,
+            )
             for word in (name, *name.split("."))
         }
 
@@ -128,12 +172,12 @@ class _Expansion:
                 raise ExposedHogQLError(
                     "A WITH RECURSIVE query cannot read a saved view. Copy the view's SQL into the query instead."
                 )
-            edits.append((first.end + 1, first.end + 1, f" {ctes},"))
+            edits.append(_Edit(start=first.end + 1, end=first.end + 1, text=f" {ctes},"))
         else:
-            edits.append((first.start, first.start, f"WITH {ctes}\n"))
+            edits.append(_Edit(start=first.start, end=first.start, text=f"WITH {ctes}\n"))
         return _apply(sql, edits)
 
-    def _rewrite(self, sql: str, tokens: list["DialectToken"], *, path: list[str]) -> list[tuple[int, int, str]]:
+    def _rewrite(self, sql: str, tokens: list["DialectToken"], *, path: list[str]) -> list[_Edit]:
         from sqlglot import exp, parse_one  # noqa: PLC0415 -- load dialect grammars only for Trino queries
         from sqlglot.errors import SqlglotError  # noqa: PLC0415
         from sqlglot.optimizer.scope import traverse_scope  # noqa: PLC0415
@@ -155,26 +199,63 @@ class _Expansion:
         if scopes is None:
             raise ExposedHogQLError(f"Could not parse the query to expand view '{named}'.")
 
-        edits: list[tuple[int, int, str]] = []
+        edits: list[_Edit] = []
         for scope in scopes:
             ctes = {name.lower() for name in scope.cte_sources}
-            for table in scope.tables:
+            # A parenthesized table such as `FROM (daily) d` gets its own scope with the table as the expression.
+            tables = [scope.expression] if isinstance(scope.expression, exp.Table) else scope.tables
+            for table in tables:
                 parts = table.parts
                 if not isinstance(table.this, exp.Identifier) or not all(isinstance(p, exp.Identifier) for p in parts):
                     continue
                 key = ".".join(part.name for part in parts).lower()
                 if len(parts) == 1 and key in ctes:
                     continue
-                view = self.catalog.views.get(key)
+                if key in self.ambiguous_names:
+                    raise ExposedHogQLError(
+                        f"Several views are named '{parts[-1].name}' when case is ignored. Rename one."
+                    )
+                view = self.views.get(key)
                 if view is None:
                     self._refuse_unreadable(key, parts[-1].name, path=path, qualified=len(parts) > 1)
                     continue
                 start, stop = parts[0].meta.get("start"), parts[-1].meta.get("end")
                 if start is None or stop is None:
                     raise ExposedHogQLError(f"Could not parse the query to expand view '{view.name}'.")
-                alias = "" if table.args.get("alias") else f" AS {_quote(parts[-1].name)}"
-                edits.append((start, stop + 1, self._hoist(view, path) + alias))
+                aliased = _has_alias(table)
+                alias = "" if aliased else f" AS {_quote(parts[-1].name)}"
+                edits.append(_Edit(start=start, end=stop + 1, text=self._hoist(view, path) + alias))
+                if len(parts) > 1 and not aliased:
+                    edits.extend(self._requalify(scope, tables, table, view))
+        for edit in edits:
+            self._grow(len(edit.text))
         return edits
+
+    def _requalify(
+        self, scope: "Scope", tables: list["exp.Table"], table: "exp.Table", view: RawTrinoView
+    ) -> list[_Edit]:
+        """Point `reports.daily.x` and `reports.daily.*` at the `daily` alias that replaces the dotted name."""
+        name = table.parts[-1].name
+        if sum(1 for other in tables if other.alias_or_name.lower() == name.lower()) > 1:
+            raise ExposedHogQLError(
+                f"View '{view.name}' and another table in the query are both named '{name}'. Give one an alias."
+            )
+        dotted = [part.name.lower() for part in table.parts]
+        edits: list[_Edit] = []
+        for column in (*scope.columns, *scope.stars):
+            qualifier = column.parts[:-1]
+            if [part.name.lower() for part in qualifier] != dotted:
+                continue
+            start, stop = qualifier[0].meta.get("start"), qualifier[-1].meta.get("end")
+            if start is None or stop is None:
+                raise ExposedHogQLError(f"Could not parse the query to expand view '{view.name}'.")
+            edits.append(_Edit(start=start, end=stop + 1, text=_quote(name)))
+        return edits
+
+    def _grow(self, length: int) -> None:
+        self.size += length
+        if self.size > MAX_EXPANDED_SQL_LENGTH:
+            raise ExposedHogQLError("The saved views this query reads expand to too much SQL. Read fewer views.")
 
     def _refuse_unreadable(self, key: str, name: str, *, path: list[str], qualified: bool) -> None:
         if key in self.catalog.denied_names:
@@ -200,9 +281,7 @@ class _Expansion:
 
         body = _clean_body(view)
         expanded = _apply(body, self._rewrite(body, _lex(body), path=[*path, view.name]))
-        self.size += len(expanded)
-        if self.size > MAX_EXPANDED_SQL_LENGTH:
-            raise ExposedHogQLError("The saved views this query reads expand to too much SQL. Read fewer views.")
+        self._grow(len(expanded))
         cte_name = f"{VIEW_CTE_PREFIX}{len(self.ctes)}"
         self.ctes.append(f"{cte_name} AS (\n{expanded}\n)")
         self.cte_names[key] = cte_name
@@ -219,8 +298,11 @@ def expand_raw_trino_view_references(sql: str, catalog: RawTrinoViewCatalog) -> 
 
 
 def expand_raw_trino_view(name: str, catalog: RawTrinoViewCatalog) -> str:
-    """The view's SQL as a standalone statement, with the views it reads hoisted into its leading WITH."""
-    view = catalog.views.get(name.lower())
+    """The view's SQL as a standalone statement, with the views it reads hoisted into its leading WITH.
+
+    HogQL already resolved the exact name, so the lookup keeps its case.
+    """
+    view = catalog.views.get(name)
     if view is None:
         raise QueryError(f"Unknown raw Trino view '{name}'.")
     return _Expansion(catalog).statement(_clean_body(view), owner=view)
