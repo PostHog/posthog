@@ -3098,9 +3098,9 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # human re-enable apart from a system resume. Who last edited anything else on the row
     # stays the activity log's job. `db_constraint=False` because posthog_user is a hot table
     # and adding the FK constraint would lock it; integrity is app-level only, like the
-    # constraint-free path recommended for hot-table FKs. `db_index=False` because nothing
-    # queries by attribution (it is read per-row) and the FK's default index would otherwise
-    # be built non-concurrently inside the migration.
+    # constraint-free path recommended for hot-table FKs. `db_index=False` because the FK's
+    # default index would be built non-concurrently inside the migration. The partial index in
+    # `Meta` serves the `SET_NULL` cascade that a User delete runs against this column.
     status_changed_by = models.ForeignKey(
         "posthog.User",
         on_delete=models.SET_NULL,
@@ -3307,6 +3307,11 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         indexes = [
             # The owning product's lookup: "which scouts belong to this object of mine".
             models.Index(fields=["team", "source_product", "source_id"], name="scout_config_source_idx"),
+            models.Index(
+                fields=["status_changed_by"],
+                condition=models.Q(status_changed_by__isnull=False),
+                name="scout_config_status_by_idx",
+            ),
         ]
         constraints = [
             models.UniqueConstraint(fields=["team", "skill_name"], name="unique_scout_config_per_team_skill"),
