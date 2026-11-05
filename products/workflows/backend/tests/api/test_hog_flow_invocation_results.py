@@ -157,8 +157,7 @@ class TestHogFlowInvocationResults(ClickhouseTestMixin, APIBaseTest):
 
     def test_count_matches_list_filters(self):
         # The count endpoint must apply the same filters as the list endpoint, on the
-        # collapsed latest state - drifting filters would make the incident banner show
-        # a count the rerun wouldn't actually target.
+        # collapsed latest state of each run.
         self._seed("inv-match", invocation_status="failed", error_message="The custom sender address is invalid")
         # Replayed since: latest status succeeded, must not count.
         self._seed("inv-replayed", invocation_status="failed", error_message="The custom sender address is invalid")
