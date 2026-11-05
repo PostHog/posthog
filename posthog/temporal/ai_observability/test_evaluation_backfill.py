@@ -424,8 +424,10 @@ class TestEvaluationBackfillWorkflow:
             await replayer.replay_workflow(history)
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("max_in_flight,peak", [(0, 16), (4, 4)])
-    async def test_batch_dispatch_waits_for_outcomes_before_advancing(self, max_in_flight: int, peak: int) -> None:
+    @pytest.mark.parametrize("max_in_flight,in_flight_limit,peak", [(0, 0, 16), (4, 0, 4), (4, 9, 4)])
+    async def test_batch_dispatch_waits_for_outcomes_before_advancing(
+        self, max_in_flight: int, in_flight_limit: int, peak: int
+    ) -> None:
         found = dataclasses.replace(
             _found([_candidate(f"u{i}") for i in range(19)], exhausted=True),
             next_cursor_timestamp=(UNIT_TIMESTAMP - timedelta(hours=1)).isoformat(),
@@ -438,7 +440,7 @@ class TestEvaluationBackfillWorkflow:
             }
         )
 
-        await _run(mocks, bounded=True)
+        await _run(mocks, dataclasses.replace(_inputs(), in_flight_limit=in_flight_limit), bounded=True)
 
         advances = [value for fn, value in mocks.activity_calls if fn is advance_evaluation_backfill_cursor_activity]
         assert mocks.peak_children == peak
@@ -504,6 +506,47 @@ class TestEvaluationBackfillWorkflow:
             result.evaluation_skipped_delta,
             result.failed_delta,
         ) == (4, 1, 2, 1)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "error_type,next_limit",
+        [("provider_unavailable", 2), ("trace_errored", 3)],
+    )
+    async def test_a_rate_limited_run_lowers_the_in_flight_limit(self, error_type: str, next_limit: int) -> None:
+        judge_error = ActivityError(
+            "judge failed",
+            scheduled_event_id=1,
+            started_event_id=2,
+            identity="test",
+            activity_type="judge",
+            activity_id="1",
+            retry_state=None,
+        )
+        judge_error.__cause__ = ApplicationError("429", {"error_type": error_type})
+        run_error = ChildWorkflowError(
+            "Child workflow failed",
+            namespace="default",
+            workflow_id="llma-hog-eval-E-u0-ingestion",
+            run_id="run",
+            workflow_type="run-evaluation",
+            initiated_event_id=1,
+            started_event_id=2,
+            retry_state=None,
+        )
+        run_error.__cause__ = judge_error
+        mocks = _BackfillMocks(
+            activity_results={
+                prepare_evaluation_backfill_tick_activity: _tick(max_in_flight=4),
+                find_evaluation_backfill_candidates_activity: _found([_candidate(f"u{i}") for i in range(3)]),
+            },
+            child_results_for_ids={"llma-hog-eval-E-u0-ingestion": run_error},
+        )
+
+        continue_as_new = await _run(mocks, dataclasses.replace(_inputs(), in_flight_limit=2), bounded=True)
+
+        assert mocks.peak_children == 2
+        assert _advance_input(mocks).failed_delta == 1
+        assert continue_as_new.call_args.args[0].in_flight_limit == next_limit
 
     @pytest.mark.asyncio
     async def test_a_cancel_mid_page_records_the_runs_already_started(self) -> None:
