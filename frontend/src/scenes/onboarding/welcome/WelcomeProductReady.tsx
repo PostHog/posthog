@@ -3,7 +3,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import type { OnboardingProduct } from '~/types'
 
-import { toSentenceCase } from '../shared/utils'
+import { toSentenceCase } from '../../../lib/onboarding/utils'
 
 export function WelcomeProductReady({
     product,

@@ -3,8 +3,8 @@ import { useState } from 'react'
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
-import { WizardCommandBlock } from 'scenes/onboarding/shared/wizard-command/WizardCommandBlock'
+import { useWizardCommand } from 'lib/onboarding/useWizardCommand'
+import { WizardCommandBlock } from 'lib/onboarding/wizard-command/WizardCommandBlock'
 
 import { SDKSetupInstructions } from './SDKSetupInstructions'
 

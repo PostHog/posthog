@@ -7,12 +7,12 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { UrlTriggerConfig } from 'lib/components/IngestionControls/types'
 import { compareVersion } from 'lib/utils/semver'
-import { sdkHealthLogic } from 'scenes/onboarding/shared/sdkHealth/sdkHealthLogic'
+import { sdkHealthLogic } from 'scenes/sdk-health/sdkHealthLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { TeamPublicType, TeamType } from '~/types'
 
-import type { AugmentedTeamSdkVersionsInfo } from '../../onboarding/shared/sdkHealth/sdkHealthLogic'
+import type { AugmentedTeamSdkVersionsInfo } from '../../sdk-health/sdkHealthLogic'
 
 export type ReplayPlatform = 'web' | 'mobile'
 
@@ -545,9 +545,8 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
     selectors({
         webTrafficIsRecent: [
             (s) => [s.augmentedData],
-            (
-                augmentedData: import('scenes/onboarding/shared/sdkHealth/sdkHealthLogic').AugmentedTeamSdkVersionsInfo
-            ): boolean => legacyConditionsAreInactive(augmentedData?.web?.allReleases ?? []),
+            (augmentedData: import('scenes/sdk-health/sdkHealthLogic').AugmentedTeamSdkVersionsInfo): boolean =>
+                legacyConditionsAreInactive(augmentedData?.web?.allReleases ?? []),
         ],
         hasV2TriggerGroups: [
             (s) => [s.currentTeam],
@@ -557,20 +556,19 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
         shouldMinimizeLegacyConditions: [
             (s) => [s.augmentedData, s.hasV2TriggerGroups],
             (
-                augmentedData: import('scenes/onboarding/shared/sdkHealth/sdkHealthLogic').AugmentedTeamSdkVersionsInfo,
+                augmentedData: import('scenes/sdk-health/sdkHealthLogic').AugmentedTeamSdkVersionsInfo,
                 hasV2TriggerGroups: boolean
             ): boolean => legacyUiShouldBeMinimized(augmentedData?.web?.allReleases ?? [], hasV2TriggerGroups),
         ],
         hasOutdatedWebSdk: [
             (s) => [s.augmentedData],
-            (
-                augmentedData: import('scenes/onboarding/shared/sdkHealth/sdkHealthLogic').AugmentedTeamSdkVersionsInfo
-            ): boolean => hasOutdatedWebSdk(augmentedData?.web?.allReleases ?? []),
+            (augmentedData: import('scenes/sdk-health/sdkHealthLogic').AugmentedTeamSdkVersionsInfo): boolean =>
+                hasOutdatedWebSdk(augmentedData?.web?.allReleases ?? []),
         ],
         outdatedWebTraffic: [
             (s) => [s.augmentedData],
             (
-                augmentedData: import('scenes/onboarding/shared/sdkHealth/sdkHealthLogic').AugmentedTeamSdkVersionsInfo
+                augmentedData: import('scenes/sdk-health/sdkHealthLogic').AugmentedTeamSdkVersionsInfo
             ): { outdatedCount: number; totalCount: number; share: number } =>
                 outdatedWebTrafficShare(augmentedData?.web?.allReleases ?? []),
         ],

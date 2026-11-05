@@ -1,4 +1,7 @@
-import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
+import {
+    OnboardingComponentsContext,
+    createInstallation,
+} from 'scenes/settings/environment/OnboardingDocsContentWrapper'
 
 import { PROSE_LANGUAGE, StepDefinition } from '../steps'
 import { getOtelRequestContextStep } from './_snippets/otel-request-context'

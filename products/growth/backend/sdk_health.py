@@ -365,7 +365,7 @@ def _released_ago(release_date_iso: Optional[str], now: Optional[datetime] = Non
 
 # --- UI-facing string/URL builders ---------
 #
-# The SDK Health UI (frontend/src/scenes/onboarding/sdks/) renders these strings/URLs verbatim
+# The SDK Health UI (frontend/src/scenes/sdk-health/) renders these strings/URLs verbatim
 # from the report endpoint, so this is the single place the copy and Activity/SQL links are built.
 
 

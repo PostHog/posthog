@@ -106,7 +106,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.HealthCategoryDetail]: () => import('./health/categoryDetail/HealthCategoryDetailScene'),
     [Scene.HealthAlerts]: () => import('./health-alerts/HealthAlertsScene'),
     [Scene.PipelineStatus]: () => import('./health/pipelineStatus/PipelineStatusScene'),
-    [Scene.SdkHealth]: () => import('./onboarding/shared/sdkHealth/SdkHealthScene'),
+    [Scene.SdkHealth]: () => import('./sdk-health/SdkHealthScene'),
     [Scene.Exports]: () => import('./exports/ExportsScene'),
     [Scene.SessionAttributionExplorer]: () =>
         import('scenes/web-analytics/SessionAttributionExplorer/SessionAttributionExplorerScene'),

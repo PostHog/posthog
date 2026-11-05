@@ -6,7 +6,7 @@ import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/ty
 
 import type { OnboardingProduct } from '~/types'
 
-import { toSentenceCase } from '../shared/utils'
+import { toSentenceCase } from '../../../lib/onboarding/utils'
 import { WelcomeCelebration } from './WelcomeCelebration'
 import { WelcomeLoading } from './WelcomeLoading'
 import { WelcomeProductDetection } from './WelcomeProductDetection'

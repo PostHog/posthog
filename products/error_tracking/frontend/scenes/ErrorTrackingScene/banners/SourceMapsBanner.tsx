@@ -6,7 +6,7 @@ import { IconMagicWand } from '@posthog/icons'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { Link } from 'lib/lemon-ui/Link'
-import { WizardHog } from 'scenes/onboarding/shared/wizardHog'
+import { WizardHog } from 'lib/onboarding/wizardHog'
 
 import { BannerCallout } from './BannerCallout'
 import { errorTrackingBannersLogic } from './errorTrackingBannersLogic'

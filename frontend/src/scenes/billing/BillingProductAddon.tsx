@@ -6,8 +6,8 @@ import { IconCheckCircle, IconInfo } from '@posthog/icons'
 import { LemonSelectOptions, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { billingLogic } from 'lib/logic/billing/billingLogic'
+import { getProductIcon } from 'lib/onboarding/utils'
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
-import { getProductIcon } from 'scenes/onboarding/shared/utils'
 
 import { BillingProductV2AddonType } from '~/types'
 

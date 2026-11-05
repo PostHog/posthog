@@ -13,7 +13,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { isCompanionProduct } from 'lib/logic/billing/companionProducts'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getProductIcon } from 'scenes/onboarding/shared/utils'
+import { getProductIcon } from 'lib/onboarding/utils'
 
 import {
     AvailableFeature,

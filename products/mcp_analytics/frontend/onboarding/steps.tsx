@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
-import { OnboardingStep } from 'scenes/onboarding/OnboardingStep'
-import { availableOnboardingProducts } from 'scenes/onboarding/shared/utils'
-import { type ProductOnboardingProvider } from 'scenes/onboarding/types'
+import { availableOnboardingProducts } from 'lib/onboarding/utils'
+import { onboardingLogic } from 'scenes/onboarding/flows/control/onboardingLogic'
+import { OnboardingStep } from 'scenes/onboarding/flows/control/OnboardingStep'
+import { type ProductOnboardingProvider } from 'scenes/onboarding/flows/control/types'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'

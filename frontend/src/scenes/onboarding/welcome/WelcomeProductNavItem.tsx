@@ -7,7 +7,7 @@ import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/produc
 import { ProductKey } from '~/queries/schema/schema-general'
 import type { OnboardingProduct } from '~/types'
 
-import { getProductIcon, toSentenceCase } from '../shared/utils'
+import { getProductIcon, toSentenceCase } from '../../../lib/onboarding/utils'
 
 export function WelcomeProductNavItem({
     productKey,

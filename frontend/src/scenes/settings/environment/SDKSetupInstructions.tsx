@@ -40,10 +40,10 @@ import {
 import type { StepDefinition } from '@posthog/shared-onboarding/steps'
 
 import { Link } from 'lib/lemon-ui/Link'
+import SetupWizardBanner from 'lib/onboarding/SetupWizardBanner'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { JS_WEB_SNIPPETS } from 'scenes/onboarding/shared/jsWebSnippets'
-import { OnboardingDocsContentWrapper } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
-import SetupWizardBanner from 'scenes/onboarding/shared/SetupWizardBanner'
+import { JS_WEB_SNIPPETS } from 'scenes/settings/environment/jsWebSnippets'
+import { OnboardingDocsContentWrapper } from 'scenes/settings/environment/OnboardingDocsContentWrapper'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { SDKKey } from '~/types'

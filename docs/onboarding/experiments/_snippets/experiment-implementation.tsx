@@ -1,6 +1,6 @@
 import { memo } from 'react'
 
-import { useMDXComponents } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
+import { useMDXComponents } from 'scenes/settings/environment/OnboardingDocsContentWrapper'
 
 export const ExperimentImplementationSnippet = memo(
     ({ language = 'javascript' }: { language?: string }): JSX.Element => {

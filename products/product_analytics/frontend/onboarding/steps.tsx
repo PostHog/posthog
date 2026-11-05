@@ -2,15 +2,15 @@ import { useValues } from 'kea'
 
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
-import { OnboardingProductConfiguration } from 'scenes/onboarding/OnboardingProductConfiguration'
-import { type ProductConfigOption } from 'scenes/onboarding/onboardingProductConfigurationLogic'
-import { OnboardingSessionReplayConfiguration } from 'scenes/onboarding/OnboardingSessionReplayConfiguration'
-import { OnboardingInstallStep } from 'scenes/onboarding/sdks/OnboardingInstallStep'
+import { OnboardingProductConfiguration } from 'scenes/onboarding/flows/control/OnboardingProductConfiguration'
+import { type ProductConfigOption } from 'scenes/onboarding/flows/control/onboardingProductConfigurationLogic'
+import { OnboardingSessionReplayConfiguration } from 'scenes/onboarding/flows/control/OnboardingSessionReplayConfiguration'
+import { OnboardingInstallStep } from 'scenes/onboarding/flows/control/sdks/OnboardingInstallStep/index'
 import {
     ProductAnalyticsSDKInstructions,
     ProductAnalyticsSDKTagOverrides,
-} from 'scenes/onboarding/sdks/product-analytics/ProductAnalyticsSDKInstructions'
-import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/types'
+} from 'scenes/onboarding/flows/control/sdks/product-analytics/ProductAnalyticsSDKInstructions'
+import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/flows/control/types'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'

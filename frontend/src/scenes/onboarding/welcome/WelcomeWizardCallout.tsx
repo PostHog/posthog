@@ -1,7 +1,7 @@
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
 
-import { useWizardCommand } from '../shared/useWizardCommand'
-import { WizardHog } from '../shared/wizardHog'
+import { useWizardCommand } from '../../../lib/onboarding/useWizardCommand'
+import { WizardHog } from '../../../lib/onboarding/wizardHog'
 
 export function WelcomeWizardCallout(): JSX.Element | null {
     const { wizardCommand, isCloudOrDev } = useWizardCommand()

@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
-import { setupWizardStatusLogic } from 'scenes/onboarding/shared/setupWizardStatusLogic'
+import { setupWizardStatusLogic } from 'scenes/insights/EmptyStates/setupWizardStatusLogic'
 
 export function SampleDataTag(): JSX.Element {
     const { setupStatus } = useValues(setupWizardStatusLogic)

@@ -1,7 +1,7 @@
 import { SetupTaskId } from 'lib/components/ProductSetup'
-import { LogsSDKInstructions } from 'scenes/onboarding/sdks/logs/LogsSDKInstructions'
-import { OnboardingInstallStep } from 'scenes/onboarding/sdks/OnboardingInstallStep'
-import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/types'
+import { LogsSDKInstructions } from 'scenes/onboarding/flows/control/sdks/logs/LogsSDKInstructions'
+import { OnboardingInstallStep } from 'scenes/onboarding/flows/control/sdks/OnboardingInstallStep/index'
+import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/flows/control/types'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
