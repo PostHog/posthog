@@ -203,7 +203,7 @@ def swap_flag_calls(
     `flag_evaluations`, it raises a QueryError instead of returning the original. It also raises before it
     resolves anything when such an organization's query has a scan of only flag calls with a shape that
     `flag_evaluations` cannot stand in for. When the union refuses a scan, the query raises only if that scan still
-    reads `events` after the swap by resolved filters.
+    reads `events` after `swap_scans_found_by_type`.
 
     While `events` still gets flag calls, the original query is the answer whenever the two tables can read a row
     differently:
@@ -279,8 +279,8 @@ def _resolve_with_swaps(
     if sources is not None:
         with context.timings.measure("flag_calls_from_flag_evaluations_by_type"):
             refusal = swapper.swap_scans_found_by_type(original, sources, clones)
-        # The swap by type can move a scan that the union refused, such as a scan joined after another table, to
-        # flag_evaluations. Each other refused scan still reads flag calls from events.
+        # swap_scans_found_by_type can move a scan that the union refused, such as a scan joined after another table,
+        # to flag_evaluations. Each other refused scan still reads flag calls from events.
         refusal = refusal or next(
             (
                 union_refusal.reason

@@ -228,6 +228,7 @@ class TestRenameFlagCallScansToUnion(SimpleTestCase):
                 [UNION],
                 [],
             ),
+            # Substituting each alias of a call in place would copy about 2**40 nodes, so a regression hangs here.
             (
                 "long_chain_of_aliases_that_each_name_the_one_before_twice",
                 "SELECT event AS a0, "
@@ -236,7 +237,7 @@ class TestRenameFlagCallScansToUnion(SimpleTestCase):
                 [UNION],
                 [],
             ),
-            # The swap by resolved filters cannot read a pin through an alias of a comparison, so the union reads it.
+            # swap_scans_found_by_type cannot read a pin through an alias of a comparison, so the union reads it.
             (
                 "alias_of_a_comparison_with_flag_calls",
                 "SELECT event = '$feature_flag_called' AS is_flag_call, count() FROM events "
@@ -262,6 +263,25 @@ class TestRenameFlagCallScansToUnion(SimpleTestCase):
                 "WHERE name IN ('$pageview', '$feature_flag_called')",
                 ["persons", "events"],
                 ["it joins events after another table"],
+            ),
+            (
+                "inline_alias_of_event",
+                "SELECT count() FROM events WHERE (event AS name) IN ('$pageview', '$feature_flag_called')",
+                [UNION],
+                [],
+            ),
+            (
+                "inline_alias_of_the_flag_call_event_name",
+                "SELECT count() FROM events WHERE event IN ('$pageview', ('$feature_flag_called' AS name))",
+                [UNION],
+                [],
+            ),
+            (
+                "alias_of_a_tuple_with_flag_calls",
+                "SELECT ('$pageview', '$feature_flag_called') AS names, count() FROM events "
+                "WHERE event IN names GROUP BY names",
+                [UNION],
+                [],
             ),
             (
                 "cte_named_events_after_another_table",
@@ -495,6 +515,13 @@ class TestReadFlagCallsWithUnion(BaseTest):
             (
                 "mixed_scan_after_another_table",
                 f"SELECT count() FROM persons AS p JOIN events AS e ON p.id = e.person_id WHERE {E_MIXED}",
+                "it joins events after another table",
+            ),
+            (
+                "mixed_scan_after_a_swapped_scan_of_only_flag_calls",
+                "SELECT count() FROM persons AS p JOIN events AS a ON p.id = a.person_id "
+                "JOIN events AS b ON a.uuid = b.uuid "
+                "WHERE a.event = '$feature_flag_called' AND b.event IN ('$pageview', '$feature_flag_called')",
                 "it joins events after another table",
             ),
             (

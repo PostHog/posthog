@@ -241,7 +241,7 @@ def rename_flag_call_scans_to_union(
     renames nor refuses it. The swap cannot read an unqualified `event` next to a join. On mode 1 a first scan that
     reads only flag calls through such an `event` stays on events. On mode 2 the union renames it.
 
-    A refusal does not decide the query on mode 2. The swap by resolved filters can still move the refused scan to
+    A refusal does not decide the query on mode 2. `swap_scans_found_by_type` can still move the refused scan to
     flag_evaluations, as it does for a scan of only flag calls joined after another table.
     """
     renamer = _UnionRenamer(flag_key_compares_as_string, only_in_flag_evaluations)
@@ -453,9 +453,9 @@ def _names_flag_calls(node: ast.SelectQuery, scan: EventsScan, aliases: "_Aliase
 class _Aliases(CloningVisitor):
     """Copies an unresolved expression with each name of a select alias that names a field replaced by that field.
 
-    The resolver reads a name without a table prefix as a select alias before it reads it as a column. The swap by
-    resolved filters reads a pin of `event` through aliases of a field, and through no other alias. A scan that the
-    union leaves to that swap must be one that the swap can read.
+    The resolver reads a name without a table prefix as a select alias before it reads it as a column.
+    `swap_scans_found_by_type` reads a pin of `event` through aliases of a field, and through no other alias. A scan
+    that the union leaves to that swap must be one that the swap can read.
     """
 
     def __init__(self, node: ast.SelectQuery) -> None:
@@ -468,8 +468,9 @@ class _Aliases(CloningVisitor):
         return dict(select_aliases(self.node))
 
     def target(self, expr: ast.Expr) -> ast.Expr:
-        """The expression that `expr` names through a chain of select aliases, or `expr` when it names no alias."""
+        """The expression that `expr`, without its own alias, names through a chain of select aliases."""
         named: set[str] = set()
+        expr = unwrap_alias(expr)
         while isinstance(expr, ast.Field) and len(expr.chain) == 1:
             name = str(expr.chain[0])
             # In `event AS event`, the inner `event` is the column, because the resolver reads it before the alias.
@@ -671,9 +672,16 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
 
     def _check(self, expr: ast.Expr) -> None:
         values = compared_values(expr, lambda read: self.reader.column(self.aliases.target(read)) == ["event"])
-        if values and any(
-            isinstance(value := self.aliases.target(compared), ast.Constant) and value.value == FLAG_CALLED_EVENT
-            for compared in values
+        targets = [self.aliases.target(compared) for compared in values or []]
+        # `event IN names` reads the list that the alias `names` holds.
+        items = [
+            item
+            for target in targets
+            for item in (target.exprs if isinstance(target, (ast.Tuple, ast.Array)) else [target])
+        ]
+        if any(
+            isinstance(value := self.aliases.target(item), ast.Constant) and value.value == FLAG_CALLED_EVENT
+            for item in items
         ):
             self.found = True
 
