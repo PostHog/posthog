@@ -112,7 +112,7 @@ export type analyticsShareLogicType = MakeLogicType<
 
 // A canvas stays visible to its channel's members alone, whatever folder holds it, so a space can only
 // share one that sits in a public channel.
-async function assertCanvasShareable(ref: string): Promise<void> {
+export async function assertCanvasShareable(ref: string): Promise<void> {
     const projectId = String(teamLogic.values.currentTeamId)
     const canvas = await canvasesRetrieve(projectId, ref)
     const channel = await taskChannelsRetrieve(projectId, canvas.channel)
