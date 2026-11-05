@@ -491,6 +491,7 @@ An operator command strips each source after its `credentials_integration_id` co
 - The sync maps this error to a non-retryable error that tells the user to enter the credentials again or reconnect the account. Do not catch it in source code, and do not retry it.
 - `save`, `asave`, `assign` and `create` write the connection fields of a stripped source only to the row, and its OAuth pointer only to the column. If the row write fails, the call raises before `job_inputs` changes. A change to a shared row raises `SharedCredentialsError` unless the API request confirms it, because a skipped write would lose the change.
 - `update_runtime` keeps the marker. Write runtime keys only with `update_runtime`.
+- When a typed-in source would read as an OAuth source without its connection fields (Slack: a pasted token wins over its legacy pointer), the strip also sets the store key `connection_fields_stripped_typed_in`, so the source stays typed-in. If your `in_use_oauth_slot` override reads a connection field, it gets this for free; do not read the key in source code.
 - A stripped source in async code must use `aload`. A call to `load` in an event loop thread raises, because it cannot read the row and `job_inputs` has no copy.
 - `list_sources_using_integration` and the integrations SDK usages find a stripped source by its column. The inputs search also sees a stripped OAuth source, because `load_many` puts its pointer back.
 

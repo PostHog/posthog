@@ -81,6 +81,14 @@ class UnreadableSourceInputsError(ValueError):
 # Set in `job_inputs` when the store has moved the connection fields of a source to its credentials row and
 # removed them from `job_inputs`. The value is the time of the strip, as an ISO 8601 string.
 CONNECTION_FIELDS_STRIPPED_KEY = "connection_fields_stripped_at"
+# Set next to the marker when a source with typed-in credentials would read as an OAuth source without its
+# connection fields (Slack: a pasted token wins over the legacy OAuth pointer). Its presence keeps the source
+# typed-in; the value is always "true".
+CONNECTION_FIELDS_STRIPPED_TYPED_IN_KEY = "connection_fields_stripped_typed_in"
+# The keys that only the store writes on a stripped source. A caller never sees them.
+STRIPPED_STORE_KEYS: frozenset[str] = frozenset(
+    {CONNECTION_FIELDS_STRIPPED_KEY, CONNECTION_FIELDS_STRIPPED_TYPED_IN_KEY}
+)
 
 SOURCE_CREDENTIALS_MISSING_ERROR = "The credentials of this source are missing or cannot be read"
 

@@ -17,6 +17,7 @@ from posthog.sync import database_sync_to_async_pool
 
 from products.warehouse_sources.backend.facade.contracts import (
     CONNECTION_FIELDS_STRIPPED_KEY,
+    STRIPPED_STORE_KEYS,
     SharedCredentialsEdit,
     UnreadableSourceInputsError,
 )
@@ -129,7 +130,7 @@ class SourceInputsStore:
             # An unknown source type declares no settings. Every key except the runtime prefixes is then a
             # connection field, which is the safe side for a reader that must not see credentials.
             return {key: value for key, value in inputs.items() if _has_runtime_prefix(key)}
-        runtime = {key: value for key, value in split.runtime.items() if key != CONNECTION_FIELDS_STRIPPED_KEY}
+        runtime = {key: value for key, value in split.runtime.items() if key not in STRIPPED_STORE_KEYS}
         return {**split.settings, **runtime}
 
     @staticmethod
@@ -288,7 +289,7 @@ class SourceInputsStore:
 
         Only the restore command calls it. It skips `assign`, which would strip the inputs again.
         """
-        _stage(source, {key: value for key, value in inputs.items() if key != CONNECTION_FIELDS_STRIPPED_KEY})
+        _stage(source, {key: value for key, value in inputs.items() if key not in STRIPPED_STORE_KEYS})
         source.save(update_fields=list(INPUTS_UPDATE_FIELDS))
 
     @staticmethod
