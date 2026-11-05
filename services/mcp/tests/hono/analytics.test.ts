@@ -562,6 +562,25 @@ describe('Hono MCP analytics contexts', () => {
                 false,
             ],
             [
+                'an email log search by recipient',
+                'workflows-transactional-emails-list',
+                { search: 'jane@example.com' },
+                false,
+            ],
+            [
+                'one email log entry',
+                'workflows-transactional-email-get',
+                { id: '01a19f0e-9fd0-0001-a1d4-3a2b4579b763' },
+                false,
+            ],
+            [
+                'an email log search through exec',
+                'exec',
+                { command: 'call workflows-transactional-emails-list {"search":"jane@example.com"}' },
+                false,
+            ],
+            ['email delivery stats', 'workflows-transactional-email-stats', { group_by: 'template' }, true],
+            [
                 'preparing an email send',
                 'workflows-send-email-prepare',
                 { to: 'ada@example.com', html: '<a href="https://example.com/reset?t=1">Reset</a>' },
