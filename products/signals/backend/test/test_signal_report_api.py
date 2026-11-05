@@ -1707,7 +1707,7 @@ class TestSignalReportListAPI(APIBaseTest):
         ]
         assert len(list_sql) == 1
         assert ("priority_judgment" not in list_sql[0]) is cached
-        assert "priority_sort_rank" in list_sql[0]
+        assert ('"signals_signalreport"."priority_sort_rank"' in list_sql[0]) is cached
         ids = [r["id"] for r in response.json()["results"]]
         assert ids.index(str(r_p0.id)) < ids.index(str(r_p1.id))
         assert ids.index(str(r_p1.id)) < ids.index(str(r_p2.id))
@@ -1909,7 +1909,7 @@ class TestSignalReportListAPI(APIBaseTest):
         ]
         assert len(list_sql) == 1
         assert ("ranking_score" not in list_sql[0]) is cached
-        assert "ranking_action_score" in list_sql[0]
+        assert ('"signals_signalreport"."ranking_action_score"' in list_sql[0]) is cached
         get_flag.assert_called_once()
         assert get_flag.call_args.args[1] == self.user.distinct_id
         body = response.json()
