@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.models import Integration
 
 from products.signals.backend.agent_runtime import AgentRuntime
@@ -118,7 +119,7 @@ class TestRequestedImplementation(BaseTest):
         with (
             patch("products.signals.backend.auto_start.task_run_usage_limited", return_value=False),
             patch(
-                "products.signals.backend.quota.self_driving_quota_gate", return_value=SelfDrivingQuotaGate(True, True)
+                "products.signals.backend.quota.self_driving_quota_gate", return_value=SelfDrivingQuotaGate(True, False)
             ),
             patch(
                 "products.signals.backend.auto_start.self_driving_free_trial_enabled", return_value=False
@@ -179,6 +180,34 @@ class TestRequestedImplementation(BaseTest):
             else:
                 raise AssertionError("Unactionable research started implementation")
         run_task.assert_not_called()
+
+    @parameterized.expand([("existing_task", True), ("new_task", False)])
+    def test_enforced_over_quota_org_cannot_start_implementation(self, _name: str, rerun: bool) -> None:
+        if not rerun:
+            SignalReportTask.objects.filter(team_id=self.team.id, report_id=self.report.id).delete()
+        request = RequestedImplementation(
+            team_id=self.team.id,
+            report_id=str(self.report.id),
+            user_id=self.user.id,
+            task_id=str(self.task.id) if rerun else None,
+            after_run_count=1,
+        )
+        with (
+            patch("products.signals.backend.auto_start.task_run_usage_limited", return_value=False),
+            patch(
+                "products.signals.backend.quota.self_driving_quota_gate", return_value=SelfDrivingQuotaGate(True, True)
+            ),
+            patch("products.signals.backend.quota.capture_signal_report_quota_paused"),
+            patch.object(tasks_facade, "run_task") as run_task,
+            patch.object(tasks_facade, "create_and_run_task") as create_and_run_task,
+            patch("products.signals.backend.auto_start.create_tracker_issue_for_report"),
+        ):
+            with self.assertRaises(QuotaLimitExceeded):
+                start_requested_implementation(request)
+        run_task.assert_not_called()
+        create_and_run_task.assert_not_called()
+        self.report.refresh_from_db()
+        assert self.report.implemented_at_run_count == 1
 
     @parameterized.expand([(False,), (True,)])
     def test_report_without_prior_implementation_creates_a_linked_task(self, exempt: bool) -> None:

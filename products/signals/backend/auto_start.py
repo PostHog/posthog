@@ -1020,6 +1020,7 @@ def start_requested_implementation(
         return "already_started"
     if task_run_usage_limited(user, request.team_id):
         raise RequestedImplementationUnavailable("The requested user cannot start another task run")
+    tasks_facade.enforce_self_driving_pr_quota(team, report_id=request.report_id, stage="manual_rerun")
     if pending_replacement(request.team_id, request.report_id) is not None:
         raise RequestedImplementationUnavailable("A replacement is already in progress")
     actionability_row = (
