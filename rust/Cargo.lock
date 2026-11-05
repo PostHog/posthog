@@ -7763,6 +7763,7 @@ dependencies = [
  "regex",
  "regex-automata",
  "reqwest 0.12.28",
+ "rustls 0.23.37",
  "serde",
  "serde_json",
  "serve-metrics",

@@ -939,6 +939,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "short_id",
         "insightviewed",
         "dashboardtile",
+        "explanations",
     ],
     "EventDefinition": [
         "eventdefinition_ptr_id",

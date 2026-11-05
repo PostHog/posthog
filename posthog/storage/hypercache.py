@@ -1,7 +1,7 @@
 import json
 import time
 import hashlib
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import Optional
 
 from django.conf import settings
@@ -32,6 +32,8 @@ _REDIS_READ_ERRORS = (
     OSError,
 )
 
+
+TOKEN_CACHE_KEY_PREFIX = "cache/team_tokens/"
 
 DEFAULT_CACHE_MISS_TTL = 60 * 60 * 24  # 1 day - it will be invalidated by the daily sync
 DEFAULT_CACHE_TTL = 60 * 60 * 24 * 30  # 30 days
@@ -249,11 +251,28 @@ class HyperCache:
         if self.token_based:
             if isinstance(key, Team):
                 key = key.api_token
-            return f"cache/team_tokens/{key}/{self.namespace}/{self.value}"
+            return f"{TOKEN_CACHE_KEY_PREFIX}{key}/{self.namespace}/{self.value}"
         else:
             if isinstance(key, Team):
                 key = key.id
             return f"cache/teams/{key}/{self.namespace}/{self.value}"
+
+    def iter_object_storage_tokens(self) -> Iterator[str]:
+        """Yield the token of each object-storage entry of this token-based cache.
+
+        All token-based caches share one key prefix. The listing covers that prefix and
+        skips the keys of the other caches. Raises ObjectStorageError when the listing fails.
+        """
+        if not self.token_based:
+            raise ValueError("iter_object_storage_tokens requires a token-based cache")
+        # A custom token can contain "/", so the token is the text between the prefix and this cache's suffix.
+        suffix = f"/{self.namespace}/{self.value}"
+        for key in object_storage.iter_keys(TOKEN_CACHE_KEY_PREFIX):
+            if not key.endswith(suffix):
+                continue
+            token = key.removeprefix(TOKEN_CACHE_KEY_PREFIX).removesuffix(suffix)
+            if token and self.get_cache_key(token) == key:
+                yield token
 
     def get_etag_key(self, key: KeyType) -> str:
         return f"{self.get_cache_key(key)}:etag"
