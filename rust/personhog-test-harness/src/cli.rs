@@ -315,6 +315,11 @@ pub struct GateArgs {
     #[arg(long)]
     pub migrate_to_partitions: Option<u32>,
 
+    /// Run the migration onto a second Kafka cluster at these bootstrap
+    /// servers. The writer must exit to follow it and is restarted.
+    #[arg(long)]
+    pub migrate_to_kafka_hosts: Option<String>,
+
     /// SIGKILL the coordinator router once the saga reaches Sealing. Requires --routers >= 3.
     #[arg(long, default_value_t = false)]
     pub migrate_kill_coordinator: bool,
