@@ -46,6 +46,7 @@ from products.autoresearch.backend.models import (
     AutoresearchSuggestion,
     AutoresearchTrainingRun,
 )
+from products.autoresearch.backend.limits import resolve_autoresearch_limits
 from products.autoresearch.backend.training.agent_model import agent_run_config_for
 from products.autoresearch.backend.training.explanation import MAX_TOP_FEATURES
 from products.autoresearch.backend.training.realized_context import (
@@ -969,6 +970,8 @@ def run_training(
         target_event=pipeline.target_event, target_definition=pipeline.target_definition, team=pipeline.team
     )
     agent_config = agent_run_config_for(pipeline)
+    limits = resolve_autoresearch_limits(pipeline.team_id)
+    budget = min(iteration_budget, limits.max_iterations_per_run)
 
     now = django_timezone.now()
     with transaction.atomic():
@@ -976,7 +979,7 @@ def run_training(
             pipeline=pipeline,
             status=AutoresearchTrainingRun.Status.RUNNING,
             kickoff_reason=kickoff_reason,
-            iteration_budget=iteration_budget,
+            iteration_budget=budget,
             started_at=now,
             agent_runtime_adapter=agent_config.runtime_adapter,
             agent_model=agent_config.model,
@@ -1001,7 +1004,7 @@ def run_training(
         )
         description = build_agent_description(
             pipeline=pipeline,
-            iteration_budget=iteration_budget,
+            iteration_budget=budget,
             training_run_id=str(training_run.id),
             pending_suggestions=pending_suggestions or None,
             training_sample=_training_sample_for_brief(pipeline),

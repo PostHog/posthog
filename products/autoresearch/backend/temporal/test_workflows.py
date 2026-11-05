@@ -633,6 +633,111 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         assert result.reason == expected_reason
         mock_run_training.assert_not_called()
 
+    @patch("products.autoresearch.backend.temporal.workflows.run_training")
+    def test_kickoff_training_blocked_by_team_daily_cap(self, mock_run_training: MagicMock) -> None:
+        pipeline1 = self._create_pipeline()
+        pipeline2 = self._create_pipeline()
+        now = django_timezone.now()
+
+        # Existing 3 runs on the team today
+        for i in range(3):
+            AutoresearchTrainingRun.objects.create(
+                pipeline=pipeline1,
+                status=AutoresearchTrainingRun.Status.COMPLETED,
+                iteration_budget=5,
+                task_id=f"prior_task_{i}",
+                agent_runtime_adapter="adapter",
+                created_at=now - timedelta(hours=i + 1),
+            )
+
+        with patch("products.autoresearch.backend.limits.read_flag_payload", return_value=None):
+            result = activity_kickoff_training(
+                KickoffTrainingInput(pipeline_id=str(pipeline2.id), team_id=self.team.id)
+            )
+
+        assert not result.kicked_off
+        assert result.reason == "team_daily_cap"
+        mock_run_training.assert_not_called()
+
+    @patch("products.autoresearch.backend.temporal.workflows.run_training")
+    def test_kickoff_training_cap_ignores_runs_older_than_24h(self, mock_run_training: MagicMock) -> None:
+        pipeline = self._create_pipeline()
+        now = django_timezone.now()
+
+        for i in range(3):
+            AutoresearchTrainingRun.objects.create(
+                pipeline=pipeline,
+                status=AutoresearchTrainingRun.Status.COMPLETED,
+                iteration_budget=5,
+                task_id=f"old_task_{i}",
+                agent_runtime_adapter="adapter",
+                created_at=now - timedelta(hours=25 + i),
+            )
+
+        with patch("products.autoresearch.backend.limits.read_flag_payload", return_value=None):
+            result = activity_kickoff_training(
+                KickoffTrainingInput(pipeline_id=str(pipeline.id), team_id=self.team.id)
+            )
+
+        assert result.kicked_off
+        assert result.reason == "explore"
+        mock_run_training.assert_called_once()
+
+    @patch("products.autoresearch.backend.temporal.workflows.run_training")
+    def test_kickoff_training_cap_ignores_external_runs(self, mock_run_training: MagicMock) -> None:
+        pipeline = self._create_pipeline()
+        now = django_timezone.now()
+
+        for _ in range(5):
+            AutoresearchTrainingRun.objects.create(
+                pipeline=pipeline,
+                status=AutoresearchTrainingRun.Status.COMPLETED,
+                iteration_budget=5,
+                task_id=None,
+                agent_runtime_adapter=None,
+                created_at=now - timedelta(hours=1),
+            )
+
+        with patch("products.autoresearch.backend.limits.read_flag_payload", return_value=None):
+            result = activity_kickoff_training(
+                KickoffTrainingInput(pipeline_id=str(pipeline.id), team_id=self.team.id)
+            )
+
+        assert result.kicked_off
+        assert result.reason == "explore"
+        mock_run_training.assert_called_once()
+
+    @patch("products.autoresearch.backend.temporal.workflows.run_training")
+    def test_kickoff_training_cap_flag_override_raises_limit(self, mock_run_training: MagicMock) -> None:
+        pipeline = self._create_pipeline()
+        now = django_timezone.now()
+
+        for i in range(3):
+            AutoresearchTrainingRun.objects.create(
+                pipeline=pipeline,
+                status=AutoresearchTrainingRun.Status.COMPLETED,
+                iteration_budget=5,
+                task_id=f"task_{i}",
+                agent_runtime_adapter="adapter",
+                created_at=now - timedelta(hours=i + 1),
+            )
+
+        flag_payload = {
+            "team_configs": {
+                str(self.team.id): {
+                    "max_training_runs_per_day": 5,
+                }
+            }
+        }
+        with patch("products.autoresearch.backend.limits.read_flag_payload", return_value=flag_payload):
+            result = activity_kickoff_training(
+                KickoffTrainingInput(pipeline_id=str(pipeline.id), team_id=self.team.id)
+            )
+
+        assert result.kicked_off
+        assert result.reason == "explore"
+        mock_run_training.assert_called_once()
+
     @parameterized.expand(
         [
             ("new_pipeline_explores", 7, [], False, "explore"),
