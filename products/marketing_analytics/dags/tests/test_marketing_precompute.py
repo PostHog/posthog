@@ -62,6 +62,8 @@ _TIME = "products.marketing_analytics.dags.marketing_precompute.time"
 # PRECOMPUTE_WINDOW_DAYS + the team's attribution window (default 90) to collapse to one chunk.
 _SINGLE_CHUNK = "products.marketing_analytics.dags.marketing_precompute.PRECOMPUTE_CHUNK_DAYS"
 _BIG_CHUNK = 100000
+_TP = LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED
+_CONV = LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED
 
 # Converts cleanly but is_goal_precomputable() rejects it (schema_map remaps a tracked UTM field, which
 # the config-agnostic touchpoints table can't serve), so a team with only this goal warms touchpoints but
@@ -437,41 +439,69 @@ class TestConversionWarming(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("runs_out_mid_backfill", "15", [True, True, True], 2),
-            ("spent_before_warming", "0", [True, True, True], 1),
-            ("spent_before_warming_newest_chunk_ready", "0", [False, True, True], 2),
+            ("runs_out_mid_backfill", "15", {}, {}, [[(_TP, 0), (_TP, 1)]]),
+            ("spent_before_warming", "0", {}, {}, [[(_TP, 0)]]),
+            ("spent_before_warming_newest_chunk_ready", "0", {(_TP, 0): "fresh"}, {}, [[(_TP, 1)]]),
+            ("spent_before_warming_newest_chunk_stale", "0", {(_TP, 0): "stale"}, {}, [[(_TP, 1)]]),
+            (
+                "spent_runs_advance_the_backfill",
+                "0",
+                {(_TP, 0): "stale"},
+                {},
+                [[(_TP, 1)], [(_TP, 2)], [(_TP, 3)]],
+            ),
+            ("spent_with_touchpoints_served_stale", "0", {}, {_TP: "stale"}, [[(_CONV, 0)]]),
+            ("spent_with_every_chunk_stale", "0", {}, {_TP: "stale", _CONV: "stale"}, [[(_TP, 0)]]),
         ]
     )
     @patch(_ENSURE, new_callable=_ready_mock)
     def test_budget_stops_a_started_team_between_chunks(
-        self, _name, budget, freshly_built, expected_calls, ensure_mock
+        self, _name, budget, chunk_states, table_states, expected_built_per_run, ensure_mock
     ):
         # A cold team that starts just before the deadline must not run its whole backfill past it, and a
         # team started after planning spent the budget must still materialize one chunk, or no run progresses.
+        # That chunk must be one reads cannot serve: the newest touchpoints chunk expires before every hourly
+        # run, and rebuilding it each time would stall the backfill. Chunks are keyed by table and index,
+        # newest first.
         team = self._make_team("A", goals=[_PRECOMPUTABLE_GOAL])
         clock = MagicMock()
-        clock.monotonic.return_value = 0.0
-        built = iter(freshly_built)
+        chunk_days = timedelta(days=7)
+        newest_end = datetime(2024, 4, 2, 23, 59, 59, 999999, tzinfo=UTC)
+        states = dict(chunk_states)
+        built: list[tuple[LazyComputationTable, int]] = []
 
-        def advance_clock(**_kwargs):
+        def fake_ensure(**kwargs):
             clock.monotonic.return_value += 10.0
-            return MagicMock(ready=True, freshly_built=next(built))
+            key = (kwargs["table"], (newest_end - kwargs["time_range_end"]) // chunk_days)
+            state = states.get(key, table_states.get(key[0]))
+            if state == "fresh":
+                return MagicMock(ready=True, freshly_built=False, stale=False)
+            if state == "stale" and kwargs["stale_while_revalidate_seconds"] is not None:
+                return MagicMock(ready=True, freshly_built=False, stale=True)
+            states[key] = "fresh"
+            built.append(key)
+            return MagicMock(ready=True, freshly_built=True, stale=False)
 
-        ensure_mock.side_effect = advance_clock
-        with (
-            patch(_TIME, clock),
-            patch(_SINGLE_CHUNK, 7),
-            patch(_FF, _flag_fn(conversion=True)),
-            patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}", WALL_CLOCK_BUDGET_ENV_VAR: budget}),
-            patch(_DB),
-        ):
-            result = warm_selected_teams(dagster.build_op_context())
+        ensure_mock.side_effect = fake_ensure
+        built_per_run = []
+        for _run in expected_built_per_run:
+            clock.monotonic.return_value = 0.0
+            built.clear()
+            with (
+                time_machine.travel(datetime(2024, 4, 2, 12, 5, tzinfo=UTC), tick=False),
+                patch(_TIME, clock),
+                patch(_SINGLE_CHUNK, 7),
+                patch(_FF, _flag_fn(conversion=True)),
+                patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}", WALL_CLOCK_BUDGET_ENV_VAR: budget}),
+                patch(_DB),
+            ):
+                result = warm_selected_teams(dagster.build_op_context())
+            assert result["deferred"] == 0
+            built_per_run.append(list(built))
+            # The newest touchpoints chunk has a 15-minute TTL, so it has expired again by the next hourly run.
+            states[(_TP, 0)] = "stale"
 
-        assert ensure_mock.call_count == expected_calls
-        assert _tables(ensure_mock) == [LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED] * expected_calls
-        first_end = ensure_mock.call_args_list[0].kwargs["time_range_end"]
-        assert first_end > datetime.now(UTC)  # the newest chunk, which reads need first
-        assert result["deferred"] == 0
+        assert built_per_run == expected_built_per_run
 
     @patch(_WARM_TEAM, return_value=_WarmCounts(1, 0, 0))
     def test_budget_spent_runs_start_with_a_different_team_each_hour(self, warm_team_mock):

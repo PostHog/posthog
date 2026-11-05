@@ -33,7 +33,8 @@ and the cost read flag on. `MARKETING_PRECOMPUTE_ACTIVE_DAYS` tunes the `auto` a
 `MARKETING_PRECOMPUTE_WALL_CLOCK_BUDGET_SECONDS` bounds each run: a shard stops starting new teams and chunks
 once the budget is spent and reports the teams it never started as deferred, so a run ends on its own under
 the job's max runtime. Every team a shard starts still materializes one chunk past the budget, so a run whose
-planning spent the budget still makes progress.
+planning spent the budget still makes progress. That chunk is the newest one reads cannot serve, so the
+expired newest chunks do not take it on every run and the backfill keeps advancing.
 """
 
 import os
@@ -84,6 +85,9 @@ from products.marketing_analytics.backend.hogql_queries.marketing_analytics_base
     costs_precompute_ttl_schedule,
 )
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import MarketingAnalyticsConfig
+from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute import (
+    PRECOMPUTE_ONLY_MAX_STALE_SECONDS,
+)
 from products.marketing_analytics.backend.hogql_queries.utils import convert_team_conversion_goals_to_objects
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -268,18 +272,35 @@ def get_selected_team_ids() -> list[int]:
     return sorted(goal_team_ids & active_team_ids)
 
 
-# Mutable: `materialized` flips once the team builds its first chunk, across all of its tables.
+# Mutable: `materialized` flips once the team builds its first chunk, across all of its tables, and
+# `stale_refresh` holds the first stale chunk the team skipped after the deadline.
 @dataclass(frozen=False, slots=True)
 class _TeamBudget:
     """Planning can spend the whole budget before any worker starts, so the deadline only stops a team after it has
     built (or failed to build) one chunk. READY chunks don't count: they cost a Postgres check and add no coverage.
+
+    After the deadline, a chunk that reads can still serve stale is not built. The newest chunks have TTLs shorter
+    than the hourly schedule, so they are always expired when a run starts. If they took the one guaranteed chunk,
+    every run that starts past the deadline would rebuild the same newest chunk and the backfill would never
+    advance. The guaranteed chunk goes to the newest window that reads cannot serve. Only when the team has no
+    such window does it refresh the first stale chunk it skipped.
     """
 
     deadline: float
     materialized: bool = False
+    stale_refresh: Callable[[], int] | None = None
+
+    def spent(self) -> bool:
+        return time.monotonic() >= self.deadline
 
     def exhausted(self) -> bool:
-        return self.materialized and time.monotonic() >= self.deadline
+        return self.materialized and self.spent()
+
+    def refresh_if_nothing_built(self) -> int:
+        """Build the skipped stale chunk when no unservable chunk took the guarantee. Returns the failure count."""
+        if self.materialized or self.stale_refresh is None:
+            return 0
+        return self.stale_refresh()
 
 
 def _ensure_chunks(
@@ -318,6 +339,9 @@ def _ensure_chunks(
         build_seconds += time.monotonic() - build_started
         if insert_query is None:
             continue  # source can't materialize this chunk (deterministic) — nothing to warm
+        # Past the deadline, the reads' stale grace makes ensure_precomputed return a servable chunk as a stale hit
+        # instead of building it (see `_TeamBudget`).
+        stale_grace = PRECOMPUTE_ONLY_MAX_STALE_SECONDS if budget is not None and budget.spent() else None
         ensure_started = time.monotonic()
         try:
             result = ensure_precomputed(
@@ -328,6 +352,7 @@ def _ensure_chunks(
                 ttl_seconds=ttl_seconds,
                 table=table,
                 database=database,
+                stale_while_revalidate_seconds=stale_grace,
             )
         except Exception:
             ensure_seconds += time.monotonic() - ensure_started
@@ -342,6 +367,20 @@ def _ensure_chunks(
         ensure_seconds += time.monotonic() - ensure_started
         if budget is not None and (result.freshly_built or not result.ready):
             budget.materialized = True
+        elif budget is not None and result.stale and budget.stale_refresh is None:
+            # Without a budget, the single chunk [chunk_start, chunk_end) is rebuilt with no stale grace.
+            budget.stale_refresh = partial(
+                _ensure_chunks,
+                context,
+                team,
+                table,
+                build_insert_query,
+                ttl_seconds,
+                chunk_start,
+                chunk_end,
+                chunk_days,
+                database,
+            )
 
         if result.ready:
             MARKETING_PRECOMPUTE_CHUNK_DONE.labels(table=table_label).inc()
@@ -665,6 +704,14 @@ def _warm_team(
             except Exception:
                 MARKETING_PRECOMPUTE_TEAM_FAILED.labels(stage="costs").inc()
                 logger.exception("marketing_precompute_costs_failed", team_id=team.pk)
+                failures += 1
+
+        if budget is not None:
+            try:
+                failures += budget.refresh_if_nothing_built()
+            except Exception:
+                MARKETING_PRECOMPUTE_TEAM_FAILED.labels(stage="stale_refresh").inc()
+                logger.exception("marketing_precompute_stale_refresh_failed", team_id=team.pk)
                 failures += 1
     finally:
         connections.close_all()
