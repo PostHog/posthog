@@ -736,6 +736,9 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
                 if not user_access_control.access_controls_supported:
                     continue
                 obj_for_check = getattr(self.instance, "team", self.instance)
+                if obj_for_check is None:
+                    # A global record (team=None) belongs to no project, so no project-level field rule applies.
+                    continue
                 has_access = user_access_control.check_access_level_for_object(obj_for_check, required_level)
             else:
                 has_access = user_access_control.check_access_level_for_resource(resource, required_level)

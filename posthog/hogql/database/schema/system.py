@@ -485,6 +485,9 @@ datasets: PostgresTable = PostgresTable(
         "description": StringDatabaseField(name="description", description="What the dataset contains."),
         "metadata": StringJSONDatabaseField(name="metadata", description="JSON dataset metadata."),
         "archived": BooleanDatabaseField(name="archived", description="Whether the dataset is archived."),
+        "expired_at": DateTimeDatabaseField(
+            name="expired_at", nullable=True, description="When the dataset expired; NULL while available."
+        ),
         "current_revision_id": UUIDDatabaseField(
             name="current_revision_id",
             nullable=True,
@@ -511,6 +514,11 @@ dataset_revisions: PostgresTable = PostgresTable(
         "team_id": IntegerDatabaseField(name="team_id"),
         "dataset_id": UUIDDatabaseField(name="dataset_id", description="Parent dataset; joins to datasets.id."),
         "revision": IntegerDatabaseField(name="revision", description="Monotonic revision number within the dataset."),
+        "expired_at": DateTimeDatabaseField(
+            name="expired_at",
+            nullable=True,
+            description="When the snapshot expired; NULL while available. Expired snapshots may be incomplete.",
+        ),
         "created_by_id": IntegerDatabaseField(
             name="created_by_id", nullable=True, description="User who committed the revision."
         ),

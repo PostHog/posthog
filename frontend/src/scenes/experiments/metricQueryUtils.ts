@@ -185,6 +185,10 @@ export const getQuery =
                 if (!isEventMetricSource(source) && !source.math) {
                     return undefined
                 }
+                // An insight cannot read a warehouse-native query
+                if (source.kind === NodeKind.ExperimentWarehouseNativeNode) {
+                    return undefined
+                }
 
                 /**
                  * return a TrendsQuery
@@ -263,12 +267,12 @@ const getFunnelSeries = (
 
 /**
  * The series editor has rows for events, actions and synced warehouse tables only. A
- * warehouse-native source has no row yet, so the form refuses it like the insight converters do.
+ * warehouse-native source has its own fields in the metric form, so it must never reach this editor.
  */
 export function metricSourcesToSeries(sources: ExperimentMetricSource[]): SeriesNode[] {
     return sources.map((source) => {
         if (source.kind === NodeKind.ExperimentWarehouseNativeNode) {
-            throw new Error('Warehouse-native sources cannot be edited in the metric form yet')
+            throw new Error('Warehouse-native sources cannot be edited in the series editor')
         }
         return source
     })
