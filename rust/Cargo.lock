@@ -7764,7 +7764,7 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
- "zstd 0.13.3",
+ "zstd 0.13.4",
 ]
 
 [[package]]
