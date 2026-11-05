@@ -5,8 +5,6 @@ import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboa
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
-// `completeRedirectUrl` intentionally omitted: experiments falls through to
-// urls.default() (no curated post-onboarding landing page yet).
 export const experimentsOnboarding: ProductOnboardingProvider = {
     steps: (ctx) => [
         {

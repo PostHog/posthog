@@ -2,6 +2,7 @@ import { Platform } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { layout } from './tokens'
+import { useNativeRail } from './useNativeRail'
 
 export interface ScreenInsets {
     top: number
@@ -30,4 +31,14 @@ export function topOffset(insets: Pick<ScreenInsets, 'top'>, designTop: number):
 
 export function bottomOffset(insets: Pick<ScreenInsets, 'bottom'>, designBottom: number): number {
     return Math.max(insets.bottom + designBottom - layout.designHomeIndicator, layout.minBottomPadding)
+}
+
+export function tabBottomOffset(insets: Pick<ScreenInsets, 'bottom'>): number {
+    return bottomOffset(insets, 120)
+}
+
+export function useTabBottomOffset(): number {
+    const insets = useScreenInsets()
+    const nativeRail = useNativeRail()
+    return nativeRail ? insets.bottom + layout.minBottomPadding : tabBottomOffset(insets)
 }
