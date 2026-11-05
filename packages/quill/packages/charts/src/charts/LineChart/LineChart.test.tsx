@@ -417,7 +417,7 @@ describe('LineChart', () => {
         it('abandons a drag on Escape without zooming or clicking the point under the release', () => {
             const onDateRangeZoom = jest.fn()
             const onPointClick = jest.fn()
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <LineChart
                     series={LONG_SERIES}
                     labels={LONG_LABELS}
