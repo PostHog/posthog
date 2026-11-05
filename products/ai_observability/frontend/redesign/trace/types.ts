@@ -6,13 +6,14 @@ import type {
     TraceNodeDetailApi,
     TraceNodeEvaluationRollupOutcomeEnumApi,
     TraceSummaryContentApi,
+    TraceSurveyResponseApi,
+    TraceUnansweredSurveyApi,
 } from '../../generated/api.schemas'
 
 export type TraceNodeKind = TraceNodeApi['kind']
 
 export type TraceMode = 'spans' | 'thread' | 'timeline' | 'summary' | 'feedback'
-
-export type TraceViewChoice = 'new' | 'legacy'
+export type TraceOpeningMode = 'summary' | null
 
 export type NodeDetailTab = 'messages' | 'details' | 'evals' | 'raw'
 
@@ -30,6 +31,9 @@ export type NodeLoad =
     | { status: 'error'; failure: LoadFailure }
 
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool'
+
+/** Which messages of a step open first: from the last user message on, or all of them. */
+export type MessagesOpening = 'lastTurn' | 'everything'
 
 export type AttachmentMediaType = 'image' | 'audio' | 'video' | 'file'
 
@@ -126,6 +130,12 @@ export interface LabeledLink {
     href: string
 }
 
+export interface GitPullRequestLink {
+    number: number
+    title: string | null
+    href: string
+}
+
 export type TraceSearchStatus = 'idle' | 'loading' | 'ready' | 'error'
 
 export type TraceSearchFailure = 'too_slow' | 'failed'
@@ -166,18 +176,29 @@ export interface FeedbackPlacement {
 
 export type FeedbackScoreRow = TraceFeedbackScoreApi & FeedbackPlacement
 
-export type FeedbackResponseItem = TraceFeedbackTextApi & FeedbackPlacement
+/** Survey responses link to the whole trace, so their `step` is always null. */
+export type FeedbackResponseItem = (TraceFeedbackTextApi | TraceSurveyResponseApi) & FeedbackPlacement
+
+export type SurveyAnswer = TraceSurveyResponseApi['answers'][number]
 
 export type FeedbackModeState =
     | { status: 'loading' }
     | { status: 'error' }
-    | { status: 'ready'; scores: FeedbackScoreRow[]; responses: FeedbackResponseItem[] }
+    | {
+          status: 'ready'
+          scores: FeedbackScoreRow[]
+          responses: FeedbackResponseItem[]
+          unanswered: TraceUnansweredSurveyApi[]
+          surveysFailed: boolean
+      }
 
 export interface FeedbackChipData {
     total: number
+    thumbsUp: number
+    thumbsDown: number
 }
 
 export interface StepFeedback {
     scores: TraceFeedbackScoreApi[]
-    textCount: number
+    responseCount: number
 }

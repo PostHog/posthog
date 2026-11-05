@@ -7,28 +7,51 @@ the day's `inbox_ranking_nn_examples` object, and its team's project vectors as 
 birth day. The experiment and its pair baseline fit with each of `EXPERIMENT_SEEDS` on the same train
 pairs and are graded on the same holdout pairs.
 
+A family on a pair set (`PairUserHistoryFeatureSet`) also reads the pair's user columns and the
+user's history as offsets from the team's project vectors. Each arm builds its own inputs from the
+pair rows: the report part is built once per report and repeated, but the user columns and offsets
+are per pair, so two users of one report never share them. A set with `user_history` off gets zero
+user columns and zero offsets, whatever the pair rows hold. The user vectors are rebuilt from the
+dt=D interactions and embeddings snapshots through `pair_user_vectors`, on the history of teams with
+training consent only, as the pair examples asset builds them.
+
 The reference is a report-grain serving family. For each seed it is fit on the report rows of the
 pair train days, at report grain with every `nn` head, and each holdout pair takes its report's
 score. That answers "better than a report-level score" on the same days without loading the served
 model, and the read stays paired on seeds. The reference is fit first and its report inputs are
 dropped before the pair inputs are built, so the two matrices are never held at once.
 
-A partition without pair examples, report examples or the dt=D snapshots keeps what it holds.
+A partition without pair examples, report examples, the dt=D snapshots or, for a family that reads
+user history, the dt=D interactions snapshot keeps what it holds.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import numpy as np
 import pandas as pd
 import dagster
+import pyarrow as pa
+import pyarrow.compute as pc
 
 from posthog import settings
+from posthog.dataclasses import frozen
 
-from products.signals.backend.ranking.features import Extras, FeatureSet
+from products.signals.backend.ranking.features import (
+    EMBEDDING_DIMENSIONS,
+    PAIR_STATE_COLUMNS,
+    USER_HISTORY_KINDS,
+    USER_REPORTS_COLUMNS,
+    Extras,
+    FeatureSet,
+    PairUserHistoryFeatureSet,
+    user_offsets,
+)
 from products.signals.dags.inbox_ranking.common import partition_object_key, read_parquet_if_exists
-from products.signals.dags.inbox_ranking.dataset.project_vectors import VECTOR_KINDS
-from products.signals.dags.inbox_ranking.multihead.inputs import NetworkInputs
+from products.signals.dags.inbox_ranking.consent import training_consent_team_ids
+from products.signals.dags.inbox_ranking.dataset.dag import USER_INTERACTIONS_TABLE
+from products.signals.dags.inbox_ranking.dataset.project_vectors import USER_INTERACTION_COLUMNS, VECTOR_KINDS
+from products.signals.dags.inbox_ranking.multihead.inputs import NetworkInputs, ProjectContext, UserContext
 from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable, project_context, report_matrix
 from products.signals.dags.inbox_ranking.nn.dag import (
     EXPERIMENT_SEEDS,
@@ -39,12 +62,14 @@ from products.signals.dags.inbox_ranking.nn.dag import (
     write_candidate,
 )
 from products.signals.dags.inbox_ranking.nn.examples import NN_HEAD_NAMES, NN_HEADS, examples_from_arrow, network_inputs
-from products.signals.dags.inbox_ranking.nn.model import family_heads, network_recipe
+from products.signals.dags.inbox_ranking.nn.model import family_heads, family_user_kinds, network_recipe
 from products.signals.dags.inbox_ranking.nn.pair_grade import pair_vs_baseline_block
 from products.signals.dags.inbox_ranking.nn.pairs import (
     NN_PAIR_EXAMPLES_TABLE,
     PAIR_EXAMPLES_SCHEMA_VERSION,
     PAIR_HORIZON_DAYS,
+    pair_user_vectors,
+    team_organizations,
 )
 from products.signals.dags.inbox_ranking.training.dag import check_recipe
 from products.signals.dags.inbox_ranking.training.families import MODEL_FAMILIES, ModelFamily
@@ -56,14 +81,26 @@ PAIR_SETTINGS: dict[str, Any] = {
     "examples_schema_version": PAIR_EXAMPLES_SCHEMA_VERSION,
 }
 _REPORT_KEY = ["report_id", "snapshot_date"]
+# One user's history as of one birth day, read against one team's project vectors.
+_USER_KEY = ["report_team_id", "user_distinct_id", "snapshot_date"]
 _PAIR_COLUMNS = [
     "report_id",
     "snapshot_date",
     "report_team_id",
     "user_distinct_id",
     "prior_views",
-    "is_suggested_reviewer",
+    *PAIR_STATE_COLUMNS,
 ]
+
+
+@frozen
+class UserHistory:
+    """What `pair_user_vectors` reads beside the embeddings snapshot."""
+
+    # The dt=D `inbox_user_report_interactions` snapshot, only the rows of teams with training consent.
+    interactions: pa.Table
+    # Each consented team's organization, so a user's history stays inside one organization.
+    organizations: Mapping[int, str]
 
 
 def pair_example_table(pairs: pd.DataFrame, report_rows: pd.DataFrame, heads: Sequence[str]) -> ExampleTable:
@@ -110,15 +147,99 @@ def reference_train_rows(report_table: ExampleTable, pair_table: ExampleTable) -
 
 
 def pair_report_matrix(rows: pd.DataFrame, extras: Extras, feature_set: FeatureSet) -> np.ndarray:
-    """The report input of every pair. Built once per report moment, then repeated for its pairs."""
+    """The report input of every pair. The report part is built once per report moment, then
+    repeated for its pairs. A pair set's user columns are built per pair after it."""
     reports = rows.drop_duplicates(_REPORT_KEY).reset_index(drop=True)
-    return report_matrix(reports, extras, feature_set)[report_positions(reports, rows)]
+    report_set = feature_set.report_feature_set if isinstance(feature_set, PairUserHistoryFeatureSet) else feature_set
+    report_part = report_matrix(reports, extras, report_set)
+    positions = report_positions(reports, rows)
+    if not isinstance(feature_set, PairUserHistoryFeatureSet):
+        return report_part[positions]
+    width = report_part.shape[1]
+    matrix = np.empty((len(rows), len(feature_set.feature_names)), dtype=np.float32)
+    matrix[:, :width] = report_part[positions]
+    matrix[:, width:] = feature_set.pair_matrix(rows)
+    return matrix
 
 
-def pair_network_inputs(table: ExampleTable, extras: Extras, day: DayInputs, feature_set: FeatureSet) -> NetworkInputs:
-    return NetworkInputs(
-        reports=pair_report_matrix(table.rows, extras, feature_set),
-        context=project_context(table.rows, day.labels, day.embeddings),
+def user_context(
+    rows: pd.DataFrame, project: ProjectContext, history: UserHistory, embeddings: pa.Table
+) -> UserContext:
+    """The user offsets each pair of `rows` reads: its own user's vectors as of the start of its birth
+    day, minus its team's project vectors from `project` (`user_offsets`).
+
+    One vector per (team, user, birth day), so two pairs of one user that day share it and two users
+    of one report never do. A kind counts only when the pair's stored `user_<kind>_reports` says the
+    user had a report of it, the same count the pair object records.
+    """
+    keys = rows[_USER_KEY].drop_duplicates()
+    index = pd.MultiIndex.from_frame(keys).get_indexer(pd.MultiIndex.from_frame(rows[_USER_KEY]))
+    first_rows = keys.index.to_numpy()
+    vectors = pair_user_vectors(
+        keys.reset_index(drop=True), history.interactions, embeddings, organizations=history.organizations
+    )
+    projects = project.index[first_rows]
+    offsets = user_offsets(
+        vectors,
+        rows[list(USER_REPORTS_COLUMNS)].to_numpy(dtype=np.float32)[first_rows],
+        project.vectors[projects],
+        project.has_history[projects],
+    )
+    return UserContext(vectors=offsets, index=index.astype(np.int64))
+
+
+def zero_user_context(rows: int) -> UserContext:
+    """A user offset of zero for every row, one shared key, so the arm keeps the input shape and
+    reads nothing of anyone's history."""
+    vectors = np.zeros((1, len(USER_HISTORY_KINDS), EMBEDDING_DIMENSIONS), dtype=np.float32)
+    return UserContext(vectors=vectors, index=np.zeros(rows, dtype=np.int64))
+
+
+def pair_network_inputs(
+    table: ExampleTable,
+    extras: Extras,
+    feature_set: FeatureSet,
+    project: ProjectContext,
+    history: UserHistory | None,
+    embeddings: pa.Table,
+) -> NetworkInputs:
+    """One arm's inputs, built from the pair rows for `feature_set` alone. The project context is the
+    team's and holds nothing personal, so the arms share it."""
+    users = None
+    if isinstance(feature_set, PairUserHistoryFeatureSet):
+        if not feature_set.user_history:
+            users = zero_user_context(len(table.rows))
+        elif history is None:
+            raise ValueError(f"the {feature_set.name} feature set needs the user history")
+        else:
+            users = user_context(table.rows, project, history, embeddings)
+    return NetworkInputs(reports=pair_report_matrix(table.rows, extras, feature_set), context=project, users=users)
+
+
+def load_user_history(client, bucket: str, prefix: str, partition_key: str) -> UserHistory | None:
+    """The dt=D interactions snapshot of the teams with training consent, and their organizations;
+    None when the snapshot is missing."""
+    interactions = read_parquet_if_exists(
+        client,
+        bucket,
+        partition_object_key(prefix, USER_INTERACTIONS_TABLE, partition_key),
+        columns=list(USER_INTERACTION_COLUMNS),
+    )
+    if interactions is None:
+        return None
+    consent_team_ids = training_consent_team_ids()
+    consented = pa.array(sorted(consent_team_ids), pa.int64())
+    return UserHistory(
+        interactions=interactions.filter(pc.is_in(interactions.column("report_team_id"), value_set=consented)),
+        organizations=team_organizations(consent_team_ids),
+    )
+
+
+def _reads_user_history(family: ModelFamily | None) -> bool:
+    return (
+        family is not None
+        and isinstance(family.feature_set, PairUserHistoryFeatureSet)
+        and family.feature_set.user_history
     )
 
 
@@ -214,6 +335,15 @@ def train_pair_candidate(
             f"no {', '.join(missing_extras)} side input for dt={partition_key}; {family.name} keeps this partition "
             "as it stands",
         )
+    history = None
+    if _reads_user_history(family) or _reads_user_history(baseline):
+        history = load_user_history(client, bucket, prefix, partition_key)
+        if history is None:
+            return _skipped(
+                context,
+                f"no {USER_INTERACTIONS_TABLE} snapshot for dt={partition_key}; {family.name} reads user history "
+                "and keeps this partition as it stands",
+            )
     # Pair inputs always carry the project context, so the graphs take every project-vector kind.
     check_recipe(
         client,
@@ -221,7 +351,9 @@ def train_pair_candidate(
         prefix,
         family.name,
         partition_key,
-        network_recipe(family, NETWORK_CONFIG, VECTOR_KINDS, PAIR_SETTINGS),
+        network_recipe(
+            family, NETWORK_CONFIG, VECTOR_KINDS, PAIR_SETTINGS, user_vector_kinds=family_user_kinds(family)
+        ),
     )
 
     from products.signals.dags.inbox_ranking.nn.train import (  # noqa: PLC0415 — keeps torch off the location's import path
@@ -234,9 +366,14 @@ def train_pair_candidate(
     reference_seed_scores = None
     if reference is not None and has_train_pairs:
         reference_seed_scores = reference_scores(examples.table, table, reference, extras, day, family.heads)
-    inputs = pair_network_inputs(table, extras, day, family.feature_set)
-    baseline_reports = pair_report_matrix(table.rows, extras, baseline.feature_set) if baseline is not None else None
-    del day
+    project = project_context(table.rows, day.labels, day.embeddings)
+    inputs = pair_network_inputs(table, extras, family.feature_set, project, history, day.embeddings)
+    baseline_inputs = (
+        pair_network_inputs(table, extras, baseline.feature_set, project, history, day.embeddings)
+        if baseline is not None
+        else None
+    )
+    del day, history
 
     trained = train_network(table, inputs, heads, NETWORK_CONFIG)
     vs_baseline = None
@@ -249,14 +386,8 @@ def train_pair_candidate(
             seeds=EXPERIMENT_SEEDS,
             experiment_scores=seed_scores(table, inputs, heads, NETWORK_CONFIG, EXPERIMENT_SEEDS),
             baseline_scores=(
-                seed_scores(
-                    table,
-                    NetworkInputs(reports=baseline_reports, context=inputs.context),
-                    heads,
-                    NETWORK_CONFIG,
-                    EXPERIMENT_SEEDS,
-                )
-                if baseline_reports is not None
+                seed_scores(table, baseline_inputs, heads, NETWORK_CONFIG, EXPERIMENT_SEEDS)
+                if baseline_inputs is not None
                 else None
             ),
             reference_scores=reference_seed_scores,
@@ -272,8 +403,13 @@ def train_pair_candidate(
         vs_baseline=vs_baseline,
         pair_settings=PAIR_SETTINGS,
     )
+    with_history = table.rows["prior_views"].to_numpy() > 0
     return {
         **metadata,
         "pair_rows": dagster.MetadataValue.int(len(table.rows)),
+        "pair_users": dagster.MetadataValue.int(
+            int(table.rows[["report_team_id", "user_distinct_id"]].drop_duplicates().shape[0])
+        ),
+        "pair_rows_with_prior_views": dagster.MetadataValue.int(int(with_history.sum())),
         "pairs_without_report_row": dagster.MetadataValue.int(without_report),
     }

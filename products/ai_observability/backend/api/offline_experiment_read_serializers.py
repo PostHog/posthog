@@ -7,6 +7,7 @@ from rest_framework import serializers
 from rest_framework_dataclasses.fields import EnumField
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.api.pagination import PageLinksSerializer
 from posthog.api.shared import UserBasicSerializer
 
 from products.ai_observability.backend.api.offline_experiment_serializers import (
@@ -299,7 +300,7 @@ class OfflineResultFieldsSerializer(serializers.Serializer):
     accepted_at = serializers.DateTimeField(help_text="Original server acceptance time.")
     payload_state = serializers.ChoiceField(choices=PayloadState.choices, help_text="Result payload storage state.")
     payload_expires_at = serializers.DateTimeField(
-        allow_null=True, help_text="Payload retention deadline; cleanup is not yet enabled."
+        allow_null=True, help_text="Payload expires 30 days after first acceptance; deletion runs hourly."
     )
 
 
@@ -344,7 +345,7 @@ class OfflineItemReadSerializer(serializers.Serializer):
     accepted_at = serializers.DateTimeField(help_text="Original server acceptance time.")
     payload_state = serializers.ChoiceField(choices=PayloadState.choices, help_text="Item payload storage state.")
     payload_expires_at = serializers.DateTimeField(
-        allow_null=True, help_text="Payload retention deadline; cleanup is not yet enabled."
+        allow_null=True, help_text="Payload expires 30 days after first acceptance; deletion runs hourly."
     )
     results = OfflineResultCellSerializer(
         many=True, help_text="Cells for explicitly selected scorer versions; empty when none selected."
@@ -454,7 +455,7 @@ class OfflineHistoryPointSerializer(serializers.Serializer):
 
 
 @extend_schema_serializer(many=False)
-class OfflinePageSerializer(serializers.Serializer):
+class OfflinePageSerializer(PageLinksSerializer):
     count = serializers.IntegerField(help_text="Total authorized rows matching the filters, independent of this page.")
     next_cursor = serializers.CharField(allow_null=True, help_text="Continuation cursor, or null after the final page.")
 

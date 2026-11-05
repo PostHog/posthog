@@ -6,9 +6,8 @@ import api from 'lib/api'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { hasWildcard, heatmapPageUrl, heatmapUrlPatternToRegex } from 'lib/components/heatmaps/heatmapUrlMatch'
 import type { HeatmapKind } from 'lib/components/heatmaps/types'
+import { hogql } from 'lib/utils/hogql'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { hogql } from '~/queries/utils'
 
 import type { HrefMatchType } from '../../../../../frontend/src/lib/components/heatmaps/heatmapDataLogic'
 import type { HeatmapUrlMatchMode } from '../../../../../frontend/src/lib/components/heatmaps/heatmapUrlMatch'

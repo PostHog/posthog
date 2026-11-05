@@ -5,7 +5,6 @@ import { isNotNil } from 'lib/utils/guards'
 import { removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 
-import { isWebAnalyticsPropertyFilters } from '~/queries/schema-guards'
 import {
     EventsNode,
     GroupNode,
@@ -15,6 +14,7 @@ import {
     WebBotsBreakdown,
     WebAnalyticsPropertyFilters,
 } from '~/queries/schema/schema-general'
+import { isWebAnalyticsPropertyFilters } from '~/queries/web-analytics-schema-guards'
 import {
     BaseMathType,
     BreakdownType,

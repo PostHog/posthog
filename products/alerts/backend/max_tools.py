@@ -477,7 +477,7 @@ class UpsertAlertTool(MaxTool):
                 from products.alerts.backend.platform_ownership import on_updated  # noqa: PLC0415
 
                 try:
-                    on_updated(alert, snooze_changed=False)
+                    on_updated(alert, snooze_changed=False, rescheduled=schedule_reset_required)
                 except (PlatformCannotOwn, InvalidPlatformAlertEdit) as error:
                     # Rolls back the insight row, so neither row takes an edit the platform rejects.
                     transaction.set_rollback(True)

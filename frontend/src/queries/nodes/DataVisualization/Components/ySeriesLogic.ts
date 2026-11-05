@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
+import posthog from 'posthog-js'
 
 import { getSeriesColor } from 'lib/colors'
 
@@ -29,9 +30,12 @@ export interface ySeriesLogicValues {
     canOpenSettings: boolean
     display: {
         color: string
+        description: string
         displayType: 'area' | 'auto' | 'bar' | 'line'
+        excludeFromTotal: boolean
         label: string
         trendLine: boolean
+        valueLabels: 'auto' | 'hide' | 'show'
         yAxisPosition: 'left' | 'right'
     }
     displayAllErrors: Record<string, any>
@@ -39,9 +43,12 @@ export interface ySeriesLogicValues {
     displayErrors: DeepPartialMap<
         {
             color: string
+            description: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
+            excludeFromTotal: boolean
             label: string
             trendLine: boolean
+            valueLabels: 'auto' | 'hide' | 'show'
             yAxisPosition: 'left' | 'right'
         },
         ValidationErrorType
@@ -53,9 +60,12 @@ export interface ySeriesLogicValues {
     displayValidationErrors: DeepPartialMap<
         {
             color: string
+            description: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
+            excludeFromTotal: boolean
             label: string
             trendLine: boolean
+            valueLabels: 'auto' | 'hide' | 'show'
             yAxisPosition: 'left' | 'right'
         },
         ValidationErrorType
@@ -112,16 +122,22 @@ export interface ySeriesLogicActions {
     } // dataVisualizationLogic
     resetDisplay: (values?: {
         color: string
+        description: string
         displayType: 'area' | 'auto' | 'bar' | 'line'
+        excludeFromTotal: boolean
         label: string
         trendLine: boolean
+        valueLabels: 'auto' | 'hide' | 'show'
         yAxisPosition: 'left' | 'right'
     }) => {
         values?: {
             color: string
+            description: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
+            excludeFromTotal: boolean
             label: string
             trendLine: boolean
+            valueLabels: 'auto' | 'hide' | 'show'
             yAxisPosition: 'left' | 'right'
         }
     }
@@ -151,17 +167,23 @@ export interface ySeriesLogicActions {
     setDisplayValues: (
         values: DeepPartial<{
             color: string
+            description: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
+            excludeFromTotal: boolean
             label: string
             trendLine: boolean
+            valueLabels: 'auto' | 'hide' | 'show'
             yAxisPosition: 'left' | 'right'
         }>
     ) => {
         values: DeepPartial<{
             color: string
+            description: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
+            excludeFromTotal: boolean
             label: string
             trendLine: boolean
+            valueLabels: 'auto' | 'hide' | 'show'
             yAxisPosition: 'left' | 'right'
         }>
     }
@@ -208,31 +230,43 @@ export interface ySeriesLogicActions {
     }
     submitDisplayRequest: (display: {
         color: string
+        description: string
         displayType: 'area' | 'auto' | 'bar' | 'line'
+        excludeFromTotal: boolean
         label: string
         trendLine: boolean
+        valueLabels: 'auto' | 'hide' | 'show'
         yAxisPosition: 'left' | 'right'
     }) => {
         display: {
             color: string
+            description: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
+            excludeFromTotal: boolean
             label: string
             trendLine: boolean
+            valueLabels: 'auto' | 'hide' | 'show'
             yAxisPosition: 'left' | 'right'
         }
     }
     submitDisplaySuccess: (display: {
         color: string
+        description: string
         displayType: 'area' | 'auto' | 'bar' | 'line'
+        excludeFromTotal: boolean
         label: string
         trendLine: boolean
+        valueLabels: 'auto' | 'hide' | 'show'
         yAxisPosition: 'left' | 'right'
     }) => {
         display: {
             color: string
+            description: string
             displayType: 'area' | 'auto' | 'bar' | 'line'
+            excludeFromTotal: boolean
             label: string
             trendLine: boolean
+            valueLabels: 'auto' | 'hide' | 'show'
             yAxisPosition: 'left' | 'right'
         }
     }
@@ -328,7 +362,7 @@ export const ySeriesLogic = kea<ySeriesLogicType>([
             },
         ],
     }),
-    forms(({ actions, props }) => ({
+    forms(({ actions, props, values }) => ({
         formatting: {
             defaults: {
                 prefix: props.series?.settings?.formatting?.prefix ?? '',
@@ -345,6 +379,14 @@ export const ySeriesLogic = kea<ySeriesLogicType>([
                         decimalPlaces: Number.isNaN(format.decimalPlaces) ? undefined : format.decimalPlaces,
                     },
                 })
+                if (values.formattingChanged) {
+                    posthog.capture('sql column settings updated', {
+                        settings_tab: 'formatting',
+                        query_kind: props.dataVisualizationProps.query.kind,
+                    })
+                    // Clear the change flag, so reopening and closing without edits is not tracked again
+                    actions.resetFormatting(format)
+                }
                 actions.setSettingsOpen(false)
             },
         },
@@ -352,20 +394,39 @@ export const ySeriesLogic = kea<ySeriesLogicType>([
             defaults: {
                 color: props.series?.settings?.display?.color ?? getSeriesColor(props.seriesIndex),
                 label: props.series?.settings?.display?.label ?? '',
+                description: props.series?.settings?.display?.description ?? '',
                 trendLine: props.series?.settings?.display?.trendLine ?? false,
+                excludeFromTotal: props.series?.settings?.display?.excludeFromTotal ?? false,
+                valueLabels: props.series?.settings?.display?.valueLabels ?? 'auto',
                 yAxisPosition: props.series?.settings?.display?.yAxisPosition ?? 'left',
                 displayType: props.series?.settings?.display?.displayType ?? 'auto',
             },
             submit: async (display) => {
+                const savedDisplay = props.series.settings?.display
                 actions.updateSeriesIndex(props.seriesIndex, props.series.column.name, {
                     display: {
                         color: display.color,
                         label: display.label,
                         trendLine: display.trendLine,
+                        ...(display.excludeFromTotal || savedDisplay?.excludeFromTotal !== undefined
+                            ? { excludeFromTotal: display.excludeFromTotal }
+                            : {}),
+                        ...(display.valueLabels !== 'auto' || savedDisplay?.valueLabels !== undefined
+                            ? { valueLabels: display.valueLabels }
+                            : {}),
                         yAxisPosition: display.yAxisPosition,
                         displayType: display.displayType,
                     },
                 })
+                if (values.displayChanged) {
+                    posthog.capture('sql column settings updated', {
+                        settings_tab: 'display',
+                        query_kind: props.dataVisualizationProps.query.kind,
+                        has_description: Boolean(display.description.trim()),
+                    })
+                    // Clear the change flag, so reopening and closing without edits is not tracked again
+                    actions.resetDisplay(display)
+                }
                 actions.setSettingsOpen(false)
             },
         },

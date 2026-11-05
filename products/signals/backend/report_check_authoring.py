@@ -348,7 +348,10 @@ def create_checks_from_specs(
     replacements start unapproved. If a new spec cannot be stored, the transaction rolls back and
     leaves the old checks running.
     """
-    specs = _without_unrunnable_agent_specs(report, specs)
+    runnable_specs = _without_unrunnable_agent_specs(report, specs)
+    if specs and not runnable_specs:
+        return CheckReconciliation(applied=False, created=[])
+    specs = runnable_specs
     try:
         with transaction.atomic():
             report = SignalReport.objects.select_for_update().get(id=report.id, team_id=report.team_id)
@@ -440,7 +443,7 @@ def create_checks_from_specs(
         return CheckReconciliation(applied=False, created=[])
 
 
-def replace_metric_check(
+def replace_check_with_metric(
     *,
     check: SignalReportCheck,
     title: str,
@@ -449,9 +452,7 @@ def replace_metric_check(
     attribution: ArtefactAttribution,
     access_policy: ReportMetricAccessPolicy,
 ) -> SignalReportCheck:
-    """Replace one open metric check atomically, keeping it live if the new check is invalid."""
-    if check.kind != SignalReportCheck.Kind.METRIC_THRESHOLD:
-        raise CheckCreationError("Only metric checks can be replaced this way.")
+    """Keep the previous check live if replacement validation fails."""
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().get(id=check.report_id, team_id=check.team_id)
         locked = SignalReportCheck.objects.for_team(check.team_id).select_for_update().get(id=check.id)
@@ -479,7 +480,12 @@ def cancel_check(
     check: SignalReportCheck,
     *,
     reason: Literal[
-        "stopped_by_person", "stopped_by_scout", "replaced_by_research", "replaced_by_request", "no_check_lane"
+        "stopped_by_person",
+        "stopped_by_scout",
+        "replaced_by_research",
+        "replaced_by_request",
+        "no_check_lane",
+        "monitoring_completed",
     ],
     attribution: ArtefactAttribution,
     from_statuses: Sequence[str] = SignalReportCheck.OPEN_STATUSES,

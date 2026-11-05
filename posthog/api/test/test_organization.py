@@ -1130,6 +1130,10 @@ class TestOrganizationSerializer(APIBaseTest):
                 "organization_membership",
                 lambda self: self._create_user("rbac+invalidation@posthog.com"),
             ),
+            (
+                "organization",
+                lambda self: self.organization.save(),
+            ),
         ]
     )
     def test_rbac_change_invalidates_org_cache(self, _name, mutate):

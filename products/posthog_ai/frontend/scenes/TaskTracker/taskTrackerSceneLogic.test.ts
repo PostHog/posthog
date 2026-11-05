@@ -6,9 +6,10 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { phaiAiComposerSeedLogic } from 'scenes/max/phaiAiComposerSeedLogic'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { urls } from 'scenes/urls'
 
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -20,7 +21,7 @@ import {
     TaskRuntimeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
-import { attachedContextLogic, runStreamLogic } from '../../api/logics'
+import { runStreamLogic } from '../../api/logics'
 import { codexBillingLogic } from '../../logics/codexBillingLogic'
 import { composerAttachmentsLogic } from '../../logics/composerAttachmentsLogic'
 import { composerOverrideLogic } from '../../logics/composerOverrideLogic'
@@ -107,6 +108,8 @@ describe('taskTrackerSceneLogic', () => {
             },
         })
         initKeaTests()
+        // Without Tasks access the scene sends `/tasks` URLs to classic PostHog AI.
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TASKS], { [FEATURE_FLAGS.TASKS]: true })
         toolEvents = toolStreamEventsLogic()
         toolEvents.mount()
         toolEvents.actions.registerToolListener('editor', {
@@ -190,6 +193,20 @@ describe('taskTrackerSceneLogic', () => {
         expect(createBody).toHaveProperty('branch', null)
         expect(uploadStagedTaskAttachments).not.toHaveBeenCalled()
         expect(runBody).not.toHaveProperty('pending_user_artifact_ids')
+    })
+
+    // An Inbox task link must still open its transcript without Tasks access.
+    it.each([
+        ['/tasks', '/ai'],
+        ['/tasks/new', '/ai'],
+        ['/tasks/a1b2c3d4-0000-4000-8000-000000000001', '/tasks/a1b2c3d4-0000-4000-8000-000000000001'],
+    ])('without Tasks access, %s lands on %s', async (start, expected) => {
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        logic.mount()
+        router.actions.push(start)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toBe(`/project/997${expected}`)
     })
 
     it.each([
@@ -727,6 +744,25 @@ describe('taskTrackerSceneLogic', () => {
             toast.mockRestore()
         }
     )
+
+    it('toasts the active-session cap refusal and keeps the draft', async () => {
+        const detail =
+            'You already have 10 cloud sandboxes running. Wait for one to finish or stop one, then try again.'
+        useMocks({
+            post: {
+                '/api/projects/:team/tasks/:id/run/': () => [400, { detail, code: 'active_session_cap' }],
+            },
+        })
+        const toast = jest.spyOn(lemonToast, 'error')
+        logic.mount()
+        logic.actions.setNewTaskData({ description: 'Inspect the example chart' })
+        await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+
+        expect(toast).toHaveBeenCalledWith(detail)
+        expect(logic.values.isSubmittingTask).toBe(false)
+        expect(logic.values.newTaskData.description).toBe('Inspect the example chart')
+        toast.mockRestore()
+    })
 
     // The seeded first message wraps the on-screen context, and the wrapped non-text refs must be marked
     // sent under the created task's id — otherwise the run's first follow-up (sent via

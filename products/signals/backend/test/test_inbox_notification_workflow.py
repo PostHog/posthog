@@ -323,3 +323,24 @@ async def test_workflow_skips_the_pr_wait_when_the_report_already_notified():
     await _run_workflow(recorder)
     assert recorder.state_calls == 1
     assert recorder.dispatch_calls == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("assigned", [True, False])
+def test_send_queues_the_report_push_again_only_after_assigning_a_default_owner(team, assigned):
+    # The "new report" push is queued on `first_visible_at`, when a reviewerless report pushes to
+    # nobody, so a default owner assigned here only hears about the report if this requeues it.
+    report = _make_report(team)
+    with (
+        patch(
+            "products.signals.backend.temporal.inbox_notification.assign_default_owner", return_value=assigned
+        ) as assign,
+        patch("products.signals.backend.inbox_push_notifications.schedule_report_visible_push") as push,
+        patch("products.signals.backend.temporal.inbox_notification.post_report_findings_to_tickets"),
+        patch("products.signals.backend.temporal.inbox_notification.fetch_signals_for_report_sync", return_value=[]),
+        patch("products.signals.backend.slack_inbox_notifications.dispatch_inbox_item_notifications", return_value=1),
+    ):
+        assert _send_report_inbox_notifications(team.id, str(report.id)) == 1
+
+    assign.assert_called_once()
+    assert push.call_count == (1 if assigned else 0)

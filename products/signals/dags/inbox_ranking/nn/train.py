@@ -20,11 +20,15 @@ from sklearn.metrics import roc_auc_score
 from posthog.dataclasses import frozen
 
 from products.signals.backend.ranking.features import EMBEDDING_DIMENSIONS
-from products.signals.dags.inbox_ranking.dataset.project_vectors import VECTOR_KINDS
 from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig, NetworkInputs
 from products.signals.dags.inbox_ranking.multihead.network import MultiHeadNetwork, export_onnx
 from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable
-from products.signals.dags.inbox_ranking.nn.model import NetworkHead, TrainedNetwork, network_vector_kinds
+from products.signals.dags.inbox_ranking.nn.model import (
+    NetworkHead,
+    TrainedNetwork,
+    network_user_kinds,
+    network_vector_kinds,
+)
 from products.signals.dags.inbox_ranking.training.heads import Head
 from products.signals.dags.inbox_ranking.training.train import NULL_PERMUTATIONS, head_metrics
 
@@ -35,9 +39,10 @@ def _fit(
     network = MultiHeadNetwork(
         heads=[head.name for head in heads],
         with_context=inputs.context is not None,
-        kinds=len(VECTOR_KINDS),
+        kinds=len(network_vector_kinds(inputs)),
         config=config,
         report_features=inputs.reports.shape[1] - EMBEDDING_DIMENSIONS,
+        user_kinds=inputs.users.vectors.shape[1] if inputs.users is not None else 0,
     )
     network.fit(inputs, labels, rows)
     return network
@@ -134,6 +139,7 @@ def train_network(
         network_train_rows=len(train_rows),
         refit_rows=len(refit_rows),
         vector_kinds=network_vector_kinds(inputs),
+        user_vector_kinds=network_user_kinds(inputs),
     )
 
 

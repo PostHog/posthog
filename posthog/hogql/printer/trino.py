@@ -908,11 +908,7 @@ class TrinoPrinter(PostgresPrinter):
                 node,
             )
         if name == "cityhash64":
-            self._unsupported(
-                "TRINO_FUNCTION_UNSUPPORTED",
-                f"{node.name} has no semantics-preserving Trino implementation.",
-                node,
-            )
+            return self._visit_city_hash_64(node)
         if name == "totypename":
             self._unsupported(
                 "TRINO_FUNCTION_UNSUPPORTED",
@@ -992,13 +988,14 @@ class TrinoPrinter(PostgresPrinter):
                 return super().visit_call(lowered)
         if name in {"toint", "tointorzero", "tointordefault", "_touint64"} and node.args:
             arg = node.args[0]
-            arg_type = arg.type.resolve_constant_type(self.context) if arg.type is not None else None
+            arg_type = self._resolve_type(arg)
             if isinstance(arg_type, ast.DateType):
                 return f"date_diff('day', DATE '1970-01-01', {self.visit(arg)})"
             if isinstance(arg_type, ast.DateTimeType):
                 return f"CAST(to_unixtime({self.visit(arg)}) AS BIGINT)"
             if isinstance(arg_type, ast.BooleanType):
-                return f"CASE WHEN {self.visit(arg)} THEN 1 ELSE 0 END"
+                # A CASE would turn NULL into 0; the cast keeps it NULL like ClickHouse.
+                return f"CAST({self.visit(arg)} AS BIGINT)"
             if name == "toint" and isinstance(arg_type, ast.StringType):
                 return f"TRY_CAST({self.visit(arg)} AS BIGINT)"
             # HogQL toInt is accurateCastOrNull, which maps a fractional, NaN or out-of-range float to NULL
@@ -1522,17 +1519,68 @@ class TrinoPrinter(PostgresPrinter):
         raise ImpossibleASTError(f"Unknown ArithmeticOperationOp {node.op}")
 
     def _resolve_type(self, node: ast.Expr) -> ast.ConstantType | None:
+        # Lowerings ask for the same operand types at every nesting level, so uncached lookups grow exponentially.
+        cache: dict[int, tuple[ast.Expr, ast.ConstantType | None]] = self.__dict__.setdefault("_resolved_types", {})
+        cached = cache.get(id(node))
+        if cached is not None and cached[0] is node:
+            return cached[1]
+        resolved = self._resolve_type_uncached(node)
+        cache[id(node)] = (node, resolved)
+        return resolved
+
+    def _resolve_type_uncached(self, node: ast.Expr) -> ast.ConstantType | None:
         if isinstance(node, ast.Call) and node.name.lower() in TRINO_TUPLE_OPERATORS:
             if node.name.lower() == "tuplehammingdistance":
                 return ast.IntegerType()
             return self._tuple_arithmetic_type(node)
         if isinstance(node, ast.Call) and node.name.lower() in {"jsonhas", "multisearchanycaseinsensitive"}:
             return ast.BooleanType()
+        # Division always prints as a DOUBLE division, though the resolver can type divide() of integers as an integer.
+        if (isinstance(node, ast.ArithmeticOperation) and node.op == ast.ArithmeticOperationOp.Div) or (
+            isinstance(node, ast.Call) and node.name.lower() == "divide"
+        ):
+            division_type = node.type.resolve_constant_type(self.context) if node.type is not None else None
+            return ast.FloatType(nullable=division_type.nullable if division_type is not None else True)
+        sides: tuple[ast.Expr, ast.Expr] | None = None
+        if isinstance(node, ast.ArithmeticOperation) and node.op in (
+            ast.ArithmeticOperationOp.Add,
+            ast.ArithmeticOperationOp.Sub,
+            ast.ArithmeticOperationOp.Mult,
+        ):
+            sides = (node.left, node.right)
+        elif isinstance(node, ast.Call) and node.name.lower() in {"plus", "minus", "multiply"} and len(node.args) == 2:
+            sides = (node.args[0], node.args[1])
+        if (
+            sides is not None
+            and any(isinstance(self._resolve_type(side), ast.FloatType) for side in sides)
+            # Date arithmetic prints as date_add, which keeps the date type.
+            and not any(isinstance(self._resolve_type(side), (ast.DateType, ast.DateTimeType)) for side in sides)
+        ):
+            side_types = [self._resolve_type(side) for side in sides]
+            return ast.FloatType(nullable=any(side_type is None or side_type.nullable for side_type in side_types))
+        # ClickHouse rounding functions return their argument's type, but the function registry declares no signature.
+        if isinstance(node, ast.Call) and node.name.lower() in {"floor", "ceil", "trunc", "round"} and node.args:
+            argument_type = self._resolve_type(node.args[0])
+            if isinstance(argument_type, (ast.IntegerType, ast.FloatType, ast.DecimalType)):
+                return argument_type
         if isinstance(node, ast.Call) and node.name.lower() in {"coalesce", "ifnull", "nullif"}:
             if any(isinstance(self._resolve_type(arg), ast.BooleanType) for arg in node.args) and any(
                 self._is_numeric(arg) for arg in node.args
             ):
-                return ast.IntegerType()
+                # Booleans print as integers here, so the other numeric arguments decide the common type.
+                numeric_types = [self._resolve_type(arg) for arg in node.args]
+                if node.name.lower() == "nullif":
+                    # nullIf returns its first argument or NULL, so it keeps that type and is always nullable.
+                    first_type = numeric_types[0]
+                    if isinstance(first_type, (ast.FloatType, ast.DecimalType, ast.IntegerType)):
+                        return replace(first_type, nullable=True)
+                    return ast.IntegerType(nullable=True)
+                # coalesce is NULL only when every argument is.
+                nullable = all(numeric_type is None or numeric_type.nullable for numeric_type in numeric_types)
+                for numeric_type in numeric_types:
+                    if isinstance(numeric_type, (ast.FloatType, ast.DecimalType)):
+                        return replace(numeric_type, nullable=nullable)
+                return ast.IntegerType(nullable=nullable)
             if any(isinstance(self._resolve_type(arg), ast.BooleanType) for arg in node.args) and any(
                 self._is_dynamic_property(arg) for arg in node.args
             ):
@@ -2744,17 +2792,33 @@ class TrinoPrinter(PostgresPrinter):
         if len(node.args) == 1:
             start = "0"
             end = self.visit(node.args[0])
-        elif len(node.args) == 2:
+        elif len(node.args) in {2, 3}:
             start = self.visit(node.args[0])
             end = self.visit(node.args[1])
         else:
-            self._invalid_function_arguments(node, "range expects one or two arguments in Trino mode.")
+            self._invalid_function_arguments(node, "range expects one to three arguments in Trino mode.")
+        step = ""
+        if len(node.args) == 3:
+            step_arg = node.args[2]
+            # A constant positive step keeps the Trino sequence ascending, as the exclusive end filter assumes.
+            if (
+                not isinstance(step_arg, ast.Constant)
+                or isinstance(step_arg.value, bool)
+                or not isinstance(step_arg.value, int)
+                or step_arg.value <= 0
+            ):
+                self._unsupported(
+                    "TRINO_RANGE_STEP_UNSUPPORTED",
+                    "range requires a constant positive integer step in Trino mode.",
+                    node,
+                )
+            step = f", {step_arg.value}"
         value = self._print_identifier("__hogql_range_value")
         if all(isinstance(arg, ast.Constant) for arg in node.args):
-            return f"filter(sequence({start}, greatest(({end}) - 1, {start})), {value} -> ({value} < {end}))"
+            return f"filter(sequence({start}, greatest(({end}) - 1, {start}){step}), {value} -> ({value} < {end}))"
         return (
             f"element_at(transform(ARRAY[ROW({start}, {end})], __hogql_range -> "
-            "filter(sequence(__hogql_range[1], greatest(__hogql_range[2] - 1, __hogql_range[1])), "
+            f"filter(sequence(__hogql_range[1], greatest(__hogql_range[2] - 1, __hogql_range[1]){step}), "
             f"{value} -> ({value} < __hogql_range[2]))), 1)"
         )
 
@@ -3282,6 +3346,40 @@ class TrinoPrinter(PostgresPrinter):
         if isinstance(value_type, ast.BooleanType):
             return f"IF({value} IS NULL, NULL, IF({value}, '1', '0'))"
         return f"CAST({value} AS VARCHAR)"
+
+    def _visit_city_hash_64(self, node: ast.Call) -> str:
+        # ch_cityhash64 comes from the trino-posthog-functions plugin in the PostHog Trino fork.
+        # It returns DECIMAL(20,0), so values equal ClickHouse's UInt64.
+        # ClickHouse hashes an integer as its unsigned bit pattern at the integer's own width,
+        # so the plugin has one overload per Trino integer width.
+        value = self._visit_unary_arg(node)
+        value_type = self._resolve_type(node.args[0])
+        if isinstance(value_type, ast.StringType):
+            return f"ch_cityhash64({value})"
+        if isinstance(value_type, ast.BooleanType):
+            return f"ch_cityhash64(CAST({value} AS TINYINT))"
+        if isinstance(value_type, ast.IntegerType):
+            arg = node.args[0]
+            if isinstance(arg, ast.Constant) and isinstance(arg.value, int):
+                return f"ch_cityhash64(CAST({value} AS {self._city_hash_64_literal_type(node, arg.value)}))"
+            return f"ch_cityhash64({value})"
+        self._invalid_function_arguments(
+            node, "cityHash64 in Trino mode supports only one String, integer or boolean argument."
+        )
+
+    def _city_hash_64_literal_type(self, node: ast.Call, value: int) -> str:
+        # ClickHouse types an integer literal as the smallest type that fits it.
+        if value > 2**63 - 1:
+            self._invalid_function_arguments(
+                node, "cityHash64 in Trino mode supports integer literals up to 9223372036854775807."
+            )
+        if value >= -(2**7):
+            return "TINYINT" if value < 0 else "BIGINT"
+        if value >= -(2**15):
+            return "SMALLINT"
+        if value >= -(2**31):
+            return "INTEGER"
+        return "BIGINT"
 
     def _visit_to_timestamp(self, node: ast.Call) -> str:
         if len(node.args) != 1 or not isinstance(self._resolve_type(node.args[0]), ast.IntegerType):

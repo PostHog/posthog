@@ -5,10 +5,10 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { CommentType } from '~/types'
 
 import { recordingMetaJson } from '../../__mocks__/recording_meta'

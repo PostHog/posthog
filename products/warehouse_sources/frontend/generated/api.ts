@@ -18,13 +18,16 @@ import type {
     CredentialAccountsRequestApi,
     DatabaseSchemaRequestApi,
     DeleteWebhookResponseApi,
+    DestinationConnectCompleteRequestApi,
     DestinationConnectLinkApi,
+    DestinationConnectStatusApi,
     DestinationConnectionTestResponseApi,
     DirectConnectionSourceOptionApi,
     DraftCustomManifestRequestApi,
     DraftCustomManifestResponseApi,
     ExternalDataDestinationApi,
     ExternalDataDestinationsConnectLinkRetrieveParams,
+    ExternalDataDestinationsConnectLinkStatusRetrieveParams,
     ExternalDataDestinationsListParams,
     ExternalDataJobSerializersApi,
     ExternalDataSchemaApi,
@@ -68,7 +71,6 @@ import type {
     WarehouseAlertCreateDestinationApi,
     WarehouseAlertDeleteDestinationApi,
     WarehouseAlertDestinationApi,
-    WarehouseAlertDestinationCreatedApi,
     WarehouseColumnStatisticsApi,
     WarehouseColumnStatisticsListParams,
     WebhookInfoResponseApi,
@@ -306,7 +308,8 @@ export const getExternalDataDestinationsConnectLinkRetrieveUrl = (
  * Return a secure browser link where the user connects the credentials for a destination.
  *
  * The page saves an integration and does not create the destination, so secrets never pass
- * through the agent. The agent then creates the destination with the new integration's id.
+ * through the agent. The link carries a connect token. The agent reads the saved integration's id
+ * with the token from the connect link status endpoint, then creates the destination with it.
  */
 export const externalDataDestinationsConnectLinkRetrieve = async (
     projectId: string,
@@ -317,6 +320,66 @@ export const externalDataDestinationsConnectLinkRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getExternalDataDestinationsConnectLinkCompleteCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_destinations/connect_link_complete/`
+}
+
+/**
+ * Report the integration the user saved on the connect page, so the agent that sent them can read it.
+ *
+ * The connect page calls this. Repeating the call with the same integration is safe.
+ */
+export const externalDataDestinationsConnectLinkCompleteCreate = async (
+    projectId: string,
+    destinationConnectCompleteRequestApi: DestinationConnectCompleteRequestApi,
+    options?: RequestInit
+): Promise<DestinationConnectStatusApi> => {
+    return apiMutator<DestinationConnectStatusApi>(getExternalDataDestinationsConnectLinkCompleteCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(destinationConnectCompleteRequestApi),
+    })
+}
+
+export const getExternalDataDestinationsConnectLinkStatusRetrieveUrl = (
+    projectId: string,
+    params: ExternalDataDestinationsConnectLinkStatusRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/external_data_destinations/connect_link_status/?${stringifiedParams}`
+        : `/api/projects/${projectId}/external_data_destinations/connect_link_status/`
+}
+
+/**
+ * Return whether the user saved a connection through a connect link, and which integration it is.
+ *
+ * Never returns credentials or integration config.
+ */
+export const externalDataDestinationsConnectLinkStatusRetrieve = async (
+    projectId: string,
+    params: ExternalDataDestinationsConnectLinkStatusRetrieveParams,
+    options?: RequestInit
+): Promise<DestinationConnectStatusApi> => {
+    return apiMutator<DestinationConnectStatusApi>(
+        getExternalDataDestinationsConnectLinkStatusRetrieveUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getExternalDataSchemasListUrl = (projectId: string, params?: ExternalDataSchemasListParams) => {
@@ -1553,15 +1616,15 @@ export const getWarehouseAlertsDestinationsCreateUrl = (projectId: string, id: s
 }
 
 /**
- * Add a notification destination to a warehouse alert. One HogFunction is created per alert event kind (firing, resolved). A PagerDuty destination gets the incident opened and incident closed kinds instead, so each incident it opens is resolved.
+ * Add a notification destination to a warehouse alert.
  */
 export const warehouseAlertsDestinationsCreate = async (
     projectId: string,
     id: string,
     warehouseAlertCreateDestinationApi: WarehouseAlertCreateDestinationApi,
     options?: RequestInit
-): Promise<WarehouseAlertDestinationCreatedApi> => {
-    return apiMutator<WarehouseAlertDestinationCreatedApi>(getWarehouseAlertsDestinationsCreateUrl(projectId, id), {
+): Promise<WarehouseAlertDestinationApi> => {
+    return apiMutator<WarehouseAlertDestinationApi>(getWarehouseAlertsDestinationsCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1574,7 +1637,7 @@ export const getWarehouseAlertsDestinationsDeleteCreateUrl = (projectId: string,
 }
 
 /**
- * Delete one notification destination of a warehouse alert, all its HogFunctions together.
+ * Delete notification destinations of a warehouse alert.
  */
 export const warehouseAlertsDestinationsDeleteCreate = async (
     projectId: string,

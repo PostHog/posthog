@@ -9,7 +9,8 @@ from collections.abc import Iterable
 
 import structlog
 
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.integrations import IntegrationRecord
+from posthog.models.integration import SlackIntegration
 
 logger = structlog.get_logger(__name__)
 
@@ -37,7 +38,7 @@ SLACK_FILE_SCOPE = "files:write"
 SLACK_CANVAS_SCOPE = "canvases:write"
 
 
-def has_scopes(integration: Integration, required: Iterable[str]) -> bool:
+def has_scopes(integration: IntegrationRecord, required: Iterable[str]) -> bool:
     """Whether the install granted these bot scopes. Fails closed, so an install whose
     granted set can't be read never enables anything."""
     try:
@@ -47,6 +48,6 @@ def has_scopes(integration: Integration, required: Iterable[str]) -> bool:
         return False
 
 
-def bot_is_ready(integration: Integration) -> bool:
+def bot_is_ready(integration: IntegrationRecord) -> bool:
     """True when the install has every scope the @PostHog bot needs to answer mentions."""
     return has_scopes(integration, REQUIRED_SLACK_SCOPES)

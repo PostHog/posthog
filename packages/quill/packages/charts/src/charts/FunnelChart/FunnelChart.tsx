@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { useChartLayout } from '../../core/chart-context'
+import { useStableMargins } from '../../core/hooks/useChartMargins'
 import { useResolvedChartTheme } from '../../core/theme'
 import type {
     BarChartConfig,
@@ -95,6 +96,10 @@ export interface FunnelChartProps<Meta = unknown> {
     className?: string
     children?: React.ReactNode
     onError?: (error: Error, info: React.ErrorInfo) => void
+}
+
+function formatPercentTick(value: number): string {
+    return `${Math.round(value)}%`
 }
 
 function formatPercent(value: number): string {
@@ -210,7 +215,7 @@ export function FunnelChart<Meta = unknown>({
         tooltip: tooltipConfig,
         legend,
         animateHover,
-        margins,
+        margins: marginsOverride,
         showGrid = true,
         barCornerRadius = DEFAULT_CORNER_RADIUS,
         hideStepLabels,
@@ -222,6 +227,7 @@ export function FunnelChart<Meta = unknown>({
         chartMinHeight,
         stepFooterAlign = 'start',
     } = config ?? {}
+    const margins = useStableMargins(marginsOverride)
     const hasStepFooter = stepFooter != null
 
     // Band labels are 1-based step indices so steps sharing a name don't collapse onto one
@@ -229,59 +235,38 @@ export function FunnelChart<Meta = unknown>({
     const bandLabels = useMemo(() => steps.map((_, stepIndex) => `${stepIndex + 1}`), [steps])
     const stepLabelFromBand = useCallback((band: string): string => steps[Number(band) - 1] ?? band, [steps])
 
-    const barConfig = useMemo<BarChartConfig>(
-        () => ({
-            barLayout: 'grouped',
-            showGrid,
-            animateHover,
-            margins,
-            hideXAxis: hideStepLabels || hasStepFooter,
-            hideYAxis: hideValueAxis,
-            maxCategoryLabelWidth,
-            xTickFormatter: stepLabelFromBand,
-            yTickFormatter: (value) => `${Math.round(value)}%`,
-            barCornerRadius,
-            legend,
-            tooltip: {
-                placement: 'top',
-                valueFormatter: formatPercent,
-                labelFormatter: stepLabelFromBand,
-                ...tooltipConfig,
-            },
-            bars: {
-                track: true,
-                shadow: FUNNEL_BAR_SHADOW,
-                bandPadding: bandPadding ?? FUNNEL_BAND_PADDING,
-                minBarSize: minBarSize ?? FUNNEL_MIN_BAR_SIZE,
-                minBarSizeScope: 'hover',
-                maxBandRange,
-            },
-        }),
-        [
-            showGrid,
-            animateHover,
-            margins,
-            hideStepLabels,
-            hasStepFooter,
-            hideValueAxis,
-            maxCategoryLabelWidth,
-            stepLabelFromBand,
-            legend,
-            tooltipConfig,
-            barCornerRadius,
-            bandPadding,
+    const barConfig: BarChartConfig = {
+        barLayout: 'grouped',
+        showGrid,
+        animateHover,
+        margins,
+        hideXAxis: hideStepLabels || hasStepFooter,
+        hideYAxis: hideValueAxis,
+        maxCategoryLabelWidth,
+        xTickFormatter: stepLabelFromBand,
+        yTickFormatter: formatPercentTick,
+        barCornerRadius,
+        legend,
+        tooltip: {
+            placement: 'top',
+            valueFormatter: formatPercent,
+            labelFormatter: stepLabelFromBand,
+            ...tooltipConfig,
+        },
+        bars: {
+            track: true,
+            shadow: FUNNEL_BAR_SHADOW,
+            bandPadding: bandPadding ?? FUNNEL_BAND_PADDING,
+            minBarSize: minBarSize ?? FUNNEL_MIN_BAR_SIZE,
+            minBarSizeScope: 'hover',
             maxBandRange,
-        ]
-    )
+        },
+    }
 
-    const handlePointClick = useMemo(
-        () =>
-            onStepClick
-                ? (data: PointClickData<Meta>): void =>
-                      onStepClick({ ...data, stepIndex: data.dataIndex, converted: !data.inTrackArea })
-                : undefined,
-        [onStepClick]
-    )
+    const handlePointClick = onStepClick
+        ? (data: PointClickData<Meta>): void =>
+              onStepClick({ ...data, stepIndex: data.dataIndex, converted: !data.inTrackArea })
+        : undefined
 
     const [bands, setBands] = useState<StepBand[] | null>(null)
 

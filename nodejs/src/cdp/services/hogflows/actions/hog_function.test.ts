@@ -1,6 +1,6 @@
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
-import { DateTime } from 'luxon'
+import { DateTime, Settings } from 'luxon'
 import { register } from 'prom-client'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
@@ -93,7 +93,8 @@ describe('HogFunctionHandler', () => {
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
             new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
             new RecipientsManagerService(hub.postgres),
-            null
+            null,
+            { report: jest.fn() }
         )
         mockHogFunctionExecutor = new HogExecutorAsyncService(
             new HogExecutorService({ executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS }, hogInputsService),
@@ -129,7 +130,7 @@ describe('HogFunctionHandler', () => {
         )
         mockRecipientPreferencesService = {
             shouldSkipAction: jest.fn().mockResolvedValue(null),
-            isFrequencyCapped: jest.fn().mockResolvedValue(false),
+            checkFrequencyCap: jest.fn().mockResolvedValue({ capped: false }),
         } as any
         mockEmailValidationService = {
             getSkipReason: jest.fn().mockResolvedValue(null),
@@ -496,7 +497,11 @@ describe('HogFunctionHandler', () => {
     ])(
         'should skip the send and emit message_frequency_capped when the recipient reached the frequency cap for %s',
         async (_label, parentRunId) => {
-            ;(mockRecipientPreferencesService.isFrequencyCapped as jest.Mock).mockResolvedValueOnce(true)
+            ;(mockRecipientPreferencesService.checkFrequencyCap as jest.Mock).mockResolvedValueOnce({
+                capped: true,
+                nextSlotAt: Date.now() + 60 * 60 * 1000,
+                holdHours: null,
+            })
             invocation.parentRunId = parentRunId
 
             const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
@@ -523,6 +528,102 @@ describe('HogFunctionHandler', () => {
             expect(mockFetch).not.toHaveBeenCalled()
         }
     )
+
+    const hour = 60 * 60 * 1000
+
+    it.each([
+        ['another send took the freed slot', 1 * hour, { capped: true, nextSlotAt: 1_800_000_000_000 + 3 * hour }, 1],
+        // A worker backlog can wake the send after the hold ended. It must not claim a slot that freed late.
+        ['the send wakes after the hold ended', 3 * hour, { capped: false }, 0],
+    ])(
+        'should hold a capped send until the next slot, then skip it when %s',
+        async (_label, wakeAfter, wakeCheck, checks) => {
+            const start = 1_800_000_000_000
+            const originalNow = Settings.now
+            jest.spyOn(Math, 'random').mockReturnValue(0)
+            const checkFrequencyCap = mockRecipientPreferencesService.checkFrequencyCap as jest.Mock
+            try {
+                Settings.now = () => start
+                checkFrequencyCap.mockResolvedValueOnce({ capped: true, nextSlotAt: start + hour, holdHours: 2 })
+                const held = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                    queue: 'hog',
+                    queuePriority: 0,
+                })
+
+                const heldResult = await hogFunctionHandler.execute({ invocation, action, result: held })
+
+                expect(heldResult).toEqual({ scheduledAt: DateTime.fromMillis(start + hour) })
+                expect(held.invocation.state.currentAction?.frequencyCapHoldDeadlineAt).toBe(
+                    DateTime.fromMillis(start + 2 * hour).toISO()
+                )
+                expect(held.logs[0].message).toContain('Holding send until')
+                expect(held.metrics).toMatchObject([{ metric_name: 'message_frequency_cap_held', count: 1 }])
+
+                Settings.now = () => start + wakeAfter
+                checkFrequencyCap.mockClear()
+                checkFrequencyCap.mockResolvedValueOnce({ ...wakeCheck, holdHours: 2 })
+                const woken = createInvocationResult<CyclotronJobInvocationHogFlow>(held.invocation, {
+                    queue: 'hog',
+                    queuePriority: 0,
+                })
+
+                const wokenResult = await hogFunctionHandler.execute({
+                    invocation: held.invocation,
+                    action,
+                    result: woken,
+                })
+
+                expect(wokenResult.nextAction?.id).toBe('exit')
+                expect(woken.logs[0].message).toContain('no slot opened before the hold ended')
+                expect(woken.metrics).toMatchObject([{ metric_name: 'message_frequency_capped', count: 1 }])
+                expect(checkFrequencyCap).toHaveBeenCalledTimes(checks)
+                expect(mockFetch).not.toHaveBeenCalled()
+            } finally {
+                Settings.now = originalNow
+            }
+        }
+    )
+
+    it('should skip at once when the next slot frees after the hold would end', async () => {
+        ;(mockRecipientPreferencesService.checkFrequencyCap as jest.Mock).mockResolvedValueOnce({
+            capped: true,
+            nextSlotAt: Date.now() + 3 * hour,
+            holdHours: 2,
+        })
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+
+        const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+        expect(handlerResult.nextAction?.id).toBe('exit')
+        expect(invocationResult.metrics).toMatchObject([{ metric_name: 'message_frequency_capped', count: 1 }])
+    })
+
+    it('should skip, not hold, a capped send that resumes on the email queue', async () => {
+        // A hold here would drop the pending send that the email queue continuation carries.
+        ;(mockRecipientPreferencesService.checkFrequencyCap as jest.Mock).mockResolvedValueOnce({
+            capped: true,
+            nextSlotAt: Date.now() + hour,
+            holdHours: 2,
+        })
+        invocation.state.currentAction!.hogFunctionState = {
+            globals: { ...createExampleHogFlowInvocation(invocation.hogFlow).state.event, inputs: {} } as any,
+            timings: [],
+            attempts: 0,
+        } as any
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'email',
+            queuePriority: 0,
+        })
+
+        const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+        expect(handlerResult.nextAction?.id).toBe('exit')
+        expect(invocationResult.metrics).toMatchObject([{ metric_name: 'message_frequency_capped', count: 1 }])
+        expect(invocationResult.invocation.state.currentAction?.frequencyCapHoldDeadlineAt).toBeUndefined()
+    })
 
     it.each([
         ['a workflow run', undefined],
@@ -576,7 +677,11 @@ describe('HogFunctionHandler', () => {
             )
         }
         const skipFrequencyCapped = (): void => {
-            ;(mockRecipientPreferencesService.isFrequencyCapped as jest.Mock).mockResolvedValueOnce(true)
+            ;(mockRecipientPreferencesService.checkFrequencyCap as jest.Mock).mockResolvedValueOnce({
+                capped: true,
+                nextSlotAt: Date.now() + 60 * 60 * 1000,
+                holdHours: null,
+            })
         }
 
         it.each([
@@ -659,13 +764,24 @@ describe('HogFunctionHandler', () => {
     // The billing kind is the whole point of the per-channel handlers: push bills at its own rate
     // (roughly half of email), so a completed invocation must emit exactly one billable_invocation
     // carrying the handler's billing type — never fall back to another channel's kind.
-    it.each([
-        ['fetch', 'workflow_billable_invocations'],
-        ['email', 'workflow_emails_sent'],
-        ['sms', 'workflow_sms_sent'],
-    ] as const)(
-        'emits a single billable_invocation with %s kind matching the handler billing type',
-        async (billingType, usageKey) => {
+    it.each(
+        (
+            [
+                ['fetch', 'workflow_billable_invocations'],
+                ['email', 'workflow_emails_sent'],
+                ['push', 'workflow_push_sent'],
+                ['sms', 'workflow_sms_sent'],
+            ] as const
+        ).flatMap(([billingType, usageKey]) =>
+            [
+                { mode: 'production', isTest: false, mockFunctions: false },
+                { mode: 'unmocked test', isTest: true, mockFunctions: false },
+                { mode: 'mocked test', isTest: true, mockFunctions: true },
+            ].map((options) => ({ billingType, usageKey, ...options }))
+        )
+    )(
+        'emits $billingType metrics and only excludes mocked usage in $mode mode',
+        async ({ billingType, usageKey, isTest, mockFunctions }) => {
             const usageReporter: Pick<CdpUsageReporterService, 'reportBillableInvocation'> = {
                 reportBillableInvocation: jest.fn(),
             }
@@ -683,7 +799,17 @@ describe('HogFunctionHandler', () => {
                 queuePriority: 0,
             })
 
-            await handler.execute({ invocation, action, result: invocationResult })
+            await handler.execute({
+                invocation,
+                action,
+                result: invocationResult,
+                hogExecutorOptions: {
+                    isTest,
+                    ...(mockFunctions
+                        ? { asyncFunctionsNames: [], functions: { fetch: () => ({ status: 200, body: {} }) } }
+                        : {}),
+                },
+            })
 
             const billableMetrics = invocationResult.metrics.filter(
                 (metric) => metric.metric_name === 'billable_invocation'
@@ -699,9 +825,14 @@ describe('HogFunctionHandler', () => {
                 metric_name: 'billable_invocation',
                 count: 1,
             })
-            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith(
-                expect.objectContaining({ teamId: team.id, usageKey })
-            )
+            if (isTest && mockFunctions) {
+                expect(usageReporter.reportBillableInvocation).not.toHaveBeenCalled()
+            } else {
+                expect(usageReporter.reportBillableInvocation).toHaveBeenCalledTimes(billingType === 'push' ? 2 : 1)
+                expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith(
+                    expect.objectContaining({ teamId: team.id, usageKey })
+                )
+            }
         }
     )
 
@@ -741,9 +872,18 @@ describe('HogFunctionHandler', () => {
 
         expect(invocationResult.metrics.some((metric) => metric.metric_name === 'billable_invocation')).toBe(shouldBill)
         if (shouldBill) {
-            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith(
-                expect.objectContaining({ teamId: team.id, usageKey: 'workflow_push_sent' })
-            )
+            const recordId = `flow:${invocation.id}:${invocation.state.actionStepCount}:push`
+            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith({
+                teamId: team.id,
+                usageKey: 'workflow_push_sent',
+                recordId,
+            })
+            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith({
+                teamId: team.id,
+                usageKey: 'workflow_billable_invocations',
+                recordId,
+            })
+            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledTimes(2)
         } else {
             expect(usageReporter.reportBillableInvocation).not.toHaveBeenCalled()
         }
@@ -784,6 +924,43 @@ describe('HogFunctionHandler', () => {
             expect(invocationResult.invocation.state.flowVersion).toBe(expected)
         }
     )
+
+    it('keeps a paused protected send protected on its retry after protection is turned off', async () => {
+        const sentWith: any[] = []
+        jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockImplementation(
+            (hogFunctionInvocation: any) => {
+                sentWith.push(hogFunctionInvocation.hogFunction.metadata)
+                return Promise.resolve({
+                    finished: false,
+                    invocation: hogFunctionInvocation,
+                    logs: [],
+                    metrics: [],
+                    capturedPostHogEvents: [],
+                    warehouseWebhookPayloads: [],
+                    messageAssets: [],
+                    conversionWatchers: [],
+                })
+            }
+        )
+        ;(action.config as any).sensitive = true
+        const firstResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+        await hogFunctionHandler.execute({ invocation, action, result: firstResult })
+        expect(firstResult.invocation.state.currentAction!.hogFunctionState!.sensitive).toBe(true)
+        ;(action.config as any).sensitive = false
+        await hogFunctionHandler.execute({
+            invocation: firstResult.invocation,
+            action,
+            result: createInvocationResult<CyclotronJobInvocationHogFlow>(firstResult.invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            }),
+        })
+
+        expect(sentWith.map((metadata) => metadata.sensitive)).toEqual([true, true])
+    })
 
     it('should not emit a billable_invocation metric if function is not finished', async () => {
         // Mock the executeWithAsyncFunctions to return a non-finished result
@@ -1015,6 +1192,24 @@ describe('HogFunctionHandler', () => {
             expect(invocationResult.metrics.map((m) => m.metric_name)).toContain('billable_invocation')
             expect(invocationResult.logs.map((l) => l.message)).toContainEqual(
                 expect.stringContaining('Waiting for the task to finish')
+            )
+        })
+
+        it('links the AI task in the wait log, whatever the step stores', async () => {
+            // Serve the per-team template under the real id, because other test files share the template table.
+            const awaitedTemplateId = TASK_TEMPLATE_ID
+            const getTemplate =
+                mockHogFunctionTemplateManager.getHogFunctionTemplate.bind(mockHogFunctionTemplateManager)
+            jest.spyOn(mockHogFunctionTemplateManager, 'getHogFunctionTemplate').mockImplementation((id) =>
+                getTemplate(id === 'template-posthog-create-task' ? awaitedTemplateId : id)
+            )
+            TASK_TEMPLATE_ID = 'template-posthog-create-task'
+            buildTaskFlow()
+
+            const { invocationResult } = await execute()
+
+            expect(invocationResult.logs.map((l) => l.message)).toContainEqual(
+                expect.stringMatching(/Waiting for the task to finish \(up to .+\) \[Task:t1\|r1\]$/)
             )
         })
 
