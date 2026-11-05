@@ -91,6 +91,7 @@ import {
     featureFlagConfigFormatLabel,
     isRulesV2EditableConfig,
 } from 'products/feature_flags/frontend/featureFlagConfigFormat'
+import { FeatureFlagDeletedBanner } from 'products/feature_flags/frontend/FeatureFlagDeletedBanner'
 import { FeatureFlagDeletedCohortBanner } from 'products/feature_flags/frontend/FeatureFlagDeletedCohortBanner'
 import { FeatureFlagStaleBanner } from 'products/feature_flags/frontend/FeatureFlagStaleBanner'
 import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
@@ -398,14 +399,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                 content: <ExperimentsTab featureFlag={featureFlag} />,
             },
             {
-                label: (
-                    <div className="flex flex-row">
-                        <div>Testing</div>
-                        <LemonTag className="ml-2 float-right uppercase" type="primary">
-                            New
-                        </LemonTag>
-                    </div>
-                ),
+                label: 'Testing',
                 key: FeatureFlagsTab.TESTING,
                 content: <FeatureFlagTestingTab featureFlag={featureFlag} />,
             },
@@ -577,29 +571,11 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                         <PendingChangeRequestBanner resourceType="feature_flag" resourceId={featureFlag.id} />
                     )}
 
-                    {featureFlag.deleted && (
-                        <LemonBanner
-                            type="error"
-                            action={
-                                featureFlag.can_edit && canRestore
-                                    ? {
-                                          children: 'Restore',
-                                          onClick: () => restoreFeatureFlag(featureFlag),
-                                          loading: featureFlagRestoreLoading,
-                                          disabledReason: restoreBlockedReason,
-                                          'data-attr': 'restore-feature-flag-banner',
-                                      }
-                                    : undefined
-                            }
-                        >
-                            This feature flag is deleted. It's hidden from the flag list and can't be evaluated.{' '}
-                            {!canRestore
-                                ? RESTORE_UNAVAILABLE_DISABLED_REASON
-                                : featureFlag.can_edit
-                                  ? 'Restore it to use it again.'
-                                  : 'Ask someone with edit access to restore it.'}
-                        </LemonBanner>
-                    )}
+                    <FeatureFlagDeletedBanner
+                        flag={featureFlag}
+                        onRestore={() => restoreFeatureFlag(featureFlag)}
+                        restoreLoading={featureFlagRestoreLoading}
+                    />
                     {featureFlag.archived && (
                         <LemonBanner
                             type="warning"

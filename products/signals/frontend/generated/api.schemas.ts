@@ -6144,8 +6144,24 @@ export const MonitoringCheckTimingStateEnumApi = {
     ExpiryReached: 'expiry_reached',
 } as const
 
+/**
+ * * `monitoring` - Monitoring
+ * * `verifying` - Verifying
+ * * `assessment_required` - Assessment required
+ * * `verification_complete` - Verification complete
+ */
+export type FinalVerificationStateEnumApi =
+    (typeof FinalVerificationStateEnumApi)[keyof typeof FinalVerificationStateEnumApi]
+
+export const FinalVerificationStateEnumApi = {
+    Monitoring: 'monitoring',
+    Verifying: 'verifying',
+    AssessmentRequired: 'assessment_required',
+    VerificationComplete: 'verification_complete',
+} as const
+
 export interface MonitoringCheckTimingApi {
-    /** Whether this check has an interim measurement due, is paused, or has finished its observation window. No state implies a final verdict.
+    /** Monitoring timing state. Final verification phases use paused for compatibility; read final_verification_state for their phase.
      *
      * * `scheduled` - Scheduled
      * * `due` - Due
@@ -6157,6 +6173,13 @@ export interface MonitoringCheckTimingApi {
      * * `unavailable` - Timing unavailable
      * * `expiry_reached` - Expiry reached */
     state: MonitoringCheckTimingStateEnumApi
+    /** Final verification phase when state is paused. Null for other timing states. Read the check outcome for its verdict.
+     *
+     * * `monitoring` - Monitoring
+     * * `verifying` - Verifying
+     * * `assessment_required` - Assessment required
+     * * `verification_complete` - Verification complete */
+    readonly final_verification_state?: FinalVerificationStateEnumApi | null
     /**
      * Original Monitoring start for this check's report.
      * @nullable
@@ -8612,6 +8635,37 @@ export interface ScoutMemberTeamApi {
     is_maintainer: boolean
 }
 
+export interface ScoutMemberActivityObjectApi {
+    /** The object type in snake case, such as `dashboard` or `feature_flag`. */
+    type: string
+    /** The latest name of the object. */
+    name: string
+}
+
+/**
+ * What one member worked on recently, from their activity summary.
+ */
+export interface ScoutMemberActivityApi {
+    /**
+     * One line about the member's recent work.
+     * @nullable
+     */
+    headline: string | null
+    /** The labels of the main threads of the member's recent work. */
+    themes: string[]
+    /** Up to 5 objects the member created or changed, the most edited first. */
+    owned: ScoutMemberActivityObjectApi[]
+    /** Up to 5 objects the member opened on several days, the most opened first. A member who only reads the work shows up here. A specific object here can support a reviewer pick when the pick's `reason` names it. */
+    watched: ScoutMemberActivityObjectApi[]
+    /**
+     * When the summary was written.
+     * @nullable
+     */
+    generated_at: string | null
+    /** True when the summary waits for a rebuild in a newer format. Give a stale summary less weight. */
+    stale: boolean
+}
+
 /**
  * One project member's routing identity, for picking a `suggested_reviewers` entry on a report.
  */
@@ -8631,6 +8685,8 @@ export interface ScoutMemberApi {
     github_login: string | null
     /** The teams this member is on, from the project's synced team roster. Empty when no roster is synced, or when the member has no linked GitHub account, since the roster is keyed on that login. The roster is a periodic snapshot, so it can lag the live team. */
     teams: ScoutMemberTeamApi[]
+    /** What the member worked on recently. Use it as context to check against the report, not as proof: general activity is not evidence that the member owns the affected work. Filled only when the call passes `search` or `team` and returns at most 10 members. Null when the member has no ready summary, or when activity summaries are not available for this project. */
+    activity?: ScoutMemberActivityApi | null
 }
 
 /**
@@ -8701,7 +8757,7 @@ export interface ScoutNoteApi {
      * @nullable
      */
     created_by_name: string | null
-    /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. `report_feedback` for the note someone left when rating a report useful or not: one reader's rating of the named report, context to weigh rather than a directive. `report_reviewer_correction` for a suggested reviewer someone added or removed on a report: evidence about who owns that surface, and a prompt to revisit the routing memory it corrects, rather than a directive. */
+    /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. `report_feedback` for the note someone left when rating a report useful or not: one reader's rating of the named report, context to weigh rather than a directive. `report_reviewer_correction` for a suggested reviewer someone added or removed on a report, or for a report a person or their agent claimed: evidence about who owns that surface, and a prompt to revisit the routing memory it corrects or supports, rather than a directive. */
     origin: string
 }
 
@@ -9947,6 +10003,11 @@ export interface EditReportRequestApi {
      * @maxLength 500
      */
     reviewer_retry_reason?: string
+    /**
+     * Why no suitable owner exists, with `reviewer_outcome: no_suitable_owner`. Required to clear a report that already has suggested reviewers: without it the current reviewers stay and the response carries a warning. The reason is recorded in the report's work log.
+     * @maxLength 500
+     */
+    reviewer_outcome_reason?: string
     /** Id of the report to edit (must belong to this project). */
     report_id: string
     /**

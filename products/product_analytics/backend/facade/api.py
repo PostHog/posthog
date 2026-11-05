@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 from posthog.models import Team, User
 
@@ -126,6 +126,19 @@ def recently_viewed_insights(*, team_id: int, user_id: int, limit: int) -> list[
     Each one carries the viewer's own ``last_viewed_at`` rather than the team-wide latest.
     """
     return logic.recently_viewed_insights(team_id=team_id, user_id=user_id, limit=limit)
+
+
+def insight_short_ids_built_by(*, team: Team, user_id: int, since: datetime, limit: int) -> list[str]:
+    """Short ids of saved insights in the project that the user created or last edited since `since`, newest first."""
+    return list(
+        Insight.objects.filter(team__project_id=team.project_id, deleted=False, saved=True)
+        .filter(
+            Q(created_by_id=user_id, created_at__gte=since)
+            | Q(last_modified_by_id=user_id, last_modified_at__gte=since)
+        )
+        .order_by("-last_modified_at")
+        .values_list("short_id", flat=True)[:limit]
+    )
 
 
 def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Collection[int]) -> list[Insight]:

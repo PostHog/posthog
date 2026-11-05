@@ -39,6 +39,8 @@ export interface DeviceApprovalApi {
     user_code: string
     /** The project the token is scoped to. */
     project_id: number
+    /** The requested scopes the person kept. Leave it out to grant every requested scope. It must include every scope in `required_scopes`, and nothing outside the requested scopes. */
+    scopes?: string[]
 }
 
 /**
@@ -99,6 +101,8 @@ export interface DeviceGrantDetailsApi {
     is_verified: boolean
     /** The scopes the token will carry if the person approves. */
     scopes: string[]
+    /** The requested scopes the person can't leave out: the client's required scopes and identity scopes such as `openid`. */
+    required_scopes: string[]
     /** The scopes the person already gave this client, per project. A step-up in a project asks for these plus new ones, and the page lists only the new ones. */
     granted_scopes: GrantedScopesApi[]
     /** When the code expires. */
@@ -2945,6 +2949,11 @@ export interface ProjectBackwardCompatApi {
     readonly id: number
     readonly organization: string
     /**
+     * Whether the project's organization approved AI data processing. AI features need this approval.
+     * @nullable
+     */
+    readonly is_ai_data_processing_approved: boolean | null
+    /**
      * Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.
      * @minLength 1
      * @maxLength 200
@@ -3835,6 +3844,11 @@ export type PatchedProjectBackwardCompatApiManagedViewsets = { [key: string]: bo
 export interface PatchedProjectBackwardCompatApi {
     readonly id?: number
     readonly organization?: string
+    /**
+     * Whether the project's organization approved AI data processing. AI features need this approval.
+     * @nullable
+     */
+    readonly is_ai_data_processing_approved?: boolean | null
     /**
      * Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.
      * @minLength 1
@@ -5922,6 +5936,114 @@ export interface WorkloadProvidersResponseApi {
     risky_scopes: WorkloadProvidersResponseApiRiskyScopes
 }
 
+export type WorkloadTrustPolicyRequestStatusEnumApi =
+    (typeof WorkloadTrustPolicyRequestStatusEnumApi)[keyof typeof WorkloadTrustPolicyRequestStatusEnumApi]
+
+export const WorkloadTrustPolicyRequestStatusEnumApi = {
+    Pending: 'pending',
+    Approved: 'approved',
+    Rejected: 'rejected',
+    Expired: 'expired',
+} as const
+
+/**
+ * Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition.
+ */
+export type WorkloadTrustPolicyRequestApiConditions = { [key: string]: string }
+
+/**
+ * What each risky scope in the request lets a token do, keyed by scope. Show it before approving.
+ */
+export type WorkloadTrustPolicyRequestApiRiskyScopes = { [key: string]: string }
+
+export interface WorkloadTrustPolicyRequestApi {
+    readonly id: string
+    /**
+     * The name the policy gets once approved.
+     * @maxLength 200
+     */
+    name: string
+    /**
+     * The OIDC issuer of the workload provider, from the list of supported providers.
+     * @maxLength 255
+     */
+    issuer: string
+    /**
+     * The key of the workload provider the issuer belongs to.
+     * @nullable
+     */
+    readonly provider: string | null
+    /**
+     * The display name of the workload provider, or null.
+     * @nullable
+     */
+    readonly provider_name: string | null
+    /**
+     * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
+     * @maxLength 255
+     */
+    subject_name: string
+    /**
+     * The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match.
+     * @maxLength 255
+     */
+    subject: string
+    /** Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition. */
+    conditions?: WorkloadTrustPolicyRequestApiConditions
+    /** How the provider names the subject, the subject name and each condition claim, for display. */
+    readonly claim_labels: WorkloadClaimLabelsApi
+    /**
+     * The scopes the policy's tokens would carry.
+     * @items.maxLength 100
+     */
+    scopes: string[]
+    /** What each risky scope in the request lets a token do, keyed by scope. Show it before approving. */
+    readonly risky_scopes: WorkloadTrustPolicyRequestApiRiskyScopes
+    /** Where the request stands. A request expires after 24 hours. */
+    readonly status: WorkloadTrustPolicyRequestStatusEnumApi
+    /** The link to send to an admin to approve the request. */
+    readonly approval_url: string
+    /** Whether the current user's role lets them approve the request, in the browser. */
+    readonly can_approve: boolean
+    /** Names of the organization admins and owners who can approve, when the current user cannot. */
+    readonly approvers: readonly string[]
+    readonly requested_by: UserBasicApi | null
+    /**
+     * The name of the OAuth app the request came through, or null for other credentials.
+     * @nullable
+     */
+    readonly requested_via: string | null
+    /**
+     * Whether PostHog verified the OAuth app the request came through, or null for other credentials.
+     * @nullable
+     */
+    readonly requested_via_verified: boolean | null
+    /** When the request was made. */
+    readonly created_at: string
+    /** When a pending request stops being approvable. */
+    readonly expires_at: string
+    readonly resolved_by: UserBasicApi | null
+    /**
+     * When an admin approved or rejected the request.
+     * @nullable
+     */
+    readonly resolved_at: string | null
+    /**
+     * The policy created on approval.
+     * @nullable
+     */
+    readonly policy_id: string | null
+}
+
+export interface PaginatedWorkloadTrustPolicyRequestListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: WorkloadTrustPolicyRequestApi[]
+}
+
 export interface LeakedKeyReportApi {
     /**
      * The leaked PostHog personal API key, project secret API key, legacy feature flags secure API key, or OAuth access/refresh token to revoke.
@@ -6896,18 +7018,6 @@ export const OnboardingSkipRequestReasonEnumApi = {
 } as const
 
 /**
- * * `legacy` - Default onboarding
- * * `simple` - Simple onboarding
- */
-export type OnboardingFlowVariantEnumApi =
-    (typeof OnboardingFlowVariantEnumApi)[keyof typeof OnboardingFlowVariantEnumApi]
-
-export const OnboardingFlowVariantEnumApi = {
-    Legacy: 'legacy',
-    Simple: 'simple',
-} as const
-
-/**
  * Request body for POST /api/users/{id}/onboarding/skip/.
  *
  * Source of truth for OpenAPI / generated TS / zod / MCP — bind this serializer at
@@ -6925,11 +7035,6 @@ export interface OnboardingSkipRequestApi {
      * @maxLength 64
      */
     step_at_skip?: string
-    /** Which onboarding flow the user skipped from, for analytics only.
-     *
-     * * `legacy` - Default onboarding
-     * * `simple` - Simple onboarding */
-    flow_variant?: OnboardingFlowVariantEnumApi
 }
 
 /**
@@ -7480,6 +7585,17 @@ export type UploadedMediaCreateBody = {
 }
 
 export type WorkloadTrustPoliciesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type WorkloadTrustPolicyRequestsListParams = {
     /**
      * Number of results to return per page.
      */

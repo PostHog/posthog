@@ -1,6 +1,7 @@
 import json
 import importlib
 import threading
+from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Any, ClassVar
 from uuid import UUID, uuid4
@@ -13,6 +14,7 @@ from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.query_tagging import get_query_tags, reset_query_tags
@@ -30,6 +32,9 @@ from products.tasks.backend.facade import (
 )
 from products.tasks.backend.facade.access import PostHogAIAccessDecision
 from products.tasks.backend.facade.profiles import (
+    ContractCheck,
+    DrivePolicy,
+    Read,
     Repository,
     SourceKind,
     TaskProfileError,
@@ -37,12 +42,14 @@ from products.tasks.backend.facade.profiles import (
     TaskSource,
     get_task_profile,
 )
+from products.tasks.backend.logic.services.warm import ActiveSessionCaps, SandboxWarmer
 from products.tasks.backend.models import (
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     Channel,
     ChannelMembership,
     SandboxCustomImage,
     SandboxEnvironment,
+    SandboxSession,
     Task,
     TaskRun,
     TaskWorkflowDispatch,
@@ -589,6 +596,195 @@ class TestFacadeReadsAndMappers(TestCase):
         with self.assertNumQueries(1):
             assert facade.task_accessible_for_run_view(task.id, self.team.id, self.user.id, for_control=for_control)
         assert not facade.task_accessible_for_run_view(task.id, self.team.id, outsider.id, for_control=for_control)
+
+    @parameterized.expand(
+        [
+            ("run_view_in_log_mode", "run_view", DrivePolicy.NONE, frozenset(), True, False, True),
+            ("run_view_enforced", "run_view", DrivePolicy.NONE, frozenset({ContractCheck.DRIVE}), True, False, False),
+            (
+                "run_view_enforced_for_reading",
+                "run_view",
+                DrivePolicy.NONE,
+                frozenset({ContractCheck.DRIVE}),
+                False,
+                False,
+                True,
+            ),
+            (
+                "run_view_enforced_for_the_owner",
+                "run_view",
+                DrivePolicy.OWNER,
+                frozenset({ContractCheck.DRIVE}),
+                True,
+                False,
+                True,
+            ),
+            (
+                "run_view_enforced_for_a_sandbox",
+                "run_view",
+                DrivePolicy.NONE,
+                frozenset({ContractCheck.DRIVE}),
+                True,
+                True,
+                True,
+            ),
+            (
+                "run_view_with_another_check_enforced",
+                "run_view",
+                DrivePolicy.NONE,
+                frozenset({ContractCheck.RUNTIMES}),
+                True,
+                False,
+                True,
+            ),
+            ("task_visible_in_log_mode", "task_visible", DrivePolicy.NONE, frozenset(), True, False, True),
+            (
+                "task_visible_enforced",
+                "task_visible",
+                DrivePolicy.NONE,
+                frozenset({ContractCheck.DRIVE}),
+                True,
+                False,
+                False,
+            ),
+            (
+                "task_visible_enforced_for_reading",
+                "task_visible",
+                DrivePolicy.NONE,
+                frozenset({ContractCheck.DRIVE}),
+                False,
+                False,
+                True,
+            ),
+            (
+                "task_visible_enforced_for_the_owner",
+                "task_visible",
+                DrivePolicy.OWNER,
+                frozenset({ContractCheck.DRIVE}),
+                True,
+                False,
+                True,
+            ),
+        ]
+    )
+    def test_control_gates_apply_the_profile_drive_policy(
+        self,
+        _name: str,
+        gate: str,
+        drive: DrivePolicy,
+        enforced: frozenset[ContractCheck],
+        for_control: bool,
+        bypass_visibility: bool,
+        allowed: bool,
+    ) -> None:
+        profile = replace(
+            get_task_profile("business_knowledge"), key="test.drive", drive=drive, enforced_checks=enforced
+        )
+        task = self._make_task(profile=profile.key)
+
+        with patch.dict("products.tasks.backend.facade.profiles._profiles", {profile.key: profile}):
+            if gate == "run_view":
+                with self.assertNumQueries(1):
+                    result = facade.task_accessible_for_run_view(
+                        task.id,
+                        self.team.id,
+                        self.user.id,
+                        for_control=for_control,
+                        bypass_visibility=bypass_visibility,
+                    )
+            else:
+                result = facade.task_visible(task.id, self.team.id, self.user.id, for_control=for_control)
+
+        self.assertIs(result, allowed)
+
+    @parameterized.expand(
+        [
+            ("token_bound_to_this_task", True, "own", True),
+            ("token_bound_to_another_task", True, "other", False),
+            ("token_without_a_bound_task", True, None, False),
+            ("no_sandbox_token", False, None, False),
+        ]
+    )
+    def test_only_a_sandbox_token_bound_to_the_task_skips_the_drive_policy(
+        self, _name: str, sandbox_request: bool, bound: str | None, allowed: bool
+    ) -> None:
+        profile = replace(
+            get_task_profile("business_knowledge"),
+            key="test.drive_sandbox",
+            drive=DrivePolicy.NONE,
+            enforced_checks=frozenset({ContractCheck.DRIVE}),
+        )
+        task = self._make_task(profile=profile.key)
+        sandbox_task_id = {"own": task.id, "other": uuid4(), None: None}[bound]
+
+        with patch.dict("products.tasks.backend.facade.profiles._profiles", {profile.key: profile}):
+            result = facade.task_accessible_for_run_view(
+                task.id,
+                self.team.id,
+                self.user.id,
+                for_control=True,
+                sandbox_request=sandbox_request,
+                sandbox_task_id=sandbox_task_id,
+            )
+
+        self.assertIs(result, allowed)
+
+    @parameterized.expand(
+        [
+            (f"{gate}_{mode}", gate, drive, enforced, refused)
+            for gate in ("prepare_artifacts", "finalize_artifacts", "warm_resume", "update", "delete", "handoff")
+            for mode, drive, enforced, refused in (
+                ("none_policy_in_log_mode", DrivePolicy.NONE, frozenset(), False),
+                ("none_policy_enforced", DrivePolicy.NONE, frozenset({ContractCheck.DRIVE}), True),
+                ("owner_policy_enforced", DrivePolicy.OWNER, frozenset({ContractCheck.DRIVE}), False),
+            )
+        ]
+    )
+    def test_control_gates_outside_the_run_views_apply_the_drive_policy(
+        self, _name: str, gate: str, drive: DrivePolicy, enforced: frozenset[ContractCheck], refused: bool
+    ) -> None:
+        profile = replace(
+            get_task_profile("business_knowledge"), key="test.drive_steering", drive=drive, enforced_checks=enforced
+        )
+        task = self._make_task(profile=profile.key)
+        sample = {"check": ContractCheck.DRIVE.value, "profile": profile.key}
+        before = REGISTRY.get_sample_value("posthog_tasks_contract_violation_total", sample) or 0
+        if gate == "handoff":
+            recipient = User.objects.create(email="recipient@example.com", distinct_id="recipient-distinct")
+            self.organization.members.add(recipient)
+
+        with patch.dict("products.tasks.backend.facade.profiles._profiles", {profile.key: profile}):
+            if gate == "prepare_artifacts":
+                refused_by_gate = (
+                    facade.prepare_task_staged_artifacts(
+                        task.id, self.team.id, self.user.id, artifacts=[], upload_expiration_seconds=60
+                    )
+                    is None
+                )
+            elif gate == "finalize_artifacts":
+                refused_by_gate = (
+                    facade.finalize_task_staged_artifacts(task.id, self.team.id, self.user.id, artifacts=[]) is None
+                )
+            elif gate == "update":
+                refused_by_gate = (
+                    facade.update_task(task.id, self.team.id, self.user.id, validated_data={"title": "Renamed"}) is None
+                )
+            elif gate == "delete":
+                refused_by_gate = not facade.soft_delete_task(task.id, self.team.id, self.user.id)
+            elif gate == "handoff":
+                refused_by_gate = (
+                    facade.handoff_task(task.id, self.team.id, self.user.id, target_user_id=recipient.id) is None
+                )
+            else:
+                refused_by_gate = (
+                    facade.warm_task_resume_sandbox(task.id, self.team.id, self.user.id, resume_from_run_id=uuid4())
+                    is None
+                )
+
+        counted = (REGISTRY.get_sample_value("posthog_tasks_contract_violation_total", sample) or 0) - before
+        self.assertEqual(counted, 1 if drive == DrivePolicy.NONE else 0)
+        if gate != "warm_resume":
+            self.assertEqual(refused_by_gate, refused)
 
     def test_task_control_runtime_and_origin_uses_control_predicate(self):
         task = self._make_task(origin_product=Task.OriginProduct.POSTHOG_AI, runtime=Task.Runtime.PI)
@@ -1333,6 +1529,62 @@ class TestFacadeReadsAndMappers(TestCase):
         trigger.assert_not_called()
         assert not task.runs.exists()
 
+    @parameterized.expand(
+        [
+            ("user_immediate", "user", False),
+            ("user_scheduled", "user", True),
+            ("org_immediate", "org", False),
+        ]
+    )
+    def test_run_task_at_the_active_session_cap(self, _name: str, scope: str, scheduled: bool) -> None:
+        caps = ActiveSessionCaps(per_user=2, per_org=3)
+        holder = self.user
+        if scope == "org":
+            holder = User.objects.create_and_join(self.organization, "busy@posthog.com", None)
+        busy_run = TaskRun.objects.create(
+            task=self._make_task(created_by=holder), team=self.team, status=TaskRun.Status.IN_PROGRESS
+        )
+        now = django_timezone.now()
+        for i in range(caps.per_user if scope == "user" else caps.per_org):
+            SandboxSession.objects.unscoped().create(
+                team=self.team,
+                task_run=busy_run,
+                sandbox_id=f"sb-busy-{i}",
+                cpu_cores=4.0,
+                memory_gb=16.0,
+                ttl_seconds=3600,
+                ttl_expires_at=now + timedelta(hours=1),
+                user_attributed_at=now,
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+        task = self._make_task()
+        validated_data: dict[str, Any] = {"mode": "interactive"}
+        if scheduled:
+            validated_data["scheduled_at"] = now + timedelta(hours=2)
+
+        with (
+            patch.dict(SandboxWarmer.ORIGIN_ACTIVE_SESSION_CAPS, {Task.OriginProduct.USER_CREATED: caps}),
+            patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None) as trigger,
+        ):
+            result = facade.run_task(task.id, self.team.id, self.user.id, validated_data=validated_data)
+
+        assert result is not None
+        if scheduled:
+            assert result.error is None
+            assert task.runs.count() == 1
+        else:
+            assert result.error is not None
+            self.assertEqual(
+                result.error.detail,
+                "You already have 2 cloud sandboxes running. Wait for one to finish or stop one, then try again."
+                if scope == "user"
+                else "Your organization already has 3 cloud sandboxes running. "
+                "Wait for one to finish or stop one, then try again.",
+            )
+            assert result.error.code == "active_session_cap"
+            trigger.assert_not_called()
+            assert not task.runs.exists()
+
     def test_run_task_resumed_from_an_import_run_marks_the_new_run(self):
         task = self._make_task()
         import_run = TaskRun.objects.create(
@@ -1894,7 +2146,7 @@ class TestFacadeReadsAndMappers(TestCase):
         # When a client pastes text (stored as an attachment), it sends the pasted content as
         # naming_source so the title reads well, while description stays the bare prompt the
         # agent — and the reload transcript dedup — expect.
-        mock_title.side_effect = lambda text, **_: f"title:{text}"
+        mock_title.side_effect = lambda text: f"title:{text}"
         dto = facade.create_task(
             team_id=self.team.id,
             user_id=self.user.id,
@@ -1908,11 +2160,11 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(task.description, "Attached files: pasted-text.txt")
         self.assertEqual(task.title, "title:Deploy blocks on a stale lockfile")
         self.assertFalse(task.title_manually_set)
-        mock_title.assert_called_once_with("Deploy blocks on a stale lockfile", distinct_id=self.user.distinct_id)
+        mock_title.assert_called_once_with("Deploy blocks on a stale lockfile")
 
     @patch("products.tasks.backend.logic.services.title_generator.generate_task_title")
     def test_create_task_falls_back_to_description_without_naming_source(self, mock_title):
-        mock_title.side_effect = lambda text, **_: f"title:{text}"
+        mock_title.side_effect = lambda text: f"title:{text}"
         dto = facade.create_task(
             team_id=self.team.id,
             user_id=self.user.id,
@@ -1923,7 +2175,7 @@ class TestFacadeReadsAndMappers(TestCase):
         )
         task = Task.objects.get(id=dto.id)
         self.assertEqual(task.title, "title:Fix the login redirect")
-        mock_title.assert_called_once_with("Fix the login redirect", distinct_id=self.user.distinct_id)
+        mock_title.assert_called_once_with("Fix the login redirect")
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_persists_dispatch_params_for_reconcile(self, _mock_workflow):
@@ -1995,6 +2247,33 @@ class TestFacadeReadsAndMappers(TestCase):
             assert task.channel is not None
             self.assertEqual(task.channel.channel_type, Channel.ChannelType.PERSONAL)
             self.assertEqual(task.channel.created_by_id, self.user.id)
+
+    @parameterized.expand(
+        [
+            ("with_run_team_readable", True, Read.TEAM, False),
+            ("with_run_creator_readable", True, Read.CREATOR, True),
+            ("without_run_team_readable", False, Read.TEAM, False),
+            ("without_run_creator_readable", False, Read.CREATOR, True),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_profiled_task_files_a_personal_channel_by_its_profile_read(
+        self, _name, with_run: bool, read: Read, expect_personal: bool, _mock_workflow
+    ):
+        profile = replace(
+            get_task_profile("business_knowledge"), key="test.listed", listed=True, read_without_channel=read
+        )
+
+        with patch.dict("products.tasks.backend.facade.profiles._profiles", {profile.key: profile}):
+            if with_run:
+                task_id = facade.create_and_run_task(
+                    team=self.team, title="Profiled", description="desc", user_id=self.user.id, profile=profile
+                ).task_id
+            else:
+                task_id = facade.create_task_without_run(team=self.team, user_id=self.user.id, profile=profile)
+
+        channel = Task.objects.select_related("channel").get(id=task_id).channel
+        self.assertEqual(channel is not None and channel.channel_type == Channel.ChannelType.PERSONAL, expect_personal)
 
     @parameterized.expand(
         [

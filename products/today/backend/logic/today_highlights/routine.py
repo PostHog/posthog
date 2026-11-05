@@ -1,10 +1,9 @@
-from collections.abc import Collection, Iterator, Sequence
+from collections.abc import Collection, Iterable, Sequence
 from dataclasses import replace
 from datetime import date, timedelta
 from functools import partial
 from time import monotonic, sleep
 
-from django.db.models import Count, Max
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -12,6 +11,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import FileSystemViewLog
 from posthog.models.file_system.file_system_view_log import VIEW_DAYS_KEPT
 
+from products.alerts.backend.facade.api import insight_short_ids_watched_by
 from products.dashboards.backend.facade.api import (
     DashboardInsights,
     DashboardInsightTile,
@@ -22,9 +22,11 @@ from products.product_analytics.backend.facade.api import (
     get_insight_series,
     insight_query_complete,
     insight_series_supported,
+    insight_short_ids_built_by,
     viewable_insight_definitions,
 )
 from products.product_analytics.backend.facade.contracts import InsightDashboardContext, InsightSeriesNotReady
+from products.subscriptions.backend.facade.api import insight_short_ids_subscribed_by
 
 from ...facade import contracts
 from ...facade.enums import HighlightInterval, HighlightMetricReason, HighlightUnit, PulseSlotStatus
@@ -35,14 +37,17 @@ from ..highlight_types import Context, Found, Source
 
 FRECENCY_HALF_LIFE_DAYS = 14
 FRECENCY_LOOKBACK_DAYS = VIEW_DAYS_KEPT
-FRECENCY_CANDIDATES = 8
 PULSE_CANDIDATES = 6
-BLOCKING_SECONDS = 20
-POPULAR_DAYS = 30
-POPULAR_CANDIDATES = 8
+BLOCKING_SECONDS = 150
 DASHBOARD_TILES_TRIED = 6
 OPENED_DAYS_WINDOW = 14
 MOVERS_SHOWN = 4
+REPEAT_DAYS = 3
+REPEAT_WINDOW_DAYS = 28
+RECENT_DAYS = 14
+BUILT_DAYS = 28
+SIGNAL_MIX = (3, 2, 2)
+SIGNAL_CANDIDATES = 12
 
 
 @frozen
@@ -50,7 +55,7 @@ class ViewedItem:
     kind: str
     ref: str
     days: frozenset[date]
-    popular: bool = False
+    reason: HighlightMetricReason | None = None
 
 
 @frozen
@@ -59,6 +64,13 @@ class PulseCandidate:
     short_id: str
     dashboard: DashboardInsights | None = None
     tile: DashboardInsightTile | None = None
+
+
+@frozen
+class PulseChoice:
+    key: str
+    candidate: PulseCandidate
+    slot: contracts.PulseSlot
 
 
 def find(context: Context) -> Found:
@@ -83,7 +95,7 @@ def _progressive_metrics(context: Context, excluded: Collection[str], budget: in
         return []
     deadline = monotonic() + BLOCKING_SECONDS
     candidates: list[PulseCandidate] = []
-    for item in _candidates(context, _frecent_views(context)[:FRECENCY_CANDIDATES]):
+    for item in _own_candidates(context):
         if item.kind == "insight":
             candidates.append(PulseCandidate(viewed=item, short_id=item.ref))
         elif item.ref.isdigit():
@@ -95,45 +107,30 @@ def _progressive_metrics(context: Context, excluded: Collection[str], budget: in
                     PulseCandidate(viewed=item, short_id=tile.insight_short_id, dashboard=dashboard, tile=tile)
                     for tile in dashboard.tiles
                 )
-    definitions = viewable_insight_definitions(
-        team=context.team, user=context.user, short_ids=[candidate.short_id for candidate in candidates]
-    )
-    selected: dict[str, PulseCandidate] = {}
+    choices = _eligible_choices(context, excluded, candidates)
+    selected: dict[str, PulseChoice] = {}
+    tried: set[str] = set()
     slots: dict[str, contracts.PulseSlot] = {}
-    dashboards: set[int] = set()
-    for candidate in candidates:
-        key = f"insight:{candidate.short_id}"
-        definition = definitions.get(candidate.short_id)
-        if key in excluded or key in selected or definition is None:
-            continue
-        source = definition.query.get("source", definition.query)
-        if not context.guard(
-            f"eligible insight {candidate.short_id}",
-            partial(insight_series_supported, query=definition.query, dashboard=_dashboard_context(candidate)),
-            False,
-        ):
-            continue
-        dashboard = candidate.dashboard
-        if dashboard is not None and dashboard.dashboard_id in dashboards:
-            continue
-        interval = (dashboard.filters.get("interval") if dashboard else None) or source.get("interval", "day")
-        selected[key] = candidate
-        slots[key] = contracts.PulseSlot(
-            key=key,
-            name=definition.name or "Untitled insight",
-            reason=HighlightMetricReason.POPULAR if candidate.viewed.popular else HighlightMetricReason.ROUTINE,
-            url=f"/dashboard/{dashboard.dashboard_id}" if dashboard else f"/insights/{candidate.short_id}",
-            interval=HighlightInterval(interval)
-            if source.get("kind") == "TrendsQuery" and interval in HighlightInterval.values
-            else None,
-        )
-        if dashboard is not None:
-            dashboards.add(dashboard.dashboard_id)
-        if len(selected) >= budget:
-            break
+    pending: dict[str, PulseCandidate] = {}
+
+    def fill() -> None:
+        while len(selected) < budget:
+            choice = _next_choice(choices, tried, selected.values())
+            if choice is None:
+                return
+            tried.add(choice.key)
+            selected[choice.key] = choice
+            slots[choice.key] = choice.slot
+            pending[choice.key] = choice.candidate
+
+    def drop(key: str) -> None:
+        slots[key] = replace(slots[key], status=PulseSlotStatus.EMPTY)
+        del selected[key]
+        fill()
+
+    fill()
     metrics: dict[str, contracts.HighlightMetric] = {}
     context.publish_pulse(Found(), list(slots.values()))
-    pending = dict(selected)
     query_ids: dict[str, str] = {}
     while pending and monotonic() < deadline:
         for key, candidate in list(pending.items()):
@@ -146,12 +143,12 @@ def _progressive_metrics(context: Context, excluded: Collection[str], budget: in
                 metric = insight_metric(
                     context,
                     candidate.short_id,
-                    viewed=None if candidate.viewed.popular else candidate.viewed,
+                    viewed=candidate.viewed,
+                    reason=candidate.viewed.reason,
                     dashboard=_dashboard_context(candidate),
                     url=slots[key].url,
                     dashboard_name=dashboard.name if dashboard else None,
                     dashboard_id=dashboard.dashboard_id if dashboard else None,
-                    reason=HighlightMetricReason.POPULAR if candidate.viewed.popular else None,
                     raise_on_pending=True,
                 )
             except InsightSeriesNotReady as error:
@@ -159,15 +156,19 @@ def _progressive_metrics(context: Context, excluded: Collection[str], budget: in
                     raise ValueError("Pending insight has no query ID") from error
                 query_ids[key] = error.query_id
                 continue
+            except ValueError as error:
+                capture_exception(error, {"product": "today", "provider": "routine"})
+                metric = None
             except Exception as error:
                 context.failures.append(key)
                 capture_exception(error, {"product": "today", "provider": "routine"})
-                slots[key] = replace(slots[key], status=PulseSlotStatus.ERROR)
-            else:
-                slots[key] = replace(slots[key], status=PulseSlotStatus.READY if metric else PulseSlotStatus.EMPTY)
-                if metric is not None:
-                    metrics[key] = metric
+                metric = None
             del pending[key]
+            if metric is None:
+                drop(key)
+            else:
+                slots[key] = replace(slots[key], status=PulseSlotStatus.READY)
+                metrics[key] = metric
             context.publish_pulse(Found(pulse=tuple(metrics.values())), list(slots.values()))
         if pending:
             sleep(min(1.0, max(0, deadline - monotonic())))
@@ -177,6 +178,60 @@ def _progressive_metrics(context: Context, excluded: Collection[str], budget: in
             slots[key] = replace(slots[key], status=PulseSlotStatus.ERROR)
         context.publish_pulse(Found(pulse=tuple(metrics.values())), list(slots.values()))
     return [metrics[key] for key in selected if key in metrics]
+
+
+def _eligible_choices(
+    context: Context, excluded: Collection[str], candidates: Sequence[PulseCandidate]
+) -> list[PulseChoice]:
+    definitions = viewable_insight_definitions(
+        team=context.team, user=context.user, short_ids=[candidate.short_id for candidate in candidates]
+    )
+    choices: list[PulseChoice] = []
+    for candidate in candidates:
+        key = f"insight:{candidate.short_id}"
+        definition = definitions.get(candidate.short_id)
+        if key in excluded or definition is None:
+            continue
+        if not context.guard(
+            f"eligible insight {candidate.short_id}",
+            partial(insight_series_supported, query=definition.query, dashboard=_dashboard_context(candidate)),
+            False,
+        ):
+            continue
+        source = definition.query.get("source", definition.query)
+        dashboard = candidate.dashboard
+        interval = (dashboard.filters.get("interval") if dashboard else None) or source.get("interval", "day")
+        choices.append(
+            PulseChoice(
+                key=key,
+                candidate=candidate,
+                slot=contracts.PulseSlot(
+                    key=key,
+                    name=definition.name or "Untitled insight",
+                    reason=candidate.viewed.reason or HighlightMetricReason.ROUTINE,
+                    url=f"/dashboard/{dashboard.dashboard_id}" if dashboard else f"/insights/{candidate.short_id}",
+                    interval=HighlightInterval(interval)
+                    if source.get("kind") == "TrendsQuery" and interval in HighlightInterval.values
+                    else None,
+                ),
+            )
+        )
+    return choices
+
+
+def _next_choice(
+    choices: Sequence[PulseChoice], tried: Collection[str], selected: Iterable[PulseChoice]
+) -> PulseChoice | None:
+    shown = {choice.candidate.dashboard.dashboard_id for choice in selected if choice.candidate.dashboard is not None}
+    return next(
+        (
+            choice
+            for choice in choices
+            if choice.key not in tried
+            and (choice.candidate.dashboard is None or choice.candidate.dashboard.dashboard_id not in shown)
+        ),
+        None,
+    )
 
 
 def frecency(view_days: Collection[date], today: date) -> float:
@@ -190,7 +245,7 @@ def _frecent_metrics(context: Context, excluded: Collection[str], budget: int) -
     deadline = monotonic() + BLOCKING_SECONDS
     candidates: list[tuple[ViewedItem, contracts.HighlightMetric | None]] = []
     available: set[str] = set()
-    for item in _candidates(context, _frecent_views(context)[:FRECENCY_CANDIDATES]):
+    for item in _own_candidates(context):
         shown = frozenset([*excluded, *available])
         metric = context.guard(
             f"frecent {item.kind} {item.ref}",
@@ -217,14 +272,69 @@ def _frecent_metrics(context: Context, excluded: Collection[str], budget: int) -
     return metrics
 
 
-def _candidates(context: Context, own: list[ViewedItem]) -> Iterator[ViewedItem]:
-    yield from own
-    known = {item.ref for item in own if item.kind == "insight"}
-    popular: list[str] = context.guard(
-        "popular insights", partial(context.daily, "popular_insights", partial(_popular_refs, context)), []
+def _own_candidates(context: Context) -> list[ViewedItem]:
+    none: list[str] = []
+    used = [item for item in _frecent_views(context) if _repeated(item.days, context.today)]
+    alerted = context.guard(
+        "alerted insights",
+        partial(
+            insight_short_ids_watched_by, team_id=context.team.id, user_id=context.user.id, limit=SIGNAL_CANDIDATES
+        ),
+        none,
     )
-    for ref in [ref for ref in popular if ref not in known][:POPULAR_CANDIDATES]:
-        yield ViewedItem(kind="insight", ref=ref, days=frozenset(), popular=True)
+    subscribed = context.guard(
+        "subscribed insights",
+        partial(
+            insight_short_ids_subscribed_by,
+            team_id=context.team.id,
+            user_id=context.user.id,
+            email=context.user.email,
+            now=timezone.now(),
+            limit=SIGNAL_CANDIDATES,
+        ),
+        none,
+    )
+    built = context.guard(
+        "built insights",
+        partial(
+            insight_short_ids_built_by,
+            team=context.team,
+            user_id=context.user.id,
+            since=timezone.now() - timedelta(days=BUILT_DAYS),
+            limit=SIGNAL_CANDIDATES,
+        ),
+        none,
+    )
+    watched = [*alerted, *subscribed]
+    groups = [
+        used,
+        [
+            ViewedItem(kind="insight", ref=ref, days=frozenset(), reason=HighlightMetricReason.WATCHED)
+            for ref in dict.fromkeys(watched)
+        ],
+        [ViewedItem(kind="insight", ref=ref, days=frozenset(), reason=HighlightMetricReason.BUILT) for ref in built],
+    ]
+    return _mixed(groups, SIGNAL_MIX)[:SIGNAL_CANDIDATES]
+
+
+def _repeated(view_days: Collection[date], today: date) -> bool:
+    ages = [(today - day).days for day in view_days]
+    return sum(0 <= age < REPEAT_WINDOW_DAYS for age in ages) >= REPEAT_DAYS and any(
+        0 <= age < RECENT_DAYS for age in ages
+    )
+
+
+def _mixed(groups: Sequence[Sequence[ViewedItem]], quotas: Sequence[int]) -> list[ViewedItem]:
+    seen: set[tuple[str, str]] = set()
+    unique: list[list[ViewedItem]] = []
+    for group in groups:
+        fresh = [item for item in group if (item.kind, item.ref) not in seen]
+        seen.update((item.kind, item.ref) for item in fresh)
+        unique.append(fresh)
+    return [
+        *(item for group, quota in zip(unique, quotas) for item in group[:quota]),
+        *(item for group, quota in zip(unique, quotas) for item in group[quota:]),
+    ]
 
 
 def _frecent_views(context: Context) -> list[ViewedItem]:
@@ -244,34 +354,19 @@ def _frecent_views(context: Context) -> list[ViewedItem]:
     return [item for score, _last, item in scored if score > 0]
 
 
-def _popular_refs(context: Context) -> list[str]:
-    rows = (
-        FileSystemViewLog.objects.filter(
-            team=context.team, type="insight", viewed_at__gte=timezone.now() - timedelta(days=POPULAR_DAYS)
-        )
-        .values("ref")
-        .annotate(viewers=Count("user_id", distinct=True), last_viewed=Max("viewed_at"))
-        .order_by("-viewers", "-last_viewed", "ref")[: POPULAR_CANDIDATES + FRECENCY_CANDIDATES]
-    )
-    return [row["ref"] for row in rows]
-
-
 def _frecent_metric(
     context: Context, item: ViewedItem, shown: frozenset[str], deadline: float, *, wait: bool = True
 ) -> contracts.HighlightMetric | None:
     if item.kind == "insight":
         if f"insight:{item.ref}" in shown:
             return None
-        if item.popular:
-            return insight_metric(
-                context,
-                item.ref,
-                reason=HighlightMetricReason.POPULAR,
-                blocking=wait and monotonic() < deadline,
-                wait_until=deadline,
-            )
         return insight_metric(
-            context, item.ref, viewed=item, blocking=wait and monotonic() < deadline, wait_until=deadline
+            context,
+            item.ref,
+            viewed=item,
+            reason=item.reason,
+            blocking=wait and monotonic() < deadline,
+            wait_until=deadline,
         )
     if not item.ref.isdigit():
         return None
@@ -302,14 +397,19 @@ def _frecent_metric(
 
 
 def dashboard_tile_metric(
-    context: Context, dashboard_id: int, short_id: str, *, blocking: bool = False
+    context: Context,
+    dashboard_id: int,
+    short_id: str,
+    *,
+    blocking: bool = False,
+    wait_until: float | None = None,
 ) -> contracts.HighlightMetric | None:
     dashboard = dashboard_insight_tile(
         team=context.team, user=context.user, dashboard_id=dashboard_id, short_id=short_id
     )
     if dashboard is None:
         return None
-    return _tile_metric(context, dashboard, dashboard.tiles[0], blocking=blocking)
+    return _tile_metric(context, dashboard, dashboard.tiles[0], blocking=blocking, wait_until=wait_until)
 
 
 def _tile_metric(

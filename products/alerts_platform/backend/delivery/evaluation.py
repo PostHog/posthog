@@ -5,7 +5,7 @@ is what decides which destinations there are and which transport each one takes.
 """
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
 from functools import cache
@@ -402,14 +402,19 @@ def _split_by_path(
 
     A transition inside a firing takes the path its firing took first, so a firing and its resolve
     never split across paths. Any other transition takes the path its destinations allow now.
+
+    An alert whose destinations the platform keeps sends every transition to them natively. Its
+    stock destinations are `AlertDestination` rows, so any HogFunction listening on the alert is one
+    a person built, and the source also emits every transition for it. That includes a function
+    from a custom template or one with no `alert_id` filter, which no destination lookup lists, so
+    the source emits without asking who listens, as its own stack did. No destination is on both
+    paths, so nothing is sent twice. Moving an existing alert's destinations onto the platform must
+    therefore disable the HogFunctions it copies, or each of them hears every transition as well.
     """
-    # Destinations in `AlertDestination` have no HogFunction to emit for.
-    if (
-        not request.owned_by_platform
-        or platform_destinations is not None
-        or delivery_paths.emitter_for(request.source) is None
-    ):
+    if not request.owned_by_platform or delivery_paths.emitter_for(request.source) is None:
         return announced, ()
+    if platform_destinations is not None:
+        return announced, _emissions(request, announced.transitions)
 
     # Read once per delivery, because the chooser reads every destination of the alert.
     @cache
@@ -418,11 +423,11 @@ def _split_by_path(
             source=request.source,
             team_id=request.team_id,
             alert_id=request.destination_alert_id,
-            allowed_event_ids=[*request.event_ids_by_kind.values(), *request.event_ids_by_incident_action.values()],
+            allowed_event_ids=_all_event_ids(request),
         )
 
     native: list[AnnouncedTransition] = []
-    emissions: list[LegacyEventEmission] = []
+    emitted: list[AnnouncedTransition] = []
     for transition in announced.transitions:
         path = (
             episode_paths.episode_path(
@@ -435,9 +440,16 @@ def _split_by_path(
             if transition.episode_started_at is not None
             else choose()
         )
-        if path == DeliveryPath.NATIVE:
-            native.append(transition)
-            continue
+        (native if path == DeliveryPath.NATIVE else emitted).append(transition)
+    return replace(announced, transitions=tuple(native)), _emissions(request, emitted)
+
+
+def _emissions(
+    request: AlertDeliveryRequest, transitions: Sequence[AnnouncedTransition]
+) -> tuple[LegacyEventEmission, ...]:
+    """The events the source emits for its HogFunctions, one per transition a destination subscribes to."""
+    emissions: list[LegacyEventEmission] = []
+    for transition in transitions:
         subscribed = _subscribed_events(request, transition)
         if subscribed.message_event or subscribed.incident_event:
             emissions.append(
@@ -447,7 +459,12 @@ def _split_by_path(
                     incident_action=subscribed.incident_action if subscribed.incident_event else None,
                 )
             )
-    return replace(announced, transitions=tuple(native)), tuple(emissions)
+    return tuple(emissions)
+
+
+def _all_event_ids(request: AlertDeliveryRequest) -> list[str]:
+    """Every event the alert's HogFunctions can listen to: its message events and its incident events."""
+    return [*request.event_ids_by_kind.values(), *request.event_ids_by_incident_action.values()]
 
 
 def _overflow_notice_keys(

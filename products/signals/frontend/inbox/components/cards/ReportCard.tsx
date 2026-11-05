@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { memo } from 'react'
 
-import { IconHide, IconUndo } from '@posthog/icons'
+import { IconEye, IconHide, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -254,12 +254,25 @@ function ReportCardRaw({
 
                 <div
                     className={clsx(
-                        'flex items-center flex-wrap min-w-0 gap-x-2.5 gap-y-1 text-xs text-tertiary leading-none select-none',
+                        'relative flex items-center flex-wrap min-w-0 gap-x-2.5 gap-y-1 text-xs text-tertiary leading-none select-none',
                         // Sit on the bottom edge of the column so the sources line up with the timestamp
                         // opposite, whichever column is taller.
                         showImpactColumn ? 'mt-auto pt-1' : 'mt-1.5'
                     )}
                 >
+                    {report.status === SignalReportStatus.MONITORING && (
+                        <Tooltip title="The fix is being monitored.">
+                            <span
+                                className={clsx(
+                                    'absolute -left-9 flex h-4 w-6 items-center justify-center text-success',
+                                    showImpactColumn ? 'top-1' : 'top-0'
+                                )}
+                                aria-label="Monitoring"
+                            >
+                                <IconEye className="text-base" />
+                            </span>
+                        </Tooltip>
+                    )}
                     {hasPr && repoSlug ? <span className="truncate font-mono">{repoSlug}</span> : null}
                     <InboxCardSourceMeta sourceProducts={report.source_products} scoutSkillName={report.scout_name} />
                     {outcomeLabel && (
