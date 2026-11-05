@@ -151,6 +151,8 @@ def hubspot_exchange_legacy_grant(refresh_token: str) -> HubspotLegacyGrant:
             res = make_tracked_session().get(
                 "https://api.hubapi.com/oauth/v1/access-tokens/" + access_token,
             )
+        if res.status_code == 429 or res.status_code >= 500:
+            raise HubspotRetryableError("HubSpot could not return token information")
         if res.status_code != 200:
             raise LegacyOAuthGrantUnusable("HubSpot rejected the token information request")
         token_info = res.json()
@@ -169,8 +171,10 @@ def hubspot_exchange_legacy_grant(refresh_token: str) -> HubspotLegacyGrant:
             access_token=access_token,
             refresh_token=rotated_refresh_token,
         )
-    except (HubspotTokenRefreshError, HubspotRetryableError, requests.RequestException, ValueError):
+    except HubspotTokenRefreshError:
         raise LegacyOAuthGrantUnusable("The legacy HubSpot grant could not be exchanged") from None
+    except (HubspotRetryableError, requests.RequestException, ValueError):
+        raise HubspotRetryableError("The legacy HubSpot grant could not be checked") from None
 
 
 def hubspot_access_token_is_valid(access_token: str) -> bool:

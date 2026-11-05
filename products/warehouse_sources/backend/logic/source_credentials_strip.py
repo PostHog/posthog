@@ -27,7 +27,10 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationReference
 
-from products.warehouse_sources.backend.facade.contracts import UnreadableSourceInputsError
+from products.warehouse_sources.backend.facade.contracts import (
+    DEAD_CREDENTIALS_CLEARED_KEY,
+    UnreadableSourceInputsError,
+)
 from products.warehouse_sources.backend.logic.credential_auth_types import has_typed_in_credentials
 from products.warehouse_sources.backend.logic.source_credentials import (
     CredentialsNotFoundError,
@@ -258,6 +261,13 @@ def _restore_one(source_id: UUID, team_id: int, execute: bool, prefer_backup: bo
             return SKIPPED_GONE
         stored_inputs = SourceInputsStore.load_stored(source)
         if not is_stripped(stored_inputs):
+            if DEAD_CREDENTIALS_CLEARED_KEY in stored_inputs:
+                backup = _backup_of(source)
+                if backup is None:
+                    return NO_CREDENTIALS
+                if execute:
+                    SourceInputsStore.write_restored(source, backup.inputs)
+                return RESTORED_FROM_BACKUP
             return NOT_STRIPPED
         slot = in_use_oauth_slot(str(source.source_type), stored_inputs)
         if slot is not None:

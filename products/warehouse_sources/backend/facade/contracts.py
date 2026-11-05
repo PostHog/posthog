@@ -81,6 +81,7 @@ class UnreadableSourceInputsError(ValueError):
 # Set in `job_inputs` when the store has moved the connection fields of a source to its credentials row and
 # removed them from `job_inputs`. The value is the time of the strip, as an ISO 8601 string.
 CONNECTION_FIELDS_STRIPPED_KEY = "connection_fields_stripped_at"
+DEAD_CREDENTIALS_CLEARED_KEY = "dead_credentials_cleared_at"
 
 SOURCE_CREDENTIALS_MISSING_ERROR = "The credentials of this source are missing or cannot be read"
 

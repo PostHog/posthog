@@ -31,7 +31,11 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationConflict, IntegrationManager, IntegrationReference
 
-from products.warehouse_sources.backend.facade.contracts import SharedCredentialsError, UnreadableSourceInputsError
+from products.warehouse_sources.backend.facade.contracts import (
+    DEAD_CREDENTIALS_CLEARED_KEY,
+    SharedCredentialsError,
+    UnreadableSourceInputsError,
+)
 from products.warehouse_sources.backend.logic.credential_auth_types import has_typed_in_credentials
 from products.warehouse_sources.backend.logic.source_credentials import (
     CredentialsNotFoundError,
@@ -77,6 +81,7 @@ SKIPPED_UNREADABLE = "skipped_unreadable"
 SKIPPED_UNKNOWN_TYPE = "skipped_unknown_type"
 # The source is stripped: `job_inputs` has no credentials to copy, and the row or the column is the only copy.
 SKIPPED_STRIPPED = "skipped_stripped"
+SKIPPED_CLEANED = "skipped_cleaned"
 STRIPPED_ROW_MISSING = "stripped_row_missing_or_unreadable"
 FAILED = "failed"
 
@@ -269,6 +274,8 @@ def _process_batch(batch: Iterable[ExternalDataSource], execute: bool, counts: B
 def _plan(source: ExternalDataSource) -> dict[str, Any] | str:
     """Return the stored typed-in fields or the planned outcome, without network calls or writes."""
     inputs = SourceInputsStore.load_stored(source)
+    if DEAD_CREDENTIALS_CLEARED_KEY in inputs:
+        return SKIPPED_CLEANED
     if is_stripped(inputs):
         return SKIPPED_STRIPPED
     if _has_legacy_oauth_tokens(source, inputs):
@@ -338,7 +345,18 @@ def _adopt_legacy_oauth(source: ExternalDataSource) -> str:
         SourceRegistry,
     )
 
+    current = (
+        ExternalDataSource.objects.select_related(None)
+        .filter(pk=source.pk, team_id=source.team_id)
+        .exclude(deleted=True)
+        .first()
+    )
+    if current is None:
+        return SKIPPED_DELETED
+    source = current
     inputs = SourceInputsStore.load_stored(source)
+    if DEAD_CREDENTIALS_CLEARED_KEY in inputs:
+        return SKIPPED_CLEANED
     source_class = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
     try:
         grant = source_class.adopt_legacy_oauth(inputs)
@@ -359,6 +377,8 @@ def _adopt_legacy_oauth(source: ExternalDataSource) -> str:
         if fresh is None:
             return SKIPPED_DELETED
         fresh_inputs = SourceInputsStore.load_stored(fresh)
+        if DEAD_CREDENTIALS_CLEARED_KEY in fresh_inputs:
+            return SKIPPED_CLEANED
         if grant.pointer_key in fresh_inputs:
             return _sync_source(fresh)
         if fresh_inputs.get("hubspot_refresh_token") != grant.refresh_token:
@@ -415,6 +435,8 @@ def _sync_source(source: ExternalDataSource) -> str:
         if fresh is None:
             return SKIPPED_DELETED
         inputs = SourceInputsStore.load_stored(fresh)
+        if DEAD_CREDENTIALS_CLEARED_KEY in inputs:
+            return SKIPPED_CLEANED
         if is_stripped(inputs):
             # Stripped after the batch read. The row is the only copy, so `job_inputs` must never overwrite it.
             return SKIPPED_STRIPPED
