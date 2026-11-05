@@ -207,9 +207,17 @@ def can_move(alert: AlertConfiguration) -> bool:
     return platform_upsert_of(alert) is not None
 
 
-def has_begun_cutover(team_id: int) -> bool:
-    """Whether the platform owns any of the team's insight alerts, which makes it the owner of new ones."""
-    return AlertConfiguration.objects.filter(team_id=team_id, owner=PlatformAlertOwner.PLATFORM).exists()
+def takes_new_alert(team_id: int, *, new_alert_id: UUID) -> bool:
+    """Whether the platform owns a team's new insight alert: when it owns another of the team's alerts,
+    or when the team has no other. A team whose alerts all stay with insight, such as one rolled back,
+    keeps new ones on insight too."""
+    owners = set(
+        AlertConfiguration.objects.filter(team_id=team_id)
+        .exclude(id=new_alert_id)
+        .values_list("owner", flat=True)
+        .distinct()
+    )
+    return not owners or PlatformAlertOwner.PLATFORM in owners
 
 
 def hand_over(alert: AlertConfiguration, at: datetime) -> bool:

@@ -15,7 +15,7 @@ from posthog.models.instance_setting import set_instance_setting
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.tasks.alerts.metrics_investigation import MAX_SUMMARY_LENGTH
-from posthog.tasks.alerts.test.alert_check_helpers import run_alert_check
+from posthog.tasks.alerts.test.alert_check_helpers import keep_team_alerts_on_insight, run_alert_check
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.metrics.backend.facade.contracts import (
@@ -79,6 +79,7 @@ def _stub_investigation_result(metric_name: str, mover_label: str = "pod-1") -> 
 class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
     def setUp(self) -> None:
         super().setUp()
+        keep_team_alerts_on_insight(self.team)
         set_instance_setting("EMAIL_HOST", "fake_host")
         set_instance_setting("EMAIL_ENABLED", True)
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)

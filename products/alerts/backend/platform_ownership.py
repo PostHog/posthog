@@ -23,8 +23,8 @@ from products.alerts.backend.platform_cutover import (
     can_move,
     delivers_as_it_does_today,
     hand_over,
-    has_begun_cutover,
     in_an_environment,
+    takes_new_alert,
 )
 from products.alerts.backend.platform_source_cycle import platform_upsert_of
 from products.alerts_platform.backend.facade.api import close_owned_firings_now, delete_copy, update_owned_copy
@@ -42,12 +42,12 @@ _EDITED_FIELDS = ("name", "source_config", "schedule_restriction")
 
 
 def on_created(alert: AlertConfiguration, at: datetime) -> bool:
-    """Hands a new alert, locked by the caller, to the platform when its team has begun the cutover,
-    so the team never has to be cut over again for it. False when the alert stays with insight."""
+    """Hands a new alert, locked by the caller, to the platform unless its team keeps its alerts on
+    insight. False when the alert stays with insight."""
     return (
         not in_an_environment(alert)
         and can_move(alert)
-        and has_begun_cutover(alert.team_id)
+        and takes_new_alert(alert.team_id, new_alert_id=alert.id)
         and delivers_as_it_does_today(alert)
         and hand_over(alert, at)
     )
@@ -76,8 +76,8 @@ def on_updated(alert: AlertConfiguration, *, snooze_changed: bool, rescheduled: 
 
 
 def hand_over_new_alert(*, team_id: int, alert_id: UUID, at: datetime) -> bool:
-    """Hands an alert created in the caller's transaction to the platform when its team has begun
-    the cutover. False when the alert stays with insight."""
+    """Hands an alert created in the caller's transaction to the platform unless its team keeps its
+    alerts on insight. False when the alert stays with insight."""
     alert = _locked(team_id, alert_id)
     return alert is not None and on_created(alert, at)
 

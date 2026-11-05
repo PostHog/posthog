@@ -2,12 +2,21 @@ import traceback
 
 from django.db import transaction
 
+from posthog.models.team import Team
 from posthog.tasks.alerts import utils as alert_utils
 from posthog.tasks.alerts.metrics_investigation import run_metrics_alert_investigation, should_investigate_metrics_alert
 from posthog.temporal.alerts.investigation import claim_investigation_slot
 
 from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.models import AlertConfiguration
+from products.product_analytics.backend.facade.models import Insight
+
+
+def keep_team_alerts_on_insight(team: Team) -> None:
+    """Gives the team an alert insight owns, so the alerts these tests create stay on insight, where
+    the insight stack checks and notifies them."""
+    insight = Insight.objects.create(team=team, name="Kept on insight")
+    AlertConfiguration.objects.create(team=team, insight=insight, name="Kept on insight", enabled=False)
 
 
 def run_alert_check(alert_id: str) -> None:

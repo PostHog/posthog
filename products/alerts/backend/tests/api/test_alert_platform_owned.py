@@ -444,11 +444,21 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         else:
             assert due_after == due_before
 
-    @parameterized.expand([("a_team_on_the_platform", True), ("a_team_off_the_platform", False)])
-    def test_a_new_alert_is_handed_over_only_in_a_team_on_the_platform(self, _name: str, begun: bool) -> None:
-        if not begun:
-            AlertConfiguration.objects.filter(id=self.alert.id).update(owner="source")
+    @parameterized.expand(
+        [
+            ("a_team_on_the_platform", "platform", "platform"),
+            ("a_team_off_the_platform", "source", "source"),
+            ("a_team_with_no_other_alert", None, "platform"),
+        ]
+    )
+    def test_a_new_alert_follows_its_team_and_starts_on_the_platform_in_a_team_without_alerts(
+        self, _name: str, team_owner: str | None, expected_owner: str
+    ) -> None:
         insight = create_insight_alert(self.team).insight
+        if team_owner is None:
+            AlertConfiguration.objects.filter(team_id=self.team.id).delete()
+        else:
+            AlertConfiguration.objects.filter(team_id=self.team.id).update(owner=team_owner)
 
         response = self.client.post(
             f"{self.url}",
@@ -466,7 +476,7 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         created = AlertConfiguration.objects.get(id=response.json()["id"])
-        assert created.owner == ("platform" if begun else "source")
+        assert created.owner == expected_owner
 
     def test_deleting_a_moved_alert_deletes_its_copy(self) -> None:
         response = self.client.delete(f"{self.url}/{self.alert.id}/")
