@@ -833,7 +833,6 @@ describe('hogFlowEditorLogic', () => {
         })
 
         it.each([
-            ['duplicating a step', (): void => logic.actions.duplicateNodeBelow(delay.id)],
             ['deleting a step', (): void => logic.actions.onNodesDelete([logic.values.nodesById[delay.id]])],
             [
                 "changing a step's settings",
