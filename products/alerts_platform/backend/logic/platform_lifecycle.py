@@ -927,13 +927,14 @@ def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False, admi
 
 
 def _admits_new_team(team_copies: QuerySet[PlatformAlertConfiguration], source_kind: str) -> bool:
+    if team_copies.filter(switched_off_at__isnull=False).exists():
+        return False
     # A switch-off of the whole source leaves no enabled copy anywhere, so this admits nothing then.
-    source_runs = (
+    return (
         PlatformAlertConfiguration.objects.unscoped()
         .filter(source_kind=source_kind, owner=PlatformAlertOwner.SOURCE, enabled=True)
         .exists()
     )
-    return source_runs and not team_copies.filter(switched_off_at__isnull=False).exists()
 
 
 def _hold_admission(source_kind: str, *, exclusive: bool) -> None:
@@ -1200,10 +1201,14 @@ def disable_configurations(
         # source still owns: once the platform owns an alert, its copy is the production alert, and
         # switching it off would silence real notifications rather than stop a parallel check.
         rows = PlatformAlertConfiguration.objects.unscoped().filter(
-            source_kind=source_kind, enabled=True, owner=PlatformAlertOwner.SOURCE
+            source_kind=source_kind, owner=PlatformAlertOwner.SOURCE
         )
         if team_id is not None:
             rows = rows.filter(team_id=team_id)
         if legacy_configuration_ids is not None:
             rows = rows.filter(legacy_configuration_id__in=legacy_configuration_ids)
-        return rows.update(enabled=False, switched_off_at=django_timezone.now())
+        at = django_timezone.now()
+        # A copy that is already disabled carries the switch-off too, so `upsert_if_running` cannot
+        # admit a switched-off team again through a new alert.
+        rows.filter(enabled=False, switched_off_at__isnull=True).update(switched_off_at=at)
+        return rows.filter(enabled=True).update(enabled=False, switched_off_at=at)

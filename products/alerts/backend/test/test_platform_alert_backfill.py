@@ -136,6 +136,7 @@ class TestPlatformInsightAlertBackfill(APIBaseTest):
             ("a_team_new_to_the_platform", "elsewhere", False, None, "renamed"),
             ("a_team_with_only_disabled_copies", "disabled_copies", False, None, "renamed"),
             ("a_team_an_operator_switched_off", "switched_off", False, None, None),
+            ("a_team_switched_off_with_only_disabled_copies", "switched_off_disabled_copies", False, None, None),
             ("an_ai_alert", "running", False, {"type": "llm"}, None),
             ("an_alert_switched_to_ai_after_its_copy", "running", True, {"type": "llm"}, "alert"),
         ]
@@ -157,9 +158,11 @@ class TestPlatformInsightAlertBackfill(APIBaseTest):
             backfill_platform_insight_alert_configurations(team_id=self.team.id)
         if team_state == "switched_off":
             disable_platform_insight_alert_configurations(team_id=self.team.id)
-        if team_state == "disabled_copies":
+        if team_state in ("disabled_copies", "switched_off_disabled_copies"):
             self._alert(enabled=False)
             backfill_platform_insight_alert_configurations(team_id=self.team.id)
+        if team_state == "switched_off_disabled_copies":
+            disable_platform_insight_alert_configurations(team_id=self.team.id)
         created = self._alert()
         if copied_before:
             backfill_platform_insight_alert_configurations(alert_ids=[created.id])
