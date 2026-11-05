@@ -22,7 +22,6 @@ import { userLogic } from './userLogic'
 
 const CREATE_PROJECT_TIMEOUT_MS = 60_000
 
-// The global loader toast skips 409s, so the duplicate-name rejection is shown here.
 function toastDuplicateNameConflict(error: string, errorObject: unknown): void {
     const apiError = errorObject as ApiError | undefined
     if (apiError?.status === 409) {
