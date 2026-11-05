@@ -129,7 +129,22 @@ describe('inboxTaskKickoffLogic', () => {
 
         afterEach(() => logic.unmount())
 
-        it('opens an editable metric suggestion for the selected check without copying its stored title', async () => {
+        it.each([
+            { enabled: true, legacyEnabled: true },
+            { enabled: true, legacyEnabled: false },
+            { enabled: false, legacyEnabled: true },
+            { enabled: undefined, legacyEnabled: true },
+        ])('opens a metric suggestion only when Monitoring is enabled (%s)', async ({ enabled, legacyEnabled }) => {
+            featureFlagLogic.actions.setFeatureFlags(
+                [
+                    ...(enabled ? [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING] : []),
+                    ...(legacyEnabled ? ['signals-report-checks-replace'] : []),
+                ],
+                {
+                    'signals-report-checks-replace': legacyEnabled,
+                    ...(enabled === undefined ? {} : { [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: enabled }),
+                }
+            )
             const check = {
                 id: 'check-checkout',
                 title: 'Checkout errors stay low',
@@ -137,6 +152,14 @@ describe('inboxTaskKickoffLogic', () => {
             await expectLogic(logic, () =>
                 logic.actions.openReportCheckMetricSuggestion(report, check)
             ).toFinishAllListeners()
+
+            if (!enabled) {
+                expect(logic.values.reportDiscussionDraft).toBe('')
+                expect(logic.values.reportDiscussionIntent).toBeNull()
+                expect(logic.values.reportChatContext).toBeNull()
+                expect(createdTasks).toHaveLength(0)
+                return
+            }
 
             expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)
             expect(logic.values.reportChatContext?.report.id).toBe(report.id)

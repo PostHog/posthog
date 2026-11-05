@@ -754,7 +754,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
         metricCheckReplacementDisabledReason: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): string | null =>
-                featureFlags[FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE]
+                featureFlags[FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]
                     ? null
                     : 'Metric suggestions are not available yet.',
         ],
@@ -781,6 +781,9 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
 
     listeners(({ actions, cache, values, selectors }) => ({
         openReportCheckMetricSuggestion: ({ report, check }) => {
+            if (values.metricCheckReplacementDisabledReason) {
+                return
+            }
             actions.openReportDiscussion(
                 report,
                 `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`

@@ -7993,7 +7993,7 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "signals-report-checks-replace",
+        "feature_flag": "signals-report-monitoring",
         "feature_flag_behavior": "enable"
     },
     "inbox-report-checks-retrieve": {

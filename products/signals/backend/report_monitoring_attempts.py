@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import F, Q
 from django.utils import timezone
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
@@ -18,6 +19,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.report_check_artefacts import write_check_expired
 from products.signals.backend.report_check_research import check_authoring_failed
+from products.signals.backend.report_checks import MAX_CHECK_HORIZON
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 
 if TYPE_CHECKING:
@@ -98,16 +100,23 @@ def complete_implementation(
         if earlier_attempts.exists():
             raise ValueError("Implementation must complete after the report's earlier Monitoring periods.")
 
+        eligible = Q(status__in=SignalReportCheck.OPEN_STATUSES)
+        if previous_attempt is not None:
+            eligible |= Q(
+                id__in=previous_attempt.check_versions,
+                status__in=(SignalReportCheck.Status.ERRORED, SignalReportCheck.Status.EXPIRED),
+            )
         checks = list(
             SignalReportCheck.objects.for_team(team_id)
             .select_for_update()
-            .filter(report_id=report.id, status__in=SignalReportCheck.OPEN_STATUSES)
+            .filter(eligible, report_id=report.id)
             .order_by("id")
         )
         now = timezone.now()
         applicable: list[SignalReportCheck] = []
         for check in checks:
-            if check.expires_at <= now:
+            restarting_member = previous_attempt is not None and str(check.id) in previous_attempt.check_versions
+            if check.expires_at <= now and not restarting_member:
                 check.status = SignalReportCheck.Status.EXPIRED
                 check.save(update_fields=["status", "updated_at"])
                 write_check_expired(check, now, raise_on_error=True)
@@ -142,6 +151,7 @@ def complete_implementation(
             monitoring_fallback_expires_at=None,
             monitoring_dispatch_after=None,
             legacy_monitoring_attempt_id=None,
+            expires_at=monitoring_started_at + MAX_CHECK_HORIZON if previous_attempt else F("expires_at"),
             updated_at=now,
         )
         if previous_attempt is not None:

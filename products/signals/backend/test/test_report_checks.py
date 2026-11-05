@@ -1256,6 +1256,37 @@ class TestReportCheckAPI(APIBaseTest):
         self.report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.RESOLVED, title="Fix")
         self.url = f"/api/projects/{self.team.id}/signals/reports/{self.report.id}/checks/"
 
+    @parameterized.expand(
+        [
+            ("enabled", True),
+            ("disabled", False),
+            ("unavailable", RuntimeError("flag unavailable")),
+        ]
+    )
+    def test_metric_replacement_requires_monitoring(self, _name: str, flag_result: bool | Exception) -> None:
+        check = self._create()
+        original_state = SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).values().get()
+        log_count = SignalReportArtefact.objects.filter(report=self.report).count()
+        with patch(
+            "products.signals.backend.report_content_gates.feature_enabled_or_false",
+            side_effect=flag_result if isinstance(flag_result, Exception) else None,
+            return_value=flag_result,
+        ):
+            response = self.client.post(
+                f"{self.url}{check.id}/replace/",
+                {"title": "Better metric", "config": _replacement_config()},
+                format="json",
+            )
+        if flag_result is True:
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            check.refresh_from_db()
+            assert check.status == SignalReportCheck.Status.CANCELLED
+        else:
+            assert response.status_code == status.HTTP_404_NOT_FOUND
+            assert SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).values().get() == original_state
+            assert SignalReportCheck.objects.for_team(self.team.id).filter(report=self.report).count() == 1
+            assert SignalReportArtefact.objects.filter(report=self.report).count() == log_count
+
     def _create(self, *, report: SignalReport | None = None, **overrides) -> SignalReportCheck:
         spec: dict = {
             "title": "Checkout errors stay low",
@@ -1477,9 +1508,17 @@ class TestReportCheckAPI(APIBaseTest):
         assert replacement.measurement_start_at == self.report.monitoring_started_at
         assert replacement.next_run_at == self.report.monitoring_started_at + timedelta(minutes=interval or duration)
 
-    @parameterized.expand([("single_metric", False), ("agent_and_other_metric", True)])
+    @parameterized.expand(
+        [
+            ("single_metric", False),
+            ("agent_and_other_metric", True),
+            ("errored_sibling", True, SignalReportCheck.Status.ERRORED),
+            ("expired_sibling", True, SignalReportCheck.Status.EXPIRED, True),
+            ("past_expiry_sibling", True, SignalReportCheck.Status.ACTIVE, True),
+        ]
+    )
     def test_replacement_restarts_monitoring_and_finishes_final_verification(
-        self, _name: str, other_metric: bool
+        self, _name: str, other_metric: bool, sibling_status: str | None = None, expired: bool = False
     ) -> None:
         self.enterContext(
             patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True)
@@ -1497,7 +1536,7 @@ class TestReportCheckAPI(APIBaseTest):
             next_run_at=None,
         )
         remaining = (
-            self._create(config=_replacement_config(), soak_minutes=60, next_run_at=None) if other_metric else None
+            self._create(config=_replacement_config(), soak_minutes=120, next_run_at=None) if other_metric else None
         )
         if remaining is not None:
             remaining.approved_at = now
@@ -1506,11 +1545,19 @@ class TestReportCheckAPI(APIBaseTest):
         previous = complete_implementation(
             team_id=self.team.id,
             report_id=self.report.id,
-            monitoring_started_at=now - timedelta(hours=1),
+            monitoring_started_at=now - timedelta(hours=2),
             close_pr_on_resolve=True,
         )
         assert previous is not None
         previous_versions = dict(previous.check_versions)
+        if remaining is not None and sibling_status is not None:
+            remaining.refresh_from_db()
+            remaining.status = sibling_status
+            remaining.consecutive_errors = 3
+            remaining.last_outcome = SignalReportCheck.Outcome.ERRORED
+            if expired:
+                remaining.expires_at = now - timedelta(minutes=5)
+            remaining.save(update_fields=["status", "consecutive_errors", "last_outcome", "expires_at"])
         assert {due.member.check.id for due in collect_due_final_metrics(now, limit=10)} == {
             remaining.id if remaining else original.id
         }
@@ -1533,7 +1580,11 @@ class TestReportCheckAPI(APIBaseTest):
             assert attempt.check_versions[str(remaining.id)] == previous_versions[str(remaining.id)]
             assert remaining.approved_at == now
             assert remaining.approved_by_id == self.user.id
+            assert remaining.status == SignalReportCheck.Status.ACTIVE
+            assert remaining.consecutive_errors == 0
             assert remaining.measurement_start_at == now
+            assert remaining.next_run_at == now + timedelta(hours=2)
+            assert remaining.expires_at > now + timedelta(hours=2)
         previous.refresh_from_db()
         assert previous.check_versions == previous_versions
         original.refresh_from_db()
@@ -1549,7 +1600,26 @@ class TestReportCheckAPI(APIBaseTest):
             self.captureOnCommitCallbacks(execute=True),
         ):
             summary = run_due_final_metrics(now=timezone.now(), deadline=time.monotonic() + 120, limit=10)
-        assert summary.passed == len(expected_ids)
+        assert summary.passed == 1
+        if remaining is not None:
+            self.report.refresh_from_db()
+            assert self.report.status == SignalReport.Status.MONITORING
+            assert {
+                str(check_id)
+                for check_id in SignalReportMonitoringResult.objects.for_team(self.team.id)
+                .filter(attempt_id=attempt.id)
+                .values_list("report_check_id", flat=True)
+            } == {response.json()["id"]}
+            with (
+                time_machine.travel(now + timedelta(hours=2), tick=False),
+                patch(
+                    "products.signals.backend.report_check_metric_evaluation.measure_metric",
+                    return_value=MetricMeasurement(value=6, measured_at=now + timedelta(hours=2), series=None),
+                ),
+                self.captureOnCommitCallbacks(execute=True),
+            ):
+                summary = run_due_final_metrics(now=timezone.now(), deadline=time.monotonic() + 120, limit=10)
+            assert summary.passed == 1
         results = SignalReportMonitoringResult.objects.for_team(self.team.id).filter(attempt_id=attempt.id)
         assert {str(check_id) for check_id in results.values_list("report_check_id", flat=True)} == expected_ids
         self.report.refresh_from_db()
