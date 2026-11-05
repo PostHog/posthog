@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-11-05 10:04:26 UTC
+// Generated at: 2026-11-05 20:02:32 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -67,6 +67,7 @@ export type CanonicalProvider =
     | 'darkbloom-int4'
     | 'darkbloom-nvfp4'
     | 'decart-fp4'
+    | 'decart-fp8'
     | 'decart-mxfp4'
     | 'deepinfra-bf16'
     | 'deepinfra-bf16-flex'
@@ -134,15 +135,13 @@ export type CanonicalProvider =
     | 'liquid-fp8'
     | 'makora'
     | 'makora-bf16'
+    | 'makora-fp16'
     | 'makora-fp4'
     | 'makora-fp8'
     | 'mancer-fp4'
     | 'mancer-fp8'
-    | 'mara'
     | 'meta'
     | 'minimax'
-    | 'minimax-fp8'
-    | 'minimax-highspeed'
     | 'mistral'
     | 'mistral-eu'
     | 'mistral-fp8'
@@ -162,7 +161,6 @@ export type CanonicalProvider =
     | 'near-ai'
     | 'near-ai-fp4'
     | 'near-ai-fp8'
-    | 'nebius'
     | 'nebius-bf16'
     | 'nebius-fp4'
     | 'nebius-fp8'
@@ -202,8 +200,10 @@ export type CanonicalProvider =
     | 'perplexity-int8'
     | 'phala'
     | 'phala-nvfp4'
+    | 'phala-us'
     | 'primalabs'
     | 'primalabs-fp8'
+    | 'primalabs-mxfp4'
     | 'primeintellect'
     | 'primeintellect-bf16'
     | 'primeintellect-fp4'
