@@ -50,7 +50,7 @@ SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
 SLACK_APP_BYOS_FLAG = "slack-app-byos"
 SLACK_APP_FOOTER_COST_FLAG = "slack-app-footer-cost"
-SLACK_APP_DM_SETUP_CARD_FLAG = "slack-app-dm-setup-card"
+SLACK_APP_ONBOARDING_FLAG = "slack-app-onboarding"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -195,12 +195,12 @@ def is_slack_app_forking_enabled(integration: IntegrationRecord) -> bool:
     )
 
 
-def is_slack_app_dm_setup_card_enabled(integration: IntegrationRecord) -> bool:
+def is_slack_app_onboarding_enabled(integration: IntegrationRecord) -> bool:
     """Gate for the setup card in the PostHog DM. The card posts through the ``chat:write`` that every
     install has, and each step checks its own scopes, so this is the flag alone. It is keyed on the
     workspace, because the people who get the card are mostly not linked to a PostHog user yet."""
     return _workspace_flag_enabled(
-        SLACK_APP_DM_SETUP_CARD_FLAG,
+        SLACK_APP_ONBOARDING_FLAG,
         integration,
-        failure_log_key="slack_app_dm_setup_card_feature_flag_check_failed",
+        failure_log_key="slack_app_onboarding_feature_flag_check_failed",
     )

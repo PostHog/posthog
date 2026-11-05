@@ -10,11 +10,6 @@ from products.slack_app.backend.temporal.activities.classifiers import (
     classify_task_needs_repo,
     classify_untagged_followup_activity,
 )
-from products.slack_app.backend.temporal.activities.dm_setup import (
-    edit_slack_dm_setup_message_activity,
-    plan_slack_dm_setup_activity,
-    post_slack_dm_setup_message_activity,
-)
 from products.slack_app.backend.temporal.activities.fork import process_slack_app_fork_thread_activity
 from products.slack_app.backend.temporal.activities.messaging import (
     POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE,
@@ -40,6 +35,11 @@ from products.slack_app.backend.temporal.activities.repo_selection import (
 from products.slack_app.backend.temporal.activities.rules import (
     create_posthog_code_routing_rule_activity,
     handle_posthog_code_slack_mention_command_activity,
+)
+from products.slack_app.backend.temporal.activities.slack_app_onboarding import (
+    edit_slack_app_onboarding_message_activity,
+    plan_slack_app_onboarding_activity,
+    post_slack_app_onboarding_message_activity,
 )
 from products.slack_app.backend.temporal.activities.task_creation import (
     create_posthog_code_task_for_repo_activity,
@@ -96,9 +96,9 @@ __all__ = [
     "resolve_posthog_code_slack_command_user_activity",
     "classify_slack_app_model_router_activity",
     "run_posthog_slack_inbox_onboarding",
-    "edit_slack_dm_setup_message_activity",
-    "plan_slack_dm_setup_activity",
-    "post_slack_dm_setup_message_activity",
+    "edit_slack_app_onboarding_message_activity",
+    "plan_slack_app_onboarding_activity",
+    "post_slack_app_onboarding_message_activity",
     "run_posthog_slack_inbox_onboarding_activity",
     "post_slack_unfurl_charts_activity",
     "prepare_slack_unfurl_charts_activity",

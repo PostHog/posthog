@@ -46,7 +46,7 @@ from posthog.views import login_required
 
 from products.slack_app.backend.analytics import alias_slack_user, capture_slack_event
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
-from products.slack_app.backend.logic.dm_setup.dispatch import request_dm_setup_card_render
+from products.slack_app.backend.logic.onboarding.dispatch import request_onboarding
 from products.slack_app.backend.services.slack_user_oauth import (
     CallbackState,
     InviteToken,
@@ -271,7 +271,7 @@ def slack_user_link_callback(request: HttpRequest) -> HttpResponse:
         channel=state.channel,
         thread_ts=state.thread_ts,
     )
-    request_dm_setup_card_render(workspace_integration, identity.slack_user_id, opened_dm=False)
+    request_onboarding(workspace_integration, identity.slack_user_id, may_start=False)
 
     return _settings_redirect()
 

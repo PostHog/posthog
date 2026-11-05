@@ -12,9 +12,10 @@ layer with zero translation.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TypeVar
+from typing import Literal, TypeVar
 
 from django.db import models, transaction
+from django.utils import timezone
 
 from posthog.dataclasses import frozen
 
@@ -190,9 +191,17 @@ def set_auto_model_choice(slack_workspace_id: str, slack_user_id: str, enabled: 
     )
 
 
+# Bump when onboarding gains steps that people who already finished it should see.
+ONBOARDING_VERSION = 1
+
+OnboardingCompletedReason = Literal["finished", "nothing_to_set_up", "legacy"]
+
+
 @frozen(slots=False)
-class DmSetupCardState:
-    """``root_ts`` is None when there was nothing to set up, so nothing was posted."""
+class OnboardingState:
+    """A person's onboarding thread in the PostHog DM. ``root_ts`` is None until the top message is posted,
+    and stays None when there was nothing to set up. ``completed_reason`` is "legacy" for people who used
+    the app before onboarding existed."""
 
     channel: str | None
     root_ts: str | None
@@ -200,59 +209,77 @@ class DmSetupCardState:
     step_ts: dict[str, str]
     summarized: tuple[str, ...]
     skipped: tuple[str, ...]
-    completed: bool
+    started_at: str | None
+    completed_at: str | None
+    completed_reason: OnboardingCompletedReason | None
+
+    @property
+    def completed(self) -> bool:
+        return self.completed_at is not None
 
 
 def _keys(value: object) -> tuple[str, ...]:
     return tuple(str(key) for key in value) if isinstance(value, list) else ()
 
 
-def resolve_dm_setup_card(slack_workspace_id: str, slack_user_id: str) -> DmSetupCardState | None:
-    from products.slack_app.backend.models import SlackSettings
-
-    stored = (
-        SlackSettings.objects.filter(slack_workspace_id=slack_workspace_id, slack_user_id=slack_user_id)
-        .values_list("dm_setup_card", flat=True)
-        .first()
-    )
+def parse_onboarding(stored: object) -> OnboardingState | None:
     if not isinstance(stored, dict):
         return None
     step_ts = stored.get("step_ts")
-    return DmSetupCardState(
+    reason = stored.get("completed_reason")
+    return OnboardingState(
         channel=stored.get("channel") or None,
         root_ts=stored.get("root_ts") or None,
         progress=stored.get("progress") or None,
         step_ts={str(key): str(ts) for key, ts in step_ts.items()} if isinstance(step_ts, dict) else {},
         summarized=_keys(stored.get("summarized")),
         skipped=_keys(stored.get("skipped")),
-        completed=bool(stored.get("completed")),
+        started_at=stored.get("started_at") or None,
+        completed_at=stored.get("completed_at") or None,
+        completed_reason=reason if reason in ("finished", "nothing_to_set_up", "legacy") else None,
     )
+
+
+def resolve_onboarding(slack_workspace_id: str, slack_user_id: str) -> OnboardingState | None:
+    from products.slack_app.backend.models import SlackSettings
+
+    stored = (
+        SlackSettings.objects.filter(slack_workspace_id=slack_workspace_id, slack_user_id=slack_user_id)
+        .values_list("onboarding", flat=True)
+        .first()
+    )
+    return parse_onboarding(stored)
 
 
 def _append_key(card: dict, field: str, key: str) -> None:
     card[field] = [*(existing for existing in card.get(field) or [] if existing != key), key]
 
 
-def update_dm_setup_card(
+def update_onboarding(
     slack_workspace_id: str,
     slack_user_id: str,
     *,
+    start: bool = False,
     root: tuple[str, str] | None = None,
     progress: str | None = None,
     step_ts: tuple[str, str] | None = None,
     summarized_step: str | None = None,
     skip_step: str | None = None,
-    completed: bool | None = None,
+    completed_reason: OnboardingCompletedReason | None = None,
 ) -> None:
     """``root`` is (channel, ts) and ``step_ts`` is (step key, ts). The row lock stops a skip click and a
     workflow write from losing each other's change."""
     from products.slack_app.backend.models import SlackSettings
 
+    now = timezone.now().isoformat()
     with transaction.atomic():
         row, _ = SlackSettings.objects.select_for_update().get_or_create(
             slack_workspace_id=slack_workspace_id, slack_user_id=slack_user_id
         )
-        card = dict(row.dm_setup_card) if isinstance(row.dm_setup_card, dict) else {}
+        card = dict(row.onboarding) if isinstance(row.onboarding, dict) else {}
+        if start:
+            card.setdefault("started_at", now)
+            card.setdefault("version", ONBOARDING_VERSION)
         if root is not None:
             card["channel"], card["root_ts"] = root
         if progress is not None:
@@ -263,10 +290,10 @@ def update_dm_setup_card(
             _append_key(card, "summarized", summarized_step)
         if skip_step is not None:
             _append_key(card, "skipped", skip_step)
-        if completed is not None:
-            card["completed"] = completed
-        row.dm_setup_card = card
-        row.save(update_fields=["dm_setup_card", "updated_at"])
+        if completed_reason is not None:
+            card["completed_at"], card["completed_reason"] = now, completed_reason
+        row.onboarding = card
+        row.save(update_fields=["onboarding", "updated_at"])
 
 
 def has_chosen_untagged_followup_mode(slack_workspace_id: str, slack_user_id: str) -> bool:
@@ -303,10 +330,12 @@ def set_workspace_default_integration(slack_workspace_id: str, integration_id: i
 
 
 __all__ = [
-    "DmSetupCardState",
+    "ONBOARDING_VERSION",
+    "OnboardingState",
+    "parse_onboarding",
     "has_chosen_untagged_followup_mode",
-    "resolve_dm_setup_card",
-    "update_dm_setup_card",
+    "resolve_onboarding",
+    "update_onboarding",
     "AIPreferences",
     "resolve_auto_model_choice",
     "resolve_channel_welcome_mode",

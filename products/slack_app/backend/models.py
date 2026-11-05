@@ -255,11 +255,11 @@ class SlackSettings(UUIDModel):
         blank=True,
         help_text="Which Slack app features this user used, saw as a tip, or dismissed.",
     )
-    # Only read on a personal row. The shape is ``DmSetupCardState`` in ``services/slack_settings.py``.
-    dm_setup_card = models.JSONField(
+    # Only read on a personal row. The shape is ``OnboardingState`` in ``services/slack_settings.py``.
+    onboarding = models.JSONField(
         null=True,
         blank=True,
-        help_text="Where the DM setup card for this user is, so PostHog can edit it in place.",
+        help_text="This user's onboarding thread in the PostHog DM, and whether they finished it.",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

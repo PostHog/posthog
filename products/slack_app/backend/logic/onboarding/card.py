@@ -5,25 +5,27 @@ from dataclasses import replace
 from posthog.models.integration import SlackIntegration
 
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.logic.dm_setup.step import DmSetupContext, DmSetupStep
-from products.slack_app.backend.logic.dm_setup.steps import DM_SETUP_STEPS
+from products.slack_app.backend.logic.onboarding.step import OnboardingContext, OnboardingStepSpec
+from products.slack_app.backend.logic.onboarding.steps import ONBOARDING_STEPS
 from products.slack_app.backend.services.slack_messages import context_block, section_block
-from products.slack_app.backend.services.slack_settings import resolve_dm_setup_card, update_dm_setup_card
+from products.slack_app.backend.services.slack_settings import resolve_onboarding, update_onboarding
+from products.slack_app.backend.services.slack_welcome_messages import ONBOARDING_INTRO_TEXT, build_onboarding_ready
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
-from products.slack_app.backend.temporal.types import DM_SETUP_DONE_PLAN, SlackDmSetupMessage, SlackDmSetupPlan
+from products.slack_app.backend.temporal.types import (
+    ONBOARDING_DONE_PLAN,
+    SlackAppOnboardingMessage,
+    SlackAppOnboardingPlan,
+)
 
 # pinned: analytics event names, renaming breaks dashboards
-SETUP_STARTED_EVENT = "slack app dm setup started"
-STEP_SHOWN_EVENT = "slack app dm setup step shown"
-SETUP_COMPLETED_EVENT = "slack app dm setup completed"
+SETUP_STARTED_EVENT = "slack app onboarding started"
+STEP_SHOWN_EVENT = "slack app onboarding step shown"
+SETUP_COMPLETED_EVENT = "slack app onboarding completed"
 
 
-def _root_message(progress: str, *, ready: bool, ts: str | None = None) -> SlackDmSetupMessage:
-    if ready:
-        title = "*PostHog is set up*\nThe steps are in this thread."
-    else:
-        title = "*Set up PostHog in Slack*\nI'll take you through a few short steps in this thread."
-    return SlackDmSetupMessage(
+def _root_message(progress: str, *, ready: bool, ts: str | None = None) -> SlackAppOnboardingMessage:
+    title = "*PostHog is set up*\nThe steps are in this thread." if ready else ONBOARDING_INTRO_TEXT
+    return SlackAppOnboardingMessage(
         kind="root",
         text="PostHog is set up" if ready else "Set up PostHog in Slack",
         blocks=[section_block(title), context_block(progress)],
@@ -32,9 +34,11 @@ def _root_message(progress: str, *, ready: bool, ts: str | None = None) -> Slack
     )
 
 
-def _step_message(ctx: DmSetupContext, step: DmSetupStep, position: int, total: int) -> SlackDmSetupMessage:
+def _step_message(
+    ctx: OnboardingContext, step: OnboardingStepSpec, position: int, total: int
+) -> SlackAppOnboardingMessage:
     # The mention makes the person follow the thread, so each new step reply notifies them.
-    return SlackDmSetupMessage(
+    return SlackAppOnboardingMessage(
         kind="step",
         step=step.key,
         text=f"Step {position} of {total}: {step.title}",
@@ -42,40 +46,33 @@ def _step_message(ctx: DmSetupContext, step: DmSetupStep, position: int, total: 
     )
 
 
-def _summary_message(step: DmSetupStep, ts: str, *, skipped: bool) -> SlackDmSetupMessage:
+def _summary_message(step: OnboardingStepSpec, ts: str, *, skipped: bool) -> SlackAppOnboardingMessage:
     line = f"Skipped: {step.title}" if skipped else f":white_check_mark: {step.done_text}"
-    return SlackDmSetupMessage(
+    return SlackAppOnboardingMessage(
         kind="step", step=step.key, text=line, blocks=[context_block(line)], ts=ts, summarizes_step=True
     )
 
 
-def _ready_message(ctx: DmSetupContext, skipped: list[DmSetupStep]) -> SlackDmSetupMessage:
-    text = (
-        f"<@{ctx.slack_user_id}> *You're all set.* Two ways to start:\n"
-        "• Send me a direct message.\n"
-        "• Mention me in a channel or a thread."
-    )
-    if skipped:
-        titles = ", ".join(step.title for step in skipped)
-        text += f"\n\nYou skipped: {titles}. You can set these up later in the Home tab."
-    return SlackDmSetupMessage(kind="ready", text="PostHog is ready", blocks=[section_block(text)])
+def _ready_message(ctx: OnboardingContext, skipped: list[OnboardingStepSpec]) -> SlackAppOnboardingMessage:
+    text, blocks = build_onboarding_ready(ctx.integration, ctx.slack_user_id, [step.title for step in skipped])
+    return SlackAppOnboardingMessage(kind="ready", text=text, blocks=blocks)
 
 
-def _status(progress: str, pending: list[DmSetupStep], skipped: list[DmSetupStep]) -> str:
+def _status(progress: str, pending: list[OnboardingStepSpec], skipped: list[OnboardingStepSpec]) -> str:
     current = f"current step: {pending[0].key}" if pending else "ready"
     skips = ", ".join(step.key for step in skipped) or "none"
     return f"{progress} · {current} · skipped: {skips}"
 
 
-def plan_dm_setup(integration: WorkspaceIntegration, slack_user_id: str) -> SlackDmSetupPlan:
+def plan_onboarding(integration: WorkspaceIntegration, slack_user_id: str) -> SlackAppOnboardingPlan:
     """Reads only, except that it stores that there is nothing to set up."""
     slack_workspace_id = integration.integration_id
-    state = resolve_dm_setup_card(slack_workspace_id, slack_user_id)
+    state = resolve_onboarding(slack_workspace_id, slack_user_id)
     if state is not None and state.completed:
-        return DM_SETUP_DONE_PLAN
+        return ONBOARDING_DONE_PLAN
 
-    ctx = DmSetupContext(integration=integration, slack_user_id=slack_user_id)
-    steps = [step for step in DM_SETUP_STEPS if step.applies(ctx)]
+    ctx = OnboardingContext(integration=integration, slack_user_id=slack_user_id)
+    steps = [step for step in ONBOARDING_STEPS if step.applies(ctx)]
     done = [step for step in steps if step.is_done(ctx)]
     skipped_keys = state.skipped if state else ()
     skipped = [step for step in steps if step.skippable and step.key in skipped_keys and step not in done]
@@ -86,9 +83,11 @@ def plan_dm_setup(integration: WorkspaceIntegration, slack_user_id: str) -> Slac
     if state is None or state.root_ts is None:
         if not pending:
             # Storing this saves a workflow run on each later open of the DM.
-            update_dm_setup_card(slack_workspace_id, slack_user_id, completed=True)
-            return DM_SETUP_DONE_PLAN
-        return SlackDmSetupPlan(edits=[], post=_root_message(progress, ready=False), finished=False, status=status)
+            update_onboarding(slack_workspace_id, slack_user_id, completed_reason="nothing_to_set_up")
+            return ONBOARDING_DONE_PLAN
+        return SlackAppOnboardingPlan(
+            edits=[], post=_root_message(progress, ready=False), finished=False, status=status
+        )
 
     edits = [
         _summary_message(step, state.step_ts[step.key], skipped=step in skipped)
@@ -97,26 +96,28 @@ def plan_dm_setup(integration: WorkspaceIntegration, slack_user_id: str) -> Slac
     ]
     if not pending:
         edits.append(_root_message(progress, ready=True, ts=state.root_ts))
-        return SlackDmSetupPlan(edits=edits, post=_ready_message(ctx, skipped), finished=True, status=status)
+        return SlackAppOnboardingPlan(edits=edits, post=_ready_message(ctx, skipped), finished=True, status=status)
 
     if state.progress != progress:
         edits.append(_root_message(progress, ready=False, ts=state.root_ts))
     current = _step_message(ctx, pending[0], len(steps) - len(pending) + 1, len(steps))
     current_ts = state.step_ts.get(pending[0].key)
     if current_ts is None:
-        return SlackDmSetupPlan(edits=edits, post=current, finished=False, status=status)
+        return SlackAppOnboardingPlan(edits=edits, post=current, finished=False, status=status)
     # Rendering the shown step again keeps its content fresh, such as the 15-minute account link.
     edits.append(replace(current, ts=current_ts))
-    return SlackDmSetupPlan(edits=edits, post=None, finished=False, status=status)
+    return SlackAppOnboardingPlan(edits=edits, post=None, finished=False, status=status)
 
 
-def post_dm_setup_message(integration: WorkspaceIntegration, slack_user_id: str, message: SlackDmSetupMessage) -> None:
+def post_onboarding_message(
+    integration: WorkspaceIntegration, slack_user_id: str, message: SlackAppOnboardingMessage
+) -> None:
     slack_workspace_id = integration.integration_id
-    state = resolve_dm_setup_card(slack_workspace_id, slack_user_id)
+    state = resolve_onboarding(slack_workspace_id, slack_user_id)
     client = SlackIntegration(integration).client
     if message.kind == "root":
         response = client.chat_postMessage(channel=slack_user_id, text=message.text, blocks=message.blocks)
-        update_dm_setup_card(
+        update_onboarding(
             slack_workspace_id,
             slack_user_id,
             root=(str(response["channel"]), str(response["ts"])),
@@ -131,24 +132,26 @@ def post_dm_setup_message(integration: WorkspaceIntegration, slack_user_id: str,
         channel=state.channel, thread_ts=state.root_ts, text=message.text, blocks=message.blocks
     )
     if message.kind == "step" and message.step:
-        update_dm_setup_card(slack_workspace_id, slack_user_id, step_ts=(message.step, str(response["ts"])))
+        update_onboarding(slack_workspace_id, slack_user_id, step_ts=(message.step, str(response["ts"])))
         capture_slack_event(integration, STEP_SHOWN_EVENT, slack_user_id=slack_user_id, step=message.step)
     elif message.kind == "ready":
-        update_dm_setup_card(slack_workspace_id, slack_user_id, completed=True)
+        update_onboarding(slack_workspace_id, slack_user_id, completed_reason="finished")
         capture_slack_event(
             integration, SETUP_COMPLETED_EVENT, slack_user_id=slack_user_id, skipped_steps=list(state.skipped)
         )
 
 
-def edit_dm_setup_message(integration: WorkspaceIntegration, slack_user_id: str, message: SlackDmSetupMessage) -> None:
+def edit_onboarding_message(
+    integration: WorkspaceIntegration, slack_user_id: str, message: SlackAppOnboardingMessage
+) -> None:
     slack_workspace_id = integration.integration_id
-    state = resolve_dm_setup_card(slack_workspace_id, slack_user_id)
+    state = resolve_onboarding(slack_workspace_id, slack_user_id)
     if state is None or state.channel is None or message.ts is None:
         return
     SlackIntegration(integration).client.chat_update(
         channel=state.channel, ts=message.ts, text=message.text, blocks=message.blocks
     )
     if message.kind == "root" and message.progress:
-        update_dm_setup_card(slack_workspace_id, slack_user_id, progress=message.progress)
+        update_onboarding(slack_workspace_id, slack_user_id, progress=message.progress)
     if message.summarizes_step and message.step:
-        update_dm_setup_card(slack_workspace_id, slack_user_id, summarized_step=message.step)
+        update_onboarding(slack_workspace_id, slack_user_id, summarized_step=message.step)

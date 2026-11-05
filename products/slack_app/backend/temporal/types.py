@@ -21,14 +21,16 @@ class PostHogSlackInboxOnboardingInputs:
 
 
 @dataclass(frozen=True)
-class SlackDmSetupInputs:
+class SlackAppOnboardingInputs:
     integration_id: int
     slack_team_id: str
     slack_user_id: str
+    # Spreads a burst of new members over time. Only a fresh run waits; continue_as_new resets it to 0.
+    start_delay_seconds: int = 0
 
 
 @frozen
-class SlackDmSetupMessage:
+class SlackAppOnboardingMessage:
     """One message of a person's DM setup thread. For an edit, ``ts`` names the message; ``progress`` and
     ``summarizes_step`` say what to store after it."""
 
@@ -53,9 +55,9 @@ class SlackDmSetupMessage:
 
 
 @frozen
-class SlackDmSetupPlan:
-    edits: list[SlackDmSetupMessage]
-    post: SlackDmSetupMessage | None
+class SlackAppOnboardingPlan:
+    edits: list[SlackAppOnboardingMessage]
+    post: SlackAppOnboardingMessage | None
     finished: bool
     # Shown as the workflow's current details in the Temporal UI.
     status: str = ""
@@ -66,13 +68,13 @@ class SlackDmSetupPlan:
         return self.post is not None and self.post.kind == "root"
 
 
-DM_SETUP_DONE_PLAN = SlackDmSetupPlan(edits=[], post=None, finished=True, status="Done")
+ONBOARDING_DONE_PLAN = SlackAppOnboardingPlan(edits=[], post=None, finished=True, status="Done")
 
 
 @frozen
-class SlackDmSetupMessageInputs:
-    setup: SlackDmSetupInputs
-    message: SlackDmSetupMessage
+class SlackAppOnboardingMessageInputs:
+    setup: SlackAppOnboardingInputs
+    message: SlackAppOnboardingMessage
 
 
 def insight_render_key(insight_id: int) -> str:

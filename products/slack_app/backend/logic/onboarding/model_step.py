@@ -1,11 +1,11 @@
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
-from products.slack_app.backend.logic.dm_setup.actions import (
+from products.slack_app.backend.logic.onboarding.actions import (
     AUTO_MODEL_ACTION_ID,
     MODEL_ACTION_ID,
     action_value,
     skip_button,
 )
-from products.slack_app.backend.logic.dm_setup.step import DmSetupContext, DmSetupStep, DmSetupStepKey
+from products.slack_app.backend.logic.onboarding.step import OnboardingContext, OnboardingStepKey, OnboardingStepSpec
 from products.slack_app.backend.services.model_catalogue import offered_model_choices
 from products.slack_app.backend.services.slack_app_home import has_personal_model
 from products.slack_app.backend.services.slack_messages import section_block
@@ -15,18 +15,18 @@ from products.slack_app.backend.services.slack_settings import resolve_auto_mode
 SLACK_SELECT_MAX_OPTIONS = 100
 
 
-def _applies(ctx: DmSetupContext) -> bool:
+def _applies(ctx: OnboardingContext) -> bool:
     # The model is saved for the linked PostHog user, so the step needs an install that can link.
     return is_slack_app_oauth_enabled(ctx.integration)
 
 
-def _is_done(ctx: DmSetupContext) -> bool:
+def _is_done(ctx: OnboardingContext) -> bool:
     return resolve_auto_model_choice(ctx.integration.integration_id, ctx.slack_user_id) or has_personal_model(
         ctx.integration, ctx.slack_user_id
     )
 
 
-def _render(ctx: DmSetupContext) -> list[dict]:
+def _render(ctx: OnboardingContext) -> list[dict]:
     options = [
         {
             "text": {"type": "plain_text", "text": choice.label[:75]},
@@ -52,7 +52,7 @@ def _render(ctx: DmSetupContext) -> list[dict]:
                 "options": options,
             }
         )
-    elements.append(skip_button(ctx, DmSetupStepKey.MODEL))
+    elements.append(skip_button(ctx, OnboardingStepKey.MODEL))
     return [
         section_block(
             "*Choose your model*\n"
@@ -63,8 +63,8 @@ def _render(ctx: DmSetupContext) -> list[dict]:
     ]
 
 
-MODEL_STEP = DmSetupStep(
-    key=DmSetupStepKey.MODEL,
+MODEL_STEP = OnboardingStepSpec(
+    key=OnboardingStepKey.MODEL,
     title="Your model",
     done_text="Model chosen",
     skippable=True,

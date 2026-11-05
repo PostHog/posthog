@@ -64,16 +64,15 @@ class TestAppHomeOpenedRegionRouting(TestCase):
         assert mock_proxy.called
         assert not mock_publish.called
 
-    @parameterized.expand([("home", False), ("messages", True)])
+    @parameterized.expand([("home",), ("messages",)])
     @patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=False)
     @patch("products.slack_app.backend.api.get_instance_region", return_value="EU")
     @patch("products.slack_app.backend.api._proxy_event_to_region")
-    @patch("products.slack_app.backend.api.request_dm_setup_card_render")
+    @patch("products.slack_app.backend.api.request_onboarding")
     @patch("products.slack_app.backend.api._handle_app_home_opened")
     def test_publishes_locally_when_workspace_is_local(
         self,
         tab: str,
-        shows_setup_card: bool,
         mock_publish: MagicMock,
         mock_setup_card: MagicMock,
         mock_proxy: MagicMock,
@@ -85,4 +84,5 @@ class TestAppHomeOpenedRegionRouting(TestCase):
         assert self._route(tab=tab) == ROUTE_HANDLED_LOCALLY
         assert not mock_proxy.called
         assert mock_publish.call_args.kwargs["integration"] == integration
-        assert mock_setup_card.called is shows_setup_card
+        assert mock_setup_card.called
+        assert mock_setup_card.call_args.kwargs == {"may_start": True}

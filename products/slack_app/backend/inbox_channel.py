@@ -220,6 +220,14 @@ def is_inbox_channel(integration: WorkspaceIntegration, channel_id: str) -> bool
     return channel.get("name") == INBOX_CHANNEL_NAME
 
 
+def is_in_team_inbox_channel(integration: WorkspaceIntegration, slack_user_id: str) -> bool:
+    """Whether the person is in the channel the team reports to. False while the team has none."""
+    configured = _get_team_channel(integration.team_id)
+    if configured is None:
+        return False
+    return _is_channel_member(SlackIntegration(integration), channel_id_from_target(configured), slack_user_id)
+
+
 def _is_channel_member(slack: SlackIntegration, channel_id: str, slack_user_id: str) -> bool:
     """Whether ``slack_user_id`` is already in ``channel_id``. Bounded + fails closed (False)."""
     cursor: str | None = None

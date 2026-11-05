@@ -69,8 +69,8 @@ class TestOnboarding:
         client.conversations_info.return_value = {"channel": {"id": "C_NEW"}}
 
         with (
-            patch.object(onboarding, "is_slack_app_dm_setup_card_enabled", return_value=setup_thread_enabled),
-            patch.object(onboarding, "request_dm_setup_card_render") as start_setup_thread,
+            patch.object(onboarding, "is_slack_app_onboarding_enabled", return_value=setup_thread_enabled),
+            patch.object(onboarding, "request_onboarding") as start_setup_thread,
         ):
             onboarding.run_install_onboarding(self.integration)
 
@@ -80,7 +80,7 @@ class TestOnboarding:
         assert start_setup_thread.called is setup_thread_enabled
         if setup_thread_enabled:
             assert start_setup_thread.call_args.args[1] == "U_INSTALL"
-            assert start_setup_thread.call_args.kwargs == {"opened_dm": True}
+            assert start_setup_thread.call_args.kwargs == {"may_start": True}
         assert get_default_slack_notification_channel(self.team.id) == "C_NEW|#posthog-inbox"
 
     @patch("posthog.models.integration.slack.WebClient")
@@ -312,12 +312,14 @@ class TestOnboarding:
             ("T12345", "chat:write", True, False),
         ],
     )
+    @patch("products.slack_app.backend.signals._start_installer_onboarding")
     @patch("products.slack_app.backend.signals._start_inbox_onboarding_workflow")
     @patch("products.slack_app.backend.analytics.capture_slack_event")
     def test_install_captures_installed_for_every_fresh_install(
         self,
         mock_capture,
         mock_start,
+        mock_start_installer_onboarding,
         django_capture_on_commit_callbacks,
         slack_team_id,
         scope,
@@ -344,6 +346,23 @@ class TestOnboarding:
             "workspace_already_linked": workspace_already_linked,
         }
         assert mock_start.called is onboards
+        # Without the inbox scopes there is no inbox workflow to start it, so the installer's onboarding starts directly.
+        assert mock_start_installer_onboarding.called is not onboards
+
+    @patch("products.slack_app.backend.signals._start_installer_onboarding")
+    @patch("products.slack_app.backend.signals._start_inbox_onboarding_workflow")
+    @patch("products.slack_app.backend.analytics.capture_slack_event")
+    def test_reinstall_starts_only_the_installers_onboarding(
+        self, mock_capture, mock_start, mock_start_installer_onboarding, django_capture_on_commit_callbacks
+    ):
+        self.integration.config = {"scope": "channels:manage,chat:write", "authed_user": {"id": "U_INSTALL"}}
+
+        with django_capture_on_commit_callbacks(execute=True):
+            self.integration.save()
+
+        mock_capture.assert_not_called()
+        mock_start.assert_not_called()
+        mock_start_installer_onboarding.assert_called_once()
 
     @patch("products.slack_app.backend.onboarding.run_install_onboarding")
     def test_onboarding_workflow_activity_runs_for_integration(self, mock_run):

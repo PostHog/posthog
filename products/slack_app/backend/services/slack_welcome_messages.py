@@ -147,18 +147,10 @@ def build_channel_welcome(integration: WorkspaceIntegration) -> tuple[str, list[
     return "Hey, I'm PostHog. Tag me with @PostHog to get started.", blocks
 
 
-def build_team_join_welcome(integration: WorkspaceIntegration) -> tuple[str, list[dict[str, Any]]]:
-    """DM'd to someone who just joined a workspace that already has the app.
-
-    They inherited a tool nobody introduced them to, so this says what it is before it
-    says what it can do. The examples drop the `@PostHog` prefix because a DM needs none.
-    """
-    blocks: list[dict[str, Any]] = [
-        section_block(
-            ":wave: Hey, welcome! I'm PostHog, an AI agent your team already uses here. Message me, or tag "
-            "`@PostHog` in any channel, and I'll dig into your product data or open a pull request in a "
-            "connected repo."
-        ),
+def _member_welcome_tail(integration: WorkspaceIntegration) -> list[dict[str, Any]]:
+    """Examples, tips and links for someone new to the app. The examples drop the `@PostHog` prefix
+    because a DM needs none."""
+    return [
         _bullets(
             "Try asking me",
             (
@@ -180,6 +172,45 @@ def build_team_join_welcome(integration: WorkspaceIntegration) -> tuple[str, lis
             f"linked accounts live in {_home_tab(integration)}."
         ),
         _docs_button_block(),
+    ]
+
+
+ONBOARDING_INTRO_TEXT = (
+    ":wave: Hey, I'm PostHog, an AI agent your team uses here. I dig into your product data and open "
+    "pull requests in connected repos. A few short steps in this thread set me up for you."
+)
+
+
+def build_onboarding_ready(
+    integration: WorkspaceIntegration, slack_user_id: str, skipped_titles: list[str]
+) -> tuple[str, list[dict[str, Any]]]:
+    """The last reply of the onboarding thread: the welcome a new member used to get, now that they're set up."""
+    text = (
+        f"<@{slack_user_id}> *You're all set.* Message me here, or tag `@PostHog` in any channel, and I'll dig "
+        "into your product data or open a pull request in a connected repo."
+    )
+    if skipped_titles:
+        text += f"\nYou skipped: {', '.join(skipped_titles)}. You can set these up later in {_home_tab(integration)}."
+    blocks: list[dict[str, Any]] = [
+        section_block(text),
+        *_member_welcome_tail(integration),
+    ]
+    return "You're all set with PostHog", blocks
+
+
+def build_team_join_welcome(integration: WorkspaceIntegration) -> tuple[str, list[dict[str, Any]]]:
+    """DM'd to someone who just joined a workspace that already has the app.
+
+    They inherited a tool nobody introduced them to, so this says what it is before it
+    says what it can do. The examples drop the `@PostHog` prefix because a DM needs none.
+    """
+    blocks: list[dict[str, Any]] = [
+        section_block(
+            ":wave: Hey, welcome! I'm PostHog, an AI agent your team already uses here. Message me, or tag "
+            "`@PostHog` in any channel, and I'll dig into your product data or open a pull request in a "
+            "connected repo."
+        ),
+        *_member_welcome_tail(integration),
     ]
     return "Hey, welcome! I'm PostHog. Message me to get started.", blocks
 
@@ -210,7 +241,7 @@ def _done(text: str) -> dict:
     return context_block(f":white_check_mark: {text}")
 
 
-def _github_connect_url(team_id: int) -> str:
+def github_connect_url(team_id: int) -> str:
     """GitHub OAuth entry that returns to Slack — one flow connects the team install and the user's personal GitHub."""
     return _public_url(f"/integrations/connect/github/?project_id={team_id}&connect_from=slack")
 
@@ -230,14 +261,14 @@ def _github_blocks(integration: WorkspaceIntegration, *, done: bool) -> list[dic
     button = {
         "type": "button",
         "text": {"type": "plain_text", "text": "Connect GitHub"},
-        "url": _github_connect_url(integration.team_id),
+        "url": github_connect_url(integration.team_id),
         "style": "primary",
     }
     blocks.append({"type": "actions", "elements": [button]})
     return blocks
 
 
-def _sources_blocks(integration: WorkspaceIntegration) -> list[dict]:
+def sources_blocks(integration: WorkspaceIntegration, *, title: str, action_id: str, block_id: str) -> list[dict]:
     """Inline checkboxes (current state pre-checked) — ticking sets a source up immediately, unticking turns it off."""
     from products.signals.backend.facade.api import (
         onboarding_sources,  # noqa: PLC0415 — keeps the signals stack off the slack import path
@@ -252,20 +283,26 @@ def _sources_blocks(integration: WorkspaceIntegration) -> list[dict]:
         }
         for source in tickable
     ]
-    checkboxes: dict = {"type": "checkboxes", "action_id": INBOX_SOURCES_CHECKBOXES_ACTION, "options": options}
+    checkboxes: dict = {"type": "checkboxes", "action_id": action_id, "options": options}
     initial = [option for option, source in zip(options, tickable) if source.enabled]
     if initial:
         checkboxes["initial_options"] = initial
-    blocks = [
-        section_block("*2. Choose what I watch* :eyes:\nTick the signals I should monitor and investigate."),
-        {"type": "actions", "block_id": f"{INBOX_SOURCES_BLOCK_PREFIX}:{integration.id}", "elements": [checkboxes]},
-    ]
+    blocks = [section_block(title), {"type": "actions", "block_id": block_id, "elements": [checkboxes]}]
     # Sources set up elsewhere have no checkbox, so say what's already watching. Without this the
     # step reads as done with nothing ticked.
     elsewhere = [source.label for source in sources if not source.togglable and source.enabled]
     if elsewhere:
         blocks.append(context_block(f"Already watching: {', '.join(elsewhere)}"))
     return blocks
+
+
+def _sources_blocks(integration: WorkspaceIntegration) -> list[dict]:
+    return sources_blocks(
+        integration,
+        title="*2. Choose what I watch* :eyes:\nTick the signals I should monitor and investigate.",
+        action_id=INBOX_SOURCES_CHECKBOXES_ACTION,
+        block_id=f"{INBOX_SOURCES_BLOCK_PREFIX}:{integration.id}",
+    )
 
 
 def _channel_blocks(integration: WorkspaceIntegration, slack: SlackIntegration, *, done: bool) -> list[dict]:
@@ -297,17 +334,17 @@ def _channel_blocks(integration: WorkspaceIntegration, slack: SlackIntegration, 
     return blocks
 
 
+AI_DATA_PROCESSING_TEXT = (
+    "To investigate your product I use external AI providers (Anthropic, OpenAI, Google, Microsoft). This can "
+    "involve transferring identifying user data, and is never used to train third-party models. FYI it's not "
+    "HIPAA-compliant yet, and any BAA you have with PostHog won't cover these features."
+)
+
+
 def _ai_approval_blocks(integration: WorkspaceIntegration, *, is_admin: bool) -> list[dict]:
     """The approval prompt — only rendered when not yet approved. Admins tick a checkbox to approve;
     non-admins get an 'ask an admin' note, since only ADMIN+ can toggle org settings."""
-    blocks: list[dict] = [
-        section_block(
-            "*4. Approve AI data processing*\nTo investigate your product I use external AI "
-            "providers (Anthropic, OpenAI, Google, Microsoft). This can involve transferring identifying user data, "
-            "and is never used to train third-party models. FYI it's not HIPAA-compliant yet, and any BAA you have "
-            "with PostHog won't cover these features."
-        )
-    ]
+    blocks: list[dict] = [section_block(f"*4. Approve AI data processing*\n{AI_DATA_PROCESSING_TEXT}")]
     if not is_admin:
         blocks.append(context_block(":warning: Ask an org admin to approve. Until then I can't get started."))
         return blocks

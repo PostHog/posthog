@@ -1,19 +1,18 @@
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
-from products.slack_app.backend.logic.dm_setup.step import DmSetupContext, DmSetupStep, DmSetupStepKey
-from products.slack_app.backend.services.slack_app_home import linked_posthog_user
+from products.slack_app.backend.logic.onboarding.step import OnboardingContext, OnboardingStepKey, OnboardingStepSpec
 from products.slack_app.backend.services.slack_messages import section_block
 from products.slack_app.backend.services.slack_user_oauth import build_invite_url
 
 
-def _applies(ctx: DmSetupContext) -> bool:
+def _applies(ctx: OnboardingContext) -> bool:
     return is_slack_app_oauth_enabled(ctx.integration)
 
 
-def _is_done(ctx: DmSetupContext) -> bool:
-    return linked_posthog_user(ctx.integration, ctx.slack_user_id) is not None
+def _is_done(ctx: OnboardingContext) -> bool:
+    return ctx.posthog_user is not None
 
 
-def _render(ctx: DmSetupContext) -> list[dict]:
+def _render(ctx: OnboardingContext) -> list[dict]:
     link_url = build_invite_url(
         slack_user_id=ctx.slack_user_id,
         slack_team_id=ctx.integration.integration_id,
@@ -40,8 +39,8 @@ def _render(ctx: DmSetupContext) -> list[dict]:
     ]
 
 
-LINK_ACCOUNT_STEP = DmSetupStep(
-    key=DmSetupStepKey.LINK_ACCOUNT,
+LINK_ACCOUNT_STEP = OnboardingStepSpec(
+    key=OnboardingStepKey.LINK_ACCOUNT,
     title="Link your PostHog account",
     done_text="PostHog account linked",
     skippable=False,
