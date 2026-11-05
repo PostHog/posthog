@@ -8,6 +8,7 @@ from posthog.utils import get_instance_region
 
 from products.wizard.backend.facade.validation import is_executable_wizard_version
 from products.wizard.backend.logic.artifacts.config import MAX_GIT_DIFF_BYTES
+from products.wizard.backend.logic.results.config import MAX_RESULT_BYTES
 from products.wizard.backend.logic.workers.config import (
     LOCAL_WIZARD_ARCHIVE_PATH,
     LOCAL_WIZARD_INSTALL_PATH,
@@ -129,6 +130,14 @@ def build_sanitize_repository_remote_command(repository_path: str, repository: s
 
 def wizard_handoff_output_path(run_id: UUID) -> str:
     return f"/tmp/posthog-wizard-handoff-{run_id.hex}.md"
+
+
+def wizard_result_output_path(run_id: UUID) -> str:
+    return f"/tmp/posthog-wizard-result-{run_id.hex}.json"
+
+
+def build_read_result_command(run_id: UUID) -> str:
+    return f"head -c {MAX_RESULT_BYTES + 1} {shlex.quote(wizard_result_output_path(run_id))}"
 
 
 def build_read_handoff_command(run_id: UUID) -> str:

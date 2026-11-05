@@ -22,7 +22,7 @@ from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.facade.sandbox import SandboxNotFoundError, SandboxNotRunningError
 from products.wizard.backend.logic.artifacts.config import MAX_GIT_DIFF_BYTES
-from products.wizard.backend.logic.workers.commands import wizard_handoff_output_path
+from products.wizard.backend.logic.workers.commands import wizard_handoff_output_path, wizard_result_output_path
 from products.wizard.backend.logic.workers.config import (
     LOCAL_WIZARD_ARCHIVE_PATH,
     LOCAL_WIZARD_INSTALL_PATH,
@@ -104,6 +104,7 @@ def test_provision_worker_configures_wizard_environment(
     assert config.environment_variables["POSTHOG_TASK_RUN_ID"] == str(request.run_id)
     assert "POSTHOG_TASK_ID" not in config.environment_variables
     assert config.environment_variables["POSTHOG_HANDOFF_OUTPUT_PATH"] == wizard_handoff_output_path(request.run_id)
+    assert config.environment_variables["POSTHOG_RESULT_OUTPUT_PATH"] == wizard_result_output_path(request.run_id)
     assert config.ttl_seconds == 75 * 60
 
     spans = {span.name: span for span in span_exporter.get_finished_spans()}
@@ -479,6 +480,7 @@ def test_git_repository_handoff_captures_diff_and_publishes_pull_request(
     sandbox = get_sandbox_class.return_value.get_by_id.return_value
     sandbox.execute.side_effect = (
         _execution_result(stdout="diff --git a/a b/a\n"),
+        _execution_result(stdout='{"version": 1}'),
         _execution_result(stdout="# Setup report\n\nAll done.\n"),
     )
     branch = f"posthog/wizard-{request.run_id.hex[:12]}"
@@ -493,12 +495,15 @@ def test_git_repository_handoff_captures_diff_and_publishes_pull_request(
 
     result = create_git_repository_handoff(request)
 
-    assert result == WizardWorkerResult(diff=b"diff --git a/a b/a\n", pull_request=pull_request)
+    assert result == WizardWorkerResult(
+        diff=b"diff --git a/a b/a\n", pull_request=pull_request, program_result=b'{"version": 1}'
+    )
     assert "git diff --cached" in sandbox.execute.call_args_list[0].args[0]
     assert WIZARD_DIFF_OUTPUT_PATH in sandbox.execute.call_args_list[0].args[0]
     assert f"head -c {MAX_GIT_DIFF_BYTES + 1}" in sandbox.execute.call_args_list[0].args[0]
-    assert wizard_handoff_output_path(request.run_id) in sandbox.execute.call_args_list[1].args[0]
-    assert "head -c 60000" in sandbox.execute.call_args_list[1].args[0]
+    assert wizard_result_output_path(request.run_id) in sandbox.execute.call_args_list[1].args[0]
+    assert wizard_handoff_output_path(request.run_id) in sandbox.execute.call_args_list[2].args[0]
+    assert "head -c 60000" in sandbox.execute.call_args_list[2].args[0]
     stage_publishable_changes.assert_called_once_with(sandbox, request.workspace_path)
     create_signed_commit.assert_called_once_with(
         sandbox,
@@ -550,7 +555,11 @@ def test_git_repository_handoff_uses_generic_body_when_handoff_is_unavailable(
         repository="PostHog/PostHog",
     )
     sandbox = get_sandbox_class.return_value.get_by_id.return_value
-    sandbox.execute.side_effect = (_execution_result(stdout="diff --git a/a b/a\n"), handoff_result)
+    sandbox.execute.side_effect = (
+        _execution_result(stdout="diff --git a/a b/a\n"),
+        _execution_result(exit_code=1),
+        handoff_result,
+    )
 
     create_git_repository_handoff(request)
 
@@ -606,12 +615,15 @@ def test_git_repository_handoff_skips_publish_without_changes(
         github_integration_id=17,
         repository="PostHog/PostHog",
     )
-    get_sandbox_class.return_value.get_by_id.return_value.execute.return_value = _execution_result()
+    get_sandbox_class.return_value.get_by_id.return_value.execute.side_effect = (
+        _execution_result(),
+        _execution_result(stdout='{"version": 1}'),
+    )
 
     result = create_git_repository_handoff(request)
 
-    assert result == WizardWorkerResult(diff=b"", pull_request=None)
-    get_sandbox_class.return_value.get_by_id.return_value.execute.assert_called_once()
+    # A run that changed no code still hands back the program's result file.
+    assert result == WizardWorkerResult(diff=b"", pull_request=None, program_result=b'{"version": 1}')
     create_pull_request.assert_not_called()
 
 

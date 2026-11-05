@@ -27,15 +27,18 @@ from products.wizard.backend.logic.artifacts.config import (
     PULL_REQUEST_COMMIT_MESSAGE,
     PULL_REQUEST_TITLE,
 )
+from products.wizard.backend.logic.results.config import MAX_RESULT_BYTES
 from products.wizard.backend.logic.workers.commands import (
     bound_command_output,
     build_git_diff_command,
     build_local_wizard_preparation_command,
     build_read_handoff_command,
+    build_read_result_command,
     build_sanitize_repository_remote_command,
     build_wizard_command,
     pull_request_branch,
     wizard_handoff_output_path,
+    wizard_result_output_path,
 )
 from products.wizard.backend.logic.workers.config import (
     LOCAL_WIZARD_ARCHIVE_PATH,
@@ -110,6 +113,8 @@ class GitRepositoryHandoffRequest:
 class WizardWorkerResult:
     diff: bytes
     pull_request: RepositoryPullRequest | None
+    # The program's result file, when it wrote one. Too large reads as absent.
+    program_result: bytes | None = None
 
 
 class WizardWorkerExecutionError(Exception):
@@ -293,9 +298,10 @@ def create_git_repository_handoff(request: GitRepositoryHandoffRequest) -> Wizar
         )
 
     diff = diff_result.stdout.encode("utf-8")
+    program_result = _read_program_result(sandbox, request.run_id)
 
     if not diff:
-        return WizardWorkerResult(diff=diff, pull_request=None)
+        return WizardWorkerResult(diff=diff, pull_request=None, program_result=program_result)
 
     branch = pull_request_branch(request.run_id)
     handoff_body = _read_handoff_body(sandbox, request.run_id)
@@ -331,7 +337,7 @@ def create_git_repository_handoff(request: GitRepositoryHandoffRequest) -> Wizar
     except RepositoryPublishingError as error:
         raise WizardWorkerExecutionError("publishing", 1, str(error), retryable=error.retryable) from error
 
-    return WizardWorkerResult(diff=diff, pull_request=pull_request)
+    return WizardWorkerResult(diff=diff, pull_request=pull_request, program_result=program_result)
 
 
 @wizard_span("wizard.sandbox.destroy")
@@ -398,6 +404,18 @@ def _failure_detail(stdout: str, stderr: str, sensitive_values: tuple[str, ...])
     return output[-WIZARD_ERROR_DETAIL_LENGTH:] or None
 
 
+@wizard_span("wizard.repository.read_program_result")
+def _read_program_result(sandbox: SandboxBase, run_id: UUID) -> bytes | None:
+    result = sandbox.execute(build_read_result_command(run_id), timeout_seconds=10)
+    if result.exit_code != 0:
+        return None
+
+    content = result.stdout.encode("utf-8")
+    if not content.strip() or len(content) > MAX_RESULT_BYTES:
+        return None
+    return content
+
+
 @wizard_span("wizard.repository.read_handoff")
 def _read_handoff_body(sandbox: SandboxBase, run_id: UUID) -> str | None:
     handoff_result = sandbox.execute(build_read_handoff_command(run_id), timeout_seconds=10)
@@ -416,6 +434,7 @@ def _build_sandbox_config(request: WizardWorkerProvisionRequest, wizard_token: s
         "POSTHOG_WIZARD_RUN_ID": str(request.run_id),
         "POSTHOG_TASK_RUN_ID": str(request.run_id),
         "POSTHOG_HANDOFF_OUTPUT_PATH": wizard_handoff_output_path(request.run_id),
+        "POSTHOG_RESULT_OUTPUT_PATH": wizard_result_output_path(request.run_id),
     }
     if settings.DEBUG and settings.SANDBOX_MCP_URL:
         environment_variables["MCP_URL"] = settings.SANDBOX_MCP_URL

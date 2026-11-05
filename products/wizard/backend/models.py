@@ -173,13 +173,14 @@ class WizardRun(UUIDModel, TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFi
         ]
 
 
+def wizard_run_artifact_type_choices() -> list[tuple[str, str]]:
+    return [(artifact_type.value, artifact_type.value) for artifact_type in WizardRunArtifactType]
+
+
 class WizardRunArtifact(UUIDModel, TeamScopedRootMixin):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     run = models.ForeignKey(WizardRun, on_delete=models.CASCADE, related_name="artifacts")
-    type = models.CharField(
-        max_length=30,
-        choices=[(artifact_type.value, artifact_type.value) for artifact_type in WizardRunArtifactType],
-    )
+    type = models.CharField(max_length=30, choices=wizard_run_artifact_type_choices)
     storage_path = models.CharField(max_length=1024, null=True, blank=True)
     external_url = models.URLField(max_length=1024, null=True, blank=True)
     metadata = models.JSONField(null=True, blank=True)

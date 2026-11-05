@@ -19,6 +19,9 @@ from .enums import (
     WizardRunStatus,
     WizardSessionRunPhase,
     WizardSessionTaskStatus,
+    WizardSpendCurrency,
+    WizardSpendEffort,
+    WizardSpendFixLocation,
     WizardTaskStatus,
 )
 
@@ -283,7 +286,80 @@ class WizardRunPullRequestArtifactDTO:
     created_at: datetime
 
 
-type WizardRunArtifactDTO = WizardRunGitDiffArtifactDTO | WizardRunPullRequestArtifactDTO
+@frozen
+class WizardRunNotebookArtifactDTO:
+    """
+    A notebook the setup agent created in the project, with the dashboards and insights it made for it.
+    """
+
+    id: UUID
+    team_id: int
+    run_id: UUID
+    artifact_type: Literal[WizardRunArtifactType.NOTEBOOK]
+    short_id: str
+    dashboard_ids: tuple[int, ...]
+    insight_ids: tuple[int, ...]
+    created_at: datetime
+
+
+@frozen
+class WizardSpendRange:
+    low: float
+    high: float
+
+    def __post_init__(self) -> None:
+        if self.low < 0 or self.low > self.high:
+            raise ValueError("A spend range needs 0 <= low <= high")
+
+
+@frozen
+class WizardSpendProjectionItem:
+    id: str
+    title: str
+    billing_type: str
+    unit: str
+    volume_before: float
+    volume_after: WizardSpendRange
+    saving_monthly: WizardSpendRange
+    evidence: str
+    tradeoff: str
+    effort: WizardSpendEffort
+    fixed_in: WizardSpendFixLocation
+
+
+@frozen
+class WizardSpendProjection:
+    currency: WizardSpendCurrency
+    baseline_monthly: float
+    saving_monthly: WizardSpendRange
+    items: tuple[WizardSpendProjectionItem, ...]
+    priced_at: datetime
+
+
+@frozen
+class WizardRunSpendProjectionArtifactDTO:
+    """
+    Monthly savings for the changes a spend audit suggests, priced from the organization's billing tiers.
+    """
+
+    id: UUID
+    team_id: int
+    run_id: UUID
+    artifact_type: Literal[WizardRunArtifactType.SPEND_PROJECTION]
+    currency: WizardSpendCurrency
+    baseline_monthly: float
+    saving_monthly: WizardSpendRange
+    items: tuple[WizardSpendProjectionItem, ...]
+    priced_at: datetime
+    created_at: datetime
+
+
+type WizardRunArtifactDTO = (
+    WizardRunGitDiffArtifactDTO
+    | WizardRunPullRequestArtifactDTO
+    | WizardRunNotebookArtifactDTO
+    | WizardRunSpendProjectionArtifactDTO
+)
 
 
 @frozen

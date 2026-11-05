@@ -99,6 +99,7 @@ export interface wizardSpendAuditLogicValues {
     githubIntegration: IntegrationType | null
     idempotencyKey: string
     isModalOpen: boolean
+    showLatestFinishedRun: boolean
     program: WizardProgramApi | null
     registry: WizardProgramApi[] | null
     registryError: boolean
@@ -267,7 +268,11 @@ export interface wizardSpendAuditLogicMeta {
         ) => boolean
         setupError: (integrations: IntegrationType[] | null, registryError: boolean) => string | null
         singleRepository: (repositories: WizardSpendAuditRepositories | null) => string | null
-        run: (userRuns: WizardRunApi[], trackedRunId: string | null) => WizardRunApi | null
+        run: (
+            userRuns: WizardRunApi[],
+            trackedRunId: string | null,
+            showLatestFinishedRun: boolean
+        ) => WizardRunApi | null
         runActive: (run: WizardRunApi | null) => boolean
         runTasks: (
             run: WizardRunApi | null,
@@ -373,6 +378,15 @@ export const wizardSpendAuditLogic: LogicWrapper<wizardSpendAuditLogicType> = ke
     })),
     reducers({
         isModalOpen: [false, { openModal: () => true, closeModal: () => false }],
+        // A finished audit stays reachable from the button after the page reloads. Starting another
+        // one, from Run again or on the way back from the GitHub install, hides it.
+        showLatestFinishedRun: [
+            true,
+            {
+                openModal: (_, { source }) => source !== 'github_return',
+                runAgain: () => false,
+            },
+        ],
         // The click on "Optimize my spend" is the intent to run. It survives the GitHub round trip
         // through the URL param, and it is spent on the first start attempt or when the user has
         // to choose between repositories.
@@ -383,6 +397,8 @@ export const wizardSpendAuditLogic: LogicWrapper<wizardSpendAuditLogicType> = ke
                 closeModal: () => false,
                 startAudit: () => false,
                 requireRepositoryChoice: () => false,
+                // Run again from a finished audit waits for a click, so a later repository reload never starts one.
+                runAgain: () => false,
             },
         ],
         repository: ['', { setRepository: (_, { repository }) => repository }],
@@ -459,17 +475,25 @@ export const wizardSpendAuditLogic: LogicWrapper<wizardSpendAuditLogicType> = ke
                     : null,
         ],
         run: [
-            (s) => [s.userRuns, s.trackedRunId],
-            (userRuns: WizardRunApi[], trackedRunId: string | null): WizardRunApi | null => {
+            (s) => [s.userRuns, s.trackedRunId, s.showLatestFinishedRun],
+            (
+                userRuns: WizardRunApi[],
+                trackedRunId: string | null,
+                showLatestFinishedRun: boolean
+            ): WizardRunApi | null => {
                 if (trackedRunId) {
                     return userRuns.find((run) => run.id === trackedRunId) ?? null
                 }
+                const audits = userRuns.filter((run) => run.program.id === WIZARD_SPEND_AUDIT_PROGRAM_ID)
                 // Without a tracked run, pick up an audit this user already has in flight so a
                 // second click never starts a duplicate.
-                return (
-                    userRuns.find(
-                        (run) => run.program.id === WIZARD_SPEND_AUDIT_PROGRAM_ID && wizardRunIsActive(run)
-                    ) ?? null
+                const active = audits.find(wizardRunIsActive)
+                if (active || !showLatestFinishedRun) {
+                    return active ?? null
+                }
+                return audits.reduce<WizardRunApi | null>(
+                    (latest, candidate) => (!latest || candidate.created_at > latest.created_at ? candidate : latest),
+                    null
                 )
             },
         ],
