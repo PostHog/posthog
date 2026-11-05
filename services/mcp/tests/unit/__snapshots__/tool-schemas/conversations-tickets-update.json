@@ -101,6 +101,108 @@
                 "type": "string"
             },
             "type": "array"
+        },
+        "ticket_brief": {
+            "description": "Structured summary of the ticket for the support engineer. Replaces the whole brief.",
+            "properties": {
+                "affected_items": {
+                    "description": "The PostHog items the ticket is about, with a link to each one.",
+                    "items": {
+                        "properties": {
+                            "kind": {
+                                "description": "What the customer is asking about: dashboard, experiment, feature_flag, insight, project, replay, survey, or other.\n\n* `dashboard` - Dashboard\n* `experiment` - Experiment\n* `feature_flag` - Feature flag\n* `insight` - Insight\n* `project` - Project\n* `replay` - Replay\n* `survey` - Survey\n* `other` - Other",
+                                "enum": [
+                                    "dashboard",
+                                    "experiment",
+                                    "feature_flag",
+                                    "insight",
+                                    "project",
+                                    "replay",
+                                    "survey",
+                                    "other"
+                                ],
+                                "type": "string"
+                            },
+                            "label": {
+                                "description": "Name of the item as the customer would recognize it.",
+                                "maxLength": 120,
+                                "type": "string"
+                            },
+                            "url": {
+                                "description": "Link to the item in PostHog, so the engineer can open it without a search.",
+                                "format": "uri",
+                                "maxLength": 2000,
+                                "type": "string"
+                            }
+                        },
+                        "required": ["kind", "url", "label"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "area": {
+                    "description": "Product area the ticket is about, such as 'Feature flags' or 'Session replay'.",
+                    "maxLength": 80,
+                    "type": "string"
+                },
+                "ask": {
+                    "description": "What the customer needs from PostHog, in one or two sentences. The line to read first.",
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                "facts": {
+                    "description": "Details the engineer needs to act on, such as region, plan, versions, and ids. One per line.",
+                    "items": {
+                        "maxLength": 160,
+                        "type": "string"
+                    },
+                    "maxItems": 5,
+                    "type": "array"
+                },
+                "questions": {
+                    "description": "Each question the customer asks, as one short line. Empty when the customer asks nothing explicit.",
+                    "items": {
+                        "maxLength": 200,
+                        "type": "string"
+                    },
+                    "maxItems": 6,
+                    "type": "array"
+                },
+                "replay_url": {
+                    "anyOf": [
+                        {
+                            "format": "uri",
+                            "maxLength": 2000,
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Replay of the session the ticket came from. Null when the ticket has no session."
+                },
+                "screenshot_urls": {
+                    "description": "Images the customer attached, in the order they sent them.",
+                    "items": {
+                        "format": "uri",
+                        "maxLength": 2000,
+                        "type": "string"
+                    },
+                    "maxItems": 5,
+                    "type": "array"
+                },
+                "tried": {
+                    "description": "What the customer says they already did to fix or diagnose the problem.",
+                    "items": {
+                        "maxLength": 160,
+                        "type": "string"
+                    },
+                    "maxItems": 5,
+                    "type": "array"
+                }
+            },
+            "required": ["ask", "area", "questions"],
+            "type": "object"
         }
     },
     "required": ["id"],
