@@ -17,7 +17,7 @@ from django.core.asgi import get_asgi_application
 from django.core.cache import cache
 from django.db import connection
 from django.http import HttpRequest, HttpResponse
-from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from django.utils.module_loading import import_string
@@ -38,7 +38,11 @@ from social_django.models import UserSocialAuth
 from two_factor.utils import totp_digits
 from two_factor.views.core import REMEMBER_COOKIE_PREFIX
 
-from posthog.api.authentication import password_reset_token_generator, social_login_notification
+from posthog.api.authentication import (
+    password_reset_token_generator,
+    social_grant_staff_to_google_workspace_members,
+    social_login_notification,
+)
 from posthog.api.email_verification import is_email_verification_disabled
 from posthog.api.oauth.cimd import CIMDFetchError
 from posthog.auth import (
@@ -3394,6 +3398,29 @@ class TestOAuthLoginNotification(APIBaseTest):
 
             social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
             assert len(mail.outbox) == 0
+
+
+class TestSocialGrantStaffToGoogleWorkspaceMembers(TestCase):
+    @parameterized.expand(
+        [
+            ("prod_us", "US", "google-oauth2", "jane@posthog.com", "posthog.com", False, False),
+            ("workspace_member", "DEV", "google-oauth2", "jane@posthog.com", "posthog.com", False, True),
+            ("no_workspace", "DEV", "google-oauth2", "jane@posthog.com", None, False, False),
+            ("other_workspace", "DEV", "google-oauth2", "jane@posthog.com", "example.com", False, False),
+            ("non_posthog_email", "DEV", "google-oauth2", "jane@example.com", "posthog.com", False, False),
+            ("other_backend", "DEV", "github", "jane@posthog.com", "posthog.com", False, False),
+            ("existing_staff_kept", "DEV", "google-oauth2", "jane@posthog.com", None, True, True),
+        ]
+    )
+    def test_grant(self, _name, cloud_deployment, backend_name, email, hosted_domain, was_staff, expected_is_staff):
+        user = User.objects.create(email=email, distinct_id=str(uuid.uuid4()), is_staff=was_staff)
+        backend = type("Backend", (), {"name": backend_name})()
+
+        with self.settings(CLOUD_DEPLOYMENT=cloud_deployment, ADMIN_AUTH_GOOGLE_ALLOWED_DOMAINS=["posthog.com"]):
+            social_grant_staff_to_google_workspace_members(backend, {"hd": hosted_domain}, user)
+
+        user.refresh_from_db()
+        assert user.is_staff is expected_is_staff
 
 
 class TestKnownLoginDeviceCookieMiddleware(APIBaseTest):
