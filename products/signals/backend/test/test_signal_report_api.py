@@ -2745,7 +2745,7 @@ class TestSignalReportListAPI(APIBaseTest):
         assert [row["id"] for row in response.json()["results"]] == [str(dismissed.id)]
 
     @parameterized.expand([("live_filters", False), ("cached_columns", True)])
-    def test_needs_decision_includes_failures_without_an_actionability_judgment(self, _name: str, cached: bool) -> None:
+    def test_needs_decision_includes_failures_and_excludes_monitoring(self, _name: str, cached: bool) -> None:
         failed = self._create_report(title="Failed research", status=SignalReport.Status.FAILED)
         actionable = self._create_report(title="Ready for a decision")
         self._actionability_artefact(actionable, actionability="immediately_actionable")
@@ -2756,13 +2756,17 @@ class TestSignalReportListAPI(APIBaseTest):
         self._create_report(title="No judgment")
         self._create_report(title="Dismissed", status=SignalReport.Status.SUPPRESSED)
         self._create_report(title="Resolved", status=SignalReport.Status.RESOLVED)
+        self._create_report(title="Monitoring", status=SignalReport.Status.MONITORING)
         with_pr = self._create_report(title="Has an implementation PR")
         self._actionability_artefact(with_pr, actionability="immediately_actionable")
         self._create_assignment(with_pr, pr_url="https://github.com/org/repo/pull/42")
         failed_with_pr = self._create_report(title="Failed with a PR", status=SignalReport.Status.FAILED)
         self._create_assignment(failed_with_pr, pr_url="https://github.com/org/repo/pull/43")
 
-        with patch("products.signals.backend.views.organization_inbox_cached_filters_enabled", return_value=cached):
+        with (
+            patch("products.signals.backend.views.organization_inbox_cached_filters_enabled", return_value=cached),
+            patch("products.signals.backend.views.organization_report_monitoring_enabled", return_value=True),
+        ):
             response = self.client.get(self._list_url(view="needs_decision", scope="entire_project"))
             count_response = self.client.get(
                 self._list_url(view="needs_decision", scope="entire_project", count_only="true")
