@@ -17,22 +17,9 @@ import type { DestinationDefinition } from './types'
 // The two COPY credentials do different jobs: bucket_credentials is what PostHog writes the staged
 // files with, authorization is what Redshift reads them back with. Either can be an aws-s3
 // Integration id; authorization can also be the ARN of a role attached to the cluster.
-type AuthorizationMode = 'SameConnection' | 'DifferentConnection' | 'IAMRole' | 'Credentials'
+type AuthorizationMode = 'SameConnection' | 'DifferentConnection' | 'IAMRole'
 
-function buildBucketCredentials(formValues: Record<string, any>): number | Record<string, string> | undefined {
-    if (typeof formValues.redshift_s3_integration_id === 'number') {
-        return formValues.redshift_s3_integration_id
-    }
-    if (formValues.redshift_s3_bucket_aws_access_key_id && formValues.redshift_s3_bucket_aws_secret_access_key) {
-        return {
-            aws_access_key_id: formValues.redshift_s3_bucket_aws_access_key_id,
-            aws_secret_access_key: formValues.redshift_s3_bucket_aws_secret_access_key,
-        }
-    }
-    return undefined
-}
-
-function buildAuthorization(formValues: Record<string, any>): number | string | Record<string, string> | undefined {
+function buildAuthorization(formValues: Record<string, any>): number | string | undefined {
     switch (formValues.authorization_mode as AuthorizationMode) {
         case 'SameConnection':
             return typeof formValues.redshift_s3_integration_id === 'number'
@@ -44,13 +31,8 @@ function buildAuthorization(formValues: Record<string, any>): number | string | 
                 : undefined
         case 'IAMRole':
             return formValues.redshift_iam_role || undefined
-        case 'Credentials':
-            return formValues.redshift_aws_access_key_id && formValues.redshift_aws_secret_access_key
-                ? {
-                      aws_access_key_id: formValues.redshift_aws_access_key_id,
-                      aws_secret_access_key: formValues.redshift_aws_secret_access_key,
-                  }
-                : undefined
+        default:
+            return undefined
     }
 }
 
@@ -64,9 +46,8 @@ function buildCopyInputs(formValues: Record<string, any>): Record<string, any> {
         region_name: formValues.redshift_s3_bucket_region_name,
     }
 
-    const bucketCredentials = buildBucketCredentials(formValues)
-    if (bucketCredentials !== undefined) {
-        copyInputs.bucket_credentials = bucketCredentials
+    if (typeof formValues.redshift_s3_integration_id === 'number') {
+        copyInputs.bucket_credentials = formValues.redshift_s3_integration_id
     }
 
     const authorization = buildAuthorization(formValues)
@@ -88,22 +69,15 @@ const REDSHIFT_FORM_ONLY_FIELDS = [
     'redshift_s3_bucket_region_name',
     'redshift_s3_integration_id',
     'redshift_s3_credentials_inline',
-    'redshift_s3_bucket_aws_access_key_id',
-    'redshift_s3_bucket_aws_secret_access_key',
+    'redshift_authorization_inline',
     'redshift_authorization_integration_id',
     'redshift_iam_role',
-    'redshift_aws_access_key_id',
-    'redshift_aws_secret_access_key',
 ] as const
 
 // New exports must store their credentials in Integrations. Exports created before integrations
 // existed keep their inline credentials, detected by what deserialize found in the stored config.
 function usesConnection(isNew: boolean, formValues: Record<string, any>): boolean {
     return isNew || !!formValues.integration_id
-}
-
-function usesS3Connection(isNew: boolean, formValues: Record<string, any>): boolean {
-    return isNew || !formValues.redshift_s3_credentials_inline
 }
 
 // Only a plain Redshift connection stores its own endpoint. AWS ones mint temporary credentials for
@@ -141,7 +115,11 @@ export const redshiftDefinition: DestinationDefinition = {
             // the bucket root, so leaving it blank is a valid choice, not an error.
             fields.push('redshift_s3_bucket', 'redshift_s3_bucket_region_name')
 
-            if (usesS3Connection(isNew, formValues)) {
+            if (
+                isNew ||
+                !formValues.redshift_s3_credentials_inline ||
+                formValues.authorization_mode === 'SameConnection'
+            ) {
                 fields.push('redshift_s3_integration_id')
             }
 
@@ -205,12 +183,8 @@ export const redshiftDefinition: DestinationDefinition = {
         result.redshift_s3_key_prefix = copyInputs.s3_key_prefix
         result.redshift_s3_bucket_region_name = copyInputs.region_name
         result.redshift_s3_integration_id = undefined
-        result.redshift_s3_bucket_aws_access_key_id = undefined
-        result.redshift_s3_bucket_aws_secret_access_key = undefined
         result.redshift_authorization_integration_id = undefined
         result.redshift_iam_role = undefined
-        result.redshift_aws_access_key_id = undefined
-        result.redshift_aws_secret_access_key = undefined
 
         const bucketCredentials = copyInputs.bucket_credentials
         // Inline credentials come back as an empty object once the API strips them, so the shape of
@@ -218,22 +192,18 @@ export const redshiftDefinition: DestinationDefinition = {
         result.redshift_s3_credentials_inline = bucketCredentials !== undefined && typeof bucketCredentials !== 'number'
         if (typeof bucketCredentials === 'number') {
             result.redshift_s3_integration_id = bucketCredentials
-        } else if (bucketCredentials) {
-            result.redshift_s3_bucket_aws_access_key_id = bucketCredentials.aws_access_key_id
-            result.redshift_s3_bucket_aws_secret_access_key = bucketCredentials.aws_secret_access_key
         }
 
         const authorization = copyInputs.authorization
+        result.redshift_authorization_inline = !!authorization && typeof authorization === 'object'
         if (typeof authorization === 'number') {
             result.redshift_authorization_integration_id = authorization
             result.authorization_mode = authorization === bucketCredentials ? 'SameConnection' : 'DifferentConnection'
         } else if (typeof authorization === 'string') {
             result.authorization_mode = 'IAMRole'
             result.redshift_iam_role = authorization
-        } else if (authorization) {
-            result.authorization_mode = 'Credentials'
-            result.redshift_aws_access_key_id = authorization.aws_access_key_id
-            result.redshift_aws_secret_access_key = authorization.aws_secret_access_key
+        } else if (result.redshift_authorization_inline) {
+            result.authorization_mode = undefined
         }
 
         return result
@@ -242,21 +212,16 @@ export const redshiftDefinition: DestinationDefinition = {
     eventTableExtraFields: { ...PERSON_EVENT_FIELDS },
     Fields: function RedshiftFields({ isNew, formValues, selectedIntegration }) {
         const useConnection = usesConnection(isNew, formValues)
-        const useS3Connection = usesS3Connection(isNew, formValues)
         // Until a connection is picked we cannot tell which kind it is, so we keep asking.
         const showHost = !useConnection || !connectionCarriesHost(selectedIntegration)
 
-        // "Credentials" is never offered to a new export. It stays reachable while an export still
-        // stores inline keys, so an accidental switch away from it can be undone.
-        const allowInlineAuthorizationKeys = !useS3Connection || formValues.authorization_mode === 'Credentials'
         const authorizationOptions = [
-            ...(useS3Connection ? [{ value: 'SameConnection', label: 'Use the S3 connection above' }] : []),
+            { value: 'SameConnection', label: 'Use the S3 connection above' },
             {
                 value: 'DifferentConnection',
-                label: useS3Connection ? 'Use a different S3 connection' : 'Use an S3 connection',
+                label: 'Use a different S3 connection',
             },
             { value: 'IAMRole', label: 'Use an IAM role attached to the cluster' },
-            ...(allowInlineAuthorizationKeys ? [{ value: 'Credentials', label: 'Use AWS access keys' }] : []),
         ]
 
         return (
@@ -372,46 +337,21 @@ export const redshiftDefinition: DestinationDefinition = {
                             <LemonInput placeholder="e.g. /posthog-copy-files" />
                         </LemonField>
 
-                        {useS3Connection ? (
-                            <LemonField
-                                name="redshift_s3_integration_id"
-                                label="S3 connection"
-                                info="The credentials PostHog uses to stage export files in the bucket."
-                            >
-                                {({ value, onChange }) => (
-                                    <IntegrationChoice integration="aws-s3" value={value} onChange={onChange} />
-                                )}
-                            </LemonField>
-                        ) : (
-                            <>
-                                <LemonBanner type="warning">
-                                    PostHog is moving the S3 staging credentials to saved connections. This export will
-                                    be migrated automatically.
-                                </LemonBanner>
-
-                                <div className="flex gap-4">
-                                    <LemonField
-                                        name="redshift_s3_bucket_aws_access_key_id"
-                                        label="AWS Access Key ID"
-                                        className="flex-1"
-                                    >
-                                        <LemonInput placeholder="Leave unchanged" autoComplete="off" />
-                                    </LemonField>
-
-                                    <LemonField
-                                        name="redshift_s3_bucket_aws_secret_access_key"
-                                        label="AWS Secret Access Key"
-                                        className="flex-1"
-                                    >
-                                        <LemonInput
-                                            placeholder="Leave unchanged"
-                                            type="password"
-                                            autoComplete="new-password"
-                                        />
-                                    </LemonField>
-                                </div>
-                            </>
+                        {(formValues.redshift_s3_credentials_inline || formValues.redshift_authorization_inline) && (
+                            <LemonBanner type="info">
+                                This export stores AWS access keys. Choose an S3 connection to replace the stored keys.
+                            </LemonBanner>
                         )}
+
+                        <LemonField
+                            name="redshift_s3_integration_id"
+                            label="S3 connection"
+                            info="The credentials PostHog uses to stage export files in the bucket."
+                        >
+                            {({ value, onChange }) => (
+                                <IntegrationChoice integration="aws-s3" value={value} onChange={onChange} />
+                            )}
+                        </LemonField>
 
                         <LemonField
                             name="authorization_mode"
@@ -419,7 +359,7 @@ export const redshiftDefinition: DestinationDefinition = {
                             className="flex-1"
                             info="PostHog writes the staged files. Redshift then needs its own access to read them back."
                         >
-                            <LemonSelect options={authorizationOptions} />
+                            <LemonSelect options={authorizationOptions} placeholder="Keep stored access keys" />
                         </LemonField>
 
                         {formValues.authorization_mode === 'DifferentConnection' && (
@@ -431,33 +371,9 @@ export const redshiftDefinition: DestinationDefinition = {
                         )}
 
                         {formValues.authorization_mode === 'IAMRole' && (
-                            <LemonField name="redshift_iam_role" label="IAM Role ARN" className="flex-1">
+                            <LemonField name="redshift_iam_role" label="IAM role ARN" className="flex-1">
                                 <LemonInput placeholder="e.g. arn:aws:iam::<aws-account-id>:role/<role-name>" />
                             </LemonField>
-                        )}
-
-                        {formValues.authorization_mode === 'Credentials' && (
-                            <div className="flex gap-4">
-                                <LemonField
-                                    name="redshift_aws_access_key_id"
-                                    label="AWS Access Key ID"
-                                    className="flex-1"
-                                >
-                                    <LemonInput placeholder="Leave unchanged" autoComplete="off" />
-                                </LemonField>
-
-                                <LemonField
-                                    name="redshift_aws_secret_access_key"
-                                    label="AWS Secret Access Key"
-                                    className="flex-1"
-                                >
-                                    <LemonInput
-                                        placeholder="Leave unchanged"
-                                        type="password"
-                                        autoComplete="new-password"
-                                    />
-                                </LemonField>
-                            </div>
                         )}
                     </>
                 )}

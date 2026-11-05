@@ -112,11 +112,19 @@ The native build supports rotation; iOS builds use Xcode 27.1 for the full Duo d
   It retries the reveal as rows are measured, and stops if the reader starts scrolling.
   Both inbox lists prefetch reports as rows become visible, including rows beyond the initial prefetch window.
   The report's inbox pane only prefetches while it is visible and its screen is focused.
-- Navigation uses a side rail in sufficiently tall, wide landscape windows, or when a side safe area signals side chrome.
-  It requires at least 600pt of safe width; narrow cover displays keep the phone navigation and full reading width.
-  The rail follows the side with the larger inset. Short windows keep horizontal tab navigation and the report's Back control,
-  without adding a second navigation bar below its actions.
-  Custom controls stay inside safe content; they do not occupy native reserved regions or infer a hinge angle.
+- iOS follows the system's vertical-bar signal. When the rail is active, native tabs and stack toolbar buttons occupy it.
+  Subscribe to Expo's initial edge event; its synchronous edge getter can deadlock React's event beat during startup.
+  They use raster copies of the existing app glyphs, icon-only tab labels, and a distinct Chat action.
+  Without a vertical rail, the native tab bar is hidden and the existing floating pill and Chat button remain.
+  Native header options reset when the vertical system rail disappears.
+  Navigation pin toasts and Undo live above the native tab host so tab visibility changes preserve them.
+  The iOS navigator stays mounted across these transitions. Android retains its existing custom navigation.
+  Page titles, the logomark, and header backgrounds keep the app's original styling in every pose.
+  Regenerate native glyph images from their SVG components with `node scripts/make-navigation-icons.mjs` (`rsvg-convert` required).
+- Active division regions determine the inbox and report boundary, including a horizontal fold. If the panes are too small for a pair, the report stays inside the detail pane. Each pane must have enough
+  reading space; a narrow window keeps one report instance. A flat display uses the normal width-based split.
+  Measure regions above navigator transitions and translate them into the scene's safe content coordinates; a provider inside an animating screen can retain a translated fold frame.
+- Paired reports keep their heading in the detail pane, leaving the inbox heading clear.
 - Reports keep their contextual Chat action; their navigation bar does not add a second compose button.
   The report action bar stays in the page layout when the keyboard opens or the window rotates.
   With a navigation rail beside native side chrome, its bottom gutter is 16pt; phone layouts retain their bottom safe-area spacing.
@@ -128,14 +136,21 @@ The native build supports rotation; iOS builds use Xcode 27.1 for the full Duo d
   The first visible pin anchors the list when its columns change; chart tooltips can close as their canvases resize.
   The chosen pin stays anchored through deferred row measurements until the user scrolls.
 - Sheets have a bounded width on expanded windows. Their height follows their current scene, including rotation and Split View.
-  Their floating presentation uses the full safe window width, even when opened from a narrow report pane.
+  Sheet contents receive that pane’s dimensions and shrink their scroll areas to keep controls reachable.
+  Their floating presentation uses a safe pane, even when opened from a narrow report list. Active folds and occlusions keep sheets and picker cards on one side without resetting their form state.
   Floating sheets subtract their bottom margin from the available height so their top stays below the safe area.
   Resolve and Dismiss resize above the keyboard; their headings scroll with the form in short windows while Confirm stays visible.
   Assignee and Project cards cap their width at 600pt; navigation menus cap at 400pt.
   Android Back dismisses the top sheet or card on the focused screen before navigating away from that page.
+  Native rail actions switch to Close while an overlay is open, and native tabs are disabled.
+  Row menus convert window measurements into overlay coordinates
+  and close when their measured frame or reserved regions change, so a stale anchor cannot survive rotation.
 - Full-screen charts use the space remaining below the title and above the safe bottom edge, including short landscape phones.
 
 ## Component inventory
+
+`features/chat/ChatErrorNotice.tsx` provides a bordered, wrapping error message with a screen-reader alert and 44pt Dismiss button.
+Optional recovery actions sit below the message and wrap on narrow screens.
 
 | Component                             | File                                                       | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | ------------------------------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
