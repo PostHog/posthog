@@ -53,9 +53,9 @@ export const messagingSendEmailCreateBodyBccTwoMax = 10
 
 export const messagingSendEmailCreateBodyAttachmentsItemFilenameMax = 255
 
-export const messagingSendEmailCreateBodyAttachmentsItemContentTypeMax = 255
+export const messagingSendEmailCreateBodyAttachmentsItemContentTypeMax = 78
 
-export const messagingSendEmailCreateBodyAttachmentsItemContentIdMax = 255
+export const messagingSendEmailCreateBodyAttachmentsItemContentIdMax = 78
 
 export const messagingSendEmailCreateBodyAttachmentsMax = 10
 

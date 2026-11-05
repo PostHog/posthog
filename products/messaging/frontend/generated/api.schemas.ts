@@ -98,12 +98,12 @@ export interface EmailAttachmentApi {
     content: string
     /**
      * MIME type of the file, such as `application/pdf`. Without it, the type follows from the file name.
-     * @maxLength 255
+     * @maxLength 78
      */
     content_type?: string
     /**
      * Content ID that the HTML body references as `cid:<content_id>` to show the file inline, such as `logo`. Without `<` or `>`.
-     * @maxLength 255
+     * @maxLength 78
      */
     content_id?: string
 }
