@@ -2396,6 +2396,23 @@ class TestPrinter(BaseTest):
             ),
         )
 
+    def test_select_alias_shared_type_chain(self) -> None:
+        aliases = [f"tuple(e{i - 1}, e{i - 1}) AS e{i}" for i in range(1, 41)]
+        query = f"SELECT event AS e0, {', '.join(aliases)}, count() FROM events GROUP BY e40"
+        context = HogQLContext(
+            team_id=self.team.pk,
+            database=Database.create_for(team=self.team),
+            enable_select_queries=True,
+        )
+
+        printed, _ = prepare_and_print_ast(parse_select(query), context, "clickhouse")
+
+        self.assertEqual(
+            printed,
+            f"SELECT events.event AS e0, {', '.join(aliases)}, count() AS `count()` FROM {self._events_table_ref()} "
+            f"WHERE equals(events.team_id, {self.team.pk}) GROUP BY e40 LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
     def test_select_from(self):
         self.assertEqual(
             self._select("select 1 from events"),
