@@ -148,6 +148,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 renameDebounceMs={0}
                 saveOnBlur={insightMode !== ItemMode.Edit}
                 descriptionMaxLength={400}
+                descriptionIgnoresForceEdit
                 maxToolProps={readDataMaxToolProps}
                 actions={
                     todayRailNav ? (
