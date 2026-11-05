@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
-import { IconChevronDown } from '@posthog/icons'
+import { IconChevronDown, IconGear } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonModal, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -38,6 +38,10 @@ import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
 import { MacroPicker } from '../../components/Macros/MacroPicker'
 import { SlaDisplay } from '../../components/SlaDisplay/SlaDisplay'
 import { TicketTags } from '../../components/TicketTags'
+import { TicketSidebarCardLayoutModal } from './TicketSidebarCardLayoutModal'
+import type { TicketSidebarCardRowId } from './ticketSidebarLayout'
+import { ticketSidebarLayoutLogic } from './ticketSidebarLayoutLogic'
+
 import {
     type Ticket,
     type TicketPriority,
@@ -178,6 +182,12 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     } = useActions(logic)
 
     const { user } = useValues(userLogic)
+    const { visibleRows } = useValues(ticketSidebarLayoutLogic)
+    const { setLayoutModalOpen, loadUserLayout } = useActions(ticketSidebarLayoutLogic)
+
+    useEffect(() => {
+        loadUserLayout()
+    }, [loadUserLayout])
     const { featureFlags } = useValues(featureFlagLogic)
     const simplifiedReplies = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIMPLIFIED_REPLIES]
     // Widget tickets stay images only until the widget can render file links.
@@ -382,276 +392,323 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                 {/* Sidebar with all metadata */}
                 <div className="space-y-4 flex-1 min-w-[300px] @min-[48rem]/main-content:h-full @min-[48rem]/main-content:pl-2 @min-[48rem]/main-content:min-h-0 @min-[48rem]/main-content:overflow-y-auto">
                     <LemonCard hoverEffect={false} className="p-3">
-                        {/* Customer */}
-                        {ticket?.distinct_id && (
-                            <>
-                                <div className="flex items-center justify-between mb-3">
-                                    <h3 className="text-sm font-semibold">Customer</h3>
-                                    <LemonButton
-                                        size="small"
-                                        type="secondary"
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            newInternalTab(urls.personByDistinctId(ticket.distinct_id))
-                                        }}
-                                    >
-                                        View person
-                                    </LemonButton>
-                                </div>
-                                <div className="flex items-center flex-wrap gap-2">
-                                    <PersonDisplay
-                                        person={
-                                            ticket.person
-                                                ? {
-                                                      id: ticket.person.id,
-                                                      distinct_id: ticket.distinct_id,
-                                                      distinct_ids: ticket.person.distinct_ids,
-                                                      // Merge anonymous_traits as fallback for missing person properties
-                                                      properties: {
-                                                          ...ticket.anonymous_traits,
-                                                          ...ticket.person.properties,
-                                                      },
-                                                  }
-                                                : {
-                                                      distinct_id: ticket.distinct_id,
-                                                      properties: ticket.anonymous_traits || {},
-                                                  }
-                                        }
-                                        withIcon
-                                        withCopyEmailButton
-                                        withComposeTicketButton
-                                    />
-                                    <IdentityBadge verified={ticket.identity_verified} />
-                                </div>
-                                <div className="my-3 border-t" />
-                            </>
-                        )}
-
-                        {/* Ticket info */}
-                        <h3 className="text-sm font-semibold mb-2">Ticket info</h3>
-                        <div className="space-y-2 text-xs">
-                            {ticket?.created_at && (
-                                <div className="flex justify-between">
-                                    <span className="text-muted-alt">Created</span>
-                                    <span>
-                                        <TZLabel time={ticket.created_at} />
-                                    </span>
-                                </div>
-                            )}
-                            {ticket?.updated_at && (
-                                <div className="flex justify-between">
-                                    <span className="text-muted-alt">Updated</span>
-                                    <span>
-                                        <TZLabel time={ticket.updated_at} />
-                                    </span>
-                                </div>
-                            )}
-                            {ticket?.channel_source && (
-                                <div className="flex justify-between">
-                                    <span className="text-muted-alt">Channel</span>
-                                    <span className="capitalize">
-                                        <ChannelsTag
-                                            channel={ticket.channel_source}
-                                            detail={ticket.channel_detail}
-                                            to={getChannelThreadUrl(ticket)}
-                                        />
-                                    </span>
-                                </div>
-                            )}
-                            {ticket?.channel_source === 'email' && ticket?.email_subject && (
-                                <div className="flex justify-between items-start gap-2">
-                                    <span className="text-muted-alt shrink-0">Subject</span>
-                                    <span className="text-xs truncate text-right" title={ticket.email_subject}>
-                                        {ticket.email_subject}
-                                    </span>
-                                </div>
-                            )}
-                            {ticket?.channel_source === 'email' && ticket?.email_from && (
-                                <div className="flex justify-between items-start gap-2">
-                                    <span className="text-muted-alt shrink-0">From</span>
-                                    <span className="text-xs truncate text-right" title={ticket.email_from}>
-                                        {ticket.email_from}
-                                    </span>
-                                </div>
-                            )}
-                            {ticket?.channel_source === 'email' && ticket?.email_to && (
-                                <div className="flex justify-between items-start gap-2">
-                                    <span className="text-muted-alt shrink-0">To</span>
-                                    <span className="text-xs truncate text-right" title={ticket.email_to}>
-                                        {ticket.email_to}
-                                    </span>
-                                </div>
-                            )}
-                            {ticket?.channel_source === 'email' &&
-                                ticket?.cc_participants &&
-                                ticket.cc_participants.length > 0 && (
-                                    <div className="flex justify-between items-start gap-2">
-                                        <span className="text-muted-alt shrink-0">CC</span>
-                                        <span
-                                            className="text-xs truncate text-right"
-                                            title={ticket.cc_participants.join(', ')}
-                                        >
-                                            {ticket.cc_participants.join(', ')}
-                                        </span>
-                                    </div>
-                                )}
-                            {ticket?.channel_source === 'email' && ticket?.email_to && (
-                                <div className="flex justify-between items-start gap-2">
-                                    <span className="text-muted-alt shrink-0">To</span>
-                                    <span className="text-xs truncate text-right" title={ticket.email_to}>
-                                        {ticket.email_to}
-                                    </span>
-                                </div>
-                            )}
-                            {ticket?.channel_source === 'github' &&
-                                ticket?.github_repo &&
-                                ticket?.github_issue_number && (
-                                    <div className="flex justify-between items-center">
-                                        <span className="text-muted-alt">GitHub issue</span>
-                                        <Link
-                                            to={`https://github.com/${ticket.github_repo}/issues/${ticket.github_issue_number}`}
-                                            target="_blank"
-                                            className="text-xs"
-                                        >
-                                            <LemonTag type="highlight">
-                                                {ticket.github_repo}#{ticket.github_issue_number}
-                                            </LemonTag>
-                                        </Link>
-                                    </div>
-                                )}
-                            {ticket?.zendesk_ticket_id && (
-                                <div className="flex justify-between items-center">
-                                    <span className="text-muted-alt">Zendesk ID</span>
-                                    <LemonTag type="highlight">#{ticket.zendesk_ticket_id}</LemonTag>
-                                </div>
-                            )}
-                            {ticket?.session_context?.current_url && (
-                                <div className="flex justify-between items-start gap-2">
-                                    <span className="text-muted-alt shrink-0">Page URL</span>
-                                    <Link
-                                        to={ticket.session_context.current_url}
-                                        target="_blank"
-                                        className="text-xs truncate text-right"
-                                        title={ticket.session_context.current_url}
-                                    >
-                                        {ticket.session_context.current_url}
-                                    </Link>
-                                </div>
-                            )}
-                            <div className="flex justify-between items-center">
-                                <span className="text-muted-alt">Status</span>
-                                <LemonSelect
-                                    size="small"
-                                    value={status}
-                                    options={statusOptionsWithoutAll}
-                                    onChange={(value: TicketStatus | null) => value && setStatus(value)}
-                                    dropdownMatchSelectWidth={false}
-                                    disabledReason={sendDisabledReason}
-                                />
-                            </div>
-                            <div className="flex justify-between items-center">
-                                <span className="text-muted-alt">Priority</span>
-                                <LemonSelect
-                                    size="small"
-                                    value={priority}
-                                    options={priorityOptions}
-                                    onChange={(value: TicketPriority | null) => value && setPriority(value)}
-                                    dropdownMatchSelectWidth={false}
-                                    disabledReason={sendDisabledReason}
-                                />
-                            </div>
-                            <div className="flex justify-between items-start">
-                                <span className="text-muted-alt">Assignee</span>
-                                <div className="flex flex-col items-end gap-1">
-                                    {user?.id != null &&
-                                        !(assignee?.type === 'user' && String(assignee.id) === String(user.id)) && (
-                                            <LemonButton
-                                                size="xxsmall"
-                                                type="tertiary"
-                                                onClick={() => setAssignee({ type: 'user', id: user.id })}
-                                                disabledReason={sendDisabledReason}
-                                            >
-                                                <span className="text-accent">Assign to me</span>
-                                            </LemonButton>
-                                        )}
-                                    <AssigneeSelect
-                                        assignee={assignee}
-                                        onChange={setAssignee}
-                                        disabledReason={sendDisabledReason}
-                                    >
-                                        {(resolvedAssignee, isOpen) => (
-                                            <LemonButton
-                                                size="small"
-                                                type="secondary"
-                                                active={isOpen}
-                                                sideIcon={<IconChevronDown />}
-                                                disabledReason={sendDisabledReason}
-                                            >
-                                                <span className="flex items-center gap-1">
-                                                    <AssigneeIconDisplay assignee={resolvedAssignee} size="small" />
-                                                    <AssigneeLabelDisplay assignee={resolvedAssignee} size="small" />
-                                                </span>
-                                            </LemonButton>
-                                        )}
-                                    </AssigneeSelect>
-                                </div>
-                            </div>
-                            {ticket?.sla_due_at && (
-                                <div className="flex justify-between items-center">
-                                    <span className="text-muted-alt">SLA</span>
-                                    <SlaDisplay slaDueAt={ticket.sla_due_at} />
-                                </div>
-                            )}
-                            <div className="flex justify-between items-center">
-                                <span className="text-muted-alt">Snooze</span>
-                                <LemonCalendarSelectInput
-                                    value={snoozedUntil ? dayjs(snoozedUntil) : null}
-                                    onChange={(date) =>
-                                        setSnoozedUntil(date ? date.startOf('minute').toISOString() : null)
-                                    }
-                                    granularity="minute"
-                                    selectionPeriod="upcoming"
-                                    clearable
-                                    placeholder="Not snoozed"
-                                    applyActions={[
-                                        {
-                                            label: 'Apply and set to on hold',
-                                            onClick: (date) => {
-                                                setSnoozedUntil(date.startOf('minute').toISOString())
-                                                setStatus('on_hold')
-                                            },
-                                        },
-                                    ]}
-                                    buttonProps={{
-                                        size: 'small',
-                                        type: 'secondary',
-                                        fullWidth: false,
-                                        disabledReason: sendDisabledReason,
-                                    }}
-                                />
-                            </div>
-                            <div className="flex justify-between items-start gap-2">
-                                <span className="text-muted-alt shrink-0">Tags</span>
-                                <TicketTags
-                                    tags={tags}
-                                    onChange={setTags}
-                                    saving={false}
-                                    disabledReason={sendDisabledReason}
-                                />
-                            </div>
-                        </div>
-                        <div className="mt-3 pt-3 border-t flex justify-between gap-2">
+                        <div className="flex items-center justify-between mb-3">
+                            <h3 className="text-sm font-semibold">Ticket details</h3>
                             <LemonButton
-                                type="secondary"
-                                status="danger"
-                                size="small"
-                                onClick={() => deleteTicket()}
-                                loading={ticketDeleting}
-                                disabledReason={deleteDisabledReason}
-                                data-attr="ticket-delete"
+                                size="xsmall"
+                                type="tertiary"
+                                icon={<IconGear />}
+                                onClick={() => setLayoutModalOpen(true)}
+                                tooltip="Customize card rows and ordering"
+                                data-attr="ticket-sidebar-customize-button"
                             >
-                                Delete ticket
+                                Customize
                             </LemonButton>
+                        </div>
+
+                        <div className="space-y-3 text-xs">
+                            {visibleRows.map((row) => {
+                                switch (row.id) {
+                                    case 'customer':
+                                        return ticket?.distinct_id ? (
+                                            <div key="customer" className="pb-3 border-b">
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <span className="text-muted-alt font-medium">Customer</span>
+                                                    <LemonButton
+                                                        size="xsmall"
+                                                        type="secondary"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation()
+                                                            newInternalTab(urls.personByDistinctId(ticket.distinct_id))
+                                                        }}
+                                                    >
+                                                        View person
+                                                    </LemonButton>
+                                                </div>
+                                                <div className="flex items-center flex-wrap gap-2">
+                                                    <PersonDisplay
+                                                        person={
+                                                            ticket.person
+                                                                ? {
+                                                                      id: ticket.person.id,
+                                                                      distinct_id: ticket.distinct_id,
+                                                                      distinct_ids: ticket.person.distinct_ids,
+                                                                      properties: {
+                                                                          ...ticket.anonymous_traits,
+                                                                          ...ticket.person.properties,
+                                                                      },
+                                                                  }
+                                                                : {
+                                                                      distinct_id: ticket.distinct_id,
+                                                                      properties: ticket.anonymous_traits || {},
+                                                                  }
+                                                        }
+                                                        withIcon
+                                                        withCopyEmailButton
+                                                        withComposeTicketButton
+                                                    />
+                                                    <IdentityBadge verified={ticket.identity_verified} />
+                                                </div>
+                                            </div>
+                                        ) : null
+
+                                    case 'created':
+                                        return ticket?.created_at ? (
+                                            <div key="created" className="flex justify-between items-center">
+                                                <span className="text-muted-alt">Created</span>
+                                                <span>
+                                                    <TZLabel time={ticket.created_at} />
+                                                </span>
+                                            </div>
+                                        ) : null
+
+                                    case 'updated':
+                                        return ticket?.updated_at ? (
+                                            <div key="updated" className="flex justify-between items-center">
+                                                <span className="text-muted-alt">Updated</span>
+                                                <span>
+                                                    <TZLabel time={ticket.updated_at} />
+                                                </span>
+                                            </div>
+                                        ) : null
+
+                                    case 'channel':
+                                        return (
+                                            <div key="channel" className="space-y-2">
+                                                {ticket?.channel_source && (
+                                                    <div className="flex justify-between items-center">
+                                                        <span className="text-muted-alt">Channel</span>
+                                                        <span className="capitalize">
+                                                            <ChannelsTag
+                                                                channel={ticket.channel_source}
+                                                                detail={ticket.channel_detail}
+                                                                to={getChannelThreadUrl(ticket)}
+                                                            />
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                {ticket?.channel_source === 'email' && ticket?.email_subject && (
+                                                    <div className="flex justify-between items-start gap-2">
+                                                        <span className="text-muted-alt shrink-0">Subject</span>
+                                                        <span className="text-xs truncate text-right" title={ticket.email_subject}>
+                                                            {ticket.email_subject}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                {ticket?.channel_source === 'email' && ticket?.email_from && (
+                                                    <div className="flex justify-between items-start gap-2">
+                                                        <span className="text-muted-alt shrink-0">From</span>
+                                                        <span className="text-xs truncate text-right" title={ticket.email_from}>
+                                                            {ticket.email_from}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                {ticket?.channel_source === 'email' && ticket?.email_to && (
+                                                    <div className="flex justify-between items-start gap-2">
+                                                        <span className="text-muted-alt shrink-0">To</span>
+                                                        <span className="text-xs truncate text-right" title={ticket.email_to}>
+                                                            {ticket.email_to}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                                {ticket?.channel_source === 'email' &&
+                                                    ticket?.cc_participants &&
+                                                    ticket.cc_participants.length > 0 && (
+                                                        <div className="flex justify-between items-start gap-2">
+                                                            <span className="text-muted-alt shrink-0">CC</span>
+                                                            <span
+                                                                className="text-xs truncate text-right"
+                                                                title={ticket.cc_participants.join(', ')}
+                                                            >
+                                                                {ticket.cc_participants.join(', ')}
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                {ticket?.channel_source === 'github' &&
+                                                    ticket?.github_repo &&
+                                                    ticket?.github_issue_number && (
+                                                        <div className="flex justify-between items-center">
+                                                            <span className="text-muted-alt">GitHub issue</span>
+                                                            <Link
+                                                                to={`https://github.com/${ticket.github_repo}/issues/${ticket.github_issue_number}`}
+                                                                target="_blank"
+                                                                className="text-xs"
+                                                            >
+                                                                <LemonTag type="highlight">
+                                                                    {ticket.github_repo}#{ticket.github_issue_number}
+                                                                </LemonTag>
+                                                            </Link>
+                                                        </div>
+                                                    )}
+                                                {ticket?.zendesk_ticket_id && (
+                                                    <div className="flex justify-between items-center">
+                                                        <span className="text-muted-alt">Zendesk ID</span>
+                                                        <LemonTag type="highlight">#{ticket.zendesk_ticket_id}</LemonTag>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )
+
+                                    case 'page_url':
+                                        return ticket?.session_context?.current_url ? (
+                                            <div key="page_url" className="flex justify-between items-start gap-2">
+                                                <span className="text-muted-alt shrink-0">Page URL</span>
+                                                <Link
+                                                    to={ticket.session_context.current_url}
+                                                    target="_blank"
+                                                    className="text-xs truncate text-right"
+                                                    title={ticket.session_context.current_url}
+                                                >
+                                                    {ticket.session_context.current_url}
+                                                </Link>
+                                            </div>
+                                        ) : null
+
+                                    case 'status':
+                                        return (
+                                            <div key="status" className="flex justify-between items-center">
+                                                <span className="text-muted-alt">Status</span>
+                                                <LemonSelect
+                                                    size="small"
+                                                    value={status}
+                                                    options={statusOptionsWithoutAll}
+                                                    onChange={(value: TicketStatus | null) => value && setStatus(value)}
+                                                    dropdownMatchSelectWidth={false}
+                                                    disabledReason={sendDisabledReason}
+                                                />
+                                            </div>
+                                        )
+
+                                    case 'priority':
+                                        return (
+                                            <div key="priority" className="flex justify-between items-center">
+                                                <span className="text-muted-alt">Priority</span>
+                                                <LemonSelect
+                                                    size="small"
+                                                    value={priority}
+                                                    options={priorityOptions}
+                                                    onChange={(value: TicketPriority | null) => value && setPriority(value)}
+                                                    dropdownMatchSelectWidth={false}
+                                                    disabledReason={sendDisabledReason}
+                                                />
+                                            </div>
+                                        )
+
+                                    case 'assignee':
+                                        return (
+                                            <div key="assignee" className="flex justify-between items-start">
+                                                <span className="text-muted-alt">Assignee</span>
+                                                <div className="flex flex-col items-end gap-1">
+                                                    {user?.id != null &&
+                                                        !(assignee?.type === 'user' && String(assignee.id) === String(user.id)) && (
+                                                            <LemonButton
+                                                                size="xxsmall"
+                                                                type="tertiary"
+                                                                onClick={() => setAssignee({ type: 'user', id: user.id })}
+                                                                disabledReason={sendDisabledReason}
+                                                            >
+                                                                <span className="text-accent">Assign to me</span>
+                                                            </LemonButton>
+                                                        )}
+                                                    <AssigneeSelect
+                                                        assignee={assignee}
+                                                        onChange={setAssignee}
+                                                        disabledReason={sendDisabledReason}
+                                                    >
+                                                        {(resolvedAssignee, isOpen) => (
+                                                            <LemonButton
+                                                                size="small"
+                                                                type="secondary"
+                                                                active={isOpen}
+                                                                sideIcon={<IconChevronDown />}
+                                                                disabledReason={sendDisabledReason}
+                                                            >
+                                                                <span className="flex items-center gap-1">
+                                                                    <AssigneeIconDisplay assignee={resolvedAssignee} size="small" />
+                                                                    <AssigneeLabelDisplay assignee={resolvedAssignee} size="small" />
+                                                                </span>
+                                                            </LemonButton>
+                                                        )}
+                                                    </AssigneeSelect>
+                                                </div>
+                                            </div>
+                                        )
+
+                                    case 'sla':
+                                        return ticket?.sla_due_at ? (
+                                            <div key="sla" className="flex justify-between items-center">
+                                                <span className="text-muted-alt">SLA</span>
+                                                <SlaDisplay slaDueAt={ticket.sla_due_at} />
+                                            </div>
+                                        ) : null
+
+                                    case 'snooze':
+                                        return (
+                                            <div key="snooze" className="flex justify-between items-center">
+                                                <span className="text-muted-alt">Snooze</span>
+                                                <LemonCalendarSelectInput
+                                                    value={snoozedUntil ? dayjs(snoozedUntil) : null}
+                                                    onChange={(date) =>
+                                                        setSnoozedUntil(date ? date.startOf('minute').toISOString() : null)
+                                                    }
+                                                    granularity="minute"
+                                                    selectionPeriod="upcoming"
+                                                    clearable
+                                                    placeholder="Not snoozed"
+                                                    applyActions={[
+                                                        {
+                                                            label: 'Apply and set to on hold',
+                                                            onClick: (date) => {
+                                                                setSnoozedUntil(date.startOf('minute').toISOString())
+                                                                setStatus('on_hold')
+                                                            },
+                                                        },
+                                                    ]}
+                                                    buttonProps={{
+                                                        size: 'small',
+                                                        type: 'secondary',
+                                                        fullWidth: false,
+                                                        disabledReason: sendDisabledReason,
+                                                    }}
+                                                />
+                                            </div>
+                                        )
+
+                                    case 'tags':
+                                        return (
+                                            <div key="tags" className="flex justify-between items-start gap-2">
+                                                <span className="text-muted-alt shrink-0">Tags</span>
+                                                <TicketTags
+                                                    tags={tags}
+                                                    onChange={setTags}
+                                                    saving={false}
+                                                    disabledReason={sendDisabledReason}
+                                                />
+                                            </div>
+                                        )
+
+                                    default:
+                                        return null
+                                }
+                            })}
+                        </div>
+
+                        <div className="mt-3 pt-3 border-t flex justify-between gap-2">
+                            {visibleRows.some((r) => r.id === 'delete') ? (
+                                <LemonButton
+                                    type="secondary"
+                                    status="danger"
+                                    size="small"
+                                    onClick={() => deleteTicket()}
+                                    loading={ticketDeleting}
+                                    disabledReason={deleteDisabledReason}
+                                    data-attr="ticket-delete"
+                                >
+                                    Delete ticket
+                                </LemonButton>
+                            ) : (
+                                <div />
+                            )}
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.Ticket}
                                 minAccessLevel={AccessControlLevel.Editor}
@@ -669,6 +726,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             </AccessControlAction>
                         </div>
                     </LemonCard>
+
+                    <TicketSidebarCardLayoutModal />
 
                     {/* Related Groups Panel */}
                     {(person?.uuid || ticket?.organization_id) && (

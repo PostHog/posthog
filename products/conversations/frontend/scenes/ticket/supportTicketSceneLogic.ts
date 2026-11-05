@@ -1365,6 +1365,38 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         ],
     }),
     listeners(({ actions, values, props, cache }) => ({
+        setStatus: ({ status }) => {
+            posthog.capture('ticket_status_changed', {
+                status,
+                ticket_id: values.ticket?.id,
+            })
+        },
+        setPriority: ({ priority }) => {
+            posthog.capture('ticket_priority_changed', {
+                priority,
+                ticket_id: values.ticket?.id,
+            })
+        },
+        setAssignee: ({ assignee }) => {
+            posthog.capture('ticket_assignee_changed', {
+                assignee_type: assignee?.type,
+                assignee_id: assignee?.id,
+                ticket_id: values.ticket?.id,
+            })
+        },
+        setSnoozedUntil: ({ snoozedUntil }) => {
+            posthog.capture('ticket_snooze_changed', {
+                snoozed_until: snoozedUntil,
+                ticket_id: values.ticket?.id,
+            })
+        },
+        setTags: ({ tags }) => {
+            posthog.capture('ticket_tags_changed', {
+                count: tags.length,
+                tags,
+                ticket_id: values.ticket?.id,
+            })
+        },
         loadTicket: async () => {
             if (values.editingMessageId) {
                 actions.cancelEditingMessage()
