@@ -6681,6 +6681,7 @@ def bootstrap_task_run(
     ``TaskRunCreateResult`` carrying either the created run DTO or a structured validation error.
     Mirrors ``TaskRunViewSet.create`` byte-for-byte (minus the usage gate, which the view applies).
     """
+    from products.signals.backend.facade.trial import prepare_task_trial  # noqa: PLC0415 -- Signals depends on Tasks
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
         PrAuthorshipMode,
         RunSource,
@@ -6805,12 +6806,29 @@ def bootstrap_task_run(
             },
         )
 
+    trial_admission = None
+    if environment == TaskRun.Environment.CLOUD and task.uses_self_driving_billing(mode):
+        trial_admission = prepare_task_trial(
+            team=task.team, origin=task.origin_product, report_id=task.signal_report_source_id, mode=mode
+        )
+        if trial_admission is None:
+            enforce_self_driving_pr_quota(
+                task.team,
+                report_id=str(task.signal_report_source_id) if task.signal_report_source_id else None,
+                stage="task_bootstrap",
+            )
+
     logger.info(
         "Creating task run for task %s with mode=%s, branch=%s, environment=%s", task.id, mode, branch, environment
     )
     try:
         run = task.create_run(
-            environment=environment, mode=mode, branch=branch, extra_state=extra_state, acting_user_id=user_id
+            environment=environment,
+            mode=mode,
+            branch=branch,
+            extra_state=extra_state,
+            acting_user_id=user_id,
+            _trial_admission=trial_admission,
         )
     except InvalidModelAccess as error:
         return contracts.TaskRunCreateResult(error=contracts.TaskRunValidationError(kind="detail", detail=str(error)))
