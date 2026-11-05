@@ -1414,15 +1414,28 @@ def _system_check_ids(tree: ast.Module) -> list[str]:
     )
 
 
+def _is_type_checking(test: ast.expr) -> bool:
+    return (isinstance(test, ast.Name) and test.id == "TYPE_CHECKING") or (
+        isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
+    )
+
+
 def _runtime_imports(statements: list[ast.stmt]) -> Iterator[ast.Import | ast.ImportFrom]:
-    """Imports that run when the statements run: not in a nested def or class, or an `if TYPE_CHECKING:` body."""
+    """Imports that run when the statements run: not in a nested def or class, or a type-checking-only branch."""
     for stmt in statements:
         if isinstance(stmt, ast.Import | ast.ImportFrom):
             yield stmt
         elif isinstance(stmt, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
             continue
-        elif isinstance(stmt, ast.If) and ast.unparse(stmt.test).endswith("TYPE_CHECKING"):
+        elif isinstance(stmt, ast.If) and _is_type_checking(stmt.test):
             yield from _runtime_imports(stmt.orelse)
+        elif (
+            isinstance(stmt, ast.If)
+            and isinstance(stmt.test, ast.UnaryOp)
+            and isinstance(stmt.test.op, ast.Not)
+            and _is_type_checking(stmt.test.operand)
+        ):
+            yield from _runtime_imports(stmt.body)
         else:
             for nested in ("body", "orelse", "finalbody"):
                 yield from _runtime_imports(getattr(stmt, nested, []))

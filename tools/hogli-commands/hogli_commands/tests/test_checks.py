@@ -3224,6 +3224,17 @@ class TestSystemChecksCheck:
                 },
                 ["never imported by apps.py ready()"],
             ),
+            (
+                {
+                    "apps.py": _READY_IMPORTS_CHECKS.replace(
+                        "        from products.p.backend import checks",
+                        "        import typing\n\n        if not typing.TYPE_CHECKING:\n"
+                        "            from products.p.backend import checks",
+                    ),
+                    "checks.py": _CHECKS_MODULE.format(check_id="posthog.p.E001"),
+                },
+                [],
+            ),
         ],
     )
     def test_system_check_placement_ids_and_registration(
