@@ -853,7 +853,7 @@ export const WarehouseSavedQueriesCheckIncrementalCreateBody = () => zod
     .describe('Body of the `check_incremental` action: a query and an optional config to check it against.')
 
 /**
- * Re-introspect a self-managed (manually linked) warehouse table's schema from its underlying source files and overwrite its stored column list. Use when the source schema has evolved (e.g. new columns in the underlying Delta/Parquet/CSV files) but queries still can't see the new columns, because PostHog serves a cached column snapshot until the table is refreshed. Not for tables managed by an external data source sync — those refresh on their own schedule.
+ * Re-introspect an existing direct-read warehouse table's schema from its underlying source files and overwrite its stored column list. Use when the source schema has evolved (e.g. new columns in the underlying Delta/Parquet/CSV files) but queries still can't see the new columns, because PostHog serves a cached column snapshot until the table is refreshed. This applies only to existing direct-read tables. New direct-read tables cannot be created. Tables managed by an external data source sync refresh on their own schedule.
  * @summary Refresh table schema from source
  */
 export const WarehouseTablesRefreshSchemaCreateParams = () => zod.object({
