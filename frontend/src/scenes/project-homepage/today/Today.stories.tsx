@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { fireEvent, waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
@@ -1016,6 +1018,72 @@ export const HomeWithKeptNumbers: Story = {
             { key: 'insight:chk01', name: 'Checkout conversion' },
             { key: 'activity_event', name: 'Active users' },
         ]),
+    ],
+}
+
+const HOME_TABS_FLAGS = [
+    FEATURE_FLAGS.TODAY_RAIL_NAV,
+    FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS,
+    FEATURE_FLAGS.TODAY_HOME_TABS,
+]
+
+const HOME_CANVAS = {
+    id: 'canvas-home',
+    name: 'Home canvas',
+    kind: 'freeform',
+    description: '',
+    channel: 'space-me',
+    template_id: 'freeform',
+    generation_task_id: null,
+    pinned: false,
+    pinned_at: null,
+    current_version_id: null,
+    published_build_id: null,
+    component_meta: null,
+    created_by: { id: MOCK_DEFAULT_USER.id, uuid: MOCK_DEFAULT_USER.uuid, email: MOCK_DEFAULT_USER.email },
+    created_at: '2026-09-20T09:00:00Z',
+    updated_at: '2026-09-20T09:00:00Z',
+    url: 'https://app.example.com/canvases/canvas-home',
+}
+
+export const HomeTodayTab: Story = {
+    parameters: { featureFlags: HOME_TABS_FLAGS },
+    decorators: [keepNumbers([])],
+}
+
+export const HomeAskTab: Story = {
+    parameters: { featureFlags: HOME_TABS_FLAGS, pageUrl: `${urls.projectHomepage()}?tab=ask` },
+}
+
+export const HomeCanvasTab: Story = {
+    parameters: { featureFlags: HOME_TABS_FLAGS, pageUrl: `${urls.projectHomepage()}?tab=canvas` },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/canvases/': ({ request }) => {
+                    const params = new URL(request.url).searchParams
+                    const results = params.get('channel') === 'space-me' ? [HOME_CANVAS] : []
+                    return [200, { results, count: results.length, next: null, previous: null }]
+                },
+                '/api/projects/:team_id/canvases/:id/view/': {
+                    canvas: HOME_CANVAS,
+                    published_build: null,
+                    current_version_id: null,
+                    has_active_build: false,
+                    source: null,
+                    layout: null,
+                    sandbox_document_url: null,
+                },
+                '/api/projects/:team_id/canvases/:id/builds/': {
+                    published_build_id: null,
+                    current_version_id: null,
+                    builds: [],
+                },
+                '/api/projects/:team_id/canvases/:id/versions/': { count: 0, next: null, previous: null, results: [] },
+                '/api/projects/:team_id/canvases/:id/drafts/': [],
+                '/api/projects/:team_id/comments/': { next: null, previous: null, results: [] },
+            },
+        }),
     ],
 }
 
