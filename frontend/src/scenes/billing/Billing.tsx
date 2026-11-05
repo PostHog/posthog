@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { Suspense, useEffect } from 'react'
 
 import * as judge from '@posthog/brand/hoggies/png/judge'
 import * as star from '@posthog/brand/hoggies/png/star'
@@ -21,6 +21,7 @@ import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { isCompanionProduct } from 'lib/logic/billing/companionProducts'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { toSentenceCase } from 'lib/utils/strings'
 import { couponLogic } from 'scenes/coupons/couponLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -40,6 +41,11 @@ import { UnsubscribeCard } from './UnsubscribeCard'
 
 const HedgehogJudge = pngHoggie(judge)
 const HedgehogStar = pngHoggie(star)
+
+// Loaded on demand so the billing scene only ships the Wizard spend audit code to flagged users.
+const OptimizeSpendCta = lazyWithRetry(() =>
+    import('./OptimizeSpendCta').then((module) => ({ default: module.OptimizeSpendCta }))
+)
 
 export const scene: SceneExport = {
     component: Billing,
@@ -219,6 +225,12 @@ export function Billing(): JSX.Element {
             )}
 
             {!showBillingSummary && <StripePortalButton />}
+
+            {featureFlags[FEATURE_FLAGS.BILLING_OPTIMIZE_SPEND] && (
+                <Suspense fallback={null}>
+                    <OptimizeSpendCta />
+                </Suspense>
+            )}
 
             {!couponsOverviewLoading && activeCoupons.length > 0 && (
                 <div className="mt-6 max-w-300">
