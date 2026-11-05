@@ -3,12 +3,10 @@ import * as handClaspPng from '@posthog/brand/hoggies/png/hand-clasp'
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import * as reporterPng from '@posthog/brand/hoggies/png/reporter'
 import { IconCopy } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { StepIcon } from 'scenes/onboarding/shared/wizard-sync/StepIcon'
-import { Timeline } from 'scenes/onboarding/shared/wizard-sync/Timeline'
 
 import { HedgehogTipCard } from '../components/HedgehogTipCard'
 import { SetupCallsPanel } from './SetupCallsPanel'
@@ -57,21 +55,21 @@ function NextSteps(): JSX.Element {
     return (
         <div className="flex flex-col gap-3 rounded border border-primary bg-surface-primary p-4">
             <span className="text-xs font-semibold text-secondary">{copy.title}</span>
-            <Timeline
-                ariaLabel={copy.title}
-                items={[
-                    {
-                        key: 'restart',
-                        icon: <span className="size-4 rounded-full border-2 border-secondary" />,
-                        content: <span className="text-sm font-semibold">{copy.restart}</span>,
-                    },
-                    {
-                        key: 'connect',
-                        icon: <StepIcon status="in_progress" />,
-                        content: <span className="text-sm font-semibold">{copy.connect}</span>,
-                    },
-                ]}
-            />
+            <ol className="m-0 flex list-none flex-col p-0" aria-label={copy.title}>
+                <li className="flex gap-3">
+                    <div className="flex flex-col items-center pt-0.5">
+                        <span className="size-4 rounded-full border-2 border-secondary" />
+                        <div className="my-1 min-h-3 w-px flex-1 bg-border" />
+                    </div>
+                    <span className="min-w-0 flex-1 pb-3 text-sm font-semibold">{copy.restart}</span>
+                </li>
+                <li className="flex gap-3">
+                    <div className="flex flex-col items-center pt-0.5">
+                        <Spinner className="text-base" textColored />
+                    </div>
+                    <span className="min-w-0 flex-1 text-sm font-semibold">{copy.connect}</span>
+                </li>
+            </ol>
         </div>
     )
 }
