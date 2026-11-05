@@ -4,7 +4,7 @@ import { LemonBanner, LemonCard, Spinner } from '@posthog/lemon-ui'
 
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
-import { HealthChecksOverview } from './HealthChecksOverview'
+import { HealthChecksPanel } from './HealthChecksPanel'
 
 export function ExperimentHealthTab(): JSX.Element {
     const {
@@ -30,7 +30,7 @@ export function ExperimentHealthTab(): JSX.Element {
     return (
         <div className="flex flex-col gap-2" data-attr="experiment-health-tab">
             <LemonCard hoverEffect={false} className="p-0">
-                <HealthChecksOverview
+                <HealthChecksPanel
                     checks={healthChecks}
                     findings={healthFindings}
                     // A reset to draft keeps the previous exposure answer in the page, as for the checks.
