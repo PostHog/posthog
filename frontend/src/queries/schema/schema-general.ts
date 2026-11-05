@@ -188,6 +188,7 @@ export enum NodeKind {
     // AI queries
     SuggestedQuestionsQuery = 'SuggestedQuestionsQuery',
     TeamTaxonomyQuery = 'TeamTaxonomyQuery',
+    InboxUsageQuery = 'InboxUsageQuery',
     EventTaxonomyQuery = 'EventTaxonomyQuery',
     ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
     TracesQuery = 'TracesQuery',
@@ -294,6 +295,7 @@ export type AnyDataNode =
     | SessionQuery
     | TraceNeighborsQuery
     | VectorSearchQuery
+    | InboxUsageQuery
     | UsageMetricsQuery
     | AccountsQuery
     | AccountsTableQuery
@@ -428,6 +430,7 @@ export type QuerySchema =
     | VectorSearchQuery
 
     // Customer analytics
+    | InboxUsageQuery
     | UsageMetricsQuery
     | AccountsQuery
     | AccountsTableQuery
@@ -980,6 +983,8 @@ export interface HogQLMetadataColumn {
 export interface HogQLMetadataResponse {
     query?: string
     isValid?: boolean
+    /** The validator raised an internal error, such as a database failure, so the errors do not prove that the query is invalid. */
+    internalError?: boolean
     isUsingIndices?: QueryIndexUsage
     /** One entry per property filter, in query order. */
     index_usage?: PredicateIndexUsage[]
@@ -1094,6 +1099,8 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     debug?: boolean
     /** Analyze how each property filter reads its data. Costs a second type-resolution pass, so only editors that render the result should ask for it. */
     indexUsage?: boolean
+    /** Validate on the Python validator with freshly fetched sources, the same sources query execution uses. Adds a sources fetch on every request, so only set it where the result blocks an action. */
+    freshSources?: boolean
     /** Infer output column names and types without executing the query. Adds a type-resolution pass, so callers must opt in. */
     includeOutputTypes?: boolean
 }
@@ -7519,6 +7526,69 @@ export interface TeamTaxonomyItem {
 }
 
 export type TeamTaxonomyResponse = TeamTaxonomyItem[]
+
+export interface InboxUsageQuery extends DataNode<InboxUsageQueryResponse> {
+    kind: NodeKind.InboxUsageQuery
+    /** UTC date range. Use explicitDate for exact bounds; the end is exclusive. */
+    dateRange: DateRange
+}
+
+export interface InboxUsageCredits {
+    /** Recorded finalized credits, including exemptions. Decimal strings preserve fractional credits. */
+    total_credits: string
+    /** Billing-exempt subset of total_credits. */
+    exempt_credits: string
+    incomplete: boolean
+}
+
+export interface InboxUsageSource extends InboxUsageCredits {
+    source_product: string | null
+    source_type: string | null
+    processing_credits: string
+    research_credits: string
+    implementation_credits: string
+}
+
+export interface InboxUsageScout extends InboxUsageCredits {
+    scout_config_id: string | null
+    skill_name: string
+    display_name: string
+    run_count: integer
+    /** Distinct reports emitted by this scout; reports may be shared across scouts. */
+    reports_produced: integer
+}
+
+export interface InboxUsage extends InboxUsageCredits {
+    project_id: integer
+    /** @format date-time */
+    period_start: string
+    /** @format date-time */
+    period_end: string
+    /** @format date-time */
+    as_of: string
+    /** Unfinalized credits created in the selected range, excluded from total_credits. */
+    unsettled_credits: string
+    untracked_scout_run_count: integer
+    /** Missing source metadata is retained in a null-source bucket. */
+    attribution_incomplete: boolean
+    /** Processing, research and implementation. Excludes scout execution. */
+    sources: InboxUsageSource[]
+    /** Scout execution only. These totals and source totals sum to total_credits. */
+    scouts: InboxUsageScout[]
+    pricing: InboxUsagePricing
+}
+
+export interface InboxUsagePricing {
+    currency: 'USD'
+    /** Multiply credits by this value for recorded USD usage, before billing adjustments. */
+    usd_per_credit: string
+}
+
+export interface InboxUsageQueryResponse extends AnalyticsQueryResponseBase {
+    results: InboxUsage
+}
+
+export type CachedInboxUsageQueryResponse = CachedQueryResponse<InboxUsageQueryResponse>
 
 export interface TeamTaxonomyQuery extends DataNode<TeamTaxonomyQueryResponse> {
     kind: NodeKind.TeamTaxonomyQuery

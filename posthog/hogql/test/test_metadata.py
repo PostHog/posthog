@@ -4,7 +4,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from django.conf import settings
-from django.db import DatabaseError, connection
+from django.db import DatabaseError, OperationalError, connection
 from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
@@ -22,6 +22,7 @@ from posthog.schema import (
     SessionTableVersion,
 )
 
+from posthog.hogql.database.database import Database
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
 from posthog.hogql.flag_called_warnings import (
     FLAG_CALLED_FROM_BOTH_TABLES_NOTICE,
@@ -90,6 +91,38 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             ),
             team=self.team,
         )
+
+    def test_fresh_sources_resolve_a_view_that_cached_sources_miss(self) -> None:
+        query = "SELECT a FROM just_created_view"
+        self.assertEqual(len(self._select(query).errors), 1)
+
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="just_created_view",
+            query={"query": "SELECT 1 AS a"},
+            columns={"a": "Int64"},
+        )
+
+        self.assertEqual(len(self._select(query).errors), 1)
+        fresh = get_hogql_metadata(
+            query=HogQLMetadata(kind="HogQLMetadata", language=HogLanguage.HOG_QL, query=query, freshSources=True),
+            team=self.team,
+        )
+        self.assertEqual(fresh.errors, [])
+
+    def test_internal_error_separates_a_validator_failure_from_a_query_error(self) -> None:
+        self.assertFalse(self._select("SELECT missing_column FROM events").internalError)
+
+        with patch.object(Database, "_fetch_sources", side_effect=OperationalError("connection reset")):
+            failed = get_hogql_metadata(
+                query=HogQLMetadata(
+                    kind="HogQLMetadata", language=HogLanguage.HOG_QL, query="SELECT 1", freshSources=True
+                ),
+                team=self.team,
+            )
+
+        self.assertFalse(failed.isValid)
+        self.assertTrue(failed.internalError)
 
     def _select_with_variables(
         self, query: str, variables: Optional[dict[str, dict]] = None, globals: Optional[dict] = None
