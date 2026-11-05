@@ -94,25 +94,45 @@ export function withPrefilledEmail(workflow: HogFlow, email: MessageDraft): HogF
     }
 }
 
-export function withEmailSender(workflow: HogFlow, integrationId: number): { workflow: HogFlow; filled: boolean } {
+export type EmailStepValue = { from?: { integrationId?: number; email?: string; name?: string }; replyTo?: string }
+
+export function emailStepValue(action: HogFlowAction): EmailStepValue | null {
+    const config = action.config as Record<string, any> | undefined
+    return config?.template_id === 'template-email' ? (config.inputs?.email?.value ?? null) : null
+}
+
+export function takesOwnSender(action: HogFlowAction): boolean {
+    const value = emailStepValue(action)
+    return !!value && !value.from?.integrationId
+}
+
+export function withStepSender(action: HogFlowAction, integrationId: number): HogFlowAction {
+    const config = action.config as Record<string, any>
+    const email = config.inputs.email
+    return {
+        ...action,
+        config: {
+            ...config,
+            inputs: {
+                ...config.inputs,
+                email: { ...email, value: { ...email.value, from: { ...email.value.from, integrationId } } },
+            },
+        },
+    } as HogFlowAction
+}
+
+export function withEmailSender(
+    workflow: HogFlow,
+    integrationId: number,
+    takesSender: (action: HogFlowAction) => boolean = takesOwnSender
+): { workflow: HogFlow; filled: boolean } {
     let filled = false
     const actions = workflow.actions.map((action) => {
-        const config = action.config as Record<string, any>
-        const value = config?.template_id === 'template-email' ? config.inputs?.email?.value : null
-        if (!value || value.from?.integrationId) {
+        if (!takesSender(action)) {
             return action
         }
         filled = true
-        return {
-            ...action,
-            config: {
-                ...config,
-                inputs: {
-                    ...config.inputs,
-                    email: { ...config.inputs.email, value: { ...value, from: { ...value.from, integrationId } } },
-                },
-            },
-        } as HogFlowAction
+        return withStepSender(action, integrationId)
     })
     return { workflow: filled ? { ...workflow, actions } : workflow, filled }
 }

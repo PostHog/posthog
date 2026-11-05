@@ -77,6 +77,7 @@ import {
 } from './hogflows/types'
 import { openPublishConfirmDialog } from './PublishImpactDialog'
 import { ResourceSaveQueue } from './resourceSaveQueue'
+import { sendsFromSandboxSender } from './workflowBroadcastMoveLogic'
 import { workflowStartPath } from './workflowBuilderProgress'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
 import {
@@ -3812,7 +3813,8 @@ export const workflowLogic = kea<workflowLogicType>([
                     // The broadcast editor always saves this exit condition, so any other one would be lost.
                     workflow.exit_condition === 'exit_only_at_end' &&
                     isBroadcastShaped(workflow.actions) &&
-                    canEditInWizard(workflow.actions, workflow.edges)
+                    canEditInWizard(workflow.actions, workflow.edges) &&
+                    !sendsFromSandboxSender(workflow, values.integrations ?? [])
                 ) {
                     const others = await loadBroadcastConversionCandidates(String(ApiConfig.getCurrentTeamId()))
                     const choice = await confirmCreateAsBroadcast(others)
