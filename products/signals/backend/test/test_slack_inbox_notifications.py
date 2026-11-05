@@ -22,6 +22,7 @@ from products.signals.backend.models import (
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
+    SignalReportTask,
     SignalScoutConfig,
     SignalScoutRun,
     SignalUserAutonomyConfig,
@@ -707,6 +708,47 @@ def test_dispatch_skips_non_actionable_report(org_and_team):
 
     assert sent == 0
     assert fake_client.chat_postMessage.call_count == 0
+
+
+@pytest.mark.parametrize(
+    ("run_status", "pr_url", "expects_implement"),
+    [
+        (None, None, True),
+        ("in_progress", None, False),
+        ("completed", "https://github.com/example/repo/pull/1", False),
+        # The inbox offers Implement again after a run that ended without a pull request.
+        ("failed", None, True),
+    ],
+)
+@pytest.mark.django_db
+def test_dispatch_offers_implement_only_without_implementation_underway(
+    org_and_team, run_status, pr_url, expects_implement
+):
+    org, team = org_and_team
+    reviewer = _make_reviewer_user(org, "impl@example.com", "impl-bot")
+    _make_slack_integration(team, reviewer)
+    _set_team_channel(team, "CTEAM|#posthog-signals")
+    report = _make_ready_report(team, priority=AutonomyPriority.P1)
+    if run_status:
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        task = Task.objects.create(
+            team=team, title="impl", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        SignalReportTask.objects.create(team=team, report=report, task=task, relationship="implementation")
+        TaskRun.objects.create(team=team, task=task, status=run_status, output={"pr_url": pr_url})
+
+    fake_client = MagicMock()
+    with patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls:
+        slack_cls.return_value.client = fake_client
+        sent = dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    assert sent == 1
+    blocks = fake_client.chat_postMessage.call_args.kwargs["blocks"]
+    buttons = [
+        element["text"]["text"] for block in blocks if block["type"] == "actions" for element in block["elements"]
+    ]
+    assert ("Implement" in buttons) is expects_implement
 
 
 @pytest.mark.django_db

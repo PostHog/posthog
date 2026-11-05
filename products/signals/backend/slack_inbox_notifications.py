@@ -37,6 +37,7 @@ from posthog.slack.formatting import (
 from posthog.slack.markdown import slack_markdown_block as _markdown_block
 
 from products.signals.backend.assignment_flags import assignment_side_effects_allowed
+from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
 from products.signals.backend.models import (
     AutonomyPriority,
     SignalReport,
@@ -65,7 +66,9 @@ from products.signals.backend.slack_formatting import (
 )
 from products.signals.backend.slack_notification_targets import is_slack_member_target, lookup_slack_user_id_by_email
 from products.signals.backend.slack_report_threads import record_report_slack_thread
+from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, TASK_RUN_TYPE_IMPLEMENTATION
 from products.slack_app.backend.facade.api import slack_followup_invite
+from products.tasks.backend.facade import api as tasks_facade
 
 # Actionability values shown in the inbox Reports tab. Slack notifications mirror that tab, so a
 # report notifies iff its latest actionability judgment is one of these (and it's READY).
@@ -175,6 +178,24 @@ def _offers_implementation(judgment: dict) -> bool:
         judgment.get("actionability") == ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value
         and judgment.get("already_addressed") is not True
     )
+
+
+def _implementation_underway(report: SignalReport) -> bool:
+    """Whether the report has a pull request or an implementation run that has not ended.
+
+    The inbox then shows View task instead of the Implement choices, so the message must not offer
+    Implement. Auto-start often opens the pull request before the notification goes out.
+    """
+    report_id = str(report.id)
+    if fetch_implementation_prs_for_reports([report_id], team_id=report.team_id, using="default").get(report_id):
+        return True
+    task_ids = [
+        run.task_id
+        for run in SignalReport.associated_task_runs(
+            report_id=report_id, team_id=report.team_id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_IMPLEMENTATION
+        )
+    ]
+    return any(not run.is_terminal for run in tasks_facade.get_latest_run_by_task(task_ids).values())
 
 
 def resolve_org_suggested_reviewer_user_ids(*, team_id: int, report_ids: Collection[str]) -> dict[str, set[int]]:
@@ -745,7 +766,7 @@ def dispatch_inbox_item_notifications(report_id: str, team_id: int) -> int:
         routes,
         trigger="report_ready",
         priority=priority,
-        offer_implementation=_offers_implementation(actionability),
+        offer_implementation=_offers_implementation(actionability) and not _implementation_underway(report),
     )
     logger.info(
         "dispatch_inbox_item_notifications: complete",
@@ -864,7 +885,7 @@ def dispatch_reviewer_added_notifications(
         routes,
         trigger="reviewer_added",
         priority=priority,
-        offer_implementation=_offers_implementation(actionability),
+        offer_implementation=_offers_implementation(actionability) and not _implementation_underway(report),
     )
     logger.info(
         "dispatch_reviewer_added_notifications: complete",
