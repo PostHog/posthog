@@ -218,9 +218,10 @@ object ChartStore {
         if (isStopped() || expectedSession != session(context) || expectedCatalog != catalog(context)) return false
         val editor = prefs(context).edit()
         when (outcome) {
-            is ChartFetcher.Outcome.Success -> editor
-                .putString("$SNAPSHOT_PREFIX${outcome.snapshot.pinId}", outcome.snapshot.toJson())
-                .remove("$ERROR_PREFIX${outcome.snapshot.pinId}")
+            is ChartFetcher.Outcome.Success -> {
+                setSnapshot(context, outcome.snapshot)
+                return true
+            }
             is ChartFetcher.Outcome.Failure -> {
                 val now = System.currentTimeMillis()
                 val error = SnapshotError(now, outcome.kind)
@@ -234,6 +235,7 @@ object ChartStore {
     fun snapshot(context: Context, pinId: String): ChartSnapshot? =
         prefs(context).getString("$SNAPSHOT_PREFIX$pinId", null)?.let(ChartSnapshot::parse)
 
+    @Synchronized
     fun setSnapshot(context: Context, snapshot: ChartSnapshot) {
         if ((ChartStore.snapshot(context, snapshot.pinId)?.fetchedAt ?: 0L) > snapshot.fetchedAt) return
         prefs(context).edit()

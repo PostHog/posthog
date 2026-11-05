@@ -167,6 +167,17 @@ class ChartWidgetRefreshTest {
     }
 
     @Test
+    fun backgroundReadsPreserveNewerAppSnapshots() {
+        val newer = snapshot().copy(fetchedAt = 2000L, valueText = "84")
+        ChartStore.setSnapshot(context, newer)
+        ChartWidgetRefresh.fetchShownPins(context, { false }) { _, _, pin ->
+            ChartFetcher.Outcome.Success(snapshot(pin.id))
+        }
+        assertEquals(newer, ChartStore.snapshot(context, "first"))
+        assertEquals(snapshot("second"), ChartStore.snapshot(context, "second"))
+    }
+
+    @Test
     fun rateLimitStopsThePassAndSurvivesLaterRefreshes() {
         var calls = 0
         val fetch: (Context, Credentials, CatalogPin) -> ChartFetcher.Outcome = { _, _, _ ->

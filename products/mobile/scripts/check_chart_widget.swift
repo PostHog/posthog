@@ -346,6 +346,7 @@ struct CheckChartWidget {
         for (target, changedCatalog) in [
             (pin, catalogJSON.replacingOccurrences(of: "\"insightId\": 123", with: "\"insightId\": 321")),
             (dashboard, catalogJSON.replacingOccurrences(of: "\"dashboardId\": 12", with: "\"dashboardId\": 13")),
+            (pin, catalogJSON.replacingOccurrences(of: "\"insightId\": 123", with: "\"displayMode\": \"rows\", \"insightId\": 123")),
         ] {
             let currentSnapshot = ChartSample.snapshot(pinId: target.id, value: "654", delta: 0, deltaText: "No change", values: [654], now: now)
             let oldSnapshot = ChartSample.snapshot(pinId: target.id, value: "123", delta: 0, deltaText: "No change", values: [123], now: now)
@@ -413,7 +414,7 @@ struct CheckChartWidget {
         store.set(catalogJSON, forKey: ChartStore.catalogKey)
         let pin = try require(ChartStore.catalog(store: store)?.pin(id: "pin-b"), "original dashboard tile")
         let requests = PendingFetches()
-        let refresh = ChartRefresh(store: store, fetch: { pin, _, _ in await requests.fetch(pin) })
+        let refresh = ChartRefresh(store: store, currentCredentials: { credentials }, fetch: { pin, _, _ in await requests.fetch(pin) })
         let original = Task { await refresh.refresh(pin, credentials: credentials, now: now) }
         await requests.waitForRequest(456)
 
@@ -430,6 +431,11 @@ struct CheckChartWidget {
         await requests.complete(456, with: .snapshot(oldSnapshot))
         await original.value
         check("refresh: the old tile cannot overwrite the new result", ChartStore.snapshot(pinId: pin.id, store: store) == snapshot)
+        store.removeObject(forKey: "chart.snapshot.\(pin.id)")
+        let signedOut = ChartRefresh(store: store, currentCredentials: { nil }, fetch: { _, _, _ in .snapshot(snapshot) })
+        await signedOut.refresh(replacement, credentials: credentials, now: now)
+        check("refresh: an ended session cannot repopulate the cache", ChartStore.snapshot(pinId: pin.id, store: store) == nil)
+
     }
 
     static func checkState(now: Date) throws {

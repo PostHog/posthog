@@ -279,7 +279,7 @@ RemoteViews only (no Glance, no Compose), API 24 and up. Code in `android/src/ma
 | `ChartStore.kt`                          | The two preferences files below. Every write uses `commit()`.                                                              |
 | `TrendsParser.kt` and `InsightParser.kt` | Insight response to snapshot: mirrors `insightSnapshot.ts`, `insightFormatting.ts`, `snapshotChart.ts`, `rangePresets.ts`. |
 | `ChartFetcher.kt`                        | One `HttpURLConnection` read per pin, `refresh=force_cache`, 20 s timeouts, status to error kind.                          |
-| `ChartWidgetRefresh.kt`                  | `refreshAll(context)`: render from the cache on a background executor, then queue one network pass.                                             |
+| `ChartWidgetRefresh.kt`                  | `refreshAll(context)`: render from the cache on a background executor, then queue one network pass.                        |
 | `ChartRefreshWorker.kt`                  | The `WorkManager` pass: each distinct pin once, then a render of every widget.                                             |
 | `ChartRenderer.kt`, `ChartCanvas.kt`     | Layout choice, states, text, deep links; the chart drawn on a `Canvas` into a `Bitmap`.                                    |
 | `ChartWidgetProvider.kt`                 | The `AppWidgetProvider`. Every callback is wrapped, because a receiver exception kills the app process.                    |
