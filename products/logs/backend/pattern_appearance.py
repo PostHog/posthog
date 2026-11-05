@@ -32,6 +32,8 @@ SEED_LOOKBACK: Final = dt.timedelta(days=14)
 BUCKET: Final = dt.timedelta(minutes=5)
 # A link opens the logs from this long before the first sighting, so the first lines are in view.
 LINK_LEAD: Final = dt.timedelta(minutes=10)
+# The longest link a platform message keeps. Slack refuses a longer button URL.
+MAX_LINK_CHARS: Final = 2000
 FILTER_KEYS: Final = ("service_name", "severity_text", "environment", "namespace", "pattern")
 MAX_PATTERN_DETAIL: Final = 2000
 ROLLOUT_FLAG: Final = "platform-alerts-source-logs-patterns"
@@ -151,6 +153,15 @@ def _logs_url(project_id: int, labels: dict[str, str], detail: dict[str, Any]) -
         }
     first_seen = detail.get("first_seen_at")
     date_from = dt.datetime.fromisoformat(first_seen) - LINK_LEAD if isinstance(first_seen, str) else None
+    url = _url(project_id, filters, date_from)
+    if len(url) > MAX_LINK_CHARS and "filterGroup" in filters:
+        # A link past the delivery budget is dropped from the message, so a long pattern falls back
+        # to service and severity rather than losing the link.
+        url = _url(project_id, {**filters, "filterGroup": None}, date_from)
+    return url
+
+
+def _url(project_id: int, filters: dict[str, Any], date_from: dt.datetime | None) -> str:
     params = build_logs_url_params(filters, date_from=date_from)
     # The query goes on after `absolute_uri`, which refuses a URL that holds an encoded backslash.
     return absolute_uri(f"/project/{project_id}/logs") + (f"?{params}" if params else "")
