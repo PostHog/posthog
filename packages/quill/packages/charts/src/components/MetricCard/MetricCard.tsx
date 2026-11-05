@@ -19,7 +19,7 @@ import { useHoverIntent } from './useHoverIntent'
 export type { MetricChange }
 export type { ChangeColor }
 
-/** @deprecated Use `MetricProps` from `@posthog/quill-components/metric` (`@posthog/quill/metric` from npm). */
+/** @deprecated Use `MetricProps` from `@posthog/quill-components/metric`. */
 export interface MetricCardProps {
     title: React.ReactNode
     /** Resting headline number. Defaults to `data[data.length - 1]` when `data` is present;
@@ -81,7 +81,7 @@ export interface MetricCardProps {
     onError?: (error: Error, info: React.ErrorInfo) => void
 }
 
-/** @deprecated Use the composable `Metric` from `@posthog/quill-components/metric` (`@posthog/quill/metric` from npm). */
+/** @deprecated Use the composable `Metric` from `@posthog/quill-components/metric`. */
 export function MetricCard(props: MetricCardProps): React.ReactElement | null {
     return (
         <ChartErrorBoundary onError={props.onError}>

@@ -2350,9 +2350,6 @@ importers:
       '@posthog/quill-blocks':
         specifier: workspace:*
         version: link:../blocks
-      '@posthog/quill-charts':
-        specifier: workspace:*
-        version: link:../charts
       '@posthog/quill-components':
         specifier: workspace:*
         version: link:../components

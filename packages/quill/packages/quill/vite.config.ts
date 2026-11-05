@@ -17,8 +17,8 @@ import dts from 'vite-plugin-dts'
  * statements pointing at a package that does not exist in the registry
  * and consumers would get ERR_MODULE_NOT_FOUND on first import.
  *
- * `@posthog/quill-tokens` and `@posthog/quill-charts` stay external because
- * they are independently published. Actual runtime deps (@base-ui/react, lucide-react, etc.)
+ * `@posthog/quill-tokens` stays external because it is independently
+ * published. Actual runtime deps (@base-ui/react, lucide-react, etc.)
  * are kept external too — they are redeclared as real
  * `dependencies` on the aggregate's package.json so pnpm/npm pulls
  * them into the consumer's node_modules automatically.
@@ -41,12 +41,9 @@ export default defineConfig({
     ],
     build: {
         lib: {
-            entry: {
-                index: resolve(__dirname, 'src/index.ts'),
-                metric: resolve(__dirname, 'src/metric.ts'),
-            },
+            entry: resolve(__dirname, 'src/index.ts'),
             formats: ['es', 'cjs'],
-            fileName: (format, entryName) => `${entryName}.${format === 'es' ? 'js' : 'cjs'}`,
+            fileName: (format) => `index.${format === 'es' ? 'js' : 'cjs'}`,
         },
         rollupOptions: {
             external: [
@@ -54,8 +51,6 @@ export default defineConfig({
                 'react-dom',
                 'react/jsx-runtime',
                 '@posthog/quill-tokens',
-                '@posthog/quill-charts',
-                /^@posthog\/quill-charts\//,
                 '@base-ui/react',
                 /^@base-ui\/react\//,
                 'class-variance-authority',

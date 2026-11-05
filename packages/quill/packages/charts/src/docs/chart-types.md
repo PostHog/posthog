@@ -194,7 +194,7 @@ Bars use `hitArea: 'band'`.
 
 ## MetricCard
 
-Deprecated: use `Metric` from `@posthog/quill-components/metric` (`@posthog/quill/metric` from npm).
+Deprecated: use `Metric` from `@posthog/quill-components/metric`.
 `MetricCard` stays only so apps that pin an older version can upgrade without a break.
 
 A left-aligned tile: headline number, change pill, sparkline.
