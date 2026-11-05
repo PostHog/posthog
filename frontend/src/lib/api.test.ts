@@ -467,6 +467,28 @@ describe('API helper', () => {
         } satisfies Partial<ApiError>)
     })
 
+    it('reports the DRF error code of a failed response as a client_request_failure', async () => {
+        fakeFetch.mockResolvedValueOnce({
+            ok: false,
+            status: 400,
+            statusText: '',
+            headers: new Headers(),
+            json: () =>
+                Promise.resolve({ type: 'validation_error', code: 'token_invalid', detail: 'Token is not valid' }),
+        })
+
+        await api.create('api/users/@me/two_factor_validate/', { token: '123456' }).catch(() => null)
+
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'client_request_failure',
+            expect.objectContaining({
+                pathname: '/api/users/@me/two_factor_validate/',
+                status: 400,
+                code: 'token_invalid',
+            })
+        )
+    })
+
     describe('OAuth mode auth headers', () => {
         beforeEach(() => {
             window.localStorage.setItem(
