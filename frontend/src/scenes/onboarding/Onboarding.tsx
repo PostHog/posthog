@@ -11,7 +11,6 @@ import { onboardingWizardRunLogic } from 'products/wizard/frontend/views/onboard
 import { OnboardingFlowHost } from './OnboardingFlowHost'
 import { onboardingLogic } from './onboardingLogic'
 import { ProductSelectionShell } from './productSelection/ProductSelectionShell'
-import { SimpleOnboarding } from './simple/SimpleOnboarding'
 
 export const scene: SceneExport = {
     component: Onboarding,
@@ -21,12 +20,9 @@ export const scene: SceneExport = {
 const CARD_CLASSES =
     'relative w-full min-h-0 flex flex-col overflow-visible p-0 sm:max-h-[calc(100dvh-7rem)] sm:overflow-y-auto sm:p-8 md:p-10 sm:bg-surface-primary sm:rounded-2xl sm:shadow-[0_16px_40px_rgb(20_44_72_/_18%)] sm:border sm:border-primary'
 
-/**
- * Renders product selection until a product is chosen, then hands off to the flow host. The simple
- * flow skips product selection.
- */
+/** Renders product selection until a product is chosen, then hands off to the flow host. */
 export function Onboarding(): JSX.Element | null {
-    const { productKey, flowVariant, currentTeam, user } = useValues(onboardingLogic)
+    const { productKey, currentTeam, user } = useValues(onboardingLogic)
     useMountedLogic(
         onboardingWizardRunLogic({ projectId: currentTeam ? String(currentTeam.id) : '', userId: user?.id ?? 0 })
     )
@@ -37,13 +33,7 @@ export function Onboarding(): JSX.Element | null {
                 <Logo size="lg" />
             </span>
             <div className={clsx(CARD_CLASSES, productKey ? 'max-w-5xl' : 'max-w-6xl')}>
-                {flowVariant === 'simple' ? (
-                    <SimpleOnboarding />
-                ) : productKey ? (
-                    <OnboardingFlowHost />
-                ) : (
-                    <ProductSelectionShell />
-                )}
+                {productKey ? <OnboardingFlowHost /> : <ProductSelectionShell />}
             </div>
         </div>
     )

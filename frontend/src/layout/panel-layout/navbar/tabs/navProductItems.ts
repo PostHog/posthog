@@ -1,7 +1,6 @@
 import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
 import { DEFINITIONS_TABS } from 'scenes/data-management/definitionsSceneTabsLogic'
-import { isWelcomeNavItemShown } from 'scenes/onboarding/welcome/welcomeNavItem'
 import { urls } from 'scenes/urls'
 
 import { FileSystemImport } from '~/queries/schema/schema-general'
@@ -26,16 +25,7 @@ export function isDefinitionsTabHref(href: string | undefined): boolean {
 // Items in this category sit above Starred and All products, so they are never starred or grouped.
 export const PINNED_CATEGORY = 'Project'
 
-// Shown first, and only while the project is new on the simple onboarding arm (see `isWelcomeNavItemShown`).
-export const WELCOME_NAV_ITEM: FileSystemImport = {
-    path: 'Welcome',
-    category: PINNED_CATEGORY,
-    iconType: 'wizard',
-    href: urls.onboardingWelcome(),
-    visualOrder: -1,
-}
-
-/** Every page the Products tab can list, before feature flags and the Welcome page apply. */
+/** Every page the Products tab can list, before feature flags apply. */
 export function getNavProductPages(): FileSystemImport[] {
     return [
         {
@@ -75,12 +65,8 @@ export function getNavProductPages(): FileSystemImport[] {
     ]
 }
 
-/** `projectCreatedAt` decides whether a new project gets the Welcome page. */
-export function getNavProductItems(featureFlags: FeatureFlagsSet, projectCreatedAt?: string): FileSystemImport[] {
-    const items = [
-        ...(isWelcomeNavItemShown(projectCreatedAt, featureFlags) ? [WELCOME_NAV_ITEM] : []),
-        ...getNavProductPages(),
-    ]
+export function getNavProductItems(featureFlags: FeatureFlagsSet): FileSystemImport[] {
+    const items = getNavProductPages()
     const destinations = new Map<string, FileSystemImport>()
     for (const item of items) {
         if (!item.href || isDefinitionsTabHref(item.href) || !isFileSystemImportFlagEnabled(item, featureFlags)) {
