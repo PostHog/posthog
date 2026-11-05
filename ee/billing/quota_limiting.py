@@ -90,6 +90,7 @@ class QuotaResource(Enum):
     ROWS_EXPORTED = "rows_exported"
     AI_CREDITS = "ai_credits"
     SIGNALS_CREDITS = "signals_credits"
+    SIGNALS_SPEND_CREDITS = "signals_spend_credits"
     POSTHOG_CODE_CREDITS = "posthog_code_credits"
     WORKFLOW_EMAILS = "workflow_emails"
     WORKFLOW_PUSH = "workflow_push"
@@ -102,6 +103,14 @@ class QuotaResource(Enum):
 class QuotaLimitingCaches(Enum):
     QUOTA_LIMITER_CACHE_KEY = "@posthog/quota-limits/"
     QUOTA_LIMITING_SUSPENDED_KEY = "@posthog/quota-limiting-suspended/"
+
+
+def self_driving_quota_resource(organization: Organization) -> QuotaResource:
+    summary = (organization.usage or {}).get("signals_spend_credits") or {}
+    cutoff = summary.get("billing_start_date")
+    if cutoff is not None and date.fromisoformat(cutoff) <= timezone.now().date():
+        return QuotaResource.SIGNALS_SPEND_CREDITS
+    return QuotaResource.SIGNALS_CREDITS
 
 
 OVERAGE_BUFFER = {
@@ -118,6 +127,7 @@ OVERAGE_BUFFER = {
     QuotaResource.ROWS_EXPORTED: 0,
     QuotaResource.AI_CREDITS: 0,
     QuotaResource.SIGNALS_CREDITS: 0,
+    QuotaResource.SIGNALS_SPEND_CREDITS: 0,
     QuotaResource.POSTHOG_CODE_CREDITS: 0,
     QuotaResource.WORKFLOW_EMAILS: 0,
     QuotaResource.WORKFLOW_PUSH: 0,
@@ -130,6 +140,7 @@ OVERAGE_BUFFER = {
 GRACE_PERIOD_EXEMPT_RESOURCES: set[QuotaResource] = {
     QuotaResource.AI_CREDITS,
     QuotaResource.SIGNALS_CREDITS,
+    QuotaResource.SIGNALS_SPEND_CREDITS,
     QuotaResource.REPLAY_VISION_CREDITS,
     QuotaResource.POSTHOG_CODE_CREDITS,
 }
@@ -150,6 +161,7 @@ class UsageCounters(TypedDict):
     rows_exported: int
     ai_credits: int
     signals_credits: int
+    signals_spend_credits: int
     posthog_code_credits: int
     posthog_code_token_credits: int
     sandbox_compute_credits: int
@@ -506,6 +518,9 @@ def org_quota_limited_until(
         return None
     current_usage = _quota_usage(organization.usage, summary)
     limit = summary.get("limit")
+    if resource in {QuotaResource.SIGNALS_CREDITS, QuotaResource.SIGNALS_SPEND_CREDITS}:
+        if resource != self_driving_quota_resource(organization):
+            limit = None
     quota_limited_until = summary.get("quota_limited_until", None)
     quota_limiting_suspended_until = summary.get("quota_limiting_suspended_until", None)
 
@@ -539,7 +554,10 @@ def org_quota_limited_until(
         resource,
         limit is not None and current_usage >= limit + OVERAGE_BUFFER[resource],
     )
-    if resource == QuotaResource.SIGNALS_CREDITS and current_usage - refund_offset < limit:
+    if (
+        resource in {QuotaResource.SIGNALS_CREDITS, QuotaResource.SIGNALS_SPEND_CREDITS}
+        and current_usage - refund_offset < limit
+    ):
         active_persisted_limit = quota_limited_until is not None and quota_limited_until > timezone.now().timestamp()
         if team_tokens is None and previously_quota_limited_team_tokens and not active_persisted_limit:
             team_tokens = get_team_attribute_by_quota_resource(organization)
@@ -553,7 +571,10 @@ def org_quota_limited_until(
             period_end = dateutil.parser.isoparse(organization.usage["period"][1])
             try:
                 period_usage = get_self_driving_credits_used_in_period_for_org(
-                    organization.id, period_start, period_end
+                    organization.id,
+                    period_start,
+                    period_end,
+                    spend_billing=resource == QuotaResource.SIGNALS_SPEND_CREDITS,
                 )
             except Exception as error:
                 capture_exception(error, {"organization_id": str(organization.id)})
@@ -1402,6 +1423,7 @@ def _aggregate_quota_usage(
             mcp_events=all_data["teams_with_mcp_event_count_in_period"].get(team.id, 0),
             ai_credits=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
             signals_credits=all_data["teams_with_signals_credits_used_in_period"].get(team.id, 0),
+            signals_spend_credits=all_data["teams_with_signals_spend_credits_used_in_period"].get(team.id, 0),
             posthog_code_credits=all_data["teams_with_posthog_code_credits_used_in_period"].get(team.id, 0),
             posthog_code_token_credits=all_data["teams_with_posthog_code_token_credits_used_in_period"].get(team.id, 0),
             sandbox_compute_credits=all_data["teams_with_sandbox_compute_credits_used_in_period"].get(team.id, 0),
@@ -1483,6 +1505,7 @@ QUOTA_USAGE_COUNTERS = (
     UsageCounter.LOGS_BYTES,
     UsageCounter.AI_CREDITS,
     UsageCounter.SIGNALS_CREDITS,
+    UsageCounter.SIGNALS_SPEND_CREDITS,
     UsageCounter.POSTHOG_CODE_CREDITS,
     UsageCounter.SANDBOX_COMPUTE_CREDITS,
     UsageCounter.REPLAY_VISION_CREDITS,
@@ -1539,6 +1562,9 @@ def _fetch_quota_usage_counts(service: UsageCounterService, period: DayRange) ->
         "teams_with_mcp_event_count_in_period": convert_team_usage_rows_to_dict(mcp_event_counts),
         "teams_with_ai_credits_used_in_period": dict(counter_report.counts[UsageCounter.AI_CREDITS]),
         "teams_with_signals_credits_used_in_period": dict(counter_report.counts[UsageCounter.SIGNALS_CREDITS]),
+        "teams_with_signals_spend_credits_used_in_period": dict(
+            counter_report.counts[UsageCounter.SIGNALS_SPEND_CREDITS]
+        ),
         "teams_with_posthog_code_credits_used_in_period": {
             team_id: combine_posthog_code_credits(token_credits.get(team_id, 0), compute_credits.get(team_id, 0))
             for team_id in token_credits.keys() | compute_credits.keys()
@@ -1611,13 +1637,7 @@ def update_all_orgs_billing_quotas(
     dry_run: bool = False,
     progress_callback: Callable[[str, str, str], None] | None = None,
 ) -> QuotaLimitingRunResult:
-    """
-    This is called on a cron job every 30 minutes to update all orgs with their quotas.
-    Specifically it's update quota_limited_until and quota_limiting_suspended_until in their usage
-    field on the Organization model.
-
-    # Start and end of the current day
-    """
+    """Refresh organization quotas every 15 minutes, including today's usage."""
     total_start = time()
     period = get_current_day()
     service = UsageCounterService()

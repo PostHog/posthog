@@ -60,6 +60,7 @@ class OrganizationUsageInfo(TypedDict):
     mcp_events: OrganizationUsageResource | None
     ai_credits: OrganizationUsageResource | None
     signals_credits: OrganizationUsageResource | None
+    signals_spend_credits: NotRequired[OrganizationUsageResource | None]
     posthog_code_credits: OrganizationUsageResource | None
     posthog_code_token_credits: OrganizationUsageResource | None
     sandbox_compute_credits: OrganizationUsageResource | None
