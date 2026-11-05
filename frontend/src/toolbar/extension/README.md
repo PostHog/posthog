@@ -72,7 +72,7 @@ Use `minor` or `major` instead of `patch` when it fits, and commit the new file 
 
 After the pull request merges, the workflow:
 
-1. Waits for a reviewer of the `Release toolbar extension` environment to approve the run.
+1. Posts in the client libraries approvals channel on Slack, and waits for a reviewer of the `Release toolbar extension` environment to approve the run. The Slack thread follows the release pull request.
 2. Opens a release pull request that bumps `release/package.json`, adds the changesets to the changelog and deletes them.
 3. Approves that pull request with the release app and sends it to the merge queue.
 
@@ -90,7 +90,7 @@ To retry a failed publish, run the workflow from `master` with the merge commit 
 
 The workflow needs two GitHub environments:
 
-- `Release toolbar extension`, with required reviewers. It approves each release.
+- `Release toolbar extension`, with required reviewers. It approves each release, and the workflow refuses to release while it has none.
 - `chrome-web-store`, limited to the `master` branch, with these variables:
 
 | Variable                                      | Value                                                                                |

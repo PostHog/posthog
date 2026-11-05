@@ -29,9 +29,8 @@ env:
     NPM_CONFIG_AUDIT: 'false'
     NPM_CONFIG_FUND: 'false'
 
-concurrency:
-    group: release-toolbar-extension
-    cancel-in-progress: false
+# Concurrency is per job, not per workflow. GitHub keeps one pending run per group and replaces it with the next one,
+# so a workflow-wide group could drop the run of a merged release pull request while a release waits for approval.
 
 jobs:
     check-changesets:
@@ -60,9 +59,28 @@ jobs:
                       echo "No toolbar extension changesets remain"
                   fi
 
+    notify-approval-needed:
+        name: Notify Slack - Approval Needed
+        needs: check-changesets
+        if: >-
+            github.event_name == 'push'
+            && github.repository == 'PostHog/posthog'
+            && needs.check-changesets.result == 'success'
+            && needs.check-changesets.outputs.has-changesets == 'true'
+        uses: posthog/.github/.github/workflows/notify-approval-needed.yml@03565438486849ac0d19543de36c248a27d32a2f
+        with:
+            checkout_repository: false
+            slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+            slack_user_group_id: ${{ vars.GROUP_CLIENT_LIBRARIES_SLACK_GROUP_ID }}
+            tag_pattern: toolbar-extension/v*
+            tag_sort: version
+        secrets:
+            slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+            posthog_project_api_key: ${{ secrets.POSTHOG_PROJECT_API_KEY }}
+
     prepare-release:
         name: Prepare toolbar extension release pull request
-        needs: [check-changesets, identify-release, publish]
+        needs: [check-changesets, identify-release, notify-approval-needed, publish]
         # A merged release pull request publishes first. Changesets that landed after it then get their own release.
         if: >-
             !cancelled()
@@ -79,12 +97,31 @@ jobs:
         timeout-minutes: 30
         # Its required reviewers approve each release before the version bump.
         environment: Release toolbar extension
+        # A newer run replaces a pending one here, which loses nothing: each run releases every changeset on master.
+        concurrency:
+            group: release-toolbar-extension-prepare
+            cancel-in-progress: false
         permissions:
+            actions: read
             contents: read
         outputs:
             new-version: ${{ steps.prepare-release.outputs.new-version }}
             release-pr: ${{ steps.release-pr.outputs.url }}
         steps:
+            # GitHub creates a missing environment without reviewers, and the release app approves the release pull
+            # request itself, so this approval is the only person in the loop.
+            - name: Require reviewers on the release environment
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
+              run: |
+                  reviewer_count=$(gh api "repos/$REPOSITORY/environments/Release%20toolbar%20extension" \
+                      --jq '[.protection_rules[]? | select(.type == "required_reviewers") | .reviewers[]?] | length')
+                  if [ "$reviewer_count" -eq 0 ]; then
+                      echo "::error::The 'Release toolbar extension' environment has no required reviewers. Add them before releasing."
+                      exit 1
+                  fi
+
             - name: Get GitHub App token
               id: app-token
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -126,6 +163,16 @@ jobs:
                       echo "has-changesets=false" >> "$GITHUB_OUTPUT"
                       echo "No toolbar extension changesets remain; skipping release preparation"
                   fi
+
+            - name: Notify Slack - Approved
+              if: steps.recheck-changesets.outputs.has-changesets == 'true' && needs.notify-approval-needed.outputs.slack_ts != ''
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+                  message: Release approved. Preparing the toolbar extension version bump.
+                  emoji_reaction: white_check_mark
 
             - name: Install Rust
               if: steps.recheck-changesets.outputs.has-changesets == 'true'
@@ -200,12 +247,13 @@ jobs:
 
                   echo "committed=true" >> "$GITHUB_OUTPUT"
 
-            - name: Ensure master did not advance during release preparation
+            # Unrelated commits can land meanwhile. A new changeset can't, because the release would leave it out.
+            - name: Ensure the release files did not change during release preparation
               if: steps.check-changes.outputs.committed == 'true'
               run: |
                   git fetch origin master
-                  if [ "$(git rev-parse HEAD)" != "$(git rev-parse FETCH_HEAD)" ]; then
-                      echo "::error::master advanced during release preparation. Re-run the workflow to include the latest changesets."
+                  if ! git diff --quiet HEAD FETCH_HEAD -- "$RELEASE_DIR"; then
+                      echo "::error::The release files changed on master during release preparation. Re-run the workflow to include the latest changesets."
                       exit 1
                   fi
 
@@ -350,6 +398,27 @@ jobs:
 
                   gh pr comment "$RELEASE_PR" --body '/trunk merge'
 
+            - name: Notify Slack - Release pull request created
+              if: steps.release-pr.outputs.url != '' && needs.notify-approval-needed.outputs.slack_ts != ''
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+                  message: 'Release pull request created: ${{ steps.release-pr.outputs.url }}. Merging it submits the extension to the Chrome Web Store.'
+                  emoji_reaction: eyes
+
+            - name: Notify Slack - Failed
+              if: failure() && needs.notify-approval-needed.outputs.slack_ts != ''
+              continue-on-error: true
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+                  message: 'Failed to prepare the toolbar extension release pull request. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View workflow run>'
+                  emoji_reaction: x
+
     identify-release:
         name: Identify merged toolbar extension release
         runs-on: ubuntu-24.04
@@ -457,8 +526,9 @@ jobs:
                   echo "new-version=$new_version" >> "$GITHUB_OUTPUT"
                   echo "release-commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-    publish:
-        name: Publish toolbar extension to the Chrome Web Store
+    # Builds without write or OIDC permissions, so dependency code never holds the publishing credentials.
+    build:
+        name: Build toolbar extension release
         needs: identify-release
         if: >-
             !cancelled()
@@ -468,20 +538,16 @@ jobs:
             && needs.identify-release.outputs.release-commit != ''
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 30
-        # Holds the Chrome Web Store variables, and lets only master use the Google identity.
-        environment: chrome-web-store
         permissions:
-            contents: write
-            id-token: write
+            contents: read
         env:
             NEW_VERSION: ${{ needs.identify-release.outputs.new-version }}
-            RELEASE_COMMIT: ${{ needs.identify-release.outputs.release-commit }}
-            CWS_ITEM: publishers/${{ vars.CHROME_WEB_STORE_PUBLISHER_ID }}/items/${{ vars.CHROME_WEB_STORE_ITEM_ID }}
         steps:
             - name: Checkout release commit
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  ref: ${{ env.RELEASE_COMMIT }}
+                  ref: ${{ needs.identify-release.outputs.release-commit }}
+                  persist-credentials: false
                   # The same paths as ci-toolbar-extension.yml, which builds the extension on pull requests.
                   sparse-checkout: |
                       /*
@@ -535,6 +601,58 @@ jobs:
                   if-no-files-found: error
                   retention-days: 90
 
+    publish:
+        name: Publish toolbar extension to the Chrome Web Store
+        needs: [identify-release, build]
+        if: >-
+            !cancelled()
+            && github.repository == 'PostHog/posthog'
+            && github.ref == 'refs/heads/master'
+            && needs.identify-release.result == 'success'
+            && needs.build.result == 'success'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 30
+        # Holds the Chrome Web Store variables, and lets only master use the Google identity.
+        environment: chrome-web-store
+        # One group per release, so a later run never replaces the pending publish of a merged release.
+        concurrency:
+            group: release-toolbar-extension-publish-${{ needs.identify-release.outputs.release-commit }}
+            cancel-in-progress: false
+        permissions:
+            contents: write
+            id-token: write
+        env:
+            NEW_VERSION: ${{ needs.identify-release.outputs.new-version }}
+            RELEASE_COMMIT: ${{ needs.identify-release.outputs.release-commit }}
+            CWS_ITEM: publishers/${{ vars.CHROME_WEB_STORE_PUBLISHER_ID }}/items/${{ vars.CHROME_WEB_STORE_ITEM_ID }}
+        steps:
+            - name: Checkout the changelog
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ env.RELEASE_COMMIT }}
+                  persist-credentials: false
+                  sparse-checkout: frontend/src/toolbar/extension/release/CHANGELOG.md
+                  sparse-checkout-cone-mode: false
+
+            - name: Download extension zip
+              id: package
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: toolbar-extension-${{ env.NEW_VERSION }}
+                  path: ${{ runner.temp }}/extension
+
+            - name: Find the zip
+              id: zip
+              env:
+                  ZIP_DIR: ${{ steps.package.outputs.download-path }}
+              run: |
+                  zip_file="$ZIP_DIR/posthog-toolbar-chrome-$NEW_VERSION.zip"
+                  if [ ! -f "$zip_file" ]; then
+                      echo "::error::The build artifact has no $zip_file"
+                      exit 1
+                  fi
+                  echo "path=$zip_file" >> "$GITHUB_OUTPUT"
+
             - name: Authenticate to Google
               id: google
               uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
@@ -548,7 +666,7 @@ jobs:
             - name: Submit to the Chrome Web Store
               env:
                   ACCESS_TOKEN: ${{ steps.google.outputs.access_token }}
-                  ZIP_FILE: ${{ steps.package.outputs.zip }}
+                  ZIP_FILE: ${{ steps.zip.outputs.path }}
               run: |
                   api=https://chromewebstore.googleapis.com
                   response="$RUNNER_TEMP/chrome-web-store.json"
@@ -564,12 +682,21 @@ jobs:
 
                   # A retried run must not upload the same version twice, which the store rejects.
                   status=$(cws "$api/v2/$CWS_ITEM:fetchStatus")
-                  if printf '%s' "$status" | jq -e --arg version "$NEW_VERSION" \
-                      '[.submittedItemRevisionStatus, .publishedItemRevisionStatus] | map(.distributionChannels[]?.crxVersion) | index($version)' >/dev/null; then
-                      echo "The store already has version $NEW_VERSION:"
-                      printf '%s\n' "$status" | jq '{submitted: .submittedItemRevisionStatus, published: .publishedItemRevisionStatus}'
-                      exit 0
-                  fi
+                  version_state=$(printf '%s' "$status" | jq -r --arg version "$NEW_VERSION" '
+                      [.submittedItemRevisionStatus, .publishedItemRevisionStatus]
+                      | map(select(. != null and any(.distributionChannels[]?; .crxVersion == $version)) | .state)
+                      | first // empty')
+                  case "$version_state" in
+                      '') ;;
+                      PENDING_REVIEW | STAGED | PUBLISHED | PUBLISHED_TO_TESTERS)
+                          echo "The store already has version $NEW_VERSION in state $version_state"
+                          exit 0
+                          ;;
+                      *)
+                          echo "::error::The store has version $NEW_VERSION in state $version_state. It can't take this version again, so release a new one with a changeset."
+                          exit 1
+                          ;;
+                  esac
 
                   upload=$(cws -X POST -T "$ZIP_FILE" "$api/upload/v2/$CWS_ITEM:upload")
                   upload_state=$(printf '%s' "$upload" | jq -r '.uploadState')
@@ -598,7 +725,7 @@ jobs:
               env:
                   GH_TOKEN: ${{ github.token }}
                   REPOSITORY: ${{ github.repository }}
-                  ZIP_FILE: ${{ steps.package.outputs.zip }}
+                  ZIP_FILE: ${{ steps.zip.outputs.path }}
               run: |
                   tag="toolbar-extension/v$NEW_VERSION"
                   if gh release view "$tag" --repo "$REPOSITORY" >/dev/null 2>&1; then
