@@ -1724,6 +1724,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
             schema_name = schema.get("name")
             source_schema = source_schemas_by_name.get(schema_name)
+            introspected_columns = (source_schema.columns if source_schema else None) or []
 
             # An incremental sync merges rows on a primary key. Created without one, the table
             # syncs once (the first write overwrites) and then fails on every later run, so the
