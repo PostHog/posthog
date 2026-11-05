@@ -3,7 +3,9 @@ import { useVideoPlayer, type VideoPlayer } from 'expo-video'
 import type { ReactElement } from 'react'
 import { AppState, type AppStateStatus } from 'react-native'
 
+import { ApiError } from '@/api/client'
 import { type ReplayVideoExportContext, resolveReplayVideoSource } from '@/api/replayVideo'
+import { TransportError } from '@/api/transport'
 import { type ReplayVideoState, useReplayVideo } from '@/features/replay/video/useReplayVideo'
 import { videoSecondsForSessionSeconds } from '@/features/replay/video/videoTime'
 
@@ -177,6 +179,45 @@ describe('ReplayVideoPlayer', () => {
         expect(screen.queryByTestId('replay-video-error')).toBeNull()
     })
 
+    test.each([
+        { error: new TransportError(), retryMs: 10_000 },
+        { error: new ApiError(429, {}, new Headers({ 'Retry-After': '20' })), retryMs: 20_000 },
+    ])('keeps buffered playback during transient renewal failures ($retryMs ms retry)', async ({ error, retryMs }) => {
+        jest.useFakeTimers()
+        const expiresAt = Date.now() + 61_000
+        const fresh = { uri: 'https://example.com/replay.mp4?fresh=1', expiresAt: expiresAt + 3_600_000 }
+        jest.mocked(resolveReplayVideoSource).mockRejectedValueOnce(error).mockResolvedValue(fresh)
+        renderPlayer({
+            status: 'ready',
+            exportId: 7,
+            source: { uri: 'https://example.com/replay.mp4', expiresAt },
+            context: undefined,
+            reused: true,
+            waitedMs: 0,
+        })
+        const player = screen.getByTestId('replay-video-view').props.player as VideoPlayer
+        player.currentTime = 173
+        const replace = jest.spyOn(player, 'replaceAsync')
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(1_000)
+        })
+        expect(screen.getByTestId('replay-video-view').props.player).toBe(player)
+        expect(screen.queryByTestId('replay-video-error')).toBeNull()
+        expect(replace).not.toHaveBeenCalled()
+        expect(player.playing).toBe(true)
+        player.currentTime = 183
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(retryMs - 1)
+        })
+        expect(resolveReplayVideoSource).toHaveBeenCalledTimes(1)
+        await act(async () => {
+            await jest.advanceTimersByTimeAsync(1)
+        })
+        expect(replace).toHaveBeenCalledWith(fresh)
+        expect(player.currentTime).toBe(183)
+        expect(player.playing).toBe(true)
+    })
+
     test('keeps the playhead when renewal fails and the user retries', async () => {
         jest.useFakeTimers()
         const ready: ReplayVideoState = {
@@ -187,10 +228,11 @@ describe('ReplayVideoPlayer', () => {
             reused: true,
             waitedMs: 0,
         }
-        jest.mocked(resolveReplayVideoSource).mockRejectedValue(new Error('offline'))
+        jest.mocked(resolveReplayVideoSource).mockRejectedValue(new TransportError())
         const { updateState } = renderPlayer(ready)
         const player = screen.getByTestId('replay-video-view').props.player as VideoPlayer
         player.currentTime = 173
+        Object.defineProperty(player, 'status', { value: 'error', configurable: true })
         await act(async () => {
             await jest.advanceTimersByTimeAsync(1_000)
         })

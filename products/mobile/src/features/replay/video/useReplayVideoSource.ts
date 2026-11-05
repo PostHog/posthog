@@ -2,10 +2,12 @@ import type { VideoPlayer } from 'expo-video'
 import { useEffect } from 'react'
 import { AppState } from 'react-native'
 
-import { type ReplayVideoSource, resolveReplayVideoSource } from '@/api/replayVideo'
+import { ApiError } from '@/api/client'
+import { isTransientReplayVideoError, type ReplayVideoSource, resolveReplayVideoSource } from '@/api/replayVideo'
 import { sessionGeneration } from '@/auth/tokens'
 
 const RENEW_BEFORE_EXPIRY_MS = 60_000
+const RENEW_RETRY_MS = 10_000
 
 export function useReplayVideoSource(
     player: VideoPlayer,
@@ -60,9 +62,14 @@ export function useReplayVideoSource(
                 }
                 expiresAt = fresh.expiresAt
                 scheduleRenewal()
-            } catch {
+            } catch (error) {
                 if (isCurrent()) {
-                    onError(currentTime)
+                    if (isTransientReplayVideoError(error) && player.status !== 'error') {
+                        const retryAfter = error instanceof ApiError ? (error.retryAfterSeconds ?? 0) * 1000 : 0
+                        timer = setTimeout(() => void renew(), Math.max(RENEW_RETRY_MS, retryAfter))
+                    } else {
+                        onError(currentTime)
+                    }
                 }
             } finally {
                 renewing = false
