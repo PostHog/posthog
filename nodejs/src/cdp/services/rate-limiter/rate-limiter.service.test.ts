@@ -1,8 +1,9 @@
 import { randomUUID } from 'crypto'
+import { AddressInfo, Server, Socket, createServer } from 'net'
 import { register } from 'prom-client'
 
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
-import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { RedisClient, RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { Hub } from '~/types'
 
@@ -10,6 +11,44 @@ import { createSesRateLimiterValkeyPool } from './rate-limiter-valkey-pool'
 import { ClaimRequest, IssuedClaim, RateLimiterService } from './rate-limiter.service'
 
 const KEY = `@posthog-test/ses-rate-limiter/${randomUUID()}/bucket`
+
+const INFO = 'redis_version:7.2.0\r\nloading:0'
+
+function stallingValkey(): {
+    server: Server
+    sockets: Set<Socket>
+    stall: () => void
+    commandsWhileStalled: () => number
+} {
+    let stalled = false
+    let received = 0
+    const sockets = new Set<Socket>()
+    const server = createServer((socket) => {
+        sockets.add(socket)
+        socket.on('close', () => sockets.delete(socket))
+        socket.on('data', (chunk) => {
+            const text = chunk.toString()
+            for (const line of text.split('\r\n')) {
+                if (!line.startsWith('*')) {
+                    continue
+                }
+                if (stalled) {
+                    received += 1
+                    continue
+                }
+                socket.write(text.toLowerCase().includes('info') ? `$${INFO.length}\r\n${INFO}\r\n` : '+OK\r\n')
+            }
+        })
+    })
+    return {
+        server,
+        sockets,
+        stall: () => {
+            stalled = true
+        },
+        commandsWhileStalled: () => received,
+    }
+}
 
 describe('RateLimiterService', () => {
     jest.retryTimes(3, { logErrorsBeforeRetry: true })
@@ -535,6 +574,49 @@ describe('RateLimiterService', () => {
             }
         })
 
+        it('stops sending commands to a connected Valkey that no longer replies once one command times out', async () => {
+            const valkey = stallingValkey()
+            await new Promise<void>((resolve) => valkey.server.listen(0, '127.0.0.1', resolve))
+            const stalledValkey = createSesRateLimiterValkeyPool(
+                {
+                    SES_RATE_LIMITER_VALKEY_HOST: '127.0.0.1',
+                    SES_RATE_LIMITER_VALKEY_PORT: (valkey.server.address() as AddressInfo).port,
+                    SES_RATE_LIMITER_VALKEY_PASSWORD: '',
+                    SES_RATE_LIMITER_VALKEY_TLS: false,
+                    REDIS_POOL_MIN_SIZE: 1,
+                    REDIS_POOL_MAX_SIZE: 1,
+                },
+                'stall-test',
+                { optional: true, failFast: true }
+            )!
+            let pooled: RedisClient | undefined
+            try {
+                await stalledValkey.useClient({ name: 'warm-up' }, (client) => {
+                    pooled = client
+                    return client.set('warm', '1')
+                })
+                valkey.stall()
+
+                const outcomes: string[] = []
+                for (let attempt = 0; attempt < 8; attempt++) {
+                    await stalledValkey
+                        .useClient({ name: 'claim' }, (client) => client.set('claim', String(attempt)))
+                        .then(
+                            () => outcomes.push('ok'),
+                            (error: Error) => outcomes.push(error.message)
+                        )
+                }
+
+                expect(outcomes[0]).toBe('Command timed out')
+                expect(outcomes).not.toContain('ok')
+                expect(valkey.commandsWhileStalled()).toBeLessThanOrEqual(3)
+            } finally {
+                pooled?.disconnect()
+                valkey.sockets.forEach((socket) => socket.destroy())
+                await new Promise<void>((resolve) => valkey.server.close(() => resolve()))
+            }
+        })
+
         it('reports a limiter error without naming a denied bucket', async () => {
             const unreachable = new RateLimiterService(
                 {
@@ -596,6 +678,23 @@ describe('RateLimiterService', () => {
             const claim = await grantedClaim(bucket)
 
             await limiter.returnClaim({ ...claim, returnBy: Date.now() - 1000 })
+
+            expect(await limiter.claimAllOrNothing([bucket])).toEqual({ granted: false, deniedIndexes: [0] })
+        })
+
+        it('ignores the return of a claim whose bucket could have expired and been drained again', async () => {
+            const bucket = {
+                key: `${KEY}/short-ttl-return`,
+                requested: 1,
+                capacity: 1,
+                refillPerSecond: 0,
+                ttlSeconds: 1,
+            }
+            const claim = await grantedClaim(bucket)
+            await deleteKeysWithPrefix(redis, bucket.key)
+            await grantedClaim(bucket)
+
+            await limiter.returnClaim(claim)
 
             expect(await limiter.claimAllOrNothing([bucket])).toEqual({ granted: false, deniedIndexes: [0] })
         })
