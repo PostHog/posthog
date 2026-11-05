@@ -96,9 +96,7 @@ class UsageValuesSerializer(serializers.Serializer):
     )
     spans = serializers.IntegerField(help_text="Spans of every kind stored in the window.")
     metric_points = serializers.IntegerField(help_text="Metric data points stored in the window.")
-    metric_series = serializers.IntegerField(
-        help_text="Distinct metric series with at least one point in the window."
-    )
+    metric_series = serializers.IntegerField(help_text="Distinct metric series with at least one point in the window.")
 
 
 class ServiceUsageSerializer(UsageValuesSerializer):
