@@ -19729,7 +19729,7 @@ class InboxUsage(BaseModel):
     )
     unsettled_credits: str = Field(
         ...,
-        description=("Unfinalized credits created in the month, excluded from total_credits."),
+        description=("Unfinalized credits created in the selected range, excluded from total_credits."),
     )
     untracked_scout_run_count: int
 
@@ -29964,12 +29964,12 @@ class InboxUsageQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    dateRange: DateRange = Field(
+        ...,
+        description=("UTC date range. Use explicitDate for exact bounds; the end is exclusive."),
+    )
     kind: Literal["InboxUsageQuery"] = "InboxUsageQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    month: str | None = Field(
-        default=None,
-        description=("UTC calendar month in YYYY-MM format. Defaults to the current month."),
-    )
     response: InboxUsageQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")

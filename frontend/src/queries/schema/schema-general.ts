@@ -7525,8 +7525,8 @@ export type TeamTaxonomyResponse = TeamTaxonomyItem[]
 
 export interface InboxUsageQuery extends DataNode<InboxUsageQueryResponse> {
     kind: NodeKind.InboxUsageQuery
-    /** UTC calendar month in YYYY-MM format. Defaults to the current month. */
-    month?: string
+    /** UTC date range. Use explicitDate for exact bounds; the end is exclusive. */
+    dateRange: DateRange
 }
 
 export interface InboxUsageCredits {
@@ -7562,7 +7562,7 @@ export interface InboxUsage extends InboxUsageCredits {
     period_end: string
     /** @format date-time */
     as_of: string
-    /** Unfinalized credits created in the month, excluded from total_credits. */
+    /** Unfinalized credits created in the selected range, excluded from total_credits. */
     unsettled_credits: string
     untracked_scout_run_count: integer
     /** Missing source metadata is retained in a null-source bucket. */

@@ -1,10 +1,10 @@
-import re
-from datetime import UTC, date, datetime, timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 from functools import cached_property
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
-from django.db.models import Count, Q, QuerySet, Sum
+from django.db.models import Count, Min, Q, QuerySet, Sum
 from django.utils import timezone
 
 from posthog.schema import (
@@ -15,6 +15,7 @@ from posthog.schema import (
     InboxUsageQueryResponse,
     InboxUsageScout,
     InboxUsageSource,
+    IntervalType,
 )
 
 from posthog.hogql import ast
@@ -27,6 +28,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -44,20 +46,6 @@ _SPEND_REPORTS = PostgresTable(
         "triggering_signal_id": UUIDDatabaseField(name="triggering_signal_id", nullable=True),
     },
 )
-
-
-def parse_usage_month(month: str | None) -> date:
-    if month is None:
-        return timezone.now().astimezone(UTC).date().replace(day=1)
-    if not re.fullmatch(r"[0-9]{4}-(0[1-9]|1[0-2])", month):
-        raise ValueError("Enter a valid month in YYYY-MM format.")
-    try:
-        parsed = date.fromisoformat(f"{month}-01")
-    except ValueError:
-        raise ValueError("Enter a valid month in YYYY-MM format.") from None
-    if parsed.year == 9999:
-        raise ValueError("The year must be earlier than 9999.")
-    return parsed
 
 
 def _scout_usage(team_id: int, receipts: QuerySet[SignalSpend]) -> list[InboxUsageScout]:
@@ -105,12 +93,6 @@ class InboxUsageQueryRunner(AnalyticsQueryRunner[InboxUsageQueryResponse]):
         self.ch_user = ClickHouseUser.SIGNALS
         if self.team.parent_team_id and self.team.parent_team_id != self.team.id:
             raise QueryError("Run the usage query in the parent project that owns the spend records.")
-        try:
-            month = parse_usage_month(self.query.month)
-        except ValueError as error:
-            raise QueryError(str(error)) from error
-        # A default-month query must stop sharing its cache when the UTC month changes.
-        self.query = self.query.model_copy(update={"month": f"{month.year:04}-{month.month:02}"})
 
     def _reads_events_route(self) -> bool:
         return False
@@ -123,14 +105,34 @@ class InboxUsageQueryRunner(AnalyticsQueryRunner[InboxUsageQueryResponse]):
         return timezone.now()
 
     @cached_property
+    def query_date_range(self) -> QueryDateRange:
+        earliest = None
+        if self.query.dateRange.date_from == "all":
+            timestamps = self.receipts.aggregate(created=Min("created_at"), finalized=Min("finalized_at"))
+            timestamps["scout"] = (
+                SignalScoutRun.objects.for_team(self.team.id)
+                .exclude(metadata__has_key="scout_trial")
+                .aggregate(created=Min("created_at"))["created"]
+            )
+            # Usage can predate event ingestion, so all-time reads must start from the spend ledger and public runs.
+            earliest = min((timestamp for timestamp in timestamps.values() if timestamp), default=self.as_of)
+        return QueryDateRange(
+            date_range=self.query.dateRange,
+            team=self.team,
+            interval=IntervalType.DAY,
+            now=self.as_of,
+            timezone_info=ZoneInfo("UTC"),
+            exact_timerange=True,
+            earliest_timestamp_fallback=earliest,
+        )
+
+    @cached_property
     def period_start(self) -> datetime:
-        month = parse_usage_month(self.query.month)
-        return datetime(month.year, month.month, 1, tzinfo=UTC)
+        return self.query_date_range.date_from()
 
     @cached_property
     def period_end(self) -> datetime:
-        start = self.period_start
-        return datetime(start.year + (start.month == 12), start.month % 12 + 1, 1, tzinfo=UTC)
+        return self.query_date_range.date_to()
 
     @cached_property
     def receipts(self) -> QuerySet[SignalSpend]:

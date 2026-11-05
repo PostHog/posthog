@@ -6216,7 +6216,7 @@ class TestScoutSpendOverview(APIBaseTest):
             if endpoint == "monthly_query":
                 response = self.client.post(
                     f"/api/projects/{self.team.id}/{path}",
-                    {"query": {"kind": "InboxUsageQuery"}},
+                    {"query": {"kind": "InboxUsageQuery", "dateRange": {"date_from": "-7d"}}},
                     format="json",
                     HTTP_AUTHORIZATION=f"Bearer {raw}",
                 )
@@ -6227,7 +6227,9 @@ class TestScoutSpendOverview(APIBaseTest):
     @time_machine.travel("2026-12-15T12:00:00Z", tick=False)
     def test_monthly_scout_usage_counts_each_run_once_and_keeps_unsettled_separate(self) -> None:
         self.client.force_login(self.user)
-        finalized_at = datetime(2026, 12, 2, tzinfo=UTC)
+        self.team.timezone = "America/Los_Angeles"
+        self.team.save(update_fields=["timezone"])
+        finalized_at = datetime(2026, 12, 1, tzinfo=UTC)
         report_ids = [str(uuid4()), str(uuid4())]
         first = _make_run(self.team, emitted_report_ids=report_ids)
         repeated = _make_run(self.team, emitted_report_ids=report_ids[:1])
@@ -6292,7 +6294,12 @@ class TestScoutSpendOverview(APIBaseTest):
         assert child_response.json()["project_id"] == self.team.id
         assert child_response.json()["total_credits"] == "19.1250"
         assert child_response.json()["scouts"] == data["scouts"]
-        query_payload = {"query": {"kind": "InboxUsageQuery"}}
+        query_payload = {
+            "query": {
+                "kind": "InboxUsageQuery",
+                "dateRange": {"date_from": "2026-12-01", "date_to": "2027-01-01", "explicitDate": True},
+            }
+        }
         query_response = self.client.post(f"/api/projects/{self.team.id}/query/", query_payload, format="json")
         assert query_response.status_code == 200, query_response.content
         assert query_response.json()["results"]["total_credits"] == data["total_credits"]
@@ -6314,6 +6321,72 @@ class TestScoutSpendOverview(APIBaseTest):
         next_month = next_month_response.json()
         assert next_month["period_start"] == "2027-01-01T00:00:00Z"
         assert next_month["total_credits"] == "999.0000"
+
+    @parameterized.expand(
+        [
+            (
+                "exact",
+                {
+                    "date_from": "2026-12-15T12:00:00+01:00",
+                    "date_to": "2026-12-15T12:30:00+01:00",
+                    "explicitDate": True,
+                },
+                "2026-12-15T11:00:00Z",
+                "2026-12-15T11:30:00Z",
+                "2.1250",
+            ),
+            (
+                "exclusive_end",
+                {"date_from": "2026-12-15T10:00:00Z", "date_to": "2026-12-15T11:00:00Z", "explicitDate": True},
+                "2026-12-15T10:00:00Z",
+                "2026-12-15T11:00:00Z",
+                "0",
+            ),
+            (
+                "relative",
+                {"date_from": "-2h", "explicitDate": True},
+                "2026-12-15T10:00:00Z",
+                "2026-12-15T12:00:00Z",
+                "2.1250",
+            ),
+            (
+                "all",
+                {"date_from": "all", "explicitDate": True},
+                "2026-11-01T00:00:00Z",
+                "2026-12-15T12:00:00Z",
+                "2.1250",
+            ),
+        ]
+    )
+    @time_machine.travel("2026-12-15T12:00:00Z", tick=False)
+    def test_usage_query_date_range(
+        self, _name: str, date_range: dict[str, str | bool], start: str, end: str, credits: str
+    ) -> None:
+        self.client.force_login(self.user)
+        self.team.timezone = "America/Los_Angeles"
+        self.team.save(update_fields=["timezone"])
+        run = _make_run(self.team)
+        receipt = SignalSpend.objects.for_team(self.team.id).create(
+            team=self.team,
+            kind=SignalSpend.Kind.SCOUT_RUN,
+            scout_run=run,
+            task_run_id=run.task_run_id,
+            spend=Decimal("2.1250"),
+            finalized_at=datetime(2026, 12, 15, 11, tzinfo=UTC),
+        )
+        SignalSpend.objects.for_team(self.team.id).filter(id=receipt.id).update(
+            created_at=datetime(2026, 11, 1, tzinfo=UTC)
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/query/",
+            {"query": {"kind": "InboxUsageQuery", "dateRange": date_range}},
+            format="json",
+        )
+        assert response.status_code == 200, response.content
+        data = response.json()["results"]
+        assert data["period_start"] == start
+        assert data["period_end"] == end
+        assert data["total_credits"] == credits
 
     def test_monthly_usage_rejects_invalid_month(self) -> None:
         response = self.client.get(f"/api/projects/{self.team.id}/signals/usage/?month=2026-13")

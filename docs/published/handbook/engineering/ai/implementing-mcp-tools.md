@@ -426,7 +426,10 @@ Those breakdowns are additive and retain missing attribution in a null-source bu
 Finalized spend is grouped by UTC calendar month, with unsettled work created in that month reported separately.
 The endpoint uses `InboxUsageQueryRunner`, with a five-minute cache per canonical project and month; `as_of` identifies when the returned totals were computed.
 Source attribution uses one bulk HogQL aggregate, retaining spend when signal metadata is missing or the report is deleted.
-The generic query API also accepts `{"kind": "InboxUsageQuery", "month": "YYYY-MM"}`, including its standard async execution modes, with both `query:read` and `signal_usage:read`.
+The endpoint converts `month` to an explicit UTC `DateRange`; the runner resolves it with the shared `QueryDateRange` class.
+The generic query API accepts `{"kind": "InboxUsageQuery", "dateRange": {"date_from": "2026-11-01", "date_to": "2026-12-01", "explicitDate": true}}`, including its standard async execution modes, with both `query:read` and `signal_usage:read`.
+Direct queries require `dateRange` and support standard relative dates. Bounds use UTC; `date_to` is exclusive. Use `explicitDate: true` to preserve exact end timestamps.
+All-time queries start from the earliest spend record or public scout run, independently of event ingestion.
 Direct queries must target the canonical parent project; the usage endpoint resolves child environments after checking parent-project access.
 The response returns fractional credits as decimal strings and `pricing.usd_per_credit` for USD conversion; recorded usage includes exemptions and is not an invoice amount.
 Use `system.signal_spend` for finer queries and `system.scout_runs.spend_credits` for per-run inspection, without adding the latter to the spend records again.

@@ -56325,7 +56325,7 @@ export namespace Schemas {
       sources: InboxUsageSource[];
       /** Recorded finalized credits, including exemptions. Decimal strings preserve fractional credits. */
       total_credits: string;
-      /** Unfinalized credits created in the month, excluded from total_credits. */
+      /** Unfinalized credits created in the selected range, excluded from total_credits. */
       unsettled_credits: string;
       untracked_scout_run_count: number;
     }
@@ -56353,11 +56353,11 @@ export namespace Schemas {
     }
 
     export interface InboxUsageQuery {
+      /** UTC date range. Use explicitDate for exact bounds; the end is exclusive. */
+      dateRange: DateRange;
       kind?: 'InboxUsageQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      /** UTC calendar month in YYYY-MM format. Defaults to the current month. */
-      month?: string | null;
       response?: InboxUsageQueryResponse | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */

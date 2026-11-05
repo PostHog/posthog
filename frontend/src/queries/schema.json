@@ -30851,7 +30851,7 @@
                     "type": "string"
                 },
                 "unsettled_credits": {
-                    "description": "Unfinalized credits created in the month, excluded from total_credits.",
+                    "description": "Unfinalized credits created in the selected range, excluded from total_credits.",
                     "type": "string"
                 },
                 "untracked_scout_run_count": {
@@ -30911,6 +30911,10 @@
         "InboxUsageQuery": {
             "additionalProperties": false,
             "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "UTC date range. Use explicitDate for exact bounds; the end is exclusive."
+                },
                 "kind": {
                     "const": "InboxUsageQuery",
                     "type": "string"
@@ -30918,10 +30922,6 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
-                },
-                "month": {
-                    "description": "UTC calendar month in YYYY-MM format. Defaults to the current month.",
-                    "type": "string"
                 },
                 "response": {
                     "$ref": "#/definitions/InboxUsageQueryResponse"
@@ -30934,7 +30934,7 @@
                     "type": "number"
                 }
             },
-            "required": ["kind"],
+            "required": ["dateRange", "kind"],
             "type": "object"
         },
         "InboxUsageQueryResponse": {

@@ -1,14 +1,17 @@
 from dataclasses import asdict
-from datetime import date
+from datetime import UTC, date
 from typing import TYPE_CHECKING, cast
 
+from django.utils import timezone
+
+from dateutil.relativedelta import relativedelta
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from rest_framework import serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import CachedInboxUsageQueryResponse, InboxUsageQuery
+from posthog.schema import CachedInboxUsageQueryResponse, DateRange, InboxUsageQuery
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -16,12 +19,7 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.clickhouse.workload import Workload
 from posthog.permissions import APIScopePermission
 
-from products.signals.backend.facade.spend import (
-    InboxUsageQueryRunner,
-    parse_usage_month,
-    scout_spend_overview,
-    source_spend_overview,
-)
+from products.signals.backend.facade.spend import InboxUsageQueryRunner, scout_spend_overview, source_spend_overview
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 
 if TYPE_CHECKING:
@@ -105,9 +103,12 @@ class MonthlyUsageQuerySerializer(serializers.Serializer):
 
     def validate_month(self, value: str) -> date:
         try:
-            return parse_usage_month(value)
-        except ValueError as error:
-            raise serializers.ValidationError(str(error)) from error
+            month = date.fromisoformat(f"{value}-01")
+        except ValueError:
+            raise serializers.ValidationError("Enter a valid month in YYYY-MM format.") from None
+        if month.year == 9999:
+            raise serializers.ValidationError("The year must be earlier than 9999.")
+        return month
 
 
 class UsageCreditsSerializer(serializers.Serializer):
@@ -211,10 +212,16 @@ class SignalMonthlyUsageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         operation_id="signals_monthly_usage",
     )
     def list(self, request: ValidatedRequest, **kwargs: object) -> Response:
-        month = request.validated_query_data.get("month")
+        month = request.validated_query_data.get("month") or timezone.now().astimezone(UTC).date().replace(day=1)
         user = cast("User", request.user)
         usage = InboxUsageQueryRunner(
-            query=InboxUsageQuery(month=f"{month.year:04}-{month.month:02}" if month else None),
+            query=InboxUsageQuery(
+                dateRange=DateRange(
+                    date_from=month.isoformat(),
+                    date_to=(month + relativedelta(months=1)).isoformat(),
+                    explicitDate=True,
+                )
+            ),
             team=self.team.parent_team or self.team,
             user=user,
             workload=Workload.ONLINE,
