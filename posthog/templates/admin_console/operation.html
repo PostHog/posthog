@@ -1,17 +1,12 @@
 {% extends "admin_console/base.html" %}
-{% block title %}{{ operation.label }} · {{ record_title }} · PostHog Admin{% endblock %}
+{% block title %}{{ operation.label }} · {{ target.title }} · PostHog Admin{% endblock %}
 {% block content %}
     <nav class="text-xs text-muted-foreground" aria-label="Breadcrumb">
         <a class="text-muted-foreground" href="{% url 'admin_console_home' %}">Home</a>
-        {% for parent in record_parents %}
+        {% for crumb in target.breadcrumbs %}
             ›
-            <a class="text-muted-foreground" href="{{ parent.href }}">{{ parent.label }}</a>
+            <a class="text-muted-foreground" href="{{ crumb.href }}">{{ crumb.label }}</a>
         {% endfor %}
-        ›
-        <a class="text-muted-foreground" href="{{ record_url }}">{{ record_title }}</a>
-        ›
-        <a class="text-muted-foreground"
-           href="{{ record_url }}#panel-{{ panel.key }}">{{ panel.title }}</a>
     </nav>
     <h1 class="mt-1.5 mb-4 text-[22px] font-extrabold">{{ operation.label }}</h1>
     <section class="quill-card group/card flex flex-col max-w-xl{% if operation.danger %} console-danger{% endif %}"
@@ -20,15 +15,15 @@
              data-size="default">
         <div class="quill-card__header group/card-header" data-slot="card-header">
             <div class="flex flex-col gap-1 min-w-0">
-                <span class="text-xs text-muted-foreground">This acts on</span>
+                <span class="text-xs text-muted-foreground">{{ target.kicker }}</span>
                 <span class="flex flex-wrap items-center gap-2">
-                    <strong class="text-[15px] break-words">{{ record_title }}</strong>
-                    <span class="quill-badge inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap quill-badge--variant-default font-mono">{{ record_type.label }} {{ obj.pk }}</span>
+                    <strong class="text-[15px] break-words">{{ target.title }}</strong>
+                    <span class="quill-badge inline-flex w-fit shrink-0 items-center justify-center gap-1 overflow-hidden whitespace-nowrap quill-badge--variant-default font-mono">{{ target.badge }}</span>
                     <span class="console-env-pill inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide whitespace-nowrap">
                         <span class="console-env-dot size-[7px] rounded-full"></span>{{ console_env_label }}
                     </span>
                 </span>
-                {% if record_subtitle %}<span class="text-muted-foreground">{{ record_subtitle }}</span>{% endif %}
+                {% if target.subtitle %}<span class="text-muted-foreground">{{ target.subtitle }}</span>{% endif %}
             </div>
         </div>
         <form method="post" class="flex flex-col" data-autofocus>
@@ -49,9 +44,9 @@
                  data-slot="card-footer">
                 <button type="submit"
                         class="quill-button {% if operation.danger %}quill-button--variant-destructive{% else %}quill-button--variant-primary{% endif %} quill-button--size-default group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap">
-                    {{ operation.label }} for {{ record_title|truncatechars:40 }}
+                    {{ operation.label }}{% if target.is_record %} for {{ target.title|truncatechars:40 }}{% endif %}
                 </button>
-                <a href="{{ record_url }}"
+                <a href="{{ target.back_url }}"
                    class="quill-button quill-button--variant-outline quill-button--size-default group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap">Cancel</a>
             </div>
         </form>

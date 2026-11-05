@@ -13,7 +13,7 @@ Read [`posthog/admin/console/AGENTS.md`](../../../posthog/admin/console/AGENTS.m
 
 - **Plain create, read, update or delete on one model** stays in Django admin. The console is not a second CRUD layer.
 - **Facts and actions about one team or one organization** go in a panel on that record's page. One panel per product concern, owned by the team that owns the data.
-- **A report across many teams** is a tool. Tools only read. An action from a tool row links to the team page.
+- **A report across many teams, or an action that is not about one record** (a backfill, a re-save across teams) is a tool. An action on one team from a tool row links to that team's page instead of becoming a tool operation.
 - **A staff page your product already has in the app** (a DRF staff endpoint and scene) is legacy. Do not extend it and do not bridge to it. Ask the user whether to move it into the console as its own change.
 - **Anything else** (a new record type such as a user or project page, a new block kind, a new tool group, a template change) is a shell change. Stop and ask the user: those need a review by the console owners (team-devex), not a product team alone.
 

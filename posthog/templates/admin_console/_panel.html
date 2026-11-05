@@ -45,31 +45,9 @@
             </dl>
         {% endif %}
         {% if rendered.operations %}
-            <ul class="m-0 p-0 list-none grid grid-cols-[max-content_1fr] items-center gap-x-3 gap-y-2 pt-3 border-t border-border">
-                {% for operation in rendered.operations %}
-                    <li class="grid grid-cols-subgrid col-span-2 items-center">
-                        {% if operation.form_class %}
-                            <a href="{% url record_type.operation_url_name pk=obj.pk panel_key=rendered.panel.key operation_key=operation.key %}"
-                               class="quill-button {% if operation.danger %}quill-button--variant-destructive-outline{% else %}quill-button--variant-outline{% endif %} quill-button--size-sm group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap">{{ operation.label }}</a>
-                        {% else %}
-                            <form method="post"
-                                  action="{% url record_type.operation_url_name pk=obj.pk panel_key=rendered.panel.key operation_key=operation.key %}">
-                                {% csrf_token %}
-                                <button type="submit"
-                                        class="quill-button quill-button--variant-outline quill-button--size-sm group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap">
-                                    {{ operation.label }}
-                                </button>
-                            </form>
-                        {% endif %}
-                        <span class="text-xs text-muted-foreground">
-                            {% if operation.danger %}
-                                {% include "admin_console/_badge.html" with label="Risky" tone="destructive" %}
-                            {% endif %}
-                            {{ operation.description }}
-                        </span>
-                    </li>
-                {% endfor %}
-            </ul>
+            <div class="pt-3 border-t border-border">
+                {% include "admin_console/_operations.html" with operations=rendered.operations %}
+            </div>
         {% endif %}
     </div>
 </section>

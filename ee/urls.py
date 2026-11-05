@@ -77,7 +77,6 @@ if settings.ADMIN_PORTAL_ENABLED:
         notebook_markdown_migration_stats_view,
         notebook_markdown_migration_view,
     )
-    from posthog.admin.admins.resave_cohorts_admin import resave_cohorts_view
     from posthog.admin.admins.tophog_admin import tophog_dashboard_view, tophog_restrictions_view
     from posthog.admin.console.urls import urlpatterns as console_urlpatterns
 
@@ -92,7 +91,7 @@ if settings.ADMIN_PORTAL_ENABLED:
         path("admin/apikeysearch", api_key_search_view, name="api_key_search"),
         path(
             "admin/resave-cohorts/",
-            admin.site.admin_view(resave_cohorts_view),
+            MovedToConsole.page_redirect("Re-save cohorts", "/admin/console/tools/resave-cohorts/"),
             name="resave-cohorts",
         ),
         path(

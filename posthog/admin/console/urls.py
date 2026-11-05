@@ -50,6 +50,11 @@ urlpatterns = [
         admin.site.admin_view(views.tool_page),
         name="admin_console_tool",
     ),
+    path(
+        "admin/console/tools/<slug:tool_key>/<slug:operation_key>/",
+        admin.site.admin_view(views.run_tool_operation),
+        name="admin_console_tool_operation",
+    ),
     *[
         path(
             f"admin/posthog/team/<int:pk>/{old}/",

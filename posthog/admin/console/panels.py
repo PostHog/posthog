@@ -48,6 +48,16 @@ class Fact:
             raise ValueError(f"Fact {self.label!r} links to {self.href!r}. Link to a PostHog path that starts with /.")
 
 
+def check_danger(key: str, danger: bool, form_class: type[forms.Form] | None, undo_hint: str) -> None:
+    # The console writes the reason to the audit log, so nobody runs a destructive action without saying why.
+    if danger and (form_class is None or "reason" not in form_class.base_fields):
+        raise ValueError(f"Danger operation {key!r} needs a form with a reason field")
+    if danger and not undo_hint.strip():
+        raise ValueError(
+            f"Danger operation {key!r} needs an undo_hint that says how to undo it, or that it cannot be undone"
+        )
+
+
 class OperationHandler(Protocol):
     """Returns None when done. To report a failure, add an error message and return a 4xx or 5xx response."""
 
@@ -72,13 +82,7 @@ class Operation:
     undo_hint: str = ""
 
     def __post_init__(self) -> None:
-        # The console writes the reason to the audit log, so nobody runs a destructive action without saying why.
-        if self.danger and (self.form_class is None or "reason" not in self.form_class.base_fields):
-            raise ValueError(f"Danger operation {self.key!r} needs a form with a reason field")
-        if self.danger and not self.undo_hint.strip():
-            raise ValueError(
-                f"Danger operation {self.key!r} needs an undo_hint that says how to undo it, or that it cannot be undone"
-            )
+        check_danger(self.key, self.danger, self.form_class, self.undo_hint)
 
 
 class ReasonForm(forms.Form):
