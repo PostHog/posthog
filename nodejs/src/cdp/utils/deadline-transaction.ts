@@ -18,7 +18,6 @@ export async function runTransactionBeforeDeadline<Result>(
     try {
         client = await postgres.connect(PostgresUse.COMMON_WRITE)
     } catch (error) {
-        // Marks a refused or reset connection as transient, so callers that retry such errors retry it too.
         handlePostgresError(error as Error, PostgresUse.COMMON_WRITE)
         throw error
     }
