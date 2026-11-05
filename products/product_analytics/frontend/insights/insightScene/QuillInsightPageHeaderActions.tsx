@@ -96,9 +96,8 @@ export function QuillInsightPageHeaderActions({
                                         Share
                                     </DropdownMenuSubTrigger>
                                     <DropdownMenuSubContent>
-                                        {shareItems.map(({ label, icon, onClick, dataAttr }) => (
+                                        {shareItems.map(({ label, onClick, dataAttr }) => (
                                             <DropdownMenuItem key={dataAttr} onClick={onClick} data-attr={dataAttr}>
-                                                {icon}
                                                 {label}
                                             </DropdownMenuItem>
                                         ))}

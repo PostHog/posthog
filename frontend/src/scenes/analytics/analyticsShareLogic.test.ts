@@ -64,20 +64,27 @@ describe('analyticsShareLogic', () => {
 
     // The new path decides who sees the item, and a slash in a name would otherwise become a folder.
     test.each([
-        ['insight', 'Weekly/active', FINANCE, 'fs-i1 -> Finance/Weekly\\/active'],
-        ['canvas', 'Run rate', FINANCE, 'fs-c1 -> Finance/Run rate'],
-        ['canvas', 'Run rate', null, 'fs-c1 -> Unfiled/Canvases/Run rate'],
-        ['dashboard', 'Board', null, 'fs-d1 -> Unfiled/Dashboards/Board'],
-    ] as const)('moves a %s named %p into %p', async (type, name, space, expected) => {
+        ['insight', 'Weekly/active', FINANCE, 'fs-i1 -> Finance/Weekly\\/active', 'Finance'],
+        [
+            'insight',
+            'Weekly',
+            { path: 'Finance/Q4 launch', name: 'Q4 launch' },
+            'fs-i1 -> Finance/Q4 launch/Weekly',
+            'Finance',
+        ],
+        ['canvas', 'Run rate', FINANCE, 'fs-c1 -> Finance/Run rate', 'Finance'],
+        ['canvas', 'Run rate', null, 'fs-c1 -> Unfiled/Canvases/Run rate', null],
+        ['dashboard', 'Board', null, 'fs-d1 -> Unfiled/Dashboards/Board', null],
+    ] as const)('moves a %s named %p into %p', async (type, name, destination, expected, expectedSpace) => {
         const logic = analyticsShareLogic()
         logic.mount()
         const ref = `${type[0]}1`
-        await expectLogic(logic, () => logic.actions.moveItem({ type, ref, name }, space)).toDispatchActions([
+        await expectLogic(logic, () => logic.actions.moveItem({ type, ref, name }, destination)).toDispatchActions([
             'shareToSpaceDone',
         ])
 
         expect(moves).toEqual([expected])
-        expect(logic.values.itemSpaces[`${type}:${ref}`]).toBe(space?.name ?? null)
+        expect(logic.values.itemSpaces[`${type}:${ref}`]).toBe(expectedSpace)
     })
 
     it('loads every sharing destination independently of browser search and refreshes them on each open', async () => {
