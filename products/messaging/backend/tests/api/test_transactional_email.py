@@ -37,25 +37,10 @@ from products.messaging.backend.presentation.views.message_templates import (
 )
 from products.messaging.backend.services import transactional_email
 from products.messaging.backend.services.transactional_email import TransactionalEmailStage, make_transactional
+from products.messaging.backend.tests.test_code_send_fields import ADDRESS_VERDICTS
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
 from products.workflows.backend.facade.models import HogFlow
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
-
-ADDRESS_VERDICTS = [
-    ("jane=tag@example.com", True),
-    ("jane~tag@example.com", True),
-    ("jane#tag@example.com", True),
-    ("o'brien@example.com", True),
-    ("a!b$c%d&e*f/g?h^i`j|k~l@example.com", True),
-    ("jane@sub.example.co.uk", True),
-    ("jane@bücher.example", False),
-    ("jane@[192.0.2.1]", False),
-    ('"jane doe"@example.com', False),
-    ("jane@localhost", False),
-    (".jane@example.com", False),
-    ("jane.@example.com", False),
-    ("jane..doe@example.com", False),
-]
 
 
 @frozen
@@ -648,6 +633,35 @@ class TestTransactionalEmail(APIBaseTest):
                 {"html": "", "text": "Hi"},
                 {"content": {"subject": "Welcome, Jane", "text": "Hi"}, "tracking": {"captureEngagement": True}},
             ),
+            (
+                "null_copies_and_attachments",
+                {"cc": None, "bcc": None, "attachments": None},
+                {
+                    "content": {"subject": "Welcome, Jane", "html": "<p>Hi Jane</p>", "text": "Hi Jane"},
+                    "tracking": {"captureEngagement": True},
+                },
+            ),
+            (
+                "cc_bcc_and_attachments",
+                {
+                    "cc": "copy@example.com",
+                    "bcc": ["audit@example.com", "archive@example.com"],
+                    "attachments": [
+                        {"filename": "a.csv", "content": "YSxi", "content_type": "text/csv", "content_id": "a"},
+                        {"filename": "notes.txt", "content": "aGk="},
+                    ],
+                },
+                {
+                    "content": {"subject": "Welcome, Jane", "html": "<p>Hi Jane</p>", "text": "Hi Jane"},
+                    "tracking": {"captureEngagement": True},
+                    "cc": ["copy@example.com"],
+                    "bcc": ["audit@example.com", "archive@example.com"],
+                    "attachments": [
+                        {"filename": "a.csv", "content": "YSxi", "contentType": "text/csv", "contentId": "a"},
+                        {"filename": "notes.txt", "content": "aGk="},
+                    ],
+                },
+            ),
         ]
     )
     def test_a_code_send_carries_what_the_caller_set(self, mock_post, _flag, _capture, _name, fields, sent):
@@ -680,6 +694,11 @@ class TestTransactionalEmail(APIBaseTest):
             ("sender_nested_too_deep_to_parse", {"from": "(" * 1000 + "security@example.com" + ")" * 1000}, "from"),
             ("sender_over_1024_characters", {"from": "E" * 1024 + " <security@example.com>"}, "from"),
             ("empty_reply_to", {"reply_to": []}, "reply_to"),
+            (
+                "liquid_in_a_copy_address",
+                {"bcc": ["audit@example.com", "{{person.properties.email}}@example.com"]},
+                None,
+            ),
             ("field_this_server_lacks", {"scheduled_at": "2026-11-01T09:00:00Z"}, "scheduled_at"),
             ("empty_key_beside_a_field_this_server_lacks", {"": "", "scheduled_at": "2026-11-01T09:00:00Z"}, None),
             ("html_over_5_mib_in_utf8", {"html": "é" * (5 * 1024 * 1024 // 2 + 1)}, "html"),
@@ -696,7 +715,10 @@ class TestTransactionalEmail(APIBaseTest):
         mock_post.assert_not_called()
 
     @parameterized.expand(
-        [(field, address, accepted) for field in ("to", "reply_to") for address, accepted in ADDRESS_VERDICTS]
+        [
+            *((field, address, accepted) for field in ("to", "reply_to") for address, accepted in ADDRESS_VERDICTS),
+            ("cc", '"jane doe"@example.com', False),
+        ]
     )
     def test_a_code_send_takes_the_addresses_the_pipeline_takes(
         self, mock_post, _flag, _capture, field, address, accepted
@@ -717,11 +739,52 @@ class TestTransactionalEmail(APIBaseTest):
             assert response.json()["attr"].startswith(field)
             mock_post.assert_not_called()
 
-    def test_refuses_code_fields_on_a_template_send(self, mock_post, _flag, _capture):
-        response = self._send(self._psak_client(["hog_flow:write"]), "send_email", {**self.body, "subject": "Hi"})
+    @parameterized.expand(
+        [
+            ("subject", "Hi", "validation_error"),
+            ("cc", "copy@example.com", "invalid_request"),
+            ("bcc", ["audit@example.com"], "invalid_request"),
+            ("attachments", [{"filename": "notes.txt", "content": "aGk="}], "invalid_request"),
+        ]
+    )
+    def test_refuses_code_fields_on_a_template_send(self, mock_post, _flag, _capture, field, value, error_type):
+        response = self._send(self._psak_client(["hog_flow:write"]), "send_email", {**self.body, field: value})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["attr"] == "subject"
+        assert (response.json()["attr"], response.json()["type"]) == (field, error_type)
+        mock_post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("empty_lists", {"cc": [], "bcc": [], "attachments": []}),
+            ("nulls", {"cc": None, "bcc": None, "attachments": None}),
+        ]
+    )
+    def test_takes_empty_copies_and_attachments_on_a_template_send(self, mock_post, _flag, _capture, _name, fields):
+        self._cdp_accepts(mock_post)
+
+        response = self._send(self._psak_client(["hog_flow:write"]), "send_email", {**self.body, **fields})
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        mock_post.assert_called_once()
+
+    def test_a_refused_attachment_explains_itself_without_repeating_its_content(self, mock_post, _flag, _capture):
+        content = "c2VjcmV0LWludm9pY2UtYnl0ZXM=" + "!"
+        attachments = [{"filename": "invoice.pdf", "content": content}]
+
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, self._code_send(attachments=attachments), format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        body = response.json()
+        assert (body["type"], body["code"], body["attr"]) == (
+            "invalid_request",
+            "invalid_request",
+            "attachments__0__content",
+        )
+        assert body["why"] and body["fix"]
+        assert "c2VjcmV0" not in response.content.decode()
         mock_post.assert_not_called()
 
     @parameterized.expand(
@@ -834,6 +897,22 @@ class TestTransactionalEmail(APIBaseTest):
             assert response.json()["code"] == expected_code
         else:
             assert response.json() == {"message_id": "first-send", "replayed": True}
+
+    def test_a_code_send_an_older_pipeline_does_not_take_is_refused_on_that_field(self, mock_post, _flag, capture):
+        issues = [{"code": "unrecognized_keys", "keys": ["attachments"], "path": ["send"], "message": "Unrecognized"}]
+        mock_post.return_value = MagicMock(status_code=400, json=lambda: {"error": json.dumps(issues)})
+
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url,
+            self._code_send(attachments=[{"filename": "receipt.pdf", "content": "JVBERg=="}]),
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        body = response.json()
+        assert (body["code"], body["attr"]) == ("invalid_request", "attachments")
+        assert body["why"] and body["fix"]
+        assert capture.call_args.kwargs["properties"]["error_code"] == "field_not_accepted"
 
     @parameterized.expand(
         [
