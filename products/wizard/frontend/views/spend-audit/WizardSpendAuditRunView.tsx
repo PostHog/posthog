@@ -35,7 +35,12 @@ function AuditOutcome({ run, tasks }: { run: WizardRunApi; tasks: readonly Wizar
     if (run.status === 'cancelled') {
         return <p className="mt-3 mb-0 text-xs text-muted">This audit was canceled. Run it again when you're ready.</p>
     }
-    return <p className="mt-3 mb-0 text-xs">The audit is complete. Review the pull request before you merge it.</p>
+    return (
+        <p className="mt-3 mb-0 text-xs">
+            The audit is complete. The notebook lists the settings to change. If the agent opened a pull request, review
+            it before you merge it.
+        </p>
+    )
 }
 
 export function WizardSpendAuditRunView({

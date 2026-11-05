@@ -8,15 +8,17 @@ export interface WizardSpendAuditStep {
     key: WizardSpendAuditStepKey
     label: string
     // Words the program's task names carry for this step, matched case-insensitively. The program
-    // reports one task per piece of work, so a step with several tasks (one per pull request)
-    // completes when all of them do.
+    // reports one task per piece of work, so a step with several tasks (one per audit area)
+    // completes when all of them do. The spend-audit flow in context-mill labels its tasks against
+    // this table; a label that drifts lands on the wrong step or on none.
     taskWords: readonly string[]
 }
 
 export const WIZARD_SPEND_AUDIT_STEPS: readonly WizardSpendAuditStep[] = [
     { key: 'audit', label: 'Audit the PostHog setup', taskWords: ['audit'] },
     { key: 'audit_notebook', label: 'Write the audit notebook', taskWords: ['notebook', 'report'] },
-    { key: 'pull_requests', label: 'Open pull requests', taskWords: ['pull request'] },
+    // The backend opens one pull request per run, from the whole diff, after the agent exits.
+    { key: 'pull_requests', label: 'Open a pull request', taskWords: ['pull request'] },
     { key: 'unused_events', label: 'Create dashboards and insights for unused events', taskWords: ['unused event'] },
 ]
 
