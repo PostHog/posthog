@@ -231,6 +231,15 @@ const CONTENT_EXPIRED_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     generateSummary: 'products.ai_observability.frontend.summary-view.summaryViewLogic',
 }
 
+/*
+Write actions whose owning logic toasts a duplicate project name 409. It is a response to user input,
+so it is not reported as an exception. Owned by projectLogic's failure listeners.
+*/
+const CONFLICT_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
+    createProject: 'scenes.projectLogic',
+    updateCurrentProject: 'scenes.projectLogic',
+}
+
 interface InitKeaProps {
     state?: Record<string, any>
     routerHistory?: any
@@ -388,12 +397,16 @@ export function initKea({
                     error?.status === 404 &&
                     error?.code === 'content_expired' &&
                     isOwnedByLogic(CONTENT_EXPIRED_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logic.pathString)
+                const isSelfHandledConflict =
+                    error?.status === 409 &&
+                    isOwnedByLogic(CONFLICT_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logic.pathString)
                 if (
                     shouldReportApiFailure(error) &&
                     !isSelfHandledNotFound &&
                     !isSelfHandledExistingMember &&
                     !isSelfHandledContentExpired &&
-                    !isSelfHandledValidationError
+                    !isSelfHandledValidationError &&
+                    !isSelfHandledConflict
                 ) {
                     posthog.captureException(error)
                 }

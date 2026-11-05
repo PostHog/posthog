@@ -22,6 +22,14 @@ import { userLogic } from './userLogic'
 
 const CREATE_PROJECT_TIMEOUT_MS = 60_000
 
+// The global loader toast skips 409s, so the duplicate-name rejection is shown here.
+function toastDuplicateNameConflict(error: string, errorObject: unknown): void {
+    const apiError = errorObject as ApiError | undefined
+    if (apiError?.status === 409) {
+        lemonToast.error(apiError.detail || error)
+    }
+}
+
 export function isPathOpenWhileProjectPendingDeletion(pathname: string): boolean {
     // projectBased scenes are served under a /project/:id prefix, so match the lockout path by suffix.
     // Tickets load from PostHog's support project, not this one, and reply emails link to them.
@@ -350,10 +358,10 @@ export const projectLogic = kea<projectLogicType>([
             actions.guardPendingDeletion(pathname, values.currentProject?.is_pending_deletion)
         },
         updateCurrentProjectFailure: ({ error, errorObject }) => {
-            const apiError = errorObject as ApiError | undefined
-            if (apiError?.status === 409) {
-                lemonToast.error(apiError.detail || error)
-            }
+            toastDuplicateNameConflict(error, errorObject)
+        },
+        createProjectFailure: ({ error, errorObject }) => {
+            toastDuplicateNameConflict(error, errorObject)
         },
         guardPendingDeletion: ({ pathname, isPendingDeletion }) => {
             const onLockoutScreen = pathname.endsWith(urls.projectPendingDeletion())
