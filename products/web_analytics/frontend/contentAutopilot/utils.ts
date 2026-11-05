@@ -112,3 +112,14 @@ export const promptEditPatch = (
     }
     return Object.keys(patch).length ? patch : null
 }
+
+const normalizedPrompt = (text: string): string => text.trim().replace(/\s+/g, ' ').toLowerCase()
+
+// An opportunity drafts from the text it was found for, so after an edit it stays hidden until a refresh matches it.
+export const draftableOpportunity = (
+    opportunityByPromptId: Record<string, ContentAutopilotOpportunityApi>,
+    prompt: Pick<AEOPromptApi, 'id' | 'prompt'>
+): ContentAutopilotOpportunityApi | null => {
+    const opportunity = opportunityByPromptId[prompt.id]
+    return opportunity && normalizedPrompt(opportunity.title) === normalizedPrompt(prompt.prompt) ? opportunity : null
+}

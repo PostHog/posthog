@@ -75,7 +75,7 @@ export const AeoPromptsPartialUpdateParams = () => zod.object({
 
 export const aeoPromptsPartialUpdateBodyTopicMax = 200
 
-export const aeoPromptsPartialUpdateBodyPromptMax = 10000
+export const aeoPromptsPartialUpdateBodyPromptMax = 2000
 
 export const aeoPromptsPartialUpdateBodyVersionDescriptionMax = 400
 

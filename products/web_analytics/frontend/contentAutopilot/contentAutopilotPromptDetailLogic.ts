@@ -23,6 +23,7 @@ import type {
     PaginatedAEOPromptCheckListApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 import {
     PromptConsensusMatrix,
@@ -613,6 +614,10 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
                 }
                 actions.loadAeoPrompts()
                 actions.loadAeoPromptTopics()
+                if (patch.prompt !== undefined) {
+                    // Opportunities carry the old wording; a refresh rebuilds them for the new text.
+                    contentAutopilotLogic.findMounted()?.actions.refreshOpportunities()
+                }
             } catch (error) {
                 actions.savePromptEditFailure()
                 // A 400 or 409 says why the change was refused, for example a duplicate prompt text.

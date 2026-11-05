@@ -26,7 +26,7 @@ import { ContentAutopilotPromptDetail } from './ContentAutopilotPromptDetail'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
 import { PROMPTS_PAGE_SIZE, contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
-import { engineLabel } from './utils'
+import { draftableOpportunity, engineLabel } from './utils'
 
 const checkTag = (prompt: AEOPromptApi, engine: string): JSX.Element => {
     const check = prompt.latest_checks.find((latest) => latest.engine === engine)
@@ -224,12 +224,14 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                         },
                         {
                             key: 'draft',
-                            render: (_, { id }) =>
-                                opportunityByPromptId[id] ? (
+                            render: (_, prompt) => {
+                                const opportunity = draftableOpportunity(opportunityByPromptId, prompt)
+                                return opportunity ? (
                                     <div className="whitespace-nowrap">
-                                        <ContentAutopilotDraftButton opportunity={opportunityByPromptId[id]} />
+                                        <ContentAutopilotDraftButton opportunity={opportunity} />
                                     </div>
-                                ) : null,
+                                ) : null
+                            },
                         },
                         {
                             title: 'Active',

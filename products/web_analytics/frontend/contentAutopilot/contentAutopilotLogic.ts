@@ -598,7 +598,8 @@ export interface contentAutopilotLogicMeta {
             exportedProposalLoading: boolean
         ) => ContentAutopilotProposalActionReasons
         opportunityByPromptId: (
-            opportunities: ContentAutopilotOpportunityApi[] | null
+            opportunities: ContentAutopilotOpportunityApi[] | null,
+            profile: ContentAutopilotSiteProfileApi | null
         ) => Record<string, ContentAutopilotOpportunityApi>
         visibleOpportunities: (
             opportunities: ContentAutopilotOpportunityApi[] | null,
@@ -1239,11 +1240,17 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             },
         ],
         opportunityByPromptId: [
-            (selectors) => [selectors.opportunities],
-            (opportunities: ContentAutopilotOpportunityApi[] | null): Record<string, ContentAutopilotOpportunityApi> =>
+            (selectors) => [selectors.opportunities, selectors.profile],
+            (
+                opportunities: ContentAutopilotOpportunityApi[] | null,
+                profile: ContentAutopilotSiteProfileApi | null
+            ): Record<string, ContentAutopilotOpportunityApi> =>
                 Object.fromEntries(
                     (opportunities ?? []).flatMap((opportunity) =>
-                        opportunity.aeo_prompt_id ? [[opportunity.aeo_prompt_id, opportunity]] : []
+                        // Opportunities of a deleted or unselected site must not offer drafts.
+                        opportunity.aeo_prompt_id && opportunity.profile_id === profile?.id
+                            ? [[opportunity.aeo_prompt_id, opportunity]]
+                            : []
                     )
                 ),
         ],

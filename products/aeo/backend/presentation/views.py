@@ -18,6 +18,7 @@ from posthog.permissions import posthog_feature_flag_enabled
 from products.aeo.backend.facade.api import (
     MAX_CONSENSUS_DOMAINS,
     MAX_OVERVIEW_DOMAINS,
+    MAX_PROMPT_LENGTH,
     MAX_STATS_WORDS,
     archive_prompt,
     get_prompt,
@@ -457,7 +458,8 @@ class AEOPromptUpdateRequestSerializer(serializers.Serializer):
     prompt = serializers.CharField(
         required=False,
         default=None,
-        max_length=MAX_IMPORTED_PROMPT_CHARS,
+        # The engines' limit, so the generated client limit matches what update_prompt accepts.
+        max_length=MAX_PROMPT_LENGTH,
         help_text=(
             "New text for the prompt. A change adds the next version and makes it current; the prompt keeps its id "
             "and its check history, and each check records the version that ran. A change of case or whitespace "

@@ -79803,7 +79803,7 @@ export namespace Schemas {
       topic?: string;
       /**
          * New text for the prompt. A change adds the next version and makes it current; the prompt keeps its id and its check history, and each check records the version that ran. A change of case or whitespace only adds no version. Fails with 409 when another prompt in the set already has the text.
-         * @maxLength 10000
+         * @maxLength 2000
          */
       prompt?: string;
       /**

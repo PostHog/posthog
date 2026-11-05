@@ -373,11 +373,21 @@ class TestAEOPromptAPI(APIBaseTest):
         self._record_check(ids["only failed?"], "exa-answer", minutes_ago=10, check_failed=True)
         self._record_check(ids["cited long ago?"], "exa-answer", minutes_ago=60 * 24 * 40, cited=True)
         self._record_check(ids["cited long ago?"], "exa-answer", minutes_ago=10, cited=False)
+        # A citation on the old wording must not hide a current wording that no engine cites.
+        self.client.post(f"{self.url}bulk_import/", {"prompts": [{"prompt": "edited?"}]}, format="json")
+        edited_id = next(row["id"] for row in self.client.get(self.url).json()["results"] if row["prompt"] == "edited?")
+        self._record_check(edited_id, "exa-answer", minutes_ago=20, cited=True)
+        self.client.patch(f"{self.url}{edited_id}/", {"prompt": "edited again?"}, format="json")
+        self._record_check(edited_id, "exa-answer", minutes_ago=10, cited=False)
 
         response = self.client.get(self.url, {"needs_improvement": "true"}).json()
 
-        assert sorted(row["prompt"] for row in response["results"]) == ["cited long ago?", "never cited?"]
-        assert response["count"] == 2
+        assert sorted(row["prompt"] for row in response["results"]) == [
+            "cited long ago?",
+            "edited again?",
+            "never cited?",
+        ]
+        assert response["count"] == 3
 
     def test_list_query_count_does_not_grow_with_page_size(self) -> None:
         prompts = [{"prompt": f"q{i}?"} for i in range(4)]

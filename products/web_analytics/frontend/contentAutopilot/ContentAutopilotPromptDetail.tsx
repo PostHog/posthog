@@ -20,6 +20,7 @@ import { ContentAutopilotPromptSentiment } from './ContentAutopilotPromptSentime
 import { ContentAutopilotPromptVersions } from './ContentAutopilotPromptVersions'
 import { rateKpiCard } from './promptReport'
 import { promptCitationsContext, promptSearchesContext, promptSourcesContext } from './promptReportColumns'
+import { draftableOpportunity } from './utils'
 
 const Section = ({
     title,
@@ -60,6 +61,7 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
     const { closePromptDetail, openPromptDetail, setArchiveConfirming, setPromptEditing, setVisibilityMetric } =
         useActions(contentAutopilotPromptDetailLogic)
     const { opportunityByPromptId } = useValues(contentAutopilotLogic)
+    const draftOpportunity = prompt ? draftableOpportunity(opportunityByPromptId, prompt) : null
 
     if (!promptId) {
         return null
@@ -123,9 +125,9 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                         <span className="text-muted">{pluralize(stats.total_checks, 'check')} in total</span>
                         {prompt.archived_at ? null : (
                             <div className="ml-auto flex gap-2">
-                                {opportunityByPromptId[prompt.id] ? (
+                                {draftOpportunity ? (
                                     <ContentAutopilotDraftButton
-                                        opportunity={opportunityByPromptId[prompt.id]}
+                                        opportunity={draftOpportunity}
                                         onReview={closePromptDetail}
                                     />
                                 ) : null}

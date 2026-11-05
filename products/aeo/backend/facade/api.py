@@ -95,7 +95,9 @@ def list_prompts(
     if active is not None:
         prompts = prompts.filter(active=active)
     if needs_improvement:
+        # Only the current wording counts, as in citation gaps: checks before version 2 carry no version.
         answered = AEOCitationCheck.objects.for_team(team_id).filter(
+            Q(prompt_version=OuterRef("current_version")) | Q(prompt_version__isnull=True, prompt__current_version=1),
             prompt_id=OuterRef("pk"),
             check_failed=False,
             created_at__gte=timezone.now() - dt.timedelta(days=NEEDS_IMPROVEMENT_DAYS),
