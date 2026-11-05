@@ -8,6 +8,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.database.direct_trino_table import DirectTrinoTable
 from posthog.hogql.database.models import DatabaseField, UUIDDatabaseField
+from posthog.hogql.database.raw_trino_view import RawTrinoViewTable
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.trino_locator import resolve_trino_table_locator
@@ -4386,7 +4387,7 @@ class TrinoPrinter(PostgresPrinter):
     def _print_table(self, table: "Table") -> str:
         if isinstance(table, NumbersTable):
             return "UNNEST"
-        if isinstance(table, TrinoUnnestTable):
+        if isinstance(table, TrinoUnnestTable | RawTrinoViewTable):
             return table.to_printed_trino(self.context)
         locator = resolve_trino_table_locator(table, self.context)
         if locator is not None:

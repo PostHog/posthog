@@ -55,6 +55,9 @@ class ViewEngineCapabilitiesSerializer(serializers.Serializer):
     referenceable_from_clickhouse = ViewCapabilitySerializer(
         help_text="Whether HogQL queries on ClickHouse can read from this view by name."
     )
+    referenceable_from_trino = ViewCapabilitySerializer(
+        help_text="Whether queries on hosted Trino can read from this view by name."
+    )
     column_source = serializers.ChoiceField(
         choices=ViewColumnSource.choices,
         help_text="Where the view's column types come from: a ClickHouse probe of the query, or the types "
@@ -81,8 +84,8 @@ class ViewEngineSerializer(serializers.Serializer):
 
 VIEW_ENGINE_HELP_TEXT = "The engine that runs this view, and what the product can do with it."
 IS_RAW_MANAGED_TRINO_HELP_TEXT = (
-    "Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it, "
-    "and HogQL queries cannot reference it."
+    "Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it "
+    "or read it by name."
 )
 
 

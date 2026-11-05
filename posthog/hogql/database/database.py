@@ -65,6 +65,14 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.postgres_utils import add_postgres_foreign_key_lazy_joins
+from posthog.hogql.database.raw_trino_view import (
+    RawTrinoView,
+    RawTrinoViewCatalog,
+    RawTrinoViewMode,
+    RawTrinoViewTable,
+    RefusedRawTrinoViewTable,
+    raw_trino_view_sql,
+)
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.ai_events import AiEventsTable
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
@@ -281,6 +289,8 @@ class HogQLDatabaseSources:
     # synced S3 copies, so the build derives virtual DirectSQLTables from these schema rows instead.
     virtual_source: Optional[ExternalDataSource] = None
     virtual_schemas: list[ExternalDataSchema] = dataclasses.field(default_factory=list)
+    # Only Trino can run these, so the build adds them only for a database that compiles to Trino.
+    raw_trino_saved_queries: list[DataWarehouseSavedQuery] = dataclasses.field(default_factory=list)
 
     def copy_for_request(
         self,
@@ -317,6 +327,7 @@ class HogQLDatabaseSources:
             data_warehouse_expressions=list(self.data_warehouse_expressions),
             event_modifier_saved_queries=dict(self.event_modifier_saved_queries),
             virtual_schemas=list(self.virtual_schemas),
+            raw_trino_saved_queries=list(self.raw_trino_saved_queries),
         )
 
 
@@ -359,6 +370,44 @@ def models_namespace_chain(saved_query: Any) -> list[str] | None:
     if is_reserved_models_name(name) or is_reserved_system_name(name):
         return None
     return ["models", *name.split(".")]
+
+
+def _build_raw_trino_view_catalog(
+    team_id: int,
+    database: Database,
+    sources: HogQLDatabaseSources,
+    raw_trino_tables: list[tuple[list[str], RawTrinoViewTable, DataWarehouseSavedQuery]],
+) -> RawTrinoViewCatalog:
+    """The raw Trino views a caller can read, for raw SQL and HogQL alike.
+
+    A view whose name a table already owns stays out, because HogQL resolves that name to the table. Raw SQL then
+    passes the name to Trino unchanged, so both modes read the table.
+    """
+    views = {
+        saved_query.name: RawTrinoView(name=saved_query.name, sql=raw_trino_view_sql(saved_query.query))
+        for chain, table, saved_query in raw_trino_tables
+        if database.tables.has_child(chain) and database.tables.get_child(chain).table is table
+    }
+    saved_query_names = {
+        sq.name
+        for sq in (*sources.saved_queries, *sources.raw_trino_saved_queries)
+        if not is_reserved_system_name(sq.name)
+    }
+    denied = {name for name in saved_query_names if name in database._denied_tables}
+    hogql_names = {sq.name for sq in sources.saved_queries} - denied
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
+
+    deleted_names = (
+        DataWarehouseSavedQuery.objects.filter(team_id=team_id, deleted=True)
+        .exclude(name__in=saved_query_names)
+        .values_list("name", flat=True)
+    )
+    return RawTrinoViewCatalog(
+        views=views,
+        denied_names=frozenset(name.lower() for name in denied),
+        hogql_view_names=frozenset(name.lower() for name in hogql_names if not is_reserved_system_name(name)),
+        deleted_names=frozenset(name.lower() for name in deleted_names),
+    )
 
 
 def _revenue_trigger_prefixes(handles: list[SourceHandle]) -> set[str]:
@@ -855,6 +904,8 @@ class Database(BaseModel):
     _flag_calls_only_in_flag_evaluations: bool = False
     _read_flag_calls_with_union: bool = False
     _direct_connection_metadata: dict[str, Any] | None = None
+    # One shared catalog for every raw Trino view table, so the build stays linear in the number of views.
+    _raw_trino_view_catalog: RawTrinoViewCatalog | None = None
     _direct_access_warehouse_table_names: set[str] = set()
     # Warnings about data warehouse tables (failed/paused/billing-limited/stale syncs),
     # keyed by HogQL DataWarehouseTable.table_id (str(Django table UUID)).
@@ -1471,6 +1522,20 @@ class Database(BaseModel):
         self._denied_tables.add(saved_query.name)
         return True
 
+    def _is_saved_query_readable(self, saved_query: Any, sources: HogQLDatabaseSources) -> bool:
+        if is_reserved_system_name(saved_query.name):
+            return False
+        return not (
+            sources.is_hogql_warehouse_access_control_enabled
+            and not sources.bypass_warehouse_access_control
+            and self._is_warehouse_view_denied(saved_query)
+        )
+
+    @property
+    def raw_trino_view_catalog(self) -> RawTrinoViewCatalog | None:
+        """The raw Trino views this caller can expand, or None when the build did not include them."""
+        return self._raw_trino_view_catalog
+
     def _is_warehouse_expression_denied(self, expression: Any) -> bool:
         """
         Expression counterpart of `_is_warehouse_view_denied`: a user denied access to a saved
@@ -1866,12 +1931,15 @@ class Database(BaseModel):
         allowed_system_tables: Collection[str] | None = None,
         schema_table_names: set[str] | None = None,
         include_flag_evaluations_table: bool | None = None,
+        raw_trino_view_mode: RawTrinoViewMode | None = None,
     ) -> Database:
         """Build a query catalog, or a reduced catalog for schema serialization only.
 
         Query execution must omit schema_table_names because it can prune unrelated warehouse tables.
         ``include_flag_evaluations_table`` overrides the organization's flag_evaluations mode, which decides
         whether ``posthog.flag_evaluations`` is in the catalog. None follows the mode.
+        ``raw_trino_view_mode`` adds the views that hold raw Trino SQL. Only a Trino compilation can print them,
+        and ``RawTrinoViewMode.REFUSE`` makes each one raise an error instead.
         """
         build_started = time.perf_counter()
 
@@ -1942,7 +2010,10 @@ class Database(BaseModel):
             HOGQL_DATABASE_BUILD_DURATION_SECONDS, {"phase": "build_from_sources"}
         ):
             database = Database._build_from_sources(
-                sources, timings=timings, build_postgres_foreign_keys=build_postgres_foreign_keys
+                sources,
+                timings=timings,
+                build_postgres_foreign_keys=build_postgres_foreign_keys,
+                raw_trino_view_mode=raw_trino_view_mode,
             )
 
         total_seconds = time.perf_counter() - build_started
@@ -2421,6 +2492,7 @@ class Database(BaseModel):
             event_modifier_saved_queries=event_modifier_saved_queries,
             virtual_source=virtual_source,
             virtual_schemas=virtual_schemas,
+            raw_trino_saved_queries=[sq for sq in all_saved_queries if sq.engine.is_raw_trino],
         )
 
     @staticmethod
@@ -2428,6 +2500,7 @@ class Database(BaseModel):
         sources: HogQLDatabaseSources,
         timings: HogQLTimings | None = None,
         build_postgres_foreign_keys: bool = True,
+        raw_trino_view_mode: RawTrinoViewMode | None = None,
     ) -> Database:
         """Construct the HogQL Database purely from already-fetched sources. Performs no I/O: every
         Postgres query and feature-flag check was done up front in Database._fetch_sources."""
@@ -2618,16 +2691,10 @@ class Database(BaseModel):
         with timings.measure("data_warehouse_saved_query", emit_span=True):
             for saved_query in sources.saved_queries:
                 with timings.measure(f"saved_query_{saved_query.name}"):
-                    if is_reserved_system_name(saved_query.name):
-                        continue
                     models_chain = models_namespace_chain(saved_query)
                     if models_chain is not None and ".".join(models_chain) not in stored_names:
                         database._models_aliases[".".join(models_chain)] = saved_query.name.split(".")
-                    if (
-                        sources.is_hogql_warehouse_access_control_enabled
-                        and not sources.bypass_warehouse_access_control
-                        and database._is_warehouse_view_denied(saved_query)
-                    ):
+                    if not database._is_saved_query_readable(saved_query, sources):
                         continue
                     views.add_child(
                         TableNode.create_nested_for_chain(
@@ -2637,19 +2704,30 @@ class Database(BaseModel):
                         table_conflict_mode="ignore",
                     )
 
+        raw_trino_tables: list[tuple[list[str], RawTrinoViewTable, DataWarehouseSavedQuery]] = []
+        if raw_trino_view_mode is not None and not database._is_direct_query():
+            with timings.measure("raw_trino_saved_query", emit_span=True):
+                table_class = (
+                    RawTrinoViewTable if raw_trino_view_mode == RawTrinoViewMode.EXPAND else RefusedRawTrinoViewTable
+                )
+                for saved_query in sources.raw_trino_saved_queries:
+                    if not database._is_saved_query_readable(saved_query, sources):
+                        continue
+                    raw_chain = saved_query.name.split(".")
+                    raw_table = table_class(name=saved_query.name, fields=saved_query.hogql_fields())
+                    raw_trino_tables.append((raw_chain, raw_table, saved_query))
+                    views.add_child(
+                        TableNode.create_nested_for_chain(raw_chain, table=raw_table),
+                        table_conflict_mode="ignore",
+                    )
+
         with timings.measure("endpoint_saved_query", emit_span=True):
             if not database._is_direct_query():
                 try:
                     for endpoint_saved_query in sources.endpoint_saved_queries:
                         with timings.measure(f"endpoint_saved_query_{endpoint_saved_query.name}"):
-                            if is_reserved_system_name(endpoint_saved_query.name):
-                                continue
                             # Endpoint-origin saved queries are a separate list, so they're checked too
-                            if (
-                                sources.is_hogql_warehouse_access_control_enabled
-                                and not sources.bypass_warehouse_access_control
-                                and database._is_warehouse_view_denied(endpoint_saved_query)
-                            ):
+                            if not database._is_saved_query_readable(endpoint_saved_query, sources):
                                 continue
                             views.add_child(
                                 TableNode(
@@ -2990,6 +3068,10 @@ class Database(BaseModel):
             alias: views.get_child(chain) for alias, chain in database._models_aliases.items() if views.has_child(chain)
         }
         database._add_views(views)
+        if raw_trino_view_mode == RawTrinoViewMode.EXPAND:
+            database._raw_trino_view_catalog = _build_raw_trino_view_catalog(
+                team_id, database, sources, raw_trino_tables
+            )
 
         if deferred_revenue_handles:
             # Armed before the joins and saved-expressions passes below: a join or expression that
