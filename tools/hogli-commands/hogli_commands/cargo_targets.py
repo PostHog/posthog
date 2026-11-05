@@ -132,7 +132,22 @@ def shared_cargo_targets() -> list[SharedCargoTarget]:
     for candidate in candidates:
         if candidate.path.is_absolute() and (key := inode_key(candidate.path)) is not None:
             unique.setdefault(key, candidate)
-    return list(unique.values())
+    # A target inside a checkout is that checkout's own, and only the worktree walk, with its git checks, may remove it.
+    return [shared for shared in unique.values() if not _inside_git_work_tree(shared.path)]
+
+
+def _inside_git_work_tree(path: Path) -> bool:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(path), "rev-parse", "--is-inside-work-tree"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return True
+    return result.returncode == 0 and result.stdout.strip() == "true"
 
 
 def _configured_target_dir(config: Path) -> Path | None:
@@ -146,7 +161,8 @@ def _configured_target_dir(config: Path) -> Path | None:
 def unused_cargo_target(target: Path, built_before_epoch: float) -> bool:
     """Whether no build used *target* after *built_before_epoch* and no cargo runs that could be using it now."""
 
-    if target.is_symlink() or not target.is_dir() or not looks_like_cargo_target(target):
+    # Cargo writes CACHEDIR.TAG into every target dir it creates, and a folder that a user's config names may hold other files.
+    if target.is_symlink() or not (target / "CACHEDIR.TAG").is_file():
         return False
     if last_cargo_build_epoch(target) >= built_before_epoch:
         return False

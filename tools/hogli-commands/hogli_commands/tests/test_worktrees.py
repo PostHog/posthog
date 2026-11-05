@@ -4,6 +4,7 @@ import os
 import math
 import time
 import fcntl
+import shutil
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -272,6 +273,7 @@ def _git_worktree(path: Path, files: dict[str, str], tracked: tuple[str, ...] = 
     for relative, content in files.items():
         (path / relative).parent.mkdir(parents=True, exist_ok=True)
         (path / relative).write_text(content)
+    path.mkdir(parents=True, exist_ok=True)
     subprocess.run(["git", "init", "-q"], cwd=path, check=True)
     if tracked:
         subprocess.run(["git", "add", "--", *tracked], cwd=path, check=True)
@@ -280,30 +282,28 @@ def _git_worktree(path: Path, files: dict[str, str], tracked: tuple[str, ...] = 
 
 class TestCollectDepsItems:
     @pytest.mark.parametrize(
-        ("mode", "expected_removed"),
+        ("mode", "orphaned", "expected_removed"),
         [
-            (
-                "build",
-                {
-                    "web/dist",
-                    ".pytest_cache",
-                    "web/app.tsbuildinfo",
-                    ".flox/cache/go-build",
-                },
-            ),
+            ("build", False, {"web/dist", ".pytest_cache", "web/app.tsbuildinfo", ".flox/cache/go-build"}),
+            ("deps", False, {"web/node_modules", "scratch/node_modules", "tools/.venv", ".flox/cache/venv"}),
+            # Without its index, git cannot say what the branch tracks, so build output stays and every dependency folder goes.
+            ("build", True, set()),
             (
                 "deps",
+                True,
                 {
                     "web/node_modules",
                     "scratch/node_modules",
+                    "vendored/node_modules",
                     "tools/.venv",
                     ".flox/cache/venv",
                 },
             ),
         ],
+        ids=["build", "deps", "orphaned_build", "orphaned_deps"],
     )
     def test_removes_only_untracked_artifacts_and_build_output_that_git_ignores(
-        self, tmp_path, mode: str, expected_removed: set[str]
+        self, tmp_path, mode: str, orphaned: bool, expected_removed: set[str]
     ) -> None:
         worktree = _git_worktree(
             tmp_path / "wt",
@@ -327,6 +327,9 @@ class TestCollectDepsItems:
                 "vendor/repo/.git/HEAD": "",
                 "vendor/repo/package.json": "{}",
                 "vendor/repo/dist/lib.js": "",
+                "site/package.json": "{}",
+                "site/dist/.git/HEAD": "",
+                "site/dist/index.html": "",
             },
             tracked=(".gitignore", "web/package.json", "action/package.json"),
         )
@@ -336,9 +339,12 @@ class TestCollectDepsItems:
             cwd=worktree,
             check=True,
         )
+        if orphaned:
+            shutil.rmtree(worktree / ".git")
+            (worktree / ".git").write_text(f"gitdir: {tmp_path / 'pruned-admin-dir'}\n")
 
         artifacts = _collect_artifacts(worktree, frozenset({mode}))
-        removed = _git_approved_artifacts(worktree, artifacts, repo_common=None)
+        removed = _git_approved_artifacts(worktree, artifacts)
 
         assert {path.relative_to(worktree.resolve()).as_posix() for path in removed} == expected_removed
 
@@ -370,7 +376,7 @@ class TestCollectDepsItems:
         _write_cargo_target(worktree / "plugin" / "target", time.time(), profile=Path("wasm32-wasip1") / "release")
         wt = _make_worktree(worktree)
 
-        _populate_sizes([wt], "deps", cutoff, repo_common=None)
+        _populate_sizes([wt], "deps", cutoff)
 
         assert sorted(wt.artifact_items) == sorted([(worktree / "node_modules").resolve(), stale_target.resolve()])
 
@@ -472,6 +478,14 @@ class TestCargoTargets:
         assert [shared.path for shared in shared_cargo_targets() if unused_cargo_target(shared.path, cutoff)] == (
             [target] if expected_offered else []
         )
+
+    def test_cargo_target_dir_inside_a_checkout_is_not_treated_as_shared(self, tmp_path, monkeypatch) -> None:
+        checkout = _git_worktree(tmp_path / "checkout", {})
+        target = _write_cargo_target(checkout / "target", time.time() - 10 * 86400)
+        monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+        monkeypatch.setenv("CARGO_TARGET_DIR", str(target))
+
+        assert [shared.path for shared in shared_cargo_targets()] == []
 
 
 class TestRegisteredWorktrees:

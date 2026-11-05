@@ -471,7 +471,7 @@ def worktrees_clean(
             return
 
     click.echo(f"Measuring {len(stale)} worktree(s)…")
-    _populate_sizes(stale, mode, cutoff, repo_common)
+    _populate_sizes(stale, mode, cutoff)
 
     for wt in sorted(stale, key=lambda w: w.last_activity):
         markers = _listing_markers(wt, mode)
@@ -1360,16 +1360,14 @@ def _listing_markers(wt: Worktree, mode: str) -> str:
     return " · ".join(parts)
 
 
-def _populate_sizes(worktrees: list[Worktree], mode: str, cutoff: float, repo_common: Path | None) -> None:
+def _populate_sizes(worktrees: list[Worktree], mode: str, cutoff: float) -> None:
     """Fill in .usage, and the artifact items outside full mode, using a thread pool."""
 
     def work(wt: Worktree) -> None:
         if mode == "full":
             wt.usage = measure_disk_usage([wt.path])
         else:
-            artifacts = _git_approved_artifacts(
-                wt.path, _collect_artifacts(wt.path, _artifact_kinds(mode)), repo_common
-            )
+            artifacts = _git_approved_artifacts(wt.path, _collect_artifacts(wt.path, _artifact_kinds(mode)))
             wt.artifact_items = [item for item in artifacts if not _cargo_built_since(item, cutoff)]
             wt.usage = measure_disk_usage(wt.artifact_items)
 
@@ -1410,6 +1408,8 @@ def _collect_artifacts(worktree: Path, kinds: frozenset[str]) -> list[_Artifact]
         descend: list[str] = []
         for name in dirnames:
             child = parent / name
+            if (child / ".git").exists():
+                continue
             if name == ".flox":
                 for cache_child, rule_kinds in FLOX_CACHE_ARTIFACTS.items():
                     add(child / "cache" / cache_child, rule_kinds)
@@ -1418,7 +1418,7 @@ def _collect_artifacts(worktree: Path, kinds: frozenset[str]) -> list[_Artifact]
             if rule is not None and rule.applies_to(child):
                 add(child, rule.kinds)
                 continue
-            if name in _WALK_SKIP or (child / ".git").exists():
+            if name in _WALK_SKIP:
                 continue
             descend.append(name)
         dirnames[:] = descend
@@ -1433,32 +1433,32 @@ def _collect_artifacts(worktree: Path, kinds: frozenset[str]) -> list[_Artifact]
 
     outermost = sorted(found, key=lambda path: len(path.parts))
     kept: list[_Artifact] = []
+    kept_paths: set[Path] = set()
     for path in outermost:
-        if not any(path.is_relative_to(artifact.path) for artifact in kept):
+        if not any(ancestor in kept_paths for ancestor in path.parents):
+            kept_paths.add(path)
             kept.append(_Artifact(path=path, kinds=found[path]))
     return kept
 
 
-def _git_approved_artifacts(worktree: Path, artifacts: list[_Artifact], repo_common: Path | None) -> list[Path]:
+def _git_approved_artifacts(worktree: Path, artifacts: list[_Artifact]) -> list[Path]:
     """The artifacts that hold no tracked file and, unless they are dependencies, hold only files that git ignores.
 
     A generated file that the repo commits, or a file git does not ignore, may be
     someone's work, so a path that holds one stays. A dependency folder may be
-    outside .gitignore, because no one writes their own files into one. When git
-    cannot answer, nothing is approved.
+    outside .gitignore, because no one writes their own files into one. An
+    orphaned worktree has lost its index, so git cannot say what its branch
+    tracks, and only its dependency folders are approved. When git cannot
+    answer, nothing is approved.
     """
 
     if not artifacts:
         return []
-    git_prefix = _git_prefix_for(worktree, repo_common)
-    status = (
-        None
-        if git_prefix is None
-        else _git(
-            worktree,
-            [*git_prefix, "status", "--porcelain=v1", "-z", "--ignored=traditional", "--untracked-files=normal"],
-            timeout=120.0,
-        )
+    gitdir = _gitdir_for(worktree)
+    if gitdir is None or not gitdir.is_dir():
+        return [artifact.path for artifact in artifacts if "deps" in artifact.kinds]
+    status = _git(
+        worktree, ["status", "--porcelain=v1", "-z", "--ignored=traditional", "--untracked-files=normal"], timeout=120.0
     )
     if status is None or status.returncode != 0:
         click.echo(f"  ⚠️  git could not list what {_display_path(worktree)} ignores, so nothing in it is removed.")
@@ -1493,21 +1493,6 @@ def _is_or_is_under_any(relative_path: str, directories: set[str]) -> bool:
             return True
         relative_path = relative_path.rpartition("/")[0]
     return False
-
-
-def _git_prefix_for(worktree: Path, repo_common: Path | None) -> list[str] | None:
-    """The git arguments that address *worktree*, or None when no git dir can describe it.
-
-    An orphaned worktree has lost its own index, so it is checked against the
-    shared repository, whose index tracks almost the same files.
-    """
-
-    gitdir = _gitdir_for(worktree)
-    if gitdir is not None and gitdir.is_dir():
-        return []
-    if repo_common is None:
-        return None
-    return [f"--git-dir={repo_common}", f"--work-tree={_resolve(worktree)}"]
 
 
 def _without_cargo_builds(worktrees: list[Worktree]) -> list[Worktree]:

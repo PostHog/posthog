@@ -5,7 +5,7 @@ import sys
 import stat
 import ctypes
 import struct
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -40,35 +40,37 @@ def measure_disk_usage(paths: Sequence[Path]) -> DiskUsage:
     them. pnpm and uv clone each file from their store on APFS and hard-link
     it on other file systems, so `du` reports a dependency folder as many
     times larger than its deletion frees. A hard-linked file counts as
-    freeable only when every one of its links is inside *paths*. Symlinks are
-    not followed.
+    freeable only when every one of its links is inside *paths*. Symlinks and
+    other mounted file systems are not followed.
     """
 
-    links_seen: dict[int, int] = {}
-    linked_files: dict[int, _FileBlocks] = {}
+    links_seen: dict[tuple[int, int], int] = {}
+    linked_files: dict[tuple[int, int], _FileBlocks] = {}
     freeable = allocated = 0
     for path in paths:
-        for blocks in _walk_files(path):
+        for device, blocks in _walk_files(path):
             allocated += blocks.allocated_bytes
             if blocks.link_count <= 1:
                 freeable += blocks.unshared_bytes
                 continue
-            links_seen[blocks.inode] = links_seen.get(blocks.inode, 0) + 1
-            if links_seen[blocks.inode] == 1:
-                linked_files[blocks.inode] = blocks
+            key = (device, blocks.inode)
+            links_seen[key] = links_seen.get(key, 0) + 1
+            if links_seen[key] == 1:
+                linked_files[key] = blocks
             else:
                 allocated -= blocks.allocated_bytes
-    for inode, blocks in linked_files.items():
-        if links_seen[inode] >= blocks.link_count:
+    for key, blocks in linked_files.items():
+        if links_seen[key] >= blocks.link_count:
             freeable += blocks.unshared_bytes
     return DiskUsage(freeable_bytes=freeable, allocated_bytes=allocated)
 
 
-def _walk_files(path: Path):
+def _walk_files(path: Path) -> Iterator[tuple[int, _FileBlocks]]:
     try:
+        device = path.lstat().st_dev
         if path.is_symlink() or not path.is_dir():
             if path.is_file() and (blocks := _file_blocks(str(path))) is not None:
-                yield blocks
+                yield device, blocks
             return
     except OSError:
         return
@@ -79,9 +81,11 @@ def _walk_files(path: Path):
             with os.scandir(directory) as entries:
                 for entry in entries:
                     if entry.is_dir(follow_symlinks=False):
-                        pending.append(entry.path)
+                        # Another file system mounted inside frees nothing here, and a stale network mount can block the walk.
+                        if entry.stat(follow_symlinks=False).st_dev == device:
+                            pending.append(entry.path)
                     elif entry.is_file(follow_symlinks=False) and (blocks := _file_blocks(entry.path)) is not None:
-                        yield blocks
+                        yield device, blocks
         except OSError:
             continue
 
