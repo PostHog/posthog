@@ -53,6 +53,7 @@ import {
     canUnassignMe,
     hasOpenImplementationPr,
     implementationClaimDisabledReason,
+    implementationClaimStep,
 } from '../../utils/reportActions'
 import { isReportClaimable, reportClaimant, teammateClaimHolder } from '../../utils/reportClaim'
 import { displayConventionalCommitTitle } from '../../utils/reportPresentation'
@@ -148,7 +149,7 @@ function ReportContextMenuItems({
     const { user } = useValues(userLogic)
     // Kept mounted by `ReportsTab` beyond this menu's lifetime, so the create-PR listener survives
     // the menu closing on click.
-    const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
+    const { implementReport } = useActions(inboxTaskKickoffLogic)
     const { createPrDisabledReason: globalPrDisabledReason } = useValues(inboxTaskKickoffLogic)
     const { disabledReason: githubDisabledReason } = useValues(reportGithubAccessLogic({ report }))
     const createPrDisabledReason =
@@ -317,14 +318,11 @@ function ReportContextMenuItems({
     )
 
     const onCreatePr = (): void => {
-        captureInboxReportAction({
-            report,
-            actionType: 'create_pr',
-            surface: 'context_menu',
-            extra: { has_feedback: false },
-        })
+        if (implementationClaimStep(report, user?.uuid).kind !== 'start') {
+            onOpenDialog()
+        }
         // Self-guards on AI consent (toast) and navigates to the created run.
-        createPrFromReport(report)
+        implementReport(report, undefined, 'context_menu')
     }
 
     if (isDismissed) {

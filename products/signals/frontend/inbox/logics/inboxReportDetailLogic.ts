@@ -20,7 +20,6 @@ import api, { ApiConfig } from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
-import { fullNameOrEmail } from 'lib/utils/strings'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { personalIntegrationsLogic } from 'scenes/settings/user/personalIntegrationsLogic'
 import type { PersonalGitHubIntegration } from 'scenes/settings/user/personalIntegrationsLogic'
@@ -90,6 +89,7 @@ import { inboxSceneLogic } from '../inboxSceneLogic'
 import { ReportDiscussionIntent, inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
 import { EnrichedReviewer, ReviewerRemoval, SignalReport, SignalReportArtefact, SignalReportStatus } from '../types'
 import { ChartPlacements, resolveChartPlacements } from '../utils/chartPlacement'
+import { implementationClaimDisabledReason } from '../utils/reportActions'
 import { isReportClaimable, reportClaimant, requestReportClaim, teammateClaimHolder } from '../utils/reportClaim'
 import { reportPullRequests, primaryReportPullRequest, type ReportPullRequest } from '../utils/reportPullRequests'
 import { withInboxWriteTimeout } from '../utils/writeTimeout'
@@ -834,7 +834,8 @@ export interface inboxReportDetailLogicMeta {
         implementationSlotClaim: (reportTasks: ReportTaskEntry[] | null) => ImplementationSlotClaim | null
         implementationDisabledReason: (
             implementationSlotClaim: ImplementationSlotClaim | null,
-            teammateClaimHolder: _UserApi | null
+            report: SignalReport | null,
+            user: null | import('~/types').UserType
         ) => string | null
         primaryTask: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
         reportTaskToOpen: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
@@ -1663,12 +1664,16 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 implementationSlotClaim(reportTasks),
         ],
         implementationDisabledReason: [
-            (s) => [s.implementationSlotClaim, s.teammateClaimHolder],
-            (slotClaim: ImplementationSlotClaim | null, holder: _UserApi | null): string | null =>
+            (s) => [s.implementationSlotClaim, s.report, userLogic.selectors.user],
+            (
+                slotClaim: ImplementationSlotClaim | null,
+                report: SignalReport | null,
+                user: { uuid: string } | null
+            ): string | null =>
                 slotClaim
                     ? SLOT_CLAIM_DISABLED_REASON[slotClaim]
-                    : holder
-                      ? `${fullNameOrEmail(holder)} is working on this report. Take it over to implement it.`
+                    : report
+                      ? implementationClaimDisabledReason(report, user?.uuid)
                       : null,
         ],
         // The default task whose run log is shown: prefer one still in motion, tie-break by most-recent

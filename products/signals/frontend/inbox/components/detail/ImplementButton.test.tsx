@@ -13,7 +13,7 @@ import { initKeaTests } from '~/test/init'
 
 import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
-import { mockTask } from '../../__mocks__/inboxMocks'
+import { mockTask, myClaim, teammateClaim } from '../../__mocks__/inboxMocks'
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxTaskKickoffLogic, REPORT_AI_PANEL_ID } from '../../inboxTaskKickoffLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
@@ -30,7 +30,7 @@ jest.mock('lib/utils/copyToClipboard', () => ({
     copyToClipboard: jest.fn().mockResolvedValue(true),
 }))
 
-function makeReport(): SignalReport {
+function makeReport(overrides: Partial<SignalReport> = {}): SignalReport {
     return {
         id: 'report-1',
         title: 'Exceptions spiked',
@@ -42,6 +42,7 @@ function makeReport(): SignalReport {
         is_suggested_reviewer: false,
         created_at: '2026-06-11T10:00:00Z',
         updated_at: '2026-06-11T10:00:00Z',
+        ...overrides,
     } satisfies SignalReport
 }
 
@@ -80,8 +81,37 @@ describe('ImplementButton', () => {
         expect(createPrFromReport).not.toHaveBeenCalled()
         await user.click(screen.getByTestId('inbox-report-create-pr-submit'))
 
-        expect(createPrFromReport).toHaveBeenCalledWith(expect.objectContaining({ id: 'report-1' }), undefined)
-        expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({ has_feedback: false })
+        await waitFor(() =>
+            expect(createPrFromReport).toHaveBeenCalledWith(expect.objectContaining({ id: 'report-1' }), undefined)
+        )
+        expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({
+            has_feedback: false,
+            claim_step: 'start',
+        })
+    })
+
+    // Starting on a teammate's claim without the takeover would fail the run, or move their work without telling them.
+    it("takes over a teammate's claim before it starts the run", async () => {
+        const claimBodies: unknown[] = []
+        useMocks({
+            post: {
+                '/api/projects/:team_id/signals/reports/:id/claim/': async ({ request }) => {
+                    claimBodies.push(await request.json())
+                    return [200, { ...makeReport(), assignee: myClaim }]
+                },
+            },
+        })
+        const user = userEvent.setup()
+        render(<ImplementButton report={makeReport({ assignee: { ...teammateClaim, claim_id: 'claim-robin' } })} />)
+
+        await user.click(screen.getByTestId('inbox-report-create-pr'))
+        await user.click(screen.getByTestId('inbox-report-create-pr-submit'))
+        await user.click(await screen.findByText('Take over and implement'))
+
+        await waitFor(() =>
+            expect(createPrFromReport).toHaveBeenCalledWith(expect.objectContaining({ assignee: myClaim }), undefined)
+        )
+        expect(claimBodies).toEqual([{ takeover: true, takeover_claim_id: 'claim-robin' }])
     })
 
     it.each([TaskRunStatus.QUEUED, TaskRunStatus.IN_PROGRESS])(
@@ -175,11 +205,16 @@ describe('ImplementButton', () => {
         )
         await submit(user)
 
-        expect(createPrFromReport).toHaveBeenCalledWith(
-            expect.objectContaining({ id: 'report-1' }),
-            'Keep the existing API'
+        await waitFor(() =>
+            expect(createPrFromReport).toHaveBeenCalledWith(
+                expect.objectContaining({ id: 'report-1' }),
+                'Keep the existing API'
+            )
         )
-        expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({ has_feedback: true })
+        expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({
+            has_feedback: true,
+            claim_step: 'start',
+        })
     })
 
     it('copies a prompt that claims the report and attaches the finished pull request', async () => {

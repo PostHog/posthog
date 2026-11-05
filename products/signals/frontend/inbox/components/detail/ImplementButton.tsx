@@ -41,7 +41,7 @@ export function ImplementButton({
         loading: githubCheckLoading,
     } = useValues(reportGithubAccessLogic({ report, surface }))
     const { retryAccess, setConnectionOpen } = useActions(reportGithubAccessLogic({ report, surface }))
-    const { createPrFromReport, openReportTask } = useActions(inboxTaskKickoffLogic)
+    const { implementReport, openReportTask } = useActions(inboxTaskKickoffLogic)
     const [instructions, setInstructions] = useState('')
     const [choicesOpen, setChoicesOpen] = useState(false)
     const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
@@ -69,14 +69,9 @@ export function ImplementButton({
             lemonToast.error(githubDisabledReason)
             return
         }
-        const trimmed = note.trim()
-        captureInboxReportAction({
-            report,
-            actionType: 'create_pr',
-            surface,
-            extra: { has_feedback: trimmed.length > 0 },
-        })
-        createPrFromReport(report, trimmed || undefined)
+        // The claim can need a dialog first, which the open choices would sit on top of.
+        setChoicesOpen(false)
+        implementReport(report, note.trim() || undefined, surface)
     }
 
     const runImplementationPrompt = (agentKey: AgentPromptDestination, run: (prompt: string) => void): void => {

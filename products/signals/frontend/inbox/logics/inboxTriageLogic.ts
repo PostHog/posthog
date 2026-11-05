@@ -81,12 +81,14 @@ export interface inboxTriageLogicActions {
         linkSource: null | import('../inboxAnalytics').InboxReportLinkSource
         openMethod: import('../inboxAnalytics').InboxReportOpenMethod
     } // inboxSceneLogic
-    createPrFromReport: (
+    implementReport: (
         report: SignalReport,
-        feedback?: string | undefined
+        feedback: string | undefined,
+        surface: import('../inboxAnalytics').InboxReportActionSurface
     ) => {
         feedback: string | undefined
         report: SignalReport
+        surface: import('../inboxAnalytics').InboxReportActionSurface
     } // inboxTaskKickoffLogic
     dismissReport: (
         reportId: string,
@@ -262,7 +264,7 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                 'loadMoreReportsFailure',
             ],
             inboxTaskKickoffLogic,
-            ['createPrFromReport'],
+            ['implementReport'],
             inboxSceneLogic,
             ['setSelectedReportId'],
         ],
@@ -522,13 +524,7 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                     return
                 }
                 // Triage is a fast keyboard flow with no note box, so it never steers the agent.
-                captureInboxReportAction({
-                    report,
-                    actionType: 'create_pr',
-                    surface: 'triage_mode',
-                    extra: { has_feedback: false },
-                })
-                actions.createPrFromReport(report)
+                actions.implementReport(report, undefined, 'triage_mode')
             },
             openCurrent: () => {
                 const report = values.currentReport

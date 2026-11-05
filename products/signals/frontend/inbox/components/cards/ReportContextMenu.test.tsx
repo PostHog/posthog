@@ -220,12 +220,14 @@ describe('ReportContextMenu', () => {
         await waitFor(() => expect(claimRequests).toEqual([{ reportId: 'report-1', body: { takeover: true } }]))
     })
 
+    // Only a run in flight blocks Create PR. A claim leads to a dialog instead, so it must not disable the item.
     it.each([
-        { name: "a teammate's claim", assignee: teammateClaim, disabled: true },
-        { name: "the user's agent claim", assignee: myAgentClaim, disabled: true },
-        { name: "the user's own claim", assignee: myClaim, disabled: false },
-    ])('gates Create PR on $name', ({ assignee, disabled }) => {
-        openMenu(makeReport({ assignee }))
+        { name: "a teammate's claim", report: { assignee: teammateClaim }, disabled: false },
+        { name: "the user's agent claim", report: { assignee: myAgentClaim }, disabled: false },
+        { name: "the user's own claim", report: { assignee: myClaim }, disabled: false },
+        { name: 'a run in flight', report: { assignee: myClaim, implementation_in_flight: true }, disabled: true },
+    ])('gates Create PR on $name', ({ report, disabled }) => {
+        openMenu(makeReport(report))
 
         expect(screen.getByText('Create PR').closest('[role="menuitem"]')?.hasAttribute('data-disabled')).toBe(disabled)
     })
