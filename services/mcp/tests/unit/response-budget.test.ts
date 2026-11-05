@@ -94,6 +94,41 @@ describe('capResponseToBudget', () => {
         expect((parsed.results as unknown[]).length).toBeGreaterThan(0)
     })
 
+    it.each([
+        ['nextCursor', { results: rows(5_000), hasMore: true, nextCursor: 'cursor-after-row-4999' }],
+        ['next', { results: rows(5_000), next: 'https://us.posthog.com/api/items/?offset=5000', count: 9_000 }],
+    ])('drops %s once the rows before it are cut, because following it skips them', (key, result) => {
+        const parsed = JSON.parse(text(capResponseToBudget(textPayload(JSON.stringify(result)), BUDGET)))
+
+        expect((parsed.results as unknown[]).length).toBeLessThan(5_000)
+        expect(parsed).not.toHaveProperty(key)
+    })
+
+    it('keeps the cursor when only another field is cut', () => {
+        const result = { results: rows(3), nextCursor: 'cursor-after-row-2', notes: 'n'.repeat(100_000) }
+
+        const parsed = JSON.parse(text(capResponseToBudget(textPayload(JSON.stringify(result)), BUDGET)))
+
+        expect(parsed.nextCursor).toBe('cursor-after-row-2')
+    })
+
+    it('drops the next-page hint once the page is shortened, because its offset skips the cut rows', () => {
+        const built = buildToolResultPayload({
+            handlerResult: {
+                count: 9_000,
+                next: 'https://us.posthog.com/api/items/?offset=5000',
+                previous: null,
+                results: rows(5_000),
+            },
+            toolName: 'items-list',
+            params: {},
+        })
+
+        const capped = text(capResponseToBudget(built, BUDGET))
+
+        expect(capped).not.toContain('More results exist')
+    })
+
     it('keeps a top-level array an array, closed by a notice element', () => {
         const capped = JSON.parse(text(capResponseToBudget(textPayload(JSON.stringify(rows(5_000))), BUDGET)))
 

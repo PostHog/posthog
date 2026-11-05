@@ -24,6 +24,8 @@ const POINTER_LINE = /^(_posthogUrl|_agentNote): /
 /** A bracketed last line is a tool's own notice, such as the execute-sql preview line. */
 const TRAILING_NOTICE_LINE = /^\[.*\]$/
 const INFORMATIONAL_OPEN_TAG = /<([A-Za-z0-9_-]+) informational="true" instructional="false">\n/
+/** These point past the last item of the full page, so they skip every item the projection drops. */
+const CONTINUATION_KEYS = ['next', 'nextCursor', 'next_cursor']
 
 export interface ResponseBodySource {
     value: unknown
@@ -68,7 +70,7 @@ function overflowNotice(fullBytes: number, maxTokens: number, cuts: string[]): s
         `[Response shortened to about ${formatTokens(maxTokens)} tokens, the most this client accepts in one tool result. ` +
         `The full result is about ${formatTokens(Math.ceil(fullBytes / BYTES_PER_TOKEN))} tokens. ` +
         (cuts.length > 0 ? `Shortened: ${listed}${more}. ` : '') +
-        'To get the rest, ask for less per call: page with the tool’s limit/offset or cursor, add filters, ' +
+        'To get the rest, ask for less per call: lower the tool’s limit and page from there, add filters, ' +
         'shorten the date range, or request fewer fields.]'
     )
 }
@@ -207,6 +209,16 @@ function projectRecord(
         }
         kept.set(key, projected)
         spent += keyCost + jsonBytes(projected)
+    }
+    const droppedItems = entries.some(
+        ([key, entryValue]) =>
+            Array.isArray(entryValue) && (kept.get(key) as unknown[] | undefined)?.length !== entryValue.length
+    )
+    if (droppedItems) {
+        for (const key of CONTINUATION_KEYS.filter((key) => kept.has(key))) {
+            kept.delete(key)
+            cuts.push(`${path ? `${path}.${key}` : key} removed, because it skips the omitted items`)
+        }
     }
     return Object.fromEntries(entries.filter(([key]) => kept.has(key)).map(([key]) => [key, kept.get(key)]))
 }
