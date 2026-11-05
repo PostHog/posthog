@@ -701,7 +701,7 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             'overview' as ContentAutopilotWorkspaceTab,
             {
                 setWorkspaceTab: (_, { workspaceTab }) => workspaceTab,
-                selectProfile: () => 'overview',
+                deleteProfileSuccess: () => 'overview',
             },
         ],
         draftingOpportunityIds: [
