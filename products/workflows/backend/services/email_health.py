@@ -3,7 +3,7 @@ the sending allowance."""
 
 import hashlib
 from collections.abc import Collection, Mapping
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any
 
 from django.core.cache import cache
@@ -11,7 +11,7 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.api.app_metrics2 import fetch_app_metric_totals_by_source, fetch_app_metric_totals_by_team_and_source
+from posthog.api.app_metrics2 import fetch_app_metric_totals_by_source
 from posthog.integrations import IntegrationManager
 from posthog.models.integration import Integration, is_sandbox_email_sender
 
@@ -23,7 +23,7 @@ from products.workflows.backend.facade.contracts import (
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.providers.ses import SESProvider
 from products.workflows.backend.services.email_sending_attribution import fold_email_totals_by_flow
-from products.workflows.backend.services.email_sending_tier import SENT_METRICS, own_sends
+from products.workflows.backend.services.email_sending_tier import team_own_sends_since
 from products.workflows.backend.utils.email_sending_tiers import max_email_sending_tier, resolve_team_email_sending_tier
 
 logger = structlog.get_logger(__name__)
@@ -81,19 +81,12 @@ def team_email_sending_allowance(team_id: int) -> EmailSendingAllowance:
         emails_per_hour=resolved.limits.per_hour,
         emails_per_day=resolved.limits.per_day,
         max_batch_audience=resolved.limits.max_batch_audience,
-        emails_sent_last_hour=_team_email_sends_since(team_id, now - timedelta(hours=1)),
-        emails_sent_last_day=_team_email_sends_since(team_id, now - timedelta(days=1)),
+        emails_sent_last_hour=team_own_sends_since(team_id, now - timedelta(hours=1)),
+        emails_sent_last_day=team_own_sends_since(team_id, now - timedelta(days=1)),
         enforced=resolved.enforced,
     )
     cache.set(cache_key, allowance, SENDING_ALLOWANCE_CACHE_SECONDS)
     return allowance
-
-
-def _team_email_sends_since(team_id: int, after: datetime) -> int:
-    totals = fetch_app_metric_totals_by_team_and_source(
-        app_source="hog_flow", name=SENT_METRICS, after=after, team_ids=[team_id]
-    ).get(team_id, {})
-    return sum(own_sends(counts) for counts in totals.values())
 
 
 AWS_TENANT_REPUTATION_CACHE_SECONDS = 5 * 60
