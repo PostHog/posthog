@@ -21,6 +21,7 @@ import {
     signalsReportsSourceMetadataCreate,
 } from 'products/signals/frontend/generated/api'
 import type {
+    PaginatedSignalReportListListApi,
     ReviewerRemovalReasonEnumApi,
     SignalReportMetricSnapshotsApi,
 } from 'products/signals/frontend/generated/api.schemas'
@@ -69,14 +70,15 @@ export interface ReportListRequestContext {
 }
 
 /** A list response stamped with the query params and display context that produced it (see the loader). */
-export type ReportListResponse = CountedPaginatedResponse<SignalReport> & {
-    /** The ranker the server used for `sort=recommended`. Null for every other sort. */
-    ranker?: string | null
-    /** Whether the client shows a ranking score pill on each card, for `sort=recommended`. Null for every other sort. */
-    ranking_pill?: boolean | null
-    requestParams?: Record<string, unknown>
-    requestContext?: ReportListRequestContext
-}
+export type ReportListResponse = CountedPaginatedResponse<SignalReport> &
+    Pick<PaginatedSignalReportListListApi, 'count_is_capped'> & {
+        /** The ranker the server used for `sort=recommended`. Null for every other sort. */
+        ranker?: string | null
+        /** Whether the client shows a ranking score pill on each card, for `sort=recommended`. Null for every other sort. */
+        ranking_pill?: boolean | null
+        requestParams?: Record<string, unknown>
+        requestContext?: ReportListRequestContext
+    }
 
 /**
  * The list request for the API. `created_window` stays a preset key in `listApiParams`, so the
@@ -222,6 +224,7 @@ export interface reportListLogicValues {
     user: UserType | null // userLogic
     claimSavingReportIds: string[]
     count: number | null
+    countIsCapped: boolean
     countLoading: boolean
     countSettled: boolean
     hasMore: boolean
@@ -487,6 +490,7 @@ export interface reportListLogicMeta {
         isLoaded: (reportsResponse: ReportListResponse | null) => boolean
         livePrReportIds: (reports: SignalReport[]) => string[]
         totalCount: (reportsResponse: ReportListResponse | null) => number | null
+        countIsCapped: (reportsResponse: ReportListResponse | null) => boolean
         loadedQueryKey: (reportsResponse: ReportListResponse | null) => string | null
         countSettled: (
             countLoading: boolean,
@@ -901,6 +905,11 @@ export const reportListLogic = kea<reportListLogicType>([
         totalCount: [
             (s) => [s.reportsResponse],
             (reportsResponse: ReportListResponse | null): number | null => reportsResponse?.count ?? null,
+        ],
+        // A search stops counting past a cap, so `count` is a lower bound when this is true.
+        countIsCapped: [
+            (s) => [s.reportsResponse],
+            (reportsResponse: ReportListResponse | null): boolean => reportsResponse?.count_is_capped === true,
         ],
         // Stable key for the query that produced the loaded response. Unlike `listApiParams`, this
         // only changes when a response fetched with the new params actually lands, so consumers

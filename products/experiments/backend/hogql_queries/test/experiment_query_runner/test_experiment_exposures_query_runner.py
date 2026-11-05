@@ -40,7 +40,7 @@ from posthog.test.test_journeys import journeys_for
 from products.access_control.backend.facade.api import upsert_property_access_control
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
@@ -1273,7 +1273,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
     def test_exposure_query_with_action_as_exposure_criteria(self, _name, use_precomputation):
         self._setup_precomputation_test(use_precomputation)
         # Create an action for purchase events with specific properties
-        action = Action.objects.create(
+        action = create_action(
             name="Qualified Purchase",
             team=self.team,
             steps_json=[{"event": "purchase", "properties": [{"key": "plan", "value": "premium", "type": "event"}]}],

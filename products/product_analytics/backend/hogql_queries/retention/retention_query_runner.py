@@ -49,7 +49,7 @@ from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
 from posthog.models.user import User
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
 from products.product_analytics.backend.hogql_queries.retention.retention_base_query_fixed import (
     RetentionFixedIntervalBaseQueryBuilder,
 )
@@ -409,7 +409,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
     def get_events_for_entity(self, entity: RetentionEntity) -> list[str | None]:
         if entity.type == EntityType.ACTIONS and entity.id:
-            action = Action.objects.get(pk=int(entity.id), team__project_id=self.team.project_id)
+            action = get_action(action_id=int(entity.id), project_id=self.team.project_id)
             return action.get_step_events()
         return [entity.id] if isinstance(entity.id, str) else [None]
 
