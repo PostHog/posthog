@@ -83,14 +83,20 @@ class EventsRetentionTool(ConsoleTool):
             rows.append(_organization_row(team_list[0]))
             rows.extend(_team_row(item, now) for item in team_list)
 
+        paging = Paging(
+            number=page.number,
+            num_pages=page.paginator.num_pages,
+            summary=f"{page.paginator.count} teams",
+            previous_url=f"?page={page.previous_page_number()}" if page.has_previous() else None,
+            next_url=f"?page={page.next_page_number()}" if page.has_next() else None,
+        )
         return Page(
             blocks=(
                 Notice(
                     text=(
-                        "Billing months is Team.event_retention_months, which the billing plan sets. It only hides "
-                        "older events in queries. Deletion retention is the staff setting that the monthly cleanup "
-                        "enforces. The cleanup deletes one calendar month at a time, and only when every event in "
-                        "that month is older than the retention."
+                        "Billing months come from the team's billing plan. They only hide older events in queries. "
+                        "Retention is the staff setting that the monthly cleanup enforces. The cleanup deletes one "
+                        "calendar month at a time, and only when every event in that month is older than the retention."
                     )
                 ),
                 Table(
@@ -98,12 +104,6 @@ class EventsRetentionTool(ConsoleTool):
                     rows=tuple(rows),
                     empty_text="No team has a deletion retention yet. Set one on the organization or team page.",
                 ),
-                Paging(
-                    number=page.number,
-                    num_pages=page.paginator.num_pages,
-                    summary=f"{page.paginator.count} teams",
-                    previous_url=f"?page={page.previous_page_number()}" if page.has_previous() else None,
-                    next_url=f"?page={page.next_page_number()}" if page.has_next() else None,
-                ),
+                *((paging,) if page.paginator.count else ()),
             )
         )

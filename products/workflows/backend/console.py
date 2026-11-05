@@ -7,7 +7,7 @@ from posthog.admin.console.panels import Fact, Operation, Owner, Panel, Tone
 from posthog.admin.console.registry import console
 from posthog.models.team.team import Team
 
-from products.workflows.backend.facade.api import get_email_sending_state
+from products.workflows.backend.facade.api import get_email_sending_state, max_email_sending_tier
 
 WORKFLOWS = Owner(name="Workflows", crest="workflows")
 
@@ -36,7 +36,12 @@ class EmailSendingPanel(Panel):
             facts.append(Fact(label="Suspended at", value=state.suspended_at.strftime("%b %-d, %Y %H:%M UTC")))
             facts.append(Fact(label="Reason", value=state.suspension_reason or "No reason recorded"))
         if state is not None:
-            facts.append(Fact(label="Tier", value=f"{state.tier}{' (pinned)' if state.tier_pinned else ''}"))
+            facts.append(
+                Fact(
+                    label="Sending limit tier",
+                    value=f"Tier {state.tier} of {max_email_sending_tier()}{', pinned by staff' if state.tier_pinned else ''}",
+                )
+            )
         return facts
 
     def operations(self, obj: Model) -> list[Operation]:
@@ -58,5 +63,6 @@ class EmailSendingPanel(Panel):
                 danger=True,
                 description="Stops workflow email for this team. The team gets an email and a notification.",
                 form_class=SuspendEmailSendingForm,
+                undo_hint="To undo, use Re-enable sending in the Email sending panel.",
             )
         ]

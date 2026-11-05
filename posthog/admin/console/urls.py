@@ -1,5 +1,5 @@
 from django.contrib import admin
-from django.urls import path
+from django.urls import path, re_path
 
 from posthog.admin.console import views
 
@@ -21,5 +21,12 @@ urlpatterns = [
         "admin/console/tools/<slug:tool_key>/",
         admin.site.admin_view(views.tool_page),
         name="admin_console_tool",
+    ),
+    # APPEND_SLASH is off, so a console URL typed without its trailing slash would fall through to the
+    # Django admin catch-all.
+    re_path(
+        r"^admin/console(?P<rest>(?:/.*[^/])?)$",
+        admin.site.admin_view(views.append_slash),
+        name="admin_console_append_slash",
     ),
 ]

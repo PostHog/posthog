@@ -1,4 +1,5 @@
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 import time_machine
@@ -7,12 +8,14 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.test import Client, SimpleTestCase
+from django.utils.html import format_html
 
 from parameterized import parameterized
 
-from posthog.admin.console.panels import Operation, Owner, Panel
+from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Operation, Owner, Panel, ReasonForm
 from posthog.admin.console.registry import ConsoleRegistry, console
-from posthog.llm.gateway_internal_client import CreditResult
+from posthog.admin.console.tools import Cell, ConsoleTool, Page, Row, Table
+from posthog.llm.gateway_internal_client import AIGatewayInternalError, CreditResult
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig
 
 from products.workflows.backend.facade.api import get_email_sending_state
@@ -37,6 +40,19 @@ class _DuplicatePanel(Panel):
     key = "overview"
     title = "Duplicate"
     owner = Owner(name="Dev experience", crest="dev-experience")
+
+
+class _Tool(ConsoleTool):
+    key = "some-report"
+    title = "Some report"
+    owner = Owner(name="Dev experience", crest="dev-experience")
+    group = "Data"
+
+
+def _register_twice() -> None:
+    registry = ConsoleRegistry()
+    registry.register_panel(type("FirstPanel", (_DuplicatePanel,), {}))
+    registry.register_panel(type("SecondPanel", (_DuplicatePanel,), {}))
 
 
 class TestAdminConsoleAssets(SimpleTestCase):
@@ -71,16 +87,54 @@ class TestAdminConsoleAssets(SimpleTestCase):
             f"Console owners name crests the console does not ship: {missing}. Rebuild with `{REBUILD}`."
         )
 
-    def test_registering_a_second_panel_with_a_taken_key_fails(self) -> None:
-        registry = ConsoleRegistry()
-        registry.register_panel(type("FirstPanel", (_DuplicatePanel,), {}))
-
-        with self.assertRaisesRegex(ValueError, "already used"):
-            registry.register_panel(type("SecondPanel", (_DuplicatePanel,), {}))
-
-    def test_a_danger_operation_without_a_reason_field_is_refused(self) -> None:
-        with self.assertRaisesRegex(ValueError, "reason"):
-            Operation(key="wipe", label="Wipe", handler=lambda request, obj, form: None, danger=True)
+    @parameterized.expand(
+        [
+            ("duplicate_panel_key", _register_twice, "already used"),
+            (
+                "panel_key_not_a_slug",
+                lambda: ConsoleRegistry().register_panel(type("P", (_DuplicatePanel,), {"key": "Over view"})),
+                "dash-separated key",
+            ),
+            (
+                "blank_panel_title",
+                lambda: ConsoleRegistry().register_panel(type("P", (_DuplicatePanel,), {"title": " "})),
+                "needs a title",
+            ),
+            (
+                "tool_group_outside_the_navigation",
+                lambda: ConsoleRegistry().register_tool(type("T", (_Tool,), {"group": "Misc"})),
+                "not one of",
+            ),
+            (
+                "danger_operation_without_reason",
+                lambda: Operation(key="wipe", label="Wipe", handler=lambda request, obj, form: None, danger=True),
+                "reason",
+            ),
+            (
+                "danger_operation_without_undo_hint",
+                lambda: Operation(
+                    key="wipe",
+                    label="Wipe",
+                    handler=lambda request, obj, form: None,
+                    danger=True,
+                    form_class=ReasonForm,
+                ),
+                "undo_hint",
+            ),
+            ("fact_with_markup", lambda: Fact(label="Plan", value=format_html("<b>{}</b>", "Scale")), "plain text"),
+            ("unknown_tool_block", lambda: Page(blocks=(Fact(label="a", value="b"),)), "not a console block"),  # type: ignore[arg-type]
+            (
+                "table_row_missing_a_cell",
+                lambda: Page(blocks=(Table(columns=("Team", "Months"), rows=(Row(cells=(Cell(text="a"),)),)),)),
+                "1 cells for 2 columns",
+            ),
+        ]
+    )
+    def test_the_console_contract_refuses_a_contribution_that_would_render_wrong(
+        self, _name: str, contribute: Callable[[], object], message: str
+    ) -> None:
+        with self.assertRaisesRegex(ValueError, message):
+            contribute()
 
 
 class TestAdminConsoleViews(BaseTest):
@@ -116,6 +170,40 @@ class TestAdminConsoleViews(BaseTest):
         content = response.content.decode()
         for title in ("Overview", "Remote config cache", "Email sending", "AI gateway", "Project API token"):
             assert title in content
+        assert "Needs attention" in content and "Ingested events:" in content
+        for panel in console.panels_for("team"):
+            assert len(panel.facts(self.team)) <= MAX_FACTS_PER_PANEL, f"{panel.key} shows too many facts"
+
+        home = self.client.get("/admin/console/").content.decode()
+        assert "Recently opened" in home
+        assert f"/admin/console/teams/{self.team.pk}/" in home
+
+    @parameterized.expand(
+        [
+            ("home", "/admin/console", "/admin/console/"),
+            ("team_with_query", "/admin/console/teams/7?tab=1", "/admin/console/teams/7/?tab=1"),
+        ]
+    )
+    def test_a_console_url_without_its_trailing_slash_redirects(self, _name: str, path: str, expected: str) -> None:
+        response = self.client.get(path)
+
+        assert response.status_code == 302
+        assert response["Location"] == expected
+
+    def test_a_name_with_one_match_opens_the_team(self) -> None:
+        response = self.client.get("/admin/console/", {"q": self.team.name})
+
+        assert response.status_code == 302
+        assert response["Location"] == f"/admin/console/teams/{self.team.pk}/"
+
+    def test_django_admin_team_page_points_moved_actions_to_the_console(self) -> None:
+        response = self.client.get(f"/admin/posthog/team/{self.team.pk}/change/")
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "team actions moved to PostHog Admin" in content
+        for panel_key in ("remote-config", "email-sending", "ai-gateway", "api-token"):
+            assert f"/admin/console/teams/{self.team.pk}/#panel-{panel_key}" in content
 
     @parameterized.expand(
         [
@@ -163,6 +251,18 @@ class TestAdminConsoleViews(BaseTest):
         assert add_credit.call_count == 2
         assert len(keys) == 1
 
+    @patch("posthog.admin.admins.team_admin.add_credit", side_effect=AIGatewayInternalError("gateway down"))
+    def test_a_failed_operation_shows_the_form_again_with_what_staff_typed(self, _add_credit: MagicMock) -> None:
+        response = self.client.post(
+            f"/admin/console/teams/{self.team.pk}/ai-gateway/add-credit/",
+            {"amount_usd": "25", "reason": "Outage goodwill"},
+        )
+
+        assert response.status_code == 400
+        content = response.content.decode()
+        assert "gateway down" in content
+        assert "Outage goodwill" in content
+
     @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
     def test_events_retention_tool_lists_the_teams_of_an_organization_with_a_default(self) -> None:
         empty = self.client.get("/admin/console/tools/events-retention/")
@@ -176,6 +276,7 @@ class TestAdminConsoleViews(BaseTest):
 
         assert response.redirect_chain == [("/admin/console/tools/events-retention/", 302)]
         content = response.content.decode()
+        assert "Events retention moved to PostHog Admin" in content
         assert f"/admin/console/teams/{self.team.pk}/" in content
         assert "Organization default" in content
         assert "September 2025" in content

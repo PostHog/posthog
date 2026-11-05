@@ -6,13 +6,13 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.staticfiles import finders
 from django.db.models import Q
-from django.http import Http404, HttpRequest, HttpResponse, HttpResponseNotAllowed
+from django.http import Http404, HttpRequest, HttpResponse, HttpResponseNotAllowed, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 
 import structlog
 
-from posthog.admin.console.panels import Fact, Operation, Panel
+from posthog.admin.console.panels import Fact, Operation, Panel, Tone
 from posthog.admin.console.registry import console
 from posthog.admin.console.tools import ConsoleTool
 from posthog.dataclasses import frozen
@@ -23,6 +23,7 @@ from posthog.models.user import User
 logger = structlog.get_logger(__name__)
 
 SEARCH_LIMIT = 25
+RECENT_TEAMS_LIMIT = 8
 
 
 @frozen
@@ -30,6 +31,17 @@ class RenderedPanel:
     panel: Panel
     facts: list[Fact]
     operations: list[Operation]
+
+
+@frozen
+class AttentionItem:
+    """A warning or destructive fact, lifted to the top of the record page so staff see what is wrong first."""
+
+    panel: Panel
+    fact: Fact
+
+
+ATTENTION_TONES = (Tone.WARNING, Tone.DESTRUCTIVE)
 
 
 class ConsoleAssets:
@@ -75,6 +87,25 @@ class ConsoleEnvironment:
         }
 
 
+class RecentTeams:
+    """The teams this staff member opened last, kept in the session, so the home page has somewhere to start."""
+
+    SESSION_KEY = "admin_console_recent_teams"
+
+    @classmethod
+    def remember(cls, request: HttpRequest, team: Team) -> None:
+        recent = [team_id for team_id in request.session.get(cls.SESSION_KEY, []) if team_id != team.pk]
+        request.session[cls.SESSION_KEY] = [team.pk, *recent][:RECENT_TEAMS_LIMIT]
+
+    @classmethod
+    def load(cls, request: HttpRequest) -> list[Team]:
+        team_ids: list[int] = request.session.get(cls.SESSION_KEY, [])
+        if not team_ids:
+            return []
+        teams = Team.objects.select_related("organization").in_bulk(team_ids)
+        return [teams[team_id] for team_id in team_ids if team_id in teams]
+
+
 def _search_teams(query: str) -> list[Team]:
     if not query:
         return []
@@ -92,17 +123,27 @@ def _search_teams(query: str) -> list[Team]:
 def console_home(request: HttpRequest) -> HttpResponse:
     query = request.GET.get("q", "").strip()
     teams = _search_teams(query)
-    if query.isdigit() and len(teams) == 1:
+    if len(teams) == 1:
+        if not query.isdigit():
+            messages.info(request, f'Opened the only team that matches "{query}".')
         return redirect("admin_console_team", team_id=teams[0].pk)
     return render(
         request,
         "admin_console/home.html",
-        {**ConsoleEnvironment.context(), "query": query, "teams": teams},
+        {
+            **ConsoleEnvironment.context(),
+            "query": query,
+            "teams": teams,
+            "recent_teams": [] if query else RecentTeams.load(request),
+            "tools": console.tools(),
+            "team_panels": console.panels_for("team"),
+        },
     )
 
 
 def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:
     team = get_object_or_404(Team.objects.select_related("organization"), pk=team_id)
+    RecentTeams.remember(request, team)
     panels = [
         RenderedPanel(panel=panel, facts=panel.facts(team), operations=panel.operations(team))
         for panel in console.panels_for("team")
@@ -113,6 +154,12 @@ def team_detail(request: HttpRequest, team_id: int) -> HttpResponse:
         {
             **ConsoleEnvironment.context(),
             "team": team,
+            "attention": [
+                AttentionItem(panel=rendered.panel, fact=fact)
+                for rendered in panels
+                for fact in rendered.facts
+                if fact.tone in ATTENTION_TONES
+            ],
             "regular_panels": [rendered for rendered in panels if not rendered.panel.danger],
             "danger_panels": [rendered for rendered in panels if rendered.panel.danger],
         },
@@ -172,7 +219,13 @@ def run_team_operation(request: HttpRequest, team_id: int, panel_key: str, opera
     if response is None:
         return redirect(team_url)
     if response.status_code >= 400:
-        messages.error(request, f"{operation.label} failed with status {response.status_code}.")
+        if form is not None:
+            return render(request, "admin_console/operation.html", context, status=400)
+        messages.error(
+            request,
+            f"{operation.label} failed with status {response.status_code}. The page below shows the current state. "
+            f"Try again, or ask the {panel.owner.name} team if it keeps failing.",
+        )
         return redirect(team_url)
     return response
 
@@ -187,3 +240,8 @@ def tool_page(request: HttpRequest, tool_key: str) -> HttpResponse:
         "admin_console/tool.html",
         {**ConsoleEnvironment.context(), "tool": tool, "page": page},
     )
+
+
+def append_slash(request: HttpRequest, rest: str) -> HttpResponse:
+    query = request.META.get("QUERY_STRING", "")
+    return HttpResponseRedirect(f"/admin/console{rest}/" + (f"?{query}" if query else ""))

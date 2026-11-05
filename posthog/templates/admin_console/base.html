@@ -12,6 +12,8 @@
                 defer></script>
     </head>
     <body class="console-body m-0 min-h-screen bg-background text-foreground text-[13px]">
+        <a class="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-10 focus:px-3 focus:py-2 focus:rounded focus:bg-background"
+           href="#content">Skip to content</a>
         <div class="console-env-stripe h-1"></div>
         <header class="flex flex-wrap items-center gap-4 min-h-12 px-4 py-2 bg-chrome border-b border-border">
             <a href="{% url 'admin_console_home' %}"
@@ -21,38 +23,49 @@
             <span class="console-env-pill inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wide whitespace-nowrap">
                 <span class="console-env-dot size-[7px] rounded-full"></span>{{ console_env_label }}
             </span>
-            <form method="get"
-                  action="{% url 'admin_console_home' %}"
-                  class="flex-1 min-w-[240px] max-w-[520px]">
-                <input class="quill-input"
-                       type="search"
-                       name="q"
-                       value="{{ query|default:'' }}"
-                       placeholder="Find a team by ID, API token, team or organization name"
-                       aria-label="Search teams" />
-            </form>
-            <div class="ml-auto flex items-center gap-3 text-muted-foreground whitespace-nowrap">
-                <span>{{ request.user.email }}</span>
-                <a class="quill-button quill-button--variant-outline quill-button--size-sm group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap"
-                   href="/admin/">Django admin</a>
-            </div>
+            {% block header_search %}
+                <form method="get"
+                      action="{% url 'admin_console_home' %}"
+                      class="flex-1 min-w-[240px] max-w-[520px]">
+                    <input class="quill-input"
+                           id="team-search"
+                           type="search"
+                           name="q"
+                           placeholder="Look up a team by ID, API token or name"
+                           aria-label="Look up a team"
+                           aria-keyshortcuts="/" />
+                </form>
+            {% endblock %}
+            <div class="ml-auto text-muted-foreground whitespace-nowrap">{{ request.user.email }}</div>
         </header>
         <div class="@container">
             <div class="grid min-h-[calc(100vh-3.25rem)] @3xl:grid-cols-[200px_1fr]">
                 <nav class="flex flex-col gap-0.5 p-2 bg-chrome border-b @3xl:border-b-0 @3xl:border-r border-border"
                      aria-label="Console">
-                    <p class="mt-2 mb-1 mx-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Records</p>
-                    <a class="quill-button quill-button--variant-default quill-button--size-row justify-start group/button inline-flex shrink-0 items-center whitespace-nowrap"
-                       href="{% url 'admin_console_home' %}">Teams</a>
-                    {% for group, tools in console_tool_groups.items %}
-                        <p class="mt-3 mb-1 mx-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">{{ group }}</p>
-                        {% for nav_tool in tools %}
-                            <a class="quill-button quill-button--variant-default quill-button--size-row justify-start group/button inline-flex shrink-0 items-center whitespace-nowrap"
-                               href="{% url 'admin_console_tool' tool_key=nav_tool.key %}">{{ nav_tool.title }}</a>
+                    {% url 'admin_console_home' as home_url %}
+                    <p class="mt-2 mb-1 mx-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Teams</p>
+                    <a class="quill-button quill-button--variant-default quill-button--size-row justify-start group/button inline-flex shrink-0 items-center whitespace-nowrap aria-[current=page]:bg-[var(--fill-selected)] aria-[current=page]:font-bold"
+                       href="{{ home_url }}"
+                       {% if request.path == home_url %}aria-current="page"{% endif %}>Look up a team</a>
+                    {% if console_tool_groups %}
+                        <p class="mt-4 mb-1 mx-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">Tools</p>
+                        {% for group, tools in console_tool_groups.items %}
+                            <p class="mt-1 mb-0.5 mx-2 text-[11px] text-muted-foreground">{{ group }}</p>
+                            {% for nav_tool in tools %}
+                                {% url 'admin_console_tool' tool_key=nav_tool.key as tool_url %}
+                                <a class="quill-button quill-button--variant-default quill-button--size-row justify-start group/button inline-flex shrink-0 items-center whitespace-nowrap aria-[current=page]:bg-[var(--fill-selected)] aria-[current=page]:font-bold"
+                                   href="{{ tool_url }}"
+                                   {% if request.path == tool_url %}aria-current="page"{% endif %}>{{ nav_tool.title }}</a>
+                            {% endfor %}
                         {% endfor %}
-                    {% endfor %}
+                    {% endif %}
+                    <div class="mt-auto mx-2 mb-2 pt-4 flex flex-col gap-1 text-xs text-muted-foreground">
+                        <p class="m-0">Need a raw database table? Django admin still has every model.</p>
+                        <a class="quill-button quill-button--variant-link-muted quill-button--size-sm justify-start px-0 group/button inline-flex shrink-0 items-center whitespace-nowrap"
+                           href="/admin/">Leave for Django admin &rarr;</a>
+                    </div>
                 </nav>
-                <main class="min-w-0 px-6 pt-5 pb-20 @container">
+                <main id="content" class="min-w-0 px-6 pt-5 pb-20 @container">
                     {% if messages %}
                         <div class="flex flex-col gap-2 mb-4">
                             {% for message in messages %}

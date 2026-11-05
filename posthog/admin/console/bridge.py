@@ -2,7 +2,8 @@ from collections.abc import Callable
 from typing import Any
 
 from django import forms
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.contrib.messages.storage.base import BaseStorage
 from django.db.models import Model
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 
@@ -21,7 +22,8 @@ class AdminViewBridge:
 
     Only bridge views that take a POST and answer with a redirect. The redirect points into Django admin,
     so the bridge drops it and the console sends staff back to the console page. Messages the view adds
-    still show there.
+    still show there. A view that adds an error message before it redirects has failed, so the bridge
+    answers 400 and the console shows the form again with what staff typed.
     """
 
     def __init__(self, model: type[Model], view: AdminView) -> None:
@@ -30,7 +32,20 @@ class AdminViewBridge:
 
     def __call__(self, request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpResponse | None:
         model_admin = admin.site.get_model_admin(self.model)
+        errors_before = self._error_count(request)
         response = self.view(model_admin, request, str(obj.pk))
-        if isinstance(response, HttpResponseRedirect):
-            return None
-        return response
+        if not isinstance(response, HttpResponseRedirect):
+            return response
+        if self._error_count(request) > errors_before:
+            return HttpResponse(status=400)
+        return None
+
+    @staticmethod
+    def _error_count(request: HttpRequest) -> int:
+        storage = messages.get_messages(request)
+        if not isinstance(storage, BaseStorage):
+            return 0
+        count = sum(1 for message in storage if message.level >= messages.ERROR)
+        # Reading the messages marks them as shown. Keep them for the page that renders next.
+        storage.used = False
+        return count

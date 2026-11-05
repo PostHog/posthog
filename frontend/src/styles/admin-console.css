@@ -82,8 +82,21 @@
         background: var(--console-env);
     }
 
+    /* A destructive ring instead of a tinted fill, so the env tint (warm in US) cannot wash it out. */
+
+    /* quill's focus ring is a faint shadow. Staff who work from the keyboard need a solid one. */
+    :where(a, button, input, select, textarea, summary):focus-visible {
+        outline: 2px solid var(--primary-dark);
+        outline-offset: 2px;
+    }
+
+    /* quill draws a card's border as a 1px box-shadow ring. */
     .console-danger {
-        background: color-mix(in oklab, var(--destructive) 35%, var(--card));
-        border-color: color-mix(in oklab, var(--destructive-foreground) 45%, transparent);
+        box-shadow: 0 0 0 1px var(--destructive-foreground);
+    }
+
+    .console-attention {
+        background: color-mix(in oklab, var(--warning) 45%, var(--card));
+        box-shadow: 0 0 0 1px var(--warning-foreground);
     }
 }
