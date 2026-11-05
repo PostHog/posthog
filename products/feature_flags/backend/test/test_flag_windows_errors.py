@@ -2,19 +2,32 @@ import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import (
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_flag_evaluations,
+    flush_persons_and_events,
+)
 
 from parameterized import parameterized
 
-from posthog.test.persons import create_person
+from posthog.test.persons import create_group_type_mapping, create_person
 
 from products.error_tracking.backend.facade.testing import (
     create_issue,
     create_issue_fingerprint,
     sync_issue_to_clickhouse,
 )
-from products.feature_flags.backend.flag_windows.errors import ConditionErrors, ErrorCounts, errors_by_bucket
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.flag_windows.errors import (
+    ConditionErrors,
+    ErrorCounts,
+    ErrorsByPerson,
+    errors_by_bucket,
+)
 from products.feature_flags.backend.flag_windows.query import ConditionMatch, WatchedCondition, WatchedEdit
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 EDITED_AT = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
 WINDOW = timedelta(minutes=30)
@@ -78,7 +91,12 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
                     ("person-5", "$exception", -5, {"$feature/new-checkout": True}),
                 ],
                 ErrorCounts(
-                    with_errors=3, with_new_errors=0, exposed_with_errors=1, unexposed_with_errors=1, by_variant={}
+                    with_errors=3,
+                    with_new_errors=0,
+                    exposed_with_errors=1,
+                    unexposed_with_errors=1,
+                    by_variant={},
+                    by_person=ErrorsByPerson(exposed_with_errors=1, unexposed_with_errors=1),
                 ),
             ),
             (
@@ -95,6 +113,7 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
                     exposed_with_errors=2,
                     unexposed_with_errors=1,
                     by_variant={"control": 1, "test": 1},
+                    by_person=ErrorsByPerson(exposed_with_errors=2, unexposed_with_errors=1),
                 ),
             ),
             (
@@ -110,7 +129,12 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
                     ),
                 ],
                 ErrorCounts(
-                    with_errors=2, with_new_errors=0, exposed_with_errors=1, unexposed_with_errors=1, by_variant={}
+                    with_errors=2,
+                    with_new_errors=0,
+                    exposed_with_errors=1,
+                    unexposed_with_errors=1,
+                    by_variant={},
+                    by_person=ErrorsByPerson(exposed_with_errors=1, unexposed_with_errors=1),
                 ),
             ),
         ]
@@ -158,6 +182,93 @@ class TestErrorsByBucket(ClickhouseTestMixin, BaseTest):
             {edit_id: buckets[0].since_edit.with_new_errors for edit_id, buckets in errors.items()},
             {"boolean": 1, "earlier": 3},
         )
+
+    def test_an_error_without_the_flag_takes_the_value_of_the_last_event_before_it(self) -> None:
+        def called(flag_key: str, response: bool) -> dict[str, Any]:
+            return {"$feature_flag": flag_key, "$feature_flag_response": response}
+
+        # HogQL hides the group of an event sent before the group type existed.
+        create_group_type_mapping(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+            created_at=EDITED_AT - timedelta(days=1),
+        )
+        self._send(
+            [
+                ("person-1", "$pageview", 1, {"$feature/new-checkout": True}),
+                ("person-1", "$feature_flag_called", 2, called("other-flag", True)),
+                ("person-1", "$exception", 3, {}),
+                ("person-2", "$pageview", 1, {"$feature/new-checkout": False, "$feature/other-flag": False}),
+                ("person-2", "$exception", 2, {}),
+                ("person-3", "$exception", 2, {}),
+                ("person-3", "$pageview", 4, {"$feature/new-checkout": True}),
+                ("person-4", "$feature_flag_called", 1, called("new-checkout", True)),
+                ("person-4", "$exception", 2, {}),
+                ("person-5", "$pageview", -10, {"$feature/new-checkout": True}),
+                ("person-5", "$exception", 2, {}),
+                ("person-6", "$pageview", 1, {"$feature/new-checkout": True}),
+                ("person-6", "$exception", 2, {"$feature/new-checkout": False}),
+                ("person-7", "$pageview", 1, {"$active_feature_flags": ["unwatched"], "$feature/unwatched": True}),
+                ("person-7", "$exception", 2, {}),
+                ("person-8", "$pageview", 1, {"$feature/org-beta": True, "$group_0": "org-a"}),
+                ("person-9", "$exception", 2, {"$group_0": "org-a"}),
+            ]
+        )
+        other = dataclasses.replace(BOOLEAN, id="other", flag_key="other-flag")
+        group = dataclasses.replace(BOOLEAN, id="group", flag_key="org-beta", group_type_index=0)
+
+        errors = errors_by_bucket(self.team, [BOOLEAN, other, ENABLED, group], EDITED_AT, EDITED_AT + WINDOW, WINDOW)
+
+        self.assertEqual(
+            {edit_id: bucket.since_edit.by_person for edit_id, [bucket] in errors.items()},
+            {
+                "boolean": ErrorsByPerson(exposed_with_errors=2, unexposed_with_errors=2),
+                "other": ErrorsByPerson(exposed_with_errors=1, unexposed_with_errors=1),
+                "enabled": ErrorsByPerson(exposed_with_errors=2, unexposed_with_errors=3),
+                "group": ErrorsByPerson(exposed_with_errors=1, unexposed_with_errors=0),
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("read_flag_evaluations", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False),
+            ("flag_evaluations_only", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, True),
+        ]
+    )
+    def test_an_error_takes_the_value_of_a_flag_call_where_the_mode_keeps_every_flag_call(
+        self, _name: str, mode: FlagEvaluationsMode, calls_in_flag_evaluations: bool
+    ) -> None:
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization, defaults={"flag_evaluations_mode": mode}
+        )
+        person = create_person(team=self.team, distinct_ids=["person-1"])
+        if not calls_in_flag_evaluations:
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id="person-1",
+                timestamp=EDITED_AT + timedelta(minutes=1),
+                properties={"$feature_flag": "new-checkout", "$feature_flag_response": True},
+            )
+        _create_event(
+            team=self.team, event="$exception", distinct_id="person-1", timestamp=EDITED_AT + timedelta(minutes=2)
+        )
+        flush_persons_and_events()
+        if calls_in_flag_evaluations:
+            _create_flag_evaluations(
+                self.team.pk,
+                "new-checkout",
+                timestamp=EDITED_AT + timedelta(minutes=1),
+                distinct_id="person-1",
+                person_id=person.uuid,
+                response=True,
+            )
+
+        since_edit = self._since_edit(BOOLEAN)
+
+        self.assertEqual(since_edit.by_person, ErrorsByPerson(exposed_with_errors=1, unexposed_with_errors=0))
 
     def test_errors_in_the_watched_conditions_split_by_reason_and_by_properties(self) -> None:
         def called(flag_key: str, reason: str, value: bool) -> dict[str, Any]:

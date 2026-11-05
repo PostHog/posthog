@@ -33,6 +33,12 @@ people per bucket and since the edit.
     static cohort, leaves its edit without counts by properties. A value that ClickHouse rejects when the query runs,
     such as text compared with a number, leaves every edit without them.
 
+An event without the flag can take the value of the actor's last event with the flag at or before it: `$feature/<key>`
+on any event, or the response of a flag call. Server SDKs mostly send errors without the flag, so this is how their
+errors get a value. Only the events of the actors with a counted event are read, from `LAST_VALUE_LOOKBACK` before the
+range start but never from before the edit, because those events carry the old value. An actor without such an event
+gets no value.
+
 One query per team reads every watched edit: a query per edit would read the same events again.
 """
 
@@ -79,6 +85,8 @@ QUERY_MAX_THREADS = 2
 # ClickHouse rejects these when a property filter compares a value it can't cast or compile: CANNOT_PARSE_TEXT,
 # CANNOT_PARSE_DATETIME, TYPE_MISMATCH, CANNOT_PARSE_NUMBER and CANNOT_COMPILE_REGEXP.
 PROPERTY_VALUE_ERROR_CODES = frozenset({6, 41, 53, 72, 427})
+
+LAST_VALUE_LOOKBACK = timedelta(hours=1)
 
 IN_BUCKET = "_finalizeAggregation({state})"
 SINCE_EDIT = "uniqMerge({state}) OVER (ORDER BY bucket ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)"
@@ -141,6 +149,20 @@ class FlagRead:
             "{variant_key} = {variant}",
             placeholders={"variant_key": self.variant_key, "variant": ast.Constant(value=variant)},
         )
+
+
+@frozen
+class LastValue:
+    """The flag value on the actor's last event with the flag at or before the counted event, as HogQL expressions."""
+
+    known: ast.Expr
+    exposed: ast.Expr
+
+
+@frozen
+class LastValues:
+    joins: tuple[ast.JoinExpr, ...]
+    by_edit: Mapping[str, LastValue]
 
 
 @frozen
@@ -276,12 +298,13 @@ def _matches_condition(team: Team, condition: WatchedCondition, end: datetime) -
 
 @frozen
 class _FlagCalls:
-    """Where the reason joins read the flag calls of a team."""
+    """Where the reason joins and the last values read the flag calls of a team."""
 
     table: tuple[str, ...]
     # Limits the rows to flag calls.
     only_calls: ast.Expr
     flag_key: ast.Expr
+    response: ast.Expr
     # The stored person id. The events read it too, because the query doesn't apply person merges.
     person_id: ast.Expr
 
@@ -296,12 +319,14 @@ class _FlagCalls:
                 table=("events",),
                 only_calls=parse_expr("event = '$feature_flag_called'"),
                 flag_key=parse_expr("properties.$feature_flag"),
+                response=parse_expr("toString(properties.$feature_flag_response)"),
                 person_id=ast.Field(chain=["person_id"]),
             )
         return cls(
             table=("posthog", "flag_evaluations"),
             only_calls=ast.Constant(value=True),
             flag_key=ast.Field(chain=["flag_key"]),
+            response=ast.Field(chain=["response"]),
             person_id=ast.Field(chain=["flag_evaluation_person_id"]),
         )
 
@@ -408,6 +433,180 @@ def _called_with_watched_reason(edit: WatchedEdit, calls: _FlagCalls, reasons: S
             "edited_at": ast.Constant(value=edit.edited_at),
             "reasons": _constants(reasons),
         },
+    )
+
+
+def last_values(
+    team: Team, edits: Sequence[WatchedEdit], start: datetime, end: datetime, counted_event: str
+) -> LastValues:
+    """For each edit, the flag value on the actor's last event with the flag at or before each `counted_event` in
+    `[start, end)`, from the edit on. One join per kind of actor reads the events of every edit of that kind once."""
+    edits_by_actor: dict[int | None, list[tuple[int, WatchedEdit]]] = {}
+    for index, edit in enumerate(edits):
+        edits_by_actor.setdefault(edit.group_type_index, []).append((index, edit))
+    if not edits_by_actor:
+        return LastValues(joins=(), by_edit={})
+    calls = _FlagCalls.of(team)
+    joins: list[ast.JoinExpr] = []
+    by_edit: dict[str, LastValue] = {}
+    for group_type_index, watched in edits_by_actor.items():
+        alias = "flag_last_values" if group_type_index is None else f"flag_last_values_{group_type_index}"
+        actor = _actor(group_type_index)
+        # Events before an edit carry the old value, so no edit reads a value from before it.
+        since = max(start - LAST_VALUE_LOOKBACK, min(edit.edited_at for _, edit in watched))
+        counted_actors = ast.SelectQuery(
+            select=[actor.expr],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=parse_expr(
+                "event = {counted_event} AND timestamp >= {start} AND timestamp < {end}",
+                placeholders={
+                    "counted_event": ast.Constant(value=counted_event),
+                    "start": ast.Constant(value=start),
+                    "end": ast.Constant(value=end),
+                },
+            ),
+        )
+        on_events = [(index, edit, read_flag(edit, {})) for index, edit in watched]
+        flag_values = _value_scan(
+            actor_column=actor.expr,
+            table=("events",),
+            values=[(index, edit, read.with_flag, read.exposed) for index, edit, read in on_events],
+            keep=ast.Or(exprs=[read.with_flag for _, _, read in on_events]),
+            actor=actor,
+            counted_actors=counted_actors,
+            since=since,
+            end=end,
+        )
+        call_exposed = parse_expr(
+            "isNotNull({response}) AND {response} != 'false'", placeholders={"response": calls.response}
+        )
+        flag_calls = _value_scan(
+            actor_column=calls.person_id if group_type_index is None else actor.expr,
+            table=calls.table,
+            values=[
+                (
+                    index,
+                    edit,
+                    parse_expr(
+                        "{flag_key} = {key} AND isNotNull({response})",
+                        placeholders={
+                            "flag_key": calls.flag_key,
+                            "key": ast.Constant(value=edit.flag_key),
+                            "response": calls.response,
+                        },
+                    ),
+                    call_exposed,
+                )
+                for index, edit in watched
+            ],
+            keep=parse_expr(
+                "{only_calls} AND {flag_key} IN {flag_keys}",
+                placeholders={
+                    "only_calls": calls.only_calls,
+                    "flag_key": calls.flag_key,
+                    "flag_keys": _constants(edit.flag_key for _, edit in watched),
+                },
+            ),
+            actor=actor,
+            counted_actors=counted_actors,
+            since=since,
+            end=end,
+        )
+        subquery = ast.SelectQuery(
+            select=[
+                ast.Field(chain=["actor"]),
+                *[
+                    ast.Alias(
+                        alias=f"v{index}",
+                        # Tuples sort by time, then by value, so of two values with the same time the exposed one is
+                        # last and wins.
+                        expr=parse_expr(
+                            "arraySort(groupArrayIf(tuple(timestamp, {exposed}), {carried}))",
+                            placeholders={
+                                "exposed": ast.Field(chain=[f"x{index}"]),
+                                "carried": ast.Field(chain=[f"w{index}"]),
+                            },
+                        ),
+                    )
+                    for index, _ in watched
+                ],
+            ],
+            select_from=ast.JoinExpr(
+                table=ast.SelectSetQuery.create_from_queries([flag_values, flag_calls], "UNION ALL")
+            ),
+            group_by=[ast.Field(chain=["actor"])],
+        )
+        joins.append(
+            ast.JoinExpr(
+                join_type="LEFT JOIN",
+                table=subquery,
+                alias=alias,
+                constraint=ast.JoinConstraint(
+                    expr=parse_expr(
+                        "{values_actor} = {actor}",
+                        placeholders={"values_actor": ast.Field(chain=[alias, "actor"]), "actor": actor.expr},
+                    ),
+                    constraint_type="ON",
+                ),
+            )
+        )
+        for index, edit in watched:
+            values = ast.Field(chain=[alias, f"v{index}"])
+            by_edit[edit.id] = LastValue(
+                known=parse_expr(
+                    "arrayExists(x -> x.1 <= events.timestamp, {values})", placeholders={"values": values}
+                ),
+                exposed=parse_expr(
+                    "arrayLast(x -> x.1 <= events.timestamp, {values}).2 = 1", placeholders={"values": values}
+                ),
+            )
+    return LastValues(joins=tuple(joins), by_edit=by_edit)
+
+
+def _value_scan(
+    *,
+    actor_column: ast.Expr,
+    table: tuple[str, ...],
+    values: Sequence[tuple[int, WatchedEdit, ast.Expr, ast.Expr]],
+    keep: ast.Expr,
+    actor: _Actor,
+    counted_actors: ast.SelectQuery,
+    since: datetime,
+    end: datetime,
+) -> ast.SelectQuery:
+    """One row per row of `table` that `keep` holds for. `values` holds, for each edit, its column index, whether the
+    row carries the flag, and whether that value is exposed."""
+    return ast.SelectQuery(
+        select=[
+            ast.Alias(alias="actor", expr=actor_column),
+            ast.Field(chain=["timestamp"]),
+            *[
+                alias
+                for index, edit, carried, exposed in values
+                for alias in (
+                    ast.Alias(
+                        alias=f"w{index}",
+                        expr=parse_expr(
+                            "{carried} AND timestamp >= {edited_at}",
+                            placeholders={"carried": carried, "edited_at": ast.Constant(value=edit.edited_at)},
+                        ),
+                    ),
+                    ast.Alias(alias=f"x{index}", expr=exposed),
+                )
+            ],
+        ],
+        select_from=ast.JoinExpr(table=ast.Field(chain=list(table))),
+        where=parse_expr(
+            "timestamp >= {since} AND timestamp < {end} AND {present} AND {keep} AND {actor_column} IN {counted_actors}",
+            placeholders={
+                "since": ast.Constant(value=since),
+                "end": ast.Constant(value=end),
+                "present": actor.present,
+                "keep": keep,
+                "actor_column": actor_column,
+                "counted_actors": clone_expr(counted_actors),
+            },
+        ),
     )
 
 
