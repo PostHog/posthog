@@ -22,6 +22,7 @@ from django.test import (
 )
 from django.urls import path, reverse
 
+import requests
 import structlog
 from loginas import settings as la_settings
 from parameterized import parameterized
@@ -2534,6 +2535,18 @@ class TestSocialAuthExceptionMiddleware(SimpleTestCase):
                 "unknown_validation_code",
                 "/complete/google-oauth2/",
                 ValidationError("Something else.", code="something_else"),
+                "/login?error_code=social_login_failure",
+            ),
+            (
+                "provider_read_timeout",
+                "/complete/google-oauth2/",
+                requests.exceptions.ReadTimeout("Read timed out."),
+                "/login?error_code=social_login_failure",
+            ),
+            (
+                "provider_server_error",
+                "/complete/github/",
+                requests.exceptions.HTTPError("500 Server Error: Internal Server Error for url: https://example.com"),
                 "/login?error_code=social_login_failure",
             ),
         ]

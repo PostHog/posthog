@@ -32,6 +32,7 @@ from django.utils.deprecation import MiddlewareMixin
 from django.utils.functional import SimpleLazyObject
 from django.utils.http import http_date, url_has_allowed_host_and_scheme
 
+import requests
 import structlog
 import posthoganalytics
 from django_prometheus.middleware import Metrics
@@ -1599,6 +1600,11 @@ class SocialAuthExceptionMiddleware:
         if isinstance(exception, ValidationError):
             error_code = self._INVITE_ERROR_CODES.get(self._error_code(exception), "social_login_failure")
             return redirect(sso_failure_redirect_url(request, error_code))
+
+        # social-core wraps only ConnectionError from provider calls, so a read timeout or a provider 5xx
+        # arrives here as a plain requests error. The detail holds the provider URL, so it stays out of the redirect.
+        if isinstance(exception, requests.RequestException):
+            return redirect(sso_failure_redirect_url(request, "social_login_failure"))
 
         return None
 
