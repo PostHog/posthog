@@ -82,8 +82,9 @@ def list_notes(
     Expired notes (`expires_at` in the past) are excluded by default so time-boxed
     steering retires itself; `include_expired=True` brings them back for humans
     auditing the history. `only_without_expiry=True` keeps only the standing notes (no
-    `expires_at`), so a run can re-read those past the newest-first cap. `date_from` / `date_to` are a half-open window on
-    `created_at` (`>= date_from`, `< date_to`) for walking past the cap.
+    `expires_at`), so a run can re-read those past the newest-first cap. `date_from` /
+    `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`) for
+    walking past the cap.
 
     `content_max_chars` truncates each `content` to a preview — a wide scan's guard
     against notes stacking up to `MAX_NOTE_CONTENT_LENGTH × limit` characters of
