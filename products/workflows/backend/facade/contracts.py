@@ -34,6 +34,18 @@ if TYPE_CHECKING:
 
 
 @frozen
+class WorkflowViewAccess:
+    viewable_ids: frozenset[str]
+    blocked_ids: frozenset[str]
+    can_view_deleted: bool
+
+    def allows(self, workflow_id: str) -> bool:
+        if workflow_id in self.viewable_ids:
+            return True
+        return self.can_view_deleted and bool(workflow_id) and workflow_id not in self.blocked_ids
+
+
+@frozen
 class WorkflowSummary:
     id: str
     name: str
