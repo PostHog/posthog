@@ -39,7 +39,7 @@ export function EvaluationVolumeEstimate(): JSX.Element | null {
         return (
             <div data-attr="llma-evaluation-create-volume-none">
                 <LemonBanner type="warning">
-                    {`No generations matched in the last ${VOLUME_LOOKBACK_DAYS} days, so it would not have run. Check the filters, or keep them if the traffic has not started yet.`}
+                    {`No generations matched in the last ${VOLUME_LOOKBACK_DAYS} days. Check the filters, or keep them if this traffic hasn't started yet.`}
                 </LemonBanner>
             </div>
         )
@@ -70,8 +70,7 @@ export function EvaluationVolumeEstimate(): JSX.Element | null {
         <div className="flex items-start gap-2 text-sm text-secondary" data-attr="llma-evaluation-create-volume">
             {countsLoading && <Spinner className="mt-0.5" />}
             <p className="mb-0">
-                {`In the last ${VOLUME_LOOKBACK_DAYS} days, ${matched}. With this sampling it would have run about ${humanFriendlyNumber(volume.runs)} times, ${runRate(volume.runs)}.`}
-                {evaluation?.evaluation_type === 'llm_judge' && ' Each run is one call to your judge model.'}
+                {`In the last ${VOLUME_LOOKBACK_DAYS} days, ${matched}. At this sampling it would have run about ${humanFriendlyNumber(volume.runs)} times, ${runRate(volume.runs)}.`}
             </p>
         </div>
     )

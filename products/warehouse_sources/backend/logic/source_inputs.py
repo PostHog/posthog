@@ -91,6 +91,18 @@ class SourceInputsStore:
         source.save(update_fields=["credentials_integration_id"])
 
     @staticmethod
+    def adopt_oauth_pointer(
+        source: ExternalDataSource, inputs: Mapping[str, Any], reference: IntegrationReference
+    ) -> None:
+        """Save adopted OAuth inputs and their reference together, without the typed-in credentials mirror.
+
+        The caller must hold the source lock and create the integration in the same transaction.
+        """
+        _stage(source, inputs)
+        source.credentials_integration_id = str(reference)
+        source.save(update_fields=[*INPUTS_UPDATE_FIELDS])
+
+    @staticmethod
     def load_settings(source: ExternalDataSource) -> dict[str, Any]:
         """Only the sync settings and runtime state of the source, never a connection field.
 
