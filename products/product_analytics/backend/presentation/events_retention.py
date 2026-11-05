@@ -9,6 +9,7 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.event_usage import get_request_analytics_properties
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.team.event_retention import events_retention_floor_date, events_retention_months_for_team
 from posthog.models.user import User
@@ -22,6 +23,19 @@ from products.product_analytics.backend.facade.events_retention import (
 )
 
 EVENTS_RETENTION_DOCS_URL = "https://posthog.com/docs/data/events-retention"
+
+
+def _retention_analytics_properties(request: Request) -> dict[str, object]:
+    try:
+        properties: dict[str, object] = {**get_request_analytics_properties(request)}
+    except ValueError:
+        properties = {}
+    return {
+        **properties,
+        "$mcp_session_id": request.headers.get("X-Posthog-Mcp-Session-Id"),
+        "$mcp_conversation_id": request.headers.get("X-Posthog-Mcp-Conversation-Id"),
+        "$ai_trace_id": request.headers.get("X-PostHog-Trace-Id"),
+    }
 
 
 @extend_schema_serializer(many=False)
@@ -137,6 +151,7 @@ class EventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 request.validated_data["retention_months"],
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated(request),
+                analytics_properties=_retention_analytics_properties(request),
             )
         except DjangoValidationError as error:
             raise exceptions.ValidationError(error.messages) from error
@@ -197,6 +212,7 @@ class OrganizationEventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSe
                 request.validated_data["retention_months"],
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated(request),
+                analytics_properties=_retention_analytics_properties(request),
             )
         except DjangoValidationError as error:
             raise exceptions.ValidationError(error.messages) from error

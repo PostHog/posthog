@@ -2782,6 +2782,10 @@
                     "description": "Column that splits a single Y series into multiple colored series — e.g. breaking down a line chart by `country`. Set to `null` or omit to disable. A breakdown buckets rows by x value, so it is ignored when `display` is `ScatterPlot`.",
                     "type": ["string", "null"]
                 },
+                "showAnnotations": {
+                    "description": "Show annotations on the chart. Only applies to line, area, bar, and stacked bar charts whose X axis is a date or datetime column.",
+                    "type": "boolean"
+                },
                 "showLegend": {
                     "description": "Show the chart legend.",
                     "type": "boolean"
@@ -2822,7 +2826,7 @@
         },
         "AssistantDataVisualizationColumn": {
             "additionalProperties": false,
-            "description": "A column with number formatting only. Series display settings apply only to Y-axis series.",
+            "description": "A column with a description and number formatting. Series display settings apply only to Y-axis series.",
             "properties": {
                 "column": {
                     "description": "Name of a column returned by the SQL query.",
@@ -2830,15 +2834,29 @@
                 },
                 "settings": {
                     "$ref": "#/definitions/AssistantDataVisualizationColumnSettings",
-                    "description": "Optional number formatting for this column."
+                    "description": "Optional display and number-formatting settings for this column."
                 }
             },
             "required": ["column"],
             "type": "object"
         },
+        "AssistantDataVisualizationColumnDisplaySettings": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "description": "Table column description shown in the header tooltip.",
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
         "AssistantDataVisualizationColumnSettings": {
             "additionalProperties": false,
             "properties": {
+                "display": {
+                    "$ref": "#/definitions/AssistantDataVisualizationColumnDisplaySettings",
+                    "description": "Display settings for this column."
+                },
                 "formatting": {
                     "$ref": "#/definitions/AssistantDataVisualizationAxisFormatting",
                     "description": "Number-formatting settings for the values in this column."
@@ -18129,6 +18147,10 @@
         "ChartSettings": {
             "additionalProperties": false,
             "properties": {
+                "annotationsScope": {
+                    "$ref": "#/definitions/AnnotationScope",
+                    "description": "Shows only the annotations saved at this level. Unset shows every level."
+                },
                 "barGap": {
                     "type": "number"
                 },
@@ -18251,6 +18273,9 @@
             "additionalProperties": false,
             "properties": {
                 "color": {
+                    "type": "string"
+                },
+                "description": {
                     "type": "string"
                 },
                 "displayType": {
@@ -24615,6 +24640,17 @@
                     "description": "Free-text search across exception type, message, and stack frames.",
                     "type": "string"
                 },
+                "severity": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ErrorTrackingQueryIssueSeverity"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Filter by issue severity."
+                },
                 "status": {
                     "$ref": "#/definitions/ErrorTrackingQueryStatus",
                     "description": "Filter by issue status."
@@ -26421,6 +26457,10 @@
             "additionalProperties": false,
             "description": "What one health check concluded on the exposure answer. Same shape as the experiment's `health.checks`.",
             "properties": {
+                "description": {
+                    "description": "What the check looks for and why it matters. Missing on an answer cached before the field existed.",
+                    "type": "string"
+                },
                 "key": {
                     "$ref": "#/definitions/ExperimentExposureHealthCheckKey",
                     "description": "Stable identifier of the check."
@@ -26433,9 +26473,27 @@
                     "description": "Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding.",
                     "type": ["string", "null"]
                 },
+                "rule": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ExperimentExposureHealthCheckRule"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "How the check decides, the same for every experiment. Null for a check without a numeric rule. Missing on an answer cached before the field existed."
+                },
                 "status": {
                     "$ref": "#/definitions/ExperimentExposureHealthCheckStatus",
                     "description": "passed: no problem found. finding: a finding in `health_findings`. not_applicable: the check doesn't cover the experiment's state. not_checked: an input was missing or the check failed."
+                },
+                "values": {
+                    "additionalProperties": {
+                        "type": ["string", "number", "boolean", "null"]
+                    },
+                    "description": "What the check read on the experiment, for every status. The suffix of a key gives the unit: _count is a count, _percentage is on the 0-100 scale, _hours is hours. A key without a suffix is a setting. Missing on an answer cached before the field existed.",
+                    "type": "object"
                 }
             },
             "required": ["key", "name", "status", "reason"],
@@ -26451,6 +26509,48 @@
             ],
             "type": "string"
         },
+        "ExperimentExposureHealthCheckRule": {
+            "additionalProperties": false,
+            "description": "How an exposure check decides. Same shape as the `rule` of the experiment's `health.checks`.",
+            "properties": {
+                "minimum": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ExperimentExposureHealthRuleMinimum"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "What the check needs before it judges. Null when the check judges from the first value."
+                },
+                "test": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ExperimentExposureHealthRuleTest"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The statistical test that computes the value. Null for a count or a share."
+                },
+                "threshold": {
+                    "description": "The threshold, in the unit that the suffix of the key gives.",
+                    "type": "number"
+                },
+                "value": {
+                    "$ref": "#/definitions/ExperimentExposureHealthValueKey",
+                    "description": "The key in `values` that the check compares with the threshold."
+                },
+                "warns": {
+                    "$ref": "#/definitions/ExperimentExposureHealthRuleSide",
+                    "description": "above: the check reports a finding when the value is above the threshold. below: when the value is below it. A value at the threshold passes."
+                }
+            },
+            "required": ["value", "threshold", "warns", "test", "minimum"],
+            "type": "object"
+        },
         "ExperimentExposureHealthCheckStatus": {
             "enum": ["passed", "finding", "not_applicable", "not_checked"],
             "type": "string"
@@ -26465,6 +26565,10 @@
                         "$ref": "#/definitions/ExperimentExposureHealthFindingActionKind"
                     },
                     "type": "array"
+                },
+                "check": {
+                    "$ref": "#/definitions/ExperimentExposureHealthCheckKey",
+                    "description": "The key of the check in `health_checks` that reported the finding. Missing on an answer cached before the field existed."
                 },
                 "code": {
                     "$ref": "#/definitions/ExperimentExposureHealthFindingCode",
@@ -26531,6 +26635,45 @@
         },
         "ExperimentExposureHealthFindingSeverity": {
             "enum": ["critical", "warning", "info"],
+            "type": "string"
+        },
+        "ExperimentExposureHealthRuleMinimum": {
+            "additionalProperties": false,
+            "description": "What an exposure check needs before it judges.",
+            "properties": {
+                "threshold": {
+                    "description": "The value that the key must reach. Below it, the check reports no finding.",
+                    "type": "number"
+                },
+                "value": {
+                    "$ref": "#/definitions/ExperimentExposureHealthValueKey",
+                    "description": "The key in `values` that must reach the threshold before the check judges."
+                }
+            },
+            "required": ["value", "threshold"],
+            "type": "object"
+        },
+        "ExperimentExposureHealthRuleSide": {
+            "enum": ["above", "below"],
+            "type": "string"
+        },
+        "ExperimentExposureHealthRuleTest": {
+            "const": "chi_squared",
+            "type": "string"
+        },
+        "ExperimentExposureHealthValueKey": {
+            "description": "The keys in the `values` of an exposure check. Same meaning as in the experiment's `health.checks`.",
+            "enum": [
+                "exposed_count",
+                "compared_count",
+                "multiple_variant_count",
+                "multiple_variant_percentage",
+                "multiple_variant_handling",
+                "p_value",
+                "since_launch_hours",
+                "exposed_without_test_account_filter_count",
+                "kept_by_test_account_filter_percentage"
+            ],
             "type": "string"
         },
         "ExperimentExposureNode": {
@@ -32937,6 +33080,10 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "description": "Exclude reports from the project's internal and test users.",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPMissingCapabilitiesQuery",
                     "type": "string"
@@ -36528,6 +36675,10 @@
                     "description": "Google Ads search term table for Performance Max campaigns.",
                     "type": "string"
                 },
+                "queryPageTable": {
+                    "description": "Google Search Console table with one row per query and page, used to find the page that ranks for a search.",
+                    "type": "string"
+                },
                 "queryTable": {
                     "description": "Google Search Console table with one row per query, or per query and page.",
                     "type": "string"
@@ -37806,10 +37957,14 @@
                                 {
                                     "const": "threads",
                                     "type": "string"
+                                },
+                                {
+                                    "const": "th",
+                                    "type": "string"
                                 }
                             ],
-                            "maxItems": 9,
-                            "minItems": 9,
+                            "maxItems": 10,
+                            "minItems": 10,
                             "type": "array"
                         },
                         "idField": {
@@ -39625,7 +39780,8 @@
                 "whatsapp",
                 "audience_network",
                 "facebook_marketplace",
-                "threads"
+                "threads",
+                "th"
             ],
             "type": "string"
         },
@@ -39705,6 +39861,13 @@
                 "type": {
                     "const": "MetricsAlertConfig",
                     "type": "string"
+                },
+                "variables": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/MetricsDashboardVariableSelection"
+                    },
+                    "description": "Values for the `$name` variables in the insight's query.",
+                    "type": "object"
                 }
             },
             "required": ["type"],
@@ -54204,6 +54367,10 @@
                 "users:read",
                 "users:read.email"
             ],
+            "type": "string"
+        },
+        "SlackIntegrationScopeInReview": {
+            "enum": ["canvases:read", "channels:join"],
             "type": "string"
         },
         "SlashCommandName": {

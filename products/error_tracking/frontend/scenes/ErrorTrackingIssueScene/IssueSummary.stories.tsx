@@ -48,12 +48,4 @@ export const ReadyWithoutLikelyCause: Story = {
     render: () => render({ summary: { ...SUMMARY, likely_cause: '' }, feedback: 'good' }),
 }
 
-export const Generating: Story = {
-    render: () => render({ view: 'generating', summary: null }),
-    // The skeleton is the state under test, so the runner must not wait for it to go away.
-    parameters: { testOptions: { waitForLoadersToDisappear: false } },
-}
-
-export const TimedOut: Story = { render: () => render({ view: 'timed_out', summary: null }) }
-
 export const Failed: Story = { render: () => render({ view: 'failed', summary: null }) }

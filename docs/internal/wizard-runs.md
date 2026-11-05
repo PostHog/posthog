@@ -64,13 +64,59 @@ GET   /api/projects/{project_id}/wizard/runs/{run_id}/stream/
 Run responses include the creator ID and basic creator details for attribution in project-level run lists.
 Use `GET /api/projects/{project_id}/wizard/runs/?status=created,running&limit=5` to fetch the newest active runs; `count` gives the total number of active runs in the project. The `status` filter also accepts any individual run status.
 The optional `created_after` filter limits results and `count` to runs created after an ISO 8601 timestamp.
-The app-wide sync widget uses a fixed launch cutoff with this filter for active runs and the five newest runs of any status. It shows runs from anyone in the current project, not only runs created by the viewer.
-It opens one event stream for the displayed active run. Terminal runs do not open a stream.
-It shows the newest active run by default, or the newest recent run when none are active.
-The selector lists up to five active and five recent runs by workspace and status, with the selected run marked and the total active count shown separately.
-The Wizard page lists any others. A manual selection stays in place while that run remains in either list, including when it completes.
-Its card shows the current task, run stages, elapsed time, environment, and workspace. "Close" hides the current run until the page reloads, while "Don't show this run again" hides that run in this browser. New runs still show the widget, and run details remain on the Wizard page. Recent terminal runs remain available after reloading unless dismissed.
-The `wizard-run-sync` feature flag uses the `wizard-session` and `wizard-run` variants to select the sync widget in the authenticated shell.
+The browser loads project history once without a date or status cutoff.
+While the page is visible, it checks the newest page every five seconds and on tab return, merging discoveries without dropping older runs.
+Starting a cloud run from the Library adds the creation response to shared state immediately, without waiting for a poll.
+Onboarding and the original sidebar show only runs created by the signed-in user.
+Only runs watched by a visible consumer can open event streams, with at most one run stream per tab.
+Every 30 seconds, a bounded fallback refreshes one watched active run and its tasks, rotating through the watched runs.
+Hidden tabs pause polling and streams; terminal runs do not open streams.
+Opening run details or restoring an onboarding run loads its task snapshot and artifacts, including after completion.
+Active streamed updates reuse their task snapshots instead of downloading tasks and artifacts on each update.
+Only the selected onboarding run or open run details request hydration; discovery never retries previously opened runs.
+Failed hydration waits 30 seconds before an automatic retry, and the onboarding retry button bypasses that delay.
+Run details load only tasks into shared state and use the dialog's existing artifact request.
+
+### Onboarding state
+
+The boolean flag `wizard-onboarding-cloud-runs-enabled` adds cloud and local tabs to both the standard and simple installation steps.
+Cloud setup also requires `wizard_cloud_run_available` and a Cloud or development instance.
+Users connect GitHub, select a repository, and start the `posthog-integration` program through the Wizard Runs API.
+GitHub authorization returns to the active installation step.
+Creation retries use the same idempotency key until the repository changes or the request succeeds.
+The creation response enters shared run state immediately, so progress and Continue do not wait for discovery.
+Disabling the flag hides new cloud setup controls but keeps existing run progress and results visible.
+Dedicated program steps continue to use their local commands.
+
+Entering onboarding records its start time in local storage, scoped to the project and user.
+The initial time uses the server's HTTP Date header to avoid browser clock skew, falling back to browser time when unavailable.
+Only `posthog-integration` runs created at or after that time can replace the installation instructions.
+The selected ID and creation timestamp are stored in `<project_id>.<user_id>.onboarding_wizard_run_id`.
+The start time is stored in `<project_id>.<user_id>.onboarding_wizard_started_at`.
+Returning to onboarding restores that run in any status; a newer eligible run supersedes it.
+Status updates to an older run do not make it a new installation.
+
+Users can continue onboarding while the setup agent runs.
+Failed runs show the reported error, and local success asks users to review their local changes.
+Failed and canceled runs keep the install command and manual setup available.
+Once a run starts, onboarding keeps its original installation content on the left and shows progress and results on the right.
+The columns stack when the installation container is narrow.
+Dedicated program steps, such as AI observability, do not use the base integration run to replace their instructions or enable Continue.
+Cloud success lists the artifacts and links to the first pull request for review.
+Onboarding does not link to the runs scene; pull-request links open in a new tab so onboarding stays open.
+
+### Sidebar state
+
+The original sidebar shows all programs and terminal states, with active runs first.
+Its compact summary has no elapsed timer and keeps its dismiss control inside the card.
+Multiple runs show the current program and live activity, with labeled status totals instead of a generic heading and bare count.
+The run panel supports individual dismissal, checkbox selection with batch dismissal, and dismissing all displayed runs.
+Dismissals persist per project and user.
+Dismissal hides only those IDs and does not cancel the runs or hide future runs.
+Dismissed runs release their streams when no other visible consumer watches them; discovery continues for future runs.
+Sidebar links open the run's details directly, even when table pagination or filters exclude its row.
+Removing the linked run from the URL closes its dialog, and pending links never replace a later selection.
+The widget is not mounted in the `today-rail-nav` sidebar.
 
 The PATCH request accepts a terminal `status`: `completed`, `failed`, or `cancelled`.
 Failed runs can also include an `error_code`.
@@ -158,8 +204,11 @@ Its `status` values remain `success`, `error`, and `cancelled`.
 The service finish event describes the full cloud lifecycle, including failures before CLI startup and failures during repository publication.
 Do not add the CLI and service completion events together when counting runs.
 
-The UI records library selections, create requests and failures, table searches, filters and pagination, detail dialog activity, FAB activity, run refreshes, copied run IDs, workspace opens, and artifact clicks.
+The UI records library selections, create requests and failures, table searches, filters and pagination, detail dialog activity, run refreshes, copied run IDs, workspace opens, and artifact clicks.
 It also records confirmed cancellation requests and outcomes.
+The original sidebar records `wizard sidebar state clicked` with visible and active run counts, and `wizard sidebar state dismissed` with dismissed and remaining run counts.
+Onboarding records `wizard onboarding state artifact clicked` for artifact-list links and the review button, with `artifact_type`, `artifact_id`, `click_source`, and shared run properties.
+`click_source` is `artifact_list` or `review_button`; informational Git diffs are not clickable.
 Polling does not create more view events. Clipboard failures do not count as command copies.
 Use `wizard run create requested` and `wizard run create failed` to measure request failures, including limit responses.
 Use `wizard_run_id` to join UI activity to run lifecycle and artifact events.
@@ -277,6 +326,10 @@ POST /api/projects/{project_id}/wizard/sessions/
 ```
 
 Wizard sessions remain independent from Wizard runs in V0.
-They continue to synchronize the setup agent's legacy workflow and skill state without a run ID.
+The setup agent can still write them, but the PostHog app no longer reads them.
 
-The existing `/api/wizard/cloud_run` onboarding flow remains Tasks-backed until its TaskRun progress and pull-request UI have a replacement based on Wizard runs and Run Artifacts.
+The existing `/api/wizard/cloud_run` onboarding flow remains Tasks-backed.
+The app no longer starts these runs or shows their progress.
+The insights sample-data placeholder still finds the newest onboarding task through the tasks API, so it can show that setup is running or link the setup pull request.
+It refreshes every 10 seconds while setup runs or its pull request remains unmerged, and pauses in hidden tabs.
+Transient API failures retain the last status for retry; switching projects clears it.

@@ -67,6 +67,34 @@ const externalDataDestinationsConnectLink = (): ToolBase<
     },
 })
 
+const ExternalDataDestinationsConnectLinkStatusSchema = () => {
+    const ExternalDataDestinationsConnectLinkStatusRetrieveQueryParams =
+        orvalSchemas.ExternalDataDestinationsConnectLinkStatusRetrieveQueryParams()
+    return ExternalDataDestinationsConnectLinkStatusRetrieveQueryParams
+}
+
+const externalDataDestinationsConnectLinkStatus = (): ToolBase<
+    ReturnType<typeof ExternalDataDestinationsConnectLinkStatusSchema>,
+    Schemas.DestinationConnectStatus
+> => ({
+    name: 'external-data-destinations-connect-link-status',
+    schema: ExternalDataDestinationsConnectLinkStatusSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataDestinationsConnectLinkStatusSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.DestinationConnectStatus>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_destinations/connect_link_status/`,
+            query: {
+                connect_token: params.connect_token,
+            },
+        })
+        return result
+    },
+})
+
 const ExternalDataDestinationsCreateSchema = () => {
     const ExternalDataDestinationsCreateBody = orvalSchemas.ExternalDataDestinationsCreateBody()
     return ExternalDataDestinationsCreateBody
@@ -176,6 +204,7 @@ const externalDataDestinationsTestConnection = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'external-data-destinations-add-sources': externalDataDestinationsAddSources,
     'external-data-destinations-connect-link': externalDataDestinationsConnectLink,
+    'external-data-destinations-connect-link-status': externalDataDestinationsConnectLinkStatus,
     'external-data-destinations-create': externalDataDestinationsCreate,
     'external-data-destinations-list': externalDataDestinationsList,
     'external-data-destinations-retrieve': externalDataDestinationsRetrieve,

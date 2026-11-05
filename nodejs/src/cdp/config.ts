@@ -141,6 +141,9 @@ export type CdpConfig = ClickhouseConfig & {
     EMAIL_STATUS_PRODUCER: CdpProducerName
     EMAIL_STATUS_ENABLED: boolean
     HOG_INVOCATION_RERUN_MAX_COUNT: number
+    // Comma-separated team ids, or "*", whose new rerun jobs page by run start. Enable it only once every
+    // cdp-rerun-worker runs a release that reads the job's paging mode.
+    CDP_RERUN_RUN_START_PAGING_TEAMS: string
     // How many rerun wrapper jobs the worker dequeues per cyclotron-v2 poll.
     // Kept small by default — each job runs a full ClickHouse query per page.
     CDP_RERUN_WORKER_BATCH_SIZE: number
@@ -180,6 +183,9 @@ export type CdpConfig = ClickhouseConfig & {
     // Consecutive soft bounces before an address is auto-suppressed. Tunable without a deploy.
     EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: number
 
+    // When false, the global hard-bounce list only counts the sends it would block.
+    EMAIL_SUPPRESSION_GLOBAL_HARD_BOUNCE_ENFORCE: boolean
+
     // Trust-tiered per-team workflow email caps ("team warming"). A team's tier, stored by the
     // Django side, picks an hourly and a daily cap from these tables. See
     // WORKFLOWS_EMAIL_TIER_* in posthog/settings/web.py, which must stay in step with them.
@@ -191,6 +197,9 @@ export type CdpConfig = ClickhouseConfig & {
     // Comma-separated caps indexed by tier. Both lists must be the same length.
     EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER: string
     EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: string
+    // Comma-separated team ids, or "*", whose UTM link tagging runs the scanner in helpers/utm.ts.
+    // Every other team runs the previous scanner in helpers/utm-legacy.ts.
+    CDP_EMAIL_UTM_LINK_SCANNER_TEAMS: string
 
     // Destination migration diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
@@ -390,6 +399,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Hard cap on rows a single rerun wrapper job will drain. Mirrors the
         // Django serializer's HOG_INVOCATION_RERUN_MAX_COUNT (same env var).
         HOG_INVOCATION_RERUN_MAX_COUNT: 10000,
+        CDP_RERUN_RUN_START_PAGING_TEAMS: '',
         // Small by default — rerun jobs are heavy (a full ClickHouse query per
         // page), so a replica drains one wrapper job at a time unless tuned up.
         CDP_RERUN_WORKER_BATCH_SIZE: 1,
@@ -422,12 +432,14 @@ export function getDefaultCdpConfig(): CdpConfig {
         SES_UNTRACKED_CONFIGURATION_SET: '',
         SES_ALLOWED_SNS_TOPIC_ARNS: '',
         EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: 5,
+        EMAIL_SUPPRESSION_GLOBAL_HARD_BOUNCE_ENFORCE: false,
 
         // Ships dark: tiers are computed and stored first, then observed in shadow mode, and only
         // then enforced. Match the defaults in posthog/settings/web.py.
         EMAIL_TEAM_SENDING_CAP_MODE: 'off',
         EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER: '50,200,600,2000,6000,20000,60000,200000',
         EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: '100,1000,3000,10000,30000,100000,300000,1000000',
+        CDP_EMAIL_UTM_LINK_SCANNER_TEAMS: '',
 
         // Destination migration diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,

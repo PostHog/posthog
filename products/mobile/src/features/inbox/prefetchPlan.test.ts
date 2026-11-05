@@ -1,11 +1,4 @@
-import {
-    createPrefetchQueue,
-    INITIAL_PREFETCH_COUNT,
-    PREFETCH_CONCURRENCY,
-    PREFETCH_LOOKAHEAD,
-    prefetchRows,
-    prefetchWindow,
-} from './prefetchPlan'
+import { createPrefetchQueue, PREFETCH_CONCURRENCY, prefetchRows, prefetchWindow } from './prefetchPlan'
 
 const ids = (count: number): string[] => Array.from({ length: count }, (_, index) => `r${index}`)
 
@@ -27,14 +20,17 @@ function controlledRun(): { run: (id: string) => Promise<void>; started: string[
 const flush = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
 
 describe('prefetchPlan', () => {
-    const deep = INITIAL_PREFETCH_COUNT + 10
-    test.each<[string, number, number | null, number]>([
-        ['no viewability event yet', deep * 2, null, INITIAL_PREFETCH_COUNT],
-        ['a small visible index keeps the initial count', deep * 2, 2, INITIAL_PREFETCH_COUNT],
-        ['a deep visible index extends past it by the lookahead', deep * 2, deep, deep + PREFETCH_LOOKAHEAD + 1],
-        ['a short list is not overrun', 3, 2, 3],
-    ])('prefetchWindow: %s', (_name, length, lastVisible, expectedCount) => {
-        expect(prefetchWindow(ids(length), lastVisible)).toEqual(ids(length).slice(0, expectedCount))
+    test.each<[string, number, number | null, number | null, string[]]>([
+        ['no viewability event yet', 100, null, null, []],
+        ['visible rows plus one ahead', 100, 0, 2, ids(4)],
+        ['earlier offscreen rows are excluded', 100, 20, 23, ids(25).slice(20)],
+        ['a short list is not overrun', 3, 1, 2, ['r1', 'r2']],
+        ['only closed rows are visible', 10, 2, 1, []],
+    ])('prefetchWindow: %s', (_name, length, firstVisible, lastVisible, expected) => {
+        const rows = prefetchRows(ids(length).map((reportId) => ({ reportId, state: 'open' })))
+        const visible =
+            firstVisible === null || lastVisible === null ? null : { first: firstVisible, last: lastVisible }
+        expect(prefetchWindow(rows, visible)).toEqual(expected)
     })
 
     test('prefetchRows skips done and dismissed rows and maps list rows onto the remaining ids', () => {
@@ -45,6 +41,7 @@ describe('prefetchPlan', () => {
             { reportId: 'd', state: 'snoozed' },
         ])
         expect(rows).toEqual({ ids: ['b', 'd'], idIndexByRow: [-1, 0, 0, 1] })
+        expect(prefetchWindow(rows, { first: 2, last: 3 })).toEqual(['d'])
     })
 
     test('queue runs an id once while it is pending or running, and again after its run settles', async () => {
@@ -78,6 +75,16 @@ describe('prefetchPlan', () => {
         settle.get('r0')?.reject(new Error('offline'))
         await flush()
         expect(started).toContain(`r${PREFETCH_CONCURRENCY}`)
+    })
+
+    test('a new visible window drops older pending rows', async () => {
+        const { run, started, settle } = controlledRun()
+        const queue = createPrefetchQueue(run)
+        queue.enqueue(['a', 'b', 'c'])
+        queue.enqueue(['x', 'y'])
+        settle.get('a')?.resolve()
+        await flush()
+        expect(started).toEqual(['a', 'x'])
     })
 
     test('queue reset drops the pending ids and lets the runs in flight finish', async () => {

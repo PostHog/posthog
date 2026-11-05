@@ -57,48 +57,50 @@ export function TraceView(props: TraceViewProps): JSX.Element {
         return <TraceViewError message={props.errorMessage} backLink={props.backLink} />
     }
     return (
-        <div className="flex flex-col gap-3">
+        <div className="flex min-h-0 flex-1 flex-col gap-3">
             <TraceHeader {...props.header} search={props.search} />
             <TraceSummaryBar {...props.summary} />
             <TraceModeTabs mode={props.mode} onModeChange={props.onModeChange} feedbackCount={props.feedbackCount} />
-            {props.mode === 'spans' ? (
-                <TraceSplitView
-                    tree={props.tree}
-                    selectedNodeId={props.selectedNodeId}
-                    onSelectNode={props.onSelectNode}
-                    onPrefetchNode={props.onPrefetchNode}
-                    detail={props.detail}
-                    evalOutcomes={props.evalOutcomes}
-                    feedbackCountByNodeId={props.feedbackCountByNodeId}
-                    matchingNodeIds={props.matchingNodeIds}
-                    highlightQuery={props.highlightQuery}
-                    matchStepCount={props.matchStepCount}
-                />
-            ) : props.mode === 'thread' ? (
-                <Thread
-                    conversation={props.thread}
-                    onSelectMessage={props.onSelectFromView}
-                    highlightQuery={props.highlightQuery}
-                    matchingNodeIds={props.matchingNodeIds}
-                />
-            ) : props.mode === 'summary' ? (
-                <SummaryModeView {...props.summaryMode} />
-            ) : props.mode === 'feedback' ? (
-                <TraceFeedbackView
-                    state={props.feedbackMode ?? FEEDBACK_LOADING}
-                    onSelectStep={props.onSelectFromView}
-                    onRetry={props.onRetryFeedback}
-                />
-            ) : (
-                <TraceTimeline
-                    rows={props.timeline.rows}
-                    totalMs={props.timeline.totalMs}
-                    selectedNodeId={props.selectedNodeId}
-                    onSelectNode={props.onSelectFromView}
-                    onPrefetchNode={props.onPrefetchNode}
-                    matchingNodeIds={props.matchingNodeIds}
-                />
-            )}
+            <div className="min-h-0 flex-1 overflow-y-auto">
+                {props.mode === 'spans' ? (
+                    <TraceSplitView
+                        tree={props.tree}
+                        selectedNodeId={props.selectedNodeId}
+                        onSelectNode={props.onSelectNode}
+                        onPrefetchNode={props.onPrefetchNode}
+                        detail={props.detail}
+                        evalOutcomes={props.evalOutcomes}
+                        feedbackCountByNodeId={props.feedbackCountByNodeId}
+                        matchingNodeIds={props.matchingNodeIds}
+                        highlightQuery={props.highlightQuery}
+                        matchStepCount={props.matchStepCount}
+                    />
+                ) : props.mode === 'thread' ? (
+                    <Thread
+                        conversation={props.thread}
+                        onSelectMessage={props.onSelectFromView}
+                        highlightQuery={props.highlightQuery}
+                        matchingNodeIds={props.matchingNodeIds}
+                    />
+                ) : props.mode === 'summary' ? (
+                    <SummaryModeView {...props.summaryMode} />
+                ) : props.mode === 'feedback' ? (
+                    <TraceFeedbackView
+                        state={props.feedbackMode ?? FEEDBACK_LOADING}
+                        onSelectStep={props.onSelectFromView}
+                        onRetry={props.onRetryFeedback}
+                    />
+                ) : (
+                    <TraceTimeline
+                        rows={props.timeline.rows}
+                        totalMs={props.timeline.totalMs}
+                        selectedNodeId={props.selectedNodeId}
+                        onSelectNode={props.onSelectFromView}
+                        onPrefetchNode={props.onPrefetchNode}
+                        matchingNodeIds={props.matchingNodeIds}
+                    />
+                )}
+            </div>
         </div>
     )
 }

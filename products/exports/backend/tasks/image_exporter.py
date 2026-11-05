@@ -68,6 +68,11 @@ def _build_cache_keys_param(insight_cache_keys: Optional[dict[int, str]]) -> str
     return f"&cache_keys={quote(json.dumps(insight_cache_keys))}"
 
 
+def _exporter_url(query_string: str) -> str:
+    # absolute_uri rejects a `%5c` anywhere in its input, but cache keys embed path-cleaning regexes with backslashes
+    return f"{absolute_uri('/exporter')}?{query_string}"
+
+
 TMP_DIR = "/tmp"  # NOTE: Externalise this to ENV var
 
 MAX_WIDTH_PIXELS = 4000  # Max width for wide content like funnels with many steps
@@ -241,18 +246,18 @@ def _export_to_png(
             show_legend = exported_asset.insight.show_legend
             legend_param = "&legend=true" if show_legend else ""
             cache_keys_param = _build_cache_keys_param(insight_cache_keys)
-            url_to_render = absolute_uri(f"/exporter?token={access_token}{legend_param}{cache_keys_param}")
+            url_to_render = _exporter_url(f"token={access_token}{legend_param}{cache_keys_param}")
             wait_for_css_selector = ".ExportedInsight"
             screenshot_width = _insight_query_screenshot_width(exported_asset.insight.query or {})
         elif exported_asset.dashboard is not None:
             cache_keys_param = _build_cache_keys_param(insight_cache_keys)
-            url_to_render = absolute_uri(f"/exporter?token={access_token}{cache_keys_param}")
+            url_to_render = _exporter_url(f"token={access_token}{cache_keys_param}")
             wait_for_css_selector = ".InsightCard"
             screenshot_width = 1920
         elif exported_asset.export_context and exported_asset.export_context.get("session_recording_id"):
             # Handle replay export using /exporter route (same as insights/dashboards)
-            url_to_render = absolute_uri(
-                f"/exporter?token={access_token}&t={exported_asset.export_context.get('timestamp') or 0}&fullscreen=true"
+            url_to_render = _exporter_url(
+                f"token={access_token}&t={exported_asset.export_context.get('timestamp') or 0}&fullscreen=true"
             )
             wait_for_css_selector = exported_asset.export_context.get("css_selector", REPLAY_WRAPPER_SELECTOR)
             screenshot_width = exported_asset.export_context.get("width", 1400)
@@ -277,9 +282,7 @@ def _export_to_png(
             # the `/exporter` query string.
             encoded_page_url = quote(heatmap_url, safe="")
             encoded_data_url = quote(exported_asset.export_context.get("heatmap_data_url") or "", safe="")
-            url_to_render = absolute_uri(
-                f"/exporter?token={access_token}&pageURL={encoded_page_url}&dataURL={encoded_data_url}"
-            )
+            url_to_render = _exporter_url(f"token={access_token}&pageURL={encoded_page_url}&dataURL={encoded_data_url}")
             wait_for_css_selector = exported_asset.export_context.get("css_selector", ".heatmaps-ready")
             screenshot_width = exported_asset.export_context.get("width", 1400)
             screenshot_height = exported_asset.export_context.get("height", 600)
@@ -302,7 +305,7 @@ def _export_to_png(
             legend_param = (
                 "&legend=true" if _insight_query_wants_legend(exported_asset.export_context["source"]) else ""
             )
-            url_to_render = absolute_uri(f"/exporter?token={access_token}{legend_param}")
+            url_to_render = _exporter_url(f"token={access_token}{legend_param}")
             wait_for_css_selector = ".ExportedInsight"
             screenshot_width = _insight_query_screenshot_width(exported_asset.export_context["source"])
             page_load_timeout = 100
