@@ -476,7 +476,8 @@ describe('RateLimiterService', () => {
                 },
                 teamManager,
                 redis,
-                limiter
+                limiter,
+                { isPaused: () => Promise.resolve(false) }
             )
             expect(await roomyProjectSender.claimDailyCaps(7, ['copy@example.com', 'Copy@example.com'])).toEqual({
                 type: 'recipient_cap_reached',
