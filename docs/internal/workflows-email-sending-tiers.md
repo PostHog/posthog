@@ -46,8 +46,10 @@ A committed state change reaches the workers through the `reload-sandbox-sender-
 A tenant that SES no longer knows reads as not paused, so deleting it clears a stored pause. Each failed read of the tenant counts in `workflows_sandbox_tenant_sync_failures_total`, labeled `transient` for throttling, an unreachable endpoint, timeouts, a connection dropped before or during the response, and SES server errors, and `error` for everything else, such as missing credentials, denied access, or TLS and proxy failures.
 A long SES outage or a blocked endpoint stays `transient` on every read, so an alert on the mirror also watches sustained `transient` failures.
 The sending tier leaves `email_sandbox_sent` out of its volume and its rate denominators, and the sending allowance leaves it out too, also after the sandbox settings are cleared.
-The worker records each sandbox send's `email_sandbox_sent` in the same batch as its `email_sent`, and both readers keep the raw cutoff they used before, so a team without sandbox sends gets the same numbers as before.
-The metrics table keeps one arbitrary timestamp per merged hour, so in the oldest hour of a window the cutoff can split a send from its pair. A floor at zero keeps that, and a lost metric write, from going negative.
+The worker records each sandbox send's `email_sandbox_sent` in the same batch and workflow as its `email_sent`. Both readers keep the raw cutoff they used before for `email_sent`, so a team without sandbox sends gets the same numbers as before.
+The metrics table keeps one arbitrary timestamp per merged hour, so a cutoff inside an hour can split a send from its pair.
+The tier reads `email_sandbox_sent` over the whole clock hour at each bound and subtracts it per workflow and hour, floored at zero, so a split pair cancels no other sends.
+The allowance subtracts per workflow over the window, floored at zero, so a split pair can only lower that workflow's count.
 Bounces and complaints of sandbox sends still count, so the exclusion can only raise a rate.
 
 ### Sending tiers
