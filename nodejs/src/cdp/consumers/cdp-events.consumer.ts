@@ -123,10 +123,12 @@ export class CdpEventsConsumer<
         ])
         const hogInvocations = hogBuild.invocations
         const hogflowInvocations = hogflowBuild.invocations
-        this.countInvokedAfterNameRejection(invocationGlobals, [
-            ...hogInvocations.map((invocation) => invocation.state.globals.event.uuid),
-            ...hogflowInvocations.flatMap((invocation) => invocation.state?.event.uuid ?? []),
-        ])
+        if (!this.config.CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES) {
+            this.countInvokedAfterNameRejection(invocationGlobals, [
+                ...hogInvocations.map((invocation) => invocation.state.globals.event.uuid),
+                ...hogflowInvocations.flatMap((invocation) => invocation.state?.event.uuid ?? []),
+            ])
+        }
 
         const invocationsToBeQueued = [...hogInvocations, ...hogflowInvocations]
 
@@ -219,9 +221,6 @@ export class CdpEventsConsumer<
      * then invokes is a wrong rejection, which the skip would have dropped.
      */
     private countInvokedAfterNameRejection(globalsList: HogFunctionInvocationGlobals[], invokedUuids: string[]): void {
-        if (this.config.CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES) {
-            return
-        }
         const rejected = new Set(globalsList.filter((g) => this.rejectedByName.has(g)).map((g) => g.event.uuid))
         if (!rejected.size) {
             return
@@ -240,7 +239,7 @@ export class CdpEventsConsumer<
         const gates = new Map<number, EventNameGate>()
         // Queued once the whole batch parsed, so a batch read again after a failed lookup records them once.
         const skippedMetrics: EventNameGate[] = []
-        const parsed = await parseBatch<TeamWithEventNameGate>(messages, {
+        const invocationGlobals = await parseBatch<TeamWithEventNameGate>(messages, {
             errorLog: 'Error parsing message',
             parse: (message) => {
                 const parseEvent = (): RawClickHouseEvent => {
@@ -316,7 +315,7 @@ export class CdpEventsConsumer<
             this.hogFunctionMonitoringService.queueAppMetrics(hogFunctions, 'hog_function')
             this.hogFunctionMonitoringService.queueAppMetrics(hogFlows, 'hog_flow')
         }
-        return parsed
+        return invocationGlobals
     }
 
     /**

@@ -1007,8 +1007,11 @@ describe('CdpEventsConsumer', () => {
                         ),
                     ]
 
-                    await expect(handleBatch(batch)).rejects.toThrow('Postgres is down')
-                    lookup.mockRestore()
+                    try {
+                        await expect(handleBatch(batch)).rejects.toThrow('Postgres is down')
+                    } finally {
+                        lookup.mockRestore()
+                    }
                     await handleBatch(batch)
 
                     const filtered = mockProducerObserver
