@@ -966,12 +966,20 @@ class TestExistingSourceOnlyOutputs:
             link_target_id=recurrence_parent.id,
         )
 
+        failed = SignalReport.objects.create(team=team, status=SignalReport.Status.FAILED)
+
         closed = _reports_closed_to_source_state(
             team.id,
-            {str(resolved.id), str(fixed_dismissal.id), str(merged_source.id), str(recurrence_parent.id)},
+            {
+                str(resolved.id),
+                str(fixed_dismissal.id),
+                str(merged_source.id),
+                str(recurrence_parent.id),
+                str(failed.id),
+            },
         )
 
-        assert closed == {str(resolved.id), str(fixed_dismissal.id)}
+        assert closed == {str(resolved.id), str(fixed_dismissal.id), str(failed.id)}
 
         direct_reports = SignalReport.objects.bulk_create(
             [SignalReport(team=team, status=SignalReport.Status.RESOLVED) for _ in range(20)]

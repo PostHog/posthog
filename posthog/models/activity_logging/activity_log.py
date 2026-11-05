@@ -104,6 +104,7 @@ ActivityScope = Literal[
     "ProjectSecretAPIKey",
     "OAuthApplication",
     "WorkloadTrustPolicy",
+    "WorkloadTrustPolicyRequest",
     "User",
     "Action",
     "AccountView",
@@ -510,6 +511,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     },
     "ExternalDataSchema": {
         "should_sync": "enabled",
+        "masked_columns": "masked columns",
         "full_refresh_interval_days": "full refresh interval (days)",
         "full_refresh_time_of_day": "full refresh time (UTC)",
     },
@@ -1472,6 +1474,10 @@ def _handle_activity_log_transaction(
 # The frontend matches on this job type to render the job id as a link to a sandbox task.
 # Product triggers (`hog_flow`, `canvas_action`) carry job ids that point elsewhere.
 AGENT_TRIGGER_JOB_TYPE = "agent"
+# A row written with a workload access token. The frontend shows the workload as the actor instead of the
+# organization owner the token acts as. `job_id` is the trust policy id, because a run id, when the provider
+# has one, is one of the recorded claims in the payload.
+WORKLOAD_TRIGGER_JOB_TYPE = "workload"
 
 
 def agent_trigger() -> Optional[Trigger]:
@@ -1490,10 +1496,12 @@ def agent_trigger() -> Optional[Trigger]:
     )
 
 
-def _with_agent_trigger(detail: Detail) -> Detail:
-    """The row is written inside the user's save, so an error here must not fail that save."""
+def _with_request_trigger(detail: Detail) -> Detail:
+    """The row is written inside the user's save, so an error here must not fail that save.
+
+    A verified trigger, such as a CI job, comes before agent intent, which is the agent's own claim."""
     try:
-        trigger = agent_trigger()
+        trigger = activity_storage.get_verified_trigger() or agent_trigger()
         return dataclasses.replace(detail, trigger=trigger) if trigger is not None else detail
     except Exception as e:
         capture_exception(e)
@@ -1530,7 +1538,7 @@ def log_activity(
         credential = ActivityCredential(type="unattributed")
     if detail.trigger is None:
         # A product that sets its own trigger already says what drove the write.
-        detail = _with_agent_trigger(detail)
+        detail = _with_request_trigger(detail)
     if was_impersonated and user is None:
         logger.warn(
             "activity_log.failed_to_write_to_activity_log",

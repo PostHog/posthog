@@ -20,6 +20,7 @@ import {
     type ScopePickerGroup,
     type ScopeAccessLevel,
     type ScopePickerRow,
+    scopeRowWarning,
     clampScopeLevel,
     groupScopeRows,
     scopeMatchesSearch,
@@ -307,7 +308,7 @@ export interface personalAPIKeysLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         allowedScopes: (
             featureFlags: FeatureFlagsSet,
-            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
         ) => APIScope[]
         allowedScopeKeys: (allowedScopes: APIScope[]) => Set<string>
         scopeRows: (
@@ -553,7 +554,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                         label: scope.objectName,
                         info: scope.info,
                         value,
-                        warning: value === 'none' ? undefined : scope.warnings?.[value],
+                        warning: scopeRowWarning(scope, scope.key, value),
                         muted: Boolean(projectScoped),
                         disabledReasons: { read: disabledReason('read'), write: disabledReason('write') },
                     }

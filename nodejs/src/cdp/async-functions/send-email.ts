@@ -7,8 +7,9 @@ import { registerAsyncFunction } from '../async-function-registry'
 
 registerAsyncFunction('sendEmail', {
     execute: (args, context, result) => {
+        const { attachments: _onlyAnAcceptedSendHasFiles, ...stepEmail } = args[0] ?? {}
         result.invocation.queueParameters = CyclotronInvocationQueueParametersEmailSchema.parse({
-            ...args[0],
+            ...stepEmail,
             ...acceptedSendEmailFields(context.invocation.state.send),
             type: 'email',
         })
