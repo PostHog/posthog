@@ -8,10 +8,18 @@ import { initKeaTests } from '~/test/init'
 import { Command } from './Command'
 import { commandLogic } from './commandLogic'
 
+// The first open mounts the search logic and every logic it connects to, which on CI takes longer than the
+// 1 s findBy default and can take longer than the 5 s Jest default.
+jest.setTimeout(20000)
+
 const findSearchInput = (): Promise<HTMLInputElement> =>
     screen.findByPlaceholderText('Search or ask PostHog AI… try is:dashboard', {}, { timeout: 10000 })
 
 describe('Command', () => {
+    // Command loads the palette with a dynamic import. Loading the module here keeps its cold load out of
+    // the test timeout, and the lazy component still suspends once on the first open.
+    beforeAll(() => import('lib/components/CommandKSearch/CommandKSearch'))
+
     beforeEach(() => {
         initKeaTests()
         featureFlagLogic.mount()
