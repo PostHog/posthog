@@ -973,7 +973,7 @@ class TestForMeEndpoint(APIBaseTest):
         self._claimed_report("Not in the stored list")
         with (
             patch.object(personal_ranking_serve, "gather_candidates") as gather,
-            self.assertNumQueries(30),
+            self.assertNumQueries(26),
         ):
             body = self._get(max_age_minutes=60)
         assert (self._state(body), self.queued, gather.call_count) == ((True, True, False), [], 0)
