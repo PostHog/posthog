@@ -50,7 +50,7 @@ from posthog.schema import (
     VisualizationArtifactContent,
 )
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import acreate_action
 from products.posthog_ai.backend.models.assistant import Conversation, CoreMemory
 
 from ee.hogai.chat_agent.funnels.nodes import FunnelsSchemaGeneratorOutput
@@ -545,7 +545,7 @@ class TestChatAgent(ClickhouseTestMixin, BaseAssistantTest):
         "ee.hogai.chat_agent.memory.nodes.MemoryCollectorNode._model", return_value=messages.AIMessage(content="[Done]")
     )
     async def test_full_retention_flow(self, memory_collector_mock, root_mock, generator_mock, title_generator_mock):
-        action = await Action.objects.acreate(team=self.team, name="Marius Tech Tips")
+        action = await acreate_action(team=self.team, name="Marius Tech Tips")
 
         res1 = FakeAnthropicRunnableLambdaWithTokenCounter(
             lambda _: messages.AIMessage(
