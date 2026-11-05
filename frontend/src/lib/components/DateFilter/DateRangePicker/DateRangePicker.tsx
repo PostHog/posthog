@@ -100,8 +100,11 @@ export const DateRangePicker = ({
     onTimezoneChange,
 }: DateRangePickerProps): JSX.Element => {
     const logic = dateRangePickerLogic({ key: logicKey })
-    const { popoverOpen, customFrom, customTo, history } = useValues(logic)
-    const { setPopoverOpen, setCustomFrom, setCustomTo, addToHistory } = useActions(logic)
+    const { customFrom, customTo, history } = useValues(logic)
+    const { setCustomFrom, setCustomTo, addToHistory } = useActions(logic)
+    // Per instance: two pickers with one logicKey (a viewer and its full-screen copy) would otherwise
+    // open together, and the hidden one's outside-press dismiss closes both before an option click lands.
+    const [popoverOpen, setPopoverOpen] = useState(false)
 
     const effectiveTimezone = timezone ?? 'UTC'
     const showTimezone = timezone !== undefined && onTimezoneChange !== undefined
