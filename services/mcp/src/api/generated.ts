@@ -81639,7 +81639,7 @@ export namespace Schemas {
     } as const;
 
     export interface TicketBriefAffectedItem {
-      /** What the customer is asking about: dashboard, experiment, feature_flag, insight, project, replay, survey, or other.
+      /** What the customer is asking about: dashboard, experiment, feature_flag, insight, project, replay, survey, external, or other.
        *
        * * `dashboard` - Dashboard
        * * `experiment` - Experiment
@@ -93148,8 +93148,6 @@ export namespace Schemas {
       snoozed_until?: string | null;
       /** Tag names to set on the ticket. */
       tags?: string[];
-      /** Structured summary of the ticket for the support engineer. Replaces the whole brief. Pass null to clear it. */
-      ticket_brief?: TicketBrief | null;
     }
 
     export interface PatchedTicketView {
@@ -120004,8 +120002,6 @@ export namespace Schemas {
       snoozed_until?: string | null;
       /** Tag names to set on the ticket. */
       tags?: string[];
-      /** Structured summary of the ticket for the support engineer. Replaces the whole brief. Pass null to clear it. */
-      ticket_brief?: TicketBrief | null;
     }
 
     export interface TolerationPileupEntry {
