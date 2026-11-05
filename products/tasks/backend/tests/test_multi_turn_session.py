@@ -51,6 +51,9 @@ from products.tasks.backend.tests.agent_log_fixtures import (
     _console_line,
     _cost_less_usage_update_line,
     _end_turn_line,
+    _pi_event_line,
+    _pi_text_line,
+    _pi_turn_completed_line,
     _progress_line,
     _structured_output_line,
     _tool_call_line,
@@ -957,6 +960,12 @@ class TestPollForTurnTimeoutDiagnosis:
             # mid-run stall.
             ("prompt_echo_only", lambda: _user_message_line("prompt"), "no_turn_output"),
             ("worked_then_silent", lambda: _agent_message_line("still working"), "stalled_after_output"),
+            # Only Pi's "stop" ends a turn normally, so a failed turn must not return its partial text as the answer.
+            (
+                "pi_turn_ended_with_error",
+                lambda: "\n".join([_pi_text_line("partial"), _pi_turn_completed_line("error")]),
+                "stalled_after_output",
+            ),
         ]
     )
     @pytest.mark.asyncio
@@ -1000,6 +1009,100 @@ class TestPollForTurnTimeoutDiagnosis:
 
         assert exc_info.value.stage == "active_at_budget"
         assert exc_info.value.turn_relevant_lines == 3
+
+
+class TestPollForTurnPiLog:
+    _FIRST_TURN = [_pi_text_line("first answer"), _pi_turn_completed_line()]
+    _TOOL_CALL = [
+        _pi_event_line({"type": "tool_call_started", "toolCall": {"id": "call-1"}}),
+        _pi_event_line({"type": "tool_call_updated", "toolCall": {"id": "call-1", "status": "completed"}}),
+    ]
+
+    @staticmethod
+    async def _poll(polls: list[list[str]], skip_lines: int = 0) -> TurnPollResult:
+        logs = iter("\n".join(lines) for lines in polls)
+        fake_task_run = FakeTaskRun()
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=lambda *_args, **_kwargs: next(logs)),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
+        ):
+            return await poll_for_turn(fake_task_run, skip_lines=skip_lines)
+
+    @parameterized.expand(
+        [
+            (
+                "keeps_whitespace_between_deltas",
+                [[_pi_text_line("two"), _pi_text_line(" words"), _pi_text_line("\n"), _pi_turn_completed_line()]],
+                0,
+                "two words",
+            ),
+            (
+                "text_spans_polls",
+                [
+                    [_pi_text_line("start of")],
+                    [_pi_text_line("start of"), _pi_text_line(" the answer"), _pi_turn_completed_line()],
+                ],
+                0,
+                "start of the answer",
+            ),
+            (
+                "turn_end_arrives_alone",
+                [[_pi_text_line("the answer")], [_pi_text_line("the answer"), _pi_turn_completed_line()]],
+                0,
+                "the answer",
+            ),
+            (
+                "side_channel_lines_after_turn_end",
+                [[_pi_text_line("the answer"), _pi_turn_completed_line(), _console_line("agentsh network events")]],
+                0,
+                "the answer",
+            ),
+            (
+                "text_before_a_tool_call_is_not_the_answer",
+                [[_pi_text_line("checking"), *_TOOL_CALL, _pi_text_line("the answer"), _pi_turn_completed_line()]],
+                0,
+                "the answer",
+            ),
+            (
+                "earlier_turn_is_not_the_answer",
+                [
+                    [
+                        *_FIRST_TURN,
+                        _pi_event_line({"type": "user_message"}),
+                        _pi_text_line("the answer"),
+                        _pi_turn_completed_line(),
+                    ]
+                ],
+                len(_FIRST_TURN),
+                "the answer",
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_stop_returns_the_final_message(
+        self, _name: str, polls: list[list[str]], skip_lines: int, expected: str
+    ):
+        turn = await self._poll(polls, skip_lines=skip_lines)
+
+        assert turn.last_message == expected
+        assert turn.total_lines == len(polls[-1])
+
+    @parameterized.expand(
+        [
+            ("after_prompt_echo", [_pi_event_line({"type": "user_message"}), _pi_turn_completed_line()]),
+            ("without_prompt_echo", [_pi_turn_completed_line()]),
+            (
+                "after_tool_call_only",
+                [_pi_event_line({"type": "user_message"}), *_TOOL_CALL, _pi_turn_completed_line()],
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_turn_without_text_is_empty_and_does_not_reuse_earlier_text(self, _name: str, turn: list[str]):
+        with pytest.raises(EmptyAgentTurnError):
+            await self._poll([[*self._FIRST_TURN, *turn]], skip_lines=len(self._FIRST_TURN))
 
 
 class TestPollForTurnTerminalDrain:

@@ -92,6 +92,9 @@ _PROMPT_ECHO_UPDATES = frozenset({"user_message", "user_message_chunk"})
 STRUCTURED_OUTPUT_TOOL_NAME = "StructuredOutput"
 _TOOL_CALL_UPDATES = frozenset({"tool_call", "tool_call_update"})
 
+# Pi reports the normal end of a turn as "stop". ACP adapters report the same state as "end_turn".
+_PI_END_TURN_STOP_REASON = "stop"
+
 
 @dataclass(frozen=True)
 class AgentError:
@@ -1089,10 +1092,46 @@ def _is_subagent_update(update: dict[str, object]) -> bool:
     return False
 
 
+def _pi_event(entry: dict) -> dict | None:
+    """The conversation event of a log entry that a Pi run wrote in its native format."""
+    event = entry.get("event") if entry.get("type") == "pi_event" else None
+    return event if isinstance(event, dict) else None
+
+
+def _pi_turn_text(lines: list[str]) -> str | None:
+    """The last assistant text of the Pi turn that ends `lines`.
+
+    Pi logs one line for each streamed text delta, so a turn's text can span several polls and
+    the lines of one poll can hold only its tail. This reads back through the whole log for that
+    reason. Each delta carries its own whitespace, so this joins them unstripped: `_extract_text`
+    strips each entry, which deletes the spaces between words.
+    """
+    parts: list[str] = []
+    turn_closed = False
+    for line in reversed(lines):
+        try:
+            event = _pi_event(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+        if event is None:
+            continue
+        event_type = event.get("type")
+        if event_type == "assistant_message_chunk":
+            content = event.get("content")
+            if isinstance(content, dict) and isinstance(content.get("text"), str):
+                parts.append(content["text"])
+        elif parts or event_type == "user_message" or (event_type == "turn_completed" and turn_closed):
+            break
+        elif event_type == "turn_completed":
+            turn_closed = True
+    return "".join(reversed(parts)).strip() or None
+
+
 def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
     """
     Parse S3 logs. When skip_lines > 0, only lines after that offset are inspected for end_turn
     and agent messages. This avoids re-parsing the entire log on every poll cycle.
+    The end of a Pi turn is the exception: its text comes from the whole log (see `_pi_turn_text`).
     `refused` flags a provider refusal (stopReason "refusal") — a terminal turn
     state: without it the poll loop would wait out its whole budget on a turn that already died.
     """
@@ -1120,6 +1159,7 @@ def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
         )
     lines_to_parse = all_lines[skip_lines:]
     agent_finished = False
+    pi_turn_ended = False
     refused = False
     # Collect all parsed session updates so we can walk backwards at the end.
     parsed_updates: list[dict] = []
@@ -1130,6 +1170,12 @@ def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
         try:
             entry = json.loads(line)
         except json.JSONDecodeError:
+            continue
+        pi_event = _pi_event(entry)
+        if pi_event is not None:
+            if pi_event.get("type") == "turn_completed" and pi_event.get("stopReason") == _PI_END_TURN_STOP_REASON:
+                agent_finished = True
+                pi_turn_ended = True
             continue
         notification = entry.get("notification")
         if not isinstance(notification, dict):
@@ -1179,6 +1225,8 @@ def _check_logs(task_run, skip_lines: int = 0) -> TurnLogState:
             trailing_parts.append(text)
     trailing_parts.reverse()
     latest_text = "".join(trailing_parts) if trailing_parts else _structured_output_text(parsed_updates)
+    if pi_turn_ended:
+        latest_text = _pi_turn_text(all_lines)
     # A refused turn must not surface its partial text — the caller would mistake it for the
     # turn's real response.
     if refused:
