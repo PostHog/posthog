@@ -281,9 +281,7 @@ class ExposureQueryBuilder:
         return query
 
     def _build_precomputed_entity_id_expr(self) -> ast.Expr:
-        return (
-            parse_expr("toUUID(t.entity_id)") if self.context.entity_key == "person_id" else parse_expr("t.entity_id")
-        )
+        return parse_expr(self.context.precomputed_entity_id_sql())
 
     def _build_precomputed_variant_expr(self) -> ast.Expr:
         if self.context.multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
