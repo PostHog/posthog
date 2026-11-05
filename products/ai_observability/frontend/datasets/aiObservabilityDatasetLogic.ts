@@ -44,7 +44,6 @@ import { withoutTraceDrawerParams } from '../redesign/trace/traceDrawerRows'
 import { truncateValue } from '../utils'
 import { aiObservabilityDatasetsLogic, getDatasetDetailUrl, getDatasetListUrl } from './aiObservabilityDatasetsLogic'
 import { datasetsApi } from './datasetsApi'
-import { saveToDatasetButtonLogic } from './saveToDatasetButtonLogic'
 import { EMPTY_JSON, isStringJsonObject, parseJsonObject, prettifyJson } from './utils'
 
 export interface DatasetLogicProps {
@@ -1254,12 +1253,6 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
 
         closeModalAndRefetchDatasetItems: async ({ refetchDatasetItems }) => {
             if (refetchDatasetItems) {
-                await asyncActions.refreshAfterDatasetItemMutation()
-            }
-        },
-
-        [saveToDatasetButtonLogic.actionTypes.datasetItemCreated]: async ({ datasetId }) => {
-            if (datasetId === props.datasetId) {
                 await asyncActions.refreshAfterDatasetItemMutation()
             }
         },

@@ -496,6 +496,7 @@ describe('TraceScene', () => {
 
             expect(await findByText('Two seats were added.')).toBeTruthy()
             expect(queryByText('Add to dataset') !== null).toBe(enabled)
+            expect(datasetListRequests > 0).toBe(enabled)
         })
 
         it('keeps the dataset list loaded while an unread step loads', async () => {

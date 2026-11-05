@@ -93,7 +93,7 @@ export const SaveToDatasetButton = React.memo(function SaveToDatasetButton({
             {isModalMounted && selectedDataset && (
                 <DatasetItemModal
                     isOpen={isModalOpen}
-                    onClose={(itemCreated) => closeItemModal(itemCreated ?? false)}
+                    onClose={closeItemModal}
                     datasetId={selectedDataset.id}
                     partialDatasetItem={partialDatasetItem}
                     title={`New dataset item for ${selectedDataset.name}`}

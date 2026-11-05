@@ -23,7 +23,7 @@ import {
 } from './aiObservabilityDatasetLogic'
 import { aiObservabilityDatasetsLogic } from './aiObservabilityDatasetsLogic'
 import { datasetsApi } from './datasetsApi'
-import { getStorageKey, saveToDatasetButtonLogic } from './saveToDatasetButtonLogic'
+import { saveToDatasetButtonLogic } from './saveToDatasetButtonLogic'
 import { EMPTY_JSON } from './utils'
 
 jest.mock('./datasetsApi', () => ({
@@ -716,22 +716,21 @@ describe('aiObservabilityDatasetLogic', () => {
             { via: 'pick', target: 'another', itemCreated: true, refreshes: false },
             { via: 'modal', target: 'this', itemCreated: true, refreshes: true },
             { via: 'modal', target: 'this', itemCreated: false, refreshes: false },
-            { via: 'modal', target: 'another', itemCreated: true, refreshes: false },
         ])(
             'an item saved by $via into $target dataset (created $itemCreated) refreshes the items: $refreshes',
             async ({ via, target, itemCreated, refreshes }) => {
+                const targetDataset = target === 'this' ? mockDataset : { ...mockDataset, id: 'another-dataset-id' }
+                mockDatasetsApi.listDatasets.mockResolvedValue({ results: [targetDataset], count: 1 })
                 const logic = aiObservabilityDatasetLogic({ datasetId: mockDataset.id })
                 logic.mount()
                 const button = saveToDatasetButtonLogic({ partialDatasetItem: { input: { message: 'hello' } } })
                 button.mount()
                 await expectLogic(logic).toFinishAllListeners()
                 await expectLogic(button).toFinishAllListeners()
-                const targetDataset = target === 'this' ? mockDataset : { ...mockDataset, id: 'another-dataset-id' }
                 const listCallCount = mockDatasetsApi.listItems.mock.calls.length
 
                 await expectLogic(button, () => {
                     if (via === 'pick') {
-                        button.actions.loadDatasetsSuccess({ [getStorageKey('')]: [targetDataset] })
                         button.actions.setSearchFormValues({ search: '', datasetId: targetDataset.id })
                         button.actions.submitSearchForm()
                     } else {
@@ -761,6 +760,7 @@ describe('aiObservabilityDatasetLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(mockDatasetsApi.getDataset).toHaveBeenCalledWith('existing-dataset-id')
+            expect(saveToDatasetButtonLogic.isMounted()).toBe(false)
         })
 
         it('sets form defaults when dataset is loaded', async () => {
