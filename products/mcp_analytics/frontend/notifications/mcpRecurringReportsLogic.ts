@@ -47,6 +47,26 @@ export const AI_REPORT_LIST_LIMIT = 200
  */
 const MCP_PROPERTY_PREFIX = '$mcp_'
 
+// Approving AI consent can trigger a full-page SSO reauthentication, which unloads the page before
+// `onApprove` runs. The click is stored first, so the offer can finish it when the page comes back.
+const WEEKLY_REPORT_INTENT_KEY = 'mcp-analytics-weekly-report-intent'
+const WEEKLY_REPORT_INTENT_TTL_MS = 10 * 60 * 1000
+
+interface WeeklyReportIntent {
+    teamId: number
+    setAt: number
+}
+
+function takeWeeklyReportIntent(): WeeklyReportIntent | null {
+    try {
+        const stored = sessionStorage.getItem(WEEKLY_REPORT_INTENT_KEY)
+        sessionStorage.removeItem(WEEKLY_REPORT_INTENT_KEY)
+        return stored ? (JSON.parse(stored) as WeeklyReportIntent) : null
+    } catch {
+        return null
+    }
+}
+
 export function isMCPRecurringReport(subscription: Pick<SubscriptionApi, 'prompt'>): boolean {
     return (subscription.prompt ?? '').includes(MCP_PROPERTY_PREFIX)
 }
@@ -111,6 +131,12 @@ export interface mcpRecurringReportsLogicActions {
     ) => {
         reports: SubscriptionApi[]
         payload?: any
+    }
+    rememberWeeklyReportIntent: () => {
+        value: true
+    }
+    resumeWeeklyReportIntent: () => {
+        value: true
     }
     setReports: (reports: SubscriptionApi[]) => {
         reports: SubscriptionApi[]
@@ -197,6 +223,8 @@ export const mcpRecurringReportsLogic = kea<mcpRecurringReportsLogicType>([
         setReportsTruncated: (reportsTruncated: boolean) => ({ reportsTruncated }),
         deleteReport: (report: SubscriptionApi) => ({ report }),
         createWeeklyReport: true,
+        rememberWeeklyReportIntent: true,
+        resumeWeeklyReportIntent: true,
         createWeeklyReportStarted: true,
         createWeeklyReportSucceeded: (report: SubscriptionApi) => ({ report }),
         createWeeklyReportFailed: (message: string, reconciling: boolean) => ({ message, reconciling }),
@@ -368,7 +396,22 @@ export const mcpRecurringReportsLogic = kea<mcpRecurringReportsLogicType>([
         setReports: () => {
             cache.localReportWrites = (cache.localReportWrites ?? 0) + 1
         },
+        rememberWeeklyReportIntent: () => {
+            const intent: WeeklyReportIntent = { teamId: getCurrentTeamId(), setAt: Date.now() }
+            try {
+                sessionStorage.setItem(WEEKLY_REPORT_INTENT_KEY, JSON.stringify(intent))
+            } catch {
+                // Without storage the report waits for another click, as it did before.
+            }
+        },
+        resumeWeeklyReportIntent: () => {
+            const intent = takeWeeklyReportIntent()
+            if (intent?.teamId === getCurrentTeamId() && Date.now() - intent.setAt < WEEKLY_REPORT_INTENT_TTL_MS) {
+                actions.createWeeklyReport()
+            }
+        },
         createWeeklyReport: async () => {
+            takeWeeklyReportIntent()
             const offer = values.weeklyReportOffer
             // The same union drives the UI, so a double click and every closed gate end here.
             if (offer.state !== 'ready' && offer.state !== 'failed') {

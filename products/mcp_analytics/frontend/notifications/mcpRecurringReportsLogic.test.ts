@@ -424,6 +424,22 @@ describe('mcpRecurringReportsLogic', () => {
             expect(logic.values.weeklyReportOffer).toEqual({ state: 'hidden', reason: 'has-report' })
         })
 
+        it.each([
+            ['creates the report when the page comes back soon', 60 * 1000, 1],
+            ['ignores a click from long ago', 11 * 60 * 1000, 0],
+        ])('after a reauthentication redirect, %s', async (_name, elapsedMs, expectedCreates) => {
+            await becomeReadyToCreate()
+            mockedCreate.mockResolvedValue(SAVED)
+            logic.actions.rememberWeeklyReportIntent()
+            const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + elapsedMs)
+
+            await expectLogic(logic, () => logic.actions.resumeWeeklyReportIntent()).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.resumeWeeklyReportIntent()).toFinishAllListeners()
+            clock.mockRestore()
+
+            expect(mockedCreate).toHaveBeenCalledTimes(expectedCreates)
+        })
+
         it('creates the report once the organization approves AI processing', async () => {
             useMocks({
                 patch: {
