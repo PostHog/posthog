@@ -135,6 +135,20 @@ class SignalSourceConfig(UUIDModel):
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
     @classmethod
+    def config_source_type(cls, source_product: str, source_type: str) -> str:
+        """The `source_type` of the row that configures a signal, which another type can own."""
+        # Session problem signals are emitted as part of session analysis,
+        # so they're gated by the pre-existing session_analysis_cluster config
+        if source_product == cls.SourceProduct.SESSION_REPLAY and source_type == "session_problem":
+            return cls.SourceType.SESSION_ANALYSIS_CLUSTER
+
+        # Firing alerts are a scope of the product analytics source, so they share its row and toggle.
+        if source_product == cls.SourceProduct.ANALYTICS and source_type == SignalSourceType.ALERT_FIRING:
+            return cls.SourceType.ANOMALY_INVESTIGATION
+
+        return source_type
+
+    @classmethod
     def is_source_enabled(cls, team_id: int, source_product: str, source_type: str) -> bool:
         """Check whether a given signal source is enabled for a team.
 
@@ -165,19 +179,10 @@ class SignalSourceConfig(UUIDModel):
                 enabled=False,
             ).exists()
 
-        # Session problem signals are emitted as part of session analysis,
-        # so they're gated by the pre-existing session_analysis_cluster config
-        if source_product == cls.SourceProduct.SESSION_REPLAY and source_type == "session_problem":
-            source_type = cls.SourceType.SESSION_ANALYSIS_CLUSTER
-
-        # Firing alerts are a scope of the product analytics source, so they share its row and toggle.
-        if source_product == cls.SourceProduct.ANALYTICS and source_type == SignalSourceType.ALERT_FIRING:
-            source_type = cls.SourceType.ANOMALY_INVESTIGATION
-
         return cls.objects.filter(
             team_id=team_id,
             source_product=source_product,
-            source_type=source_type,
+            source_type=cls.config_source_type(source_product, source_type),
             enabled=True,
         ).exists()
 
@@ -1487,6 +1492,7 @@ class SignalReportArtefact(UUIDModel):
         COMMIT = "commit"
         TASK_RUN = "task_run"
         NOTE = "note"
+        SCOUT_NOTE_LEFT = "scout_note_left"
         TITLE_CHANGE = "title_change"
         SUMMARY_CHANGE = "summary_change"
         CODE_REVIEW = "code_review"
@@ -1560,6 +1566,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.COMMIT,
             ArtefactType.TASK_RUN,
             ArtefactType.NOTE,
+            ArtefactType.SCOUT_NOTE_LEFT,
             ArtefactType.TITLE_CHANGE,
             ArtefactType.SUMMARY_CHANGE,
             ArtefactType.CODE_REVIEW,
@@ -3845,7 +3852,8 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
       another path (the report's reviewers artefact, and the project profile's recent corrections), so
       the key scopes aren't required on top. It is the only derived kind addressed to more than the
       authoring scout: a removed login is also sent to every scout whose `reviewer:` memory names it,
-      because those are the scouts still routing on it.
+      because those are the scouts still routing on it. A claim by a person or their agent uses the
+      same kind as positive evidence, and reaches the holders of the claimant's memory the same way.
     `origin` keeps the kinds apart so the run prompt can frame a dismissal as one reviewer's verdict
     on one report, a discussion as a question to weigh, feedback as a reader's rating, and a reviewer
     correction as a trigger to revisit routing memory — rather than fleet-level steering.
@@ -3857,6 +3865,7 @@ class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
         REPORT_DISCUSSION = "report_discussion", "Derived from inbox discussion feedback"
         REPORT_FEEDBACK = "report_feedback", "Derived from inbox report feedback"
         REPORT_REVIEWER_CORRECTION = "report_reviewer_correction", "Derived from an inbox reviewer correction"
+        REPORT_NOTE = "report_note", "Left from an inbox report"
 
     @classmethod
     def derived_origins(cls) -> tuple[str, ...]:
@@ -4376,6 +4385,8 @@ class PersonalInboxRanking(TeamScopedRootMixin, UUIDModel):
 
     # Covers the candidates with their status, priority, PR state, needs-you facts and score, the summary version, the prompt version and the focus.
     input_hash = models.CharField(max_length=64)
+    # The inputs of `input_hash` as one hash per part, from `input_parts`. Null on rows from before the parts.
+    input_parts = models.JSONField(null=True, blank=True)
     # Report ids in candidate order.
     candidate_ids = models.JSONField(default=list)
     # Every candidate with its rank, tier and reason, and the folded reports. See `PersonalRankingResult.as_json`.

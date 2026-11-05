@@ -71,6 +71,12 @@ TASK_RUN_STARTED_BESIDE_LIVE_RUN_TOTAL = Counter(
     ],
 )
 
+TASK_CONTRACT_VIOLATION_TOTAL = Counter(
+    "posthog_tasks_contract_violation_total",
+    "Task profile checks that a call failed. A profile that enforces the check refuses the call. Any other profile only counts it.",
+    labelnames=["check", "profile"],
+)
+
 TASK_RUN_WORKFLOW_START_TOTAL = Counter(
     "posthog_tasks_task_run_workflow_start_total",
     "TaskRun workflow start lifecycle events",
@@ -365,6 +371,18 @@ TASK_RUN_FOLLOWUP_DELIVERY_FAILED_TOTAL = Counter(
     labelnames=["origin_product", "retryable"],
 )
 
+ACTIVE_SESSION_CAP_HITS_TOTAL = Counter(
+    "posthog_tasks_active_session_cap_hits_total",
+    "Run starts and warm claims refused because the user or organization already holds the max open cloud sandbox sessions",
+    labelnames=["origin_product", "scope"],
+)
+
+WARM_CHURN_THROTTLED_TOTAL = Counter(
+    "posthog_tasks_warm_churn_throttled_total",
+    "Warm requests refused because the user ended too many unclaimed warm sandboxes in the last hour",
+    labelnames=["origin_product"],
+)
+
 SANDBOX_DEADLINE_BUCKETS = [5.0, 15.0, 30.0, 60.0, 120.0, 180.0, 300.0, 600.0]
 
 SANDBOX_DEADLINE_TOTAL = Counter(
@@ -521,6 +539,17 @@ def observe_github_webhook_task_run_lookup(*, scoped: bool) -> None:
     GITHUB_WEBHOOK_TASK_RUN_LOOKUP_TOTAL.labels(scoped="true" if scoped else "false").inc()
 
 
+MCP_EXCLUDE_TOOLS_OVER_CAP_TOTAL = Counter(
+    "posthog_tasks_mcp_exclude_tools_over_cap_total",
+    "Profiled runs refused because the profile and the run together hide more MCP tools than the sandbox cap",
+    labelnames=["profile"],
+)
+
+
+def observe_mcp_exclude_tools_over_cap(*, profile: str) -> None:
+    MCP_EXCLUDE_TOOLS_OVER_CAP_TOTAL.labels(profile=profile).inc()
+
+
 def _metric_label(value: object | None) -> str:
     if value is None:
         return "unknown"
@@ -594,6 +623,10 @@ def observe_task_run_created(task_run: "TaskRun") -> None:
 
 def observe_task_run_started_beside_live_run(task_run: "TaskRun") -> None:
     TASK_RUN_STARTED_BESIDE_LIVE_RUN_TOTAL.labels(**_task_run_labels(task_run)).inc()
+
+
+def observe_contract_violation(*, check: str, profile: str) -> None:
+    TASK_CONTRACT_VIOLATION_TOTAL.labels(check=check, profile=profile).inc()
 
 
 def observe_sandbox_run_start(*, endpoint: str, outcome: str) -> None:
@@ -806,6 +839,14 @@ def observe_followup_delivery_failed(task_run: "TaskRun", *, retryable: bool) ->
         origin_product=origin_product_label(task_run),
         retryable="true" if retryable else "false",
     ).inc()
+
+
+def observe_active_session_cap_hit(origin_product: str, scope: str) -> None:
+    ACTIVE_SESSION_CAP_HITS_TOTAL.labels(origin_product=_metric_label(origin_product), scope=scope).inc()
+
+
+def observe_warm_churn_throttled(origin_product: str) -> None:
+    WARM_CHURN_THROTTLED_TOTAL.labels(origin_product=_metric_label(origin_product)).inc()
 
 
 _SANDBOX_DEADLINE_OUTCOMES = {"rotated", "snapshot_only", "snapshot_failed", "routing_lost"}

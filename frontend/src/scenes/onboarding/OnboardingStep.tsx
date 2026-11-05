@@ -48,7 +48,7 @@ export const OnboardingStep = ({
     fullWidth?: boolean
     actions?: JSX.Element
 }): JSX.Element => {
-    const { hasNextStep, currentStepProductKey, flowVariant, isCompleting } = useValues(onboardingLogic)
+    const { hasNextStep, currentStepProductKey, isCompleting } = useValues(onboardingLogic)
 
     const { completeOnboarding, goToNextStep } = useActions(onboardingLogic)
     const { openSupportForm } = useActions(supportLogic)
@@ -72,14 +72,14 @@ export const OnboardingStep = ({
 
     const skip = (): void => {
         setPendingAdvance('skip')
-        reportOnboardingStepSkipped(stepKey, flowVariant, currentStepProductKey ?? undefined)
+        reportOnboardingStepSkipped(stepKey, currentStepProductKey ?? undefined)
         onSkip?.()
         advance()
     }
 
     const next = (): void => {
         setPendingAdvance('continue')
-        reportOnboardingStepCompleted(stepKey, flowVariant, currentStepProductKey ?? undefined)
+        reportOnboardingStepCompleted(stepKey, currentStepProductKey ?? undefined)
         onContinue?.()
         advance()
     }

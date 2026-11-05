@@ -2,12 +2,11 @@ import { QueryClient, QueryClientProvider, QueryObserver } from '@tanstack/react
 import { act, renderHook, waitFor } from '@testing-library/react-native'
 import { getNetworkStateAsync, NetworkStateType } from 'expo-network'
 import type { ReactElement, ReactNode } from 'react'
-import { AppState, type ViewToken } from 'react-native'
+import { AppState, type ListViewToken } from 'react-native'
 import { setAuthProvider } from '@/api/client'
 import { useConnectivity } from '@/lib/connectivity'
 import { inboxFromReports } from '@/model/adapters/inbox'
 import { reportFixture } from '@/model/adapters/testFixtures'
-import type { InboxItem } from '@/model/types'
 
 import { reportDetailQuery } from '../report/queries'
 import { usePrefetchReports } from './usePrefetchReports'
@@ -33,7 +32,7 @@ function response(status: number, body: unknown): Response {
 
 function showRows(props: ReturnType<typeof usePrefetchReports>, first: number, last: number): void {
     props.onViewableItemsChanged({
-        viewableItems: [{ index: first }, { index: last }] as ViewToken<InboxItem>[],
+        viewableItems: [{ index: first }, { index: last }] as ListViewToken[],
         changed: [],
     })
 }
@@ -308,7 +307,7 @@ describe('usePrefetchReports', () => {
         expect(paths).toEqual([])
         act(() =>
             result.current.onViewableItemsChanged({
-                viewableItems: [{ index: 0 }] as ViewToken<InboxItem>[],
+                viewableItems: [{ index: 0 }] as ListViewToken[],
                 changed: [],
             })
         )
@@ -317,7 +316,7 @@ describe('usePrefetchReports', () => {
         rerender({ ids: ['a', 'b', 'c'] })
         act(() =>
             result.current.onViewableItemsChanged({
-                viewableItems: [{ index: 1 }] as ViewToken<InboxItem>[],
+                viewableItems: [{ index: 1 }] as ListViewToken[],
                 changed: [],
             })
         )
