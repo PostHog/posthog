@@ -47,6 +47,10 @@ import { surveysLogic } from '../surveysLogic'
 
 export type WizardStep = 'template' | 'questions' | 'where' | 'when' | 'appearance' | 'success'
 
+/** The steps an existing survey can be opened on from a review page. */
+export const EDITABLE_WIZARD_STEPS = ['questions', 'where', 'when'] as const
+export type EditableWizardStep = (typeof EDITABLE_WIZARD_STEPS)[number]
+
 // Re-exported for convenience — the canonical definition lives in ../constants.
 export type { SurveyTemplateMode } from '../constants'
 
@@ -557,6 +561,8 @@ export const surveyWizardLogic = kea<surveyWizardLogicType>([
                     actions.resetSurvey()
                     actions.selectTemplate(matchedTemplate)
                 }
+            } else if (props.id !== 'new' && EDITABLE_WIZARD_STEPS.includes(searchParams.step)) {
+                actions.setStep(searchParams.step)
             } else if (props.id === 'new' && values.currentStep === 'success') {
                 // Reset wizard when navigating back after a successful launch,
                 // since the scene-level logic mount keeps state alive across navigations

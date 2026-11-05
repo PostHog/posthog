@@ -33,7 +33,7 @@ export function SurveyReviewSectionCard({
     const { editingSurvey, setSelectedSection } = useActions(surveyLogic)
     const editTarget =
         canUseSurveyWizard(survey) && preferredEditor === 'guided'
-            ? { to: urls.surveyWizard(survey.id) }
+            ? { to: urls.surveyWizard(survey.id, undefined, section.wizardStep) }
             : {
                   onClick: () => {
                       setSelectedSection(section.editSection)

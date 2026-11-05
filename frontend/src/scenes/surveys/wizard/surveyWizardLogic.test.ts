@@ -228,6 +228,10 @@ describe('surveyWizardLogic', () => {
                 get: {
                     '/api/projects/:team/surveys/': () => [200, { count: 0, results: [], next: null, previous: null }],
                     '/api/projects/:team/surveys/responses_count': () => [200, {}],
+                    '/api/projects/:team/surveys/existing-survey/': () => [
+                        200,
+                        { id: 'existing-survey', questions: [] },
+                    ],
                 },
                 patch: {
                     '/api/environments/:team_id/add_product_intent/': () => [200, {}],
@@ -240,6 +244,20 @@ describe('surveyWizardLogic', () => {
             logic.mount()
 
             expect(logic.values.currentStep).toBe('template')
+        })
+
+        it.each([
+            { step: 'where', expected: 'where' },
+            { step: 'when', expected: 'when' },
+            { step: 'appearance', expected: 'questions' },
+            { step: 'nonsense', expected: 'questions' },
+        ])('opens an existing survey with ?step=$step on $expected', ({ step, expected }) => {
+            router.actions.push(`${urls.surveyWizard('existing-survey')}?step=${step}`)
+            surveyLogic({ id: 'existing-survey' }).mount()
+            const logic = surveyWizardLogic({ id: 'existing-survey' })
+            logic.mount()
+
+            expect(logic.values.currentStep).toBe(expected)
         })
 
         it('should move to questions step after selecting template', async () => {

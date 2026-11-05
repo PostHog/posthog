@@ -1,4 +1,12 @@
-import { AccessControlLevel, Survey, SurveyMatchType, SurveyQuestionType, SurveySchedule, SurveyType } from '~/types'
+import {
+    AccessControlLevel,
+    Survey,
+    SurveyMatchType,
+    SurveyQuestionType,
+    SurveySchedule,
+    SurveyType,
+    SurveyWidgetType,
+} from '~/types'
 
 import {
     SurveyReviewSectionKey,
@@ -116,6 +124,76 @@ describe('getSurveyReviewSections', () => {
             statuses: {},
             key: 'when',
             summary: 'Shown through your own code, wherever you call the surveys API.',
+        },
+        {
+            name: 'a feedback button widget opens on click and is not a warning',
+            survey: {
+                type: SurveyType.Widget,
+                appearance: { widgetType: SurveyWidgetType.Button },
+                conditions: { events: { values: [] }, actions: { values: [] } },
+            },
+            statuses: {},
+            key: 'when',
+            summary: 'On any page, opened when someone clicks the feedback button.',
+        },
+        {
+            name: 'a selector widget is placed on the element that opens it',
+            survey: {
+                type: SurveyType.Widget,
+                appearance: { widgetType: SurveyWidgetType.Selector, widgetSelector: '#feedback' },
+            },
+            statuses: {},
+            key: 'questions',
+            summary: '2 questions when someone clicks #feedback.',
+        },
+        {
+            name: 'excluded device types read as excluded',
+            survey: {
+                conditions: {
+                    url: '/checkout',
+                    events: { values: [{ name: 'purchase completed' }] },
+                    actions: { values: [] },
+                    deviceTypes: ['Mobile'],
+                    deviceTypesMatchType: SurveyMatchType.IsNot,
+                },
+            },
+            statuses: {},
+            key: 'when',
+            summary:
+                'On pages where the URL contains "/checkout", not on Mobile, after someone triggers purchase completed.',
+        },
+        {
+            name: 'repeating on every event says so and skips the long-run warning',
+            survey: {
+                schedule: SurveySchedule.Recurring,
+                iteration_count: 12,
+                iteration_frequency_days: 365,
+                conditions: {
+                    events: { values: [{ name: 'purchase completed' }], repeatedActivation: true },
+                    actions: { values: [] },
+                },
+            },
+            statuses: {},
+            key: 'frequency',
+            summary: 'Every time a trigger event fires.',
+        },
+        {
+            name: 'adaptive sampling is a per-interval cap, not a stop',
+            survey: {
+                response_sampling_limit: 50,
+                response_sampling_interval: 1,
+                response_sampling_interval_type: 'week',
+            },
+            statuses: {},
+            key: 'frequency',
+            summary: 'At most once per person. Collects up to 50 responses per week.',
+        },
+        {
+            name: 'a plain response limit still stops collecting',
+            survey: { responses_limit: 100 },
+            statuses: {},
+            key: 'frequency',
+            summary: 'At most once per person. Stops collecting at 100 responses.',
         },
     ])('$name', ({ survey, statuses, key, summary, warning }) => {
         const sections = getSurveyReviewSections({ ...READY_SURVEY, ...survey })

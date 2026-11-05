@@ -3,6 +3,7 @@ import { NewSurvey } from 'scenes/surveys/constants'
 import { positionDisplayNames } from 'scenes/surveys/survey-appearance/SurveyAppearanceSections'
 import { SurveyEditSection } from 'scenes/surveys/surveyLogic'
 import {
+    doesSurveyRepeatOnEveryEvent,
     getRecurringSurveyScheduleInfo,
     getSurveyAudienceRolloutPercentage,
     getSurveyAudienceRuleCount,
@@ -10,8 +11,9 @@ import {
     getSurveyTargetingFilters,
     isSimpleSurveyAudienceTargeting,
 } from 'scenes/surveys/utils'
+import type { EditableWizardStep } from 'scenes/surveys/wizard/surveyWizardLogic'
 
-import { Survey, SurveyMatchType, SurveyPosition, SurveySchedule, SurveyType } from '~/types'
+import { Survey, SurveyMatchType, SurveyPosition, SurveySchedule, SurveyType, SurveyWidgetType } from '~/types'
 
 export type SurveyReviewSectionKey = 'audience' | 'when' | 'frequency' | 'questions'
 export type SurveyReviewStatus = 'ready' | 'warning'
@@ -27,6 +29,7 @@ export interface SurveyReviewSection {
     summary: SurveyReviewSummaryPart[]
     warning?: string
     editSection: SurveyEditSection
+    wizardStep: EditableWizardStep
     previewArea: SurveyPreviewArea | null
 }
 
@@ -56,6 +59,12 @@ const URL_MATCH_LABELS: Record<SurveyMatchType, string> = {
     [SurveyMatchType.NotRegex]: 'does not match',
 }
 
+const NEGATING_MATCH_TYPES: SurveyMatchType[] = [
+    SurveyMatchType.IsNot,
+    SurveyMatchType.NotIContains,
+    SurveyMatchType.NotRegex,
+]
+
 const DAYS_PER_YEAR = 365
 
 const em = (emphasis: string): SurveyReviewSummaryPart => ({ emphasis })
@@ -68,6 +77,10 @@ function formatRunLength(days: number): string {
     return years < 2 ? 'more than a year' : `over ${pluralize(years, 'year')}`
 }
 
+function formatInterval(count: number, unit: string | null | undefined): string {
+    return count === 1 ? `${unit}` : pluralize(count, `${unit}`)
+}
+
 interface SectionContent {
     summary: SurveyReviewSummaryPart[]
     warning?: string
@@ -77,6 +90,7 @@ interface SectionDefinition {
     key: SurveyReviewSectionKey
     title: string
     editSection: SurveyEditSection
+    wizardStep: EditableWizardStep
     previewArea: SurveyPreviewArea | null
     build: (survey: ReviewedSurvey) => SectionContent
 }
@@ -128,6 +142,16 @@ function buildAudience(survey: ReviewedSurvey): SectionContent {
     return { summary: ['People ', ...joinClauses(clauses), '.'] }
 }
 
+/** Widgets never open on their own. The visitor opens them from the feedback button or a selector. */
+function getWidgetOpener(survey: ReviewedSurvey): SurveyReviewSummaryPart[] | null {
+    if (survey.type !== SurveyType.Widget) {
+        return null
+    }
+    return survey.appearance?.widgetType === SurveyWidgetType.Selector
+        ? [em(survey.appearance.widgetSelector || 'the selector element')]
+        : [em('the feedback button')]
+}
+
 function buildWhen(survey: ReviewedSurvey): SectionContent {
     const delivery = getSurveyDelivery(survey)
     if (delivery === 'api') {
@@ -152,16 +176,20 @@ function buildWhen(survey: ReviewedSurvey): SectionContent {
         summary.push(' that have ', em(conditions.selector))
     }
     if (conditions?.deviceTypes?.length) {
-        summary.push(', on ', em(conditions.deviceTypes.join(' or ')))
+        const excluded = NEGATING_MATCH_TYPES.includes(conditions.deviceTypesMatchType as SurveyMatchType)
+        summary.push(excluded ? ', not on ' : ', on ', em(conditions.deviceTypes.join(' or ')))
     }
+    const widgetOpener = getWidgetOpener(survey)
     summary.push(
-        ...(triggers.length > 0
-            ? [', after someone triggers ', em(triggers.join(' or '))]
-            : [', as soon as the page loads']),
+        ...(widgetOpener
+            ? [', opened when someone clicks ', ...widgetOpener]
+            : triggers.length > 0
+              ? [', after someone triggers ', em(triggers.join(' or '))]
+              : [', as soon as the page loads']),
         '.'
     )
 
-    const showsEverywhere = !conditions?.url && !conditions?.selector && triggers.length === 0
+    const showsEverywhere = !widgetOpener && !conditions?.url && !conditions?.selector && triggers.length === 0
     return {
         summary,
         warning: showsEverywhere
@@ -174,8 +202,15 @@ function buildFrequency(survey: ReviewedSurvey): SectionContent {
     const summary: SurveyReviewSummaryPart[] = []
     const delivery = getSurveyDelivery(survey)
 
+    const repeatsOnEveryEvent = doesSurveyRepeatOnEveryEvent(survey)
     if (delivery !== 'hosted') {
-        if (survey.schedule === SurveySchedule.Recurring && survey.iteration_count && survey.iteration_frequency_days) {
+        if (repeatsOnEveryEvent) {
+            summary.push(em('Every time'), ' a trigger event fires.')
+        } else if (
+            survey.schedule === SurveySchedule.Recurring &&
+            survey.iteration_count &&
+            survey.iteration_frequency_days
+        ) {
             summary.push(
                 'Up to ',
                 em(pluralize(survey.iteration_count, 'time')),
@@ -194,15 +229,23 @@ function buildFrequency(survey: ReviewedSurvey): SectionContent {
     if (limit) {
         summary.push(
             ...(summary.length ? [' '] : []),
-            'Stops collecting at ',
-            em(limit.value),
-            limit.label === 'Response limit' ? ' responses.' : '.'
+            ...(limit.label === 'Response limit'
+                ? ['Stops collecting at ', em(limit.value), ' responses.']
+                : [
+                      'Collects up to ',
+                      em(pluralize(survey.response_sampling_limit ?? 0, 'response')),
+                      ' per ',
+                      em(
+                          formatInterval(survey.response_sampling_interval ?? 0, survey.response_sampling_interval_type)
+                      ),
+                      '.',
+                  ])
         )
     } else if (delivery === 'hosted') {
         summary.push(em('No limit'), ' on responses.')
     }
 
-    const schedule = getRecurringSurveyScheduleInfo(survey)
+    const schedule = repeatsOnEveryEvent ? null : getRecurringSurveyScheduleInfo(survey)
     return {
         summary,
         warning:
@@ -220,7 +263,10 @@ const QUESTION_PLACEMENT: Record<SurveyType, (survey: ReviewedSurvey) => SurveyR
         em(positionDisplayNames[survey.appearance?.position ?? SurveyPosition.Right].toLowerCase()),
         '.',
     ],
-    [SurveyType.Widget]: () => [' in ', em('a feedback button'), '.'],
+    [SurveyType.Widget]: (survey) =>
+        survey.appearance?.widgetType === SurveyWidgetType.Selector
+            ? [' when someone clicks ', em(survey.appearance.widgetSelector || 'the selector element'), '.']
+            : [' in ', em('a feedback button'), '.'],
     [SurveyType.FullScreen]: () => [' in ', em('full screen'), '.'],
     [SurveyType.API]: () => [', rendered by your code.'],
     [SurveyType.ExternalSurvey]: () => [' on a hosted page.'],
@@ -244,6 +290,7 @@ const SECTIONS: SectionDefinition[] = [
         key: 'audience',
         title: 'Who sees it',
         editSection: SurveyEditSection.DisplayConditions,
+        wizardStep: 'where',
         previewArea: null,
         build: buildAudience,
     },
@@ -251,6 +298,7 @@ const SECTIONS: SectionDefinition[] = [
         key: 'when',
         title: 'Where and when',
         editSection: SurveyEditSection.DisplayConditions,
+        wizardStep: 'where',
         previewArea: 'page',
         build: buildWhen,
     },
@@ -258,6 +306,7 @@ const SECTIONS: SectionDefinition[] = [
         key: 'frequency',
         title: 'How often',
         editSection: SurveyEditSection.CompletionConditions,
+        wizardStep: 'when',
         previewArea: null,
         build: buildFrequency,
     },
@@ -265,6 +314,7 @@ const SECTIONS: SectionDefinition[] = [
         key: 'questions',
         title: 'What they see',
         editSection: SurveyEditSection.Steps,
+        wizardStep: 'questions',
         previewArea: 'survey',
         build: buildQuestions,
     },

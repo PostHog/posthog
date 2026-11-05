@@ -16,8 +16,13 @@ export const manifest: ProductManifest = {
         /** @param id A UUID or 'new'. ':id' for routing. */
         survey: (id: string): string => `/surveys/${id}`,
         surveyFormBuilder: (id: string = 'new'): string => `/surveys/form/${id}`,
-        surveyWizard: (id: string = 'new', template?: string): string =>
-            `/surveys/guided/${id}${template ? `?template=${encodeURIComponent(template)}` : ''}`,
+        surveyWizard: (id: string = 'new', template?: string, step?: string): string => {
+            const params = [
+                template && `template=${encodeURIComponent(template)}`,
+                step && `step=${encodeURIComponent(step)}`,
+            ].filter(Boolean)
+            return `/surveys/guided/${id}${params.length ? `?${params.join('&')}` : ''}`
+        },
     },
     fileSystemTypes: {
         survey: {
