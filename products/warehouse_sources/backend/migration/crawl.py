@@ -18,7 +18,7 @@ from products.warehouse_sources.backend.migration.fivetran.planner import (
     plan_items,
     with_unique_prefixes,
 )
-from products.warehouse_sources.backend.migration.fivetran.snapshot import fetch_snapshot
+from products.warehouse_sources.backend.migration.fivetran.snapshot import SnapshotStoppedError, fetch_snapshot
 from products.warehouse_sources.backend.migration.types import VendorSnapshot
 from products.warehouse_sources.backend.models.warehouse_migration import WarehouseMigration, WarehouseMigrationItem
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -54,7 +54,11 @@ def crawl_migration(
     if migration is None:
         return 0
 
-    snapshot = fetch_snapshot(FivetranClient(FivetranCredentials(**migration.credentials)))
+    try:
+        # Stops reading Fivetran once the migration is deleted or a newer crawl replaces this one.
+        snapshot = fetch_snapshot(FivetranClient(FivetranCredentials(**migration.credentials)), keep_going=own.exists)
+    except SnapshotStoppedError:
+        return 0
     planned = plan_snapshot(migration, snapshot, catalog=catalog)
     with transaction.atomic():
         locked = own.select_for_update().first()

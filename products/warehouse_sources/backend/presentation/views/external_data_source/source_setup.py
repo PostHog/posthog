@@ -57,6 +57,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
     PendingSourceCredential,
+    SettableSyncFrequency,
     get_or_create_warehouse_destination,
     sync_frequency_to_sync_frequency_interval,
     sync_old_schemas_with_new_schemas,
@@ -131,15 +132,14 @@ def _payload_enabled_columns(schema: dict[str, Any]) -> list[str] | None:
 
 
 def _payload_sync_frequency_interval(frequency: Any) -> timedelta:
-    """A table's `sync_frequency` from the create payload, such as `1hour`, or the 6-hour default."""
-    if isinstance(frequency, str):
-        try:
-            interval = sync_frequency_to_sync_frequency_interval(frequency)
-        except ValueError:
-            interval = None
-        if interval is not None:
-            return interval
-    return timedelta(hours=6)
+    """A table's `sync_frequency` from the create payload, such as `1hour`, or the 6-hour default.
+
+    Only frequencies a schema update accepts count, so creation cannot go below the 5-minute floor.
+    """
+    interval = (
+        sync_frequency_to_sync_frequency_interval(frequency) if frequency in SettableSyncFrequency.values else None
+    )
+    return interval or timedelta(hours=6)
 
 
 class ExternalDataSourceListSerializer(serializers.ListSerializer):

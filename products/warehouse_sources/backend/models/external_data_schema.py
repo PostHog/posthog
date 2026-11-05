@@ -2790,6 +2790,21 @@ def auto_enable_new_schemas(
     return enabled
 
 
+class SettableSyncFrequency(models.TextChoices):
+    """The frequencies a user may set. `1min` stays readable for schemas created before the 5-minute floor."""
+
+    NEVER = "never", "never"
+    FIVE_MINUTES = "5min", "5min"
+    FIFTEEN_MINUTES = "15min", "15min"
+    THIRTY_MINUTES = "30min", "30min"
+    ONE_HOUR = "1hour", "1hour"
+    SIX_HOURS = "6hour", "6hour"
+    TWELVE_HOURS = "12hour", "12hour"
+    ONE_DAY = "24hour", "24hour"
+    SEVEN_DAYS = "7day", "7day"
+    THIRTY_DAYS = "30day", "30day"
+
+
 def sync_frequency_to_sync_frequency_interval(frequency: str) -> timedelta | None:
     if frequency == "never":
         return None
