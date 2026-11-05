@@ -37,6 +37,74 @@ class OwnersFileStatus(LabeledStrEnum):
     UNAVAILABLE = "unavailable", "Unavailable"
 
 
+class RoutingScope(LabeledStrEnum):
+    """Which owners one reviewer routing run may request."""
+
+    FULL = "full", "Every owner"
+    # A stamphog approval asks only the owners of sensitive and new paths.
+    PINNED = "pinned", "Pinned owners only"
+
+
+class OwnerKind(LabeledStrEnum):
+    """Whether an owners.yaml owner is a GitHub team (`team-devex`) or a person (`@alice`)."""
+
+    TEAM = "team", "Team"
+    PERSON = "person", "Person"
+
+
+class PinReason(LabeledStrEnum):
+    """Why a changed path pins its owner, so the cut step can never remove them."""
+
+    SENSITIVE = "sensitive", "Sensitive path"
+    NEW_PATH = "new_path", "New path"
+
+
+class LlmSkipReason(LabeledStrEnum):
+    """Why reviewer routing made no model call for a pull request."""
+
+    SINGLE_CANDIDATE = "single_candidate", "Single candidate"
+    # Fork pull requests get the deterministic list: the author of a fork controls the whole prompt.
+    FORK = "fork", "Fork"
+    NOTHING_CUTTABLE = "nothing_cuttable", "Nothing cuttable"
+    NO_ANSWER = "no_answer", "No answer"
+    # Stamphog approved the head, so only pinned owners are requested and nothing is left to cut.
+    STAMPHOG_APPROVED = "stamphog_approved", "Stamphog approved"
+    # GitHub listed fewer files than the pull request changes, so the model would judge a partial diff.
+    FILES_TRUNCATED = "files_truncated", "Files truncated"
+
+
+class RoutingOwnerOutcome(LabeledStrEnum):
+    """What one reviewer routing run did with one owner of the changed code."""
+
+    REQUESTED = "requested", "Requested"
+    # A fork pull request labels a team that has a fork label, instead of requesting its review.
+    LABELED = "labeled", "Labeled"
+    # Requested, and GitHub refused the request, for example for a team without access to the repository.
+    REFUSED = "refused", "Refused by GitHub"
+    CUT = "cut", "Cut"
+    # Stamphog approved the head, so the routing asked only the owners of sensitive and new paths.
+    NOT_REQUESTED = "not_requested", "Not requested"
+    # A pinned owner that an earlier routing of the pull request already requested.
+    ALREADY_REQUESTED = "already_requested", "Already requested"
+
+
+class RoutingOwnerReason(LabeledStrEnum):
+    """Why one reviewer routing run kept or cut one owner."""
+
+    # The same values as `PinReason`, because a pin is the reason.
+    SENSITIVE = "sensitive", "Owns a sensitive path"
+    NEW_PATH = "new_path", "Owns a new path"
+    # The guards keep the owner with the largest part, so a pull request always keeps a reviewer.
+    LARGEST_OWNER = "largest_owner", "Has the largest part"
+    # Some of the owner's diff did not fit the prompt, so the model could not judge the owner.
+    DIFF_NOT_SEEN = "diff_not_seen", "Diff not shown to the model"
+    # The cut step made no model call. The run's llm_skipped says why.
+    CUT_SKIPPED = "cut_skipped", "Cut step skipped"
+    MODEL_KEPT = "model_kept", "Kept by the model"
+    MODEL_CUT = "model_cut", "Cut by the model"
+    STAMPHOG_APPROVED = "stamphog_approved", "Stamphog approved"
+
+
 # The pull_request actions that start a reviewer routing run. The webhook consumer imports this at
 # module level, so it lives in this light module.
 ROUTING_ACTIONS = frozenset({"opened", "ready_for_review"})
