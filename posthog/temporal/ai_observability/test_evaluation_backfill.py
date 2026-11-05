@@ -509,10 +509,12 @@ class TestEvaluationBackfillWorkflow:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "error_type,next_limit",
-        [("provider_unavailable", 2), ("trace_errored", 3)],
+        "error_type,started_while_u1_runs,next_limit",
+        [("provider_unavailable", 2, 2), ("trace_errored", 3, 3)],
     )
-    async def test_a_rate_limited_run_lowers_the_in_flight_limit(self, error_type: str, next_limit: int) -> None:
+    async def test_a_rate_limited_run_lowers_the_in_flight_limit(
+        self, error_type: str, started_while_u1_runs: int, next_limit: int
+    ) -> None:
         judge_error = ActivityError(
             "judge failed",
             scheduled_event_id=1,
@@ -534,17 +536,26 @@ class TestEvaluationBackfillWorkflow:
             retry_state=None,
         )
         run_error.__cause__ = judge_error
+        u1_result = asyncio.get_running_loop().create_future()
         mocks = _BackfillMocks(
             activity_results={
                 prepare_evaluation_backfill_tick_activity: _tick(max_in_flight=4),
                 find_evaluation_backfill_candidates_activity: _found([_candidate(f"u{i}") for i in range(3)]),
             },
-            child_results_for_ids={"llma-hog-eval-E-u0-ingestion": run_error},
+            child_results_for_ids={
+                "llma-hog-eval-E-u0-ingestion": run_error,
+                "llma-hog-eval-E-u1-ingestion": u1_result,
+            },
         )
 
-        continue_as_new = await _run(mocks, dataclasses.replace(_inputs(), in_flight_limit=2), bounded=True)
+        run = asyncio.create_task(_run(mocks, dataclasses.replace(_inputs(), in_flight_limit=2), bounded=True))
+        for _ in range(50):
+            await asyncio.sleep(0)
+        assert len(mocks.child_calls) == started_while_u1_runs
+        u1_result.set_result({"evaluation_id": "E", "evaluation_type": "hog", "skipped": False})
+        continue_as_new = await run
 
-        assert mocks.peak_children == 2
+        assert len(mocks.child_calls) == 3
         assert _advance_input(mocks).failed_delta == 1
         assert continue_as_new.call_args.args[0].in_flight_limit == next_limit
 

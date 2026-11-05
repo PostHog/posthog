@@ -232,8 +232,8 @@ class BackfillChildOutcome:
 
 
 def _rate_limited(error: BaseException) -> bool:
-    # The judge raises provider_unavailable once a 429 outlasts every retry, and the run workflow
-    # re-raises it, so it reaches here wrapped in the child and activity errors.
+    # The judge raises provider_unavailable once a 429 or a provider outage outlasts every retry, on
+    # any key. The run workflow re-raises it, so it arrives wrapped in the child and activity errors.
     cause: BaseException | None = error
     while cause is not None:
         if isinstance(cause, ApplicationError) and cause.details:
@@ -303,7 +303,7 @@ class _BackfillPacing:
 class _InFlightLimit:
     """Caps the runs a backfill has in flight, so a backfill slows to what the provider key allows.
 
-    A run that failed because the provider kept rate limiting it halves the cap. After as many
+    A run that failed because the provider kept rate limiting it, or stayed down, halves the cap. After as many
     evaluated runs as the cap, the cap rises by one, up to the configured maximum.
     """
 
