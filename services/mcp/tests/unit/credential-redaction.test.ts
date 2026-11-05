@@ -356,6 +356,11 @@ describe('credential redaction', () => {
             },
         },
         {
+            tool: 'query-logs',
+            response: { results: [{ attributes: { key: 'secret', value: 'created' } }] },
+            expected: { results: [{ attributes: { key: '[REDACTED]', value: 'created' } }] },
+        },
+        {
             tool: 'logs-facet-values-create',
             response: { results: [{ value: '{"password":"secret"}', count: 2 }] },
             expected: { results: [{ value: '{"password":"[REDACTED]"}', count: 2 }] },
