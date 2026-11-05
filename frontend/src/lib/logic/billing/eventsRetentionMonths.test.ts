@@ -1,6 +1,6 @@
 import { AvailableFeature, BillingPlanType } from '~/types'
 
-import { longestEventsRetentionMonths } from './longestEventsRetentionMonths'
+import { longestEventsRetentionMonths } from './eventsRetentionMonths'
 
 const planKeeping = (limit: number, unit: string): BillingPlanType =>
     ({

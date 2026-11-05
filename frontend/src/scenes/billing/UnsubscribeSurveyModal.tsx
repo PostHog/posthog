@@ -35,8 +35,7 @@ import {
     isPlatformAndSupportAddon,
     randomizeReasons,
 } from './billingProductLogic'
-import { GrandfatheredEventsRetentionNotice } from './GrandfatheredEventsRetentionNotice'
-import { longestEventsRetentionMonths } from './longestEventsRetentionMonths'
+import { EventsRetentionDowngradeNotice } from './EventsRetentionDowngradeNotice'
 
 const HedgehogHeart = pngHoggie(heartPng)
 
@@ -66,7 +65,8 @@ export const UnsubscribeSurveyModal = ({
         billing,
         isExternallyBilled,
         productAnalyticsFreePlan,
-        productAnalyticsPaidPlan,
+        productAnalyticsPlanAfterPackageDowngrade,
+        currentPlatformAddonPlan,
     } = useValues(billingLogic)
     const { openSupportForm } = useActions(supportLogic)
     const [randomizedReasons] = useState(() =>
@@ -88,13 +88,13 @@ export const UnsubscribeSurveyModal = ({
 
     const productsToDeactivate =
         billing?.subscription_level === 'paid' && !isAddonProduct ? 'all_products' : product.type
-    const endsProductAnalyticsPlan =
-        productsToDeactivate === 'all_products' ||
-        productsToDeactivate === ProductKey.PRODUCT_ANALYTICS ||
-        isPlatformAndSupportAddon(product)
-    const productAnalyticsPlanAfterChange = isPlatformAndSupportAddon(product)
-        ? productAnalyticsPaidPlan
-        : productAnalyticsFreePlan
+    const eventsRetentionPlansAfterChange = isPlatformAndSupportAddon(product)
+        ? [productAnalyticsPlanAfterPackageDowngrade]
+        : productsToDeactivate === 'all_products'
+          ? [productAnalyticsFreePlan]
+          : productsToDeactivate === ProductKey.PRODUCT_ANALYTICS
+            ? [productAnalyticsFreePlan, currentPlatformAddonPlan]
+            : null
 
     const handleUnsubscribe = (): void => {
         if (surveyResponse['$survey_response_2'].includes('Not enough hedgehogs')) {
@@ -231,10 +231,8 @@ export const UnsubscribeSurveyModal = ({
                         )}
 
                         {isPlatformAndSupportAddon(product) && <AddonFeatureLossNotice product={product} />}
-                        {endsProductAnalyticsPlan && (
-                            <GrandfatheredEventsRetentionNotice
-                                retentionMonths={longestEventsRetentionMonths([productAnalyticsPlanAfterChange])}
-                            />
+                        {eventsRetentionPlansAfterChange && (
+                            <EventsRetentionDowngradeNotice plansAfterChange={eventsRetentionPlansAfterChange} />
                         )}
 
                         <LemonLabel>

@@ -10,12 +10,16 @@ import { BillingInvoiceItemRow, BillingProductV2AddonType } from '~/types'
 
 import { AddonFeatureLossNotice } from './AddonFeatureLossNotice'
 import { billingProductLogic } from './billingProductLogic'
-import { GrandfatheredEventsRetentionNotice } from './GrandfatheredEventsRetentionNotice'
-import { longestEventsRetentionMonths } from './longestEventsRetentionMonths'
+import { EventsRetentionDowngradeNotice } from './EventsRetentionDowngradeNotice'
 
 export function ConfirmDowngradeModal({ product }: { product: BillingProductV2AddonType }): JSX.Element | null {
-    const { currentPlatformAddon, unusedPlatformAddonAmount, switchPlanLoading, billing, productAnalyticsPaidPlan } =
-        useValues(billingLogic)
+    const {
+        currentPlatformAddon,
+        unusedPlatformAddonAmount,
+        switchPlanLoading,
+        billing,
+        productAnalyticsPlanAfterPackageDowngrade,
+    } = useValues(billingLogic)
     const { currentAndUpgradePlans, confirmDowngradeModalOpen, proratedAmount } = useValues(
         billingProductLogic({ product })
     )
@@ -108,8 +112,8 @@ export function ConfirmDowngradeModal({ product }: { product: BillingProductV2Ad
                 </p>
 
                 <AddonFeatureLossNotice product={currentPlatformAddon} targetProduct={product} />
-                <GrandfatheredEventsRetentionNotice
-                    retentionMonths={longestEventsRetentionMonths([targetPlan, productAnalyticsPaidPlan])}
+                <EventsRetentionDowngradeNotice
+                    plansAfterChange={[targetPlan, productAnalyticsPlanAfterPackageDowngrade]}
                     className="mt-2"
                 />
 

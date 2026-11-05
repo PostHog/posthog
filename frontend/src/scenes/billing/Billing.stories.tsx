@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
 
 import { dayjs } from 'lib/dayjs'
@@ -10,7 +12,7 @@ import billingJsonWith100PercentDiscount from '~/mocks/fixtures/_billing_with_10
 import billingJsonWithCredits from '~/mocks/fixtures/_billing_with_credits.json'
 import billingJsonWithDiscount from '~/mocks/fixtures/_billing_with_discount.json'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
-import { BillingProvider, BillingType, StartupProgramLabel } from '~/types'
+import { AvailableFeature, BillingProvider, BillingType, StartupProgramLabel } from '~/types'
 
 import { Billing } from './Billing'
 import { PurchaseCreditsModal } from './PurchaseCreditsModal'
@@ -311,6 +313,36 @@ export const BillingUnsubscribeModal: Story = {
                 },
             },
         })
+
+        return <UnsubscribeSurveyModal product={billingJson.products[0]} />
+    },
+}
+
+export const BillingUnsubscribeModalShorteningEventsRetention: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/organizations/@current/': {
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                    available_product_features: [
+                        {
+                            key: AvailableFeature.PRODUCT_ANALYTICS_DATA_RETENTION,
+                            name: 'Data retention',
+                            limit: 7,
+                            unit: 'years',
+                        },
+                    ],
+                },
+                '/api/organizations/:organization_id/events_retention_setting/downgrade_deletion_count/': {
+                    retention_months: 12,
+                    events_deleted: 1234567,
+                },
+            },
+        }),
+    ],
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    render: () => {
+        useStorybookMocks({ get: { '/api/billing/': billingJson } })
 
         return <UnsubscribeSurveyModal product={billingJson.products[0]} />
     },
