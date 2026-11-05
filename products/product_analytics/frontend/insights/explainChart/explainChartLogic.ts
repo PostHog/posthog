@@ -61,6 +61,8 @@ export interface explainChartLogicValues {
     query: Node | null // insightDataLogic
     insight: Partial<InsightModel<Node<Record<string, any>>>> // insightLogic
     savedInsight: Partial<InsightModel<Node<Record<string, any>>>> // insightLogic
+    funnelsFilter: FunnelsFilter | null | undefined // insightVizDataLogic
+    isFunnels: boolean // insightVizDataLogic
     effectivePhaiView: PhaiViewMode // maxGlobalLogic
     baseCurrency: CurrencyCode // teamLogic
     display: ChartDisplayType | null | undefined // trendsDataLogic
@@ -69,8 +71,6 @@ export interface explainChartLogicValues {
     isTrends: boolean // trendsDataLogic
     results: TrendResult[] // trendsDataLogic
     trendsFilter: TrendsFilter | null | undefined // trendsDataLogic
-    funnelsFilter: FunnelsFilter | null | undefined // insightVizDataLogic
-    isFunnels: boolean // insightVizDataLogic
     chartStory: ExplainChartData | null
     consentRequested: boolean
     explainAvailable: boolean

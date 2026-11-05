@@ -104,7 +104,7 @@ class StoryEvidenceChartSerializer(serializers.Serializer):
         required=False,
         help_text="The axis label of each point, which leaves out a date that repeats.",
     )
-    series = StoryEvidenceSeriesSerializer(many=True, max_length=20, help_text="The lines or bars to draw.")
+    series = StoryEvidenceSeriesSerializer(many=True, max_length=20, help_text="The lines or bars to draw.")  # type: ignore[call-arg]
     yAxisLabel = serializers.CharField(allow_null=True, allow_blank=True, help_text="The y-axis label, if any.")
 
 
@@ -174,7 +174,7 @@ class StoryChapterSerializer(serializers.Serializer):
     confidenceReason = serializers.CharField(
         allow_null=True, max_length=200, help_text="Why the confidence is what it is."
     )
-    evidence = StoryEvidenceSerializer(many=True, max_length=6, help_text="The facts behind the cause.")
+    evidence = StoryEvidenceSerializer(many=True, max_length=6, help_text="The facts behind the cause.")  # type: ignore[call-arg]
 
 
 class StorySeriesResultSerializer(serializers.Serializer):
@@ -210,13 +210,13 @@ class ExplainChartDataSerializer(serializers.Serializer):
         child=serializers.JSONField(allow_null=True),
         help_text="The insight query the explanation follows: a TrendsQuery for a time series, a FunnelsQuery for funnel steps.",
     )
-    results = StorySeriesResultSerializer(
+    results = StorySeriesResultSerializer(  # type: ignore[call-arg]
         many=True,
         max_length=1_000,
         required=False,
         help_text="Every series on the chart when it was explained. Time series only.",
     )
-    steps = StoryFunnelStepSerializer(
+    steps = StoryFunnelStepSerializer(  # type: ignore[call-arg]
         many=True,
         min_length=2,
         max_length=MAX_FUNNEL_STEPS,
@@ -242,7 +242,7 @@ class ExplainChartDataSerializer(serializers.Serializer):
     headline = serializers.CharField(
         max_length=300, help_text="One sentence a person could read in place of the whole explanation."
     )
-    chapters = StoryChapterSerializer(
+    chapters = StoryChapterSerializer(  # type: ignore[call-arg]
         many=True, min_length=1, max_length=8, help_text="The moments that stand out, in reading order."
     )
     warnings = serializers.ListField(
