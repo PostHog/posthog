@@ -26,6 +26,7 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DatabaseField, FieldTraverser, LazyJoin, StringJSONDatabaseField, VirtualTable
+from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
 from posthog.hogql.database.schema.util.where_clause_extractor import is_nondeterministic_function
 from posthog.hogql.errors import QueryError
 from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
@@ -778,6 +779,30 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
         else:
             assert rows[:4] == [*history, *recent]
             assert [row[:3] for row in rows[4:]] == keyless
+
+    @parameterized.expand([("read_flag_evaluations", READ), ("flag_evaluations_only", ONLY)])
+    def test_flag_only_and_mixed_queries_count_a_call_from_before_the_coverage_start(
+        self, _name: str, mode: FlagEvaluationsMode
+    ):
+        # Mode 1 writes a call to both tables, and before the coverage start only events is sure to hold every call.
+        # Mode 2 writes it only to flag_evaluations.
+        timestamp = datetime.now(UTC) - timedelta(days=FLAG_EVALUATIONS_COMPLETE_DAYS + 1)
+        if mode == READ:
+            _create_event(
+                event="$feature_flag_called",
+                distinct_id="edge",
+                team=self.team,
+                timestamp=timestamp,
+                properties={"$feature_flag": "edge-flag"},
+            )
+            flush_persons_and_events()
+        _create_flag_evaluations(self.team.pk, "edge-flag", timestamp=timestamp, distinct_id="edge")
+        bound = f"distinct_id = 'edge' AND timestamp >= now() - INTERVAL {FLAG_EVALUATIONS_COMPLETE_DAYS + 3} DAY"
+
+        flag_only = self._run(f"SELECT count() FROM events WHERE event = '$feature_flag_called' AND {bound}", mode)
+        mixed = self._run(f"SELECT countIf(event = '$feature_flag_called') FROM events WHERE {MIXED} AND {bound}", mode)
+
+        assert (flag_only.results, mixed.results) == ([(1,)], [(1,)])
 
     @parameterized.expand(
         [

@@ -125,7 +125,8 @@ class FlagEvaluationsColumns:
 
 
 class EventsWithFlagCallsTable(LazyTable):
-    """`events` with its flag calls since the coverage start read from `posthog.flag_evaluations` instead.
+    """`events` with its keyed flag calls read from `posthog.flag_evaluations` instead: since the coverage start on mode
+    1, and every call that table retains on mode 2.
 
     Its `fields` is the events table's own dict, so every name binds as it does on `events`.
     """
@@ -188,7 +189,11 @@ class EventsWithFlagCallsTable(LazyTable):
         )
         # On mode 2 every flag call comes from flag_evaluations, as the flag_evaluations swap reads it. That leaves out
         # the calls without a key, which ingestion keeps writing to events.
-        moved = flag_call if only_in_flag_evaluations else flag_call_since_cutoff
+        moved: ast.Expr = flag_call
+        flag_evaluations_since_cutoff: ast.Expr | None = None
+        if not only_in_flag_evaluations:
+            moved = flag_call_since_cutoff
+            flag_evaluations_since_cutoff = parse_expr("flag_evaluations.timestamp >= {cutoff}", {"cutoff": cutoff})
         branches = [events_branch(ast.Not(expr=moved))]
         if not only_in_flag_evaluations and filters.keyless_flag_calls_can_match:
             branches.append(events_branch(flag_call_since_cutoff, ast.Not(expr=parse_expr(_HAS_FLAG_KEY))))
@@ -198,9 +203,7 @@ class EventsWithFlagCallsTable(LazyTable):
                 select_from=ast.JoinExpr(
                     table=ast.Field(chain=["posthog", "flag_evaluations"]), alias="flag_evaluations"
                 ),
-                where=and_conditions(
-                    [parse_expr("flag_evaluations.timestamp >= {cutoff}", {"cutoff": cutoff}), filters.flag_evaluations]
-                ),
+                where=and_conditions([flag_evaluations_since_cutoff, filters.flag_evaluations]),
             )
         )
         return ast.SelectQuery(
