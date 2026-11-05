@@ -63,7 +63,13 @@ export function NotebookChangesNotice({
                     className="max-h-[60vh] overflow-y-auto overflow-x-hidden break-words font-mono text-sm"
                     data-attr="notebook-visit-diff"
                 >
-                    <Suspense fallback={<Spinner className="text-2xl mx-auto my-4" />}>
+                    <Suspense
+                        fallback={
+                            <div className="flex justify-center my-4">
+                                <Spinner className="text-2xl" />
+                            </div>
+                        }
+                    >
                         <MonacoDiffEditor
                             original={previousVisit.markdown}
                             modified={markdown}

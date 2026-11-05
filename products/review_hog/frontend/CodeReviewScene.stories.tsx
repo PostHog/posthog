@@ -166,7 +166,7 @@ const runningReview = completedReview({
     status_comment_url: null,
     full_review_published: false,
     in_progress: true,
-    progress: { review_stage: 'reviewing', done: 3, total: 8 },
+    progress: { review_stage: 'reviewing', done: 3, total: 8, review_mode: 'full' },
     must_fix_count: 0,
     should_fix_count: 0,
     consider_count: 0,
@@ -383,6 +383,9 @@ const ADA: UserBasicType = {
     email: 'ada@example.com',
 }
 
+// The logged-in mock user has another id than MOCK_DEFAULT_BASIC_USER, and the rule chips mark only the viewer with "(you)".
+const VIEWER: UserBasicType = { ...MOCK_DEFAULT_BASIC_USER, id: MOCK_DEFAULT_USER.id }
+
 const members: OrganizationMemberType[] = [
     MOCK_DEFAULT_ORGANIZATION_MEMBER,
     { ...MOCK_DEFAULT_ORGANIZATION_MEMBER, id: 'member-rose', user: MOCK_SECOND_BASIC_USER },
@@ -428,6 +431,7 @@ interface StoryRepositoryRow {
     id: string
     selected: boolean
     flash_for: AutomaticFlashForEnumApi | null
+    review_drafts: boolean
     people: ReviewRepositoryPersonApi[]
 }
 
@@ -477,15 +481,17 @@ function initialRows(): Record<string, StoryRepositoryRow> {
             id: 'repo-web',
             selected: true,
             flash_for: 'everyone',
-            people: [person(MOCK_SECOND_BASIC_USER, 'excepted'), person(MOCK_DEFAULT_BASIC_USER, 'excepted')],
+            review_drafts: true,
+            people: [person(MOCK_SECOND_BASIC_USER, 'excepted'), person(VIEWER, 'excepted')],
         },
         'example-org/api': {
             id: 'repo-api',
             selected: true,
             flash_for: 'listed',
+            review_drafts: false,
             people: [person(MOCK_SECOND_BASIC_USER, 'listed'), person(ADA, 'listed')],
         },
-        'example-org/docs': { id: 'repo-docs', selected: true, flash_for: null, people: [] },
+        'example-org/docs': { id: 'repo-docs', selected: true, flash_for: null, review_drafts: true, people: [] },
     }
 }
 
@@ -510,8 +516,7 @@ function inherited(name: string, { withDefault = true }: { withDefault?: boolean
     const flashFor = exception ?? storyState.project.flash_for ?? 'off'
     const people = exception ? row.people : storyState.project.people
     const scope = exception ? 'repository' : 'project'
-    const listed = (kind: string): boolean =>
-        people.some((entry) => entry.kind === kind && entry.user.id === MOCK_DEFAULT_BASIC_USER.id)
+    const listed = (kind: string): boolean => people.some((entry) => entry.kind === kind && entry.user.id === VIEWER.id)
     const decision = (flash: boolean, rule: string): AutomaticReviewDecisionApi => ({
         flash,
         reason: `${scope}_${rule}` as AutomaticReviewReasonEnumApi,
@@ -539,6 +544,7 @@ function overviewEntry(name: string): ReviewRepositoryOverviewEntryApi {
         selected: row?.selected ?? false,
         repository_id: row?.id ?? null,
         exception: own && row?.flash_for ? { flash_for: row.flash_for, people: row.people } : null,
+        review_drafts: own && !!row?.review_drafts,
         my_choice: own ? (choice?.mode ?? null) : null,
         my_choice_id: own ? (choice?.id ?? null) : null,
         my_result: own && choice ? { flash: choice.mode === 'flash', reason: 'own_repository_choice' } : base,
@@ -558,14 +564,16 @@ function saveRepository(write: ReviewRepositoryWriteApi): void {
         id: `repo-new-${storyState.nextId++}`,
         selected: false,
         flash_for: null,
+        review_drafts: false,
         people: [],
     }
     const next = {
         ...current,
         selected: write.selected ?? current.selected,
         flash_for: write.flash_for !== undefined ? write.flash_for : current.flash_for,
+        review_drafts: write.review_drafts ?? current.review_drafts,
     }
-    if (!next.selected && next.flash_for === null) {
+    if (!next.selected && next.flash_for === null && !next.review_drafts) {
         delete storyState.rows[write.full_name]
         return
     }
@@ -647,15 +655,23 @@ const meta: Meta<typeof CodeReviewScene> = {
                         const view = params.get('view') ?? 'all'
                         const offset = Number(params.get('offset') ?? 0)
                         const limit = Number(params.get('limit') ?? 50)
-                        const entries = REPOSITORY_NAMES.filter((name) => name.includes(search))
-                            .map(overviewEntry)
-                            .filter(
-                                (entry) =>
-                                    view === 'all' ||
-                                    (view === 'in_project' && entry.in_project) ||
-                                    (view === 'exceptions' && entry.exception !== null) ||
-                                    (view === 'mine' && entry.my_choice !== null)
-                            )
+                        const matching = REPOSITORY_NAMES.filter((name) => name.includes(search)).map(overviewEntry)
+                        // Same rule as the server: this project's settings apply with no exception, no draft reviews and no own choice.
+                        const follows = (entry: ReviewRepositoryOverviewEntryApi): boolean =>
+                            entry.owner === 'this_project' &&
+                            entry.in_project &&
+                            entry.exception === null &&
+                            !entry.review_drafts &&
+                            entry.my_choice === null
+                        const entries = matching.filter(
+                            (entry) =>
+                                view === 'all' ||
+                                (view === 'in_project' && entry.in_project) ||
+                                (view === 'exceptions' && entry.exception !== null) ||
+                                (view === 'mine' && entry.my_choice !== null) ||
+                                (view === 'differs' && !follows(entry))
+                        )
+                        const folded = view === 'differs' ? matching.filter(follows) : []
                         const page = entries.slice(offset, offset + limit)
                         return [
                             200,
@@ -666,6 +682,9 @@ const meta: Meta<typeof CodeReviewScene> = {
                                 total: entries.length,
                                 has_more: offset + limit < entries.length,
                                 next_offset: offset + limit < entries.length ? offset + limit : null,
+                                folded: folded.length,
+                                folded_preview: folded.slice(0, 3).map((entry) => entry.full_name),
+                                folded_result: folded[0]?.my_result ?? null,
                                 my_choices_unlike_default: choicesUnlikeDefault(),
                             },
                         ]
@@ -859,14 +878,14 @@ export const Settings: Story = {
         userLogic.actions.loadUser()
         await waitFor(() => expect(userLogic.values.user?.is_staff).toBe(false))
         const canvas = within(canvasElement)
-        await expect(await canvas.findByText('This project reviews example-org:')).toBeVisible()
+        await expect(await canvas.findByText('example-org')).toBeVisible()
         await expect(await canvas.findByText('example-org/web')).toBeVisible()
         await expect(canvas.getByText('Reviewed in the Billing project')).toBeVisible()
-        await expect(canvas.getByText('You can edit: project admin')).toBeVisible()
+        await expect(canvas.getByText('Admin')).toBeVisible()
         await expect(canvas.getByText('Review skills')).toBeVisible()
-        await expect(canvas.getByText('Kept counts: your last 10 Deep reviews')).toBeVisible()
+        await expect(canvas.getByText('Last 10 Deep reviews')).toBeVisible()
         await expect(canvas.queryByText('Review a pull request')).not.toBeInTheDocument()
-        await expect(canvas.getByLabelText('Resolve comments on my pull requests')).toBeVisible()
+        await expect(canvas.getByLabelText('Commit fixes to my pull requests')).toBeVisible()
     },
 }
 
@@ -879,7 +898,7 @@ export const SettingsForMember: Story = {
     },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await expect(await canvas.findByText('Project admins edit')).toBeVisible()
+        await expect(await canvas.findByText('Admin access required')).toBeVisible()
         await expect(
             await canvas.findByText(
                 'Your default, On everywhere, applies to your PRs in every repository, except 1 where you picked something else.'
@@ -895,7 +914,7 @@ export const SavedInboxOptIns: Story = {
     parameters: { savedSettings: { review_inbox_prs: true, stamphog_review_inbox_prs: true }, tab: 'settings' },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        const inboxLabel = 'Review PRs the agent opens for Inbox reports assigned to me'
+        const inboxLabel = 'Review my Inbox PRs'
         // The Inbox section renders before the settings load and can re-render with new nodes,
         // so query again on every attempt until the saved values arrive.
         await waitFor(() => expect(canvas.getByLabelText(inboxLabel)).toBeChecked(), { timeout: 5000 })

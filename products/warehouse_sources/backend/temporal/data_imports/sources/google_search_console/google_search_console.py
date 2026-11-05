@@ -14,10 +14,10 @@ from google.auth.exceptions import RefreshError, TransportError
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.credentials import Credentials as OAuthCredentials
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import credentials_service
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -193,11 +193,25 @@ def suggest_registered_site(site_url: str, registered: collections.abc.Iterable[
     check whether either canonical form *is* registered and point the user at it, so a
     dead-end "not visible" error becomes "enter this exact value instead".
 
+    A ``www.`` hostname, with or without a scheme, also matches the domain property of the bare
+    domain, because that property covers every subdomain.
+
     A site's root URL entered where only its domain property is registered gets the domain
     property suggested. A URL with a path doesn't: the domain property covers the whole
     site, so syncing it would import more than the entry asked for.
+
+    A domain property entered where only the site's root URL-prefix property is registered
+    gets that URL-prefix property suggested.
     """
     if site_url.startswith("sc-domain:"):
+        domain = site_url.removeprefix("sc-domain:").strip().strip("/").lower()
+        if not domain:
+            return None
+        registered_set = set(registered)
+        for scheme in ("https", "http"):
+            for host in (domain, f"www.{domain}"):
+                if f"{scheme}://{host}/" in registered_set:
+                    return f"{scheme}://{host}/"
         return None
     parsed = urlparse(site_url)
     if parsed.scheme:
@@ -213,7 +227,12 @@ def suggest_registered_site(site_url: str, registered: collections.abc.Iterable[
     if not host:
         return None
     registered_set = set(registered)
-    for candidate in (f"https://{host}/", f"http://{host}/", f"sc-domain:{host}"):
+    for candidate in (
+        f"https://{host}/",
+        f"http://{host}/",
+        f"sc-domain:{host}",
+        f"sc-domain:{host.removeprefix('www.')}",
+    ):
         if candidate in registered_set:
             return candidate
     return None
@@ -227,7 +246,7 @@ def _backoff_sleep(attempt: int) -> None:
 _MAX_INTEGRATION_FETCH_ATTEMPTS = 4
 
 
-def _get_integration(integration_id: int, team_id: int) -> Integration:
+def _get_integration(integration_id: int, team_id: int) -> IntegrationRecord:
     """Fetch the OAuth ``Integration`` row, retrying a transient DB failure with backoff.
 
     Temporal activities run in a long-lived worker outside Django's request cycle, and this
@@ -239,13 +258,16 @@ def _get_integration(integration_id: int, team_id: int) -> Integration:
     failed query marks one unusable, drops it), so each attempt runs on a fresh connection; the
     short backoff also gives a saturated pool time to drain rather than retrying straight back
     into the same wait timeout. This read is idempotent, so repeating it is safe.
-    ``Integration.DoesNotExist`` is left to propagate.
+    A missing row raises ``IntegrationNotFound`` with the text "Integration not found: <id>".
     """
     attempt = 0
     while True:
         close_old_connections()
         try:
-            return Integration.objects.get(id=integration_id, team_id=team_id)
+            return IntegrationManager.google_search_console.oauth.get(team_id, integration_id)
+        except IntegrationNotFound as error:
+            # A fixed text, because the error maps match on it. The SDK message is not part of its contract.
+            raise IntegrationNotFound(f"Integration not found: {integration_id}") from error
         except OperationalError:
             attempt += 1
             if attempt >= _MAX_INTEGRATION_FETCH_ATTEMPTS:
@@ -255,7 +277,7 @@ def _get_integration(integration_id: int, team_id: int) -> Integration:
 
 def _credentials(integration_id: int, team_id: int) -> OAuthCredentials:
     integration = _get_integration(integration_id, team_id)
-    resolved = integration_secrets.get_secrets(
+    resolved = credentials_service.get_secrets(
         ["GOOGLE_SEARCH_CONSOLE_APP_CLIENT_ID", "GOOGLE_SEARCH_CONSOLE_APP_CLIENT_SECRET"]
     )
     return OAuthCredentials(

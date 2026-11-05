@@ -8,9 +8,11 @@ on a request path resolve it from Postgres here.
 
 from __future__ import annotations
 
-from django.db.models import Q
+from django.db import connection
+from django.db.models import BooleanField, Q, QuerySet
+from django.db.models.expressions import RawSQL
 
-from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
+from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun
 from products.skills.backend.models.skills import LLMSkill
 
 
@@ -69,7 +71,9 @@ def resolve_authoring_skill_names(team_id: int, report_ids: list[str]) -> dict[s
     for report_id in report_ids:
         touched |= Q(emitted_report_ids__contains=[report_id]) | Q(edited_report_ids__contains=[report_id])
     runs = (
-        SignalScoutRun.objects.filter(team_id=team_id)
+        # `for_team`, not an ambient-scope filter: the default-owner caller runs in a Temporal
+        # activity, which sets no team scope, and the fail-closed manager raises there.
+        SignalScoutRun.objects.for_team(team_id)
         .filter(touched)
         # Ascending so that when several runs touched the same report the newest one, applied last,
         # is the skill that ends up owning it.
@@ -128,3 +132,42 @@ def resolve_background_authoring_runs(team_id: int, report_ids: list[str]) -> di
 
 def report_is_from_background_scout(team_id: int, report_id: str) -> bool:
     return report_id in resolve_background_authoring_runs(team_id, [report_id])
+
+
+def _inbox_opted_out_runs(team_id: int) -> QuerySet[SignalScoutRun]:
+    # Matches `scout_lists_reports_in_inbox`: only an explicit `inbox: false` opts a scout out.
+    opted_out_configs = SignalScoutConfig.objects.for_team(team_id).filter(output_destinations__inbox=False)
+    return SignalScoutRun.objects.for_team(team_id).filter(scout_config_id__in=opted_out_configs.values("id"))
+
+
+def inbox_hidden_report_filter(team_id: int) -> RawSQL:
+    """Keeps a report out of the inbox list when the scout that authored it turned off its inbox destination.
+
+    Only authorship counts, read from the config's current setting: an opted-out scout that edits
+    another source's report does not hide it, and turning the scout back on lists its reports again.
+    Use it in a filter on a `SignalReport` queryset. The `NOT EXISTS` correlates on plain equality
+    with the report id, so Postgres plans it as an anti-join. A JSONB containment check, or a
+    `NOT IN` over the expanded ids, can fall back to a probe once for each report in the team.
+    """
+    quote = connection.ops.quote_name
+    # Trusted identifiers: from Django ORM metadata. Values are parameterized.
+    runs = quote(SignalScoutRun._meta.db_table)
+    configs = quote(SignalScoutConfig._meta.db_table)
+    reports = quote(SignalReport._meta.db_table)
+    sql = f"""NOT EXISTS (
+        SELECT 1
+        FROM {runs} AS hidden_run
+        CROSS JOIN LATERAL jsonb_array_elements_text(hidden_run.emitted_report_ids) AS hidden(report_id)
+        WHERE hidden_run.team_id = %s
+          AND jsonb_typeof(hidden_run.emitted_report_ids) = 'array'
+          AND hidden_run.scout_config_id IN (
+              SELECT id FROM {configs} WHERE team_id = %s AND output_destinations -> 'inbox' = 'false'::jsonb
+          )
+          AND hidden.report_id = {reports}.id::text
+    )"""
+    # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (identifiers from ORM metadata, values parameterized)
+    return RawSQL(sql, (team_id, team_id), output_field=BooleanField())
+
+
+def report_is_hidden_from_inbox(team_id: int, report_id: str) -> bool:
+    return _inbox_opted_out_runs(team_id).filter(emitted_report_ids__contains=[report_id]).exists()

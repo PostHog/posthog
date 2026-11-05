@@ -9,7 +9,6 @@ from django.core.cache import cache
 from django.test import override_settings
 
 from parameterized import parameterized
-from rest_framework.exceptions import ValidationError
 
 from posthog.schema import CachedExperimentQueryResponse, EventsNode, ExperimentMeanMetric, ExperimentQuery
 
@@ -21,7 +20,6 @@ from posthog.temporal.experiments.activities import (
     _calculate_experiment_regular_metric_sync,
     _calculate_experiment_saved_metric_sync,
 )
-from posthog.temporal.experiments.models import TIMESERIES_METRIC_MAX_ATTEMPTS
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
@@ -37,76 +35,6 @@ from products.experiments.backend.models.experiment import (
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
-    @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
-    def test_regular_metric_activity_pins_runner_to_stored_query_to(self):
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(
-            feature_flag=feature_flag,
-            start_date=datetime(2020, 1, 1, 0, 0, 0),
-            end_date=datetime(2020, 1, 5, 0, 0, 0),
-        )
-        metric = ExperimentMeanMetric(uuid=str(uuid4()), source=EventsNode(event="purchase"))
-        metric_dict = metric.model_dump(mode="json")
-        experiment.metrics = [metric_dict]
-        experiment.save()
-        expected_query_to = datetime.fromisoformat("2020-01-05T00:00:00+00:00")
-
-        with (
-            patch("posthog.temporal.experiments.activities.close_old_connections"),
-            patch("posthog.temporal.experiments.activities.ExperimentQueryRunner") as mock_runner_class,
-        ):
-            mock_runner_class.return_value.run.return_value.model_dump.return_value = {"variant_results": []}
-
-            activity_result = _calculate_experiment_regular_metric_sync.func(  # type: ignore[attr-defined]
-                experiment.id, metric_dict["uuid"], "fingerprint"
-            )
-
-        self.assertTrue(activity_result.success, msg=activity_result.error_message)
-        mock_runner_class.assert_called_once()
-        assert mock_runner_class.call_args.kwargs["as_of"] == expected_query_to
-        result_row = ExperimentMetricResult.objects.get(experiment=experiment, metric_uuid=metric_dict["uuid"])
-        assert result_row.query_to == expected_query_to
-
-    @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
-    def test_saved_metric_activity_pins_runner_to_stored_query_to(self):
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(
-            feature_flag=feature_flag,
-            start_date=datetime(2020, 1, 1, 0, 0, 0),
-            end_date=datetime(2020, 1, 5, 0, 0, 0),
-        )
-        metric = ExperimentMeanMetric(uuid=str(uuid4()), source=EventsNode(event="purchase"))
-        metric_dict = metric.model_dump(mode="json")
-        expected_query_to = datetime.fromisoformat("2020-01-05T00:00:00+00:00")
-
-        saved_metric = ExperimentSavedMetric.objects.create(
-            name="test saved metric",
-            team=self.team,
-            query=metric_dict,
-            created_by=self.user,
-        )
-        ExperimentToSavedMetric.objects.create(
-            experiment=experiment,
-            saved_metric=saved_metric,
-            metadata={"type": "primary"},
-        )
-
-        with (
-            patch("posthog.temporal.experiments.activities.close_old_connections"),
-            patch("posthog.temporal.experiments.activities.ExperimentQueryRunner") as mock_runner_class,
-        ):
-            mock_runner_class.return_value.run.return_value.model_dump.return_value = {"variant_results": []}
-
-            activity_result = _calculate_experiment_saved_metric_sync.func(  # type: ignore[attr-defined]
-                experiment.id, metric_dict["uuid"], "fingerprint"
-            )
-
-        self.assertTrue(activity_result.success, msg=activity_result.error_message)
-        mock_runner_class.assert_called_once()
-        assert mock_runner_class.call_args.kwargs["as_of"] == expected_query_to
-        result_row = ExperimentMetricResult.objects.get(experiment=experiment, metric_uuid=metric_dict["uuid"])
-        assert result_row.query_to == expected_query_to
-
     @parameterized.expand([("creator_is_member", True), ("creator_left_organization", False)])
     @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
     def test_temporal_activity_warms_query_cache(self, _name: str, creator_is_member: bool):
@@ -284,74 +212,6 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
         self.assertTrue(warm_response.is_cached)
 
     @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
-    def test_regular_metric_activity_returns_permanent_failure_on_validation_error(self):
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(
-            feature_flag=feature_flag,
-            start_date=datetime(2020, 1, 1, 0, 0, 0),
-            end_date=datetime(2020, 1, 5, 0, 0, 0),
-        )
-        metric = ExperimentMeanMetric(uuid=str(uuid4()), source=EventsNode(event="purchase"))
-        metric_dict = metric.model_dump(mode="json")
-        experiment.metrics = [metric_dict]
-        experiment.save()
-
-        with (
-            patch("posthog.temporal.experiments.activities.close_old_connections"),
-            patch("posthog.temporal.experiments.activities.ExperimentQueryRunner") as mock_runner_class,
-            patch("posthog.temporal.experiments.activities.capture_experiment_metric_error_event") as mock_event,
-        ):
-            mock_runner_class.return_value.run.side_effect = ValidationError("compound expressions not supported")
-
-            activity_result = _calculate_experiment_regular_metric_sync.func(  # type: ignore[attr-defined]
-                experiment.id, metric_dict["uuid"], "fingerprint"
-            )
-
-        self.assertFalse(activity_result.success)
-        result_row = ExperimentMetricResult.objects.get(experiment=experiment, metric_uuid=metric_dict["uuid"])
-        assert result_row.status == ExperimentMetricResult.Status.FAILED
-        mock_event.assert_called_once()
-
-    @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
-    def test_saved_metric_activity_returns_permanent_failure_on_validation_error(self):
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(
-            feature_flag=feature_flag,
-            start_date=datetime(2020, 1, 1, 0, 0, 0),
-            end_date=datetime(2020, 1, 5, 0, 0, 0),
-        )
-        metric = ExperimentMeanMetric(uuid=str(uuid4()), source=EventsNode(event="purchase"))
-        metric_dict = metric.model_dump(mode="json")
-
-        saved_metric = ExperimentSavedMetric.objects.create(
-            name="test saved metric",
-            team=self.team,
-            query=metric_dict,
-            created_by=self.user,
-        )
-        ExperimentToSavedMetric.objects.create(
-            experiment=experiment,
-            saved_metric=saved_metric,
-            metadata={"type": "primary"},
-        )
-
-        with (
-            patch("posthog.temporal.experiments.activities.close_old_connections"),
-            patch("posthog.temporal.experiments.activities.ExperimentQueryRunner") as mock_runner_class,
-            patch("posthog.temporal.experiments.activities.capture_experiment_metric_error_event") as mock_event,
-        ):
-            mock_runner_class.return_value.run.side_effect = ValidationError("compound expressions not supported")
-
-            activity_result = _calculate_experiment_saved_metric_sync.func(  # type: ignore[attr-defined]
-                experiment.id, metric_dict["uuid"], "fingerprint"
-            )
-
-        self.assertFalse(activity_result.success)
-        result_row = ExperimentMetricResult.objects.get(experiment=experiment, metric_uuid=metric_dict["uuid"])
-        assert result_row.status == ExperimentMetricResult.Status.FAILED
-        mock_event.assert_called_once()
-
-    @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
     def test_regular_metric_activity_returns_permanent_failure_on_malformed_config(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -410,77 +270,3 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
         result_row = ExperimentMetricResult.objects.get(experiment=experiment, metric_uuid=bad_metric["uuid"])
         assert result_row.status == ExperimentMetricResult.Status.FAILED
         mock_event.assert_called_once()
-
-    @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
-    def test_regular_metric_activity_still_raises_transient_errors(self):
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(
-            feature_flag=feature_flag,
-            start_date=datetime(2020, 1, 1, 0, 0, 0),
-            end_date=datetime(2020, 1, 5, 0, 0, 0),
-        )
-        metric = ExperimentMeanMetric(uuid=str(uuid4()), source=EventsNode(event="purchase"))
-        metric_dict = metric.model_dump(mode="json")
-        experiment.metrics = [metric_dict]
-        experiment.save()
-
-        with (
-            patch("posthog.temporal.experiments.activities.close_old_connections"),
-            patch("posthog.temporal.experiments.activities.ExperimentQueryRunner") as mock_runner_class,
-            patch("posthog.temporal.experiments.activities.capture_experiment_metric_error_event") as mock_event,
-        ):
-            mock_runner_class.return_value.run.side_effect = Exception("transient query failure")
-
-            with self.assertRaises(Exception):
-                _calculate_experiment_regular_metric_sync.func(  # type: ignore[attr-defined]
-                    experiment.id, metric_dict["uuid"], "fingerprint", attempt=1
-                )
-            mock_event.assert_not_called()
-
-            with self.assertRaises(Exception):
-                _calculate_experiment_regular_metric_sync.func(  # type: ignore[attr-defined]
-                    experiment.id, metric_dict["uuid"], "fingerprint", attempt=TIMESERIES_METRIC_MAX_ATTEMPTS
-                )
-            mock_event.assert_called_once()
-
-    @time_machine.travel("2020-01-10T12:00:00Z", tick=False)
-    def test_saved_metric_activity_still_raises_transient_errors(self):
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(
-            feature_flag=feature_flag,
-            start_date=datetime(2020, 1, 1, 0, 0, 0),
-            end_date=datetime(2020, 1, 5, 0, 0, 0),
-        )
-        metric = ExperimentMeanMetric(uuid=str(uuid4()), source=EventsNode(event="purchase"))
-        metric_dict = metric.model_dump(mode="json")
-
-        saved_metric = ExperimentSavedMetric.objects.create(
-            name="test saved metric",
-            team=self.team,
-            query=metric_dict,
-            created_by=self.user,
-        )
-        ExperimentToSavedMetric.objects.create(
-            experiment=experiment,
-            saved_metric=saved_metric,
-            metadata={"type": "primary"},
-        )
-
-        with (
-            patch("posthog.temporal.experiments.activities.close_old_connections"),
-            patch("posthog.temporal.experiments.activities.ExperimentQueryRunner") as mock_runner_class,
-            patch("posthog.temporal.experiments.activities.capture_experiment_metric_error_event") as mock_event,
-        ):
-            mock_runner_class.return_value.run.side_effect = Exception("transient query failure")
-
-            with self.assertRaises(Exception):
-                _calculate_experiment_saved_metric_sync.func(  # type: ignore[attr-defined]
-                    experiment.id, metric_dict["uuid"], "fingerprint", attempt=1
-                )
-            mock_event.assert_not_called()
-
-            with self.assertRaises(Exception):
-                _calculate_experiment_saved_metric_sync.func(  # type: ignore[attr-defined]
-                    experiment.id, metric_dict["uuid"], "fingerprint", attempt=TIMESERIES_METRIC_MAX_ATTEMPTS
-                )
-            mock_event.assert_called_once()

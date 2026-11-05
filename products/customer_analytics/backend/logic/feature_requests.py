@@ -24,6 +24,8 @@ from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.models import UploadedMedia, User
+from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.models import (
@@ -640,9 +642,8 @@ def list_feature_requests(
     team_id: int,
     user_access_control: "UserAccessControl",
     filters: contracts.FeatureRequestListFilters,
-    offset: int,
-    limit: int,
-) -> tuple[list[contracts.FeatureRequestView], int]:
+    page: PageRequest,
+) -> Page[contracts.FeatureRequestView]:
     account_filter_ids: tuple[UUID, ...] = ()
     if filters.account_ids:
         account_filter_ids = tuple(
@@ -657,11 +658,9 @@ def list_feature_requests(
         account_filter_ids,
     )
     queryset = _apply_ordering(queryset, filters.ordering, accessible_account_ids)
-    total_count = queryset.count()
-    return [
-        _to_feature_request_view(item, user_access_control=user_access_control, include_evidence=False)
-        for item in queryset[offset : offset + limit]
-    ], total_count
+    return select_page(queryset, page).map(
+        lambda item: _to_feature_request_view(item, user_access_control=user_access_control, include_evidence=False)
+    )
 
 
 def get_feature_request(

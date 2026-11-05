@@ -9,8 +9,9 @@ import { SQLEditor, SQLEditorPanel } from 'scenes/data-warehouse/editor/SQLEdito
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 
+import { isDataVisualizationNode, isHogQLQuery } from '~/queries/schema/node-guards'
 import { DataVisualizationNode, HogQLQuery, NodeKind, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
-import { convertDataTableNodeToDataVisualizationNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
+import { convertDataTableNodeToDataVisualizationNode } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import { notebookKernelInfoLogic } from '../../Notebook/notebookKernelInfoLogic'
@@ -201,7 +202,7 @@ export function useNotebookQuerySQLEditorSync<T extends { query: QuerySchema }>(
                 isFirstSeed &&
                 !hasAlreadyRunSqlEditorSourceQuery(editorSourceQuery, lastRunQuery)
             ) {
-                runQuery(editorSourceQuery.source.query)
+                runQuery(editorSourceQuery.source.query, undefined, true)
             }
             return
         }
@@ -259,7 +260,7 @@ function useNotebookQuerySQLEditorOutputSync<T extends { query: QuerySchema }>({
         setQueryInput(editorSourceQuery.source.query)
         setSourceQuery(editorSourceQuery)
         if (isFirstSeed && !hasAlreadyRunSqlEditorSourceQuery(editorSourceQuery, lastRunQuery)) {
-            runQuery(editorSourceQuery.source.query)
+            runQuery(editorSourceQuery.source.query, undefined, true)
         }
     }, [editorSourceQuery, lastRunQuery, runQuery, setQueryInput, setSourceQuery, tabId])
 

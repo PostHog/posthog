@@ -15,6 +15,10 @@ pub struct SerializedKafkaMessage {
     pub key: Option<String>,
     pub value: Option<String>,
     pub headers: HashMap<String, String>,
+    /// The ledger generation the message was charged under. Workers never
+    /// see it.
+    #[serde(skip)]
+    pub generation: u64,
 }
 
 impl SerializedKafkaMessage {

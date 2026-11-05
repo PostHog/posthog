@@ -1,4 +1,5 @@
 import datetime
+from functools import cached_property
 from zoneinfo import ZoneInfo
 
 from django.db import OperationalError
@@ -17,7 +18,6 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.utils import relative_date_parse
 
 from products.error_tracking.backend.hogql_queries.access import ErrorTrackingQueryRunnerAccessMixin

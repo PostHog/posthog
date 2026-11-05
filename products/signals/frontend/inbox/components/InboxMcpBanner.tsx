@@ -2,10 +2,17 @@ import { useValues } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
 export function InboxMcpBanner(): JSX.Element | null {
     const { user } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (featureFlags[FEATURE_FLAGS.INBOX_MCP_USED]) {
+        return null
+    }
 
     return (
         <LemonBanner

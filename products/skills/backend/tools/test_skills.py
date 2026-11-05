@@ -20,7 +20,7 @@ from products.skills.backend.tools.skills import (
     UpdateSkillArgs,
 )
 
-from ee.hogai.tool_errors import MaxToolFatalError
+from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
 
 
 def _run(tool, **kwargs):
@@ -267,16 +267,22 @@ class TestUpdateLLMSkillTool(BaseTest):
         assert "Do the better thing." in latest.body
         assert "Do a thing." not in latest.body
 
-    def test_version_conflict_raises(self):
+    @parameterized.expand(
+        [
+            ("version_conflict", 5, {"body": "new body"}, "modified"),
+            ("edit_not_found", 0, {"edits": [{"old": "Missing text.", "new": "x"}]}, "not found"),
+        ]
+    )
+    def test_input_errors_are_retryable(self, _name, version_offset, update_kwargs, expected_error):
         existing = self._create_skill()
         tool = UpdateLLMSkillTool(team=self.team, user=self.user)
 
-        with self.assertRaisesRegex(MaxToolFatalError, "modified"):
+        with self.assertRaisesRegex(MaxToolRetryableError, expected_error):
             _run(
                 tool,
                 skill_name="make-fractals",
-                base_version=existing.version + 5,
-                body="new body",
+                base_version=existing.version + version_offset,
+                **update_kwargs,
             )
 
     def test_body_and_edits_are_mutually_exclusive(self):

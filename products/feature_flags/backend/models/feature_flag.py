@@ -29,9 +29,10 @@ from products.feature_flags.backend.variant_rollout import format_variant_rollou
 if TYPE_CHECKING:
     from django.db.models.fields.related_descriptors import RelatedManager
 
-    from posthog.models.activity_logging.activity_log import Trigger
+    from posthog.models.activity_logging.activity_log import ActivityContextBase, Trigger
     from posthog.models.team import Team
 
+    from products.experiments.backend.facade.contracts import LinkedExperiment
     from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 
 
@@ -154,6 +155,9 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
     # (for example the experiment exposure freeze) sets this before the gated write; the
     # activity-log receiver reads it so the entry does not render as a manual edit.
     _activity_trigger: "Trigger | None" = None
+    # Never persisted. The update serializer sets this before the write when the request carries a rollback reason,
+    # so the reason lands on the activity log entry of the same edit.
+    _activity_context: "ActivityContextBase | None" = None
 
     # When adding new fields, make sure to update organization_feature_flags.py::copy_flags
     key = models.CharField(max_length=400)
@@ -238,6 +242,10 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
     # Exists query (or read from cache) to avoid a per-flag experiment lookup.
     _has_experiment: Optional[bool] = None
 
+    # The flag API sets this to the flag's experiments that are not deleted, loaded for all flags of a response in one
+    # query. When it is not set, the serializer queries the experiments of each flag.
+    _active_experiments: tuple["LinkedExperiment", ...]
+
     last_called_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -302,7 +310,7 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
             type="feature_flag",  # sync with APIScopeObject in scopes.py
             ref=str(self.id),
             name=self.key or "Untitled",
-            href=f"/feature_flags/{self.id}",
+            href=f"/feature-flags/{self.id}",
             meta={
                 "created_at": str(self.created_at),
                 "created_by": self.created_by_id,
@@ -433,6 +441,7 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
         seen_cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
         sort_by_topological_order=False,
         stop_traversal_at_static: bool = False,
+        invalid_cohort_ids: InvalidIds | None = None,
     ) -> list[int]:
         from products.cohorts.backend.models.util import get_all_cohort_dependencies, sort_cohorts_topologically
 
@@ -440,10 +449,11 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
             seen_cohorts_cache = {}
 
         cohort_ids = set()
-        # Unreadable formats raise. A non-integer id raises in v1, as it always did; v2 skips it, as Rust does.
+        # Unreadable formats raise. By default, v1 raises on a non-integer id. v2 skips it, as Rust does.
         config = decode_config(self.get_filters())
-        invalid_ids: InvalidIds = "raise" if isinstance(config, ConfigV1) else "skip"
-        direct_ids = references(config, invalid_cohort_ids=invalid_ids).cohort_ids
+        if invalid_cohort_ids is None:
+            invalid_cohort_ids = "raise" if isinstance(config, ConfigV1) else "skip"
+        direct_ids = references(config, invalid_cohort_ids=invalid_cohort_ids).cohort_ids
         for cohort_id in direct_ids:
             try:
                 if cohort_id in seen_cohorts_cache:

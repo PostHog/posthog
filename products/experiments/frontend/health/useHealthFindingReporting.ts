@@ -27,30 +27,32 @@ export function useHealthFindingReporting(
     const { reportHealthFindingShown, reportHealthFindingOpened, reportHealthFindingActedOn } =
         useActions(experimentLogic)
     const code = finding?.code
-    const variant = finding?.variant
+    const subcode = finding?.subcode
+    const severity = finding?.severity
+    const reason = finding?.reason
 
     useEffect(() => {
         if (code && isShown) {
-            reportHealthFindingShown({ code, variant })
+            reportHealthFindingShown({ code, subcode, severity, reason })
         }
-    }, [code, variant, isShown, experimentLoadCount, reportHealthFindingShown])
+    }, [code, subcode, severity, reason, isShown, experimentLoadCount, reportHealthFindingShown])
 
     const reportOpened = useCallback(
         (openKind: ExperimentHealthFindingOpenKind): void => {
             if (code) {
-                reportHealthFindingOpened({ code, variant }, openKind)
+                reportHealthFindingOpened({ code, subcode, severity, reason }, openKind)
             }
         },
-        [code, variant, reportHealthFindingOpened]
+        [code, subcode, severity, reason, reportHealthFindingOpened]
     )
 
     const reportActedOn = useCallback(
         (actionKind: ExperimentHealthFindingActionKind): void => {
             if (code) {
-                reportHealthFindingActedOn({ code, variant }, actionKind)
+                reportHealthFindingActedOn({ code, subcode, severity, reason }, actionKind)
             }
         },
-        [code, variant, reportHealthFindingActedOn]
+        [code, subcode, severity, reason, reportHealthFindingActedOn]
     )
 
     return { reportOpened, reportActedOn }

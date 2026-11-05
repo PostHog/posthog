@@ -17,6 +17,7 @@ from products.signals.backend.facade.api import ScoutRunRejectionKind, WorkflowS
 from products.signals.backend.scout_harness.run_gates import ScoutRunRejection
 from products.workflows.backend.models import HogFlow
 from products.workflows.backend.presentation.views.workflow_scout_runs import WorkflowScoutRunsJWTAuthentication
+from products.workflows.backend.presentation.views.workflow_step_auth import WorkflowStepJWTAuthentication
 
 SECRET = "test-workflow-scout-run-jwt"
 SCOUT = "signals-scout-error-tracking"
@@ -57,15 +58,35 @@ class TestWorkflowScoutRunsAPI(APIBaseTest):
             HTTP_AUTHORIZATION=f"Bearer {token or _token(self.team.id, str(self.hog_flow.id))}",
         )
 
-    @covers_authentication(WorkflowScoutRunsJWTAuthentication)
-    def test_dispatches_a_scout_run(self) -> None:
+    @parameterized.expand(
+        [
+            ("without_a_note", {}, None),
+            ("with_a_note", {"note": "  PR #4821  "}, "PR #4821"),
+            ("with_a_blank_note", {"note": "   "}, None),
+        ]
+    )
+    @covers_authentication(WorkflowScoutRunsJWTAuthentication, WorkflowStepJWTAuthentication)
+    def test_dispatches_a_scout_run(self, _name: str, body: dict, expected_note: str | None) -> None:
         started = WorkflowScoutRunStarted(skill_name=SCOUT, workflow_id="signals-scout-workflow-run-1")
         with patch(_START_SCOUT, return_value=started) as start:
-            response = self._post({"idempotency_key": "job:step:1"})
+            response = self._post({"idempotency_key": "job:step:1", **body})
 
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         assert response.json() == {"scout": SCOUT, "workflow_id": "signals-scout-workflow-run-1"}
-        start.assert_called_once_with(team_id=self.team.id, skill_name=SCOUT, workflow_origin_key="job:step:1")
+        start.assert_called_once_with(
+            team_id=self.team.id,
+            skill_name=SCOUT,
+            workflow_origin_key="job:step:1",
+            run_note=expected_note,
+            trigger_workflow_id=str(self.hog_flow.id),
+        )
+
+    def test_rejects_a_note_over_the_run_note_limit(self) -> None:
+        with patch(_START_SCOUT) as start:
+            response = self._post({"note": "x" * 1001})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        start.assert_not_called()
 
     @parameterized.expand(
         [
@@ -101,7 +122,11 @@ class TestWorkflowScoutRunsAPI(APIBaseTest):
         assert second.status_code == status.HTTP_202_ACCEPTED, second.json()
         assert first.json() == second.json() == {"scout": SCOUT, "workflow_id": "signals-scout-workflow-run-1"}
         start.assert_called_once_with(
-            team_id=self.team.id, skill_name=SCOUT, workflow_origin_key="invocation-1:action-1"
+            team_id=self.team.id,
+            skill_name=SCOUT,
+            workflow_origin_key="invocation-1:action-1",
+            run_note=None,
+            trigger_workflow_id=str(self.hog_flow.id),
         )
 
     def test_a_different_idempotency_key_still_dispatches_its_own_run(self) -> None:

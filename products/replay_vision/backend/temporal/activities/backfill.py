@@ -114,7 +114,9 @@ def prepare_backfill_tick_activity(inputs: BackfillTickInputs) -> PrepareBackfil
         record_backfill_tick_outcome("paused_quota")
         return PrepareBackfillTickOutput(action=BackfillTickAction.PAUSE)
 
-    scanner_budget = compute_scanner_budget(backfill.scanner) if backfill.scanner.credit_limit is not None else None
+    scanner_budget = (
+        compute_scanner_budget(backfill.scanner, org_state=quota) if backfill.scanner.has_spend_ceiling else None
+    )
     if scanner_budget is not None and scanner_budget.would_exceed(backfill.credits_per_observation):
         # Children would decline at create while the cursor walks past their sessions; the hold lets
         # the backfill resume when the period resets or the limit rises.

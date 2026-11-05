@@ -34,14 +34,15 @@ import type {
     PersonsListParams,
     PersonsPartialUpdateParams,
     PersonsPropertiesAtTimeRetrieveParams,
-    PersonsPropertiesTimelineRetrieveParams,
+    PersonsPropertiesTimelineCreateParams,
     PersonsPushNotificationsListParams,
-    PersonsResetPersonDistinctIdCreateParams,
     PersonsRetrieveParams,
     PersonsSplitCreateParams,
     PersonsUpdateParams,
     PersonsUpdatePropertyCreateParams,
     PersonsValuesRetrieveParams,
+    PropertiesTimelineRequestApi,
+    PropertiesTimelineResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -296,10 +297,10 @@ export const personsEmailsList = async (
     })
 }
 
-export const getPersonsPropertiesTimelineRetrieveUrl = (
+export const getPersonsPropertiesTimelineCreateUrl = (
     projectId: string,
-    id: number,
-    params?: PersonsPropertiesTimelineRetrieveParams
+    id: string,
+    params?: PersonsPropertiesTimelineCreateParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -317,17 +318,21 @@ export const getPersonsPropertiesTimelineRetrieveUrl = (
 }
 
 /**
- * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
+ * Shows how the person's key properties changed within the time window of a Trends data point. The key properties are the person properties that the insight's query uses.
+ * @summary Get a person's properties timeline for an insight data point
  */
-export const personsPropertiesTimelineRetrieve = async (
+export const personsPropertiesTimelineCreate = async (
     projectId: string,
-    id: number,
-    params?: PersonsPropertiesTimelineRetrieveParams,
+    id: string,
+    propertiesTimelineRequestApi: PropertiesTimelineRequestApi,
+    params?: PersonsPropertiesTimelineCreateParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getPersonsPropertiesTimelineRetrieveUrl(projectId, id, params), {
+): Promise<PropertiesTimelineResponseApi> => {
+    return apiMutator<PropertiesTimelineResponseApi>(getPersonsPropertiesTimelineCreateUrl(projectId, id, params), {
         ...options,
-        method: 'GET',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(propertiesTimelineRequestApi),
     })
 }
 
@@ -390,7 +395,7 @@ export const getPersonsSplitCreateUrl = (projectId: string, id: string, params?:
  *
  * The original person always retains its properties. To clear individual properties afterward, use the `delete_property` endpoint.
  *
- * The split runs asynchronously: a 201 response means the task was enqueued. Newly-created split-off persons get a deterministic UUID derived from `(team_id, distinct_id)`, so they can be located client-side without polling. If you need to delete a split-off person after this call, prefer looking it up by that deterministic UUID rather than by distinct_id, since the latter still resolves to the original merged person until the async task completes.
+ * The split runs asynchronously: a 201 response means the task was enqueued. A split-off person usually gets a UUID derived from `(team_id, distinct_id)`, but gets a random UUID when another person already holds that UUID, so do not compute it client-side. To find or delete a split-off person, look it up by its distinct_id once the task completes. Until then the distinct_id still resolves to the original person.
  */
 export const personsSplitCreate = async (
     projectId: string,
@@ -433,7 +438,7 @@ export const getPersonsUpdatePropertyCreateUrl = (
 export const personsUpdatePropertyCreate = async (
     projectId: string,
     id: string,
-    personUpdatePropertyRequestApi: PersonUpdatePropertyRequestApi,
+    personUpdatePropertyRequestApi?: PersonUpdatePropertyRequestApi,
     params?: PersonsUpdatePropertyCreateParams,
     options?: RequestInit
 ): Promise<void> => {
@@ -677,42 +682,6 @@ export const personsPropertiesAtTimeRetrieve = async (
     return apiMutator<PersonPropertiesAtTimeResponseApi>(getPersonsPropertiesAtTimeRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getPersonsResetPersonDistinctIdCreateUrl = (
-    projectId: string,
-    params?: PersonsResetPersonDistinctIdCreateParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/persons/reset_person_distinct_id/?${stringifiedParams}`
-        : `/api/projects/${projectId}/persons/reset_person_distinct_id/`
-}
-
-/**
- * Fix a distinct_id that stays hidden after its person was deleted and created again. Does nothing if no live person uses this distinct_id. In that case, send a new event for it instead.
- */
-export const personsResetPersonDistinctIdCreate = async (
-    projectId: string,
-    personRecordApi?: NonReadonly<PersonRecordApi>,
-    params?: PersonsResetPersonDistinctIdCreateParams,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getPersonsResetPersonDistinctIdCreateUrl(projectId, params), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(personRecordApi),
     })
 }
 

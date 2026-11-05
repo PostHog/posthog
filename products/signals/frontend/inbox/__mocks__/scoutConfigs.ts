@@ -1,5 +1,4 @@
 import type {
-    ScoutCostsApi,
     ScoutSuggestionItemApi,
     ScoutSuggestionSetApi,
     SignalScoutConfigApi,
@@ -51,6 +50,9 @@ function makeMockScout(overrides: MockScoutOverrides): SignalScoutConfigApi {
         precheck_disabled: false,
         effective_precheck_query: null,
         precheck_query_source: 'off',
+        last_precheck_at: null,
+        last_precheck_outcome: null,
+        last_precheck_row_count: null,
         last_run_at: null,
         consecutive_failure_count: 0,
         status_changed_at: null,
@@ -103,6 +105,7 @@ export function mockScoutRuns(configs: SignalScoutConfigApi[]): SignalScoutRunSu
             const startedAt = MOCK_NOW_MS - (runIndex + 1) * HOUR_MS
             return {
                 run_id: `${config.skill_name}-run-${runIndex}`,
+                total_spend: null,
                 skill_name: config.skill_name,
                 skill_version: 1,
                 status: failed ? ('failed' as const) : ('completed' as const),
@@ -132,6 +135,7 @@ export function mockDailyQuietRuns(config: SignalScoutConfigApi): SignalScoutRun
         const startedAt = MOCK_NOW_MS - (runIndex + 2) * 24 * HOUR_MS
         return {
             run_id: `${config.skill_name}-daily-run-${runIndex}`,
+            total_spend: null,
             skill_name: config.skill_name,
             skill_version: 1,
             status: 'completed' as const,
@@ -292,26 +296,5 @@ export function mockScoutSuggestionSet(overrides: Partial<ScoutSuggestionSetApi>
         fleet_snapshot: mockScoutConfigs.map((config) => config.skill_name),
         items: mockScoutSuggestions,
         ...overrides,
-    }
-}
-
-/**
- * A cost row per scout, cycling the three cases the surfaces have to tell apart: a scout that spent
- * and filed reports, one that spent and filed nothing, and one whose runs had no spend attributed.
- */
-export function mockScoutCosts(configs: SignalScoutConfigApi[]): ScoutCostsApi {
-    return {
-        window_days: 7,
-        available: true,
-        scouts: configs.map((config, index) => {
-            const unpriced = index % 3 === 2
-            return {
-                skill_name: config.skill_name,
-                spend_usd: unpriced ? 0 : 1.68 + index * 4.2,
-                run_count: 14 + index,
-                priced_run_count: unpriced ? 0 : 14,
-                reports_touched: index % 3 === 1 ? 0 : 11,
-            }
-        }),
     }
 }

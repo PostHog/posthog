@@ -1,0 +1,64 @@
+rules:
+    - id: rich-text-editor-via-lazy-wrapper
+      message: |
+          The rich text editor stack (`@tiptap/*` and `prosemirror-*`, about 450 KiB minified) is
+          imported outside an editor implementation. A static import from a scene, a logic or a
+          shared helper puts the whole stack on the eager path of every scene that reaches it.
+
+          Render rich text through `lib/components/RichContentEditor/LazyRichContent`
+          (`LazyTextContent`, `LazyRichContentPreview`, `LazyLemonRichContentEditor`), and call
+          `preloadRichContent()` from a logic when its data shows that rich text renders on first paint.
+          For text of a rich content document, use `richContentToText` from
+          `lib/components/RichContentEditor/richContentText`.
+          For types, write `import type { ... }`: esbuild drops a type-only import.
+
+          A new editor implementation can import the stack directly. Add its directory to
+          `paths.exclude` in this rule, and load it behind a lazy boundary.
+      severity: ERROR
+      languages: [typescript, javascript]
+      paths:
+          include:
+              - /frontend/src
+              - /products
+              - /common
+          exclude:
+              - '*.test.ts'
+              - '*.test.tsx'
+              - '*.stories.tsx'
+              - /products/desktop
+              # Editor implementations. Code outside them reaches these modules only through a lazy import.
+              - /frontend/src/lib/components/RichContentEditor
+              - /frontend/src/lib/components/Cards/TextCard
+              - /frontend/src/lib/components/MarkdownEditor
+              - /frontend/src/lib/utils/markdown.ts
+              - /frontend/src/lib/utils/parseMarkdownToTipTap.ts
+              - /frontend/src/scenes/max/utils/markdownToTiptap.ts
+              - /frontend/src/scenes/notebooks
+              - /frontend/src/scenes/product-tours/editor
+              - /products/conversations/frontend/components/Editor
+              - /products/conversations/frontend/components/Macros/MacroSuggestionExtension.tsx
+              - /products/dashboards/frontend/components/ImageTile/imageTileMarkdown.ts
+              - /products/data_catalog/frontend/components/MetricMarkdownEditor.tsx
+              - /products/data_catalog/frontend/components/metricMarkdown.ts
+              - /products/data_catalog/frontend/components/metricMarkdownSlashCommands.tsx
+              # Anchors the packages into a shared chunk. It is a build entry, not app code.
+              - /frontend/src/sharedChunkAnchors.ts
+      patterns:
+          - pattern-either:
+                - pattern: import $X from '$MOD'
+                - pattern: import { ... } from '$MOD'
+                - pattern: import * as $X from '$MOD'
+                - pattern: import '$MOD'
+                - pattern: import('$MOD')
+                - pattern: require('$MOD')
+                - pattern: export * from '$MOD'
+          # Semgrep matches `import type` with the patterns above, so a regex lets type imports through.
+          - pattern-not-regex: (?m)^import\s+type\s
+          # JSONContent is only a type, so esbuild drops this import. Older code wrote it without `type`.
+          - pattern-not-regex: (?m)^import \{ JSONContent \} from '@tiptap/core'
+          - metavariable-regex:
+                metavariable: $MOD
+                regex: ^['"]?(@tiptap/|prosemirror-)
+      metadata:
+          category: performance
+          confidence: HIGH

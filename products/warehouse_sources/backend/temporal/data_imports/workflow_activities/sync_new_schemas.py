@@ -6,13 +6,14 @@ from django.db import close_old_connections
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
+from posthog.credentials_service.errors import CredentialsServiceFailure
 from posthog.exceptions_capture import capture_exception
-from posthog.integration_secrets.errors import IntegrationSecretsFailure
 from posthog.models.integration import UndecryptedIntegrationSecretError
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.logger import get_logger
 
 from products.data_warehouse.backend.facade.api import delete_discover_schemas_schedule
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_schema import (
     auto_enable_new_schemas,
     sync_old_schemas_with_new_schemas,
@@ -24,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.errors import (
     is_transient_egress_proxy_error,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import known_source_key
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
@@ -65,28 +67,28 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
     source = ExternalDataSource.objects.get(team_id=inputs.team_id, id=inputs.source_id)
 
     try:
-        source_type_enum = ExternalDataSourceType(source.source_type)
+        source_type_key = known_source_key(source.source_type)
     except ValueError:
-        # A stored source type that this build's enum does not carry cannot be synced by any
-        # code path here, so every discovery run repeats the same failure. Two situations reach
-        # this: a source type that was dropped from the enum while rows still referenced it, and
-        # a source type that web code creates before every worker carries it. The second one
-        # recovers on its own once the worker catches up, so the schedule stays in place instead
-        # of self-destructing.
+        # A stored source type that this build does not register cannot be synced by any code
+        # path here, so every discovery run repeats the same failure. Three situations reach
+        # this: a source type that was removed while rows still referenced it, a source type that
+        # web code creates before every worker carries it, and a vendor module that failed to
+        # import. The last two recover on their own once the worker catches up or the import is
+        # fixed, so the schedule stays in place instead of self-destructing.
         logger.warning(
-            "Skipping schema discovery: stored source type is not a known ExternalDataSourceType",
+            "Skipping schema discovery: stored source type is not a registered source",
             source_type=source.source_type,
         )
         return
 
-    if SourceRegistry.is_registered(source_type_enum):
-        if not source.job_inputs:
-            return
-
-        new_source = SourceRegistry.get_source(source_type_enum)
-
+    if SourceRegistry.is_registered(source_type_key):
         try:
-            config = new_source.parse_config(source.job_inputs)
+            source_inputs = SourceInputsStore.load(source)
+            if not source_inputs:
+                return
+
+            new_source = SourceRegistry.get_source(source_type_key)
+            config = new_source.parse_config(source_inputs)
         except Exception:
             # Config parsing is deterministic over the stored `job_inputs`, so a corrupt or
             # double-encoded config fails identically on every discovery run - there is nothing
@@ -116,7 +118,7 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
                 return
 
             error_msg = str(e)
-            # Every credential the integration service holds is PostHog's own (OAuth app secrets,
+            # Every credential the credentials service holds is PostHog's own (OAuth app secrets,
             # API keys), never the customer's, and none of its failure states are permanent — a
             # burned key gets re-provisioned, an unreachable service comes back. Unlike the skips
             # above, this isn't ours to give up on: re-raise wrapped in NonReportableError so the
@@ -124,7 +126,7 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
             # same recovery import_data_sync.py's _handle_import_error already gives the per-schema
             # sync path, without minting an error tracking issue per credential read for a platform
             # blip the service's own availability alerting already covers.
-            if isinstance(e, IntegrationSecretsFailure):
+            if isinstance(e, CredentialsServiceFailure):
                 if e.reportable:
                     capture_exception(e)
                     logger.exception(error_msg)
@@ -183,7 +185,7 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
     # GitHub keeps its legacy repo's rows bare alongside qualified rows for added repos, so
     # bare↔qualified tail matching would wrongly collapse them; match names exactly and seed
     # per-repo location metadata on newly created rows.
-    is_github = source_type_enum == ExternalDataSourceType.GITHUB
+    is_github = source_type_key == ExternalDataSourceType.GITHUB
     sync_result = sync_old_schemas_with_new_schemas(
         schemas_to_sync,
         source_id=inputs.source_id,

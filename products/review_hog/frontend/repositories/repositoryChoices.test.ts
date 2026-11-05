@@ -12,6 +12,7 @@ function entry(overrides: Partial<ReviewRepositoryOverviewEntryApi>): ReviewRepo
         selected: false,
         repository_id: null,
         exception: null,
+        review_drafts: false,
         my_choice: null,
         my_choice_id: null,
         my_result: { flash: false, reason: 'project_opt_in' },
@@ -78,6 +79,16 @@ describe('repositoryChoices', () => {
                 repository_result: { flash: false, reason: 'repository_opt_in' },
             }),
             note: 'The repository alone gives: no automatic review',
+        },
+        {
+            name: "an exception that names the viewer says so, since its headline reads 'everyone'",
+            entry: entry({
+                exception: { flash_for: 'everyone', people: [] },
+                my_result: { flash: false, reason: 'repository_excepted' },
+                inherited_result: { flash: false, reason: 'repository_excepted' },
+                repository_result: { flash: false, reason: 'repository_excepted' },
+            }),
+            note: "You are on this repository's except list.",
         },
         {
             name: 'an own choice names what applies without it, and where that comes from',

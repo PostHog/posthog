@@ -8,15 +8,7 @@ import { uuid } from 'lib/utils/dom'
 import { GraphSeriesAddedSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { AnyEntityNode, EventsNode, GroupNode, NodeKind } from '~/queries/schema/schema-general'
-import {
-    ActionFilter,
-    AnyPropertyFilter,
-    EntityFilter,
-    EntityType,
-    FilterLogicalOperator,
-    PropertyFilterType,
-    PropertyMathType,
-} from '~/types'
+import { AnyPropertyFilter, EntityType, FilterLogicalOperator, PropertyFilterType, PropertyMathType } from '~/types'
 
 import {
     SeriesNode,
@@ -173,9 +165,6 @@ export interface entityFilterLogicActions {
     renameSeries: (customName: string) => {
         customName: string
     }
-    selectFilter: (filter: ActionFilter | EntityFilter | null) => {
-        filter: ActionFilter | EntityFilter | null
-    }
     selectSeries: (
         index: number | null,
         node?: SeriesNode | null,
@@ -184,6 +173,9 @@ export interface entityFilterLogicActions {
         index: number | null
         node: SeriesNode | null | undefined
         uuid: string | undefined
+    }
+    selectSeriesAt: (index: number | null) => {
+        index: number | null
     }
     setEntityFilterVisibility: (
         index: number,
@@ -258,8 +250,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
     })),
     actions({
         selectSeries: (index: number | null, node?: SeriesNode | null, uuid?: string) => ({ index, node, uuid }),
-        // The results table hands over the legacy-shaped series object the trends runner emits.
-        selectFilter: (filter: EntityFilter | ActionFilter | null) => ({ filter }),
+        selectSeriesAt: (index: number | null) => ({ index }),
         updateSeriesEntity: (index: number, update: SeriesEntityUpdate) => ({ index, update }),
         updateSeriesMath: (index: number, math: SeriesMathUpdate) => ({ index, math }),
         updateSeriesProperties: (index: number, properties: AnyPropertyFilter[]) => ({ index, properties }),
@@ -349,13 +340,8 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
         }
 
         return {
-            selectFilter: ({ filter }) => {
-                if (!filter) {
-                    actions.selectSeries(null)
-                    return
-                }
-                const index = filter.order ?? filter.index ?? -1
-                const local = values.localSeries[index]
+            selectSeriesAt: ({ index }) => {
+                const local = index === null ? undefined : values.localSeries[index]
                 actions.selectSeries(local ? index : null, local?.node, local?.uuid)
             },
             renameSeries: ({ customName }) => {

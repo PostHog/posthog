@@ -381,9 +381,10 @@ def query_author_workflow_costs(
 # The window-cost shape twice over — the current window and the equal-length one before it — as
 # per-window conditional aggregates on one cost-source scan, so the repo hub's delta doesn't pay the
 # scan twice. The previous window is half-open ([prev_from, date_from)) so no run lands in both.
-# __QUEUE_AGG__ rides the same scan: the merge-queue slice of each window's billable seconds.
+# __QUEUE_AGG__ and __DEPOT_CI_AGG__ ride the same scan: the merge-queue and Depot CI engine slices
+# of each window's billable seconds.
 _WINDOW_COST_WITH_PREV_SELECT = """
-    SELECT c.workflow_name AS workflow_name, __CUR_AGG__, __PREV_AGG__, __QUEUE_AGG__
+    SELECT c.workflow_name AS workflow_name, __CUR_AGG__, __PREV_AGG__, __QUEUE_AGG__, __DEPOT_CI_AGG__
     FROM __COST_SOURCE__ AS c
     WHERE c.run_started_at >= {prev_from} __DATE_TO__
     GROUP BY c.workflow_name
@@ -393,18 +394,25 @@ _WINDOW_COST_WITH_PREV_SELECT = """
 
 @dataclass(frozen=True, kw_only=True)
 class WindowCostsWithPrev:
-    """Per-workflow cost aggregates for a window and its previous twin, plus the merge-queue slice
-    of each window's billable seconds — carried on the same scan so queue spend never needs a
-    second pass over the cost source."""
+    """Per-workflow cost aggregates for a window and its previous twin, plus the merge-queue and
+    Depot CI engine slices of each window's billable seconds. The slices come from the same scan,
+    so they never need a second pass over the cost source."""
 
     by_workflow: dict[str, PRCostAggregate]
     by_workflow_prev: dict[str, PRCostAggregate]
     merge_queue_billable_seconds: float
     merge_queue_billable_seconds_prev: float
+    depot_ci_billable_seconds: float
+    depot_ci_billable_seconds_prev: float
 
 
 _EMPTY_WINDOW_COSTS = WindowCostsWithPrev(
-    by_workflow={}, by_workflow_prev={}, merge_queue_billable_seconds=0.0, merge_queue_billable_seconds_prev=0.0
+    by_workflow={},
+    by_workflow_prev={},
+    merge_queue_billable_seconds=0.0,
+    merge_queue_billable_seconds_prev=0.0,
+    depot_ci_billable_seconds=0.0,
+    depot_ci_billable_seconds_prev=0.0,
 )
 
 
@@ -430,6 +438,7 @@ def query_workflow_window_costs_with_prev(
         "prev_from": ast.Constant(value=prev_from),
         # Floored off prev_from, the earlier of the two window starts — this scan carries both.
         "job_created_floor": run_windowed_job_created_floor_constant(prev_from),
+        "depot_ci_engine": ast.Constant(value=CIEngine.DEPOT_CI.value),
     }
     windows = window_pair_predicates("c.run_started_at", date_to=date_to)
     date_to_clause = ""
@@ -441,15 +450,19 @@ def query_workflow_window_costs_with_prev(
     # in merge_queue_overview.py use the narrower corroborated population; the two answer different
     # questions, so don't unify them casually.
     queue = in_merge_queue_namespace_expr("c.head_branch")
-    queue_agg = (
-        f"sumIf(ifNull(c.billable_seconds, 0), {queue} AND {windows.current}) AS queue_billable_seconds, "
-        f"sumIf(ifNull(c.billable_seconds, 0), {queue} AND {windows.previous}) AS queue_billable_seconds_prev"
-    )
+
+    def slice_aggregates(predicate: str, alias: str) -> str:
+        return (
+            f"sumIf(ifNull(c.billable_seconds, 0), {predicate} AND {windows.current}) AS {alias}, "
+            f"sumIf(ifNull(c.billable_seconds, 0), {predicate} AND {windows.previous}) AS {alias}_prev"
+        )
+
     sql = (
         _WINDOW_COST_WITH_PREV_SELECT.replace("__COST_SOURCE__", cost_source)
         .replace("__CUR_AGG__", _cost_aggregates(when=windows.current))
         .replace("__PREV_AGG__", _cost_aggregates(when=windows.previous, suffix="_prev"))
-        .replace("__QUEUE_AGG__", queue_agg)
+        .replace("__QUEUE_AGG__", slice_aggregates(queue, "queue_billable_seconds"))
+        .replace("__DEPOT_CI_AGG__", slice_aggregates("c.ci_engine = {depot_ci_engine}", "depot_ci_billable_seconds"))
         .replace("__DATE_TO__", date_to_clause)
     )
     response = curated.run(
@@ -457,7 +470,7 @@ def query_workflow_window_costs_with_prev(
     )
     by_workflow_cur: dict[str, PRCostAggregate] = {}
     by_workflow_prev: dict[str, PRCostAggregate] = {}
-    queue_billable = queue_billable_prev = 0.0
+    slice_seconds = [0.0, 0.0, 0.0, 0.0]
     for workflow_name, *columns in response.results or []:
         workflow = workflow_name or ""
         cur_agg = _aggregate(*columns[0:5])
@@ -466,13 +479,15 @@ def query_workflow_window_costs_with_prev(
             by_workflow_cur[workflow] = cur_agg
         if _has_jobs(prev_agg):
             by_workflow_prev[workflow] = prev_agg
-        queue_billable += float(columns[10] or 0.0)
-        queue_billable_prev += float(columns[11] or 0.0)
+        slice_seconds = [total + float(value or 0.0) for total, value in zip(slice_seconds, columns[10:14])]
+    queue_billable, queue_billable_prev, depot_ci_billable, depot_ci_billable_prev = slice_seconds
     return WindowCostsWithPrev(
         by_workflow=by_workflow_cur,
         by_workflow_prev=by_workflow_prev,
         merge_queue_billable_seconds=queue_billable,
         merge_queue_billable_seconds_prev=queue_billable_prev,
+        depot_ci_billable_seconds=depot_ci_billable,
+        depot_ci_billable_seconds_prev=depot_ci_billable_prev,
     )
 
 

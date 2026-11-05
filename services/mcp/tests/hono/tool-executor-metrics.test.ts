@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { mockToolCallsInc, mockToolDurationObserve, mockToolDurationStartTimer, mockToolErrorsInc } = vi.hoisted(() => {
     const mockStop = vi.fn()
@@ -97,7 +97,12 @@ describe('ToolExecutor metrics', () => {
     let catalog: ToolCatalog
     let executor: ToolExecutor
 
-    beforeEach(async () => {
+    beforeAll(async () => {
+        catalog = new ToolCatalog()
+        await catalog.warmup()
+    })
+
+    beforeEach(() => {
         mockToolCallsInc.mockClear()
         mockToolDurationObserve.mockClear()
         mockToolDurationStartTimer.mockClear()
@@ -106,8 +111,6 @@ describe('ToolExecutor metrics', () => {
         vi.mocked(trackExecuteSqlGeneration).mockClear()
         vi.mocked(trackToolSpan).mockClear()
 
-        catalog = new ToolCatalog()
-        await catalog.warmup()
         executor = new ToolExecutor(catalog, new InstructionsBuilder(''))
     })
 
@@ -612,7 +615,7 @@ describe('ToolExecutor metrics', () => {
             })
         })
 
-        it('stamps the discovery hint kind and emptiness the response builder recorded', async () => {
+        it('stamps the emptiness the response builder recorded', async () => {
             vi.spyOn(catalog, 'getToolByName').mockReturnValue(
                 makeFakeTool('query-error-tracking-issues-list', async () => ({ results: [] })) as any
             )
@@ -623,7 +626,6 @@ describe('ToolExecutor metrics', () => {
             )
 
             expect(trackToolCallExtras('query-error-tracking-issues-list')).toMatchObject({
-                mcp_discovery_hint: 'empty_state',
                 mcp_result_empty: true,
             })
         })
@@ -771,7 +773,6 @@ describe('ToolExecutor metrics', () => {
 
             const extras = mockTrackToolCall.mock.calls.at(-1)?.[4]
             expect(extras?.mcp_result_empty).toBe(empty ? true : undefined)
-            expect(extras).not.toHaveProperty('mcp_discovery_hint')
         })
 
         // In exec mode the inner arguments are JSON inside `command`, so the direct
@@ -806,22 +807,23 @@ describe('ToolExecutor metrics', () => {
             expect(mockTrackToolCall.mock.calls.at(-1)?.[4]).not.toHaveProperty('$mcp_input_keys')
         })
 
-        // A name a feature flag retired is one we own, so it is recordable like any
-        // other. Recorded as unrecognized instead, the `gated_tool` class counts the
-        // wasted round trips without naming the rename that caused them.
-        it('stamps the retired tool a flag gate removed, not the unrecognized sentinel', async () => {
+        it.each(['gated_tool', 'tool_not_granted'] as const)('stamps the target tool on %s', async (reason) => {
             const state = execState()
-            // What the resolver produces with the gate on: the flag filter drops the
-            // tool from the catalog, and `getFlagGatedTools` picks it up.
             state.allTools = state.allTools.filter((tool) => tool.name !== 'notebooks-create')
-            state.flagGatedTools = [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }]
+            if (reason === 'gated_tool') {
+                state.flagGatedTools = [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }]
+            } else {
+                state.scopeGatedTools = []
+                state.flagGatedTools = []
+                state.heldTools = new Set(['docs-search'])
+            }
 
             await executor.handleToolCall({ name: 'exec', arguments: { command: 'call notebooks-create {}' } }, state)
 
             expect(mockTrackToolCall.mock.calls.at(-1)?.[4]).toMatchObject({
                 $mcp_exec_verb: 'call',
                 $mcp_exec_target_tool: 'notebooks-create',
-                $mcp_error_code: 'gated_tool',
+                $mcp_error_code: reason,
             })
         })
 

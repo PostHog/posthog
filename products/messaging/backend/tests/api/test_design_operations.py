@@ -197,8 +197,11 @@ class TestApplyDesignOperations:
 
 
 class TestValidateDesign:
-    def test_valid_design_returns_no_blocking_warnings(self):
-        assert validate_design(_sample_design()) == []
+    @pytest.mark.parametrize("content_type", ["text", "paragraph"])
+    def test_valid_design_returns_no_blocking_warnings(self, content_type: str) -> None:
+        design = _sample_design()
+        design["body"]["rows"][0]["columns"][0]["contents"][0]["type"] = content_type
+        assert validate_design(design) == []
 
     def test_duplicate_id_raises(self):
         design = _sample_design()

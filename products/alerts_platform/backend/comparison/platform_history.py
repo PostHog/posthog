@@ -19,7 +19,8 @@ from uuid import UUID
 from posthog.clickhouse.client import query_with_columns
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 
-from products.alerts_platform.backend.facade.contracts import PlatformCheck, SourceKind
+from products.alerts_platform.backend.facade.contracts import GroupingMode, PlatformCheck, SourceKind
+from products.alerts_platform.backend.logic.platform_alert_events import CHECKS_ONLY
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
 from products.alerts_platform.backend.models.platform_alert_events_sql import PLATFORM_ALERT_EVENTS_TABLE
 
@@ -30,9 +31,10 @@ MAX_CHECKS_PER_WINDOW = 200_000
 # Derived from the contract, so a field added there cannot be left out of the SELECT.
 _COLUMNS = tuple(f.name for f in fields(PlatformCheck) if f.name not in ("team_id", "legacy_configuration_id"))
 
-# `LIMIT 1 BY` deduplicates on the pair the writer names, because the insert token only covers a
-# retry of the same batch and the engine remembers a bounded window of tokens. The ORDER BY is the
-# table's sort key with `team_id` fixed, so rows stream in order and arrive grouped by alert.
+# `LIMIT 1 BY` deduplicates on the check the writer names, because the insert token only covers a
+# retry of the same batch and the engine remembers a bounded window of tokens. The configuration is
+# part of it, because every failed check with no instance shares the nil `alert_id`. The ORDER BY is
+# the table's sort key with `team_id` fixed, so rows stream in order and arrive grouped by alert.
 _SELECT_SQL = f"""
 SELECT {", ".join(_COLUMNS)}
 FROM {PLATFORM_ALERT_EVENTS_TABLE}
@@ -40,8 +42,9 @@ WHERE team_id = %(team_id)s
   AND configuration_id IN %(configuration_ids)s
   AND occurred_at >= %(since)s
   AND occurred_at < %(until)s
+  AND {CHECKS_ONLY}
 ORDER BY configuration_id, alert_id, occurred_at, evaluation_key
-LIMIT 1 BY alert_id, evaluation_key
+LIMIT 1 BY configuration_id, alert_id, evaluation_key
 LIMIT %(limit)s
 """
 
@@ -95,9 +98,11 @@ def read_platform_checks(
     """
     _refuse_unregistered(source)
 
+    # A grouped configuration writes a row per group, and the source's own stack has one verdict per
+    # check, so the two cannot be compared check for check.
     legacy_ids: dict[UUID, UUID | None] = dict(
         PlatformAlertConfiguration.objects.for_team(team_id)
-        .filter(source_kind=source.value)
+        .filter(source_kind=source.value, grouping__mode=GroupingMode.SINGLE.value)
         .values_list("id", "legacy_configuration_id")
     )
     if not legacy_ids:

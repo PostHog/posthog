@@ -68,12 +68,15 @@ class ChangeFeedViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     def list(self, request: Request, **kwargs) -> Response:
         query = request.validated_query_data
+        visibility = self._visibility(request)
+        if query["kinds"]:
+            visibility = {kind: rules for kind, rules in visibility.items() if kind in query["kinds"]}
         feed = api.list_changes(
             team_id=self.team_id,
             organization_id=self.team.organization_id,
             user_is_staff=cast(User, request.user).is_staff,
             window=ChangeWindow(start=query["date_from"], end=query["date_to"]),
-            visibility=self._visibility(request),
+            visibility=visibility,
             limit=query["limit"],
         )
         return Response(ChangeFeedSerializer(feed).data)

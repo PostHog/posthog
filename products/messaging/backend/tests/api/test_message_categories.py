@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Team
@@ -277,6 +278,41 @@ class TestMessageCategoryAPI(APIBaseTest):
             format="multipart",
         )
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+class TestMessageCategoryPersonalAPIKeyAccess(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("list_with_read_scope", ["hog_flow:read"], "get", "", status.HTTP_200_OK),
+            ("create_with_write_scope", ["hog_flow:write"], "post", "", status.HTTP_201_CREATED),
+            ("update_with_write_scope", ["hog_flow:write"], "patch", "{id}/", status.HTTP_200_OK),
+            ("create_with_read_scope_forbidden", ["hog_flow:read"], "post", "", status.HTTP_403_FORBIDDEN),
+            ("update_with_read_scope_forbidden", ["hog_flow:read"], "patch", "{id}/", status.HTTP_403_FORBIDDEN),
+            ("list_with_unrelated_scope_forbidden", ["insight:read"], "get", "", status.HTTP_403_FORBIDDEN),
+            (
+                "customerio_credentials_stay_session_only",
+                ["hog_flow:write"],
+                "post",
+                "save_track_config/",
+                status.HTTP_403_FORBIDDEN,
+            ),
+        ]
+    )
+    def test_personal_api_key_scope_enforcement(self, _name, scopes, method, path, expected_status):
+        category = MessageCategory.objects.create(team=self.team, name="Newsletter", key="newsletter")
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        url = f"/api/projects/{self.team.id}/messaging_categories/{path.format(id=category.id)}"
+        data = {"name": "Product updates", "key": "product_updates"} if method == "post" else {"name": "Renamed"}
+
+        response = getattr(self.client, method)(url, data=data if method != "get" else None, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_201_CREATED:
+            created = MessageCategory.objects.get(id=response.json()["id"])
+            assert (created.team_id, created.created_by_id) == (self.team.id, self.user.id)
 
 
 class TestOptOutSyncConfigAPI(APIBaseTest):

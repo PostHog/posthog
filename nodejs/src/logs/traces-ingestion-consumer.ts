@@ -13,8 +13,8 @@ export interface TracesIngestionConsumerDeps extends LogsIngestionConsumerDeps {
 
 export class TracesIngestionConsumer extends LogsIngestionConsumer {
     protected override name = 'TracesIngestionConsumer'
-    // Meter and quota-limit traces against their own billing identity, not logs'.
-    protected override quotaResource = 'traces_mb_ingested' as const
+    // Traces bill against the same bucket as logs: one product, one free tier, one price. The
+    // inherited logs_mb_ingested quota resource is that bucket, so it is deliberately not overridden.
     protected override appSource = 'traces'
     // Traces records are spans, so this consumer tallies the `spans` metric rules.
     protected override metricRuleSource: MetricRuleSource = 'spans'
@@ -50,10 +50,14 @@ export class TracesIngestionConsumer extends LogsIngestionConsumer {
                 LOGS_METRICS_RULES_ENABLED_TEAMS: config.TRACES_METRICS_RULES_ENABLED_TEAMS,
                 LOGS_METRICS_RULES_KILLSWITCH: config.TRACES_METRICS_RULES_KILLSWITCH,
                 LOGS_METRICS_RULES_EXPORT_URL: config.TRACES_METRICS_RULES_EXPORT_URL,
+                LOGS_DEFAULT_METRIC_RULES_ENABLED_TEAMS: config.TRACES_DEFAULT_METRIC_RULES_ENABLED_TEAMS,
                 // Span retention gates on traces-specific env config so it rolls out
                 // independently of log retention.
                 LOGS_RETENTION_ENABLED_TEAMS: config.TRACES_RETENTION_ENABLED_TEAMS,
                 LOGS_RETENTION_KILLSWITCH: config.TRACES_RETENTION_KILLSWITCH,
+                // Internal batches are logs only, so a signed traces batch is still billed.
+                LOGS_INTERNAL_INGESTION_SIGNING_KEYS: '',
+                LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: '',
             },
             // Own Redis key namespace so traces token buckets don't share per-team state with logs.
             'traces-rate-limiter'

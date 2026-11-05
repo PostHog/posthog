@@ -2,8 +2,11 @@ import { MOCK_USER_UUID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
+import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightsApi } from 'scenes/insights/utils/api'
 
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -18,6 +21,8 @@ import {
     InsightModel,
     UserBasicType,
 } from '~/types'
+
+import * as dashboardsApi from 'products/dashboards/frontend/generated/api'
 
 import { addToDashboardModalLogic } from './addToDashboardModalLogic'
 
@@ -34,7 +39,6 @@ const MOCK_INSIGHT: InsightModel = {
             series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: 'total' }],
         },
     },
-    dashboards: [1, 2],
     dashboard_tiles: [{ dashboard_id: 1 }, { dashboard_id: 2 }] as any,
     result: ['result'],
     saved: true,
@@ -104,6 +108,7 @@ describe('addToDashboardModalLogic', () => {
     })
 
     afterEach(() => {
+        jest.restoreAllMocks()
         logic?.unmount()
         // Tests may set `current_user: null`; clear so the next test gets a fresh `initKeaTests` bootstrap.
         delete window.POSTHOG_APP_CONTEXT
@@ -122,7 +127,8 @@ describe('addToDashboardModalLogic', () => {
             })
     })
 
-    it('addDashboardSuccess sets navigation target and triggers insight update', async () => {
+    it('addDashboardSuccess sets navigation target and adds the insight to the new dashboard', async () => {
+        jest.spyOn(dashboardsApi, 'dashboardsAddInsightCreate').mockResolvedValue({ id: 5, dashboard_id: 99 })
         logic = addToDashboardModalLogic({ dashboardItemId: Insight1 })
         logic.mount()
 
@@ -135,18 +141,67 @@ describe('addToDashboardModalLogic', () => {
         await expectLogic(logic, () => {
             dashboardsModel.actions.addDashboardSuccess(newDashboard)
         })
-            .toDispatchActions(['setDashboardToNavigateTo', 'addToDashboard', 'updateInsight'])
+            .toDispatchActions(['setDashboardToNavigateTo', 'addToDashboard', 'addInsightToDashboard'])
             .toMatchValues({
                 _dashboardToNavigateTo: 99,
             })
-            // Let updateInsight settle before afterEach unmounts the logics it touches
+            // Let addInsightToDashboard settle before afterEach unmounts the logics it touches
             .toFinishAllListeners()
+    })
+
+    it.each([
+        {
+            name: 'adding places the insight on the dashboard and keeps the others',
+            change: (modal: ReturnType<typeof addToDashboardModalLogic.build>) => modal.actions.addToDashboard(4),
+            endpoint: 'dashboardsAddInsightCreate' as const,
+            expectedRequest: [4, { insight_id: 1 }],
+            expectedDashboards: [1, 2, 4],
+        },
+        {
+            name: 'removing deletes the tile on that dashboard and keeps the others',
+            change: (modal: ReturnType<typeof addToDashboardModalLogic.build>) => modal.actions.removeFromDashboard(2),
+            endpoint: 'dashboardsDeleteTile' as const,
+            expectedRequest: [2, { tile_id: 12 }],
+            expectedDashboards: [1],
+        },
+    ])('$name', async ({ change, endpoint, expectedRequest, expectedDashboards }) => {
+        const updateSpy = jest.spyOn(api.insights, 'update')
+        jest.spyOn(dashboardsApi, 'dashboardsAddInsightCreate').mockResolvedValue({ id: 14, dashboard_id: 4 })
+        jest.spyOn(dashboardsApi, 'dashboardsDeleteTile').mockResolvedValue()
+        jest.spyOn(insightsApi, 'getByNumericId').mockResolvedValue({
+            ...MOCK_INSIGHT,
+            dashboard_tiles: expectedDashboards.map((dashboardId) => ({
+                id: 10 + dashboardId,
+                dashboard_id: dashboardId,
+            })),
+        })
+        const insightProps = { dashboardItemId: Insight1 }
+        const insightLog = insightLogic(insightProps)
+        insightLog.mount()
+        // The mount loads the insight, and that load must not land after the change below.
+        await expectLogic(insightLog).toFinishAllListeners()
+        insightLog.actions.loadInsightSuccess({
+            ...MOCK_INSIGHT,
+            dashboard_tiles: [
+                { id: 11, dashboard_id: 1 },
+                { id: 12, dashboard_id: 2 },
+                { id: 13, dashboard_id: 3, deleted: true },
+            ],
+        })
+
+        logic = addToDashboardModalLogic(insightProps)
+        logic.mount()
+
+        await expectLogic(logic, () => change(logic)).toFinishAllListeners()
+
+        expect(dashboardsApi[endpoint]).toHaveBeenCalledWith(expect.any(String), ...expectedRequest)
+        expect(updateSpy).not.toHaveBeenCalled()
+        expect(liveDashboardIds(insightLog.values.insight.dashboard_tiles)).toEqual(expectedDashboards)
     })
 
     it('orders dashboards: on insight first, then mine, then others pinned, then the rest', async () => {
         const insightOnlyOnDash2: InsightModel = {
             ...MOCK_INSIGHT,
-            dashboards: [2],
             dashboard_tiles: [{ dashboard_id: 2 }] as any,
         }
         useMocks({
@@ -200,7 +255,6 @@ describe('addToDashboardModalLogic', () => {
         window.POSTHOG_APP_CONTEXT = { current_user: null } as unknown as AppContext
         const insightOnlyOnDash2: InsightModel = {
             ...MOCK_INSIGHT,
-            dashboards: [2],
             dashboard_tiles: [{ dashboard_id: 2 }] as any,
         }
         useMocks({
@@ -251,7 +305,6 @@ describe('addToDashboardModalLogic', () => {
     it('places mine pinned in the mine bucket before others pinned', async () => {
         const insightOnlyOnDash2: InsightModel = {
             ...MOCK_INSIGHT,
-            dashboards: [2],
             dashboard_tiles: [{ dashboard_id: 2 }] as any,
         }
         useMocks({

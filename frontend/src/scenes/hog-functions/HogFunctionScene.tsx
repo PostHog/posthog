@@ -20,6 +20,7 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -54,11 +55,13 @@ import {
     HogFunctionConfigurationSaveButton,
 } from './configuration/components/HogFunctionConfigurationButtons'
 import { HogFunctionIconEditable } from './configuration/HogFunctionIcon'
+import { HogFunctionPublishDraftButton } from './configuration/HogFunctionPublishDraftButton'
 import { humanizeHogFunctionType } from './hog-function-utils'
 import { HogInvocations } from './invocations/HogInvocations'
 import { TransformationInvocations } from './invocations/TransformationInvocations'
 import { HogFunctionMetrics } from './metrics/HogFunctionMetrics'
 import { HogFunctionSkeleton } from './misc/HogFunctionSkeleton'
+import { QuillHogFunctionSceneActions } from './QuillHogFunctionSceneActions'
 import { HogFunctionRuns } from './runs/HogFunctionRuns'
 
 const HOG_FUNCTION_SCENE_TABS = ['configuration', 'metrics', 'runs', 'invocations', 'backfills', 'history'] as const
@@ -427,6 +430,7 @@ export const scene: SceneExport<HogFunctionConfigurationLogicProps> = {
 function HogFunctionHeader(): JSX.Element {
     const { configuration, logicProps, loading, isLegacyPlugin } = useValues(hogFunctionConfigurationLogic)
     const { setConfigurationValue, duplicate, deleteHogFunction } = useActions(hogFunctionConfigurationLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     return (
         <>
@@ -451,31 +455,40 @@ function HogFunctionHeader(): JSX.Element {
                 onDescriptionChange={(value) => setConfigurationValue('description', value)}
                 canEdit
                 actions={
-                    <>
-                        {!logicProps.templateId && (
-                            <>
-                                <More
-                                    size="small"
-                                    overlay={
-                                        <>
-                                            {!isLegacyPlugin && (
-                                                <LemonButton fullWidth onClick={() => duplicate()}>
-                                                    Duplicate
+                    todayRailNav ? (
+                        <QuillHogFunctionSceneActions />
+                    ) : (
+                        <>
+                            {!logicProps.templateId && (
+                                <>
+                                    <More
+                                        size="small"
+                                        overlay={
+                                            <>
+                                                {!isLegacyPlugin && (
+                                                    <LemonButton fullWidth onClick={() => duplicate()}>
+                                                        Duplicate
+                                                    </LemonButton>
+                                                )}
+                                                <LemonDivider />
+                                                <LemonButton
+                                                    status="danger"
+                                                    fullWidth
+                                                    onClick={() => deleteHogFunction()}
+                                                >
+                                                    Delete
                                                 </LemonButton>
-                                            )}
-                                            <LemonDivider />
-                                            <LemonButton status="danger" fullWidth onClick={() => deleteHogFunction()}>
-                                                Delete
-                                            </LemonButton>
-                                        </>
-                                    }
-                                />
-                                <LemonDivider vertical />
-                            </>
-                        )}
-                        <HogFunctionConfigurationClearChangesButton />
-                        <HogFunctionConfigurationSaveButton />
-                    </>
+                                            </>
+                                        }
+                                    />
+                                    <LemonDivider vertical />
+                                </>
+                            )}
+                            <HogFunctionConfigurationClearChangesButton />
+                            <HogFunctionConfigurationSaveButton />
+                            {logicProps.id ? <HogFunctionPublishDraftButton logicProps={logicProps} /> : null}
+                        </>
+                    )
                 }
             />
         </>

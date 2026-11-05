@@ -88,6 +88,21 @@ class DisallowUnsupportedPropertyMathForHistogramBreakdown:
         )
 
 
+class RequirePropertyForPropertyMath:
+    """An empty math property passes the property-math branch but leaves no field to aggregate."""
+
+    code = "property_math_requires_property"
+
+    def validate(self, context: QueryValidationContext[TrendsQuery]) -> None:
+        for series in context.query.series:
+            if series.math in set(PropertyMathType) and series.math_property == "":
+                raise ValidationError(
+                    f"The {series.math} math type needs a property. "
+                    "Choose a property for the series, or use a different math type.",
+                    code=self.code,
+                )
+
+
 class DisallowDaysOfWeekWithSmoothing:
     """Smoothing averages over the full date axis, where days excluded by daysOfWeek are structural zeros."""
 

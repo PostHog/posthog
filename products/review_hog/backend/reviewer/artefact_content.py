@@ -17,6 +17,7 @@ from typing import Any, Literal, cast
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+from products.review_hog.backend.facade.contracts import ReviewIssueCategory
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import (
     DropDisposition,
@@ -28,27 +29,13 @@ from products.review_hog.backend.reviewer.models.issues_review import (
 from products.review_hog.backend.reviewer.models.perspective_selection import PerspectiveSelection
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE
-from products.signals.backend.artefact_schemas import (
+from products.signals.backend.facade.report_artefacts import (
     ArtefactContentValidationError,
     CodeReference,
     Commit,
     NoteArtefact,
     TaskRunArtefact,
 )
-
-# Mirrors `IssueValidation.category` (the live LLM contract); redefined here so the durable
-# artefact shape doesn't drift with the regenerated review-tool schema.
-ReviewIssueCategory = Literal[
-    "bug",
-    "security",
-    "performance",
-    "code_quality",
-    "best_practice",
-    "documentation",
-    "testing",
-    "accessibility",
-    "compatibility",
-]
 
 
 class ReviewIssueFinding(BaseModel):

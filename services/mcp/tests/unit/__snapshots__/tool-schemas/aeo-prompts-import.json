@@ -1,0 +1,42 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "prompts": {
+            "description": "Prompts to add or update, at most 2000 per request.",
+            "items": {
+                "properties": {
+                    "external_visibility": {
+                        "anyOf": [
+                            {
+                                "maximum": 100,
+                                "minimum": 0,
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Share of answers (0-100) that mention the brand for this prompt, as reported by the tool the prompt set came from. Kept to benchmark against our own citation rate."
+                    },
+                    "prompt": {
+                        "description": "The question to ask the answer engines, as a user would phrase it. Matching ignores case and whitespace, so a re-import updates the existing prompt.",
+                        "maxLength": 10000,
+                        "type": "string"
+                    },
+                    "topic": {
+                        "description": "Theme the prompt belongs to. The runner alternates between topics on each run.",
+                        "maxLength": 200,
+                        "type": "string"
+                    }
+                },
+                "required": ["prompt"],
+                "type": "object"
+            },
+            "maxItems": 2000,
+            "minItems": 1,
+            "type": "array"
+        }
+    },
+    "required": ["prompts"],
+    "type": "object"
+}

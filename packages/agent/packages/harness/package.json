@@ -5,7 +5,7 @@
   "type": "module",
   "bin": {
     "harness": "dist/cli.js",
-    "hog": "dist/cli.js"
+    "hogness": "dist/cli.js"
   },
   "exports": {
     ".": {
@@ -44,9 +44,9 @@
       "types": "./dist/extensions/task-system-prompt/index.d.ts",
       "import": "./dist/extensions/task-system-prompt/index.js"
     },
-    "./extensions/hog-branding": {
-      "types": "./dist/extensions/hog-branding/index.d.ts",
-      "import": "./dist/extensions/hog-branding/index.js"
+    "./extensions/hogness-branding": {
+      "types": "./dist/extensions/hogness-branding/index.d.ts",
+      "import": "./dist/extensions/hogness-branding/index.js"
     },
     "./extensions/posthog-provider": {
       "types": "./dist/extensions/posthog-provider/index.d.ts",

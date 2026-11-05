@@ -4,7 +4,7 @@ import { IconEllipsis, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { biEditorLogic } from './biEditorLogic'
-import { hierarchyError } from './biHierarchies'
+import { hierarchyError, hierarchyFieldKey } from './biHierarchies'
 import { BIHierarchyImportModal } from './BIHierarchyImportModal'
 import { biHierarchyLogic } from './biHierarchyLogic'
 import { BIHierarchyModal } from './BIHierarchyModal'
@@ -33,7 +33,7 @@ export function BIHierarchySection({ tabId }: { tabId: string }): JSX.Element {
                     )
                 )
                 .map((hierarchy) => (
-                    <div key={hierarchy.id} className="flex min-w-0 items-center gap-1">
+                    <div key={hierarchy.id} className="flex min-w-0 flex-wrap items-center gap-1">
                         <LemonButton
                             size="xsmall"
                             className="min-w-0 flex-1"
@@ -70,6 +70,27 @@ export function BIHierarchySection({ tabId }: { tabId: string }): JSX.Element {
                                 aria-label={`Options for hierarchy ${hierarchy.name}`}
                             />
                         </LemonMenu>
+                        <div className="w-full break-words px-2 text-xs text-secondary">
+                            {hierarchy.levels
+                                .map((level) =>
+                                    [...config.rows, ...config.columns].some(
+                                        (field) => hierarchyFieldKey(field) === hierarchyFieldKey(level)
+                                    )
+                                        ? `${level.name} (current)`
+                                        : level.name
+                                )
+                                .join(' → ')}
+                            <div>
+                                {hierarchy.levels.length > 0 &&
+                                [...config.rows, ...config.columns].some(
+                                    (field) =>
+                                        hierarchyFieldKey(field) ===
+                                        hierarchyFieldKey(hierarchy.levels[hierarchy.levels.length - 1])
+                                )
+                                    ? 'Last level. Use the drill path to return to a parent.'
+                                    : 'Click a result to drill to the next level.'}
+                            </div>
+                        </div>
                     </div>
                 ))}
             <BIHierarchyModal tabId={tabId} />

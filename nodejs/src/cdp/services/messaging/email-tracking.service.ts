@@ -6,21 +6,25 @@ import { HogFlow } from '~/cdp/schema/hogflow'
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
+    HogFunctionType,
     LogEntry,
     LogEntryLevel,
     MinimalAppMetric,
 } from '~/cdp/types'
 import { ModifiedRequest } from '~/common/api/router'
+import { RedisV2 } from '~/common/redis/redis-v2'
 import { isDevEnv, isTestEnv } from '~/common/utils/env-utils'
 import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
+import { logger, serializeError } from '~/common/utils/logger'
 
 import { CapturedEventsService } from '../captured-events/captured-events.service'
 import { HogFlowManagerService } from '../hogflows/hogflow-manager.service'
 import { HogFunctionManagerService } from '../managers/hog-function-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
+import { EmailStatusService } from './email-status.service'
 import { EmailSuppressionService } from './email-suppression.service'
+import { escapeHtml } from './helpers/escape-html'
 import { SES_LINK_INDEX_TAG, SesWebhookHandler } from './helpers/ses'
 import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tracking-code'
 
@@ -86,6 +90,29 @@ const emailTrackingLogSkipsCounter = new Counter({
     labelNames: ['reason', 'source'],
 })
 
+const ENGAGEMENT_PERSON_METRICS: Partial<Record<MinimalAppMetric['metric_name'], MinimalAppMetric['metric_name'][]>> = {
+    email_opened: ['email_opened_by_person'],
+    email_link_clicked: ['email_opened_by_person', 'email_clicked_by_person'],
+}
+// An open after this counts its person again. Almost all opens and clicks come in the first days.
+const ENGAGEMENT_PEOPLE_TTL_SECONDS = 30 * 24 * 60 * 60
+// A slow Redis costs a person count, never an open or click webhook.
+const ENGAGEMENT_REDIS_TIMEOUT_MS = 500
+// PFADD returns 0 for many new people once a HyperLogLog fills, so the growth of PFCOUNT is what counts. Each pair of
+// keys is a HyperLogLog and the total already reported. Returns how much each total grew.
+const ENGAGEMENT_PEOPLE_SCRIPT = `
+local grew = {}
+for index = 1, #KEYS, 2 do
+    redis.call('PFADD', KEYS[index], ARGV[1])
+    local total = redis.call('PFCOUNT', KEYS[index])
+    local reported = tonumber(redis.call('GET', KEYS[index + 1]) or '0')
+    redis.call('SET', KEYS[index + 1], math.max(total, reported), 'EX', ARGV[2])
+    redis.call('EXPIRE', KEYS[index], ARGV[2])
+    grew[#grew + 1] = math.max(total - reported, 0)
+end
+return grew
+`
+
 // Allowlist of metrics that surface as PostHog events when engagement-event capture is enabled.
 // Metrics not in this map are deliberately ignored (no `$messaging_${metricName}` fallback) so a new
 // internal metric can't silently leak into customers' event streams.
@@ -125,6 +152,14 @@ export const resolveEmailSendingVersion = (invocation: CyclotronJobInvocationHog
         : undefined
 }
 
+export const resolveEmailTrackingDistinctId = (
+    invocation: Pick<CyclotronJobInvocationHogFunction, 'state' | 'hogFunction'>
+): string | undefined => {
+    return invocation.state?.send?.tracking.captureEngagement === false
+        ? undefined
+        : resolveEmailEngagementDistinctId(invocation)
+}
+
 // HTML attribute values arrive entity-encoded (e.g. `&amp;`, `&#38;`). Decode before
 // percent-encoding for the tracking redirect, otherwise `?a=1&amp;b=2` round-trips
 // through `target=` as a literal `&amp;` and breaks the destination page's query string.
@@ -154,7 +189,7 @@ export const addTrackingToEmail = (
     // record metrics. In production they don't (SES webhooks own open/click attribution via the
     // signed header), so embedding distinct_id in the public `ph_id` would be unused — and worse,
     // a tracked-link click could leak the recipient identifier to the destination via the Referer.
-    const distinctId = isDevEnv() || isTestEnv() ? resolveEmailEngagementDistinctId(invocation) : undefined
+    const distinctId = isDevEnv() || isTestEnv() ? resolveEmailTrackingDistinctId(invocation) : undefined
     // The pixel and redirect codes carry the sending version too. SES-attributed opens and clicks
     // read the version off the signed header instead, but a provider we track ourselves has these
     // URLs as its only carrier, and without the version its engagement cannot split by version.
@@ -166,6 +201,9 @@ export const addTrackingToEmail = (
     // many anchors happened to be trackable. The same template therefore yields the same indices
     // on every send, which is what makes counts comparable across recipients.
     let anchorIndex = 0
+    // A sensitive email's links can carry a login code or a reset token, so none of them goes through
+    // a click-tracking redirect. Opens and deliveries are still tracked.
+    const sensitive = invocation.hogFunction?.metadata?.sensitive === true
 
     html = html.replace(LINK_REGEX, (m, d, s, u) => {
         const linkIndex = anchorIndex++
@@ -181,7 +219,7 @@ export const addTrackingToEmail = (
         // Match only the opening <a> tag so a marker in the link's inner HTML (a child
         // element's attribute or literal link text) can't silently disable tracking.
         const openingTag = m.match(/^<a\b[^>]*>/i)?.[0] ?? ''
-        const optedOut = LINK_TRACKING_OPT_OUT_REGEX.test(openingTag)
+        const optedOut = sensitive || LINK_TRACKING_OPT_OUT_REGEX.test(openingTag)
 
         if (mode === 'ses') {
             // SES rewrites every http(s) anchor once click tracking is on, and it honors only its
@@ -210,6 +248,65 @@ export const addTrackingToEmail = (
     return html
 }
 
+const REDIRECT_CONFIRMATION_PAGE_HEADERS = {
+    'Content-Type': 'text/html; charset=utf-8',
+    'X-Content-Type-Options': 'nosniff',
+    'Cache-Control': 'no-store',
+    // The page runs no script, and blocking frames stops another site from overlaying the link.
+    'Content-Security-Policy':
+        "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    // The page URL carries the tracking code, so the click must not send it to the destination.
+    'Referrer-Policy': 'no-referrer',
+}
+
+// The redirect mode wrapped every href except `javascript:`, so a legacy link can carry any other
+// scheme or a relative href. Only web, email and phone links get the page. Every other target returns
+// 404, so the page never renders a link that runs script in this origin or opens an arbitrary app.
+const CONFIRMABLE_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:'])
+
+// Only the local maildev path still wraps links, and it signs them, so every unsigned link in a real
+// inbox predates the signature. After this instant an unsigned link returns 404, which closes the
+// window in which anyone can make this endpoint show a destination of their choice.
+export const UNSIGNED_REDIRECT_SUNSET = Date.parse('2027-02-11T00:00:00Z')
+
+// Emails sent before redirect targets were signed still sit in inboxes, so an unsigned link gets a
+// page that names the destination instead of a 404. The recipient then decides whether to continue,
+// which keeps this endpoint from silently forwarding anyone to a URL that no email ever contained.
+const renderRedirectConfirmationPage = (target: string): string | null => {
+    let url: URL
+    try {
+        url = new URL(target)
+    } catch {
+        return null
+    }
+    if (!CONFIRMABLE_PROTOCOLS.has(url.protocol)) {
+        return null
+    }
+    // `https://posthog.com@evil.example/` goes to evil.example, but a reader trusts the prefix.
+    if (url.username || url.password) {
+        return null
+    }
+    const href = escapeHtml(url.href)
+    // A mailto: or tel: URL has no host, so the page names the whole target instead.
+    const destination = escapeHtml(url.host || url.href)
+    return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Confirm the link</title>
+<style>body{font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;max-width:560px;margin:4rem auto;padding:0 1rem;line-height:1.5;color:#111}.url{word-break:break-all;color:#555}</style>
+</head>
+<body>
+<h1>Confirm the link</h1>
+<p>This link goes to <strong>${destination}</strong>. Continue only if you trust it.</p>
+<p class="url">${href}</p>
+<p><a href="${href}" rel="noreferrer">Continue to ${destination}</a></p>
+</body>
+</html>
+`
+}
+
 export class EmailTrackingService {
     private sesWebhookHandler: SesWebhookHandler
 
@@ -220,7 +317,9 @@ export class EmailTrackingService {
         private capturedEventsService: CapturedEventsService,
         private teamWorkflowsConfigService: TeamWorkflowsConfigService,
         private trackingCodeSigner: EmailTrackingCodeSigner,
-        private emailSuppressionService: EmailSuppressionService
+        private emailSuppressionService: EmailSuppressionService,
+        private emailStatusService: EmailStatusService | null = null,
+        private engagementRedis: RedisV2 | null = null
     ) {
         const allowedTopicArns = (process.env.SES_ALLOWED_SNS_TOPIC_ARNS ?? '').split(',')
         this.sesWebhookHandler = new SesWebhookHandler(this.trackingCodeSigner, allowedTopicArns)
@@ -273,7 +372,9 @@ export class EmailTrackingService {
         // The function ID could be one or the other so we load both
         const [hogFunction, hogFlow] = await Promise.all([
             this.hogFunctionManager.getHogFunction(functionId).catch(() => null),
-            this.hogFlowManager.getHogFlow(functionId).catch(() => null),
+            this.getFeedbackHogFlows([functionId], source)
+                .then((hogFlows) => hogFlows[functionId])
+                .catch(() => null),
         ])
 
         let teamId = hogFunction?.team_id ?? hogFlow?.team_id
@@ -325,6 +426,27 @@ export class EmailTrackingService {
             hogFlow ? 'hog_flow' : 'hog_function'
         )
 
+        if (parentRunId) {
+            for (const { metric, count } of await this.newEngagedPeople(
+                parentRunId,
+                invocationId,
+                metricName,
+                source
+            )) {
+                this.hogFunctionMonitoringService.queueAppMetric(
+                    {
+                        team_id: teamId,
+                        app_source_id: parentRunId,
+                        instance_id: instanceIdOverride || actionId || invocationId,
+                        metric_name: metric,
+                        metric_kind: 'email',
+                        count,
+                    },
+                    hogFlow ? 'hog_flow' : 'hog_function'
+                )
+            }
+        }
+
         const eventName = METRIC_NAME_TO_EVENT_NAME[metricName]
         if (eventName && distinctId && (await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(teamId))) {
             await this.capturedEventsService.queueEvent({
@@ -373,7 +495,7 @@ export class EmailTrackingService {
 
         let hogFlows: Record<string, HogFlow | null> = {}
         try {
-            hogFlows = await this.hogFlowManager.getHogFlows(uniqueFunctionIds)
+            hogFlows = await this.getFeedbackHogFlows(uniqueFunctionIds, 'ses')
         } catch (error) {
             logger.error('[EmailTrackingService] trackLogs: Failed to load hog flows', { error })
             emailTrackingErrorsCounter.inc({ error_type: 'hog_flow_lookup_failed', source: 'ses' })
@@ -433,6 +555,7 @@ export class EmailTrackingService {
                 hardBounceRecipients,
                 complainedRecipients,
                 deliveredRecipients,
+                emailStatusUpdates,
             } = await this.sesWebhookHandler.handleWebhook({
                 body: parseJSON(req.body),
                 headers: req.headers,
@@ -479,15 +602,36 @@ export class EmailTrackingService {
                 emailTrackingErrorsCounter.inc({ error_type: 'track_logs_failed', source: 'ses' })
             }
 
+            // Best-effort like the writes around it: queue and flush never throw.
+            if (this.emailStatusService && emailStatusUpdates?.length) {
+                for (const update of emailStatusUpdates) {
+                    const teamId = parseInt(update.teamId, 10)
+                    if (Number.isNaN(teamId)) {
+                        continue
+                    }
+                    this.emailStatusService.queue({
+                        teamId,
+                        messageId: update.invocationId,
+                        status: update.status,
+                        reason: update.reason,
+                        statusAt: new Date(update.timestamp),
+                    })
+                }
+                await this.emailStatusService.flush()
+            }
+
             // Feed bounces, complaints and successful deliveries into the suppression list. Wrapped
             // so a failure here never affects the webhook's 200 response to SNS. Deliveries are
             // processed first so a delivery + bounce in the same batch nets out conservatively
             // (count resets, then the fresh bounce re-counts from a clean slate).
             try {
-                for (const { teamId, emailAddresses, timestamp } of deliveredRecipients || []) {
+                for (const { teamId, emailAddresses, timestamp, clearsGlobalHardBounces } of deliveredRecipients ||
+                    []) {
                     const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
                     if (parsedTeamId && !isNaN(parsedTeamId)) {
-                        await this.emailSuppressionService.recordDeliveries(parsedTeamId, emailAddresses, timestamp)
+                        await this.emailSuppressionService.recordDeliveries(parsedTeamId, emailAddresses, timestamp, {
+                            clearGlobal: clearsGlobalHardBounces ?? false,
+                        })
                     }
                 }
                 for (const { teamId, emailAddresses, diagnostic } of transientBounceRecipients || []) {
@@ -500,10 +644,22 @@ export class EmailTrackingService {
                         )
                     }
                 }
-                for (const { teamId, emailAddresses, diagnostic } of hardBounceRecipients || []) {
+                for (const {
+                    teamId,
+                    emailAddresses,
+                    diagnostic,
+                    nonexistentAddresses,
+                    bounceTimestamp,
+                } of hardBounceRecipients ?? []) {
                     const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
                     if (parsedTeamId && !isNaN(parsedTeamId)) {
                         await this.emailSuppressionService.recordHardBounces(parsedTeamId, emailAddresses, diagnostic)
+                        if (nonexistentAddresses) {
+                            await this.emailSuppressionService.recordGlobalHardBounces(
+                                nonexistentAddresses,
+                                bounceTimestamp
+                            )
+                        }
                     }
                 }
                 for (const { teamId, emailAddresses, feedbackType } of complainedRecipients || []) {
@@ -520,9 +676,77 @@ export class EmailTrackingService {
             return { status, message: body as string }
         } catch (error) {
             emailTrackingErrorsCounter.inc({ error_type: error.name || 'unknown' })
-            logger.error('[EmailService] handleWebhook: SES webhook error', { error })
+            logger.error('[EmailService] handleWebhook: SES webhook error', { error: serializeError(error) })
             throw error
         }
+    }
+
+    private async getFeedbackHogFlows(
+        ids: HogFlow['id'][],
+        source: 'direct' | 'ses'
+    ): Promise<Record<HogFlow['id'], HogFlow | null>> {
+        const [onReplica, hogFunctions] = await Promise.all([
+            this.hogFlowManager.getHogFlows(ids),
+            this.hogFunctionManager.getHogFunctions(ids).catch((error): Record<string, HogFunctionType | null> => {
+                logger.warn('[EmailTrackingService] Failed to load hog functions', { error })
+                return {}
+            }),
+        ])
+        const unknown = ids.filter((id) => !onReplica[id] && !hogFunctions[id])
+        const onPrimary: Record<HogFlow['id'], HogFlow | null> =
+            unknown.length > 0
+                ? await this.hogFlowManager.getHogFlowsCheckingPrimaryOnMiss(unknown).catch((error) => {
+                      logger.error('[EmailTrackingService] Failed to load hog flows from the primary', {
+                          error,
+                          ids: unknown,
+                      })
+                      emailTrackingErrorsCounter.inc({ error_type: 'hog_flow_lookup_failed', source })
+                      return {}
+                  })
+                : {}
+        return Object.fromEntries(ids.map((id) => [id, onReplica[id] ?? onPrimary[id] ?? null]))
+    }
+
+    // How many people this open or click adds to each per-person metric of its run. One email goes to one person, so
+    // the email's invocation id stands for the person. A click also counts as an open, because the open pixel is often
+    // blocked. A HyperLogLog stays small for any audience and is about 1% off. When Redis fails, the counts read low.
+    private async newEngagedPeople(
+        parentRunId: string,
+        invocationId: string,
+        metricName: MinimalAppMetric['metric_name'],
+        source: 'direct' | 'ses'
+    ): Promise<{ metric: MinimalAppMetric['metric_name']; count: number }[]> {
+        const metrics = ENGAGEMENT_PERSON_METRICS[metricName]
+        if (!metrics || !this.engagementRedis) {
+            return []
+        }
+        const keys = metrics.flatMap((metric) => {
+            const key = `@posthog/email-engagement-people/{${parentRunId}}/${metric}`
+            return [key, `${key}/reported`]
+        })
+        let timer: NodeJS.Timeout | undefined
+        const grew = await Promise.race([
+            this.engagementRedis.useClient(
+                { name: 'email-engagement-people', failOpen: true },
+                (client) =>
+                    client.eval(
+                        ENGAGEMENT_PEOPLE_SCRIPT,
+                        keys.length,
+                        ...keys,
+                        invocationId,
+                        ENGAGEMENT_PEOPLE_TTL_SECONDS
+                    ) as Promise<number[]>
+            ),
+            new Promise<null>((resolve) => {
+                timer = setTimeout(() => resolve(null), ENGAGEMENT_REDIS_TIMEOUT_MS)
+            }),
+        ])
+        clearTimeout(timer)
+        if (!grew) {
+            emailTrackingErrorsCounter.inc({ error_type: 'engagement_people_not_counted', source })
+            return []
+        }
+        return metrics.map((metric, index) => ({ metric, count: grew[index] })).filter(({ count }) => count > 0)
     }
 
     private parseTrackingParams(query: Record<string, any>): {
@@ -572,14 +796,28 @@ export class EmailTrackingService {
     // Same rationale as handleEmailTrackingPixel: skip in production (SES webhooks own
     // click tracking), but emit in dev/test where maildev never produces webhooks.
     public handleEmailTrackingRedirect(req: ModifiedRequest, res: express.Response): void {
-        const { target } = req.query
+        const { target, ph_id, ph_sig } = req.query
 
-        if (!target) {
+        if (typeof target !== 'string' || !target) {
             res.status(404).send('Not found')
             return
         }
 
-        res.redirect(target as string)
+        const isSignedTarget =
+            typeof ph_id === 'string' &&
+            typeof ph_sig === 'string' &&
+            this.trackingCodeSigner.verifyRedirectTarget(ph_id, target, ph_sig)
+
+        if (isSignedTarget) {
+            res.redirect(target)
+        } else {
+            const page = Date.now() < UNSIGNED_REDIRECT_SUNSET ? renderRedirectConfirmationPage(target) : null
+            if (!page) {
+                res.status(404).send('Not found')
+                return
+            }
+            res.status(200).set(REDIRECT_CONFIRMATION_PAGE_HEADERS).send(page)
+        }
 
         if (isDevEnv() || isTestEnv()) {
             const params = this.parseTrackingParams(req.query as Record<string, any>)

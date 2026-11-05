@@ -1,7 +1,5 @@
 import { UserRole } from '~/types'
 
-import { MCP_INSTALL_COMMAND } from './constants'
-
 export const SURFACE_KEYS = [
     'feature_flags.create',
     'feature_flags.update',
@@ -32,7 +30,7 @@ export type SurfacePrompts = {
 }
 
 const AI_OBSERVABILITY_EVALUATION_PROMPT =
-    "Use the connected PostHog MCP server and this project's AI observability data to inspect recent traces. Identify and rank real failure modes, recommend one online evaluation per distinct failure mode, then ask which evaluations I want you to create before creating anything."
+    "Use the connected PostHog MCP server and this project's AI observability data to inspect recent traces. Identify and rank real failure modes, with an example trace for each. Recommend one evaluation per failure mode, and say whether it should return pass/fail, a score, or categories. If this project has no AI provider key, still create the LLM judges and tell me how to add a key so they can run. Ask which ones I want before creating anything. Create them disabled, test each on a few recent generations, show me the results, and ask me once whether to enable them. Enable the ones I approve."
 
 export const FALLBACK_PROMPTS: Record<SurfaceKey, SurfacePrompts> = {
     'feature_flags.create': {
@@ -571,8 +569,6 @@ export function formatDerivedToastPrompt(prompt: string): string {
  * Turns a displayed example into the prompt an external agent receives. The agent may not have the
  * PostHog MCP server yet, so the prompt tells it to ask for the install instead of guessing.
  */
-export function buildMCPAgentPrompt(example: string, projectId: number | null): string {
-    const task = example.trim().replace(/^["']|["']$/g, '')
-    const project = projectId ? ` in PostHog project ${projectId}` : ''
-    return `${task}\n\nUse the PostHog MCP server${project}. If the PostHog MCP server is not connected, stop and ask me to run \`${MCP_INSTALL_COMMAND}\` in a terminal, then try again.`
+export function stripDisplayQuotes(example: string): string {
+    return example.trim().replace(/^["']|["']$/g, '')
 }

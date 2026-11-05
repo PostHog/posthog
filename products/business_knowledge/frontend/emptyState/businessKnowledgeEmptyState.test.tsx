@@ -9,14 +9,14 @@ describe('businessKnowledgeEmptyState', () => {
         cleanup()
     })
 
-    it('keeps Sources and Settings reachable before any source exists', () => {
+    it('keeps Libraries and Settings reachable before any source exists', () => {
         const SceneNav = businessKnowledgeEmptyState.SceneNav
         if (!SceneNav) {
             throw new Error('SceneNav is missing')
         }
         render(<SceneNav />)
 
-        expect(screen.getByText('Sources').closest('a')).toHaveAttribute('href', '/business-knowledge')
+        expect(screen.getByText('Libraries').closest('a')).toHaveAttribute('href', '/business-knowledge')
         expect(screen.getByText('Settings').closest('a')).toHaveAttribute('href', '/business-knowledge/settings')
     })
 })

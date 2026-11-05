@@ -2,7 +2,9 @@ import { BIConfig, BIField, BIHierarchy, BIVisualizationNode } from '~/queries/s
 import { NodeKind } from '~/queries/schema/schema-general'
 
 import { BIDrillSelection, getBIDrillQueries } from './biDrilldown'
-import { buildBIQuery } from './biEditorTypes'
+import { buildBIQuery, mergeBIChartSettings } from './biEditorTypes'
+import { normalizeBIConditionGroup } from './biFilterGroups'
+import { mergeBITableSettings } from './biMeasureSettings'
 
 export function hierarchyFieldKey(field: BIField): string {
     return JSON.stringify([
@@ -60,6 +62,7 @@ export function getBIHierarchyDrills(node: BIVisualizationNode, selection: BIDri
     }
     const selected = new Set(selection.filters.map((filter) => hierarchyFieldKey(filter.field)))
     const dimensions = [...node.config.rows, ...node.config.columns]
+    const previousDefaults = buildBIQuery(node.config)?.node
     return (node.config.hierarchies ?? []).flatMap((hierarchy): BIHierarchyDrill[] => {
         if (hierarchyError(hierarchy, node.config)) {
             return []
@@ -76,6 +79,19 @@ export function getBIHierarchyDrills(node: BIVisualizationNode, selection: BIDri
             ...filtered.config,
             rows: filtered.config.rows.map(replace),
             columns: filtered.config.columns.map(replace),
+            hierarchyDrillPath: [
+                ...(node.config.hierarchyDrillPath ?? []),
+                {
+                    hierarchyId: hierarchy.id,
+                    previousField: active,
+                    nextField: { ...next, id: active.id },
+                    filterIds: filtered.config.filters
+                        .filter(
+                            (filter) => !node.config.filters.some((original) => original.field.id === filter.field.id)
+                        )
+                        .map((filter) => filter.field.id),
+                },
+            ],
         }
         const built = buildBIQuery(config)?.node
         if (!built) {
@@ -89,9 +105,82 @@ export function getBIHierarchyDrills(node: BIVisualizationNode, selection: BIDri
                     ...built,
                     kind: NodeKind.BIVisualizationNode,
                     config,
+                    chartSettings: mergeBIChartSettings(
+                        node.chartSettings,
+                        built.chartSettings,
+                        previousDefaults?.chartSettings
+                    ),
+                    tableSettings: mergeBITableSettings(
+                        node.tableSettings,
+                        built.tableSettings,
+                        previousDefaults?.tableSettings
+                    ),
                     source: { ...built.source, filters: filtered.source.filters, variables: filtered.source.variables },
                 },
             },
         ]
     })
+}
+
+export function getBIHierarchyParent(node: BIVisualizationNode): BIVisualizationNode | null {
+    const path = node.config.hierarchyDrillPath ?? []
+    const step = path.at(-1)
+    if (
+        !step ||
+        !node.config.hierarchies?.some(
+            (hierarchy) => hierarchy.id === step.hierarchyId && !hierarchyError(hierarchy, node.config)
+        )
+    ) {
+        return null
+    }
+    const hierarchy = node.config.hierarchies.find((hierarchy) => hierarchy.id === step.hierarchyId)!
+    const previousIndex = hierarchy.levels.findIndex(
+        (field) => hierarchyFieldKey(field) === hierarchyFieldKey(step.previousField)
+    )
+    if (
+        previousIndex < 0 ||
+        !hierarchy.levels[previousIndex + 1] ||
+        hierarchyFieldKey(hierarchy.levels[previousIndex + 1]) !== hierarchyFieldKey(step.nextField)
+    ) {
+        return null
+    }
+    const active = [...node.config.rows, ...node.config.columns].find(
+        (field) => field.id === step.nextField.id && hierarchyFieldKey(field) === hierarchyFieldKey(step.nextField)
+    )
+    if (!active) {
+        return null
+    }
+    const filters = node.config.filters.filter((filter) => !step.filterIds.includes(filter.field.id))
+    const replace = (field: BIField): BIField => (field.id === active.id ? step.previousField : field)
+    const config: BIConfig = {
+        ...node.config,
+        rows: node.config.rows.map(replace),
+        columns: node.config.columns.map(replace),
+        filters,
+        rowFilterGroup: normalizeBIConditionGroup(
+            node.config.rowFilterGroup,
+            filters.map((filter) => filter.field.id)
+        ),
+        hierarchyDrillPath: path.slice(0, -1),
+    }
+    const built = buildBIQuery(config)?.node
+    const previousDefaults = buildBIQuery(node.config)?.node
+    return built
+        ? {
+              ...built,
+              kind: NodeKind.BIVisualizationNode,
+              config,
+              chartSettings: mergeBIChartSettings(
+                  node.chartSettings,
+                  built.chartSettings,
+                  previousDefaults?.chartSettings
+              ),
+              tableSettings: mergeBITableSettings(
+                  node.tableSettings,
+                  built.tableSettings,
+                  previousDefaults?.tableSettings
+              ),
+              source: { ...built.source, filters: node.source.filters, variables: node.source.variables },
+          }
+        : null
 }

@@ -239,7 +239,7 @@ def _get_person_blast_radius(team: Team, prop_group: PropertyGroup) -> BlastRadi
 
     if len(properties) == 0:
         # No filters means all persons are affected
-        total_users = team.persons_seen_so_far
+        total_users = team.count_persons_seen_so_far()
         return BlastRadiusResult(affected=total_users, total=total_users)
 
     tag_queries(product=Product.FEATURE_FLAGS, feature=Feature.QUERY)
@@ -356,7 +356,7 @@ def _get_group_blast_radius(
 
     if len(properties) == 0:
         # No filters means all groups of this type are affected
-        total_groups = team.groups_seen_so_far(group_type_index)
+        total_groups = team.count_groups_seen_so_far(group_type_index)
         return BlastRadiusResult(affected=total_groups, total=total_groups)
 
     # Build the SELECT query for groups

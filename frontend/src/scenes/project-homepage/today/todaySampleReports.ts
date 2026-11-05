@@ -2,7 +2,6 @@ import type { ReportMetricApi } from 'products/signals/frontend/generated/api.sc
 import { SignalReport, SignalReportStatus } from 'products/signals/frontend/inbox/types'
 
 import type { TodayReports } from './todayLogic'
-import { TodayBriefingSegment } from './todaySignalReports'
 
 // Sample ids carry this prefix, so a report page knows to read the fixture rather than the API.
 const SAMPLE_ID_PREFIX = 'sample-'
@@ -168,32 +167,6 @@ const SAMPLE_SPECS: SampleReportSpec[] = [
         pullRequestUrl: 'https://github.com/example/hedgebox/pull/9147',
         signalCount: 4,
     },
-]
-
-const BRIEFING_LINK = (id: string, text: string, highlight?: boolean): TodayBriefingSegment => ({
-    text,
-    reportId: `${SAMPLE_ID_PREFIX}${id}`,
-    ...(highlight ? { highlight } : {}),
-})
-
-/** The hand-written briefing from the mock, which reads better than one built from report titles. */
-export const SAMPLE_BRIEFING: TodayBriefingSegment[][] = [
-    [
-        BRIEFING_LINK('safari', 'Safari users can’t pay'),
-        { text: ' since Tuesday’s deploy, and ' },
-        BRIEFING_LINK('pr', 'a fix is waiting', true),
-        { text: ' for your review.' },
-    ],
-    [BRIEFING_LINK('exp', 'One-page checkout won'), { text: ' its experiment, and signups beat the forecast by 18%.' }],
-    [
-        { text: 'Keep an eye on ' },
-        BRIEFING_LINK('error', 'one new error'),
-        { text: ', LLM cost per user ' },
-        BRIEFING_LINK('llm', 'up 31%'),
-        { text: ', and ' },
-        BRIEFING_LINK('nps', 'pricing that confuses people'),
-        { text: '.' },
-    ],
 ]
 
 function buildSampleReport(spec: SampleReportSpec, now: number): SignalReport {

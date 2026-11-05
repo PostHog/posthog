@@ -18,6 +18,7 @@ import { EventsQuery } from '~/queries/schema/schema-general'
 import { ActivityScope, ActivityTab, InsightShortId, ReplayTabs } from '~/types'
 
 import { BillingSectionId } from './billing/types'
+import { SettingSectionId } from './settings/types'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -100,8 +101,20 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         layout: 'app-full-scene-height',
         hideProjectNotice: true,
     },
+    [Scene.WorkloadTrustPolicyRequest]: {
+        projectBased: true,
+        layout: 'plain',
+        name: 'Trusted workload request',
+        description: 'Review a request to trust a workload',
+    },
     [Scene.CLIAuthorize]: {
         name: 'Authorize CLI',
+        projectBased: false,
+        organizationBased: false,
+        layout: 'plain',
+    },
+    [Scene.OAuthDeviceAuthorize]: {
+        name: 'Approve a login',
         projectBased: false,
         organizationBased: false,
         layout: 'plain',
@@ -123,6 +136,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.CustomerAnalytics]: { projectBased: true, name: 'Customer analytics' },
     [Scene.Dashboard]: {
         projectBased: true,
+        deferSceneMeasurementsDuringResize: true,
         activityScope: ActivityScope.DASHBOARD,
         iconType: 'dashboard',
     },
@@ -300,6 +314,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.Onboarding]: { projectBased: true, name: 'Onboarding', layout: 'plain' },
     [Scene.OnboardingCoupon]: { projectBased: true, name: 'Claim coupon', layout: 'plain' },
+    [Scene.OnboardingWelcome]: { projectBased: true, name: 'Welcome' },
     [Scene.OrganizationCreateFirst]: {
         name: 'Organization creation',
     },
@@ -340,13 +355,17 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Library',
     },
-    [Scene.Views]: {
+    [Scene.AnalyticsList]: {
         projectBased: true,
-        name: 'Views',
+        name: 'Analytics',
     },
-    [Scene.ViewsNew]: {
+    [Scene.AnalyticsSpaces]: {
         projectBased: true,
-        name: 'New view',
+        name: 'Collections',
+    },
+    [Scene.AnalyticsProductHome]: {
+        projectBased: true,
+        name: 'Product analytics',
     },
     [Scene.Tools]: {
         projectBased: true,
@@ -537,11 +556,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Drop events at ingestion time based on event metadata.',
         iconType: 'data_pipeline',
     },
-    [Scene.Unsubscribe]: { allowUnauthenticated: true, layout: 'app-raw' },
+    [Scene.Unsubscribe]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.CodeCanvasLink]: { allowUnauthenticated: true, layout: 'app-raw' },
-    [Scene.CodeChannelLink]: { allowUnauthenticated: true, layout: 'app-raw' },
-    [Scene.CodeTaskLink]: { allowUnauthenticated: true, layout: 'app-raw' },
-    [Scene.CodeLoopLink]: { allowUnauthenticated: true, layout: 'app-raw' },
+    [Scene.CodeChannelLink]: { allowUnauthenticated: true, layout: 'plain' },
+    [Scene.CodeTaskLink]: { allowUnauthenticated: true, layout: 'plain' },
+    [Scene.CodeLoopLink]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.VerifyEmail]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.WebAnalyticsPageReports]: {
         projectBased: true,
@@ -627,6 +646,11 @@ export const redirects: Record<
     string | ((params: Params, searchParams: Params, hashParams: Params) => string)
 > = {
     '/action': urls.createAction(),
+    // The Views pane became Analytics; these keep old links in the Today navigation working.
+    '/views': urls.analyticsList(),
+    '/views/new': urls.analyticsList(),
+    // Analytics opens on View all; the bare path stays as the pane's prefix.
+    [urls.analytics()]: urls.analyticsList(),
     '/action/:id': ({ id }) => urls.action(id),
     '/actions': urls.actions(),
     '/activity': urls.activity(),
@@ -657,6 +681,8 @@ export const redirects: Record<
     },
     '/web/ai-search': urls.webAnalyticsPagePerformance(),
 
+    // A short link to share. It opens a new personal API key with the source map upload scopes filled in.
+    '/source-maps-key': combineUrl(urls.settings('user-api-keys'), { preset: 'source_map_upload' }).url,
     '/events': urls.activity(),
     '/events/:id/*': ({ id, _ }, { event }) => {
         const query = getEventLookupQuery(id)
@@ -681,9 +707,6 @@ export const redirects: Record<
     '/events/properties/:id': ({ id }) => urls.propertyDefinition(tryDecodeURIComponent(id)),
     '/events/stats': urls.eventDefinitions(),
     '/events/stats/:id': ({ id }) => urls.eventDefinition(id),
-    // The scene lives at /feature_flags (underscore); catch the hyphenated variant so it doesn't 404
-    '/feature-flags': urls.featureFlags(),
-    '/feature-flags/:id': ({ id }) => urls.featureFlag(id),
     '/i/:shortId': ({ shortId }) => urls.insightView(shortId),
     '/instance': urls.instanceStatus(),
     '/instance/query_performance': urls.experimentsStaffTools(),
@@ -721,6 +744,8 @@ export const redirects: Record<
     // There is no /project/new scene; send typed URLs and old bookmarks to the create-project flow
     '/project/new': urls.projectCreateFirst(),
     '/project/settings': urls.settings('project'),
+    '/project/settings/:section': ({ section }, _searchParams, hashParams) =>
+        combineUrl(urls.settings(section as SettingSectionId), {}, hashParams).url,
     // The quickstart landing page is gone; keep old bookmarks and pinned tabs out of a 404
     '/quickstart': urls.default(),
     '/recordings/file-playback': () => urls.replayFilePlayback(),
@@ -836,6 +861,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.productTours()]: [Scene.ProductTours, 'productTours'],
     [urls.productTour(':id')]: [Scene.ProductTour, 'productTour'],
     [urls.approval(':id')]: [Scene.Approval, 'approval'],
+    // pinned: the backend builds this path into the approval link it returns, which people share
+    [urls.workloadTrustPolicyRequest(':id')]: [Scene.WorkloadTrustPolicyRequest, 'workloadTrustPolicyRequest'],
     [urls.sqlEditor()]: [Scene.SQLEditor, 'sqlEditor'],
     [urls.featureFlags()]: [Scene.FeatureFlags, 'featureFlags'],
     [urls.featureFlagTemplates()]: ['FeatureFlagTemplates' as Scene, 'featureFlagTemplates'],
@@ -848,8 +875,10 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.todayReport(':reportId')]: [Scene.ProjectHomepage, 'todayReport'],
     [urls.library()]: [Scene.Library, 'library'],
     [urls.library(':objectType')]: [Scene.Library, 'libraryObjectType'],
-    [urls.views()]: [Scene.Views, 'views'],
-    [urls.viewsNew()]: [Scene.ViewsNew, 'viewsNew'],
+    [urls.analyticsList()]: [Scene.AnalyticsList, 'analyticsList'],
+    [urls.analyticsMine()]: [Scene.AnalyticsList, 'analyticsMine'],
+    [urls.analyticsSpaces()]: [Scene.AnalyticsSpaces, 'analyticsSpaces'],
+    [urls.analyticsProductHome()]: [Scene.AnalyticsProductHome, 'analyticsProductHome'],
     [urls.tools()]: [Scene.Tools, 'tools'],
     [urls.aiHistory()]: [Scene.Max, 'maxHistory'],
     [urls.ai()]: [Scene.Max, 'max'],
@@ -885,6 +914,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.accountConnected(':kind')]: [Scene.AccountConnected, 'accountConnected'],
     [urls.credentialReview()]: [Scene.CredentialReview, 'credentialReview'],
     [urls.cliAuthorize()]: [Scene.CLIAuthorize, 'cliAuthorize'],
+    [urls.oauthDeviceAuthorize()]: [Scene.OAuthDeviceAuthorize, 'oauthDeviceAuthorize'],
     [urls.cliLive()]: [Scene.CLILive, 'cliLive'],
     [urls.preflight()]: [Scene.PreflightCheck, 'preflight'],
     [urls.signup()]: [Scene.Signup, 'signup'],
@@ -895,6 +925,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.onboarding({ productKey: ':productKey' })]: [Scene.Onboarding, 'onboarding'],
     [urls.onboarding({ campaign: ':campaign' })]: [Scene.OnboardingCoupon, 'onboardingCoupon'],
     [urls.onboarding()]: [Scene.Onboarding, 'onboarding'],
+    [urls.onboardingWelcome()]: [Scene.OnboardingWelcome, 'onboardingWelcome'],
     [urls.verifyEmail()]: [Scene.VerifyEmail, 'verifyEmail'],
     [urls.verifyEmail(':uuid')]: [Scene.VerifyEmail, 'verifyEmailWithUuid'],
     // Links from emails sent before the switch to verification codes.
@@ -934,6 +965,9 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.exports()]: [Scene.Exports, 'exports'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
+    // The settings navigation's home for this page, next to billing. The /startups routes stay until links move over.
+    [urls.organizationStartups()]: [Scene.StartupProgram, 'organizationStartupProgram'],
+    [urls.organizationStartups(':referrer')]: [Scene.StartupProgram, 'organizationStartupProgramWithReferrer'],
     [urls.agenticAuthorize()]: [Scene.AgenticAuthorize, 'agenticAuthorize'],
     [urls.oauthAuthorize()]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
     [urls.dataPipelinesNew(':kind' as any)]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],

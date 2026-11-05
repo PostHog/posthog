@@ -22,8 +22,8 @@ import {
 import { AddEventButton } from './AddEventButton'
 import { surveyLogic } from './surveyLogic'
 
-// Only include operators supported by the SDK's property matching system
-// Exclude is_set and is_not_set as they're not supported
+// Only include operators that the survey property matcher supports in every SDK. The SDKs treat any other
+// operator (for example gte, lte, is_set, or is_not_set) as a filter that never matches, so the survey never shows.
 export const SUPPORTED_OPERATORS: PropertyOperator[] = [
     'exact',
     'is_not',
@@ -32,9 +32,7 @@ export const SUPPORTED_OPERATORS: PropertyOperator[] = [
     'regex',
     'not_regex',
     'gt',
-    'gte',
     'lt',
-    'lte',
 ] as PropertyOperator[]
 
 export function convertPropertyFiltersToArray(

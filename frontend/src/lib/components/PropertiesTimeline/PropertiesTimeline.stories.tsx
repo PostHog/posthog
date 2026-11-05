@@ -1,12 +1,13 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
-
 import { Meta } from '@storybook/react'
 
 import { useStorybookMocks } from '~/mocks/browser'
+import { InsightActorsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType, PersonActorType } from '~/types'
 
+import type { PropertiesTimelineResponseApi } from 'products/persons/frontend/generated/api.schemas'
+
 import { PropertiesTimeline } from '.'
-import { PropertiesTimelineProps, RawPropertiesTimelineResult } from './propertiesTimelineLogic'
+import { PropertiesTimelineProps } from './propertiesTimelineLogic'
 
 const meta: Meta<PropertiesTimelineProps> = {
     title: 'Components/Properties Timeline',
@@ -24,11 +25,21 @@ const EXAMPLE_PERSON: Omit<PersonActorType, 'id' | 'uuid'> = {
     value_at_data_point: null,
 }
 
+const EXAMPLE_QUERY: InsightActorsQuery = {
+    kind: NodeKind.InsightActorsQuery,
+    source: {
+        kind: NodeKind.TrendsQuery,
+        series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+        dateRange: { date_from: '2021-01-01', date_to: '2021-06-01' },
+        trendsFilter: { display: ChartDisplayType.BoldNumber },
+    },
+}
+
 export function MultiplePointsForOnePersonProperty(): JSX.Element {
     const examplePerson: PersonActorType = { ...EXAMPLE_PERSON, id: '012e89b5-4239-4319-8ae4-d3cae2f5deb1' }
     useStorybookMocks({
-        get: {
-            [`/api/environments/${MOCK_TEAM_ID}/persons/${examplePerson.id}/properties_timeline/`]: {
+        post: {
+            [`/api/projects/:team_id/persons/${examplePerson.id}/properties_timeline/`]: {
                 points: [
                     {
                         timestamp: '2021-01-01T00:00:00.000Z',
@@ -66,21 +77,13 @@ export function MultiplePointsForOnePersonProperty(): JSX.Element {
                 crucial_property_keys: ['name'],
                 effective_date_from: '2021-01-01T00:00:00.000000+00:00',
                 effective_date_to: '2021-06-01T23:59:59.999999+00:00',
-            } as RawPropertiesTimelineResult,
+            } as PropertiesTimelineResponseApi,
         },
     })
 
     return (
         <div className="border rounded w-120">
-            <PropertiesTimeline
-                actor={examplePerson}
-                filter={{
-                    date_from: '2021-01-01',
-                    date_to: '2021-06-01',
-                    interval: 'day',
-                    display: ChartDisplayType.ActionsLineGraph,
-                }}
-            />
+            <PropertiesTimeline actor={examplePerson} query={EXAMPLE_QUERY} />
         </div>
     )
 }
@@ -88,8 +91,8 @@ export function MultiplePointsForOnePersonProperty(): JSX.Element {
 export function OnePointForOnePersonProperty(): JSX.Element {
     const examplePerson: PersonActorType = { ...EXAMPLE_PERSON, id: '012e89b5-4239-4319-8ae4-d3cae2f5deb2' }
     useStorybookMocks({
-        get: {
-            [`/api/environments/${MOCK_TEAM_ID}/persons/${examplePerson.id}/properties_timeline/`]: {
+        post: {
+            [`/api/projects/:team_id/persons/${examplePerson.id}/properties_timeline/`]: {
                 points: [
                     {
                         timestamp: '2021-05-01T00:00:00.000Z',
@@ -103,21 +106,13 @@ export function OnePointForOnePersonProperty(): JSX.Element {
                 crucial_property_keys: ['name'],
                 effective_date_from: '2021-01-01T00:00:00.000000+00:00',
                 effective_date_to: '2021-06-01T23:59:59.999999+00:00',
-            } as RawPropertiesTimelineResult,
+            } as PropertiesTimelineResponseApi,
         },
     })
 
     return (
         <div className="border rounded w-120">
-            <PropertiesTimeline
-                actor={examplePerson}
-                filter={{
-                    date_from: '2021-01-01',
-                    date_to: '2021-06-01',
-                    interval: 'day',
-                    display: ChartDisplayType.ActionsLineGraph,
-                }}
-            />
+            <PropertiesTimeline actor={examplePerson} query={EXAMPLE_QUERY} />
         </div>
     )
 }
@@ -125,8 +120,8 @@ export function OnePointForOnePersonProperty(): JSX.Element {
 export function NoPointsForNoPersonProperties(): JSX.Element {
     const examplePerson: PersonActorType = { ...EXAMPLE_PERSON, id: '012e89b5-4239-4319-8ae4-d3cae2f5deb3' }
     useStorybookMocks({
-        get: {
-            [`/api/environments/${MOCK_TEAM_ID}/persons/${examplePerson.id}/properties_timeline/`]: {
+        post: {
+            [`/api/projects/:team_id/persons/${examplePerson.id}/properties_timeline/`]: {
                 points: [
                     {
                         timestamp: '2021-01-01T00:00:00.000Z',
@@ -140,21 +135,13 @@ export function NoPointsForNoPersonProperties(): JSX.Element {
                 crucial_property_keys: [], // No key properties here
                 effective_date_from: '2021-01-01T00:00:00.000000+00:00',
                 effective_date_to: '2021-06-01T23:59:59.999999+00:00',
-            } as RawPropertiesTimelineResult,
+            } as PropertiesTimelineResponseApi,
         },
     })
 
     return (
         <div className="border rounded w-120">
-            <PropertiesTimeline
-                actor={examplePerson}
-                filter={{
-                    date_from: '2021-01-01',
-                    date_to: '2021-06-01',
-                    interval: 'day',
-                    display: ChartDisplayType.ActionsLineGraph,
-                }}
-            />
+            <PropertiesTimeline actor={examplePerson} query={EXAMPLE_QUERY} />
         </div>
     )
 }

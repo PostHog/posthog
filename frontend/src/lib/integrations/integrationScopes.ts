@@ -1,4 +1,4 @@
-import { IntegrationKind, IntegrationType, SLACK_INTEGRATION_SCOPES } from '~/types'
+import { IntegrationKind, IntegrationType, PreflightStatus, Region, slackRequestedScopes } from '~/types'
 
 import { getIntegrationNameFromKind } from './utils'
 
@@ -38,9 +38,14 @@ export function getMissingScopes(integration: IntegrationType, requiredScopes: s
     return requiredScopes.filter((scope) => !granted.includes(scope))
 }
 
+/** Whether this instance asks Slack for the scopes in ``SlackIntegrationScopeInReview``. Mirrors ``posthog_slack_scope``. */
+export function requestsSlackInReviewScopes(preflight: PreflightStatus | null | undefined): boolean {
+    return !!preflight?.is_debug || preflight?.region === Region.DEV
+}
+
 /** Scopes PostHog asks for on the authorize URL, for the kinds where the frontend knows the full list. */
-export function requestedScopesForKind(kind: IntegrationKind): string[] {
-    return kind === 'slack' ? [...SLACK_INTEGRATION_SCOPES] : []
+export function requestedScopesForKind(kind: IntegrationKind, preflight: PreflightStatus | null | undefined): string[] {
+    return kind === 'slack' ? slackRequestedScopes(requestsSlackInReviewScopes(preflight)) : []
 }
 
 export function describeScopeShortfall(kind: IntegrationKind, missingScopes: string[]): string {

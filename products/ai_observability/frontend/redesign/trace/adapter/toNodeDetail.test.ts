@@ -1,8 +1,6 @@
-import { EvaluationRun } from '../../../evaluations/types'
 import type { TraceNodeApi } from '../../../generated/api.schemas'
-import { isLLMEvent } from '../../../utils'
-import { EvalResult, EvalsState } from '../types'
-import { makeEvent, makeTrace } from './testFixtures'
+import { EvalResult, EvalsState, NodeLoad } from '../types'
+import { makeEvaluationResult, makeNodeDetail } from './testFixtures'
 import { toNodeDetail } from './toNodeDetail'
 
 const node = (id: string, kind: 'trace' | 'span' | 'generation'): TraceNodeApi => ({
@@ -22,18 +20,8 @@ const node = (id: string, kind: 'trace' | 'span' | 'generation'): TraceNodeApi =
     },
 })
 
-const run = (overrides: Partial<EvaluationRun> = {}): EvaluationRun => ({
-    id: 'r1',
-    evaluation_id: 'ev1',
-    evaluation_name: 'Answers the question',
-    generation_id: 'gen-1',
-    trace_id: 'trace-1',
-    timestamp: '2026-09-01T10:16:00Z',
-    result: true,
-    reasoning: 'Direct answer.',
-    status: 'completed',
-    ...overrides,
-})
+const result = (overrides: Parameters<typeof makeEvaluationResult>[0] = {}): ReturnType<typeof makeEvaluationResult> =>
+    makeEvaluationResult({ targetNodeId: 'gen-1', ...overrides })
 
 function readyResults(evals: EvalsState): EvalResult[] {
     if (evals.status !== 'ready') {
@@ -42,46 +30,55 @@ function readyResults(evals: EvalsState): EvalResult[] {
     return evals.results
 }
 
+const ready = (detail: ReturnType<typeof makeNodeDetail>): NodeLoad => ({ status: 'ready', node: detail })
+
 describe('toNodeDetail', () => {
     const base = {
-        trace: makeTrace(),
         tree: [],
-        cache: {},
-        evalRuns: [],
-        evalRunsLoading: false,
-        evaluations: [],
-        detectorEvaluationIds: [],
-        evaluationsSettled: true,
+        evaluationResults: [],
+        evaluationResultsFailed: false,
         teamId: 7,
         person: null,
+        trace: { createdAt: '2026-09-01T10:15:00Z', sessionId: 'sess-1' },
     }
 
-    it('generation without inline IO and no cache entry yields loading', () => {
-        const event = makeEvent({ id: 'gen-1', event: '$ai_generation', properties: {} })
-        const detail = toNodeDetail({ ...base, event, node: node('gen-1', 'generation') })
-        expect(detail.content).toEqual({ kind: 'loading' })
+    it.each<[string, NodeLoad, unknown]>([
+        ['loading', { status: 'loading' }, { kind: 'loading' }],
+        [
+            'not found',
+            { status: 'error', failure: 'not_found' },
+            {
+                kind: 'error',
+                message:
+                    'This step could not be found. It may have been deleted, or it is outside the retention period.',
+            },
+        ],
+        [
+            'failed',
+            { status: 'error', failure: 'failed' },
+            { kind: 'error', message: 'This step could not be loaded. Select it again to retry.' },
+        ],
+    ])('a %s node shows its load state, no raw event and no time', (_name, load, content) => {
+        const detail = toNodeDetail({ ...base, node: node('gen-1', 'generation'), load })
+        expect(detail.content).toEqual(content)
+        expect(detail.raw).toBeNull()
+        expect(detail.properties.timestamp).toBeNull()
     })
 
-    it('generation with content yields messages, properties and its own evals', () => {
-        const event = makeEvent({
-            id: 'gen-1',
-            event: '$ai_generation',
-            properties: {
-                $ai_input: [{ role: 'user', content: 'Hi' }],
-                $ai_output_choices: [{ role: 'assistant', content: 'Hello' }],
-                $ai_model: 'gpt-4.1-mini',
-                $ai_provider: 'openai',
-                $ai_temperature: 0.2,
-                $ai_session_id: 'sess-1',
-                $ai_prompt_name: 'billing-answer',
-                $ai_prompt_version: 6,
-            },
-        })
+    it('generation reads its messages through the io keys and keeps its details, raw event and own evals', () => {
+        const input = [{ role: 'user', content: 'Hi' }]
         const detail = toNodeDetail({
             ...base,
-            event,
             node: node('gen-1', 'generation'),
-            evalRuns: [run(), run({ id: 'r2', generation_id: 'gen-other' })],
+            load: ready(
+                makeNodeDetail({
+                    id: 'gen-1',
+                    properties: { $ai_input: input, $ai_output_choices: [{ role: 'assistant', content: 'Hello' }] },
+                    ioKeys: { input: '$ai_input', output: '$ai_output_choices' },
+                    metadata: { provider: 'openai', temperature: 0.2, sessionId: 'sess-9', promptVersion: 6 },
+                })
+            ),
+            evaluationResults: [result(), result({ id: 'r2', targetNodeId: 'gen-other' })],
         })
         expect(detail.content).toMatchObject({
             kind: 'messages',
@@ -89,92 +86,103 @@ describe('toNodeDetail', () => {
             output: [{ role: 'assistant', parts: [{ kind: 'text', text: 'Hello' }] }],
         })
         expect(detail.properties).toMatchObject({
+            timestamp: '2026-09-01T10:15:02Z',
             provider: 'openai',
             temperature: 0.2,
-            sessionId: 'sess-1',
+            sessionId: 'sess-9',
             promptVersion: 6,
         })
+        expect(detail.raw).toMatchObject({ event: '$ai_generation', uuid: 'gen-1', properties: { $ai_input: input } })
         expect(readyResults(detail.evals).map((result) => result.id)).toEqual(['r1'])
     })
 
-    it.each([
-        ['eval runs are loading', { evalRunsLoading: true }],
-        ['the evaluation configs that decide detector polarity have not loaded', { evaluationsSettled: false }],
-    ])('reports evals as loading while %s', (_name, overrides) => {
-        const event = makeEvent({ id: 'gen-1', event: '$ai_generation', properties: {} })
+    it.each<[string, { evaluationResults: null; evaluationResultsFailed: boolean }, EvalsState]>([
+        [
+            'loading until the results arrive',
+            { evaluationResults: null, evaluationResultsFailed: false },
+            { status: 'loading' },
+        ],
+        [
+            'an error when the read fails',
+            { evaluationResults: null, evaluationResultsFailed: true },
+            { status: 'error', errorMessage: 'Evaluation results could not be loaded. Reload the page to try again.' },
+        ],
+    ])('reports evals as %s', (_name, overrides, evals) => {
         const detail = toNodeDetail({
             ...base,
             ...overrides,
-            event,
             node: node('gen-1', 'generation'),
-            evalRuns: [run()],
+            load: { status: 'loading' },
         })
-        expect(detail.evals).toEqual({ status: 'loading' })
+        expect(detail.evals).toEqual(evals)
+    })
+
+    it('span shows its state as input and output, surfaces its error and labels the person', () => {
+        const detail = toNodeDetail({
+            ...base,
+            person: 'ana@example.com',
+            node: node('span-1', 'span'),
+            load: ready(
+                makeNodeDetail({
+                    id: 'span-1',
+                    kind: 'span',
+                    properties: { $ai_input_state: { q: 'x' } },
+                    ioKeys: { input: '$ai_input_state' },
+                    error: 'Timeout',
+                })
+            ),
+        })
+        expect(detail.content).toEqual({ kind: 'io', input: { q: 'x' }, output: undefined })
+        expect(detail.error).toBe('Timeout')
+        expect(detail.properties.person).toBe('ana@example.com')
     })
 
     it.each([
-        { name: 'a person label', person: 'ana@example.com' },
-        { name: 'no person', person: null },
+        ['with a trace event', true],
+        ['without a trace event', false],
     ])(
-        'span shows its state as input and output, surfaces its error, and labels the person with $name',
-        ({ person }) => {
-            const event = makeEvent({
-                id: 'span-1',
-                properties: {
-                    $ai_input_state: { q: 'x' },
-                    $ai_output_state: null,
-                    $ai_is_error: true,
-                    $ai_error: 'Timeout',
-                },
+        'trace root %s takes its time and session from the trace and shows every evaluation result',
+        (_name, withEvent) => {
+            const detail = toNodeDetail({
+                ...base,
+                node: node('trace-1', 'trace'),
+                load: ready(
+                    makeNodeDetail({
+                        id: 'trace-1',
+                        kind: 'trace',
+                        withEvent,
+                        properties: { $ai_input_state: { question: 'Hi' } },
+                        ioKeys: { input: '$ai_input_state' },
+                    })
+                ),
+                evaluationResults: [result(), result({ id: 'r2' })],
             })
-            const detail = toNodeDetail({ ...base, event, node: node('span-1', 'span'), person })
-            expect(detail.content).toEqual({ kind: 'io', input: { q: 'x' }, output: undefined })
-            expect(detail.error).toBe('Timeout')
-            expect(detail.properties.person).toBe(person)
+            expect(detail.properties).toMatchObject({ timestamp: '2026-09-01T10:15:00Z', sessionId: 'sess-1' })
+            expect(readyResults(detail.evals)).toHaveLength(2)
+            expect(detail.content).toEqual({
+                kind: 'io',
+                input: withEvent ? { question: 'Hi' } : undefined,
+                output: undefined,
+            })
+            expect(detail.raw === null).toBe(!withEvent)
         }
     )
 
-    it('trace root shows the trace state and every eval run', () => {
-        const trace = makeTrace({ inputState: { question: 'Hi' }, outputState: { answer: 'Hello' } })
+    it('renders an OTel span with a message array input and a text output as messages', () => {
         const detail = toNodeDetail({
             ...base,
-            trace,
-            event: trace,
-            node: node('trace-1', 'trace'),
-            evalRuns: [run(), run({ id: 'r2' })],
-        })
-        expect(detail.content).toEqual({ kind: 'io', input: { question: 'Hi' }, output: { answer: 'Hello' } })
-        expect(readyResults(detail.evals)).toHaveLength(2)
-        expect(detail.raw).not.toHaveProperty('events')
-    })
-
-    it.each([
-        {
-            name: 'trace state holding message arrays',
-            event: makeTrace({
-                inputState: [{ role: 'user', content: 'Move my flight to Friday' }],
-                outputState: [{ role: 'assistant', content: 'Moved to Friday 09:15' }],
-            }),
-            kind: 'trace' as const,
-        },
-        {
-            name: 'an OTel span with a message array input and a text output',
-            event: makeEvent({
-                id: 'span-2',
-                properties: {
-                    $ai_input: [{ role: 'user', content: 'Move my flight to Friday' }],
-                    $ai_output_choices: 'Moved to Friday 09:15',
-                },
-            }),
-            kind: 'span' as const,
-        },
-    ])('renders $name as input and output messages', ({ event, kind }) => {
-        const trace = isLLMEvent(event) ? base.trace : event
-        const detail = toNodeDetail({
-            ...base,
-            trace,
-            event,
-            node: node(isLLMEvent(event) ? event.id : trace.id, kind),
+            node: node('span-2', 'span'),
+            load: ready(
+                makeNodeDetail({
+                    id: 'span-2',
+                    kind: 'span',
+                    properties: {
+                        $ai_input: [{ role: 'user', content: 'Move my flight to Friday' }],
+                        $ai_output_choices: 'Moved to Friday 09:15',
+                    },
+                    ioKeys: { input: '$ai_input', output: '$ai_output_choices' },
+                })
+            ),
         })
         expect(detail.content).toMatchObject({
             kind: 'messages',

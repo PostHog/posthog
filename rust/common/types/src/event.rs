@@ -446,6 +446,8 @@ pub struct ExtractedDistinctId {
     /// Char count of the original id when it exceeded the cap and `value` was
     /// cut down; `None` when the id was ingested unmodified.
     pub truncated_from_chars: Option<usize>,
+    /// UTF-8 byte length of the original id after trimming whitespace, the size capture v1 limits.
+    pub trimmed_bytes: usize,
 }
 
 impl RawEvent {
@@ -498,6 +500,7 @@ impl RawEvent {
         if trimmed.len() != distinct_id.len() {
             counter!("capture_distinct_id_has_whitespace_total").increment(1);
         }
+        let trimmed_bytes = trimmed.len();
 
         // Byte length bounds char count, so ids within 200 bytes skip the
         // char-count pass entirely on the hot path.
@@ -505,6 +508,7 @@ impl RawEvent {
             return Some(ExtractedDistinctId {
                 value: distinct_id,
                 truncated_from_chars: None,
+                trimmed_bytes,
             });
         }
 
@@ -516,12 +520,14 @@ impl RawEvent {
             return Some(ExtractedDistinctId {
                 value: distinct_id,
                 truncated_from_chars: None,
+                trimmed_bytes,
             });
         }
 
         Some(ExtractedDistinctId {
             value: distinct_id.chars().take(200).collect(),
             truncated_from_chars: Some(char_count),
+            trimmed_bytes,
         })
     }
 

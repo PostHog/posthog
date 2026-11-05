@@ -9,13 +9,41 @@ import { getBIMissingDatesDisabledReason } from './biTimeSeries'
 
 export function BIMeasureAnalysis({ index }: { index: number }): JSX.Element {
     const { config } = useValues(biEditorLogic)
-    const { setTableCalculation, editMeasureSettings } = useActions(biEditorLogic)
+    const { setTableCalculation, editMeasureSettings, updateMeasureSettings } = useActions(biEditorLogic)
     const value = config.values[index]
     const calculation = value.tableCalculation
     const missingDates = getBIMissingDatesDisabledReason(config) ? undefined : config.missingDates
     return (
         <div className="flex min-w-0 flex-col gap-1 border-t pt-2">
             <LemonLabel className="truncate">{getBIValuePillLabel(value)}</LemonLabel>
+            <div className="flex flex-wrap gap-1">
+                <LemonSelect
+                    size="xsmall"
+                    aria-label={`Series style for ${getBIValuePillLabel(value)}`}
+                    value={value.display?.displayType ?? 'auto'}
+                    options={[
+                        { value: 'auto', label: 'Chart default' },
+                        { value: 'line', label: 'Line' },
+                        { value: 'bar', label: 'Bar' },
+                        { value: 'area', label: 'Area' },
+                    ]}
+                    onChange={(displayType) =>
+                        updateMeasureSettings(index, { display: { ...value.display, displayType } })
+                    }
+                />
+                <LemonSelect
+                    size="xsmall"
+                    aria-label={`Axis for ${getBIValuePillLabel(value)}`}
+                    value={value.display?.yAxisPosition ?? 'left'}
+                    options={[
+                        { value: 'left', label: 'Left axis' },
+                        { value: 'right', label: 'Right axis' },
+                    ]}
+                    onChange={(yAxisPosition) =>
+                        updateMeasureSettings(index, { display: { ...value.display, yAxisPosition } })
+                    }
+                />
+            </div>
             <LemonSelect
                 size="xsmall"
                 fullWidth

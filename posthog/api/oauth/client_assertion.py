@@ -42,12 +42,22 @@ class ResolvedClientAssertion:
 
 CLIENT_ASSERTION_TYPE_JWT_BEARER = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
 
+PRIVATE_KEY_REQUIRED_MESSAGE = (
+    "Set token_endpoint_auth_method to private_key_jwt and publish a jwks_uri in your client metadata, "
+    "call client_registration, then sign a client_assertion."
+)
+UNREADABLE_CLIENT_ASSERTION_MESSAGE = (
+    f"Send client_assertion_type {CLIENT_ASSERTION_TYPE_JWT_BEARER} with the client_assertion, "
+    "and name the client in client_id or the assertion's sub claim."
+)
+
 
 # An assertion is a single-use credential presented immediately, so it needs no real
 # lifetime. Capping it bounds how long a captured assertion is replayable if the jti cache
 # is ever lost, and bounds how far ahead a client may pre-mint.
 MAX_ASSERTION_LIFETIME_SECONDS = 300
 ASSERTION_CLOCK_SKEW_SECONDS = 30
+MAX_LOGGED_AUDIENCE_LENGTH = 256
 
 JWKS_CACHE_PREFIX = "oauth_client_jwks:"
 JWKS_CACHE_TTL_SECONDS = 3600
@@ -72,10 +82,18 @@ class UnknownSigningKeyError(ClientAssertionError):
     """The assertion names a ``kid`` that the client's cached key set does not contain."""
 
 
+class JWKSUnavailableError(ClientAssertionError):
+    """The key set could not be fetched, so the assertion was never checked and a retry may succeed."""
+
+
 def _request_field(request: Any, name: str) -> str:
     """Read a field from the request body, where RFC 7523 section 2.2 sends it as a form parameter."""
     from_body = request.data.get(name) if hasattr(request, "data") else None
     return str(from_body or "")
+
+
+def presents_client_assertion(request: Any) -> bool:
+    return bool(_request_field(request, "client_assertion"))
 
 
 def extract_client_assertion(request: Any) -> ResolvedClientAssertion | None:
@@ -108,18 +126,25 @@ def resolve_client_assertion(assertion: str, assertion_type: str, client_id: str
     return ResolvedClientAssertion(client_assertion=assertion, client_id=resolved_client_id)
 
 
+def _unverified_claims(assertion: str) -> dict[str, object]:
+    """Read the claims without verifying them, only to locate a client or to log diagnostics.
+
+    Never trusted for authentication.
+    """
+    try:
+        # nosemgrep: python.jwt.security.unverified-jwt-decode.unverified-jwt-decode
+        return jwt.decode(assertion, options={"verify_signature": False})
+    except jwt.PyJWTError:
+        return {}
+
+
 def _unverified_subject(assertion: str) -> str:
     """Read ``sub`` without verifying, only to locate which client to verify against.
 
     Never trusted for authentication: the claim is re-checked against the resolved
     application's client_id after the signature verifies.
     """
-    try:
-        # nosemgrep: python.jwt.security.unverified-jwt-decode.unverified-jwt-decode
-        claims = jwt.decode(assertion, options={"verify_signature": False})
-    except jwt.PyJWTError:
-        return ""
-    subject = claims.get("sub") or ""
+    subject = _unverified_claims(assertion).get("sub") or ""
     return subject if isinstance(subject, str) else ""
 
 
@@ -129,9 +154,17 @@ def expected_assertion_audiences(*token_endpoint_paths: str) -> list[str]:
 
     RFC 7523 section 3 lets a client address either the issuer or the endpoint it is calling,
     so both are accepted. Callers pass the paths their own endpoint answers on.
+
+    A client that discovered the OAuth proxy addresses the proxy's issuer, and the proxy
+    forwards the assertion unchanged, so the issuers in ID_JAG_ALLOWED_AUDIENCES count too.
     """
-    site_url = settings.SITE_URL.rstrip("/")
-    return [site_url, *(f"{site_url}{path}" for path in token_endpoint_paths)]
+    issuers = [
+        settings.SITE_URL.rstrip("/"),
+        *(issuer.rstrip("/") for issuer in settings.ID_JAG_ALLOWED_AUDIENCES if issuer),
+    ]
+    return [
+        audience for issuer in issuers for audience in (issuer, *(f"{issuer}{path}" for path in token_endpoint_paths))
+    ]
 
 
 AGENTIC_TOKEN_ENDPOINT_PATH = "/api/agentic/oauth/token"
@@ -158,7 +191,7 @@ def load_jwks(jwks_uri: str, *, force_refresh: bool = False) -> PyJWKSet:
     cached = None if force_refresh else cache.get(cache_key)
     if cached is not None:
         if cached == "error":
-            raise ClientAssertionError("Client keys could not be retrieved")
+            raise JWKSUnavailableError("Client keys could not be retrieved")
         return PyJWKSet.from_dict(cached)
 
     try:
@@ -184,7 +217,7 @@ def _fetch_jwks_document(jwks_uri: str) -> dict:
         )
     except (CIMDFetchError, CIMDValidationError) as e:
         logger.warning("client_assertion_jwks_fetch_failed", jwks_uri=jwks_uri, error=str(e))
-        raise ClientAssertionError("Client keys could not be retrieved") from e
+        raise JWKSUnavailableError("Client keys could not be retrieved") from e
 
     # Capping the key count keeps a hostile JWKS from making each verification walk a huge
     # set. Everything else about the document's shape is PyJWKSet's own validation.
@@ -225,7 +258,7 @@ def _select_key(key_set: PyJWKSet, assertion: str) -> PyJWK:
     raise ClientAssertionError("Client assertion must carry a kid when the JWKS holds several keys")
 
 
-def _select_key_allowing_rotation(jwks_uri: str, assertion: str) -> PyJWK:
+def select_signing_key(jwks_uri: str, assertion: str) -> PyJWK:
     """Select the assertion's signing key, re-fetching the JWKS once when the key is unknown.
 
     A client that rotates keys signs with the new ``kid`` while our cached copy of its key
@@ -269,7 +302,7 @@ def verify_client_assertion(app: OAuthApplication, assertion: str, *, audiences:
     if not app.jwks_uri:
         raise ClientAssertionError("This client is not registered for private_key_jwt authentication")
 
-    key = _select_key_allowing_rotation(app.jwks_uri, assertion)
+    key = select_signing_key(app.jwks_uri, assertion)
     # The selected key's own algorithm is held to the list too, because PyJWT verifies with it.
     if key.algorithm_name not in ASYMMETRIC_SIGNING_ALGORITHMS or not isinstance(
         key.key, (RSAPublicKey, EllipticCurvePublicKey)
@@ -296,7 +329,13 @@ def verify_client_assertion(app: OAuthApplication, assertion: str, *, audiences:
     except jwt.PyJWTError as e:
         # The reason is logged rather than returned: which check failed is useful to us and
         # not something an unauthenticated caller needs.
-        logger.warning("client_assertion_rejected", app_id=str(app.id), error=str(e), error_type=type(e).__name__)
+        logger.warning(
+            "client_assertion_rejected",
+            app_id=str(app.id),
+            error=str(e),
+            error_type=type(e).__name__,
+            unverified_audience=str(_unverified_claims(assertion).get("aud"))[:MAX_LOGGED_AUDIENCE_LENGTH],
+        )
         raise ClientAssertionError("Client assertion is invalid") from e
 
     # RFC 7523 section 3: for client authentication both iss and sub are the client_id.

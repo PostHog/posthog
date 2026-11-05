@@ -1,0 +1,84 @@
+{
+  "exitCode": 0,
+  "requests": [
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/symbol_sets/bulk_check_upload",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"symbol_sets\":[{\"chunk_id\":\"8e45a01c-ff78-471a-87d3-ba56f7ab4c31\",\"release_id\":null,\"content_hash\":\"13c9d1072eabcb17a65dea6ddbee49de25ac86f521957d899eeb5acd237450ab7d8f3adbf891d49e059fbbbff54f7b904a9ff102d50538683025035f1f261329\",\"content_length\":483},{\"chunk_id\":\"b7e07b27-43b5-41de-9196-855306cb5e17\",\"release_id\":null,\"content_hash\":\"8931f2113c3d5b1a6068fcb7a7b29a2f90c7582f0216164427f25c311b1bd9b07e8edebfb196db123f8ca73eb1b49552a3c561dd9a2e11c7f8631ed87353dfa5\",\"content_length\":1203},{\"chunk_id\":\"d56106a8-57e0-4c45-909c-5a8d8c4a9cc3\",\"release_id\":null,\"content_hash\":\"c3b99bb24e161d4f7240dec69dfc1018e4c924428de6cb10ced14d58421ecea3a49b0cdb087540cdfbffc7ebfd365d3ab783bfb3b1510ac67010635e7b202090\",\"content_length\":5835},{\"chunk_id\":\"eaaf9a0d-6c5a-4568-a743-6f4fa42549a4\",\"release_id\":null,\"content_hash\":\"b484d502d18b8e770c6031ddcef7a45affa5755f409fc38e627594f02251c44f1b4c5c16a143e9a863fd99fa62dd20dc91e345f824fd091ebc805b95ff000b73\",\"content_length\":558}],\"force\":true,\"skip_on_conflict\":false}",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/symbol_sets/bulk_start_upload",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"symbol_sets\":[{\"chunk_id\":\"8e45a01c-ff78-471a-87d3-ba56f7ab4c31\",\"release_id\":null,\"content_hash\":\"13c9d1072eabcb17a65dea6ddbee49de25ac86f521957d899eeb5acd237450ab7d8f3adbf891d49e059fbbbff54f7b904a9ff102d50538683025035f1f261329\",\"content_length\":483},{\"chunk_id\":\"b7e07b27-43b5-41de-9196-855306cb5e17\",\"release_id\":null,\"content_hash\":\"8931f2113c3d5b1a6068fcb7a7b29a2f90c7582f0216164427f25c311b1bd9b07e8edebfb196db123f8ca73eb1b49552a3c561dd9a2e11c7f8631ed87353dfa5\",\"content_length\":1203},{\"chunk_id\":\"d56106a8-57e0-4c45-909c-5a8d8c4a9cc3\",\"release_id\":null,\"content_hash\":\"c3b99bb24e161d4f7240dec69dfc1018e4c924428de6cb10ced14d58421ecea3a49b0cdb087540cdfbffc7ebfd365d3ab783bfb3b1510ac67010635e7b202090\",\"content_length\":5835},{\"chunk_id\":\"eaaf9a0d-6c5a-4568-a743-6f4fa42549a4\",\"release_id\":null,\"content_hash\":\"b484d502d18b8e770c6031ddcef7a45affa5755f409fc38e627594f02251c44f1b4c5c16a143e9a863fd99fa62dd20dc91e345f824fd091ebc805b95ff000b73\",\"content_length\":558}],\"upload_attempt_id\":\"<attempt-1>\",\"upload_run_id\":\"<run>\",\"force\":true,\"skip_on_conflict\":false}",
+      "status": 201
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/681f29ad-219c-5b86-ae2b-84ae38e13632?length=5835",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "d37ae5108c1c2adcfb461de253d83c3ea5cff928a0bde0a400cec561bdd25ce107c25d5d62942aecc8990501bd16f92a876b1886be3db2ae85cb737bc12fc40b",
+        "length": 5835
+      },
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/942ecec0-4cb2-5160-9c2b-948cbff4d4e6?length=558",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "3001b8f6843c703997b87b55cd277061ccc3b9790db8a5913ca44030061b6042f343fac7c19ce2d34238ac44384d12384b1ab34d8bb624efc58f1339753c423b",
+        "length": 558
+      },
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/aa9eb665-a4e6-563c-8f32-132887ddb156?length=1203",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "0058e864f76f78b185ef6cdfe3625d78e71084686c6b672fe060cfa7f3a792f9a84adbba2d75eabc0eaf473312a74e28c56eaf1c2bf6807e1662816e7a1b2854",
+        "length": 1203
+      },
+      "status": 200
+    },
+    {
+      "method": "PUT",
+      "path": "/s3/put/symbolsets/f3a4edbe-bdbe-5854-a25b-283553f240ba?length=483",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "upload": {
+        "sha512": "b923239b948f5f303ea69bf6bc6cc39805521ae677395ff93726eb8db2900152245ec7008e10e8bde2d49fce4d426e88f6fa8c2a07572fca95da41b154bde7ec",
+        "length": 483
+      },
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/symbol_sets/bulk_finish_upload",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"content_hashes\":{\"681f29ad-219c-5b86-ae2b-84ae38e13632\":\"c3b99bb24e161d4f7240dec69dfc1018e4c924428de6cb10ced14d58421ecea3a49b0cdb087540cdfbffc7ebfd365d3ab783bfb3b1510ac67010635e7b202090\",\"942ecec0-4cb2-5160-9c2b-948cbff4d4e6\":\"b484d502d18b8e770c6031ddcef7a45affa5755f409fc38e627594f02251c44f1b4c5c16a143e9a863fd99fa62dd20dc91e345f824fd091ebc805b95ff000b73\",\"aa9eb665-a4e6-563c-8f32-132887ddb156\":\"8931f2113c3d5b1a6068fcb7a7b29a2f90c7582f0216164427f25c311b1bd9b07e8edebfb196db123f8ca73eb1b49552a3c561dd9a2e11c7f8631ed87353dfa5\",\"f3a4edbe-bdbe-5854-a25b-283553f240ba\":\"13c9d1072eabcb17a65dea6ddbee49de25ac86f521957d899eeb5acd237450ab7d8f3adbf891d49e059fbbbff54f7b904a9ff102d50538683025035f1f261329\"},\"upload_attempt_id\":\"<attempt-1>\",\"upload_run_id\":\"<run>\"}",
+      "status": 201
+    }
+  ],
+  "files": {}
+}

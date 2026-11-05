@@ -14,9 +14,11 @@ export interface ThreadTurnProps {
     turn: ConversationTurn
     isActive: boolean
     onSelectMessage: (sourceNodeId: string) => void
+    /** The steps that contain the search query, or null when nothing is searched. */
+    matchingNodeIds?: ReadonlySet<string> | null
 }
 
-export function ThreadTurn({ turn, isActive, onSelectMessage }: ThreadTurnProps): JSX.Element {
+export function ThreadTurn({ turn, isActive, onSelectMessage, matchingNodeIds = null }: ThreadTurnProps): JSX.Element {
     const [showInternal, setShowInternal] = useState(false)
     const conversational = conversationalMessages(turn.messages)
     const hiddenCount = conversational.filter((message) => message.isInternal).length
@@ -42,6 +44,9 @@ export function ThreadTurn({ turn, isActive, onSelectMessage }: ThreadTurnProps)
                         key={message.id}
                         message={message}
                         onSelect={sourceNodeId ? () => onSelectMessage(sourceNodeId) : undefined}
+                        isFaded={
+                            matchingNodeIds !== null && sourceNodeId !== null && !matchingNodeIds.has(sourceNodeId)
+                        }
                     />
                 )
             })}

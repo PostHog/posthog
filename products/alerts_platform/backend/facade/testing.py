@@ -13,18 +13,37 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from posthog.dataclasses import frozen
+
+from products.alerts_platform.backend.delivery.evaluation import deliver_evaluation
 from products.alerts_platform.backend.facade.contracts import (
+    AlertDeliveryRequest,
+    DeliveryPath,
+    HeldDeliveryAddress,
     PlatformAlertSnapshot,
     PlatformConfigurationSnapshot,
     SourceCorrespondence,
+    SourceKind,
 )
+from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy
+from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
 from products.alerts_platform.backend.logic.platform_reads import instance_view
-from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
+from products.alerts_platform.backend.models import (
+    PlatformAlert,
+    PlatformAlertConfiguration,
+    PlatformAlertDeliveryHold,
+    PlatformAlertDeliveryPath,
+    PlatformAlertThread,
+)
 
 
 def _configuration_snapshot(row: PlatformAlertConfiguration) -> PlatformConfigurationSnapshot:
     return PlatformConfigurationSnapshot(
-        id=row.id, next_check_at=row.next_check_at, consecutive_failures=row.consecutive_failures
+        id=row.id,
+        next_check_at=row.next_check_at,
+        consecutive_failures=row.consecutive_failures,
+        check_status=row.check_status,
+        owner=row.owner,
     )
 
 
@@ -44,10 +63,82 @@ def configuration(configuration_id: UUID) -> PlatformConfigurationSnapshot:
     return _configuration_snapshot(PlatformAlertConfiguration.objects.get(id=configuration_id))
 
 
+def copy_of(legacy_configuration_id: UUID) -> PlatformConfigurationSnapshot:
+    """The platform copy of a source's configuration, which a source's test made through its own code."""
+    # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
+    return _configuration_snapshot(
+        PlatformAlertConfiguration.objects.get(legacy_configuration_id=legacy_configuration_id)
+    )
+
+
+def hold_delivery(
+    request: AlertDeliveryRequest,
+    *,
+    held_at: datetime,
+    release_after: datetime,
+    released: tuple[HoldRelease, HoldReleasedBy] | None = None,
+) -> None:
+    """Holds a request's delivery as a check would, or as one a release already decided."""
+    PlatformAlertDeliveryHold.objects.for_team(request.team_id).create(
+        team_id=request.team_id,
+        configuration_id=request.configuration_id,
+        evaluation_key=request.evaluation_key,
+        reason="test",
+        request=request.to_stored(),
+        held_at=held_at,
+        release_after=release_after,
+        released_at=held_at if released else None,
+        release_action=released[0] if released else None,
+        released_by=released[1] if released else None,
+    )
+
+
+@frozen
+class HoldSnapshot:
+    release_action: str | None
+    released_by: str | None
+    release_after: datetime
+
+
+def hold_release(address: HeldDeliveryAddress) -> HoldSnapshot:
+    """A hold's release action, who released it, and its deadline."""
+    hold = (
+        PlatformAlertDeliveryHold.objects.for_team(address.team_id)
+        .filter(configuration_id=address.configuration_id, evaluation_key=address.evaluation_key)
+        .get()
+    )
+    return HoldSnapshot(
+        release_action=hold.release_action, released_by=hold.released_by, release_after=hold.release_after
+    )
+
+
 def set_due_at(configuration_id: UUID, due_at: datetime) -> None:
     """Move a configuration's due time, so a test can run two checks against one schedule."""
     # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
     PlatformAlertConfiguration.objects.filter(id=configuration_id).update(next_check_at=due_at)
+
+
+def release_held_delivery(
+    *, team_id: int, configuration_id: UUID, evaluation_key: str, released_by: HoldReleasedBy, at: datetime
+) -> None:
+    """An evaluation whose delivery was held and then released with a send, as a message reader finds it."""
+    PlatformAlertDeliveryHold.objects.for_team(team_id).create(
+        team_id=team_id,
+        configuration_id=configuration_id,
+        evaluation_key=evaluation_key,
+        reason="test",
+        request={},
+        held_at=at,
+        release_after=at,
+        released_at=at,
+        release_action=HoldRelease.SEND,
+        released_by=released_by,
+    )
+
+
+def deliver(request: AlertDeliveryRequest) -> int:
+    """Send a recorded evaluation's delivery as the delivery activity does. Returns how many destinations took it."""
+    return deliver_evaluation(request).sent
 
 
 def count_still_due(configuration_ids: Iterable[UUID], *, at: datetime) -> int:
@@ -56,10 +147,136 @@ def count_still_due(configuration_ids: Iterable[UUID], *, at: datetime) -> int:
     return PlatformAlertConfiguration.objects.filter(id__in=list(configuration_ids), next_check_at__lte=at).count()
 
 
+def start_firing(
+    configuration_id: UUID,
+    *,
+    team_id: int,
+    at: datetime,
+    delivered_via: DeliveryPath | None = None,
+    sent_natively: bool = False,
+    grouping_key: str = "",
+) -> None:
+    """Put a configuration's instance inside a firing, as live delivery can leave one.
+
+    With `delivered_via`, the firing's first delivery took that path, so its resolve takes it too.
+    With `sent_natively`, a native transport sent the firing, as live delivery does for an alert
+    its source owns.
+    """
+    PlatformAlert.objects.update_or_create(
+        team_id=team_id,
+        configuration_id=configuration_id,
+        grouping_key=grouping_key,
+        defaults={"state": "firing", "firing_started_at": at},
+    )
+    if delivered_via is not None:
+        PlatformAlertDeliveryPath.objects.for_team(team_id).create(
+            team_id=team_id,
+            configuration_id=str(configuration_id),
+            grouping_key=grouping_key,
+            episode_started_at=at,
+            path=delivered_via.value,
+        )
+    if sent_natively:
+        PlatformAlertThread.objects.for_team(team_id).create(
+            team_id=team_id,
+            configuration_id=configuration_id,
+            grouping_key=grouping_key,
+            provider="slack",
+            channel_target="C0",
+            episode_started_at=at,
+        )
+
+
+def set_check_status(configuration_id: UUID, check_status: str) -> None:
+    """Mark a configuration's checks as failing or not, as checks outside the test can leave it."""
+    # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
+    PlatformAlertConfiguration.objects.filter(id=configuration_id).update(check_status=check_status)
+
+
+def set_enabled(configuration_id: UUID, enabled: bool) -> None:
+    """Switch a configuration on or off, as a broken check the platform owns leaves it.
+
+    A test door with no production caller. The caller holds the team scope.
+    """
+    # nosemgrep: idor-lookup-without-team, platform-alert-state-direct-mutation — test door, see the docstring
+    PlatformAlertConfiguration.objects.filter(id=configuration_id).update(enabled=enabled)
+
+
+def record_check(
+    configuration_id: UUID,
+    *,
+    team_id: int,
+    at: datetime,
+    previous_state: str,
+    state: str,
+    error_message: str | None = None,
+    value: float | None = None,
+    condition: dict[str, Any] | None = None,
+    query_duration_ms: int | None = None,
+    source_detail: dict[str, Any] | None = None,
+) -> None:
+    """Write one ungrouped check to the platform's ClickHouse history, as a check that ran at `at`."""
+    insert_events(
+        team_id,
+        [
+            PlatformAlertEventRow(
+                team_id=team_id,
+                source_kind=SourceKind.LOGS.value,
+                configuration_id=configuration_id,
+                alert_id=configuration_id,
+                grouping_key="",
+                evaluation_key=f"slot:{at.isoformat()}",
+                kind="check",
+                alert_name="",
+                previous_state=previous_state,
+                state=state,
+                episode_started_at=None,
+                value=value,
+                labels={},
+                condition_snapshot=condition or {},
+                source_config_snapshot={},
+                query_duration_ms=query_duration_ms,
+                error_message=error_message,
+                consecutive_failures=0,
+                muted_notification="",
+                occurred_at=at,
+                source_detail=source_detail or {},
+            )
+        ],
+    )
+
+
+def released_hold(
+    configuration_id: UUID,
+    *,
+    team_id: int,
+    at: datetime,
+    action: HoldRelease,
+    released_by: HoldReleasedBy,
+) -> None:
+    """Write a hold on the check `record_check` wrote at `at`, already released."""
+    PlatformAlertDeliveryHold.objects.for_team(team_id).create(
+        team_id=team_id,
+        configuration_id=configuration_id,
+        evaluation_key=f"slot:{at.isoformat()}",
+        reason="test",
+        request={},
+        held_at=at,
+        release_after=at,
+        released_at=at,
+        release_action=action,
+        released_by=released_by,
+    )
+
+
 def alert_for(configuration_id: UUID, *, grouping_key: str = "") -> PlatformAlertSnapshot | None:
     """The instance row a check wrote, or None when no check has written one."""
-    row = PlatformAlert.objects.filter(configuration_id=configuration_id, grouping_key=grouping_key).first()
-    return None if row is None else instance_view(row)
+    row = (
+        PlatformAlert.objects.select_related("configuration")
+        .filter(configuration_id=configuration_id, grouping_key=grouping_key)
+        .first()
+    )
+    return None if row is None else instance_view(row, row.configuration)
 
 
 def undeclared_policy_divergences(correspondence: SourceCorrespondence) -> frozenset[str]:

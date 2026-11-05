@@ -70,6 +70,9 @@ export class MlKeyBatch {
     private readonly candidates = new Map<string, MlDataKey>()
     private readonly keys = new Map<string, MlDataKey>()
     private committed = false
+    // Undefined stores every new session key. Otherwise only new keys for these sessions are stored. Month keys are always
+    // stored: one is a single row per team month, and leaving it out would have the next batch generate it again through KMS.
+    private used?: Set<string>
     // persist re-reads the batch after its writes and on every retry, so a row is reported the first time this batch meets it and not on each pass.
     private readonly reportedUnusable = new Set<string>()
 
@@ -208,7 +211,9 @@ export class MlKeyBatch {
 
     // The index entry goes first and is idempotent, so every stored key has an index entry even when the key put fails or a retried put reports the batch's own write as a competitor's. An index entry without a key is harmless: the month sweep leaves a tombstone that a later key put respects.
     private async persist(deadline: AbortSignal): Promise<void> {
-        const unstored = [...this.keys].filter(([id]) => !this.state.has(id))
+        const unstored = [...this.keys].filter(
+            ([id, key]) => !this.state.has(id) && (!key.identity.sessionId || !this.used || this.used.has(id))
+        )
         // The month key commits first. A put that loses leaves session keys sealed under bytes that nobody stored.
         const monthKeys = unstored.filter(([, key]) => !key.identity.sessionId)
         if (monthKeys.length) {
@@ -318,9 +323,28 @@ export class MlKeyBatch {
         return { sealed_key: { B: sealed.sealed }, key_nonce: { B: sealed.nonce }, ...shared }
     }
 
-    public async commit(): Promise<void> {
+    /** `used` names the sessions a published message will be written under; a key no message uses is not stored. */
+    /** A candidate that was never stored must not reach a caller, so nothing can be sealed under it. */
+    private forgetUnusedSessionKeys(): void {
+        const used = this.used
+        if (!used) {
+            return
+        }
+        for (const [id, key] of this.keys) {
+            if (key.identity.sessionId && !used.has(id)) {
+                this.keys.delete(id)
+            }
+        }
+    }
+
+    public async commit(used?: Iterable<MlSessionIdentity>): Promise<void> {
         if (this.committed) {
             throw new Error('ML batch already committed')
+        }
+        if (used) {
+            this.used = new Set(
+                [...used].map((identity) => tableKeyString(sessionKeyId(identity.teamId, identity.sessionId)))
+            )
         }
         const startedAt = Date.now()
         const deadline = AbortSignal.timeout(COMMIT_BUDGET_MS)
@@ -328,6 +352,7 @@ export class MlKeyBatch {
             try {
                 await this.persist(deadline)
                 this.committed = true
+                this.forgetUnusedSessionKeys()
                 return
             } catch (error) {
                 const delayMs = commitRetryDelayMs(attempt)

@@ -1,5 +1,6 @@
 import shutil
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -13,9 +14,13 @@ from posthog.models import Team
 from products.review_hog.backend.models import ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import TurnMarkerArtefact, parse_artefact_content
 from products.review_hog.backend.reviewer.constants import (
+    CONTROL_ARM_SET,
     FLASH_LENSES,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
+    SINGLE_AGENT_ARM_SETS,
+    SINGLE_AGENT_FLASH_ARM,
+    SingleAgentArms,
     reviewhog_version_for_mode,
 )
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker, record_turn_marker
@@ -65,6 +70,7 @@ class TestRecordTurnMarker(BaseTest):
         review_design: str = REVIEW_DESIGN_PIPELINE,
         coordinator: bool = False,
         publishes: bool | None = None,
+        arm_set: str = CONTROL_ARM_SET,
     ) -> ReviewHogMarker:
         return record_turn_marker(
             team_id=team_id or self.team.id,
@@ -77,11 +83,18 @@ class TestRecordTurnMarker(BaseTest):
             review_design=review_design,
             coordinator=coordinator,
             publishes=publishes,
+            arm_set=arm_set,
         )
 
-    def _record_single_agent(self, run_index: int, coordinator: bool = False) -> ReviewHogMarker:
+    def _record_single_agent(
+        self, run_index: int, coordinator: bool = False, arm_set: str = CONTROL_ARM_SET
+    ) -> ReviewHogMarker:
         return self._record(
-            run_index, review_mode=REVIEW_MODE_FLASH, review_design=REVIEW_DESIGN_SINGLE_AGENT, coordinator=coordinator
+            run_index,
+            review_mode=REVIEW_MODE_FLASH,
+            review_design=REVIEW_DESIGN_SINGLE_AGENT,
+            coordinator=coordinator,
+            arm_set=arm_set,
         )
 
     def _edit_single_agent_prompt(self, prompt_file: str) -> None:
@@ -109,6 +122,21 @@ class TestRecordTurnMarker(BaseTest):
 
         assert original.version == "reviewhog-flash-2-3"
         assert changed.fingerprint != original.fingerprint
+
+    def test_each_arm_of_an_arm_set_splits_the_single_agent_cohort(self) -> None:
+        # A trial that changes only the lens model would otherwise share the control cohort.
+        other = replace(SINGLE_AGENT_FLASH_ARM, model="gpt-6-luna")
+        trial_sets = {
+            "lens-only": SingleAgentArms(main=SINGLE_AGENT_FLASH_ARM, lens=other),
+            "main-only": SingleAgentArms(main=other, lens=SINGLE_AGENT_FLASH_ARM),
+        }
+        with patch.dict(SINGLE_AGENT_ARM_SETS, trial_sets):
+            fingerprints = [
+                self._record_single_agent(run_index=run_index, arm_set=arm_set).fingerprint
+                for run_index, arm_set in enumerate((CONTROL_ARM_SET, *trial_sets), start=1)
+            ]
+
+        assert len(set(fingerprints)) == 3
 
     def test_the_coordinator_prompt_splits_only_coordinated_cohorts(self) -> None:
         separate = self._record_single_agent(run_index=1)

@@ -9,6 +9,20 @@ import type { SourceSceneTab } from './frontend/scenes/SourceScene/SourceScene'
 
 export const manifest: ProductManifest = {
     name: 'Data ops',
+    activityDescribers: {
+        [ActivityScope.DATA_WAREHOUSE_SAVED_QUERY]: () =>
+            import('scenes/data-warehouse/saved_queries/activityDescriptions').then(
+                (module) => module.dataWarehouseSavedQueryActivityDescriber
+            ),
+        [ActivityScope.EXTERNAL_DATA_SOURCE]: () =>
+            import('./frontend/shared/components/activityDescriptions').then(
+                (module) => module.externalDataSourceActivityDescriber
+            ),
+        [ActivityScope.EXTERNAL_DATA_SCHEMA]: () =>
+            import('./frontend/shared/components/activityDescriptions').then(
+                (module) => module.externalDataSourceActivityDescriber
+            ),
+    },
     scenes: {
         DataOps: {
             name: 'Data ops',
@@ -63,6 +77,11 @@ export const manifest: ProductManifest = {
             description: 'Manage where your warehouse sources write the rows they sync.',
             iconType: 'data_warehouse',
         },
+        WarehouseDestinationConnect: {
+            import: () => import('./frontend/scenes/DestinationConnectScene/DestinationConnectScene'),
+            projectBased: true,
+            name: 'Connect warehouse destination',
+        },
     },
     routes: {
         '/data-ops': ['DataOps', 'dataOps'],
@@ -83,6 +102,7 @@ export const manifest: ProductManifest = {
         '/data-management/sources/:id/:tab': ['DataWarehouseSource', 'dataWarehouseSource'],
         '/data-warehouse/new-source': ['DataWarehouseSourceNew', 'dataWarehouseSourceNew'],
         '/data-warehouse/connect': ['DataWarehouseSourceConnect', 'dataWarehouseSourceConnect'],
+        '/data-warehouse/connect-destination': ['WarehouseDestinationConnect', 'warehouseDestinationConnect'],
     },
     redirects: {
         // Switching projects while in the new-source wizard truncates the URL to bare
@@ -91,6 +111,8 @@ export const manifest: ProductManifest = {
         // `/data-warehouse/new` is a natural URL for "add a source" but was never a real route.
         // Redirect it to the new-source wizard rather than 404ing.
         '/data-warehouse/new': () => urls.dataWarehouseSourceNew(),
+        // Listed before `/data-management/sources/:id`, which would otherwise read `new` as a source id.
+        '/data-management/sources/new': () => urls.dataWarehouseSourceNew(),
         '/data-warehouse/sources': () => urls.sources(),
         '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
         '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
@@ -153,6 +175,8 @@ export const manifest: ProductManifest = {
             `/data-management/warehouse-destinations?destination=${encodeURIComponent(id)}`,
         dataWarehouseSourceConnect: (kind?: string): string =>
             `/data-warehouse/connect${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`,
+        warehouseDestinationConnect: (kind?: string): string =>
+            `/data-warehouse/connect-destination${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`,
     },
     treeItemsProducts: [
         {
@@ -163,7 +187,7 @@ export const manifest: ProductManifest = {
             iconType: 'sql_editor',
             iconColor: ['var(--color-product-data-warehouse-light)'],
             href: urls.sqlEditor(),
-            searchKeywords: ['hogql', 'hogsql', 'query editor'],
+            searchKeywords: ['sql', 'hogql', 'hogsql', 'query editor'],
             sceneKey: 'SQLEditor',
             sceneKeys: ['SQLEditor'],
         },
@@ -176,7 +200,7 @@ export const manifest: ProductManifest = {
             searchKeywords: ['managed warehouse', 'data lake', 'lakehouse'],
             searchTabs: [{ name: 'Monitoring', href: urls.dataOps('monitoring') }],
             flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
-            alternativeFlags: [FEATURE_FLAGS.DATA_WAREHOUSE_SCENE_TRINO],
+            alternativeFlags: [FEATURE_FLAGS.MANAGED_TRINO_QUERY],
             iconType: 'data_warehouse',
             iconColor: ['var(--color-product-data-warehouse-light)'],
             sceneKey: 'DataOps',
@@ -193,6 +217,7 @@ export const manifest: ProductManifest = {
                 'DataWarehouseSourceConnect',
                 'DataWarehouseSourceSchema',
                 'WarehouseDestinations',
+                'WarehouseDestinationConnect',
             ],
         },
     ],
@@ -226,7 +251,7 @@ export const manifest: ProductManifest = {
             href: urls.warehouseDestinations(),
             flag: FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION,
             sceneKey: 'WarehouseDestinations',
-            sceneKeys: ['WarehouseDestinations'],
+            sceneKeys: ['WarehouseDestinations', 'WarehouseDestinationConnect'],
         },
         {
             path: 'Managed viewsets',
@@ -248,6 +273,7 @@ export const manifest: ProductManifest = {
                 'DataWarehouseSourceConnect',
                 'DataWarehouseSourceSchema',
                 'WarehouseDestinations',
+                'WarehouseDestinationConnect',
             ],
         },
     ],

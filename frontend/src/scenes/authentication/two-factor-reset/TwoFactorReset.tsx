@@ -1,9 +1,13 @@
 import { useActions, useValues } from 'kea'
+import { type ReactNode } from 'react'
 
-import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
-import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
+import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
+import { AUTH_NOTES, type AuthNotes } from 'scenes/authentication/shared/authScene/authNotes'
+import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -12,6 +16,27 @@ import { twoFactorResetLogic } from './twoFactorResetLogic'
 export const scene: SceneExport = {
     component: TwoFactorReset,
     logic: twoFactorResetLogic,
+}
+
+function TwoFactorResetCard({
+    title,
+    sub,
+    notes = AUTH_NOTES.twoFactorReset.reset,
+    children,
+}: {
+    title: string
+    sub?: string
+    notes?: AuthNotes
+    children: ReactNode
+}): JSX.Element {
+    return (
+        <AuthScene notes={notes}>
+            <AuthSceneCard>
+                <AuthCardTitle title={title} sub={sub} />
+                <div className="flex flex-col gap-3">{children}</div>
+            </AuthSceneCard>
+        </AuthScene>
+    )
 }
 
 export function TwoFactorReset(): JSX.Element {
@@ -26,107 +51,90 @@ export function TwoFactorReset(): JSX.Element {
     } = useValues(twoFactorResetLogic)
     const { confirmReset } = useActions(twoFactorResetLogic)
 
-    // Show loading while validating
     if (validatedResetTokenLoading) {
         return (
-            <BridgePage view="login">
-                <div className="text-center">
-                    <h2>Validating reset link...</h2>
-                    <Spinner className="mt-4" />
+            <TwoFactorResetCard title="Checking your reset link…">
+                <div className="flex justify-center">
+                    <Spinner className="text-2xl" />
                 </div>
-            </BridgePage>
+            </TwoFactorResetCard>
         )
     }
 
-    // If user needs to login first, show redirect message
     if (requiresLogin) {
         return (
-            <BridgePage view="login">
-                <div className="space-y-4">
-                    <h2>Login required</h2>
-                    <p>Please log in with your email and password first to reset your two-factor authentication.</p>
-                    <LemonButton fullWidth type="primary" center data-attr="login-to-reset" to={loginRedirectUrl}>
-                        Log in to continue
-                    </LemonButton>
-                </div>
-            </BridgePage>
+            <TwoFactorResetCard title="Log in first" sub="Use your email and password, then we'll reset your 2FA.">
+                <LemonButton
+                    fullWidth
+                    type="primary"
+                    center
+                    size="large"
+                    data-attr="login-to-reset"
+                    to={loginRedirectUrl}
+                >
+                    Log in to continue
+                </LemonButton>
+            </TwoFactorResetCard>
         )
     }
 
-    // Show success state
     if (resetComplete) {
         return (
-            <BridgePage view="login">
-                <div className="space-y-4">
-                    <h2>2FA has been reset</h2>
-                    <p>
-                        Your two-factor authentication settings have been successfully reset. You can now log in without
-                        2FA.
-                    </p>
-                    <p>We recommend setting up 2FA again after logging in to keep your account secure.</p>
-                    <LemonButton fullWidth type="primary" center data-attr="back-to-login" to={urls.login()}>
-                        Log in
-                    </LemonButton>
-                </div>
-            </BridgePage>
+            <TwoFactorResetCard
+                title="2FA has been reset"
+                sub="You can log in without 2FA now."
+                notes={AUTH_NOTES.twoFactorReset.done}
+            >
+                <AuthBanner variant="note">
+                    We recommend setting up 2FA again after logging in to keep your account secure.
+                </AuthBanner>
+                <LemonButton fullWidth type="primary" center size="large" data-attr="back-to-login" to={urls.login()}>
+                    Log in
+                </LemonButton>
+            </TwoFactorResetCard>
         )
     }
 
-    // Invalid or expired link
-    const invalidLink = !validatedResetToken?.success
+    if (!validatedResetToken?.success) {
+        return (
+            <TwoFactorResetCard title="Unable to reset 2FA" notes={AUTH_NOTES.twoFactorReset.invalid}>
+                <AuthBanner variant="danger">
+                    {validatedResetToken?.error ||
+                        'This reset link is invalid or has expired. Please contact your administrator to request a new link.'}
+                </AuthBanner>
+                <LemonButton fullWidth type="primary" center size="large" data-attr="back-to-login" to={urls.login()}>
+                    Back to login
+                </LemonButton>
+            </TwoFactorResetCard>
+        )
+    }
 
     return (
-        <BridgePage view="login">
-            <div className="space-y-4">
-                {invalidLink ? (
-                    <>
-                        <h2>Unable to reset 2FA</h2>
-                        <LemonBanner type="error">
-                            {validatedResetToken?.error ||
-                                'This reset link is invalid or has expired. Please contact your administrator to request a new link.'}
-                        </LemonBanner>
-                        <LemonButton fullWidth type="primary" center data-attr="back-to-login" to={urls.login()}>
-                            Back to login
-                        </LemonButton>
-                    </>
-                ) : (
-                    <>
-                        <h2>Reset two-factor authentication</h2>
-                        <p>You are about to reset your two-factor authentication settings. This will:</p>
-                        <ul className="list-disc list-inside text-sm">
-                            <li>Remove your TOTP authenticator device</li>
-                            <li>Delete your backup codes</li>
-                            <li>Disable passkey-based 2FA (your passkeys will still work for login)</li>
-                        </ul>
-
-                        <LemonDivider className="my-4" />
-
-                        <p className="text-sm text-muted">After resetting, you will need to log in again.</p>
-
-                        {resetError && (
-                            <LemonBanner type="error" className="mt-4">
-                                {resetError}
-                            </LemonBanner>
-                        )}
-
-                        <LemonButton
-                            fullWidth
-                            type="primary"
-                            status="danger"
-                            center
-                            data-attr="confirm-2fa-reset"
-                            loading={resetLoading}
-                            onClick={() => confirmReset(validatedResetToken.token!)}
-                        >
-                            Confirm and reset 2FA
-                        </LemonButton>
-
-                        <LemonButton fullWidth type="secondary" center data-attr="cancel-2fa-reset" to={urls.login()}>
-                            Cancel
-                        </LemonButton>
-                    </>
-                )}
-            </div>
-        </BridgePage>
+        <TwoFactorResetCard title="Reset two-factor authentication" sub="After this, you'll log in again.">
+            <AuthBanner variant="note">
+                <p className="m-0 mb-1.5 font-semibold text-primary">This will:</p>
+                <ul className="m-0 pl-4 list-disc">
+                    <li>Remove your TOTP authenticator device</li>
+                    <li>Delete your backup codes</li>
+                    <li>Disable passkey-based 2FA (your passkeys will still work for login)</li>
+                </ul>
+            </AuthBanner>
+            {resetError && <AuthBanner variant="danger">{resetError}</AuthBanner>}
+            <LemonButton
+                fullWidth
+                type="primary"
+                status="danger"
+                center
+                size="large"
+                data-attr="confirm-2fa-reset"
+                loading={resetLoading}
+                onClick={() => confirmReset(validatedResetToken.token!)}
+            >
+                Confirm and reset 2FA
+            </LemonButton>
+            <LemonButton fullWidth type="secondary" center size="large" data-attr="cancel-2fa-reset" to={urls.login()}>
+                Cancel
+            </LemonButton>
+        </TwoFactorResetCard>
     )
 }

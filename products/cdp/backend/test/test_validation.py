@@ -10,7 +10,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.hogql import ast
 
-from posthog.models.integration import Integration
+from posthog.models.integration import ANY, WAREHOUSE_SOURCE_TYPE_CONFIG_KEY, Integration
 
 from products.cdp.backend.filters import RUNTIME_CONTRACT
 from products.cdp.backend.validation import (
@@ -19,6 +19,7 @@ from products.cdp.backend.validation import (
     InputsSchemaItemSerializer,
     InputsSchemaSerializer,
     RecordAliasRewriter,
+    build_html_wrap_design,
     compile_hog,
     generate_template_bytecode,
     reserved_functions_used,
@@ -87,6 +88,25 @@ def create_example_inputs():
         },
         "number": {"value": 42},
     }
+
+
+_UNLAYER_COLUMN_OPEN = (
+    '<!--[if (mso)|(IE)]><table width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td align="center"><![endif]-->'
+    '<!--[if (!mso)&(!IE)]><!--><div style="height: 100%;"><!--<![endif]-->'
+)
+_UNLAYER_COLUMN_CLOSE = (
+    "<!--[if (!mso)&(!IE)]><!--></div><!--<![endif]--><!--[if (mso)|(IE)]></td></tr></table><![endif]-->"
+)
+
+
+def _render_around(block_html: str) -> str:
+    return (
+        "<!DOCTYPE html><html><head><style>#u_body a { color: #00e; }</style></head>"
+        '<body class="clean-body u_body"><!--[if mso]><table><tr><td><![endif]-->'
+        '<table id="u_body"><tbody><tr><td><div class="u-row-container"><div class="u-row">'
+        f"{block_html}"
+        "</div></div></td></tr></tbody></table></body></html>"
+    )
 
 
 class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -503,6 +523,102 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
 
         assert validated["email"]["value"].get("design") == expected_design
 
+    @parameterized.expand(
+        [
+            ("plain_html", "<p>Old copy</p>", "<p>New copy</p>"),
+            ("copy_appended_to_the_block", "<p>Old copy</p>", "<p>Old copy</p><p>New footer</p>"),
+            ("block_wrapped_in_new_markup", "<p>Old copy</p>", '<div style="padding: 8px"><p>Old copy</p></div>'),
+            (
+                "copy_appended_inside_its_unlayer_render",
+                "<p>Old copy</p>",
+                _render_around("<p>Old copy</p><p>P.S.</p>"),
+            ),
+            (
+                "block_is_an_unlayer_page_that_got_a_footer",
+                _render_around("<p>Page</p>"),
+                f"<div>{_render_around('<p>Page</p>')}<p>Footer</p></div>",
+            ),
+            (
+                "unrelated_body_class_is_not_the_unlayer_page",
+                "<p>Old copy</p>",
+                '<div class="menu_body"><p>Old copy</p></div>',
+            ),
+            (
+                "image_added_inside_its_unlayer_render",
+                "<p>Old copy</p>",
+                _render_around('<p>Old copy</p><img src="https://example.com/offer.png">'),
+            ),
+            (
+                "link_added_inside_its_unlayer_render",
+                "<p>Old copy</p>",
+                _render_around('<p>Old copy</p><a href="https://example.com"></a>'),
+            ),
+            ("unterminated_tags_around_the_block", "<p>Old copy</p>", "<p>Old copy</p>" + "<div u_body" * 1000),
+            (
+                "outlook_only_footer_added_beside_the_block",
+                "<p>Old copy</p>",
+                _render_around("<p>Old copy</p><!--[if mso]><p>New footer</p><![endif]-->"),
+            ),
+            (
+                "non_outlook_footer_added_beside_the_block",
+                "<p>Old copy</p>",
+                _render_around("<p>Old copy</p><!--[if !mso]><!--><p>New footer</p><!--<![endif]-->"),
+            ),
+            (
+                "full_render_replaced_by_another",
+                '<html><body class="clean-body u_body"><p>Old copy</p></body></html>',
+                '<html><body class="clean-body u_body"><p>New copy</p></body></html>',
+            ),
+        ]
+    )
+    def test_stale_html_wrap_design_is_rebuilt_from_new_html(self, _name, old_html, new_html):
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
+        value = {
+            "from": "hi@posthog.com",
+            "to": "a@b.com",
+            "subject": "hi",
+            "html": new_html,
+            "design": build_html_wrap_design(old_html),
+        }
+
+        validated = validate_inputs(inputs_schema, {"email": {"value": value}})
+
+        assert validated["email"]["value"]["design"] == build_html_wrap_design(new_html)
+
+    def test_wrap_design_edited_in_the_visual_editor_is_kept(self):
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
+        edited_design = build_html_wrap_design("<p>Inner block</p>")
+        edited_design["body"]["values"] = {"backgroundColor": "#ffffff"}
+        value = {
+            "from": "hi@posthog.com",
+            "to": "a@b.com",
+            "subject": "hi",
+            "html": '<html><body class="clean-body u_body"><p>Edited&nbsp;block</p></body></html>',
+            "design": edited_design,
+        }
+
+        validated = validate_inputs(inputs_schema, {"email": {"value": value}})
+
+        assert validated["email"]["value"]["design"] == edited_design
+
+    @parameterized.expand(
+        [
+            ("plain_render", _render_around("<p>Inner block</p>")),
+            (
+                "render_with_outlook_column_wrappers",
+                _render_around(f"{_UNLAYER_COLUMN_OPEN}<p>Inner block</p>{_UNLAYER_COLUMN_CLOSE}"),
+            ),
+        ]
+    )
+    def test_wrap_design_kept_when_the_html_is_its_unlayer_render(self, _name, html):
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
+        design = build_html_wrap_design("<p>Inner block</p>")
+        value = {"from": "hi@posthog.com", "to": "a@b.com", "subject": "hi", "html": html, "design": design}
+
+        validated = validate_inputs(inputs_schema, {"email": {"value": value}})
+
+        assert validated["email"]["value"]["design"] == build_html_wrap_design("<p>Inner block</p>")
+
     def test_html_only_email_wrap_is_deterministic(self):
         # Callers resend the same html-only value on every save; a fresh design each time would
         # register as a content change in revision and draft-diff equality checks.
@@ -599,25 +715,48 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
 
     @parameterized.expand(
         [
-            ("single_slack", "integration", "slack"),
-            ("multi_slack", "integration_multi", "slack"),
-            ("single_posthog_connection", "integration", "posthog"),
-            ("multi_posthog_connection", "integration_multi", "posthog"),
+            ("single_slack", "integration", "slack", None, None),
+            ("multi_slack", "integration_multi", "slack", None, None),
+            ("single_posthog_connection", "integration", "posthog", None, "PostHog connection"),
+            ("multi_posthog_connection", "integration_multi", "posthog", None, "PostHog connection"),
+            # Warehouse source rows are blocked by the marker, whatever their kind and auth type.
+            ("single_warehouse_default_auth", "integration", "postgresql", None, "can't be used as a function input"),
+            ("multi_warehouse_default_auth", "integration_multi", "postgresql", None, "can't be used"),
+            ("warehouse_typed_in_auth", "integration", "stripe", "token", "can't be used as a function input"),
+            ("warehouse_generated_kind", "integration", "ably", None, "can't be used as a function input"),
         ]
     )
-    def test_integration_input_rejects_a_posthog_connection(self, _name, item_type, kind):
-        integration = Integration.objects.create(team=self.team, kind=kind, created_by=self.user)
+    def test_integration_input_rejects_a_posthog_connection_or_warehouse_credentials(
+        self, _name, item_type, kind, auth_type, expected_error
+    ):
+        config = (
+            {} if expected_error in (None, "PostHog connection") else {WAREHOUSE_SOURCE_TYPE_CONFIG_KEY: "Postgres"}
+        )
+        if auth_type:
+            config["auth_type"] = auth_type
+        integration = Integration.objects._with_auth(ANY).create(
+            team=self.team, kind=kind, config=config, created_by=self.user
+        )
         value = integration.id if item_type == "integration" else [integration.id]
         inputs_schema = [{"key": "connection", "type": item_type, "integration": "slack", "required": True}]
         inputs = {"connection": {"value": value}}
         context_extra = {"get_team": lambda: self.team}
 
-        if kind == "slack":
+        if expected_error is None:
             assert validate_inputs(inputs_schema, inputs, context_extra=context_extra)["connection"]["value"] == value
         else:
             with pytest.raises(ValidationError) as ctx:
                 validate_inputs(inputs_schema, inputs, context_extra=context_extra)
-            assert "PostHog connection" in str(ctx.value.detail)
+            assert expected_error in str(ctx.value.detail)
+
+    def test_integration_input_allows_an_unmarked_row_of_a_warehouse_kind(self):
+        integration = Integration.objects.create(team=self.team, kind="postgresql", config={"host": "db.example.com"})
+        inputs_schema = [{"key": "connection", "type": "integration", "integration": "postgresql", "required": True}]
+        inputs = {"connection": {"value": integration.id}}
+
+        validated = validate_inputs(inputs_schema, inputs, context_extra={"get_team": lambda: self.team})
+
+        assert validated["connection"]["value"] == integration.id
 
     def _create_email_integration(self, domain="posthog.com"):
         return Integration.objects.create(
@@ -642,6 +781,8 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             ("planted_placeholder", "default@example.com", 'is not on the verified domain "posthog.com"'),
             ("not_an_email", "not-an-email", "is not a valid email address"),
             ("address_list", "a@posthog.com, b@posthog.com", "is not a valid email address"),
+            ("overlong_address", f"{'a' * 243}@posthog.com", "254 characters or fewer"),
+            ("overlong_non_address", "a" * 255, "254 characters or fewer"),
         ]
     )
     def test_email_literal_sender_override_rejected_at_save(self, _name, address, expected):
@@ -656,6 +797,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
     @parameterized.expand(
         [
             ("on_domain", "community@posthog.com"),
+            ("max_length", f"{'a' * 242}@posthog.com"),
             ("case_insensitive", "Community@PostHog.com"),
             ("liquid_template", "{{ event.properties.sender }}"),
             ("hog_template", "{event.properties.sender}"),
@@ -934,15 +1076,21 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
     @parameterized.expand(
         [
             # Read-back mask flagged as secret, nothing stored to restore.
-            ({"value": "********", "secret": True},),
+            ("string", {"value": "********", "secret": True}, {}),
             # Mask that lost its secret flag - the persistence guard must still refuse it.
-            ({"value": "********"},),
+            ("string", {"value": "********"}, {}),
+            # A hidden header row whose stored entry is gone.
+            (
+                "dictionary",
+                {"value": {"Authorization": "********"}},
+                {"secret_field": {"value": {"X-Api-Key": "STORED"}}},
+            ),
         ]
     )
-    def test_masked_secret_without_stored_value_is_rejected(self, input_value):
+    def test_masked_secret_without_stored_value_is_rejected(self, input_type, input_value, existing_secret_inputs):
         # The mask must never be encrypted as the real credential when there is nothing to restore.
         inputs_schema = [
-            {"key": "secret_field", "type": "string", "required": True, "secret": True},
+            {"key": "secret_field", "type": input_type, "required": True, "secret": True},
         ]
 
         serializer = FunctionInputsSerializer(
@@ -950,10 +1098,51 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
                 "inputs_schema": inputs_schema,
                 "inputs": {"secret_field": input_value},
             },
-            context={"function_type": "destination", "encrypted_inputs": {}},
+            context={"function_type": "destination", "encrypted_inputs": existing_secret_inputs},
         )
         with self.assertRaises(ValidationError):
             serializer.is_valid(raise_exception=True)
+
+    @parameterized.expand(
+        [
+            (
+                "untouched",
+                {"Authorization": "********", "X-Api-Key": "********"},
+                {"Authorization": "Bearer STORED", "X-Api-Key": "STORED KEY"},
+            ),
+            (
+                "one_replaced",
+                {"Authorization": "Bearer NEW", "X-Api-Key": "********"},
+                {"Authorization": "Bearer NEW", "X-Api-Key": "STORED KEY"},
+            ),
+            (
+                "one_removed_one_added",
+                {"X-Api-Key": "********", "X-Other": "OTHER"},
+                {"X-Api-Key": "STORED KEY", "X-Other": "OTHER"},
+            ),
+        ]
+    )
+    def test_secret_dictionary_restores_masked_entries(self, _name, sent, expected):
+        serializer = FunctionInputsSerializer(
+            data={
+                "inputs_schema": [
+                    {"key": "secret_headers", "type": "dictionary", "required": False, "secret": True},
+                ],
+                "inputs": {"secret_headers": {"value": sent}},
+            },
+            context={
+                "function_type": "destination",
+                "encrypted_inputs": {
+                    "secret_headers": {
+                        "value": {"Authorization": "Bearer STORED", "X-Api-Key": "STORED KEY"},
+                        "templating": "liquid",
+                    }
+                },
+            },
+        )
+        serializer.is_valid(raise_exception=True)
+        assert serializer.validated_data["inputs"]["secret_headers"]["value"] == expected
+        assert serializer.validated_data["inputs"]["secret_headers"]["templating"] == "liquid"
 
     def test_validate_filters_builds_bytecode(self):
         filters = {
@@ -1442,7 +1631,10 @@ class TestTaskInputTypeValidation(SimpleTestCase):
     @parameterized.expand(
         [
             ("repository_string", "task_repository", "example-org/example-repo", True),
+            ("repository_list", "task_repository", ["example-org/example-repo", "example-org/example-docs"], True),
             ("repository_not_string", "task_repository", 123, False),
+            ("repository_list_not_strings", "task_repository", [{"name": "example-org/example-repo"}], False),
+            ("repository_list_too_long", "task_repository", [f"example-org/repo-{i}" for i in range(11)], False),
             ("model_full", "task_model", {"model": "claude-sonnet-5", "reasoning_effort": "high"}, True),
             ("model_without_effort", "task_model", {"model": "claude-sonnet-5"}, True),
             ("model_not_dict", "task_model", "claude-sonnet-5", False),
@@ -1457,6 +1649,9 @@ class TestTaskInputTypeValidation(SimpleTestCase):
             ("skills_string_list", "task_skills", ["error-triage", "db-runbook"], True),
             ("skills_not_list", "task_skills", "error-triage", False),
             ("skills_not_strings", "task_skills", [{"name": "error-triage"}], False),
+            ("vision_scan_setup", "replay_vision_scan", {"type": "monitor", "prompt": "p"}, True),
+            ("vision_scan_without_type", "replay_vision_scan", {"prompt": "p"}, False),
+            ("vision_scan_not_object", "replay_vision_scan", "monitor", False),
         ]
     )
     def test_task_input_value_shapes(self, _name, schema_type, value, expect_valid):
@@ -1468,6 +1663,32 @@ class TestTaskInputTypeValidation(SimpleTestCase):
         else:
             with pytest.raises(ValidationError):
                 validate_inputs(schema, inputs)
+
+
+class TestChoiceInputTemplating(SimpleTestCase):
+    CHOICE_SCHEMA = [
+        {
+            "key": "event_action",
+            "type": "choice",
+            "label": "Event action",
+            "choices": [
+                {"label": "Trigger", "value": "trigger"},
+                {"label": "Resolve", "value": "resolve"},
+            ],
+            "required": True,
+        }
+    ]
+
+    @parameterized.expand(
+        [
+            ("declared_choice", "trigger", False),
+            ("templated_choice", "{event.event == 'x' ? 'resolve' : 'trigger'}", True),
+        ]
+    )
+    def test_only_a_value_outside_the_declared_choices_is_compiled(self, _name, value, expect_bytecode):
+        validated = validate_inputs(self.CHOICE_SCHEMA, {"event_action": {"value": value}})
+
+        assert ("bytecode" in validated["event_action"]) is expect_bytecode
 
 
 class TestReservedFunctionsUsed(SimpleTestCase):

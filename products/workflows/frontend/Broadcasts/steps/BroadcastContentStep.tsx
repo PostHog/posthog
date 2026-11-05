@@ -10,8 +10,11 @@ import type { EmailFieldErrors, EmailTemplate } from 'scenes/hog-functions/email
 import { IntegrationType } from '~/types'
 
 import { EmailSetupModal } from '../../Channels/EmailSetup/EmailSetupModal'
+import { AiEmailDraftStatus } from '../../MessageAudience/AiEmailDraftStatus'
 import { buildSampleGlobals } from '../../Workflows/hogflows/steps/components/HogFlowFunctionConfiguration'
-import { UtmTagFields } from '../../Workflows/hogflows/steps/components/UtmTagFields'
+import { utmKeysFromDefaultAfterEdit } from '../../Workflows/hogflows/steps/components/utmDefaults'
+import { UTM_TAG_KEYS, UtmTagFields } from '../../Workflows/hogflows/steps/components/UtmTagFields'
+import { UtmTeamDefaultControls } from '../../Workflows/hogflows/steps/components/UtmTeamDefaultControls'
 import {
     BroadcastEmailValue,
     DEFAULT_BROADCAST_EMAIL,
@@ -19,10 +22,21 @@ import {
     getMissingSenderIds,
     getSenderIds,
 } from '../broadcastWizardLogic'
+import { BroadcastChannelSwitch } from './BroadcastChannelSwitch'
+import { BroadcastPushComposer } from './BroadcastPushComposer'
 
 export function BroadcastContentStep(): JSX.Element {
-    const { broadcast, email, name, stepValidationErrors, selectedSender, emailSettings } =
-        useValues(broadcastWizardLogic)
+    const {
+        broadcast,
+        email,
+        name,
+        stepValidationErrors,
+        templatingErrors,
+        selectedSender,
+        emailSettings,
+        aiEmailDraftStatus,
+        channel,
+    } = useValues(broadcastWizardLogic)
     const { setEmail, setEmailSettings } = useActions(broadcastWizardLogic)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
     const { loadIntegrations } = useActions(integrationsLogic)
@@ -63,11 +77,33 @@ export function BroadcastContentStep(): JSX.Element {
         }
     }
 
-    const errors = stepValidationErrors.content
+    // A parser message can quote the template, so it is kept out of the matching by wording below.
+    const templatingMessages: (string | undefined)[] = Object.values(templatingErrors)
+    const errors = stepValidationErrors.content.filter((error) => !templatingMessages.includes(error))
     const fieldErrors: EmailFieldErrors = {
         from: errors.find((error) => error.includes('sender')),
-        subject: errors.find((error) => error.includes('subject')),
-        body: errors.find((error) => error.includes('content')),
+        to: templatingErrors.to,
+        subject: errors.find((error) => error.includes('subject')) ?? templatingErrors.subject,
+        preheader: templatingErrors.preheader,
+        body: errors.find((error) => error.includes('content')) ?? templatingErrors.body,
+    }
+
+    // A push broadcast keeps its composer even with the flag off, so it can still be read and fixed.
+    if (channel === 'push') {
+        return (
+            <div className="flex flex-col gap-4 min-h-[36rem] @container">
+                <div className="flex items-start justify-between gap-2">
+                    <div>
+                        <h2 className="m-0 text-xl font-semibold">Write your push notification</h2>
+                        <p className="m-0 text-secondary">
+                            Pick the apps to send through, then add a title and message.
+                        </p>
+                    </div>
+                    <BroadcastChannelSwitch />
+                </div>
+                <BroadcastPushComposer />
+            </div>
+        )
     }
 
     return (
@@ -77,14 +113,17 @@ export function BroadcastContentStep(): JSX.Element {
                     <h2 className="m-0 text-xl font-semibold">Write your email</h2>
                     <p className="m-0 text-secondary">Pick a sender, add a subject, and design the email.</p>
                 </div>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    onClick={() => setTemplatePickerOpen(true)}
-                    data-attr="broadcast-wizard-template-picker"
-                >
-                    Start from template
-                </LemonButton>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                    <BroadcastChannelSwitch />
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={() => setTemplatePickerOpen(true)}
+                        data-attr="broadcast-wizard-template-picker"
+                    >
+                        Start from template
+                    </LemonButton>
+                </div>
             </div>
             <TemplatePickerModal isOpen={templatePickerOpen} onClose={() => setTemplatePickerOpen(false)} />
             {!integrationsLoading && integrations && !hasSenders ? (
@@ -115,10 +154,12 @@ export function BroadcastContentStep(): JSX.Element {
             {senderSetup ? (
                 <EmailSetupModal
                     integration={senderSetup === 'new' ? undefined : senderSetup}
+                    entry="broadcast"
                     onClose={closeSenderSetup}
                     onComplete={closeSenderSetup}
                 />
             ) : null}
+            {aiEmailDraftStatus ? <AiEmailDraftStatus {...aiEmailDraftStatus} /> : null}
             <EmailTemplater
                 type="native_email"
                 templating="liquid"
@@ -155,14 +196,29 @@ export function BroadcastContentStep(): JSX.Element {
                 data-attr="broadcast-utm-tags-toggle"
             />
             {emailSettings.utmTagsEnabled && (
-                <UtmTagFields
-                    value={emailSettings.utmParams}
-                    onChange={(utmParams) => setEmailSettings({ utmParams })}
-                    campaignDefault={name || 'Broadcast name'}
-                    contentDefault={
-                        broadcast?.actions?.find((action) => action.type === 'function_email')?.name ?? 'Send email'
-                    }
-                />
+                <>
+                    <UtmTagFields
+                        value={emailSettings.utmParams}
+                        onChange={(utmParams) =>
+                            setEmailSettings({
+                                utmParams,
+                                utmParamsFromDefault: utmKeysFromDefaultAfterEdit(
+                                    emailSettings.utmParamsFromDefault,
+                                    emailSettings.utmParams,
+                                    utmParams
+                                ),
+                            })
+                        }
+                        campaignDefault={name || 'Broadcast name'}
+                        contentDefault={
+                            broadcast?.actions?.find((action) => action.type === 'function_email')?.name ?? 'Send email'
+                        }
+                    />
+                    <UtmTeamDefaultControls
+                        value={emailSettings.utmParams}
+                        onSavedAsTeamDefault={() => setEmailSettings({ utmParamsFromDefault: [...UTM_TAG_KEYS] })}
+                    />
+                </>
             )}
         </div>
     )

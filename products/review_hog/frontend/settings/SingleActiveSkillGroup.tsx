@@ -55,7 +55,7 @@ export function SingleActiveSkillGroup({
 
     return (
         <>
-            <SkillGroupHeader title={title} rule="one runs" note={note} />
+            <SkillGroupHeader title={title} rule="Choose one" note={note} />
             {skills === null ? (
                 <div className="px-4 py-2">
                     <LemonSkeleton className="h-12 w-full" />
@@ -76,11 +76,7 @@ export function SingleActiveSkillGroup({
                     kept={keptFor ? keptFor(active.skill_name) : undefined}
                     mine={
                         // A select with one option leads nowhere, so say why there is no choice yet.
-                        hasAlternative ? (
-                            select
-                        ) : (
-                            <span className="text-xs text-secondary">Runs. The only one so far.</span>
-                        )
+                        hasAlternative ? select : <span className="text-xs text-secondary">Always on</span>
                     }
                 />
             )}

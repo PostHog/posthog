@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { VisualizationNode, NodeKind } from '~/queries/schema/schema-general'
+import { VisualizationNode, NodeKind, ResultCustomizationBy } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
@@ -222,32 +222,35 @@ describe('seriesBreakdownLogic', () => {
         })
     })
 
-    it('deletes a series breakdown when clearAxis is called', async () => {
-        logic = seriesBreakdownLogic({ key: testUniqueKey })
-        logic.mount()
+    it.each([{ breakdownLogicMounted: true }, { breakdownLogicMounted: false }])(
+        'deletes a series breakdown when clearAxis is called (breakdown logic mounted: $breakdownLogicMounted)',
+        async ({ breakdownLogicMounted }) => {
+            logic = seriesBreakdownLogic({ key: testUniqueKey })
+            logic.mount()
 
-        logic.actions.addSeriesBreakdown('test_column')
+            logic.actions.addSeriesBreakdown('test_column')
+            if (!breakdownLogicMounted) {
+                logic.unmount()
+            }
 
-        logic.actions.clearAxis()
-        await expectLogic(logic).toMatchValues({
-            showSeriesBreakdown: false,
-            selectedSeriesBreakdownColumn: undefined,
-        })
+            builtDataVizLogic.actions.clearAxis()
+            await expectLogic(builtDataVizLogic).toFinishAllListeners()
 
-        expect(globalQuery).toEqual({
-            ...makeInitialQuery(),
-            tableSettings: {
-                columns: [],
-                conditionalFormatting: [],
-            },
-            chartSettings: {
-                goalLines: undefined,
-                seriesBreakdownColumn: undefined,
-                xAxis: undefined,
-                yAxis: [],
-            },
-        })
-    })
+            expect(globalQuery).toEqual({
+                ...makeInitialQuery(),
+                tableSettings: {
+                    columns: [],
+                    conditionalFormatting: [],
+                },
+                chartSettings: {
+                    goalLines: undefined,
+                    seriesBreakdownColumn: undefined,
+                    xAxis: undefined,
+                    yAxis: [],
+                },
+            })
+        }
+    )
 
     it('computes the correct data', async () => {
         logic = seriesBreakdownLogic({ key: testUniqueKey })
@@ -337,6 +340,35 @@ describe('seriesBreakdownLogic', () => {
                 isUnaggregated: false,
             },
         })
+    })
+
+    it('applies a custom color to one breakdown value', () => {
+        logic = seriesBreakdownLogic({ key: testUniqueKey })
+        logic.mount()
+        const node = dataNodeLogic({ key: testUniqueKey, query: globalQuery.source })
+        node.mount()
+        node.actions.setResponse({
+            results: [
+                ['signed_up', 'Safari', 11],
+                ['signed_up', 'Chrome', 22],
+            ],
+            columns: ['event', 'browser', 'total_count'],
+            types: [
+                ['event', 'String'],
+                ['browser', 'String'],
+                ['total_count', 'UInt64'],
+            ],
+        })
+        builtDataVizLogic.actions.clearAxis()
+        builtDataVizLogic.actions.updateXSeries('event')
+        builtDataVizLogic.actions.addYSeries('total_count')
+        logic.actions.addSeriesBreakdown('browser')
+        builtDataVizLogic.actions.updateChartSettings({
+            resultCustomizations: { Safari: { assignmentBy: ResultCustomizationBy.Value, customColor: '#123456' } },
+        })
+        const series = logic.values.seriesBreakdownData.seriesData
+        expect(series.find((entry) => entry.breakdownValue === 'Safari')?.settings?.display?.color).toBe('#123456')
+        expect(series.find((entry) => entry.breakdownValue === 'Chrome')?.settings?.display?.color).toBeUndefined()
     })
 
     it.each([

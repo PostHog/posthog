@@ -20,9 +20,6 @@ const mocks = vi.hoisted(() => ({
   toastError: vi.fn(),
 }));
 
-vi.mock("@posthog/ui/features/feature-flags/useBluebirdFlag", () => ({
-  useBluebirdFlag: () => false,
-}));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => false,
 }));

@@ -6,11 +6,16 @@ import {
     type DashboardWidgetCatalogEntry,
 } from '@posthog/products-dashboards/frontend/widget_types/catalog'
 
-import { textCardConverter } from 'lib/components/Cards/TextCard/textCardMarkdown'
 import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 
-import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
-import { isFunnelsQuery, isMetricInsightQuery, isPathsQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
+import {
+    isFunnelsQuery,
+    isInsightVizNode,
+    isPathsQuery,
+    isRetentionQuery,
+    isTrendsQuery,
+} from '~/queries/schema/node-guards'
+import { isMetricInsightQuery } from '~/queries/utils'
 import { ChartDisplayType, DashboardLayoutSize, DashboardTile } from '~/types'
 
 import { getImageOnlyTextCardImage } from 'products/dashboards/frontend/components/ImageTile/imageTileUtils'
@@ -218,12 +223,13 @@ export const sortTilesByLayout = (tiles: Array<DashboardTile>, col: DashboardLay
         return 0
     })
 }
-export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<DashboardLayoutSize, Layout>> => {
+export const calculateLayouts = (
+    tiles: DashboardTile[],
+    { groupsShareGrid = false }: { groupsShareGrid?: boolean } = {}
+): Partial<Record<DashboardLayoutSize, Layout>> => {
     const allLayouts: Partial<Record<keyof typeof BREAKPOINT_COLUMN_COUNTS, Layout>> = {}
     const imageTileIds = new Set(
-        tiles
-            .filter((tile) => !!tile.text && !!getImageOnlyTextCardImage(textCardConverter, tile.text.body))
-            .map((tile) => tile.id)
+        tiles.filter((tile) => !!tile.text && !!getImageOnlyTextCardImage(tile.text.body)).map((tile) => tile.id)
     )
 
     // Always calculate sm layout first to establish reference order
@@ -243,7 +249,8 @@ export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<Dashboa
         }
 
         const layouts = (sortedDashboardTiles || []).map((tile) => {
-            const query = tile.insight ? getQueryBasedInsightModel(tile.insight) : null
+            const query = tile.insight?.query
+            const source = isInsightVizNode(query) ? query.source : query
             // Base constraints
             let defaultW = 6
             let defaultH = 5
@@ -251,19 +258,19 @@ export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<Dashboa
             if (tile.text) {
                 defaultW = 2
                 defaultH = 2
-            } else if (isFunnelsQuery(query)) {
+            } else if (isFunnelsQuery(source)) {
                 defaultW = 4
                 defaultH = 4
-            } else if (isRetentionQuery(query)) {
+            } else if (isRetentionQuery(source)) {
                 defaultW = 6
                 defaultH = 7
-            } else if (isPathsQuery(query)) {
+            } else if (isPathsQuery(source)) {
                 defaultW = columnCount // Paths take up so much space that they need to be full width to be readable
                 defaultH = 7
-            } else if (isTrendsQuery(query) && query.trendsFilter?.display === ChartDisplayType.BoldNumber) {
+            } else if (isTrendsQuery(source) && source.trendsFilter?.display === ChartDisplayType.BoldNumber) {
                 defaultW = 2
                 defaultH = 2
-            } else if (isMetricInsightQuery(query?.query)) {
+            } else if (isMetricInsightQuery(query)) {
                 defaultW = 3
                 defaultH = 3
             }
@@ -334,17 +341,39 @@ export const calculateLayouts = (tiles: DashboardTile[]): Partial<Record<Dashboa
         const cleanLayouts = layouts?.filter(({ y }) => y !== Infinity)
         const dirtyLayouts = layouts?.filter(({ y }) => y === Infinity)
 
-        // array of -1 for each column
-        const lowestPoints = Array.from(Array(columnCount)).map(() => -1)
-
-        // set the lowest point for each column
-        for (const { x, y, w, h } of cleanLayouts) {
-            for (let i = x; i <= x + w - 1; i++) {
-                lowestPoints[i] = Math.max(lowestPoints[i], y + h - 1)
+        // Each group lays out on its own, so a new tile fills a gap in its own group.
+        // Without sections every group renders in one grid, so they all count as one group.
+        const groupOf = new Map(
+            tiles.map((tile) => [tile.id?.toString(), groupsShareGrid ? null : (tile.group_key ?? null)])
+        )
+        const lowestPointsByGroup = new Map<string | null, number[]>()
+        const lowestPointsFor = (groupKey: string | null): number[] => {
+            let points = lowestPointsByGroup.get(groupKey)
+            if (!points) {
+                const groupLayouts = cleanLayouts.filter(({ i }) => groupOf.get(i) === groupKey)
+                // Groups sort by their top tile, so a grouped tile never goes above its group's top row.
+                const floor =
+                    groupKey === null || groupLayouts.length === 0
+                        ? -1
+                        : Math.min(...groupLayouts.map(({ y }) => y)) - 1
+                points = Array.from(Array(columnCount)).map(() => floor)
+                for (const { x, y, w, h } of groupLayouts) {
+                    for (let column = x; column <= x + w - 1; column++) {
+                        points[column] = Math.max(points[column], y + h - 1)
+                    }
+                }
+                // The first tile of an empty group goes below every other tile, so the group goes last.
+                if (groupLayouts.length === 0 && groupKey !== null) {
+                    const dashboardBottom = Math.max(-1, ...cleanLayouts.map(({ y, h }) => y + h - 1))
+                    points = points.map(() => dashboardBottom)
+                }
+                lowestPointsByGroup.set(groupKey, points)
             }
+            return points
         }
 
         for (const { i, w, h, minW, minH } of dirtyLayouts) {
+            const lowestPoints = lowestPointsFor(groupOf.get(i) ?? null)
             // how low are things in "w" consecutive of columns
             const segmentCount = columnCount - w + 1
             const lowestSegments = Array.from(Array(segmentCount)).map(() => -1)

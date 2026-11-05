@@ -623,9 +623,8 @@ def score_boundaries(
             score += 5
             parts.append("tach (no interfaces)")
             next_steps.append(
-                f'Add `interfaces = ["products.{name}.backend.facade.*", '
-                f'"products.{name}.backend.presentation.*"]` to the [[modules]] entry in '
-                f"tach.toml so tach enforces what's public."
+                f"Add {name} to the `from` regex of the shared [[interfaces]] block in tach.toml that "
+                f"exposes `backend.facade.*` and `backend.presentation.views.*`, so tach enforces what's public."
             )
 
         # Cross-product depends_on: each one is an explicit coupling
@@ -645,8 +644,9 @@ def score_boundaries(
     else:
         parts.append("not in tach.toml")
         next_steps.append(
-            f"Add a [[modules]] entry for products.{name} to tach.toml with explicit "
-            f"`depends_on` and `interfaces`. Without it, tach won't catch boundary regressions."
+            f"Add a [[modules]] entry for products.{name} to tach.toml with an explicit "
+            f"`depends_on`, and name it in an [[interfaces]] block. Without them, tach won't catch "
+            f"boundary regressions."
         )
 
     # Outbound: this product importing other products' internals
@@ -924,10 +924,40 @@ def _dim_line(dim: DimensionScore, connector: str = "\u251c\u2500") -> str:
     return f"  {connector} {dim.name:14s}  {dim.score:3d}  {_bar(dim.score)}  {dim.detail}"
 
 
+def _blocking_facade_classes(status: IsolationStatus) -> list[str]:
+    """Classes the facade hands out that withhold the skip on a Sealed product (product:lint gates on the same two lists)."""
+    return sorted({c.class_name for c in (*status.facade_leaks, *status.unapproved_wiring)})
+
+
+def _class_list(names: set[str]) -> str:
+    shown = sorted(names)
+    return ", ".join(shown[:5]) + (f" +{len(shown) - 5} more" if len(shown) > 5 else "")
+
+
+def _blocked_reason(status: IsolationStatus) -> str:
+    """Each list needs a different move: a leak can go to contracts or a wiring location, wiring is already there."""
+    reasons = []
+    leaks = {c.class_name for c in status.facade_leaks}
+    if leaks:
+        reasons.append(
+            f"facade hands out {len(leaks)} non-contract class(es) ({_class_list(leaks)}): "
+            "convert them to contracts or move them to a wiring location"
+        )
+    wiring = {c.class_name for c in status.unapproved_wiring}
+    if wiring:
+        reasons.append(
+            f"{len(wiring)} wiring class(es) have no confirmed approved interface ({_class_list(wiring)}): "
+            "return contracts from a facade function, register a plain function, or use an approved base"
+        )
+    return "; ".join(reasons) + " (see product:lint)"
+
+
 def _isolated_tests_state(status: IsolationStatus) -> tuple[str, str]:
     """(state, reason) for the isolated-tests certificate \u2014 the contract-check skip."""
     if status.test_skip_configured:
         return "ON", "contract-check skip live \u2014 Django suite stays off unrelated CI shards"
+    if status.is_sealed and _blocking_facade_classes(status):
+        return "BLOCKED", _blocked_reason(status)
     if status.is_sealed:
         missing = []
         if not status.has_contract_check_script:
@@ -997,7 +1027,7 @@ def _isolation_capstone(status: IsolationStatus) -> list[str]:
     return lines
 
 
-SEAL_LEGEND = "seal: on=tests live  ready=eligible, not wired  int:N=N internal bypasses open  ext\u2717=external boundary open  \u2014=Lenient (no facade contracts)"
+SEAL_LEGEND = "seal: on=tests live  ready=eligible, not wired  cls:N=facade hands out N non-contract classes  int:N=N internal bypasses open  ext\u2717=external boundary open  \u2014=Lenient (no facade contracts)"
 
 
 def _seal_token(status: IsolationStatus | None) -> str:
@@ -1011,6 +1041,9 @@ def _seal_token(status: IsolationStatus | None) -> str:
     if status.deferred_count > 0:
         # externally sealed but internally unsealed \u2014 looks done, isn't
         return f"int:{status.deferred_count}"
+    blocking = _blocking_facade_classes(status)
+    if status.is_sealed and blocking:
+        return f"cls:{len(blocking)}"
     if status.is_sealed:
         return "ready"
     return "partial"

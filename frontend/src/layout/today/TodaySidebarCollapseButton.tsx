@@ -25,7 +25,7 @@ export function TodaySidebarCollapseButton(): JSX.Element {
     const { toggleSidebar } = useActions(todayShellLogic)
 
     return (
-        <Tooltip>
+        <Tooltip disableHoverablePopup>
             <TooltipTrigger
                 delay={0}
                 render={

@@ -8,6 +8,7 @@ url_pattern, the option keys that encode source location on a direct table) live
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 import structlog
 
@@ -20,10 +21,12 @@ from products.data_warehouse.backend.direct_trino import (
 )
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
+    get_direct_external_data_source_for_connection,
     get_schemas_for_direct_reconciliation,
     trino_column_to_dwh_column,
     trino_columns_to_dwh_columns,
 )
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.facade.source_management import (
     SourceSchema,
     extract_available_column_names,
@@ -42,7 +45,7 @@ type TrinoSourceLocation = tuple[str | None, str, str]  # (database, schema, tab
 
 
 def get_default_trino_catalog(source: ExternalDataSource) -> str | None:
-    catalog = (source.job_inputs or {}).get("catalog")
+    catalog = SourceInputsStore.load(source).get("catalog")
     return catalog if isinstance(catalog, str) and catalog.strip() else None
 
 
@@ -162,6 +165,13 @@ def get_trino_source_location_for_schema_model(
         schema_metadata=None,
         default_catalog=default_catalog,
     )
+
+
+def reconcile_managed_trino_schemas(*, source_id: UUID, source_schemas: list[SourceSchema], team_id: int) -> list[str]:
+    source = get_direct_external_data_source_for_connection(team_id, str(source_id))
+    if source is None or not source.is_dynamic_managed_warehouse:
+        raise ValueError("Source is not a dynamic managed warehouse connection")
+    return reconcile_trino_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
 
 
 def reconcile_trino_schemas(

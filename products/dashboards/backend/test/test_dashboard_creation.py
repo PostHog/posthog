@@ -16,6 +16,7 @@ from products.dashboards.backend.facade.dashboard_creation import (
     create_dashboard_with_tiles,
 )
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 
 def _dashboard(key: str = "import-1") -> NewDashboard:
@@ -66,3 +67,20 @@ class TestCreateDashboardWithTiles(APIBaseTest):
 
         assert (created.insight_count, created.text_tile_count) == (1, 1)
         assert list(Dashboard.objects.filter(team=self.team).values_list("id", flat=True)) == [created.id]
+
+    @parameterized.expand([("default", None), ("hidden", False)])
+    def test_sets_whether_an_insight_tile_shows_its_description(self, _name: str, show: bool | None) -> None:
+        tile = NewInsightTile(
+            name="Requests",
+            description="Requests per second",
+            query={"kind": "MetricsQuery", "language": "promql", "promql": "up", "clauses": []},
+            layout=TileLayout(x=0, y=0, w=6, h=3),
+            show_description=show,
+        )
+        created = create_dashboard_with_tiles(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            dashboard=NewDashboard(name="Imported", description="", idempotency_key="import-2", tiles=(tile,)),
+        )
+
+        assert DashboardTile.objects.get(id=created.tile_ids[0]).show_description is show

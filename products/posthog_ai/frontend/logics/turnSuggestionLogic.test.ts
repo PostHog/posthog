@@ -95,6 +95,19 @@ describe('turnSuggestionLogic', () => {
         })
     })
 
+    it('keeps an expanded card expanded after its row unmounts and mounts again', async () => {
+        await mountStreamWithSuggestion()
+        const card = { streamKey: STREAM_KEY, turnIndex: 1, sessionId: 'task', revealDelayMs: 0 }
+
+        const unmount = turnSuggestionLogic(card).mount()
+        expect(turnSuggestionLogic(card).values.expanded).toBe(false)
+        turnSuggestionLogic(card).actions.expand()
+        unmount()
+
+        turnSuggestionLogic(card).mount()
+        expect(turnSuggestionLogic(card).values.expanded).toBe(true)
+    })
+
     it('records no accept when the accept skipped the create', async () => {
         const stream = await mountStreamWithSuggestion()
         const card = { streamKey: STREAM_KEY, turnIndex: 1, sessionId: 'task', revealDelayMs: 0 }

@@ -1,7 +1,6 @@
-import { MetricsSDKInstructions } from 'scenes/onboarding/legacy/sdks/metrics/MetricsSDKInstructions'
-import { OnboardingInstallStep } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep'
-import { type ProductOnboardingProvider } from 'scenes/onboarding/legacy/types'
-import { urls } from 'scenes/urls'
+import { MetricsSDKInstructions } from 'scenes/onboarding/sdks/metrics/MetricsSDKInstructions'
+import { OnboardingInstallStep } from 'scenes/onboarding/sdks/OnboardingInstallStep'
+import { type ProductOnboardingProvider } from 'scenes/onboarding/types'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
@@ -21,5 +20,4 @@ export const metricsOnboarding: ProductOnboardingProvider = {
             render: () => <OnboardingInstallStep sdkInstructionMap={MetricsSDKInstructions} hideInstallationCheck />,
         },
     ],
-    completeRedirectUrl: () => urls.metrics(),
 }

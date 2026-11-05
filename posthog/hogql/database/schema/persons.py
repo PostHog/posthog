@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Optional, Self, cast
+from typing import Optional, Self, cast
 
 import posthoganalytics
 
@@ -24,15 +24,16 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.persons_pdi import PersonsPDITable
 from posthog.hogql.database.schema.persons_revenue_analytics import PersonsRevenueAnalyticsTable
-from posthog.hogql.database.schema.util.where_clause_extractor import WhereClauseExtractor, top_level_conjuncts
+from posthog.hogql.database.schema.util.where_clause_extractor import (
+    WhereClauseExtractor,
+    is_nondeterministic_function,
+    top_level_conjuncts,
+)
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.schema_enums import PersonsArgMaxVersion
-
-if TYPE_CHECKING:
-    from posthog.models.organization import Organization
 
 PERSONS_FIELDS: dict[str, FieldOrTable] = {
     "id": UUIDDatabaseField(
@@ -122,6 +123,8 @@ def select_from_persons_table(
         and_conditions.append(filter)
 
     # For now, only do this optimization for directly querying the persons table (without joins or as part of a subquery) to avoid knock-on effects to insight queries
+    # The SELECT id FROM persons that transforms/negated_person_filters.py emits inside NOT IN has persons as its own
+    # FROM, so it takes this path and reads only the persons that fail its filters.
     if (
         node.select_from
         and node.select_from.type
@@ -268,20 +271,16 @@ def select_from_persons_table(
     return select
 
 
-# These return different values in the subquery and in the outer query.
-_NONDETERMINISTIC_FUNCTIONS = frozenset({"rand", "rownumberinblock", "rownumberinallblocks", "nowinblock"})
-
-
 class _CopyableConjunctVisitor(TraversingVisitor):
-    def __init__(self, table_type: ast.Type):
+    def __init__(self, table_types: tuple[ast.Type, ...]):
         super().__init__()
-        self.table_type = table_type
+        self.table_types = table_types
         self.reads_table = False
         self.copyable = True
 
     def visit_field(self, node: ast.Field):
         field_type = node.type.field_type if isinstance(node.type, ast.PropertyType) else node.type
-        if isinstance(field_type, ast.FieldType) and field_type.table_type is self.table_type:
+        if isinstance(field_type, ast.FieldType) and any(field_type.table_type is t for t in self.table_types):
             self.reads_table = True
         else:
             self.copyable = False
@@ -294,7 +293,7 @@ class _CopyableConjunctVisitor(TraversingVisitor):
         self.copyable = False
 
     def visit_call(self, node: ast.Call):
-        if node.name.lower() in _NONDETERMINISTIC_FUNCTIONS:
+        if is_nondeterministic_function(node.name):
             self.copyable = False
         super().visit_call(node)
 
@@ -328,12 +327,20 @@ def build_person_id_pushdown_predicate(join_to_add: LazyJoinToAdd, node: SelectQ
     its person columns.
     Returns None unless the left table is the query's own FROM table and at least one term qualifies.
     """
-    left = node.select_from
+    # A lazy left table, such as the union of events and flag_evaluations, is already a subquery in `node`. Its recorded
+    # scan holds the FROM entry as the query wrote it.
+    scan = join_to_add.from_scan
+    left = scan.join if scan is not None else node.select_from
+    left_types: tuple[ast.Type, ...] = (
+        scan.types if scan is not None else (left.type,) if left is not None and left.type is not None else ()
+    )
     if (
         left is None
         or not isinstance(left.table, ast.Field)
         or left.table_args
-        or left.type is not join_to_add.lazy_join_type.table_type
+        or not left_types
+        or left_types[0] is not join_to_add.lazy_join_type.table_type
+        or (scan is not None and (node.select_from is None or node.select_from.alias != join_to_add.from_table))
     ):
         return None
 
@@ -343,7 +350,7 @@ def build_person_id_pushdown_predicate(join_to_add: LazyJoinToAdd, node: SelectQ
         if where is None:
             continue
         for conjunct in top_level_conjuncts(where):
-            visitor = _CopyableConjunctVisitor(left.type)
+            visitor = _CopyableConjunctVisitor(left_types)
             visitor.visit(conjunct)
             if visitor.copyable and visitor.reads_table:
                 conjuncts.append(cloner.visit(conjunct))
@@ -367,6 +374,30 @@ def build_person_id_pushdown_predicate(join_to_add: LazyJoinToAdd, node: SelectQ
     )
 
 
+def persons_join_is_inner(context: HogQLContext) -> bool:
+    """True when the persons join drops each row that has no persons row."""
+    team = context.team
+    if team is None or team.organization is None:
+        raise ResolutionError("Organization is required to join with persons table")
+    organization = team.organization
+    # TODO: @raquelmsmith: Remove flag check and use left join for all once deletes are caught up
+    return bool(
+        posthoganalytics.feature_enabled(
+            "personless-events-not-supported",
+            str(team.uuid),
+            groups={"organization": str(organization.id)},
+            group_properties={
+                "organization": {
+                    "id": str(organization.id),
+                    "created_at": organization.created_at,
+                }
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    )
+
+
 def join_with_persons_table(
     join_to_add: LazyJoinToAdd,
     context: HogQLContext,
@@ -379,31 +410,7 @@ def join_with_persons_table(
     pushdown = build_person_id_pushdown_predicate(join_to_add, node) if context.modifiers.personIdPushdown else None
     join_expr = ast.JoinExpr(table=select_from_persons_table(join_to_add, context, node, filter=pushdown))
 
-    organization: Organization | None = context.team.organization if context.team else None
-    if organization is None:
-        raise ResolutionError("Organization is required to join with persons table")
-    # TODO: @raquelmsmith: Remove flag check and use left join for all once deletes are caught up
-    use_inner_join = (
-        posthoganalytics.feature_enabled(
-            "personless-events-not-supported",
-            str(context.team.uuid),
-            groups={"organization": str(organization.id)},
-            group_properties={
-                "organization": {
-                    "id": str(organization.id),
-                    "created_at": organization.created_at,
-                }
-            },
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-        if organization and context.team
-        else False
-    )
-    if use_inner_join:
-        join_expr.join_type = "INNER JOIN"
-    else:
-        join_expr.join_type = "LEFT JOIN"
+    join_expr.join_type = "INNER JOIN" if persons_join_is_inner(context) else "LEFT JOIN"
 
     join_expr.alias = join_to_add.to_table
     join_expr.constraint = ast.JoinConstraint(

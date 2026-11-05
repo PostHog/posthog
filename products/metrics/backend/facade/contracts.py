@@ -42,7 +42,18 @@ from .enums import (
 # Each clause runs its own ClickHouse query on the shared logs cluster, so
 # the clause count per request is hard-capped.
 MAX_CLAUSES_PER_QUERY = 10
+DEFAULT_QUERY_COUNT_DAYS = 30
+MAX_QUERY_COUNT_DAYS = 90
+MAX_PROMQL_LENGTH = 8192
 MAX_SPARKLINE_BATCH_SIZE = 20
+
+
+class MetricQueryTooManyRowsError(ValueError):
+    """The query has more (time bucket, series) rows than the row budget allows.
+
+    A caller can retry with a coarser interval, because fewer buckets give fewer rows.
+    """
+
 
 # Private-alpha gate. Every read surface (viewset, query runner, MCP tools)
 # must check the same flag, or one of them becomes a bypass.
@@ -125,6 +136,9 @@ class MetricQueryRequest:
     date_to: dt.datetime
     interval: str | None = None
     formula: str | None = None
+    # False leaves a bucket without data as a None point (a gap), so a mean over the points skips it.
+    # A formula needs aligned values, so it requires the zero fill.
+    zero_fill: bool = True
 
     def __post_init__(self) -> None:
         if not self.clauses:
@@ -133,6 +147,8 @@ class MetricQueryRequest:
             raise ValueError(f"at most {MAX_CLAUSES_PER_QUERY} clauses are allowed per query")
         if self.date_to <= self.date_from:
             raise ValueError("date_to must be after date_from")
+        if self.formula is not None and not self.zero_fill:
+            raise ValueError("a formula requires zero_fill")
         names = [c.name for c in self.clauses]
         if len(names) != len(set(names)):
             raise ValueError("clause names must be unique")
@@ -159,9 +175,13 @@ class MetricSeries:
     points: tuple[MetricPoint, ...]
     metric_name: str | None = None
     clause: str | None = None
-    # UCUM unit of the metric as ingested (e.g. "By", "ms"). Empty when the SDK
-    # did not set one. Set by `run_metric_query`, not by callers.
+    # UCUM unit of the values in `points` (e.g. "By", "ms", "ms/s"). It differs
+    # from the ingested unit when the clause transforms the values: COUNT has no
+    # unit and RATE is per second. Set by `run_metric_query`, not by callers.
     unit: str | None = None
+    # Bucket upper edges a histogram quantile was estimated from, merged over every
+    # point. The estimate can be anywhere between two edges. None for other aggregations.
+    histogram_bounds: tuple[float, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -393,6 +413,21 @@ class MetricsOverview:
     services: tuple[MetricsServiceOverview, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class MetricQueryCount:
+    """How often queries read one metric of a team inside a window of days.
+
+    A query counts once for each metric that it selects, whatever the number of clauses or selectors that name it.
+    Builder, heatmap and PromQL queries count, from the app, alerts and the Prometheus API.
+    SQL mode queries do not count.
+    A PromQL selector that names no metric, such as `{__name__=~"http_.*"}`, counts nothing.
+    """
+
+    metric_name: str
+    query_count: int
+    last_queried_at: dt.datetime
+
+
 class DashboardImportError(ValueError):
     """A dashboard import cannot start or continue. The message is safe to show to the user."""
 
@@ -531,3 +566,14 @@ class SuggestedDashboardError(Exception):
 
 class SuggestedDashboardNotFound(SuggestedDashboardError):
     pass
+
+
+class PromQLQueryError(ValueError):
+    """A PromQL query that Snuffle rejected or could not run. The message is safe to show.
+
+    `transient` says the backend failed rather than the query, so the same query can succeed later.
+    """
+
+    def __init__(self, message: str, *, transient: bool = False) -> None:
+        super().__init__(message)
+        self.transient = transient

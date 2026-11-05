@@ -1,13 +1,17 @@
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconPlusSmall } from '@posthog/icons'
+import { IconPlus, IconPlusSmall } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { FeedbackSurveyButton } from 'lib/components/FeedbackSurveyButton/FeedbackSurveyButton'
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -27,6 +31,9 @@ import { PromptLabelChip } from './PromptLabelChip'
 import { LLMPrompt } from './types'
 import { openArchivePromptDialog, openDuplicatePromptDialog, stripPromptSceneSearchParams } from './utils'
 
+// "Prompts open feedback" survey, opened only via the feedback button (its URL targeting never matches).
+const PROMPTS_FEEDBACK_SURVEY_ID = '01a0f8a7-bea2-0000-5f58-c8c69e4b7a3b'
+
 export const scene: SceneExport = {
     component: LLMPromptsScene,
     logic: llmPromptsLogic,
@@ -40,6 +47,7 @@ export function LLMPromptsScene(): JSX.Element {
     const { prompts, promptsLoading, sorting, pagination, filters, promptCountLabel, restoringPromptName } =
         useValues(llmPromptsLogic)
     const { searchParams } = useValues(router)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const promptUrl = (name: string): string =>
         combineUrl(urls.aiObservabilityPrompt(name), stripPromptSceneSearchParams(searchParams)).url
     const showingArchived = !!filters.archived
@@ -201,19 +209,36 @@ export function LLMPromptsScene(): JSX.Element {
                 description="Track and manage your LLM prompts."
                 resourceType={{ type: 'llm_prompts' }}
                 actions={
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonButton
-                            type="primary"
-                            to={promptUrl('new')}
-                            icon={<IconPlusSmall />}
-                            data-attr="new-prompt-button"
+                    <>
+                        <FeedbackSurveyButton
+                            surveyId={PROMPTS_FEEDBACK_SURVEY_ID}
+                            data-attr="prompts-feedback-button"
+                        />
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            minAccessLevel={AccessControlLevel.Editor}
                         >
-                            New prompt
-                        </LemonButton>
-                    </AccessControlAction>
+                            {todayRailNav ? (
+                                <Button
+                                    variant="primary"
+                                    render={<LinkPrimitive to={promptUrl('new')} />}
+                                    data-attr="new-prompt-button"
+                                >
+                                    <IconPlus />
+                                    New prompt
+                                </Button>
+                            ) : (
+                                <LemonButton
+                                    type="primary"
+                                    to={promptUrl('new')}
+                                    icon={<IconPlusSmall />}
+                                    data-attr="new-prompt-button"
+                                >
+                                    New prompt
+                                </LemonButton>
+                            )}
+                        </AccessControlAction>
+                    </>
                 }
             />
 

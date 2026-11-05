@@ -17,7 +17,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from enum import StrEnum
 from math import ceil
 from typing import Any, Final, cast
-from uuid import UUID
+from uuid import UUID, uuid5
 
 import pytz
 from dateutil.relativedelta import relativedelta
@@ -53,6 +53,30 @@ def compute_shard_offset_seconds(
     return shard_index * schedule_interval_seconds
 
 
+# uuid5 keeps sequential team IDs from filling the slots in a pattern. Production logs alerting
+# keys on this namespace too, so changing it moves every logs alert to a new slot.
+_TEAM_SHARD_NAMESPACE = UUID("4f2c9a1e-5b7d-4e8a-9c3f-6d1b2a7e8f90")
+
+
+def compute_team_shard_offset_seconds(
+    team_id: int,
+    check_interval_minutes: int,
+    *,
+    group: str | None = None,
+    schedule_interval_seconds: int = DEFAULT_SCHEDULE_INTERVAL_SECONDS,
+) -> int:
+    """One slot for all of a team's alerts in `group` on a cadence, for a source that answers them
+    with one query per slot. A per-alert offset splits them across slots, and each slot then runs
+    its own query. Different groups spread across slots, so one slot does not collect every
+    query the team needs."""
+    key = str(team_id) if group is None else f"{team_id}:{group}"
+    return compute_shard_offset_seconds(
+        uuid5(_TEAM_SHARD_NAMESPACE, key),
+        check_interval_minutes,
+        schedule_interval_seconds=schedule_interval_seconds,
+    )
+
+
 def advance_next_check_at(
     current_next_check_at: datetime | None,
     check_interval_minutes: int,
@@ -67,7 +91,7 @@ def advance_next_check_at(
     it. Snapping to the cadence grid aligns every alert sharing a cadence onto
     the same canonical grid regardless of when it was created.
 
-    `shard_offset_seconds` shifts the canonical grid per-alert to spread load
+    `shard_offset_seconds` shifts the canonical grid per alert or per team to spread load
     across cron fires. Existing drifted alerts heal lazily on their next run.
     """
     if check_interval_minutes <= 0:
@@ -177,7 +201,7 @@ def _calendar_anchor_utc(
     return _localize_wall_time(team_timezone, naive_local).astimezone(UTC)
 
 
-def _local_period_start(timestamp: datetime, team_timezone: BaseTzInfo, period_minutes: int) -> datetime:
+def local_period_start(timestamp: datetime, team_timezone: BaseTzInfo, period_minutes: int) -> datetime:
     """Start of the local-time period of `period_minutes` that contains `timestamp`.
 
     The start is found on the local wall clock. A 30-minute DST change (Australia/Lord_Howe) moves the
@@ -193,7 +217,7 @@ def _local_period_start(timestamp: datetime, team_timezone: BaseTzInfo, period_m
     return _localize_wall_time(team_timezone, wall_start, repeated_is_dst=bool(local.dst())).astimezone(UTC)
 
 
-def _next_local_period_start(after: datetime, team_timezone: BaseTzInfo, period_minutes: int) -> datetime:
+def next_local_period_start(after: datetime, team_timezone: BaseTzInfo, period_minutes: int) -> datetime:
     """First start of a local-time period of `period_minutes` that is later than `after`.
 
     A DST change can make a local period longer or shorter than `period_minutes`. A 30-minute change
@@ -203,10 +227,10 @@ def _next_local_period_start(after: datetime, team_timezone: BaseTzInfo, period_
     """
     step = timedelta(minutes=min(period_minutes, 15))
     probe = after + step
-    start = _local_period_start(probe, team_timezone, period_minutes)
+    start = local_period_start(probe, team_timezone, period_minutes)
     while start <= after:
         probe += step
-        start = _local_period_start(probe, team_timezone, period_minutes)
+        start = local_period_start(probe, team_timezone, period_minutes)
     return start
 
 
@@ -341,9 +365,9 @@ def next_calendar_check_time(
             cadence_minutes = EVERY_15_MINUTES_CADENCE_MINUTES if interval == CalendarInterval.EVERY_15_MINUTES else 60
             # The check runs at this alert's offset into the first local interval after the previous check,
             # which also moves an alert off the minute it was created on.
-            candidate = _next_local_period_start(next_check_at or now, team_timezone, cadence_minutes) + offset
+            candidate = next_local_period_start(next_check_at or now, team_timezone, cadence_minutes) + offset
             if candidate <= now:
-                candidate = _next_local_period_start(now - offset, team_timezone, cadence_minutes) + offset
+                candidate = next_local_period_start(now - offset, team_timezone, cadence_minutes) + offset
             return candidate
         case CalendarInterval.DAILY:
             return _calendar_anchor_utc(
@@ -388,6 +412,15 @@ def to_recurrence_interval(recurrence_unit: str) -> CalendarInterval:
         raise ValueError(f"Unhandled recurrence unit: {recurrence_unit!r}") from None
 
 
+# The minute cadences `next_calendar_check_time` also schedules, so a keyed configuration on one of
+# them can follow the source's own stack.
+_KEYED_MINUTE_CADENCES: Final[dict[int, CalendarInterval]] = {
+    REAL_TIME_CADENCE_MINUTES: CalendarInterval.REAL_TIME,
+    EVERY_15_MINUTES_CADENCE_MINUTES: CalendarInterval.EVERY_15_MINUTES,
+    60: CalendarInterval.HOURLY,
+}
+
+
 def advance_schedule(
     *,
     current_next_check_at: datetime | None,
@@ -398,6 +431,8 @@ def advance_schedule(
     now: datetime,
     configuration_id: UUID | str,
     shard_offset_seconds: int = 0,
+    schedule_key: UUID | str | None = None,
+    blocked_windows: list[BlockedWindow] | None = None,
 ) -> datetime:
     """When a configuration is next due, by whichever recurrence it carries.
 
@@ -409,22 +444,81 @@ def advance_schedule(
     due in the same minute slot. Spreading those would move a time the user chose. A calendar
     unit without an anchor has no chosen time, so `next_calendar_check_time` spreads it after the
     interval boundary by `configuration_id`, as it does for an insight alert.
+
+    `schedule_key` names the alert the source's own stack times this one by. With it, a 15-minute
+    or hourly cadence follows that stack's local interval boundary and offset rather than the UTC
+    grid and shard, a real-time cadence steps from the previous due time as that stack does, a
+    calendar unit spreads by the key rather than by `configuration_id`, and a
+    check that would land in `blocked_windows` moves out of it the way that stack moves it. Without
+    a key, quiet hours never move the schedule: the check runs and only its announcement is held.
     """
     if recurrence_unit is None:
+        keyed_interval = _KEYED_MINUTE_CADENCES.get(check_interval_minutes)
+        if schedule_key is not None and keyed_interval is not None:
+            candidate = next_calendar_check_time(
+                keyed_interval,
+                now=now,
+                tz_name=tz_name,
+                next_check_at=current_next_check_at,
+                alert_id=schedule_key,
+                schedule_start_time=anchor_time,
+            )
+            return snap_out_of_blocked_windows(
+                candidate,
+                tz_name,
+                blocked_windows,
+                interval=keyed_interval,
+                alert_id=schedule_key,
+                anchored=anchor_time is not None,
+            )
         return advance_next_check_at(
             current_next_check_at,
             check_interval_minutes,
             now,
             shard_offset_seconds=shard_offset_seconds,
         )
-    return next_calendar_check_time(
-        to_recurrence_interval(recurrence_unit),
+    interval = to_recurrence_interval(recurrence_unit)
+    candidate = next_calendar_check_time(
+        interval,
         now=now,
         tz_name=tz_name,
         next_check_at=current_next_check_at,
-        alert_id=configuration_id,
+        alert_id=schedule_key if schedule_key is not None else configuration_id,
         schedule_start_time=anchor_time,
     )
+    if schedule_key is None:
+        return candidate
+    return snap_out_of_blocked_windows(
+        candidate, tz_name, blocked_windows, interval=interval, alert_id=schedule_key, anchored=anchor_time is not None
+    )
+
+
+def snap_out_of_blocked_windows(
+    candidate_utc: datetime,
+    tz_name: str,
+    windows: list[BlockedWindow] | None,
+    *,
+    interval: CalendarInterval,
+    alert_id: UUID | str,
+    anchored: bool,
+) -> datetime:
+    """The first unblocked minute at or after `candidate_utc`, the way an insight alert's check moves.
+
+    A snap lands on the end of a quiet window, which is usually on the hour, so every alert behind
+    the same window would check at once. An alert without a chosen start time adds its offset to
+    spread them again, unless the offset lands back in a window.
+    """
+    if not windows:
+        return candidate_utc
+    normalized = candidate_utc.astimezone(UTC).replace(second=0, microsecond=0)
+    snapped = scan_next_unblocked_utc(normalized, tz_name, windows)
+    if snapped is None:
+        # Every minute in the scan is blocked. Try again a day later rather than never.
+        return normalized + timedelta(days=1)
+    if snapped == normalized or anchored:
+        return snapped
+    offset_snap = snapped + alert_check_offset(interval, alert_id)
+    return snapped if is_utc_datetime_blocked(offset_snap, tz_name, windows) else offset_snap
 
 
 # --- Quiet hours (blocked local time windows) ---

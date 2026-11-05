@@ -128,7 +128,7 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
                     staticForceOverflowTokens: splitTokens(config.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID),
                 })
             )
-            .add('eventFilterManager', new EventFilterManagerComponent(container.postgres))
+            .add('eventFilterManager', new EventFilterManagerComponent(container.postgres, { pipeline: 'ai' }))
             // Dedicated 'ai' keyspace so AI overflow never affects analytics.
             .add(
                 'overflowRedirectService',

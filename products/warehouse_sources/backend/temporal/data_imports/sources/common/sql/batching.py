@@ -128,22 +128,38 @@ def _page_rows(largest_row_bytes: int, *, max_rows: int, max_bytes: int, max_pag
     return max(1, min(ceiling, max_bytes // largest_row_bytes))
 
 
+def page_rows_after_worker_deaths(page_rows: int, worker_deaths: int) -> int:
+    """The page ceiling for a run whose worker has died `worker_deaths` times.
+
+    A page that is too large does not raise. The kernel kills the worker, and the next attempt
+    reads the same rows again at the same size. Each death halves the page for the rest of the run.
+    """
+    return max(1, page_rows >> min(worker_deaths, 30))
+
+
 def fetch_row_batches(
     fetch: Callable[[int], Sequence[RowT] | None],
     *,
     max_rows: int,
     max_bytes: int | None = None,
     max_page_rows: int | None = None,
+    size_pages_by_average: bool = False,
 ) -> Iterator[list[RowT]]:
     """Yield row batches bounded by `max_rows` and by accumulated bytes.
 
     `fetch(n)` returns up to `n` rows, and an empty sequence (or None, which some DB-API
     drivers return instead) once the result set is drained — `cursor.fetchmany` for a driver,
     `iter_row_batches` for an already-streaming source.
-    It is called with a page size derived from the widest row seen so far, never with
+    It is called with a page size derived from the rows seen so far, never with
     `max_rows` outright, so the caller's chunk size bounds the batch and not the fetch.
 
     `max_page_rows` is a caller-imposed ceiling, for a driver whose own limits cap a single fetch.
+
+    `size_pages_by_average` is for a driver that pays a query and a round trip per fetch. The
+    default sizes a page as if every row were as wide as the widest row seen, which costs a
+    streaming driver nothing. A paging driver pays for it on every table that mixes narrow rows
+    with an occasional wide one: its pages stay small for the whole read. With this set, a page is
+    sized from the average row of the pages before it, so only a run of wide rows shrinks it.
     """
     budget = EXTRACT_BATCH_MAX_BYTES if max_bytes is None else max_bytes
     page_ceiling = max_page_rows or MAX_FETCH_PAGE_ROWS
@@ -151,10 +167,12 @@ def fetch_row_batches(
     batch: list[RowT] = []
     batch_bytes = 0
     largest_row_bytes = 0
+    average_row_bytes = 0
     page_rows = _page_rows(0, max_rows=max_rows, max_bytes=budget, max_page_rows=page_ceiling)
 
     while True:
-        page = fetch(page_rows)
+        requested_rows = page_rows
+        page = fetch(requested_rows)
         if not page:
             break
 
@@ -180,22 +198,31 @@ def fetch_row_batches(
                 batch = []
                 batch_bytes = 0
 
-        # Hand over a batch that leaves no room for another page rather than holding it while that
-        # page lands. A batch carried across a fetch is resident *alongside* it, so the two peak
-        # together; flushing here makes residency one or the other. The next page is sized from
-        # the same estimate as the one just read, which is what makes its size predictable enough
-        # to budget for. Below that, a batch still spans as many fetches as it takes to fill —
-        # a driver reading 1000 rows at a time would otherwise yield a batch per fetch.
-        if batch and batch_bytes + page_bytes > budget:
-            yield batch
-            batch = []
-            batch_bytes = 0
-
         # Halving rather than forgetting: a table with one outsized row among millions would
         # otherwise stay stuck on tiny pages for the rest of the read, and one that has genuinely
         # widened re-shrinks on its very next page anyway.
         largest_row_bytes = max(widest_in_page, largest_row_bytes // 2)
-        page_rows = _page_rows(largest_row_bytes, max_rows=max_rows, max_bytes=budget, max_page_rows=page_ceiling)
+        # The average halves too. A short page of narrow rows inside a run of wide rows would
+        # otherwise send the next page back to the ceiling, into the wide rows that follow.
+        average_row_bytes = max(-(-page_bytes // len(page)), average_row_bytes // 2)
+        row_bytes_for_next_page = average_row_bytes if size_pages_by_average else largest_row_bytes
+        page_rows = _page_rows(row_bytes_for_next_page, max_rows=max_rows, max_bytes=budget, max_page_rows=page_ceiling)
+
+        # Hand over a batch that leaves no room for another page rather than holding it while that
+        # page lands. A batch carried across a fetch is resident *alongside* it, so the two peak
+        # together; flushing here makes residency one or the other. The widest-row estimate sizes
+        # the next page like the one just read, so that page predicts it. The average can grow the
+        # next page, so there the prediction is the page it is about to ask for. A driver that
+        # returned fewer rows than it was asked for has a limit of its own, and the prediction
+        # keeps to that limit, or every one of its short pages would become a batch. Below that, a
+        # batch still spans as many fetches as it takes to fill — a driver reading 1000 rows at a
+        # time would otherwise yield a batch per fetch.
+        next_page_rows = page_rows if len(page) >= requested_rows else min(page_rows, len(page))
+        next_page_bytes = next_page_rows * average_row_bytes if size_pages_by_average else page_bytes
+        if batch and batch_bytes + next_page_bytes > budget:
+            yield batch
+            batch = []
+            batch_bytes = 0
 
     if batch:
         yield batch

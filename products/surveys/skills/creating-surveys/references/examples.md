@@ -10,6 +10,7 @@ against the project before adding them.
 {
   "name": "Product recommendation feedback",
   "type": "popover",
+  "enable_partial_responses": true,
   "questions": [
     {
       "type": "rating",
@@ -27,7 +28,37 @@ against the project before adding them.
 ```
 
 This has no audience restriction. Add the user's intended display conditions
-and targeting before launch. For CSAT, use a satisfaction question and scale 5.
+and targeting before launch.
+
+## In-app CSAT after an action
+
+```json
+{
+  "name": "Export satisfaction",
+  "type": "popover",
+  "enable_partial_responses": true,
+  "questions": [
+    {
+      "type": "rating",
+      "question": "How satisfied are you with this export?",
+      "display": "emoji",
+      "scale": 5
+    },
+    {
+      "type": "open",
+      "question": "What would make it better?",
+      "optional": true
+    }
+  ],
+  "conditions": {
+    "events": { "values": [{ "name": "export_completed" }] }
+  }
+}
+```
+
+Replace `export_completed` with an event the project already captures at that
+moment. The survey shows only after the event fires, which is when the person
+can answer.
 
 ## Hosted feedback form
 

@@ -571,7 +571,7 @@ class EntitySearchContext:
             case "experiment":
                 return f"{base_url}/experiments/{result_id}"
             case "feature_flag":
-                return f"{base_url}/feature_flags/{result_id}"
+                return f"{base_url}/feature-flags/{result_id}"
             case "notebook":
                 return f"{base_url}/notebooks/{result_id}"
             case "action":
@@ -581,7 +581,7 @@ class EntitySearchContext:
             case "survey":
                 return f"{base_url}/surveys/{result_id}"
             case "error_tracking_issue":
-                return f"{base_url}/error_tracking/{result_id}"
+                return f"{base_url}/error-tracking/{result_id}"
             case "alert_configuration":
                 return f"{base_url}/alerts?alert_id={result_id}"
             case "hog_flow":

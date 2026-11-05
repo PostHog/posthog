@@ -13,18 +13,13 @@ use std::{
 use super::canonical_log::with_canonical_log;
 use super::types::{RequestContext, RequestPropertyOverrides};
 
-const GEOIP_SUBDIVISION_PREFIX: &str = "$geoip_subdivision_";
-
 pub fn prepare_overrides(
     context: &RequestContext,
     request: &FlagRequest,
-    team_id: i32,
 ) -> Result<RequestPropertyOverrides, FlagError> {
     let geoip_disabled = request.geoip_disable.unwrap_or(false);
-    let include_subdivisions = context.state.config.geoip_subdivisions_enabled_for(team_id);
     let person_property_overrides = get_person_property_overrides(
         geoip_disabled,
-        include_subdivisions,
         request.person_properties.clone(),
         &context.ip,
         &context.state.geoip,
@@ -71,7 +66,6 @@ fn record_geoip_divergence(
 /// is the authority for those keys.
 pub fn get_person_property_overrides(
     geoip_disabled: bool,
-    include_subdivisions: bool,
     person_properties: Option<HashMap<String, Value>>,
     ip: &IpAddr,
     geoip_service: &GeoIpClient,
@@ -80,12 +74,9 @@ pub fn get_person_property_overrides(
         return person_properties;
     }
 
-    let mut geoip_props = geoip_service
+    let geoip_props = geoip_service
         .get_geoip_properties(&ip.to_string())
         .unwrap_or_default();
-    if !include_subdivisions {
-        geoip_props.retain(|key, _| !key.starts_with(GEOIP_SUBDIVISION_PREFIX));
-    }
     if geoip_props.is_empty() {
         return person_properties;
     }

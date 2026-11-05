@@ -41,7 +41,7 @@ export const WidgetCard = React.forwardRef<HTMLDivElement, WidgetCardProps>(func
         >
             {children}
             {showResizeHandles && <DashboardResizeHandles />}
-            {canEnterEditModeFromEdge && !showResizeHandles && onEnterEditModeFromEdge && (
+            {(canEnterEditModeFromEdge || showResizeHandles) && onEnterEditModeFromEdge && (
                 <EditModeEdgeOverlay onEnterEditMode={onEnterEditModeFromEdge} />
             )}
             {gridChildren}

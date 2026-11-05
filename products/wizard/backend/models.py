@@ -220,3 +220,68 @@ class WizardWorker(UUIDModel, TeamScopedRootMixin, UpdatedMetaFields):
                 name="wizard_worker_cleanup_idx",
             )
         ]
+
+
+# One codebase scan reported by one wizard run, sent only when the user agreed to share it.
+class WizardScan(UUIDModel, TeamScopedRootMixin):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        db_constraint=False,
+    )
+
+    session_id = models.CharField(max_length=255)
+    # sha256 of the project id and the git remote (or install dir), so scans of one repository line up
+    # without storing the repository name.
+    workspace_fingerprint = models.CharField(max_length=64)
+    program = models.CharField(max_length=50)
+    wizard_version = models.CharField(max_length=32)
+    scanned_at = models.DateTimeField()
+    detected_count = models.PositiveSmallIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta(TeamScopedRootMixin.Meta):
+        constraints = [models.UniqueConstraint(fields=["team", "session_id"], name="unique_wizard_scan_per_session")]
+        indexes = [
+            # Recording a scan checks for a newer scan of the same workspace.
+            models.Index(fields=["team", "workspace_fingerprint", "scanned_at"], name="wizard_scan_workspace_idx")
+        ]
+
+
+# The current state of one tool in one workspace. Each scan of that workspace updates it.
+class WizardDetectedTool(UUIDModel, TeamScopedRootMixin):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    workspace_fingerprint = models.CharField(max_length=64)
+    kind = models.CharField(max_length=64)
+
+    # Copied from the tool catalog when the row is written, so the row stays readable after the
+    # catalog changes. Empty for a kind the catalog does not know.
+    warehouse_source_type = models.CharField(max_length=128, null=True, blank=True)
+    alternative_to = models.JSONField(default=list)
+
+    signals = models.JSONField(default=list)
+
+    first_seen_scan = models.ForeignKey(WizardScan, on_delete=models.SET_NULL, null=True, related_name="+")
+    first_seen_at = models.DateTimeField()
+    last_seen_scan = models.ForeignKey(WizardScan, on_delete=models.SET_NULL, null=True, related_name="+")
+    last_seen_at = models.DateTimeField()
+    # Set when a later scan of the same workspace no longer finds the tool, cleared if it returns.
+    removed_in_scan = models.ForeignKey(WizardScan, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    removed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta(TeamScopedRootMixin.Meta):
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "workspace_fingerprint", "kind"], name="unique_wizard_tool_per_workspace"
+            )
+        ]
+        indexes = [
+            models.Index(fields=["team", "kind"], name="wizard_tool_team_kind_idx"),
+            models.Index(
+                fields=["kind"], condition=models.Q(removed_at__isnull=True), name="wizard_tool_active_kind_idx"
+            ),
+        ]

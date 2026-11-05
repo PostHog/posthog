@@ -2,14 +2,20 @@ from __future__ import annotations
 
 import dataclasses
 from typing import Literal
+from uuid import UUID
 
 from django.conf import settings
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.models import Team
 
+from products.alerts_platform.backend.facade.api import list_configurations
+from products.alerts_platform.backend.facade.contracts import PlatformAlertConfigurationView, SourceKind
 from products.logs.backend.alert_state_machine import NotificationAction
+from products.logs.backend.models import LogsAlertConfiguration
+from products.logs.backend.platform_source_config import filters_of
 from products.signals.backend.facade.api import emit_signal
 
 logger = structlog.get_logger(__name__)
@@ -47,6 +53,36 @@ class NotifiedAlert:
     result_count: int | None
     consecutive_failures: int
     filters: dict
+    # Set by a caller that retries, so a repeated emission starts no second signal.
+    idempotency_key: str | None = None
+    # The group of a grouped alert that fired, by grouping column. Empty for an ungrouped alert.
+    group_labels: dict[str, str] = dataclasses.field(default_factory=dict)
+
+
+_WEIGHT_BY_ACTION: dict[AlertSignalAction, float] = dict(_ACTION_WEIGHT.values())
+
+
+@dataclasses.dataclass(frozen=True)
+class PlatformAlertSignal:
+    """One alert the platform announced as firing or auto-disabled, for which logs emits a signal.
+
+    Crosses the Temporal activity boundary, so every field is a primitive.
+    """
+
+    alert_id: str
+    action: AlertSignalAction
+    result_count: int | None
+    consecutive_failures: int
+    evaluation_key: str
+    # Empty for an ungrouped alert. Defaulted so a payload written before these fields still decodes.
+    grouping_key: str = ""
+    labels: dict[str, str] = dataclasses.field(default_factory=dict)
+
+    @property
+    def idempotency_key(self) -> str:
+        """One key per announced group, so a grouped evaluation's firings are not deduplicated into one."""
+        key = f"{self.alert_id}:{self.action}:{self.evaluation_key}"
+        return f"{key}:{self.grouping_key}" if self.grouping_key else key
 
 
 def signal_action_and_weight(notification: NotificationAction) -> tuple[AlertSignalAction, float] | None:
@@ -59,7 +95,9 @@ def _alert_url(team_id: int) -> str:
 
 
 def build_signal_extra(na: NotifiedAlert) -> dict:
+    group = {"group_labels": na.group_labels} if na.group_labels else {}
     return {
+        **group,
         "alert_id": na.alert_id,
         "alert_name": na.alert_name,
         "action": na.action,
@@ -81,6 +119,9 @@ def build_signal_description(na: NotifiedAlert) -> str:
         scope += f" Services: {', '.join(services)}."
     if severities:
         scope += f" Severities: {', '.join(severities)}."
+    if na.group_labels:
+        group = ", ".join(f"{column}={value}" for column, value in sorted(na.group_labels.items()))
+        scope += f" Group: {group}."
 
     if na.action == "firing":
         return (
@@ -109,8 +150,95 @@ async def emit_alert_state_change_signal(team: Team, na: NotifiedAlert) -> bool:
             description=description,
             weight=na.weight,
             extra=extra,
+            idempotency_key=na.idempotency_key,
         )
         return True
     except Exception:
         logger.exception("Failed to emit logs alert signal", alert_id=na.alert_id, action=na.action)
         return False
+
+
+@frozen
+class _AlertFacts:
+    name: str
+    threshold_count: int
+    threshold_operator: str
+    window_minutes: int
+    filters: dict
+
+    @classmethod
+    def of_logs_alert(cls, alert: LogsAlertConfiguration) -> _AlertFacts:
+        return cls(
+            name=alert.name,
+            threshold_count=alert.threshold_count,
+            threshold_operator=alert.threshold_operator,
+            window_minutes=alert.window_minutes,
+            filters=alert.filters,
+        )
+
+    @classmethod
+    def of_configuration(cls, configuration: PlatformAlertConfigurationView) -> _AlertFacts:
+        condition = configuration.source_config["condition"]
+        return cls(
+            name=configuration.name,
+            threshold_count=condition["threshold_count"],
+            threshold_operator=condition["threshold_operator"],
+            window_minutes=condition["window_minutes"],
+            filters=filters_of(configuration.source_config),
+        )
+
+
+def _facts_by_alert_id(team_id: int, alert_ids: set[str]) -> dict[str, _AlertFacts]:
+    """What a signal says about each alert: from its logs row, or from the platform configuration
+    when the platform created the alert without one."""
+    facts = {
+        str(alert.id): _AlertFacts.of_logs_alert(alert)
+        for alert in LogsAlertConfiguration.objects.filter(team_id=team_id, id__in=alert_ids)
+    }
+    missing = [UUID(alert_id) for alert_id in alert_ids - facts.keys()]
+    if missing:
+        page = list_configurations(
+            team_id=team_id,
+            source_kinds=[SourceKind.LOGS.value],
+            limit=len(missing),
+            offset=0,
+            configuration_ids=missing,
+        )
+        facts.update(
+            {
+                str(configuration.id): _AlertFacts.of_configuration(configuration)
+                for configuration in page.configurations
+            }
+        )
+    return facts
+
+
+def notified_alerts_for_platform(team_id: int, signals: list[PlatformAlertSignal]) -> list[NotifiedAlert]:
+    """The signal facts for alerts the platform announced.
+
+    A copy whose logs row is gone gets no signal, the way the logs stack sends none for it.
+    """
+    facts_by_id = _facts_by_alert_id(team_id, {signal.alert_id for signal in signals})
+    notified: list[NotifiedAlert] = []
+    for signal in signals:
+        facts = facts_by_id.get(signal.alert_id)
+        if facts is None:
+            continue
+        notified.append(
+            NotifiedAlert(
+                alert_id=signal.alert_id,
+                team_id=team_id,
+                alert_name=facts.name,
+                action=signal.action,
+                weight=_WEIGHT_BY_ACTION[signal.action],
+                threshold_count=facts.threshold_count,
+                threshold_operator=facts.threshold_operator,
+                window_minutes=facts.window_minutes,
+                result_count=signal.result_count,
+                consecutive_failures=signal.consecutive_failures,
+                filters=facts.filters,
+                idempotency_key=signal.idempotency_key,
+                group_labels=signal.labels,
+            )
+        )
+    return notified

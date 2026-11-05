@@ -110,6 +110,7 @@ export const DatasetItemModal = React.memo(function DatasetItemModal({
                 logic={datasetItemModalLogic}
                 props={logicProps}
                 formKey="datasetItemForm"
+                data-attr="dataset-item-form"
                 enableFormOnSubmit={!isDatasetItemFormReadOnly}
                 className="flex flex-col overflow-y-hidden"
             >
@@ -198,11 +199,20 @@ export const DatasetItemModal = React.memo(function DatasetItemModal({
                 <LemonModalFooter>
                     {readOnly || loadError || loading ? (
                         <>
-                            <LemonButton type="secondary" onClick={() => onClose(refetchDatasetItems)}>
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => onClose(refetchDatasetItems)}
+                                data-attr="dataset-item-close"
+                            >
                                 Close
                             </LemonButton>
                             {onUnarchive && storedDatasetItem?.archived && (
-                                <LemonButton type="primary" onClick={onUnarchive} loading={unarchiving}>
+                                <LemonButton
+                                    type="primary"
+                                    onClick={onUnarchive}
+                                    loading={unarchiving}
+                                    data-attr="dataset-item-unarchive"
+                                >
                                     Unarchive
                                 </LemonButton>
                             )}
@@ -213,6 +223,7 @@ export const DatasetItemModal = React.memo(function DatasetItemModal({
                                 <LemonButton
                                     type="secondary"
                                     loading={isDatasetItemFormSubmitting}
+                                    data-attr="dataset-item-save-and-add-another"
                                     disabledReason={datasetItemFormSubmitDisabledReason}
                                     htmlType="submit"
                                     onClick={(e) => {
@@ -227,6 +238,7 @@ export const DatasetItemModal = React.memo(function DatasetItemModal({
                             <LemonButton
                                 type="primary"
                                 htmlType="submit"
+                                data-attr="dataset-item-save"
                                 loading={isDatasetItemFormSubmitting}
                                 disabledReason={datasetItemFormSubmitDisabledReason}
                             >
@@ -321,6 +333,7 @@ function DatasetItemHistory({
                                             type="secondary"
                                             size="small"
                                             onClick={() => onRestore(version.version)}
+                                            data-attr="dataset-item-restore-version"
                                             loading={restoringVersion === version.version}
                                             disabledReason={
                                                 restoreDisabledReason ??
@@ -348,6 +361,7 @@ function DatasetItemHistory({
                             type="secondary"
                             size="small"
                             onClick={() => onPageChange(page - 1)}
+                            data-attr="dataset-item-history-previous"
                             disabledReason={page <= 1 ? 'No previous page' : undefined}
                         >
                             Previous
@@ -356,6 +370,7 @@ function DatasetItemHistory({
                             type="secondary"
                             size="small"
                             onClick={() => onPageChange(page + 1)}
+                            data-attr="dataset-item-history-next"
                             disabledReason={page >= pageCount ? 'No next page' : undefined}
                         >
                             Next

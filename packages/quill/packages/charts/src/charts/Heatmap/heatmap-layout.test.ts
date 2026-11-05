@@ -1,5 +1,12 @@
 import type { ChartDimensions } from '../../core/types'
-import { cellRect, computeHeatmapLayout, maxCellValue, normalizeCount, rowAtY } from './heatmap-layout'
+import {
+    cellRect,
+    computeHeatmapLayout,
+    maxCellValue,
+    normalizeCount,
+    resolveColorScale,
+    rowAtY,
+} from './heatmap-layout'
 
 const DIMENSIONS: ChartDimensions = {
     width: 500,
@@ -33,11 +40,53 @@ describe('heatmap-layout', () => {
         expect(normalizeCount(count, max, scale)).toBeCloseTo(expected)
     })
 
+    it.each([
+        [
+            'auto picks log for a long-tailed grid',
+            [
+                [1, 2, 1, 500],
+                [3, 1, 2, 800],
+            ],
+            'auto',
+            'log',
+        ],
+        [
+            'auto picks linear for an even grid',
+            [
+                [76, 169, 335],
+                [150, 200, 120],
+            ],
+            'auto',
+            'linear',
+        ],
+        [
+            'an explicit scale wins over the data',
+            [
+                [1, 2, 1, 500],
+                [3, 1, 2, 800],
+            ],
+            'linear',
+            'linear',
+        ],
+    ] as const)('resolveColorScale: %s', (_name, cells, scale, expected) => {
+        expect(
+            resolveColorScale(
+                cells.map((row) => [...row]),
+                scale
+            )
+        ).toBe(expected)
+    })
+
     it('log normalization lifts small counts above linear so the long tail stays visible', () => {
         expect(normalizeCount(2, 1000, 'log')).toBeGreaterThan(normalizeCount(2, 1000, 'linear'))
     })
 
     it('maxCellValue ignores non-finite values', () => {
-        expect(maxCellValue([[1, Number.NaN], [Number.POSITIVE_INFINITY, 7]])).toBe(7)
+        expect(
+            maxCellValue([
+                [1, Number.NaN],
+                [Number.POSITIVE_INFINITY, 7],
+            ])
+        ).toBe(7)
     })
 })

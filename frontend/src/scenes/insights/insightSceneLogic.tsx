@@ -2,6 +2,7 @@ import {
     MakeLogicType,
     BuiltLogic,
     actions,
+    afterMount,
     connect,
     kea,
     listeners,
@@ -12,16 +13,17 @@ import {
 } from 'kea'
 import type { BreakPointFunction } from 'kea'
 import { combineUrl, router, urlToAction } from 'kea-router'
-import { objectsEqual } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { InsightEventSource, sanitizeQuery } from 'lib/utils/eventUsageLogic'
 import { isEmptyObject, isObject } from 'lib/utils/guards'
+import { objectsEqual } from 'lib/utils/objects'
+import { analyticsBackLink } from 'scenes/analytics/analyticsBackLink'
 import { isDashboardFilterOverrideEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import {
     SEARCH_PARAM_FILTERS_KEY,
     dashboardSearchParamsFromOverrides,
@@ -30,7 +32,6 @@ import {
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import type { insightLogicType } from 'scenes/insights/insightLogic'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
@@ -40,7 +41,11 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
+import { DataVisualizationRenderer, InsightVizRenderer } from '~/queries/Query/queryNodeRenderers'
+import { isDataTableNode, isInsightVizNode } from '~/queries/schema/node-guards'
+import { checkLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     DashboardFilter,
     FileSystemIconType,
@@ -50,12 +55,7 @@ import {
     QueryLogTags,
     TileFilters,
 } from '~/queries/schema/schema-general'
-import {
-    checkLatestVersionsOnQuery,
-    convertDataTableNodeToDataVisualizationNode,
-    isDataTableNode,
-    isInsightVizNode,
-} from '~/queries/utils'
+import { convertDataTableNodeToDataVisualizationNode } from '~/queries/utils'
 import {
     ActivityScope,
     Breadcrumb,
@@ -292,7 +292,9 @@ export interface insightSceneLogicMeta {
             dashboardName: string | null,
             sceneSource: InsightSceneSource | null,
             dashboardBackPath: string | null,
-            arg: string | undefined
+            arg: string | undefined,
+            searchParams: Record<string, any>,
+            featureFlags: FeatureFlagsSet
         ) => Breadcrumb[]
         projectTreeRef: (insightId: InsightId) => ProjectTreeRef
         sidePanelContext: (
@@ -568,6 +570,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 s.sceneSource,
                 s.dashboardBackPath,
                 (state, props) => s.insightLogicRef(state, props)?.logic.selectors.insightName(state, props),
+                router.selectors.searchParams,
+                featureFlagLogic.selectors.featureFlags,
             ],
             (
                 insightLogicRef: {
@@ -580,55 +584,68 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 dashboardName: DashboardType['name'] | null,
                 sceneSource: InsightSceneSource | null,
                 dashboardBackPath: string | null,
-                insightName: string | undefined
+                insightName: string | undefined,
+                searchParams: Record<string, any>,
+                featureFlags: FeatureFlagsSet
             ): Breadcrumb[] => {
                 const dashboardLabel = dashboardName ?? 'Dashboard'
+                // The Analytics list that opened the insight names the way back, like the dashboard scene allows.
+                const backLink = analyticsBackLink(searchParams, featureFlags)
                 return [
-                    ...(dashboardId !== null
+                    ...(backLink && dashboardId === null
                         ? [
                               {
-                                  key: Scene.Dashboards,
-                                  name: 'Dashboards',
-                                  path: urls.dashboards(),
-                                  iconType: 'dashboard' as FileSystemIconType,
-                              },
-                              {
-                                  key: Scene.Dashboard,
-                                  name: dashboardLabel,
-                                  // Going back must land on the dashboard as the user left it, not on its saved state
-                                  path: dashboardBackPath ?? urls.dashboard(dashboardId),
-                                  iconType: 'dashboard' as FileSystemIconType,
+                                  key: backLink.url,
+                                  name: backLink.name,
+                                  path: backLink.url,
+                                  iconType: 'product_analytics' as FileSystemIconType,
                               },
                           ]
-                        : [
-                              sceneSource === 'web-analytics'
-                                  ? {
-                                        key: Scene.WebAnalytics,
-                                        name: 'Web analytics',
-                                        path: urls.webAnalytics(),
-                                        iconType: 'web_analytics' as FileSystemIconType,
-                                    }
-                                  : sceneSource === 'llm-analytics'
+                        : dashboardId !== null
+                          ? [
+                                {
+                                    key: Scene.Dashboards,
+                                    name: 'Dashboards',
+                                    path: urls.dashboards(),
+                                    iconType: 'dashboard' as FileSystemIconType,
+                                },
+                                {
+                                    key: Scene.Dashboard,
+                                    name: dashboardLabel,
+                                    // Going back must land on the dashboard as the user left it, not on its saved state
+                                    path: dashboardBackPath ?? urls.dashboard(dashboardId),
+                                    iconType: 'dashboard' as FileSystemIconType,
+                                },
+                            ]
+                          : [
+                                sceneSource === 'web-analytics'
                                     ? {
-                                          key: 'AIObservability',
-                                          name: 'AI observability',
-                                          path: urls.aiObservabilityDashboard(),
-                                          iconType: 'llm_analytics' as FileSystemIconType,
+                                          key: Scene.WebAnalytics,
+                                          name: 'Web analytics',
+                                          path: urls.webAnalytics(),
+                                          iconType: 'web_analytics' as FileSystemIconType,
                                       }
-                                    : sceneSource === 'endpoints'
+                                    : sceneSource === 'llm-analytics'
                                       ? {
-                                            key: Scene.Endpoints,
-                                            name: 'endpoints',
-                                            path: urls.endpoints(),
-                                            iconType: 'endpoints' as FileSystemIconType,
+                                            key: 'AIObservability',
+                                            name: 'AI observability',
+                                            path: urls.aiObservabilityDashboard(),
+                                            iconType: 'llm_analytics' as FileSystemIconType,
                                         }
-                                      : {
-                                            key: Scene.SavedInsights,
-                                            name: 'Product analytics',
-                                            path: urls.savedInsights(),
-                                            iconType: 'product_analytics' as FileSystemIconType,
-                                        },
-                          ]),
+                                      : sceneSource === 'endpoints'
+                                        ? {
+                                              key: Scene.Endpoints,
+                                              name: 'endpoints',
+                                              path: urls.endpoints(),
+                                              iconType: 'endpoints' as FileSystemIconType,
+                                          }
+                                        : {
+                                              key: Scene.SavedInsights,
+                                              name: 'Product analytics',
+                                              path: urls.savedInsights(),
+                                              iconType: 'product_analytics' as FileSystemIconType,
+                                          },
+                            ]),
                     {
                         key: [Scene.Insight, insight?.short_id || 'new'],
                         name: insightName,
@@ -897,7 +914,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 return
             }
 
-            const dashboardName = dashboardLogic.findMounted({ id: dashboard })?.values.dashboard?.name
+            const dashboardName = dashboard
+                ? dashboardsModel.findMounted()?.values.rawDashboards[dashboard]?.name
+                : undefined
             const filtersOverride = searchParams['filters_override']
             const variablesOverride = searchParams['variables_override']
             const tileFiltersOverride = searchParams['tile_filters_override']
@@ -1011,5 +1030,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             setInsightId: actionToUrl,
             setInsightMode: actionToUrl,
         }
+    }),
+    afterMount(() => {
+        // An insight is a chart or a SQL visualization. Fetch both renderers alongside the insight itself.
+        void InsightVizRenderer.preload()
+        void DataVisualizationRenderer.preload()
     }),
 ])

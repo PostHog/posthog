@@ -11,6 +11,7 @@ from products.signals.backend.slack_formatting import (
     chunk_slack_text,
     defuse_slack_tokens,
     group_segments_to_limit,
+    slack_text_length,
     split_markdown_by_headings,
     strip_chart_references,
 )
@@ -295,15 +296,17 @@ class TestChunkSlackText(SimpleTestCase):
         [
             ("plain_run", "x" * (SLACK_MARKDOWN_TEXT_MAX_LEN * 2 + 5)),
             ("link_longer_than_a_chunk", "https://example.com/" + "z" * (SLACK_MARKDOWN_TEXT_MAX_LEN * 2)),
+            ("characters_slack_escapes", "a&b<c>" * (SLACK_MARKDOWN_TEXT_MAX_LEN // 4)),
         ]
     )
     def test_unbreakable_run_is_hard_sliced(self, _name: str, line: str) -> None:
         # A run with no sentence, word, or token boundary has nowhere safe to break, so it is sliced
         # at the limit. Guards both halves of that fallback: it has to terminate, and it has to keep
-        # every character rather than dropping the remainder.
+        # every character rather than dropping the remainder. Slack can count `&`, `<` and `>` after
+        # it escapes them, so the limit holds for the escaped length.
         chunks = chunk_slack_text(line, SLACK_MARKDOWN_TEXT_MAX_LEN)
 
-        assert all(len(chunk) <= SLACK_MARKDOWN_TEXT_MAX_LEN for chunk in chunks)
+        assert all(slack_text_length(chunk) <= SLACK_MARKDOWN_TEXT_MAX_LEN for chunk in chunks)
         assert "".join(chunks) == line
 
     @parameterized.expand(

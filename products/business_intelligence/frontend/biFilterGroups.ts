@@ -21,6 +21,7 @@ export function isBIResultFilter(value: unknown): value is BIResultFilter {
     const filter = value as BIResultFilter
     return (
         typeof filter.id === 'string' &&
+        (filter.label === undefined || typeof filter.label === 'string') &&
         Number.isInteger(filter.measureIndex) &&
         filter.measureIndex >= 0 &&
         [

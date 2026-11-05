@@ -27,6 +27,10 @@ def read_image(team_id: int, request_id: UUID, variant: Variant) -> bytes | None
     return object_storage.read_bytes(image_key(team_id, request_id, variant), missing_ok=True)
 
 
+def image_exists(team_id: int, request_id: UUID, variant: Variant) -> bool:
+    return object_storage.head_object_strict(image_key(team_id, request_id, variant)) is not None
+
+
 def delete_images_now(team_id: int, request_ids: Iterable[UUID]) -> set[UUID]:
     keys = {image_key(team_id, request_id, variant): request_id for request_id in request_ids for variant in VARIANTS}
     if not keys:
