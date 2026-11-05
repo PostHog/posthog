@@ -60,24 +60,20 @@ SPANS_USAGE_QUERY = f"""
     LIMIT {{limit}}
 """
 
-METRIC_POINTS_USAGE_QUERY = f"""
-    SELECT service_name, count() AS points, sum(count()) OVER () AS total_points
+# Series come from the points and not from metric_series: a point without labels writes no metric_series
+# row. Each series has one service, so the total counts it once.
+METRICS_USAGE_QUERY = f"""
+    SELECT
+        service_name,
+        count() AS points,
+        uniq(series_fingerprint) AS series,
+        sum(count()) OVER () AS total_points,
+        sum(uniq(series_fingerprint)) OVER () AS total_series
     FROM posthog.metrics
     WHERE {_WINDOW_WHERE}
     GROUP BY service_name
     ORDER BY points DESC, service_name
     LIMIT {{limit}}
-"""
-
-# metric_series keeps one row per series and hour, so a series counts if any of its hours overlaps the
-# window. Each series has one service, so the total counts it once.
-METRIC_SERIES_USAGE_QUERY = """
-    SELECT service_name, uniq(series_fingerprint) AS series, sum(uniq(series_fingerprint)) OVER () AS total_series
-    FROM posthog.metric_series
-    WHERE time_bucket >= toStartOfHour(toTimeZone({date_from}, 'UTC')) AND time_bucket < {date_to}
-    GROUP BY service_name
-    ORDER BY series DESC, service_name
-    LIMIT {limit}
 """
 
 
@@ -151,28 +147,22 @@ def list_service_usage(*, team: Team, date_from: datetime, date_to: datetime) ->
     totals: dict[str, int] = {}
     unavailable: list[UsageSignal] = []
 
-    # Points and series form one signal: if either query fails, metrics reports no values at all,
-    # so a row never shows series without the points beside them.
-    plan: list[tuple[UsageSignal, list[tuple[str, tuple[str, ...]]]]] = [
-        (UsageSignal.LOGS, [(LOGS_USAGE_QUERY, ("log_records", "log_bytes"))]),
-        (UsageSignal.TRACES, [(SPANS_USAGE_QUERY, ("spans",))]),
-        (
-            UsageSignal.METRICS,
-            [(METRIC_POINTS_USAGE_QUERY, ("metric_points",)), (METRIC_SERIES_USAGE_QUERY, ("metric_series",))],
-        ),
+    plan: list[tuple[UsageSignal, str, tuple[str, ...]]] = [
+        (UsageSignal.LOGS, LOGS_USAGE_QUERY, ("log_records", "log_bytes")),
+        (UsageSignal.TRACES, SPANS_USAGE_QUERY, ("spans",)),
+        (UsageSignal.METRICS, METRICS_USAGE_QUERY, ("metric_points", "metric_series")),
     ]
-    for signal, queries in plan:
+    for signal, sql, fields in plan:
         try:
-            signal_results = [(fields, _run(team, sql, date_from, date_to)) for sql, fields in queries]
+            result = _run(team, sql, date_from, date_to)
         except Exception as error:
             logger.warning("apm_usage_signal_failed", team_id=team.pk, signal=signal.value, exc_info=True)
             capture_exception(error, {"team_id": team.pk, "signal": signal.value})
             unavailable.append(signal)
             continue
-        for fields, result in signal_results:
-            for service_name, *values in result.rows:
-                usage.setdefault(service_name, {}).update(zip(fields, values))
-            totals.update(zip(fields, result.totals))
+        for service_name, *values in result.rows:
+            usage.setdefault(service_name, {}).update(zip(fields, values))
+        totals.update(zip(fields, result.totals))
 
     services = [ServiceUsage(service_name=name, **values) for name, values in usage.items()]
     services.sort(key=lambda row: (-row.log_bytes, -row.spans, -row.metric_points, row.service_name))
