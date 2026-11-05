@@ -23,6 +23,7 @@
         "@posthog/icons": "catalog:",
         "@storybook/react": "catalog:",
         "@testing-library/dom": "*",
+        "@testing-library/react": "*",
         "@types/react": "*",
         "react": "*"
     }
