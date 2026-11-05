@@ -76,6 +76,7 @@
         "expo-status-bar": "~58.0.4",
         "expo-system-ui": "~58.0.7",
         "expo-updates": "~58.0.19",
+        "expo-video": "~58.0.13",
         "expo-web-browser": "~58.0.7",
         "markdown-it": "10.0.0",
         "mermaid": "11.17.0",

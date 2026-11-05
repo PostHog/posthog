@@ -81,6 +81,8 @@ products/mobile/
                           SessionTimelineSection, SessionSkeleton, hooks (recording, timeline, summary flow with
                           Summarize and polling, frames, list), sessionAdapters (pure: person labels, timeline,
                           summary, list rows), replayModel (view types), replayLinks (web URLs, `t`), replayAnalytics
+        video/            ReplayVideoPlayer (full-screen Watch replay modal), useReplayVideo (find or render the MP4 export,
+                          poll it), videoTime (session second to video second)
       views/              The Views tab and its screens, see VIEWS.md
         screen/           Shared screen chrome: ViewChrome, ViewScreenFrame, ViewTitle, HeaderMenu (the More menu
                           of a pushed screen: a view, an issue, a session), ViewMoreSheet, ViewErrorState, ViewSkeleton

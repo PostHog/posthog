@@ -333,3 +333,5 @@ Optional recovery actions sit below the message and wrap on narrow screens.
   rows with the event name as the chip and the offset as the time; errors and rage clicks draw in orange, and an error
   with an issue opens it. The round ink Chat button sits bottom right. Loading is a skeleton of the screen; "Couldn't
   find this recording" (expired or deleted) and "Couldn't load this session" are separate states.
+  With `mobile-replay-video` on, the pill's icon is a play glyph labeled Watch replay, and More starts with Open in PostHog.
+  Watch replay opens `ReplayVideoPlayer`, a full-screen modal: "Session replay" and a close button, then "Preparing video" with a spinner and the time waited, the video on black with native controls, or "Couldn't play this recording" with Try again and Open in PostHog.

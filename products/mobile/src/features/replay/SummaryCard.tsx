@@ -20,9 +20,18 @@ interface SummaryCardProps {
     pending: boolean
     onSummarize: () => void
     onCheckAgain: () => void
+    /** The label of the chrome button that plays the recording, which the card points at. */
+    watchLabel?: string
 }
 
-export function SummaryCard({ card, aiStatus, pending, onSummarize, onCheckAgain }: SummaryCardProps): ReactElement {
+export function SummaryCard({
+    card,
+    aiStatus,
+    pending,
+    onSummarize,
+    onCheckAgain,
+    watchLabel = 'Open full replay',
+}: SummaryCardProps): ReactElement {
     const styles = useStyles()
     return (
         <View style={styles.card} testID={`session-summary-${card.kind}`}>
@@ -33,12 +42,20 @@ export function SummaryCard({ card, aiStatus, pending, onSummarize, onCheckAgain
                 pending={pending}
                 onSummarize={onSummarize}
                 onCheckAgain={onCheckAgain}
+                watchLabel={watchLabel}
             />
         </View>
     )
 }
 
-function SummaryBody({ card, aiStatus, pending, onSummarize, onCheckAgain }: SummaryCardProps): ReactElement {
+function SummaryBody({
+    card,
+    aiStatus,
+    pending,
+    onSummarize,
+    onCheckAgain,
+    watchLabel,
+}: SummaryCardProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     switch (card.kind) {
@@ -76,7 +93,7 @@ function SummaryBody({ card, aiStatus, pending, onSummarize, onCheckAgain }: Sum
             return (
                 <Message
                     title="The summary didn't work for this session"
-                    text={[card.reason, 'To watch it, use Open full replay at the top.'].filter(Boolean).join(' ')}
+                    text={[card.reason, `To watch it, use ${watchLabel} at the top.`].filter(Boolean).join(' ')}
                 />
             )
         case 'none':
@@ -88,8 +105,7 @@ function SummaryBody({ card, aiStatus, pending, onSummarize, onCheckAgain }: Sum
                             <Text style={styles.title}>AI summaries are off for this organization</Text>
                         </View>
                         <Text style={styles.text}>
-                            Review AI access to summarize this session. To watch the full recording now, use Open full
-                            replay at the top.
+                            {`Review AI access to summarize this session. To watch the full recording now, use ${watchLabel} at the top.`}
                         </Text>
                         <CardButton
                             label="Review AI access"

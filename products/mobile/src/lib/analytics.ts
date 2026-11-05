@@ -173,6 +173,10 @@ export type AnalyticsEvent =
     | 'mobile_replay_summary_ready'
     | 'mobile_replay_chat_opened'
     | 'mobile_replay_issue_opened'
+    | 'mobile_replay_video_requested'
+    | 'mobile_replay_video_ready'
+    | 'mobile_replay_video_failed'
+    | 'mobile_replay_video_closed'
 
 export type AnalyticsProperties = Record<string, string | number | boolean | null | undefined>
 
