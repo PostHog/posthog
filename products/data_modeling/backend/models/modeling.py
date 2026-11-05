@@ -9,8 +9,8 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.errors import BoundedResolverError, ResolutionDepthExceededError
-from posthog.hogql.parser import parse_select
+from posthog.hogql.database.models import SavedQuery
+from posthog.hogql.errors import QueryError
 from posthog.hogql.resolver import Resolver, ResolverFactory
 from posthog.hogql.visitor import TraversingVisitor
 
