@@ -660,6 +660,45 @@ describe('workflowLogic external edits', () => {
         expect(logic.values.externallyEdited).toBe(true)
     })
 
+    it('keeps an edit whose auto-save needs a fresh login: no repeat saves, and the banner instead of a reload', async () => {
+        silenceKeaLoadersErrors() // the refused save is the scenario under test
+        let patches = 0
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': () => {
+                    getCalls += 1
+                    return [200, makeWorkflow()]
+                },
+                '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+            },
+            patch: {
+                '/api/environments/:team_id/hog_flows/:id/': () => {
+                    patches += 1
+                    return [
+                        403,
+                        { type: 'authentication_error', code: 'sensitive_action_required_reauth', detail: 'x' },
+                    ]
+                },
+            },
+        })
+        jest.useFakeTimers()
+        logic.actions.setWorkflowValue('name', 'Moved while stale')
+        await jest.advanceTimersByTimeAsync(3500)
+        await expectLogic(logic).toDispatchActions(['saveWorkflowFailure'])
+        const baselineGets = getCalls
+
+        logic.actions.setWorkflowValue('name', 'Moved while stale, again')
+        await jest.advanceTimersByTimeAsync(3500)
+        await expectLogic(logic, () => {
+            resourceEditedLogic.actions.resourceEdited(makeEvent({ updated_at: NEWER }))
+        }).toDispatchActions(['setExternallyEdited'])
+
+        expect(patches).toBe(1)
+        expect(getCalls).toBe(baselineGets)
+        expect(logic.values.externallyEdited).toBe(true)
+        expect(logic.values.workflow.name).toBe('Moved while stale, again')
+    })
+
     it('shows the banner when an auto-save 409s with a pending schedule change, instead of reloading it away', async () => {
         // Only a manual save persists a schedule change, so the silent-reload path would wipe it.
         silenceKeaLoadersErrors()

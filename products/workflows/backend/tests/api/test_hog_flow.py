@@ -7472,12 +7472,16 @@ class TestHogFlowSecretInputs(APIBaseTest):
             ("producer_inputs", False, 403),
             ("edges_only", False, 403),
             ("producer_rename", False, 200),
+            # The save carries the producer's own secret recovered, and storage keeps it stripped.
+            ("producer_with_secret_rename", False, 200),
         ]
     )
     def test_a_flow_wide_edit_needs_recent_authentication(
         self, name: str, staged_draft: bool, expected_status: int
     ) -> None:
         payload = self._flow_with_variable_producer()
+        if name == "producer_with_secret_rename":
+            payload["actions"][1]["config"]["inputs"]["api_key"] = {"value": "PRODUCER-SECRET"}
         flow_id = self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload, format="json").json()["id"]
         if staged_draft:
             flow = HogFlow.objects.get(id=flow_id)
@@ -7496,6 +7500,8 @@ class TestHogFlowSecretInputs(APIBaseTest):
             body = {"edges": [{"from": "trigger_node", "to": "action_1", "type": "continue"}]}
         else:
             producer["name"] = "Look up the host"
+            if "api_key" in producer["config"]["inputs"]:
+                producer["config"]["inputs"]["api_key"] = {"secret": True}
             body = {"actions": payload["actions"]}
 
         response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", body, format="json")

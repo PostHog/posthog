@@ -433,6 +433,7 @@ export interface workflowLogicValues {
     hogFunctionTemplatesByIdLoading: boolean
     isAutoSave: boolean
     isAutoSavePending: boolean
+    autoSavePausedForReauth: boolean
     isRowScopedTrigger: boolean
     isScheduleRepeating: boolean
     isSyncingExternalEdit: boolean
@@ -3940,6 +3941,19 @@ export const workflowLogic = kea<workflowLogicType>([
                 setAutoSaveEnabled: (_, { enabled }) => (!enabled ? false : _),
             },
         ],
+        // A save refused for a stale session stays refused until the person logs in again, so
+        // auto-save stops re-prompting and an external edit must not reload over the edit.
+        autoSavePausedForReauth: [
+            false as boolean,
+            {
+                saveWorkflowFailure: (state, { errorObject }) =>
+                    errorObject instanceof ApiError && errorObject.code === 'sensitive_action_required_reauth'
+                        ? true
+                        : state,
+                saveWorkflowSuccess: () => false,
+                resetWorkflow: () => false,
+            },
+        ],
         autoSaveEnabled: [
             true as boolean,
             {
@@ -4500,7 +4514,10 @@ export const workflowLogic = kea<workflowLogicType>([
             // or a pending schedule change, which only a manual save persists), the buffer can hold
             // real work, so the banner lets the user choose.
             const autoSaveCanFlush =
-                values.autoSaveEnabled && !values.autoSaveBlockedByValidation && values.pendingSchedule === false
+                values.autoSaveEnabled &&
+                !values.autoSaveBlockedByValidation &&
+                !values.autoSavePausedForReauth &&
+                values.pendingSchedule === false
             if (values.hasUnsavedChanges && !autoSaveCanFlush) {
                 actions.setExternallyEdited(true)
             } else {
@@ -4701,10 +4718,16 @@ export const workflowLogic = kea<workflowLogicType>([
             }
             actions.replayDeferredResourceEdited()
         },
-        saveWorkflowFailure: () => {
+        saveWorkflowFailure: ({ errorObject }) => {
             // Keep the queue aligned with the saves still in flight.
             ;(cache.saveContexts as SaveContext[] | undefined)?.shift()
             cache.enablingWorkflow = false
+            if (errorObject instanceof ApiError && errorObject.code === 'sensitive_action_required_reauth') {
+                lemonToast.warning(
+                    "Your changes aren't saved. Log in again, then save. Auto-save is paused until you do.",
+                    { toastId: 'workflow-save-needs-reauth' }
+                )
+            }
             actions.replayDeferredResourceEdited()
         },
         replayDeferredResourceEdited: () => {
@@ -5071,6 +5094,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 !!props.editTemplateId ||
                 !values.workflowChanged ||
                 values.autoSaveBlockedByValidation ||
+                values.autoSavePausedForReauth ||
                 (values.keepsLocalEditsOnExternalEdit && values.isSyncingExternalEdit)
 
             if (shouldSkip) {

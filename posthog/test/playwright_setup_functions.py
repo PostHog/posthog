@@ -630,8 +630,7 @@ class PlaywrightHogFunctionTemplateData(BaseModel):
     status: str = "hidden"
     template_type: str = "destination"
     inputs_schema: list[dict[str, Any]] = []
-    # Hog source. A test whose subject reads the code itself, such as the fetch-URL trace behind
-    # secret rebinding, has to seed the fetch call it expects to be traced.
+    # Hog source, for a test whose destination has to send a stored credential somewhere.
     code: str = "return event"
 
 

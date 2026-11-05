@@ -161,13 +161,16 @@ def flow_holds_credentials(
 _SET_VARIABLE_TEMPLATE_ID = "template-posthog-set-variable"
 
 
-def variable_writes(variables: Any, actions: Any, edges: Any = None) -> str:
+def variable_writes(
+    variables: Any, actions: Any, edges: Any = None, template_cache: Optional[TemplateCache] = None
+) -> str:
     """What decides a flow's variables, in a form two configs compare by.
 
     That is the variable defaults, the template and inputs of every step that writes a variable,
     and the edges whenever a step writes one, because the order of the writes picks the value. A
     step input can template in a variable, so a change to any of these can move a credential that
-    another step keeps.
+    another step keeps. Secret inputs are left out: a save carries them recovered and storage keeps
+    them stripped, and the step's own check covers a secret entered on a writer.
     """
     writers: dict[str, Any] = {}
     for action in actions if isinstance(actions, list) else []:
@@ -180,12 +183,14 @@ def variable_writes(variables: Any, actions: Any, edges: Any = None) -> str:
         if not action.get("output_variable") and template_id != _SET_VARIABLE_TEMPLATE_ID:
             continue
         inputs = config.get("inputs")
+        secret_keys = secret_keys_for_action(action, template_cache)
         writers[str(action.get("id"))] = [
             action.get("output_variable"),
             template_id,
             {
                 key: [item.get("value"), item.get("templating")] if isinstance(item, dict) else item
                 for key, item in (inputs if isinstance(inputs, dict) else {}).items()
+                if key not in secret_keys
             },
         ]
     values = [

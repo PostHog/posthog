@@ -626,16 +626,19 @@ def live_secret_bindings(
 def existing_secret_bindings(
     instance: WorkflowEditState, template_cache: Optional[TemplateCache] = None
 ) -> dict[str, dict]:
-    # Same sources and order as `existing_secret_map`.
+    # Same sources and order as `existing_secret_map`, so each recovered secret is checked against
+    # the step whose value won.
     draft_actions = (instance.draft or {}).get("actions")
-    result = live_secret_bindings(instance, template_cache)
-    result = merge_secret_maps(
-        result,
-        secret_bindings_for_actions(draft_actions, plaintext_secret_map(draft_actions, template_cache), template_cache),
+    sources = (
+        (instance.actions, plaintext_secret_map(instance.actions, template_cache)),
+        (draft_actions, plaintext_secret_map(draft_actions, template_cache)),
+        (instance.actions, instance.encrypted_inputs),
+        (draft_actions, instance.draft_encrypted_inputs),
     )
-    return merge_secret_maps(
-        result, secret_bindings_for_actions(draft_actions, instance.draft_encrypted_inputs, template_cache)
-    )
+    result: dict[str, dict] = {}
+    for actions, secrets in sources:
+        result = merge_secret_maps(result, secret_bindings_for_actions(actions, secrets, template_cache))
+    return result
 
 
 def saved_secret_bindings(
@@ -845,11 +848,14 @@ def _require_recent_authentication_for_variable_edits(
     stored_variables = baseline.get("variables", instance.variables)
     stored_actions = baseline.get("actions", instance.actions)
     stored_edges = baseline.get("edges", instance.edges)
-    if variable_writes(
-        data.get("variables", stored_variables), data.get("actions", stored_actions), data.get("edges", stored_edges)
-    ) == variable_writes(stored_variables, stored_actions, stored_edges):
-        return
     template_cache = context.setdefault("_hogflow_template_cache", {})
+    if variable_writes(
+        data.get("variables", stored_variables),
+        data.get("actions", stored_actions),
+        data.get("edges", stored_edges),
+        template_cache,
+    ) == variable_writes(stored_variables, stored_actions, stored_edges, template_cache):
+        return
     holds_credentials = any(
         flow_holds_credentials(actions, secrets, template_cache)
         for actions, secrets in (
@@ -6745,7 +6751,8 @@ class HogFlowViewSet(
             draft.get("variables", hog_flow.variables),
             draft.get("actions", hog_flow.actions),
             draft.get("edges", hog_flow.edges),
-        ) != variable_writes(hog_flow.variables, hog_flow.actions, hog_flow.edges)
+            template_cache,
+        ) != variable_writes(hog_flow.variables, hog_flow.actions, hog_flow.edges, template_cache)
         moves = draft_test_moves_live_credentials(
             hog_flow.actions,
             draft.get("actions"),
