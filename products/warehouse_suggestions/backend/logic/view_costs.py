@@ -4,8 +4,11 @@ from uuid import UUID
 
 from django.core.cache import cache
 
+from clickhouse_driver.errors import ServerException
+
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries
@@ -24,6 +27,7 @@ from .rules import MeasurementRules
 MEASUREMENT_QUERY_NAME = "warehouse_suggestions_view_cost"
 UNFINISHED_KEY_PREFIX = "warehouse_suggestions:unfinished_view_cost"
 FAILED_MEASUREMENT = 0
+VIEW_QUERY_ERRORS = (ServerException, ExposedHogQLError)
 
 
 class MeasurementOutcome(StrEnum):
@@ -75,7 +79,8 @@ def measure_view_cost(team_id: int, saved_query_id: UUID, rules: MeasurementRule
         _remember_unfinished(team_id, saved_query_id, rules, seconds=rules.max_seconds, fingerprint=fingerprint)
         return MeasurementOutcome.CAPPED
     except Exception as error:
-        capture_exception(error)
+        if not isinstance(error, VIEW_QUERY_ERRORS):
+            capture_exception(error)
         _remember_unfinished(team_id, saved_query_id, rules, seconds=FAILED_MEASUREMENT, fingerprint=fingerprint)
         return MeasurementOutcome.FAILED
     return MeasurementOutcome.MEASURED
