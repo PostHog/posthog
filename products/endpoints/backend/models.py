@@ -527,10 +527,12 @@ class Endpoint(Taggable, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields
 
         Raises EndpointVersion.DoesNotExist if the requested version doesn't exist.
         """
+        # `serving_window` reads the organization on every materialized run.
+        versions = self.versions.select_related("team__organization")
         if version is not None:
-            return self.versions.get(version=version)
+            return versions.get(version=version)
 
-        latest = self.versions.first()  # Model ordering is -version
+        latest = versions.first()  # Model ordering is -version
         if latest is None:
             raise EndpointVersion.DoesNotExist("Endpoint has no versions")
         return latest

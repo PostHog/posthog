@@ -407,6 +407,17 @@ class TestIsMaterializedEndpointRequest(APIBaseTest):
         self.assertTrue(_is_materialized_endpoint_request(request, view))
         self.assertTrue(is_endpoint_materialization_ready(self.team.id, "lazy_endpoint"))
 
+    @parameterized.expand([("latest", None), ("numbered", 1)])
+    def test_loading_a_version_preloads_what_the_serving_window_reads(self, _name, version_number):
+        _create_ready_materialized_endpoint(self.team, self.user, "preloaded", timezone.now())
+        endpoint = Endpoint.objects.get(team=self.team, name="preloaded")
+        endpoint.versions.update(team=self.team)
+
+        version = endpoint.get_version(version_number)
+
+        with self.assertNumQueries(0):
+            self.assertEqual(version.team.organization.id, self.organization.id)
+
     @parameterized.expand(
         [
             ("body", {"version": 2}, {}),
