@@ -9,6 +9,7 @@ from posthog.schema import HogQLQueryModifiers, MaterializationMode
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.ai.ai_table_resolver import (
     AIEventsExpiredError,
@@ -304,3 +305,22 @@ class TestQueryAiEventsTypedProperties(ClickhouseTestMixin, BaseTest):
         )
 
         assert result.results == [(match,)]
+
+    def test_hand_written_id_filter_ignores_detected_numeric_type(self):
+        PropertyDefinition.objects.create(team=self.team, name="$ai_trace_id", property_type="Numeric")
+        bulk_create_ai_events(
+            [
+                {
+                    "event": "$ai_generation",
+                    "team": self.team,
+                    "distinct_id": "d1",
+                    "properties": {"$ai_trace_id": "7f3a"},
+                }
+            ]
+        )
+
+        result = execute_hogql_query(
+            "SELECT count() FROM posthog.ai_events WHERE properties.$ai_trace_id = '7f3a'", team=self.team
+        )
+
+        assert result.results == [(1,)]

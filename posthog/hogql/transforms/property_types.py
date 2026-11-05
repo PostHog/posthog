@@ -7,7 +7,7 @@ from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES, is_virtua
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import BooleanDatabaseField, DateTimeDatabaseField, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import S3Table
-from posthog.hogql.database.schema.ai_events import AiEventsTable
+from posthog.hogql.database.schema.ai_events import AI_PROPERTY_TO_COLUMN, AiEventsTable
 from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES, EventsGroupSubTable, EventsPersonSubTable
 from posthog.hogql.database.schema.events_with_flag_calls import (
     EVENT_ROW_TABLES,
@@ -769,6 +769,9 @@ class PropertySwapper(CloningVisitor):
                     if property_name in self.person_properties:
                         return ("person", property_name)
                 elif isinstance(resolved_table, _EVENT_PROPERTY_TABLES):
+                    # Detection can mistype IDs such as $ai_trace_id, and these keys already have a typed native column.
+                    if isinstance(resolved_table, AiEventsTable) and property_name in AI_PROPERTY_TO_COLUMN:
+                        return None
                     if property_name in self.event_properties:
                         return ("event", property_name)
         if type.field_type.name == "person_properties" and len(type.chain) == 1:
