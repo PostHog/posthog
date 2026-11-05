@@ -3048,11 +3048,13 @@ class TestViewEngineFromQuery(SimpleTestCase):
                 {},
                 ViewEngine(target=ViewEngineTarget.CLICKHOUSE, dialect=ViewEngineDialect.HOGQL),
                 True,
+                True,
             ),
             (
                 "clickhouse_ignores_raw",
                 {"sendRawQuery": True},
                 ViewEngine(target=ViewEngineTarget.CLICKHOUSE, dialect=ViewEngineDialect.HOGQL),
+                True,
                 True,
             ),
             (
@@ -3060,17 +3062,20 @@ class TestViewEngineFromQuery(SimpleTestCase):
                 {"executionTarget": "managed_trino"},
                 ViewEngine(target=ViewEngineTarget.MANAGED_TRINO, dialect=ViewEngineDialect.HOGQL),
                 True,
+                True,
             ),
             (
                 "trino_raw",
                 {"executionTarget": "managed_trino", "sendRawQuery": True},
                 ViewEngine(target=ViewEngineTarget.MANAGED_TRINO, dialect=ViewEngineDialect.RAW),
                 False,
+                True,
             ),
             (
                 "trino_string_true",
                 {"executionTarget": "managed_trino", "sendRawQuery": "true"},
                 ViewEngine(target=ViewEngineTarget.MANAGED_TRINO, dialect=ViewEngineDialect.HOGQL),
+                True,
                 True,
             ),
             (
@@ -3078,11 +3083,13 @@ class TestViewEngineFromQuery(SimpleTestCase):
                 {"executionTarget": "managed_trino", "sendRawQuery": True, "connectionId": "conn-1"},
                 ViewEngine(target=ViewEngineTarget.MANAGED_TRINO, dialect=ViewEngineDialect.RAW),
                 False,
+                True,
             ),
             (
                 "connection_hogql",
                 {"connectionId": "conn-1"},
                 ViewEngine(target=ViewEngineTarget.CONNECTION, dialect=ViewEngineDialect.HOGQL, connection_id="conn-1"),
+                False,
                 False,
             ),
             (
@@ -3090,14 +3097,18 @@ class TestViewEngineFromQuery(SimpleTestCase):
                 {"connectionId": "conn-1", "sendRawQuery": True},
                 ViewEngine(target=ViewEngineTarget.CONNECTION, dialect=ViewEngineDialect.RAW, connection_id="conn-1"),
                 False,
+                False,
             ),
         ]
     )
-    def test_from_query(self, _name: str, keys: dict, expected: ViewEngine, runs_on_posthog: bool) -> None:
+    def test_from_query(
+        self, _name: str, keys: dict, expected: ViewEngine, runs_on_posthog: bool, readable_from_trino: bool
+    ) -> None:
         engine = ViewEngine.from_query({"kind": "HogQLQuery", "query": "SELECT 1", **keys})
         self.assertEqual(engine, expected)
         for capability in (engine.can_materialize, engine.has_lineage, engine.referenceable_from_clickhouse):
             self.assertEqual(capability.available, runs_on_posthog)
+        self.assertEqual(engine.referenceable_from_trino.available, readable_from_trino)
         self.assertEqual(
             engine.column_source,
             ViewColumnSource.CLICKHOUSE_PROBE if runs_on_posthog else ViewColumnSource.CLIENT_TYPES,

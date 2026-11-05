@@ -1672,6 +1672,8 @@ export interface ViewEngineCapabilitiesApi {
     lineage: ViewCapabilityApi
     /** Whether HogQL queries on ClickHouse can read from this view by name. */
     referenceable_from_clickhouse: ViewCapabilityApi
+    /** Whether queries on hosted Trino can read from this view by name. */
+    referenceable_from_trino: ViewCapabilityApi
     /** Where the view's column types come from: a ClickHouse probe of the query, or the types the client sends from its last run.
      *
      * * `clickhouse_probe` - ClickHouse probe
@@ -1759,7 +1761,7 @@ export interface DataWarehouseSavedQueryMinimalApi {
     readonly user_access_level: string | null
     /** The engine that runs this view, and what the product can do with it. */
     readonly engine: ViewEngineApi
-    /** Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
+    /** Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it or read it by name. */
     readonly is_raw_managed_trino: boolean
 }
 
@@ -2089,7 +2091,7 @@ export interface DataWarehouseSavedQueryApi {
     readonly suspended: DataWarehouseSavedQueryApiSuspended
     /** The engine that runs this view, and what the product can do with it. */
     readonly engine: ViewEngineApi
-    /** Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
+    /** Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it or read it by name. */
     readonly is_raw_managed_trino: boolean
 }
 
@@ -2217,7 +2219,7 @@ export interface PatchedDataWarehouseSavedQueryApi {
     readonly suspended?: PatchedDataWarehouseSavedQueryApiSuspended
     /** The engine that runs this view, and what the product can do with it. */
     readonly engine?: ViewEngineApi
-    /** Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
+    /** Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it or read it by name. */
     readonly is_raw_managed_trino?: boolean
 }
 
