@@ -1,4 +1,5 @@
 from products.slack_app.backend.logic.onboarding.ai_consent_step import AiConsentStep
+from products.slack_app.backend.logic.onboarding.channel_welcome_step import ChannelWelcomeStep
 from products.slack_app.backend.logic.onboarding.github_step import GithubStep
 from products.slack_app.backend.logic.onboarding.inbox_channel_step import InboxChannelStep
 from products.slack_app.backend.logic.onboarding.link_account_step import LinkAccountStep
@@ -14,6 +15,7 @@ ONBOARDING_STEPS: tuple[OnboardingStep, ...] = (
     GithubStep(),
     InboxChannelStep(),
     SourcesStep(),
+    ChannelWelcomeStep(),
     ModelStep(),
     RepliesInThreadsStep(),
 )

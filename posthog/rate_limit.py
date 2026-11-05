@@ -1116,12 +1116,19 @@ class LLMPromptPublishBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
     rate = "30/minute"
 
 
-class LLMPromptFetchRateThrottle(PersonalApiKeyRateThrottle):
+class LLMPromptFetchRateThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
     # SDK fleets poll prompt fetches on a fixed interval, so the shared sustained budget
     # (4800/hour) rejects steady polling that the burst budget allows. A per-minute-only
     # bucket keeps prompt fetches out of the general API budget, mirroring the dedicated
-    # feature_flag_remote_config throttle.
+    # feature_flag_remote_config throttle. Project secret keys get the same budget per key.
     scope = "llm_prompt_fetch"
+    rate = "600/minute"
+
+
+class LLMPromptFetchProjectSecretApiKeyTeamRateThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    # One budget for all of a project's secret keys together, the same size as the per-key
+    # budget, so creating more keys does not raise a project's total.
+    scope = "llm_prompt_fetch_psak_team"
     rate = "600/minute"
 
 

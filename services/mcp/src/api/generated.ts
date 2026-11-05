@@ -17748,7 +17748,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.
+     * Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected.
      */
     export type RedshiftCopyInputsAuthorization = number | string | {
       aws_access_key_id: string;
@@ -17756,7 +17756,7 @@ export namespace Schemas {
     };
 
     /**
-     * Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.
+     * AWS S3 integration ID used to stage files in the S3 bucket. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected.
      */
     export type RedshiftCopyInputsBucketCredentials = number | {
       aws_access_key_id: string;
@@ -17773,9 +17773,9 @@ export namespace Schemas {
       region_name: string;
       /** Key prefix for staged files in the S3 bucket. */
       s3_key_prefix: string;
-      /** Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration. */
+      /** Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected. */
       authorization: RedshiftCopyInputsAuthorization;
-      /** Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration. */
+      /** AWS S3 integration ID used to stage files in the S3 bucket. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected. */
       bucket_credentials: RedshiftCopyInputsBucketCredentials;
     }
 
@@ -24818,6 +24818,264 @@ export namespace Schemas {
       member_ids?: number[];
       /** Star a new channel for the requester. This field does not change stars on an existing channel. */
       star?: boolean;
+    }
+
+    /**
+     * * `time_series` - Time series
+     */
+    export type ChartExplanationShapeEnum = typeof ChartExplanationShapeEnum[keyof typeof ChartExplanationShapeEnum];
+
+
+    export const ChartExplanationShapeEnum = {
+      TimeSeries: 'time_series',
+    } as const;
+
+    export interface StorySeriesResult {
+      /**
+         * The series name.
+         * @maxLength 400
+         */
+      label?: string;
+      /**
+         * One value per point. Saved for the followed series only.
+         * @maxItems 5000
+         */
+      data?: number[];
+      /**
+         * The date of each point, in the query's timezone. Saved for the followed series only.
+         * @maxItems 5000
+         */
+      days?: string[];
+    }
+
+    /**
+     * * `high` - High confidence
+     * * `medium` - Medium confidence
+     * * `low` - Low confidence
+     */
+    export type StoryConfidenceEnum = typeof StoryConfidenceEnum[keyof typeof StoryConfidenceEnum];
+
+
+    export const StoryConfidenceEnum = {
+      High: 'high',
+      Medium: 'medium',
+      Low: 'low',
+    } as const;
+
+    /**
+     * * `query-trends` - Trends
+     * * `query-funnel` - Funnel
+     * * `query-retention` - Retention
+     * * `query-stickiness` - Stickiness
+     * * `query-paths` - Paths
+     * * `query-lifecycle` - Lifecycle
+     */
+    export type StoryEvidenceQueryToolEnum = typeof StoryEvidenceQueryToolEnum[keyof typeof StoryEvidenceQueryToolEnum];
+
+
+    export const StoryEvidenceQueryToolEnum = {
+      QueryTrends: 'query-trends',
+      QueryFunnel: 'query-funnel',
+      QueryRetention: 'query-retention',
+      QueryStickiness: 'query-stickiness',
+      QueryPaths: 'query-paths',
+      QueryLifecycle: 'query-lifecycle',
+    } as const;
+
+    /**
+     * * `line` - Line
+     * * `bar` - Bar
+     */
+    export type StoryEvidenceChartTypeEnum = typeof StoryEvidenceChartTypeEnum[keyof typeof StoryEvidenceChartTypeEnum];
+
+
+    export const StoryEvidenceChartTypeEnum = {
+      Line: 'line',
+      Bar: 'bar',
+    } as const;
+
+    export interface StoryEvidenceSeries {
+      /** The breakdown value or column this line draws. */
+      name: string;
+      /**
+         * One value per label. Null where the breakdown value has no row for that point.
+         * @maxItems 5000
+         */
+      values: (number | null)[];
+    }
+
+    export interface StoryEvidenceChart {
+      /** How the evidence chart draws its series.
+       *
+       * * `line` - Line
+       * * `bar` - Bar */
+      type: StoryEvidenceChartTypeEnum;
+      /**
+         * The x-axis points.
+         * @maxItems 5000
+         */
+      labels: string[];
+      /**
+         * The axis label of each point, which leaves out a date that repeats.
+         * @maxItems 5000
+         */
+      ticks?: string[];
+      /** The lines or bars to draw. */
+      series: StoryEvidenceSeries[];
+      /**
+         * The y-axis label, if any.
+         * @nullable
+         */
+      yAxisLabel: string | null;
+    }
+
+    /**
+     * The query that shows the fact. The page links to it.
+     * @nullable
+     */
+    export type StoryEvidenceQuery = {[key: string]: unknown} | null;
+
+    export interface StoryEvidence {
+      /**
+         * One fact that supports the chapter, in one sentence.
+         * @maxLength 400
+         */
+      text: string;
+      /**
+         * The query that shows the fact. The page links to it.
+         * @nullable
+         */
+      query?: StoryEvidenceQuery;
+      /**
+         * The short id of a saved insight that shows the fact. The page links to it.
+         * @nullable
+         * @pattern ^[A-Za-z0-9]{8}$
+         */
+      insightShortId?: string | null;
+      /**
+         * A link to the GitHub pull request or commit behind the fact. No other links are accepted.
+         * @maxLength 500
+         * @nullable
+         */
+      url?: string | null;
+      /** The MCP query tool that can redraw `query`. The page redraws the query only when this is set.
+       *
+       * * `query-trends` - Trends
+       * * `query-funnel` - Funnel
+       * * `query-retention` - Retention
+       * * `query-stickiness` - Stickiness
+       * * `query-paths` - Paths
+       * * `query-lifecycle` - Lifecycle */
+      queryTool?: StoryEvidenceQueryToolEnum | null;
+      /** The fact drawn as a chart, from its SQL. */
+      chart?: StoryEvidenceChart | null;
+    }
+
+    export interface StoryChapter {
+      /**
+         * The moment on the chart this chapter explains.
+         * @maxLength 80
+         */
+      title: string;
+      /**
+         * Inclusive indexes into the series' points. Null when the chapter's dates match no point.
+         * @minItems 2
+         * @maxItems 2
+         * @nullable
+         * @items.minimum 0
+         */
+      range: number[] | null;
+      /**
+         * What happened in this moment.
+         * @maxLength 400
+         * @nullable
+         */
+      summary: string | null;
+      /**
+         * The likely cause of this moment.
+         * @maxLength 600
+         * @nullable
+         */
+      cause: string | null;
+      /** How sure the investigation is of the cause.
+       *
+       * * `high` - High confidence
+       * * `medium` - Medium confidence
+       * * `low` - Low confidence */
+      confidence: StoryConfidenceEnum | null;
+      /**
+         * Why the confidence is what it is.
+         * @maxLength 200
+         * @nullable
+         */
+      confidenceReason: string | null;
+      /** The facts behind the cause. */
+      evidence: StoryEvidence[];
+    }
+
+    /**
+     * The insight query the explanation follows.
+     */
+    export type ExplainChartDataQuery = {[key: string]: unknown};
+
+    export interface ExplainChartData {
+      /** What the explanation walks through, whichever insight drew the chart. A funnel over time is a time series too.
+       *
+       * * `time_series` - Time series */
+      shape?: ChartExplanationShapeEnum;
+      /** The insight query the explanation follows. */
+      query: ExplainChartDataQuery;
+      /** Every series on the chart when it was explained. */
+      results: StorySeriesResult[];
+      /**
+         * The index in `results` the explanation follows.
+         * @minimum 0
+         */
+      seriesIndex: number;
+      /**
+         * The insight's name.
+         * @maxLength 400
+         * @nullable
+         */
+      insightName: string | null;
+      /** Whether the last point's period had not ended yet. */
+      lastPointInProgress: boolean;
+      /**
+         * One sentence a person could read in place of the whole explanation.
+         * @maxLength 300
+         */
+      headline: string;
+      /** The moments that stand out, in reading order. */
+      chapters: StoryChapter[];
+      /**
+         * Warnings the chart's query came back with.
+         * @maxItems 20
+         */
+      warnings?: unknown[];
+    }
+
+    export interface ChartExplanationAuthor {
+      /** The user's id. */
+      id: number;
+      /** The user's first name. */
+      first_name: string;
+      /** The user's last name. */
+      last_name: string;
+      /** The user's email address. */
+      email: string;
+    }
+
+    export interface ChartExplanation {
+      /** The chart explanation, as the insight page shows it. */
+      data: ExplainChartData;
+      /** Who saved the explanation, directly or through an agent. */
+      created_by: ChartExplanationAuthor | null;
+      /** The explanation's id, which its link carries. */
+      id: string;
+      /** The insight the explanation belongs to. */
+      insight_id: number;
+      /** When the explanation was first saved. */
+      created_at: string;
     }
 
     /**
@@ -48264,7 +48522,7 @@ export namespace Schemas {
       sdk: string;
       /** Number of billable requests in this bucket. */
       request_count: number;
-      /** Estimated billing units. Local evaluation requests count as 10 units each. */
+      /** Estimated billing units. Local evaluation requests count as 10 units each, except 304 Not Modified responses, which count as 1. */
       billing_units: number;
     }
 
@@ -58644,6 +58902,11 @@ export namespace Schemas {
       depth?: InsightDataChecksDepthEnum;
     }
 
+    export interface InsightExplanationCreate {
+      /** The chart explanation, as the insight page shows it. */
+      data: ExplainChartData;
+    }
+
     /**
      * The anomaly detector the alert uses in place of its threshold, or null for a threshold alert. It can't change through this API.
      */
@@ -64262,6 +64525,11 @@ export namespace Schemas {
       readonly id: string;
       /** @nullable */
       readonly template_id: string | null;
+      /**
+         * ID of the MCP server this connection belongs to. The MCP server page takes this ID, not the connection id. Null for older connections that are not linked to a server yet.
+         * @nullable
+         */
+      readonly gateway_server_id: string | null;
       readonly name: string;
       /** Deprecated: use icon_domain instead. Lowercase key from the linked template for clients that still render bundled icon assets. Empty if custom install (no template). */
       readonly icon_key: string;
@@ -74825,6 +75093,8 @@ export namespace Schemas {
          * @nullable
          */
       ranker?: string | null;
+      /** True when `count` stopped at a cap, so it is a lower bound and `next` keeps paging past it. Only a search with a full page can cap the count. */
+      count_is_capped?: boolean;
       /**
          * Whether the client shows a ranking score pill on each card, when sort=recommended. The same flag arm sets this and the ranker. Null for every other sort.
          * @nullable
@@ -74842,7 +75112,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `alert_scope`. Other sources reject these keys.
+     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys.
      */
     export type SignalSourceConfigConfig = { [key: string]: unknown };
 
@@ -74856,7 +75126,7 @@ export namespace Schemas {
       source_product: SignalSourceProductEnum;
       source_type: SignalSourceConfigSourceTypeEnum;
       enabled?: boolean;
-      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `alert_scope`. Other sources reject these keys. */
+      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys. */
       config?: SignalSourceConfigConfig;
       /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
       config_set?: SignalSourceConfigConfigSet;
@@ -87161,7 +87431,7 @@ export namespace Schemas {
     }
 
     /**
-     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `alert_scope`. Other sources reject these keys.
+     * Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys.
      */
     export type PatchedSignalSourceConfigConfig = { [key: string]: unknown };
 
@@ -87175,7 +87445,7 @@ export namespace Schemas {
       source_product?: SignalSourceProductEnum;
       source_type?: SignalSourceConfigSourceTypeEnum;
       enabled?: boolean;
-      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts without the investigation agent. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `alert_scope`. Other sources reject these keys. */
+      /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the investigation agent confirmed into signals, `all_firing_alerts` also includes alerts without the investigation agent, and `off` turns no alerts into signals. Alert checks, notifications, and investigations still run with `off`. It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to 20 regex patterns, max 200 characters each). A pattern matches when it finds a match anywhere in the alert name or the insight name, and matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, an alert must match one of them. An alert that matches a block pattern is dropped, also when it matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no backreferences. Both keys apply to either `all_firing_alerts` or `investigated_only`. Other sources reject these keys. */
       config?: PatchedSignalSourceConfigConfig;
       /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
       config_set?: PatchedSignalSourceConfigConfigSet;
@@ -107194,9 +107464,9 @@ export namespace Schemas {
          * @items.maxLength 255
          */
       implementation_repositories?: string[];
-      /** Whether anomaly scoring scores this project's active trends insights every hour and writes the results as $anomaly_score events, which are not billed. True by default. Set false to stop new scores; events written before stay. Turning it on does not enroll a project that anomaly_scoring_available reports as not covered. */
+      /** Legacy off switch for anomaly scoring. The Product analytics source (analytics / anomaly_investigation) now controls scoring: when that source is on, anomaly scoring scores this project's active trends insights and writes the results as $anomaly_score events, which are not billed. True by default. False still stops new scores; events written before stay. Turning it on does not enroll a project that anomaly_scoring_available reports as not covered. */
       anomaly_scoring_enabled?: boolean;
-      /** Whether anomaly scoring covers this project, so anomaly_scoring_enabled has an effect. PostHog decides which projects anomaly scoring covers. */
+      /** Whether the anomaly scoring rollout covers this project. PostHog decides which projects it covers. A covered project is scored only while its Product analytics source is on. */
       readonly anomaly_scoring_available: boolean;
       /**
          * How many reports first became visible in the inbox during the current project-timezone day. This is the count the daily report limit compares against.
@@ -113160,6 +113430,21 @@ export namespace Schemas {
       nodeIdsByAlias: TraceNodeIdsByAlias;
       /** The branch the trace's work ran on: the latest stamped branch other than main or master, else the first stamp. Null when no event carries a branch. */
       git: TraceGit | null;
+    }
+
+    export interface TraceAvailability {
+      /** Requested trace IDs readable from AI events or the shared events table. */
+      available_trace_ids: string[];
+    }
+
+    export interface TraceAvailabilityRequest {
+      /**
+         * Application and evaluator trace IDs to check without loading trace contents.
+         * @minItems 1
+         * @maxItems 2
+         * @items.maxLength 255
+         */
+      trace_ids: string[];
     }
 
     export interface TraceChoiceAnswer {
@@ -133928,6 +134213,20 @@ export namespace Schemas {
 
     export type StamphogRoutingRunsListParams = {
     /**
+     * Keep only runs created at or after this time (ISO 8601).
+     */
+    created_after?: string;
+    /**
+     * Keep only runs created before this time (ISO 8601).
+     */
+    created_before?: string;
+    /**
+     * Keep only runs on this head commit. Pass the full 40-character SHA.
+     * @minLength 1
+     * @maxLength 64
+     */
+    head_sha?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -133935,6 +134234,18 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Keep only runs where an owner got this outcome. With `owner`, that owner must have it, so `owner=team-devex&outcome=cut` lists the runs that cut team-devex.
+     *
+     * * `requested` - Requested
+     * * `labeled` - Labeled
+     * * `refused` - Refused by GitHub
+     * * `cut` - Cut
+     * * `not_requested` - Not requested
+     * * `already_requested` - Already requested
+     * @minLength 1
+     */
+    outcome?: StamphogRoutingRunsListOutcome;
     /**
      * Keep only runs that decided about this owner, spelled as in owners.yaml: a team slug such as 'team-devex', or a GitHub login such as '@octocat'.
      * @minLength 1
@@ -133945,11 +134256,51 @@ export namespace Schemas {
      */
     pr_number?: number;
     /**
+     * Keep only runs where an owner was kept or cut for this reason. With `owner`, that owner must have it.
+     *
+     * * `sensitive` - Owns a sensitive path
+     * * `new_path` - Owns a new path
+     * * `largest_owner` - Has the largest part
+     * * `diff_not_seen` - Diff not shown to the model
+     * * `cut_skipped` - Cut step skipped
+     * * `model_kept` - Kept by the model
+     * * `model_cut` - Cut by the model
+     * * `stamphog_approved` - Stamphog approved
+     * @minLength 1
+     */
+    reason?: StamphogRoutingRunsListReason;
+    /**
      * Filter by repository full name, e.g. 'PostHog/posthog'.
      * @minLength 1
      */
     repository?: string;
     };
+
+    export type StamphogRoutingRunsListOutcome = typeof StamphogRoutingRunsListOutcome[keyof typeof StamphogRoutingRunsListOutcome];
+
+
+    export const StamphogRoutingRunsListOutcome = {
+      Requested: 'requested',
+      Labeled: 'labeled',
+      Refused: 'refused',
+      Cut: 'cut',
+      NotRequested: 'not_requested',
+      AlreadyRequested: 'already_requested',
+    } as const;
+
+    export type StamphogRoutingRunsListReason = typeof StamphogRoutingRunsListReason[keyof typeof StamphogRoutingRunsListReason];
+
+
+    export const StamphogRoutingRunsListReason = {
+      Sensitive: 'sensitive',
+      NewPath: 'new_path',
+      LargestOwner: 'largest_owner',
+      DiffNotSeen: 'diff_not_seen',
+      CutSkipped: 'cut_skipped',
+      ModelKept: 'model_kept',
+      ModelCut: 'model_cut',
+      StamphogApproved: 'stamphog_approved',
+    } as const;
 
     export type StreamlitAppsListParams = {
     /**

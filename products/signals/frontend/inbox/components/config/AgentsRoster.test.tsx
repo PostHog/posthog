@@ -195,6 +195,48 @@ describe('AgentsRoster', () => {
 
     // The cap keeps a long user-created list from burying the sources below it, but a filter that
     // could not reach past it would make a scanner unfindable by name.
+    it.each([
+        {
+            allFiringFlag: false,
+            stored: 'all_firing_alerts',
+            checked: 'Investigated alerts only',
+            allFiringShown: false,
+        },
+        { allFiringFlag: true, stored: 'all_firing_alerts', checked: 'All firing alerts', allFiringShown: true },
+        { allFiringFlag: false, stored: 'off', checked: 'Off', allFiringShown: false },
+    ])(
+        'shows alert scope $checked for stored $stored when the all alerts flag is $allFiringFlag',
+        async ({ allFiringFlag, stored, checked, allFiringShown }) => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_AUTONOMY], {
+                [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
+                [FEATURE_FLAGS.SIGNALS_ANALYTICS_ALL_ALERTS]: allFiringFlag,
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/source_configs/': {
+                        results: [
+                            {
+                                id: 'analytics',
+                                source_product: 'analytics',
+                                source_type: 'anomaly_investigation',
+                                enabled: true,
+                                config: { alert_scope: stored },
+                            },
+                        ],
+                    },
+                },
+            })
+            render(<AgentsRoster />)
+
+            const [expandButton] = await screen.findAllByLabelText('Expand Product analytics')
+            await userEvent.click(expandButton)
+
+            expect(await screen.findByLabelText(/^Off/)).toBeInTheDocument()
+            expect(screen.getByLabelText(new RegExp(`^${checked}`))).toBeChecked()
+            expect(screen.queryAllByLabelText(/^All firing alerts/)).toHaveLength(allFiringShown ? 1 : 0)
+        }
+    )
+
     it('caps the scanner list, and lets both the filter and Show more reach past the cap', async () => {
         render(<AgentsRoster />)
         await userEvent.click(await screen.findByText('Replay vision'))

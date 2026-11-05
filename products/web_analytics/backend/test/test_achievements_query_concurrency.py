@@ -93,14 +93,11 @@ class TestAchievementQueryConcurrency(SimpleTestCase):
     def test_conversions_use_the_same_budget_as_pageviews(self) -> None:
         self._fill_budget()
         with (
-            patch.object(evaluators.Action, "objects") as actions,
+            patch.object(evaluators, "list_top_actions", return_value=[Mock(id=1, team_id=self.team.id, steps=())]),
             patch.object(evaluators, "_project_environment_teams", return_value=[self.team]),
             patch.object(evaluators, "action_to_expr", return_value=evaluators.ast.Constant(value=True)),
             patch.object(evaluators, "execute_hogql_query") as execute,
         ):
-            actions.filter.return_value.select_related.return_value.order_by.return_value.__getitem__.return_value = [
-                Mock(id=1, steps_json=[])
-            ]
             with self.assertRaises(ConcurrencyLimitExceeded):
                 evaluators.evaluate_conversions(self.ctx, self.prior)
             execute.assert_not_called()

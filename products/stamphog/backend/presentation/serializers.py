@@ -848,6 +848,30 @@ class StamphogRoutingRunsQuerySerializer(serializers.Serializer):
             "'team-devex', or a GitHub login such as '@octocat'."
         ),
     )
+    outcome = serializers.ChoiceField(
+        choices=RoutingOwnerOutcome.choices,
+        required=False,
+        help_text=(
+            "Keep only runs where an owner got this outcome. With `owner`, that owner must have it, so "
+            "`owner=team-devex&outcome=cut` lists the runs that cut team-devex."
+        ),
+    )
+    reason = serializers.ChoiceField(
+        choices=RoutingOwnerReason.choices,
+        required=False,
+        help_text="Keep only runs where an owner was kept or cut for this reason. With `owner`, that owner must have it.",
+    )
+    head_sha = serializers.CharField(
+        required=False,
+        max_length=64,
+        help_text="Keep only runs on this head commit. Pass the full 40-character SHA.",
+    )
+    created_after = serializers.DateTimeField(
+        required=False, help_text="Keep only runs created at or after this time (ISO 8601)."
+    )
+    created_before = serializers.DateTimeField(
+        required=False, help_text="Keep only runs created before this time (ISO 8601)."
+    )
 
 
 @extend_schema_serializer(component_name="StamphogRoutingPin")
