@@ -56,33 +56,37 @@ export function EvaluationLivePreview({
     if (!evaluation) {
         return null
     }
-    const open = (index: number): void => {
-        if (index < 0 || index === currentIndex) {
-            return
-        }
-        // pinned: analytics event name and properties, because the creation funnel reads them
-        posthog.capture('llma evaluation create part opened', { part: steps[index].part, is_new: isNewEvaluation })
-        onGo(index)
-    }
-    const part = (stepKey: string, text: string, missing?: ChecklistKey): JSX.Element => {
+    /** `name` overrides the step's part where one step holds several parts, such as the target and the triggers. */
+    const part = (stepKey: string, text: string, missing?: ChecklistKey, name?: string): JSX.Element => {
         const index = steps.findIndex((step) => step.key === stepKey)
         const step = steps[index]
         const todo = missing ? checklist.find((item) => item.key === missing && !item.done)?.todo : undefined
         if (!step) {
             return <span className="font-semibold">{text}</span>
         }
+        const partName = name ?? step.part
         return (
             <Tooltip title={todo}>
                 <button
                     type="button"
-                    onClick={() => open(index)}
+                    onClick={() => {
+                        if (index === currentIndex) {
+                            return
+                        }
+                        // pinned: analytics event name and properties, because the creation funnel reads them
+                        posthog.capture('llma evaluation create part opened', {
+                            part: partName,
+                            is_new: isNewEvaluation,
+                        })
+                        onGo(index)
+                    }}
                     aria-current={index === currentIndex ? 'step' : undefined}
                     className={cn(
                         '-mx-0.5 cursor-pointer rounded px-0.5 font-semibold underline decoration-dotted underline-offset-4 transition-colors motion-reduce:transition-none',
                         index === currentIndex ? 'bg-accent-highlight-light' : 'hover:bg-fill-highlight-100',
                         todo && 'text-danger'
                     )}
-                    data-attr={`llma-evaluation-create-part-${step.part}`}
+                    data-attr={`llma-evaluation-create-part-${partName}`}
                 >
                     {/* Keyed on the value, so a changed setting fades back in where you can see it. */}
                     <span key={text} className="animate-fade-in motion-reduce:animate-none">
@@ -111,17 +115,18 @@ export function EvaluationLivePreview({
                 <p className="mb-0 text-sm leading-relaxed" data-attr="llma-evaluation-create-sentence">
                     {evaluation.evaluation_type === 'sentiment' ? (
                         <>
-                            Rates {part('traffic', targetText(evaluation))} with{' '}
+                            Rates {part('traffic', targetText(evaluation), undefined, 'target')} with{' '}
                             {part('name', methodText(evaluation, usesDecisionModel))} as positive, neutral, or negative.
                         </>
                     ) : (
                         <>
-                            Checks {part('traffic', targetText(evaluation))} with{' '}
+                            Checks {part('traffic', targetText(evaluation), undefined, 'target')} with{' '}
                             {evaluation.evaluation_type === 'hog' ? (
                                 part(
                                     'check',
                                     codeLines > 0 ? `${pluralize(codeLines, 'line')} of Hog` : 'Hog code',
-                                    'criteria'
+                                    'criteria',
+                                    'code'
                                 )
                             ) : (
                                 <>
@@ -156,7 +161,12 @@ export function EvaluationLivePreview({
                         <Link
                             key={item.key}
                             className="text-xs"
-                            onClick={() => open(steps.findIndex((step) => step.checks.includes(item.key)))}
+                            onClick={() => {
+                                const index = steps.findIndex((step) => step.checks.includes(item.key))
+                                if (index >= 0) {
+                                    onGo(index)
+                                }
+                            }}
                         >
                             {item.todo}
                         </Link>

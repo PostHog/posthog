@@ -12,7 +12,6 @@ import type { EvaluationSampleTrafficItemApi, TestHogResultItemApi } from '../..
 import { TraceDrawerRowsSync, useTraceDrawerRows } from '../../redesign/trace/TraceDrawerRowsHost'
 import type { TraceListRow } from '../../redesign/trace/traceListRows'
 import {
-    HOG_TEST_LIMIT,
     JUDGE_TEST_LIMIT,
     evaluationPreviewLogic,
     outputConfigError,
@@ -45,7 +44,9 @@ function ResultTag({
     const passes = resultPasses(result, evaluation)
     // An empty list is a real answer from a multiple-choice evaluation, unlike a null result.
     const value = result.categories
-        ? result.categories.join(', ') || 'No categories'
+        ? result.categories
+              .map((key) => evaluation.output_config.options?.find((option) => option.key === key)?.label ?? key)
+              .join(', ') || 'No categories'
         : result.score !== null && result.score !== undefined
           ? String(result.score)
           : 'N/A'
@@ -106,7 +107,8 @@ export function EvaluationTrafficPreview({ testable }: { testable: boolean }): J
         return result ? [resultPasses(result, evaluation)] : []
     })
     const graded = verdicts.filter((passes) => passes !== null)
-    const testCount = Math.min(rows.length, kind === 'judge' ? JUDGE_TEST_LIMIT : HOG_TEST_LIMIT)
+    // Only a judge shows the test button, so it counts the runs a judge test covers.
+    const testCount = Math.min(rows.length, JUDGE_TEST_LIMIT)
 
     return (
         <div className="flex flex-col gap-2" data-attr="llma-evaluation-create-preview">
@@ -179,7 +181,7 @@ export function EvaluationTrafficPreview({ testable }: { testable: boolean }): J
                     })}
                 </ul>
             )}
-            {testable && kind !== 'hog' && (
+            {testable && evaluation.evaluation_type === 'llm_judge' && (
                 <LemonButton
                     type="primary"
                     size="small"
@@ -189,10 +191,16 @@ export function EvaluationTrafficPreview({ testable }: { testable: boolean }): J
                     onClick={() => testRows({ auto: false })}
                     disabledReason={
                         !kind
-                            ? evaluation.evaluation_type === 'llm_judge'
-                                ? 'Write a prompt and pick a model first'
-                                : 'Write the code first'
-                            : (outputConfigError(evaluation) ?? (testCount === 0 ? `No ${unit}s to test` : undefined))
+                            ? 'Write a prompt and pick a model first'
+                            : (outputConfigError(evaluation) ??
+                              // Rows from the previous filters would skip the new ones, so wait for the current sample.
+                              (samplesError
+                                  ? `Couldn't load the matching ${unit}s`
+                                  : samplesLoading
+                                    ? `Loading the matching ${unit}s`
+                                    : testCount === 0
+                                      ? `No ${unit}s to test`
+                                      : undefined))
                     }
                     tooltip="Each run is one call on your own API key."
                     data-attr="llma-evaluation-create-preview-test"

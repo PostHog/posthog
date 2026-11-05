@@ -2384,7 +2384,8 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         team = Team.objects.get(id=self.team_id)
         user = cast("User", request.user)
         sample_ids = data.get("sample_ids") or None
-        condition_filter = build_condition_filter(data["conditions"], team)
+        # With the unit key, the conditions also apply the scheduler's rollout bucket, as in `sample_traffic`.
+        condition_filter = build_condition_filter(data["conditions"], team, ai_events_unit_key(target))
         tag_queries(product=Product.LLM_ANALYTICS, feature=Feature.QUERY)
 
         units: list[Any]
@@ -2420,14 +2421,10 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                     sample_ids=sample_ids,
                 )
                 unit_ids = [unit["uuid"] for unit in units]
-            previews = (
-                {}
-                if target == EvaluationTarget.GENERATION.value
-                else {
-                    preview["sample_id"]: preview
-                    for preview in _unit_previews(team=team, user=user, target=target, unit_ids=unit_ids)
-                }
-            )
+            previews = {
+                preview["sample_id"]: preview
+                for preview in _unit_previews(team=team, user=user, target=target, unit_ids=unit_ids)
+            }
         except AIEventsUnavailableError:
             units, unit_ids, previews = [], [], {}
 
@@ -2448,23 +2445,15 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                     row = _test_on_sample_row(_judge_unit(evaluation, target, unit, user))
                 except Exception as error:
                     row = {"result": None, "reasoning": None, "error": _test_on_sample_error(error)}
-            if target == EvaluationTarget.GENERATION.value:
-                io_preview = _generation_io_preview(unit)
-                input_preview, output_preview = io_preview.input, io_preview.output
-                trace_id = unit["properties"].get("$ai_trace_id")
-            else:
-                preview = previews.get(unit_id, {})
-                input_preview = preview.get("input_preview", "")
-                output_preview = preview.get("output_preview", "")
-                trace_id = unit_id if target == EvaluationTarget.TRACE.value else preview.get("trace_id")
+            preview = previews.get(unit_id, {})
             results.append(
                 {
                     "sample_id": unit_id,
                     "sample_type": target,
                     "event_uuid": unit_id if target == EvaluationTarget.GENERATION.value else None,
-                    "trace_id": trace_id,
-                    "input_preview": input_preview,
-                    "output_preview": output_preview,
+                    "trace_id": preview.get("trace_id"),
+                    "input_preview": preview.get("input_preview", ""),
+                    "output_preview": preview.get("output_preview", ""),
                     **row,
                 }
             )

@@ -38,9 +38,6 @@ const SAMPLE_DEBOUNCE_MS = 600
 const SAMPLE_COUNT = 5
 /** Each judge test is one call on the team's own provider key, so a click tests at most this many runs. */
 export const JUDGE_TEST_LIMIT = 3
-export const HOG_TEST_LIMIT = 10
-/** The server tests Hog on at most this many sessions, since each one loads a whole conversation. */
-const SESSION_HOG_TEST_LIMIT = 3
 /** Hog runs re-test as the code changes, once typing pauses. */
 const HOG_RETEST_DEBOUNCE_MS = 500
 
@@ -237,7 +234,6 @@ export const evaluationPreviewLogic = kea<evaluationPreviewLogicType>([
                     if (!evaluation || !currentTeamId || !kind || rows.length === 0 || outputConfigError(evaluation)) {
                         return null
                     }
-                    const hogLimit = evaluation.target === 'session' ? SESSION_HOG_TEST_LIMIT : HOG_TEST_LIMIT
                     const teamId = currentTeamId.toString()
                     const outputConfig = evaluation.output_config as TestHogRequestApi['output_config']
                     const response =
@@ -248,7 +244,7 @@ export const evaluationPreviewLogic = kea<evaluationPreviewLogicType>([
                                   output_type: evaluation.output_type as TestHogRequestApi['output_type'],
                                   output_config: outputConfig,
                                   allows_na: evaluation.output_config.allows_na ?? false,
-                                  sample_ids: rows.slice(0, hogLimit).map((row) => row.sample_id),
+                                  sample_ids: rows.map((row) => row.sample_id),
                               })
                             : await evaluationsTestOnSampleCreate(teamId, {
                                   ...scope(evaluation),
@@ -325,7 +321,8 @@ export const evaluationPreviewLogic = kea<evaluationPreviewLogicType>([
                     evaluation && {
                         type: evaluation.evaluation_type,
                         config: evaluation.evaluation_config,
-                        output: [evaluation.output_type, evaluation.output_config],
+                        // The pass rule only grades results, which `resultPasses` redoes, so changing it keeps them.
+                        output: [evaluation.output_type, { ...evaluation.output_config, passing_rule: undefined }],
                         model: evaluation.model_configuration,
                         target: evaluation.target,
                     }
