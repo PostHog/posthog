@@ -5,6 +5,7 @@ import React, { useEffect, useRef } from 'react'
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -28,6 +29,7 @@ import { ReportsTab } from './components/tabs/ReportsTab'
 import { RunsTab } from './components/tabs/RunsTab'
 import { SettingsTab } from './components/tabs/SettingsTab'
 import { SourcesTab } from './components/tabs/SourcesTab'
+import { InboxTodayReportDetail } from './components/today/InboxTodayReportDetail'
 import { InboxTriageView } from './components/triage/InboxTriageView'
 import { captureInboxPanelViewed } from './inboxAnalytics'
 import { inboxSceneLogic } from './inboxSceneLogic'
@@ -142,8 +144,9 @@ function InboxListView(): JSX.Element {
  * Detail view: replaces the list full-width. Renders the unified `ReportDetail`, which owns its own
  * header (back link, actions) and the evidence-first two-column layout.
  */
-function InboxDetailView({ report }: { report: SignalReport }): JSX.Element {
+function InboxDetailView({ report, backOverride }: { report: SignalReport; backOverride: string | null }): JSX.Element {
     const { reportDetailScrolled } = useActions(inboxSceneLogic)
+    const todayStyle = useFeatureFlag('INBOX_TODAY_STYLE')
     // Report only the first scroll per report to the logic (which fires `Inbox report scrolled` once),
     // so a fast native scroll doesn't dispatch an action on every frame.
     const scrolledReportRef = useRef<string | null>(null)
@@ -159,7 +162,16 @@ function InboxDetailView({ report }: { report: SignalReport }): JSX.Element {
             }}
         >
             {/* Key on the report so per-report detail state (e.g. the active diff tab) resets on navigation. */}
-            <ReportDetail key={report.id} report={report} />
+            {todayStyle ? (
+                <InboxTodayReportDetail
+                    key={report.id}
+                    report={report}
+                    backUrl={backOverride ?? urls.inbox('reports')}
+                    backLabel={backOverride ? 'Back' : 'Inbox'}
+                />
+            ) : (
+                <ReportDetail key={report.id} report={report} />
+            )}
         </div>
     )
 }
@@ -321,7 +333,7 @@ export function InboxScene(): JSX.Element {
                     ) : selectedScoutSkillName ? (
                         <ScoutDetailView skillName={selectedScoutSkillName} />
                     ) : selectedReport ? (
-                        <InboxDetailView report={selectedReport} />
+                        <InboxDetailView report={selectedReport} backOverride={backOverride} />
                     ) : selectedReportLoading ? (
                         <div className="-mt-2 flex flex-col min-h-0 flex-1 overflow-auto">
                             <ReportDetailSkeleton />

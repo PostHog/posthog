@@ -30,11 +30,13 @@ function PhoneActions({
     report,
     stateBadge,
     sampleReason,
+    linksToInbox,
     giveVerdict,
 }: {
     report: SignalReport
     stateBadge: JSX.Element | null
     sampleReason: string | null
+    linksToInbox: boolean
     giveVerdict: (verdict: TodayReportVerdict) => void
 }): JSX.Element {
     const [open, setOpen] = useState(false)
@@ -61,7 +63,7 @@ function PhoneActions({
                 title={reportTitle(report)}
                 description={sampleReason ?? undefined}
             >
-                {!sampleReason && (
+                {!sampleReason && linksToInbox && (
                     <Item to={urls.inboxReport('reports', report.id)} dataAttr="today-report-open-inbox">
                         <IconDocument />
                         Open the full report
@@ -99,7 +101,14 @@ function PhoneActions({
     )
 }
 
-export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Element {
+/** `linksToInbox` is off when the page already renders inside the inbox, where "Full report" would link to itself. */
+export function TodayReportHeader({
+    report,
+    linksToInbox = true,
+}: {
+    report: SignalReport
+    linksToInbox?: boolean
+}): JSX.Element {
     const { requestReportVerdict } = useActions(todayVerdictLogic)
     const { phoneLayout } = useValues(todayShellLogic)
     const { lead, leadMarks, shownKeyClauses, reportState, isSample } = useValues(
@@ -155,11 +164,12 @@ export function TodayReportHeader({ report }: { report: SignalReport }): JSX.Ele
                         report={report}
                         stateBadge={stateBadge}
                         sampleReason={sampleReason}
+                        linksToInbox={linksToInbox}
                         giveVerdict={giveVerdict}
                     />
                 ) : (
                     <div className="-mx-2 flex shrink-0 items-center gap-0.5">
-                        {!isSample && (
+                        {!isSample && linksToInbox && (
                             <Button
                                 size="sm"
                                 variant="link-muted"

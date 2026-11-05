@@ -30,10 +30,16 @@ function EvidenceRows({ reportId }: { reportId: string }): JSX.Element {
     )
 }
 
-export function TodayReportEvidence({ report }: { report: SignalReport }): JSX.Element {
+export function TodayReportEvidence({
+    report,
+    linksToInbox = true,
+}: {
+    report: SignalReport
+    linksToInbox?: boolean
+}): JSX.Element {
     const { shownEvidence, evidenceCount } = useValues(todayReportLogic({ reportId: report.id }))
     const fullReport = urls.inboxReport('reports', report.id)
-    const showsSeeAll = evidenceCount > shownEvidence.length && !isSampleReportId(report.id)
+    const showsSeeAll = linksToInbox && evidenceCount > shownEvidence.length && !isSampleReportId(report.id)
 
     return (
         <section className="flex flex-col gap-0.5" aria-label="Evidence" data-attr="today-report-evidence">
