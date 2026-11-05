@@ -487,9 +487,8 @@ export const formatSesEventLogs = (rec: SesEventRecord): SesEventLogLine[] => {
     }
 }
 
-// A malformed SES event still carries recipients and links, so only text that does not open like
-// JSON, such as an SNS or SES notice, is quoted. With an empty topic allowlist any AWS account can
-// send that text, so it is sanitized like other SES fields.
+// Only text that does not open like JSON is quoted, because a malformed SES event carries recipients.
+// Any AWS account can send it when the topic allowlist is empty, so it is sanitized like other SES fields.
 const plainTextPrefix = (message: string): string | undefined =>
     /^\s*[{[]/.test(message) ? undefined : sanitizeSesField(message, 200)
 
