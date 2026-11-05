@@ -990,15 +990,13 @@ class _SnapshotUserRateThrottle(SimpleRateThrottle):
         enforced = settings.SNAPSHOT_USER_RATE_LIMIT_ENFORCED
         location = self.scope if enforced else f"{self.scope}_log_only"
         _count_session_recording_throttled(location=location, auth_type=_request_auth_type(request))
-        # A client over the limit stays over it for every later request, so log once a minute per user, not per request.
+        # A client over the limit stays over it for every later request, so report once a minute per user, not per request.
         if cache.add(f"{self.scope}_logged:{request.user.pk}", 1, timeout=60):
-            # Warning, not info: production drops INFO from this logger, and this line is how we see who goes over.
-            logger.warning(
-                "snapshot_user_rate_limit_exceeded",
-                scope=self.scope,
-                enforced=enforced,
-                user_id=request.user.pk,
-                team_id=team_id,
+            report_user_action(
+                user=request.user,
+                event="snapshot rate limit exceeded",
+                properties={"scope": self.scope, "enforced": enforced, "team_id": team_id},
+                request=request,
             )
         return not enforced
 

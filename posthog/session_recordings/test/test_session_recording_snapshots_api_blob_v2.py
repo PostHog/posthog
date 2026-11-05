@@ -1013,6 +1013,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
     @parameterized.expand(
         [("enforced", True, status.HTTP_429_TOO_MANY_REQUESTS), ("log_only", False, status.HTTP_200_OK)]
     )
+    @patch("posthog.event_usage.posthoganalytics.capture")
     @patch("posthog.session_recordings.session_recording_api.is_rate_limit_enabled", return_value=True)
     @patch("posthog.session_recordings.session_recording_api.recording_api_client")
     @patch("posthog.session_recordings.session_recording_api.list_blocks_async", new_callable=AsyncMock)
@@ -1031,6 +1032,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_list_blocks,
         mock_recording_api_client,
         _mock_rate_limit_enabled,
+        mock_capture,
     ):
         cache.clear()
         session_id = str(uuid7())
@@ -1053,7 +1055,18 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             assert self.client.get(url).status_code == status.HTTP_200_OK
             assert self.client.get(url).status_code == status.HTTP_200_OK
             assert self.client.get(url).status_code == expected_status_over_quota
+            assert self.client.get(url).status_code == expected_status_over_quota
         cache.clear()
+
+        over_limit_reports = [
+            call.kwargs
+            for call in mock_capture.call_args_list
+            if call.kwargs["event"] == "snapshot rate limit exceeded"
+        ]
+        assert len(over_limit_reports) == 1
+        assert over_limit_reports[0]["distinct_id"] == self.user.distinct_id
+        assert over_limit_reports[0]["properties"]["enforced"] is enforced
+        assert over_limit_reports[0]["properties"]["scope"] == "snapshots_user_burst"
 
     @patch(
         "posthog.session_recordings.session_recording_v2_service.fetch_blocks_from_recording_api",
