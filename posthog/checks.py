@@ -22,7 +22,7 @@ from typing import Any
 from django.conf import settings
 from django.core.checks import CheckMessage, Error, Warning, register
 
-from posthog.oauth_signing_key import oidc_signing_key_configured
+from posthog.models.oauth import oidc_signing_key_configured
 from posthog.product_db_router import get_product_db_routes
 from posthog.storage.object_storage import is_usable_endpoint
 

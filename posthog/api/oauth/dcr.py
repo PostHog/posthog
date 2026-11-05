@@ -26,8 +26,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.oauth import OAuthApplication, TokenEndpointAuthMethod
-from posthog.oauth_signing_key import OIDC_SIGNING_KEY_MISSING_MESSAGE, oidc_signing_key_configured
+from posthog.models.oauth import (
+    OIDC_SIGNING_KEY_MISSING_MESSAGE,
+    OAuthApplication,
+    TokenEndpointAuthMethod,
+    oidc_signing_key_configured,
+)
 from posthog.rate_limit import IPThrottle
 from posthog.scopes import OIDC_SCOPES, filter_self_registered_ceiling
 

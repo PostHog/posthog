@@ -24,9 +24,13 @@ import structlog
 
 from posthog.api.utils import canonicalize_encoded_url, strip_url_userinfo, unparsed_hostname_in_allowed_url_list
 from posthog.models import Team, User
-from posthog.models.oauth import OAuthApplication, is_loopback_host
+from posthog.models.oauth import (
+    OIDC_SIGNING_KEY_MISSING_MESSAGE,
+    OAuthApplication,
+    is_loopback_host,
+    oidc_signing_key_configured,
+)
 from posthog.models.organization import Organization
-from posthog.oauth_signing_key import OIDC_SIGNING_KEY_MISSING_MESSAGE, oidc_signing_key_configured
 
 logger = structlog.get_logger(__name__)
 
