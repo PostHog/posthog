@@ -70,6 +70,10 @@ urlpatterns = [
         for old, target in MOVED_ORGANIZATION_ACTIONS.items()
     ],
     path(
+        "admin/posthog/organization/bulk-deactivate/",
+        MovedToConsole.page_redirect("Bulk deactivation", "/admin/console/tools/bulk-deactivate-organizations/"),
+    ),
+    path(
         "admin/posthog/organization/send-usage-report/",
         MovedToConsole.page_redirect("Sending usage reports", "/admin/console/tools/usage-reports/"),
     ),

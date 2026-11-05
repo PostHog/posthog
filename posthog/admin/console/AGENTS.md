@@ -30,7 +30,8 @@ A tool is a page that is not about one record, for example a report across all t
 1. In `products/<product>/backend/console.py`, subclass `ConsoleTool` and decorate it with `@console.register_tool`. Set `key`, `title`, `owner` and `group`; the group is the navigation heading. `posthog/admin/console/events_retention_tool.py` is the reference.
 2. `page(request)` returns a `Page` of blocks (`Notice`, `Table` with `Row` and `GroupRow`, `Paging`, `Output`). It only reads; the console serves it for GET and HEAD only. The console renders the blocks, so a tool needs no template. When a tool needs a block that does not exist, add it to `tools.py` and `tool.html` in the shell, not a template in the product.
 3. For an action that is not about one record, return a `ToolOperation` from `operations(request)`. It works like a record `Operation` without the record: `handler(request, form)`. Its handler returns `None` (back to the tool with its messages), or a `Page` that the console shows as the result. Return a result `Page` only when running the operation again is harmless, such as a dry run, because a reload submits the form again. `products/cohorts/backend/console.py` is the reference.
-4. When a tool replaces a Django admin page, keep the old URL name and point it at `MovedToConsole.page_redirect`, so existing links keep working.
+4. An operation that changes many records at once sets `preview`. The console shows the preview `Page` and a confirm button, and the confirm runs exactly the previewed input from a signed token. The handler still re-checks the current state, because records can change between preview and confirm. The token is readable, so a form with a preview holds no secrets. `posthog/admin/console/organization_tools.py` is the reference.
+5. When a tool replaces a Django admin page, keep the old URL name and point it at `MovedToConsole.page_redirect`, so existing links keep working.
 
 ## Move a Django admin action
 

@@ -93,6 +93,16 @@ class ToolOperationHandler(Protocol):
     def __call__(self, request: "HttpRequest", form: forms.Form | None) -> "HttpResponse | Page | None": ...
 
 
+class PreviewHandler(Protocol):
+    """Shows what an operation would change before it runs, as a `Page`. It must not change anything.
+
+    To refuse the input, for example when no record matches, add an error to the form; the console then shows
+    the form again.
+    """
+
+    def __call__(self, request: "HttpRequest", form: forms.Form) -> "Page": ...
+
+
 @frozen
 class ToolOperation:
     """An action a tool offers, for example starting a backfill. Like a record `Operation`, without a record."""
@@ -106,9 +116,13 @@ class ToolOperation:
     description: str = ""
     undo_hint: str = ""
     gate: Gate | None = None
+    # Staff confirm on a page that shows what will change. For actions on many records, such as a bulk change.
+    preview: PreviewHandler | None = None
 
     def __post_init__(self) -> None:
         check_danger(self.key, self.danger, self.form_class, self.undo_hint)
+        if self.preview is not None and self.form_class is None:
+            raise ValueError(f"Operation {self.key!r} has a preview, so it needs a form for the preview to read")
 
 
 class ConsoleTool:

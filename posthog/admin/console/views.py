@@ -17,6 +17,7 @@ from django.views.decorators.http import require_safe
 import structlog
 
 from posthog.admin.console.bridge import QueuedMessages
+from posthog.admin.console.confirm import ConfirmationToken
 from posthog.admin.console.panels import Fact, Operation, Panel, Tone
 from posthog.admin.console.records import RECORD_TYPES, RecordLink, RecordType
 from posthog.admin.console.registry import console
@@ -275,6 +276,8 @@ def _operation_context(
         "target": target,
         "operation": operation,
         "form": form,
+        # Templates call callables, so the preview handler cannot be tested there directly.
+        "has_preview": getattr(operation, "preview", None) is not None,
         # Handlers that move money or send messages build an idempotency key from it, so a double submit runs once.
         "form_nonce": request.POST.get("form_nonce") or str(uuid.uuid4()),
     }
@@ -393,9 +396,6 @@ def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) 
     if request.method == "GET" and operation.form_class is None:
         return redirect(tool_url)
 
-    form = None
-    if operation.form_class is not None:
-        form = operation.form_class(request.POST if request.method == "POST" else None, initial=operation.form_initial)
     target = OperationTarget(
         kicker="This runs from",
         title=tool.title,
@@ -405,11 +405,35 @@ def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) 
         breadcrumbs=(RecordLink(label=tool.title, href=tool_url),),
         is_record=False,
     )
+    confirmation = ConfirmationToken(request, f"tool:{tool.key}", operation.key)
+    data = request.POST if request.method == "POST" else None
+    confirm_token = request.POST.get("confirm_token") if request.method == "POST" else None
+    if confirm_token is not None:
+        data = confirmation.load(confirm_token)
+        if data is None:
+            messages.error(
+                request, "This confirmation expired or was made for something else. Review the change again."
+            )
+            return redirect(request.get_full_path())
+
+    form = None
+    if operation.form_class is not None:
+        form = operation.form_class(data, initial=operation.form_initial)
     context = _operation_context(target, operation, form, request)
     if request.method == "GET":
         return render(request, "admin_console/operation.html", context)
     if form is not None and not form.is_valid():
         return render(request, "admin_console/operation.html", context, status=400)
+
+    if operation.preview is not None and form is not None and confirm_token is None:
+        preview = operation.preview(request, form)
+        if form.errors:
+            return render(request, "admin_console/operation.html", context, status=400)
+        return render(
+            request,
+            "admin_console/confirm.html",
+            {**context, "page": preview, "confirm_token": confirmation.sign(form)},
+        )
 
     audit = audit.bind(reason=form.cleaned_data.get("reason") if form is not None else None)
     result = _audited(audit, lambda: operation.handler(request, form))
