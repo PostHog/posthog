@@ -14,6 +14,7 @@ import { EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { getExperimentStatus } from '../experimentStatus'
 import type { ExperimentHealthApi, ExperimentHealthFindingApi } from '../generated/api.schemas'
 import { getTotalExposures, hasSampleRatioMismatch } from './exposureHealth'
+import { healthCheckShowsDecidingValue } from './healthCheckValues'
 import { type HealthPanelCheck, countHealthChecks } from './healthPanelChecks'
 
 // pinned: `finding_code` property values. Insights group and filter on them, so a rename breaks those insights.
@@ -222,7 +223,26 @@ export function captureExperimentHealthCheckExpanded(
         health_ui: healthUi,
         check_key: check.key,
         check_status: check.status,
-        check_has_measurement: Boolean(check.measurement),
+        // pinned: property name. It means that the check shows the value that decided its status.
+        check_has_measurement: healthCheckShowsDecidingValue(check),
+        surface: 'experiment_page',
+    })
+}
+
+export function captureExperimentHealthSummaryOpened(
+    experiment: Experiment,
+    checks: HealthPanelCheck[],
+    findingCount: number,
+    healthUi: ExperimentHealthUi
+): void {
+    // pinned: analytics event name, so renaming it breaks insights
+    posthog.capture('experiment health summary opened', {
+        experiment_id: experiment.id,
+        experiment_status: getExperimentStatus(experiment),
+        health_ui: healthUi,
+        health_finding_count: findingCount,
+        checks_passed: countHealthChecks(checks, 'passed'),
+        checks_finding: countHealthChecks(checks, 'finding'),
         surface: 'experiment_page',
     })
 }
