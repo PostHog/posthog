@@ -37,6 +37,7 @@ from posthog.slack.formatting import (
 from posthog.slack.markdown import slack_markdown_block as _markdown_block
 
 from products.signals.backend.assignment_flags import assignment_side_effects_allowed
+from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
 from products.signals.backend.models import (
     AutonomyPriority,
@@ -67,6 +68,7 @@ from products.signals.backend.slack_formatting import (
 from products.signals.backend.slack_notification_targets import is_slack_member_target, lookup_slack_user_id_by_email
 from products.signals.backend.slack_report_threads import record_report_slack_thread
 from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, TASK_RUN_TYPE_IMPLEMENTATION
+from products.signals.backend.typed_report_links import incoming_links
 from products.slack_app.backend.facade.api import slack_followup_invite
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -196,6 +198,16 @@ def _implementation_underway(report: SignalReport) -> bool:
         )
     ]
     return any(not run.is_terminal for run in tasks_facade.get_latest_run_by_task(task_ids).values())
+
+
+def _should_offer_implementation(report: SignalReport, judgment: dict) -> bool:
+    """Whether the message offers Implement, matching when the inbox offers its Implement choices."""
+    if not _offers_implementation(judgment):
+        return False
+    # A plan parent has no run of its own: the reports that are part of it do the work.
+    if incoming_links(team_id=report.team_id, report_id=report.id, kinds=(ReportLinkKind.PART_OF,)):
+        return False
+    return not _implementation_underway(report)
 
 
 def resolve_org_suggested_reviewer_user_ids(*, team_id: int, report_ids: Collection[str]) -> dict[str, set[int]]:
@@ -766,7 +778,7 @@ def dispatch_inbox_item_notifications(report_id: str, team_id: int) -> int:
         routes,
         trigger="report_ready",
         priority=priority,
-        offer_implementation=_offers_implementation(actionability) and not _implementation_underway(report),
+        offer_implementation=_should_offer_implementation(report, actionability),
     )
     logger.info(
         "dispatch_inbox_item_notifications: complete",
@@ -885,7 +897,7 @@ def dispatch_reviewer_added_notifications(
         routes,
         trigger="reviewer_added",
         priority=priority,
-        offer_implementation=_offers_implementation(actionability) and not _implementation_underway(report),
+        offer_implementation=_should_offer_implementation(report, actionability),
     )
     logger.info(
         "dispatch_reviewer_added_notifications: complete",

@@ -17,8 +17,11 @@ from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.signals.backend.artefact_schemas import ReportLink
+from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.facade.api import set_default_slack_notification_channel
 from products.signals.backend.models import (
+    ArtefactAttribution,
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
@@ -744,11 +747,50 @@ def test_dispatch_offers_implement_only_without_implementation_underway(
         sent = dispatch_inbox_item_notifications(str(report.id), team.id)
 
     assert sent == 1
-    blocks = fake_client.chat_postMessage.call_args.kwargs["blocks"]
-    buttons = [
-        element["text"]["text"] for block in blocks if block["type"] == "actions" for element in block["elements"]
-    ]
-    assert ("Implement" in buttons) is expects_implement
+    assert _implement_offered(fake_client.chat_postMessage) is expects_implement
+
+
+def _implement_offered(post_message: MagicMock) -> bool:
+    blocks = post_message.call_args.kwargs["blocks"]
+    return any(
+        element["text"]["text"] == "Implement"
+        for block in blocks
+        if block["type"] == "actions"
+        for element in block["elements"]
+    )
+
+
+@pytest.mark.parametrize("trigger", ["report_ready", "reviewer_added"])
+@pytest.mark.django_db
+def test_dispatch_does_not_offer_implement_for_a_plan_parent(org_and_team, trigger):
+    org, team = org_and_team
+    reviewer = _make_reviewer_user(org, "plan@example.com", "plan-bot")
+    integration = _make_slack_integration(team, reviewer)
+    SignalUserAutonomyConfig.objects.create(
+        user=reviewer, slack_notification_integration=integration, slack_notification_channel="COWN|#mine"
+    )
+    parent = _make_ready_report(team, priority=AutonomyPriority.P1, suggested_logins=["plan-bot"])
+    step = _make_ready_report(team, title="Step")
+    SignalReportArtefact.add_log(
+        team_id=team.id,
+        report_id=str(step.id),
+        content=ReportLink(kind=ReportLinkKind.PART_OF, report_id=str(parent.id)),
+        attribution=ArtefactAttribution.system(),
+    )
+
+    fake_client = MagicMock()
+    with (
+        patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
+        patch("products.signals.backend.slack_inbox_notifications.lookup_slack_user_id_by_email", return_value=None),
+    ):
+        slack_cls.return_value.client = fake_client
+        if trigger == "report_ready":
+            sent = dispatch_inbox_item_notifications(str(parent.id), team.id)
+        else:
+            sent = dispatch_reviewer_added_notifications(str(parent.id), team.id, ["plan-bot"])
+
+    assert sent == 1
+    assert not _implement_offered(fake_client.chat_postMessage)
 
 
 @pytest.mark.django_db
