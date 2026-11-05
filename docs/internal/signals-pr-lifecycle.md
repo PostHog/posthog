@@ -336,10 +336,6 @@ The same access rule applies when a reviewer is added later.
 If no suggested reviewer has access, the ready report still goes to the configured team channel without reviewer mentions.
 The notification activity retries transient ClickHouse reads before it claims the report for delivery.
 
-The organization-level `signals-inbox-slack-section-blocks` flag switches inbox Slack notification bodies to `section` blocks with Slack formatting, while keeping reviewer mentions in their context block.
-The flag defaults off, including in local development, and a failed or unavailable local flag evaluation keeps the existing Markdown body.
-Validate mention delivery in Slack Activity before expanding the rollout; a successful message API response confirms posting, not notification delivery.
-
 When an implementation pull request has one assignee, the worker requests that person's review, even when another person or team request exists.
 This makes the owner's work visible in both GitHub assignment and review-request lists.
 Without a single owner, it requests the highest-ranked eligible report reviewer only when no person or team request exists.
