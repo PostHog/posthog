@@ -186,7 +186,8 @@ pub struct Config {
     #[envconfig(from = "CHANGELOG_KAFKA_CLUSTERS", default = "")]
     pub changelog_kafka_clusters: String,
 
-    /// Allows migrations onto another cluster; an older component uses its own `KAFKA_HOSTS` for the new topic.
+    /// Allows migrations onto another cluster. An older router's coordinator drops the
+    /// cluster at the flip, and an older leader, writer or relay ignores it.
     #[envconfig(from = "PERSONHOG_CROSS_CLUSTER_MIGRATIONS", default = "false")]
     pub personhog_cross_cluster_migrations: bool,
 
@@ -201,12 +202,12 @@ pub struct Config {
     pub personhog_warming_deadline_secs: u64,
 }
 
-/// One cluster in `CHANGELOG_KAFKA_CLUSTERS`; unknown keys are refused so a typo cannot drop TLS.
+/// One cluster in `CHANGELOG_KAFKA_CLUSTERS`; `tls` is required and unknown keys are
+/// refused, so neither an omission nor a typo can drop TLS.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ClusterSpec {
     hosts: String,
-    #[serde(default)]
     tls: bool,
 }
 
@@ -358,7 +359,8 @@ mod tests {
             ("personhog:9094", true)
         );
 
-        config.changelog_kafka_clusters = r#"{"dedicated": {"hosts": "d:9092"}}"#.to_string();
+        config.changelog_kafka_clusters =
+            r#"{"dedicated": {"hosts": "d:9092", "tls": false}}"#.to_string();
         let dedicated = config.changelog_cluster("dedicated").unwrap();
         let moved = config.changelog_kafka(Some(&dedicated));
         assert_eq!(
@@ -368,6 +370,8 @@ mod tests {
         assert!(config.changelog_cluster("unknown").is_err());
         config.changelog_kafka_clusters =
             r#"{"dedicated": {"hosts": "d:9092", "tsl": true}}"#.to_string();
+        assert!(config.changelog_cluster("dedicated").is_err());
+        config.changelog_kafka_clusters = r#"{"dedicated": {"hosts": "d:9092"}}"#.to_string();
         assert!(config.changelog_cluster("dedicated").is_err());
     }
 

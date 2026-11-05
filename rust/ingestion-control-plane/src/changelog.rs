@@ -358,7 +358,8 @@ pub async fn start_migration(
     Ok(request)
 }
 
-/// Another cluster needs the switch, because an older component uses its own `KAFKA_HOSTS` for the new topic.
+/// Another cluster needs the switch, because an older router drops the cluster at the flip
+/// and an older leader, writer or relay ignores it.
 fn target_cluster(
     live: Option<&ClusterEndpoint>,
     requested: Option<ClusterEndpoint>,
@@ -372,7 +373,7 @@ fn target_cluster(
     };
     if requested != *live && !cross_cluster_allowed {
         bail!(
-            "moving the changelog to another cluster is off; enable PERSONHOG_CROSS_CLUSTER_MIGRATIONS once every personhog component understands clusters"
+            "moving the changelog to another cluster is off; enable PERSONHOG_CROSS_CLUSTER_MIGRATIONS once every personhog leader, writer, relay and router reads the cluster"
         );
     }
     Ok(Some(requested))
