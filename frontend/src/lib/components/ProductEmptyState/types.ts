@@ -144,6 +144,7 @@ export interface ProductEmptyStateConfig {
     PrimaryAction?: ComponentType
     /** Product-specific installation options below the primary setup action. */
     SetupActions?: ComponentType<{ mode: ProductEmptyStateMode; preview: boolean }>
+    FooterActions?: ComponentType
     docsUrl?: string
     /** Target of the small "Or configure manually" link; falls back to `docsUrl` */
     manualSetupUrl?: string
