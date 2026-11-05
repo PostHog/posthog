@@ -403,6 +403,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/transactional/settings': ['Transactional', 'transactional'],
     '/transactional/new': ['Transactional', 'transactional'],
     '/transactional/log': ['Transactional', 'transactional'],
+    '/transactional/log/:id': ['TransactionalEmailLogEntry', 'transactionalEmailLogEntry'],
     '/transactional/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
     '/broadcasts/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
     '/broadcasts/new': ['Broadcast', 'broadcast'],
@@ -1364,6 +1365,7 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         description: 'Send emails from your code with one API call',
     },
+    TransactionalEmailLogEntry: { name: 'Transactional', iconType: 'transactional', projectBased: true },
     WorkflowsEmailDomain: { name: 'Workflows', iconType: 'workflows', projectBased: true },
 }
 
@@ -2070,6 +2072,7 @@ export const productUrls = {
     transactional: (tab?: MessagingNavTabKey): string => `/transactional${tab ? `/${tab}` : ''}`,
     transactionalNew: (): string => '/transactional/new',
     transactionalLog: (): string => '/transactional/log',
+    transactionalEmailLogEntry: (messageId: string): string => `/transactional/log/${messageId}`,
     transactionalTemplate: (id: string): string => `/transactional/library/templates/${id}`,
     broadcastsTemplate: (id: string): string => `/broadcasts/library/templates/${id}`,
 }
@@ -2519,6 +2522,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'Broadcasts',
             'Broadcast',
             'Transactional',
+            'TransactionalEmailLogEntry',
             'WorkflowsEmailDomain',
         ],
     },
@@ -3399,6 +3403,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'Broadcasts',
             'Broadcast',
             'Transactional',
+            'TransactionalEmailLogEntry',
             'WorkflowsEmailDomain',
         ],
     },
@@ -3511,6 +3516,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'Broadcasts',
             'Broadcast',
             'Transactional',
+            'TransactionalEmailLogEntry',
             'WorkflowsEmailDomain',
         ],
     },
