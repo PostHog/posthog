@@ -147,12 +147,6 @@ export interface WorkerIngestServerOptions {
      * makes consumers replay work the pipeline already processed.
      */
     drainTimeoutMs?: number
-    /**
-     * How long a fed sub-batch may stay in flight before the server fails as
-     * fatal. The consumer re-routes a stuck sub-batch after its ack timeout,
-     * but the pipeline await behind it cannot be cancelled and `/_ready` keeps
-     * passing, so only a restart recovers the worker. `0` disables the check.
-     */
     stuckBatchTimeoutMs?: number
 }
 
