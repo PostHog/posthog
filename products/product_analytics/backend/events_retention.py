@@ -213,16 +213,17 @@ def organization_events_deleted(organization: Organization, months: int, *, conc
 def organization_downgrade_events_deleted(
     organization: Organization, months: int, *, concurrency_slots: ConcurrencySlots
 ) -> int:
-    deleting = [
-        team for team in Team.objects.filter(organization_id=organization.id) if should_delete_past_default_period(team)
-    ]
+    teams = list(Team.objects.filter(organization_id=organization.id))
     kept = {
         setting.team_id
-        for setting in effective_events_retention(team_ids=[team.id for team in deleting])
+        for setting in effective_events_retention(team_ids=[team.id for team in teams])
         if setting.months <= months
     }
-    teams = [team for team in deleting if team.id not in kept]
-    return _teams_events_before(teams, _cutoff_on(next_pass_on(cleanup_date()), months), concurrency_slots)
+    return _teams_events_before(
+        [team for team in teams if team.id not in kept],
+        _cutoff_on(next_pass_on(cleanup_date()), months),
+        concurrency_slots,
+    )
 
 
 def _check_allowed(retention: OrganizationEventsRetention, months: int | None) -> None:

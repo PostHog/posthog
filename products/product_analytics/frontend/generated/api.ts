@@ -178,7 +178,7 @@ export const getOrganizationEventsRetentionDowngradeDeletionCountUrl = (
 }
 
 /**
- * Counts the events that the deletion pass after a plan downgrade deletes if the organization's events retention drops to retention_months. Sums the projects where that pass deletes and whose period is longer than retention_months. Organization admins only.
+ * Counts the events that the deletion pass after a plan downgrade deletes if the organization's events retention drops to retention_months, whether or not deletion is rolled out to the organization yet. Sums the projects whose period is longer than retention_months. Organization admins only.
  * @summary Count the events a downgrade to a shorter period would delete
  */
 export const organizationEventsRetentionDowngradeDeletionCount = async (

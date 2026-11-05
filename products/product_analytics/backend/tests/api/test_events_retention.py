@@ -579,14 +579,13 @@ class TestEventsRetentionDeletionCountAPI(ClickhouseTestMixin, APIBaseTest):
         ]:
             _create_event(team=team, event="$pageview", distinct_id="user", timestamp=timestamp)
 
-        url = f"/api/organizations/{self.organization.id}/events_retention_setting/downgrade_deletion_count/"
         with override_settings(EVENTS_DATA_RETENTION_ENFORCED=False):
-            not_deleting = self.client.get(url, {"retention_months": 12})
-        with override_settings(EVENTS_DATA_RETENTION_ENFORCED=True):
-            deleting = self.client.get(url, {"retention_months": 12})
+            response = self.client.get(
+                f"/api/organizations/{self.organization.id}/events_retention_setting/downgrade_deletion_count/",
+                {"retention_months": 12},
+            )
 
-        assert not_deleting.json() == {"retention_months": 12, "events_deleted": 0}
-        assert deleting.json() == {"retention_months": 12, "events_deleted": 2}
+        assert response.json() == {"retention_months": 12, "events_deleted": 2}
 
     @parameterized.expand(
         [
