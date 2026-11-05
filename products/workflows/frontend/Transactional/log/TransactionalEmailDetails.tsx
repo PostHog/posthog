@@ -45,6 +45,8 @@ export function TransactionalEmailDetails({ email }: { email: TransactionalEmail
                         <Link to={urls.transactionalTemplate(email.template_id)}>
                             {email.template_name || 'Unnamed email'}
                         </Link>
+                    ) : email.template_name ? (
+                        email.template_name
                     ) : (
                         <span className="text-secondary">Deleted email</span>
                     )}
