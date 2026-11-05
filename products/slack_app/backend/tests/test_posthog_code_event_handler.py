@@ -595,8 +595,9 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
 
     @parameterized.expand(
         [
-            ("same_workspace", {}, True),
-            ("other_workspace_guest", {"user_team": "T_OTHER"}, False),
+            ("unlinked_member", "stranger@example.com", {}, True),
+            ("known_member", "dev@example.com", {}, True),
+            ("other_workspace_guest", "stranger@example.com", {"user_team": "T_OTHER"}, False),
         ]
     )
     @patch("products.slack_app.backend.api.request_onboarding")
@@ -604,11 +605,14 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
-    def test_a_mention_from_an_unlinked_member_starts_their_onboarding(
-        self, _name, extra, starts, _sync_connect, _asyncio_run, _post_feedback, request_onboarding
+    def test_a_mention_starts_the_onboarding_after_the_mention_is_handled(
+        self, _name, email, extra, starts, sync_connect, _asyncio_run, _post_feedback, request_onboarding
     ):
         SlackUserProfileCache.objects.filter(slack_user_id="U123").delete()
-        self._seed_slack_user_cache("U123", "stranger@example.com")
+        self._seed_slack_user_cache("U123", email)
+        calls = MagicMock()
+        calls.attach_mock(sync_connect, "mention_workflow")
+        calls.attach_mock(request_onboarding, "onboarding")
 
         from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
 
@@ -619,6 +623,9 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         if starts:
             assert request_onboarding.call_args.args[1] == "U123"
             assert request_onboarding.call_args.kwargs == {"may_start": True, "start_only": True}
+            # A slow onboarding start must not delay the answer, so it runs after the mention's own workflow start.
+            order = [call[0] for call in calls.mock_calls if call[0] in ("mention_workflow", "onboarding")]
+            assert order[-1] == "onboarding"
 
     @patch("products.slack_app.backend.api.posthoganalytics.capture")
     @patch("products.slack_app.backend.api._post_slack_user_feedback")

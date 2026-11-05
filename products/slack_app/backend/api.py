@@ -79,6 +79,7 @@ from products.slack_app.backend.services import (
 )
 from products.slack_app.backend.services.commands import SLASH_COMMAND_PREFIX, mention_command_redirect
 from products.slack_app.backend.services.integration_resolver import (
+    ResolutionResult,
     UserResolutionFailure,
     load_integrations,
     pick_a_project_message,
@@ -3013,13 +3014,6 @@ def route_posthog_code_event_to_relevant_region(
         elif mention_is_threaded:
             awaited_request_reply = _awaits_request_from_author(event, slack_team_id, workspace_result.candidates[0])
 
-        # Someone who only tags PostHog in channels may never open its DM. A guest from another
-        # workspace in a shared channel gets no onboarding, because it would come from this workspace's app.
-        if event_type == "app_mention" and event.get("user_team", slack_team_id) == slack_team_id:
-            onboarding_integration = workspace_result.resolved_or_first()
-            if onboarding_integration is not None and slack_user_id_str:
-                request_onboarding(onboarding_integration, slack_user_id_str, may_start=True, start_only=True)
-
         # Both event types share the rest of the pipeline. Mention-only side
         # effects (failure reply, scope notice, approval prompt, rules command,
         # picker hint) are silent drops for untagged followups — the originating
@@ -3084,6 +3078,7 @@ def route_posthog_code_event_to_relevant_region(
                 posthog_user=attributed_user,
                 **unresolved_user_properties(resolution, probe),
             )
+            _start_onboarding_on_mention(event, slack_team_id, workspace_result)
             return ROUTE_HANDLED_LOCALLY
 
         posthog_user = resolution.user
@@ -3164,9 +3159,10 @@ def route_posthog_code_event_to_relevant_region(
                 candidate_count=len(candidates),
                 picker_shown=picker_shown,
             )
+            _start_onboarding_on_mention(event, slack_team_id, workspace_result)
             return ROUTE_HANDLED_LOCALLY
 
-        return _dispatch_mention_to_target(
+        route = _dispatch_mention_to_target(
             event,
             mention_target,
             slack_team_id,
@@ -3176,6 +3172,8 @@ def route_posthog_code_event_to_relevant_region(
             is_ext_shared_channel=is_ext_shared_channel,
             awaited_request_reply=awaited_request_reply,
         )
+        _start_onboarding_on_mention(event, slack_team_id, workspace_result)
+        return route
 
     if event_type == "member_joined_channel":
         return _route_member_joined_channel(
@@ -4914,6 +4912,18 @@ def _report_slack_mention_dropped(
             reason=reason,
             exc_info=True,
         )
+
+
+def _start_onboarding_on_mention(event: dict, slack_team_id: str, workspace_result: ResolutionResult) -> None:
+    """Someone who only tags PostHog in channels may never open its DM, so their mention starts the onboarding.
+    It runs after the mention is handled, so a slow onboarding start never delays the answer. A guest from
+    another workspace in a shared channel gets no onboarding, because it would come from this workspace's app."""
+    slack_user_id = event.get("user")
+    if event.get("type") != "app_mention" or event.get("user_team", slack_team_id) != slack_team_id:
+        return
+    integration = workspace_result.resolved_or_first()
+    if integration is not None and isinstance(slack_user_id, str) and slack_user_id:
+        request_onboarding(integration, slack_user_id, may_start=True, start_only=True)
 
 
 def _start_mention_workflow(

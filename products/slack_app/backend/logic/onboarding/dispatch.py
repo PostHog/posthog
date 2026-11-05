@@ -28,12 +28,13 @@ def request_onboarding(
     start_only: bool = False,
 ) -> None:
     """Start the person's onboarding, or refresh the one in progress. Only a ``may_start`` trigger can start
-    one, and only for a person with no onboarding state. A ``start_only`` trigger never refreshes, so a busy
-    path does not wait for Temporal. Never raises: the onboarding catches up on the next trigger."""
+    one, and only for a person with no onboarding state. A ``start_only`` trigger stops once the thread exists, so
+    a busy path does not wait for Temporal on each call, but a start that failed is tried again. Never raises: the
+    onboarding catches up on the next trigger."""
     try:
         slack_workspace_id = integration.integration_id
         state = resolve_onboarding(slack_workspace_id, slack_user_id)
-        if state is not None and (state.completed or start_only):
+        if state is not None and (state.completed or (start_only and state.root_ts is not None)):
             return
         start_delay_seconds = 0
         if state is None:

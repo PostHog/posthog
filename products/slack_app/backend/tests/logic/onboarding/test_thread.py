@@ -285,6 +285,8 @@ def test_a_model_that_cannot_be_saved_tells_the_person_why(org_team_user) -> Non
         ("completed", True, True, False, False),
         ("none", True, True, True, True),
         ("open", True, True, True, False),
+        # A start that failed after the state was stored has no thread yet, so the next mention tries again.
+        ("failed_start", True, True, True, True),
     ],
 )
 def test_only_people_with_onboarding_left_start_the_workflow(
@@ -296,6 +298,8 @@ def test_only_people_with_onboarding_left_start_the_workflow(
         update_onboarding(SLACK_TEAM_ID, SLACK_USER_ID, root=("D1", "100.1"))
     elif stored == "completed":
         update_onboarding(SLACK_TEAM_ID, SLACK_USER_ID, completed_reason="finished")
+    elif stored == "failed_start":
+        update_onboarding(SLACK_TEAM_ID, SLACK_USER_ID, start=True)
 
     with (
         patch.object(dispatch, "is_slack_app_onboarding_enabled", return_value=flag_on),
