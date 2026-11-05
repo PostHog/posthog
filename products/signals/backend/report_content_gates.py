@@ -106,8 +106,12 @@ def organization_inbox_cached_filters_enabled(organization_id: UUID) -> bool:
 
 
 def organization_inbox_claim_to_close_enabled(organization_id: UUID) -> bool:
-    return _organization_flag_enabled(INBOX_CLAIM_TO_CLOSE_FLAG, organization_id, enable_in_debug=False)
+    # Serialization and the close path both read this, and the close path holds the report row lock,
+    # so it must never wait on the flag service.
+    return _organization_flag_enabled(
+        INBOX_CLAIM_TO_CLOSE_FLAG, organization_id, enable_in_debug=False, only_evaluate_locally=True
+    )
 
 
 def team_inbox_claim_to_close_enabled(team_id: int) -> bool:
-    return _team_flag_enabled(INBOX_CLAIM_TO_CLOSE_FLAG, team_id, enable_in_debug=False)
+    return _team_flag_enabled(INBOX_CLAIM_TO_CLOSE_FLAG, team_id, enable_in_debug=False, only_evaluate_locally=True)
