@@ -31,18 +31,18 @@ def test_file_and_loader_agree() -> None:
 
 
 @pytest.mark.parametrize(
-    "changes",
+    "changes,error",
     [
-        {"max_event_bytes_default": 12e6},
-        {"max_event_bytes_default": True},
-        {"media_offload_min_bytes": 0},
-        {"max_event_bytes_overrides": (48_000_000, 24_000_000)},
-        {"max_event_bytes_overrides": (12_000_000, 48_000_000)},
-        {"max_event_bytes_ceiling": 24_000_000},
-        {"included_bytes_per_event": 12_000_000},
-        {"text_offload_enabled": "false"},
+        ({"max_event_bytes_default": 12e6}, "max_event_bytes_default must be a positive integer"),
+        ({"max_event_bytes_default": True}, "max_event_bytes_default must be a positive integer"),
+        ({"media_offload_min_bytes": 0}, "media_offload_min_bytes must be a positive integer"),
+        ({"max_event_bytes_overrides": (48_000_000, 24_000_000)}, "each override must be larger"),
+        ({"max_event_bytes_overrides": (12_000_000, 48_000_000)}, "each override must be larger"),
+        ({"max_event_bytes_ceiling": 24_000_000}, "no cap may exceed max_event_bytes_ceiling"),
+        ({"included_bytes_per_event": 12_000_000}, "included_bytes_per_event must be smaller"),
+        ({"text_offload_enabled": "false"}, "text_offload_enabled must be a boolean"),
     ],
 )
-def test_rejects_limits_that_contradict_each_other(changes: dict[str, Any]) -> None:
-    with pytest.raises(ValueError):
+def test_rejects_limits_that_contradict_each_other(changes: dict[str, Any], error: str) -> None:
+    with pytest.raises(ValueError, match=error):
         dataclasses.replace(VALID, **changes)
