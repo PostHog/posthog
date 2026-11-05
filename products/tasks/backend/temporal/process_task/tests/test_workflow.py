@@ -3809,6 +3809,85 @@ class TestProcessTaskWorkflowUnit:
             create_resume_snapshot_mock.assert_not_awaited()
 
     @pytest.mark.parametrize(
+        "mode, flag_enabled, created_by_id, expected_calls",
+        [
+            (
+                "interactive",
+                True,
+                42,
+                [("persist", "sandbox-123", "teardown"), ("snapshot", "sandbox-123", "teardown")],
+            ),
+            ("interactive", False, 42, [("snapshot", "sandbox-123", "teardown")]),
+            ("interactive", True, None, [("snapshot", "sandbox-123", "teardown")]),
+            ("background", True, 42, []),
+        ],
+    )
+    async def test_teardown_persists_agent_memory_before_the_resume_snapshot(
+        self, monkeypatch, mode, flag_enabled, created_by_id, expected_calls
+    ):
+        workflow = ProcessTaskWorkflow()
+        context = _build_context(github_integration_id=123, state={"mode": mode})
+        context.persist_agent_memory_enabled = flag_enabled
+        context.task_created_by_id = created_by_id
+        calls: list[tuple[str, str, str]] = []
+
+        async def record_persist(sandbox_id: str, *, reason: str) -> None:
+            calls.append(("persist", sandbox_id, reason))
+
+        async def record_snapshot(sandbox_id: str, *, reason: str, allow_pruning: bool) -> bool:
+            calls.append(("snapshot", sandbox_id, reason))
+            return True
+
+        monkeypatch.setattr(workflow, "_get_task_processing_context", AsyncMock(return_value=context))
+        for name in (
+            "_update_task_run_status",
+            "_track_workflow_event",
+            "_post_slack_update",
+            "_read_sandbox_logs",
+            "_cleanup_sandbox",
+            "_emit_progress",
+        ):
+            monkeypatch.setattr(workflow, name, AsyncMock())
+        monkeypatch.setattr(workflow, "_persist_agent_memory", record_persist)
+        monkeypatch.setattr(workflow, "_create_resume_snapshot", record_snapshot)
+
+        async def fail_after_sandbox_creation() -> GetSandboxForRepositoryOutput:
+            workflow._sandbox_id_for_cleanup = "sandbox-123"
+            raise RuntimeError("forced failure to reach finally block")
+
+        monkeypatch.setattr(workflow, "_get_sandbox_for_repository", fail_after_sandbox_creation)
+
+        await workflow.run(ProcessTaskInput(run_id="run-id"))
+
+        assert calls == expected_calls
+
+    async def test_turns_ending_during_a_persist_coalesce_into_one_trailing_persist(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123, state={"mode": "interactive"})
+        workflow._agent_memory_persist_enabled = True
+        release = asyncio.Event()
+        persisted: list[str] = []
+
+        async def slow_persist(sandbox_id: str, *, reason: str) -> None:
+            persisted.append(reason)
+            await release.wait()
+
+        monkeypatch.setattr(workflow, "_persist_agent_memory", slow_persist)
+
+        workflow._turn_completion_signal_count = 1
+        workflow._schedule_agent_memory_persist("sandbox-123")
+        await asyncio.sleep(0)
+        for _ in range(3):
+            workflow._turn_completion_signal_count += 1
+            workflow._schedule_agent_memory_persist("sandbox-123")
+        release.set()
+        assert workflow._agent_memory_persist_task is not None
+        await workflow._agent_memory_persist_task
+
+        assert persisted == ["turn_completed", "turn_completed"]
+        assert workflow._agent_memory_persisted_turns == 4
+
+    @pytest.mark.parametrize(
         "use_modal_resume_snapshots",
         [
             True,
