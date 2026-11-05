@@ -5,7 +5,7 @@ describe('shouldWarnBeforeLeavingNotebook', () => {
         isLocalOnly: false,
         isEditable: true,
         syncStatus: 'unsaved' as const,
-        notebookPathname: '/notebooks/abc',
+        hasMountedEditor: true,
         currentPathname: '/project/1/notebooks/abc',
     }
 
@@ -49,13 +49,10 @@ describe('shouldWarnBeforeLeavingNotebook', () => {
     })
 
     it.each([
-        ['/project/1/replay-vision', '/project/1/dashboard', false],
-        ['/project/1/notebooks/other', '/project/1/dashboard', false],
-        ['/project/1/notebooks/abc', '/project/1/dashboard', true],
-        ['/notebooks/abc', '/dashboard', true],
-        ['/project/1/notebooks/abc/', '/project/1/dashboard', true],
-        ['/project/1/replay-vision', undefined, true],
-    ])('guards navigation from %s to %s: %s', (currentPathname, newPathname, expected) => {
-        expect(shouldWarnBeforeLeavingNotebook({ ...baseInput, currentPathname, newPathname })).toBe(expected)
+        [false, '/project/1/dashboard', false],
+        [true, '/project/1/dashboard', true],
+        [false, undefined, true],
+    ])('guards navigation with mounted editor %s to %s: %s', (hasMountedEditor, newPathname, expected) => {
+        expect(shouldWarnBeforeLeavingNotebook({ ...baseInput, hasMountedEditor, newPathname })).toBe(expected)
     })
 })

@@ -1,12 +1,10 @@
-import { pathFromWindowToRoutes } from 'lib/utils/kea-router'
-
 import type { NotebookSyncStatus } from '../types'
 
 export type ShouldWarnBeforeLeavingNotebookInput = {
     isLocalOnly: boolean
     isEditable: boolean
     syncStatus: NotebookSyncStatus
-    notebookPathname: string
+    hasMountedEditor: boolean
     currentPathname: string
     newPathname?: string
 }
@@ -32,7 +30,7 @@ export function shouldWarnBeforeLeavingNotebook(input: ShouldWarnBeforeLeavingNo
     if (input.newPathname === input.currentPathname) {
         return false
     }
-    if (input.newPathname && pathFromWindowToRoutes(input.currentPathname) !== input.notebookPathname) {
+    if (input.newPathname && !input.hasMountedEditor) {
         return false
     }
     return true

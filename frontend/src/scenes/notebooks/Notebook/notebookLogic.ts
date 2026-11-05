@@ -353,6 +353,7 @@ export interface notebookLogicValues {
     markdownRemoteParticipants: NotebookRemoteParticipant[]
     markdownRemotePresence: Record<string, NotebookRemotePresenceState>
     mode: NotebookLogicMode
+    mountedEditorCount: number
     newNotebook: NotebookType | null
     newNotebookLoading: boolean
     nodeLogics: Record<string, BuiltLogic<notebookNodeLogicType>>
@@ -508,6 +509,12 @@ export interface notebookLogicActions {
         payload?: {
             value: true
         }
+    }
+    notebookEditorMounted: () => {
+        value: true
+    }
+    notebookEditorUnmounted: () => {
+        value: true
     }
     notebookVariablesSaved: (variables: NotebookVariableApi[]) => {
         variables: NotebookVariableApi[]
@@ -791,6 +798,8 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
     })),
     actions({
+        notebookEditorMounted: true,
+        notebookEditorUnmounted: true,
         setAutosavePaused: (paused: boolean) => ({ paused }),
         setMarkdownEditorInteractionActive: (active: boolean) => ({ active }),
         setMarkdownAIPresenceActive: (active: boolean) => ({ active }),
@@ -856,6 +865,13 @@ export const notebookLogic = kea<notebookLogicType>([
         setAccessDeniedToNotebook: true,
     }),
     reducers(({ props }) => ({
+        mountedEditorCount: [
+            0,
+            {
+                notebookEditorMounted: (count) => count + 1,
+                notebookEditorUnmounted: (count) => Math.max(0, count - 1),
+            },
+        ],
         isShareModalOpen: [
             false,
             {
@@ -2260,7 +2276,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 isLocalOnly: logic.values.isLocalOnly,
                 isEditable: logic.values.isEditable,
                 syncStatus: logic.values.syncStatus,
-                notebookPathname: urls.notebook(logic.props.shortId),
+                hasMountedEditor: logic.values.mountedEditorCount > 0,
                 currentPathname: router.values.location.pathname,
                 newPathname: newLocation?.pathname,
             }),
