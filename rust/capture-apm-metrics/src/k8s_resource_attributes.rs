@@ -15,6 +15,7 @@ use std::collections::{HashMap, HashSet};
 
 use capture_logs::metric_record::{compute_series_fingerprint, KafkaMetricRow};
 use metrics::counter;
+use prometheus_rw_proto::prometheus::v1::WriteRequest;
 
 /// Prometheus label -> OTel semantic-convention resource attribute.
 const LABEL_TO_RESOURCE_ATTRIBUTE: [(&str, &str); 6] = [
@@ -25,6 +26,13 @@ const LABEL_TO_RESOURCE_ATTRIBUTE: [(&str, &str); 6] = [
     ("deployment", "k8s.deployment.name"),
     ("daemonset", "k8s.daemonset.name"),
 ];
+
+fn resource_key_for(label: &str) -> Option<&'static str> {
+    LABEL_TO_RESOURCE_ATTRIBUTE
+        .iter()
+        .find(|(name, _)| *name == label)
+        .map(|(_, key)| *key)
+}
 
 /// The row builder adds this attribute per sample after it computes the
 /// fingerprint, so the recomputed fingerprint must leave it out too.
@@ -53,6 +61,31 @@ impl K8sResourceAttributes {
 
     pub fn is_enabled_for(&self, token: &str) -> bool {
         self.tokens.contains(token)
+    }
+
+    /// Bytes that `apply` adds to the rows of this request. The handler adds it
+    /// to the expansion estimate, because `apply` clones each copied label into
+    /// every row after that check, and a large label would otherwise slip past
+    /// the memory guard.
+    pub fn estimate_added_bytes(&self, token: &str, request: &WriteRequest) -> u64 {
+        if !self.is_enabled_for(token) {
+            return 0;
+        }
+        request
+            .timeseries
+            .iter()
+            .map(|series| {
+                let per_row: u64 = series
+                    .labels
+                    .iter()
+                    .filter(|label| !label.value.is_empty())
+                    .filter_map(|label| resource_key_for(&label.name).map(|key| (key, label)))
+                    // The key, plus the value with its JSON quotes.
+                    .map(|(key, label)| (key.len() + label.value.len() + 2) as u64)
+                    .sum();
+                per_row * series.samples.len() as u64
+            })
+            .sum()
     }
 
     pub fn apply(&self, token: &str, rows: &mut [KafkaMetricRow]) {
@@ -207,6 +240,26 @@ mod tests {
         let (row, before) = (&rows[0], &original[0]);
         assert_eq!(row.resource_attributes, before.resource_attributes);
         assert_eq!(row.series_fingerprint, before.series_fingerprint);
+    }
+
+    #[test]
+    fn estimates_the_bytes_the_copy_adds() {
+        let series = TimeSeries {
+            labels: POD_SERIES.iter().map(|(n, v)| label(n, v)).collect(),
+            samples: vec![sample(1.0), sample(2.0), sample(3.0)],
+        };
+        let request = WriteRequest {
+            timeseries: vec![series],
+            metadata: vec![],
+        };
+
+        // k8s.namespace.name + "capture" and k8s.pod.name + "capture-abc",
+        // each value with its JSON quotes. The empty node label adds nothing.
+        let per_row = (18 + 7 + 2) + (12 + 11 + 2);
+        let added = step(TOKEN).estimate_added_bytes(TOKEN, &request);
+        assert_eq!(added, 3 * per_row);
+        let other = step(TOKEN).estimate_added_bytes("phc_customer", &request);
+        assert_eq!(other, 0);
     }
 
     #[test]
