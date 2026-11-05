@@ -295,4 +295,41 @@ describe('surveyActivityDescriber', () => {
         const { description } = surveyActivityDescriber(questionsChange(before, after))
         expect(getTextContent(<>{description}</>)).toContain(expected)
     })
+
+    test.each([
+        [
+            'its schedule ended',
+            { job_type: 'survey_schedule_ended', job_id: '1', payload: {} },
+            'stopped Example survey after its last scheduled repeat',
+        ],
+        [
+            'it reached its response limit',
+            { job_type: 'survey_responses_limit_reached', job_id: '1', payload: { responses_limit: 300 } },
+            'stopped Example survey after reaching its limit of 300 responses',
+        ],
+        ['a person stopped it', null, 'stopped Example survey'],
+    ])('says why the survey stopped when %s', (_, trigger, expected) => {
+        const { description } = surveyActivityDescriber({
+            activity: 'updated',
+            created_at: '2026-01-01T00:00:00Z',
+            scope: ActivityScope.SURVEY,
+            item_id: '1',
+            is_system: true,
+            detail: {
+                name: 'Example survey',
+                changes: [
+                    {
+                        type: ActivityScope.SURVEY,
+                        action: 'created',
+                        field: 'end_date',
+                        before: null,
+                        after: '2026-01-01T00:00:00Z',
+                    },
+                ],
+                merge: null,
+                trigger,
+            },
+        })
+        expect(getTextContent(<>{description}</>).replace(/\s+/g, ' ')).toMatch(new RegExp(`${expected}$`))
+    })
 })
