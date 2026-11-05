@@ -7,6 +7,7 @@ generations at once, and without the filter `sumMerge`/`uniqMerge` would count e
 generation.
 """
 
+from collections.abc import Collection
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Union
 
@@ -48,9 +49,10 @@ logger = structlog.get_logger(__name__)
 
 def ready_dimensional_job_ids(
     runner: Union["WebStatsTableQueryRunner", "WebOverviewQueryRunner"],
+    tables: Collection[str],
 ) -> DimensionalJobIds | None:
-    """The job ids to read when the query opted in and both tables cover its
-    whole range, including the compare period. None means the caller uses its next path."""
+    """The job ids to read when the query opted in and `tables` cover its whole range,
+    including the compare period. None means the caller uses its next path."""
     web_query_modifiers = runner.query.webQueryModifiers
     if not (web_query_modifiers and web_query_modifiers.useDimensionalTables):
         return None
@@ -91,10 +93,22 @@ def ready_dimensional_job_ids(
     # timezone. No rows exist past now, and the writer does not build the next UTC day yet.
     end = min(runner.query_date_range.date_to(), timezone.now())
     try:
-        return dimensional_job_ids(runner.team, start.astimezone(UTC), end.astimezone(UTC))
+        return dimensional_job_ids(
+            runner.team, start.astimezone(UTC), end.astimezone(UTC), tables=tables, modifiers=build_modifiers
+        )
     except Exception:
         logger.exception("web_dimensional_job_ids_lookup_failed", team_id=runner.team.pk)
         return None
+
+
+def dimensional_precompute_stale(job_ids: DimensionalJobIds | None) -> bool | None:
+    return True if job_ids and job_ids.stale else None
+
+
+def dimensional_precomputed_at(job_ids: DimensionalJobIds | None) -> str | None:
+    if job_ids is None or job_ids.computed_at is None:
+        return None
+    return job_ids.computed_at.astimezone(UTC).isoformat()
 
 
 def _reads_channel_type(runner: Union["WebStatsTableQueryRunner", "WebOverviewQueryRunner"]) -> bool:
@@ -143,6 +157,8 @@ class _DimensionalTablesMixin(WebAnalyticsPreAggregatedQueryBuilder):
     def _get_filters(self, table_name: str, exclude_pathname: bool = False) -> ast.And:
         filters = super()._get_filters(table_name, exclude_pathname=exclude_pathname)
         job_ids = self.job_ids.stats if table_name == WEB_STATS_DIMENSIONAL_READ_TABLE else self.job_ids.bounces
+        if job_ids is None:
+            raise ValueError(f"No dimensional job ids were looked up for {table_name}")
         job_id_filter = ast.CompareOperation(
             op=ast.CompareOperationOp.In,
             left=ast.Field(chain=[table_name, "job_id"]),

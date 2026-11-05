@@ -59,8 +59,14 @@ from products.web_analytics.backend.hogql_queries.stats_table_strategies import 
     StatsTableQueryStrategy,
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WebAnalyticsQueryRunner, map_columns
+from products.web_analytics.backend.hogql_queries.web_dimensional_precompute import (
+    WEB_BOUNCES_DIMENSIONAL_READ_TABLE,
+    WEB_STATS_DIMENSIONAL_READ_TABLE,
+)
 from products.web_analytics.backend.hogql_queries.web_dimensional_read import (
     DimensionalStatsTableQueryBuilder,
+    dimensional_precompute_stale,
+    dimensional_precomputed_at,
     ready_dimensional_job_ids,
 )
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import lazy_precompute_ineligible_reason
@@ -817,7 +823,9 @@ WHERE and(
     def _calculate(self):
         self.dimensional_query_builder = None
         if self._is_preaggregated_shape():
-            job_ids = ready_dimensional_job_ids(self)
+            job_ids = ready_dimensional_job_ids(
+                self, tables=(WEB_STATS_DIMENSIONAL_READ_TABLE, WEB_BOUNCES_DIMENSIONAL_READ_TABLE)
+            )
             if job_ids is not None:
                 self.dimensional_query_builder = DimensionalStatsTableQueryBuilder(self, job_ids)
                 try:
@@ -917,6 +925,7 @@ WHERE and(
             else WebAnalyticsPreComputeStrategy.LIVE
         )
 
+        dimensional_job_ids = self.dimensional_query_builder.job_ids if self.dimensional_query_builder else None
         return WebStatsTableQueryResponse(
             columns=columns,
             results=results_mapped,
@@ -926,6 +935,8 @@ WHERE and(
             modifiers=self.modifiers,
             preComputeStrategy=strategy,
             preComputeIneligibleReason=lazy_precompute_ineligible_reason(strategy),
+            preComputeStale=dimensional_precompute_stale(dimensional_job_ids),
+            preComputedAt=dimensional_precomputed_at(dimensional_job_ids),
             **self.paginator.response_params(),
         )
 

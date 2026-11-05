@@ -49,11 +49,15 @@ from products.web_analytics.backend.hogql_queries.test.web_preaggregated_test_ba
     WebAnalyticsPreAggregatedTestBase,
 )
 from products.web_analytics.backend.hogql_queries.web_dimensional_precompute import (
+    WEB_BOUNCES_DIMENSIONAL_READ_TABLE,
+    WEB_STATS_DIMENSIONAL_READ_TABLE,
     ensure_web_bounces_dimensional_precomputed,
     ensure_web_stats_dimensional_precomputed,
 )
 from products.web_analytics.backend.hogql_queries.web_dimensional_read import ready_dimensional_job_ids
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
+
+DIMENSIONAL_READ_TABLES = (WEB_STATS_DIMENSIONAL_READ_TABLE, WEB_BOUNCES_DIMENSIONAL_READ_TABLE)
 
 DATE_FROM = "2024-01-01"
 DATE_TO = "2024-01-02"
@@ -218,6 +222,8 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         assert dimensional_strategy == "stats_table_dimensional"
         assert v2_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
         assert dimensional_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
+        assert dimensional_response.preComputedAt is not None
+        assert dimensional_response.preComputeStale is None
         assert dimensional == v2, f"{_name} mismatch\nv2={v2}\ndimensional={dimensional}"
         assert self._counts(dimensional) == expected_counts
 
@@ -242,7 +248,9 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
             ),
             modifiers=modifiers,
         )
-        assert ready_dimensional_job_ids(runner) is None, "partial coverage must not route to dimensional"
+        assert ready_dimensional_job_ids(runner, DIMENSIONAL_READ_TABLES) is None, (
+            "partial coverage must not route to dimensional"
+        )
 
         runner.calculate()
         assert runner.used_preaggregated_tables is expect_v2
@@ -322,7 +330,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         with override_settings(EVENTS_DATA_RETENTION_ENFORCED=retention_months is not None):
             opted_in_runner, opted_in = run(OPT_IN)
             _live_runner, live = run(None)
-            assert ready_dimensional_job_ids(opted_in_runner) is None
+            assert ready_dimensional_job_ids(opted_in_runner, DIMENSIONAL_READ_TABLES) is None
 
         assert not opted_in_runner.used_preaggregated_tables
         assert opted_in == live
@@ -392,6 +400,8 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         assert v2_query_types == ["web_overview_preaggregated_query"]
         assert dimensional_query_types == ["web_overview_dimensional_query"]
         assert dimensional.preComputeStrategy == WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
+        assert dimensional.preComputedAt is not None
+        assert dimensional.preComputeStale is None
         assert [(item.key, item.value) for item in dimensional.results] == [
             (item.key, item.value) for item in v2.results
         ]

@@ -8,6 +8,7 @@ from posthog.schema import (
     CachedWebOverviewQueryResponse,
     EventPropertyFilter,
     HogQLQueryModifiers,
+    HogQLQueryResponse,
     PersonPropertyFilter,
     SessionTableVersion,
     WebAnalyticsPreComputeStrategy,
@@ -24,8 +25,14 @@ from products.web_analytics.backend.hogql_queries.web_analytics_query_runner imp
     WEB_ANALYTICS_NO_JOIN_SERVED,
     WebAnalyticsQueryRunner,
 )
+from products.web_analytics.backend.hogql_queries.web_dimensional_precompute import (
+    WEB_BOUNCES_DIMENSIONAL_READ_TABLE,
+    DimensionalJobIds,
+)
 from products.web_analytics.backend.hogql_queries.web_dimensional_read import (
     DimensionalWebOverviewQueryBuilder,
+    dimensional_precompute_stale,
+    dimensional_precomputed_at,
     ready_dimensional_job_ids,
 )
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import lazy_precompute_ineligible_reason
@@ -258,15 +265,17 @@ CROSS JOIN {sessions_agg} AS sessions_agg
         assert isinstance(combined, ast.SelectQuery)
         return combined
 
-    def get_dimensional_response(self):
+    def get_dimensional_response(self) -> tuple[Optional[HogQLQueryResponse], Optional[DimensionalJobIds]]:
         if self.query.conversionGoal or not self.preaggregated_query_builder.can_use_preaggregated_tables():
-            return None
-        job_ids = ready_dimensional_job_ids(self)
+            return None, None
+        # The overview builder reads only the bounces table.
+        job_ids = ready_dimensional_job_ids(self, tables=(WEB_BOUNCES_DIMENSIONAL_READ_TABLE,))
         if job_ids is None:
-            return None
-        return self._execute_pre_aggregated(
+            return None, None
+        response = self._execute_pre_aggregated(
             DimensionalWebOverviewQueryBuilder(self, job_ids), query_type="web_overview_dimensional_query"
         )
+        return response, job_ids if response else None
 
     def get_pre_aggregated_response(self):
         should_use_preaggregated = (
@@ -464,7 +473,7 @@ WHERE and(
         if self.should_split_conversion_goal:
             return self._calculate_split_conversion_goal()
 
-        pre_aggregated_response = self.get_dimensional_response()
+        pre_aggregated_response, dimensional_job_ids = self.get_dimensional_response()
         if not pre_aggregated_response:
             lazy_row = self.get_lazy_precomputed_row()
             if lazy_row is not None:
@@ -553,6 +562,8 @@ WHERE and(
             dateTo=self.query_date_range.date_to_str,
             preComputeStrategy=strategy,
             preComputeIneligibleReason=lazy_precompute_ineligible_reason(strategy),
+            preComputeStale=dimensional_precompute_stale(dimensional_job_ids),
+            preComputedAt=dimensional_precomputed_at(dimensional_job_ids),
         )
 
     @cached_property

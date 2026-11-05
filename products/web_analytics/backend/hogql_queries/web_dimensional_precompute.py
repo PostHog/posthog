@@ -23,6 +23,7 @@ Parity with v2 is intentional, with two deliberate deviations:
 """
 
 import json
+from collections.abc import Collection
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -399,8 +400,9 @@ def ensure_web_stats_dimensional_precomputed(
     time_range_end: datetime,
     run_inserts: bool = True,
     stale_while_revalidate_seconds: float | None = None,
+    modifiers: HogQLQueryModifiers | None = None,
 ) -> LazyComputationResult:
-    modifiers = dimensional_insert_modifiers(team)
+    modifiers = modifiers or dimensional_insert_modifiers(team)
     return ensure_precomputed(
         team=team,
         insert_query=STATS_INSERT_TEMPLATE,
@@ -426,8 +428,9 @@ def ensure_web_bounces_dimensional_precomputed(
     time_range_end: datetime,
     run_inserts: bool = True,
     stale_while_revalidate_seconds: float | None = None,
+    modifiers: HogQLQueryModifiers | None = None,
 ) -> LazyComputationResult:
-    modifiers = dimensional_insert_modifiers(team)
+    modifiers = modifiers or dimensional_insert_modifiers(team)
     return ensure_precomputed(
         team=team,
         insert_query=BOUNCES_INSERT_TEMPLATE,
@@ -455,30 +458,51 @@ DIMENSIONAL_READ_STALE_WHILE_REVALIDATE_SECONDS = 30 * 60
 
 @frozen
 class DimensionalJobIds:
-    stats: list[UUID]
-    bounces: list[UUID]
+    # None for a table the caller did not ask for.
+    stats: list[UUID] | None
+    bounces: list[UUID] | None
+    stale: bool = False
+    # The oldest `computed_at` of the served jobs.
+    computed_at: datetime | None = None
 
 
-def dimensional_job_ids(team: Team, time_range_start: datetime, time_range_end: datetime) -> DimensionalJobIds | None:
-    """Return the READY job ids of both tables that cover the range, or None when either
-    table has a gap. Check-only: a read never builds a window, the scheduled job does.
+def dimensional_job_ids(
+    team: Team,
+    time_range_start: datetime,
+    time_range_end: datetime,
+    tables: Collection[str],
+    modifiers: HogQLQueryModifiers,
+) -> DimensionalJobIds | None:
+    """Return the READY job ids of `tables` that cover the range, or None when any of them
+    has a gap. Check-only: a read never builds a window, the scheduled job does.
     The framework splits jobs on UTC days, so the bounds should already be in UTC."""
-    stats = ensure_web_stats_dimensional_precomputed(
-        team,
-        time_range_start,
-        time_range_end,
-        run_inserts=False,
-        stale_while_revalidate_seconds=DIMENSIONAL_READ_STALE_WHILE_REVALIDATE_SECONDS,
+    results: dict[str, LazyComputationResult] = {}
+    ensure_by_table = {
+        WEB_STATS_DIMENSIONAL_READ_TABLE: ensure_web_stats_dimensional_precomputed,
+        WEB_BOUNCES_DIMENSIONAL_READ_TABLE: ensure_web_bounces_dimensional_precomputed,
+    }
+    for table, ensure in ensure_by_table.items():
+        if table not in tables:
+            continue
+        result = ensure(
+            team,
+            time_range_start,
+            time_range_end,
+            run_inserts=False,
+            stale_while_revalidate_seconds=DIMENSIONAL_READ_STALE_WHILE_REVALIDATE_SECONDS,
+            modifiers=modifiers,
+        )
+        if not result.ready:
+            return None
+        results[table] = result
+
+    stats = results.get(WEB_STATS_DIMENSIONAL_READ_TABLE)
+    bounces = results.get(WEB_BOUNCES_DIMENSIONAL_READ_TABLE)
+    return DimensionalJobIds(
+        stats=stats.job_ids if stats else None,
+        bounces=bounces.job_ids if bounces else None,
+        stale=any(result.stale for result in results.values()),
+        computed_at=min(
+            (result.computed_at for result in results.values() if result.computed_at is not None), default=None
+        ),
     )
-    if not stats.ready:
-        return None
-    bounces = ensure_web_bounces_dimensional_precomputed(
-        team,
-        time_range_start,
-        time_range_end,
-        run_inserts=False,
-        stale_while_revalidate_seconds=DIMENSIONAL_READ_STALE_WHILE_REVALIDATE_SECONDS,
-    )
-    if not bounces.ready:
-        return None
-    return DimensionalJobIds(stats=stats.job_ids, bounces=bounces.job_ids)

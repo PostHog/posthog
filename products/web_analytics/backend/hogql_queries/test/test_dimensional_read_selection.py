@@ -42,6 +42,7 @@ _PRECOMPUTE = "products.web_analytics.backend.hogql_queries.web_dimensional_prec
 _STATS_IDS = [uuid.uuid4()]
 _BOUNCES_IDS = [uuid.uuid4()]
 _JOB_IDS = DimensionalJobIds(stats=_STATS_IDS, bounces=_BOUNCES_IDS)
+_BOTH_TABLES = (WEB_STATS_DIMENSIONAL_READ_TABLE, WEB_BOUNCES_DIMENSIONAL_READ_TABLE)
 _NEW_YORK = ZoneInfo("America/New_York")
 _SESSIONS_V3_FLOOR = datetime(2026, 2, 15, tzinfo=UTC)
 _TEST_ACCOUNT_FILTERS = [{"key": "email", "value": "@example.com", "operator": "not_icontains", "type": "person"}]
@@ -97,8 +98,12 @@ def _runner(
     return runner
 
 
-def _result(ready: bool, job_ids: list[uuid.UUID]) -> LazyComputationResult:
-    return LazyComputationResult(ready=ready, job_ids=job_ids if ready else [])
+def _result(
+    ready: bool, job_ids: list[uuid.UUID], stale: bool = False, computed_at: datetime | None = None
+) -> LazyComputationResult:
+    return LazyComputationResult(
+        ready=ready, job_ids=job_ids if ready else [], stale=stale, computed_at=computed_at if ready else None
+    )
 
 
 @time_machine.travel(datetime(2026, 3, 31, 12, tzinfo=UTC), tick=False)
@@ -128,7 +133,7 @@ class TestDimensionalReadSelection(SimpleTestCase):
             patch(f"{_READ}.team_has_property_access_rules", return_value=False),
             patch(f"{_READ}.dimensional_job_ids", return_value=_JOB_IDS) as mock_job_ids,
         ):
-            assert ready_dimensional_job_ids(_runner(True, compare_from, tz=tz)) == _JOB_IDS
+            assert ready_dimensional_job_ids(_runner(True, compare_from, tz=tz), _BOTH_TABLES) == _JOB_IDS
 
         _team, start, end = mock_job_ids.call_args.args
         assert (start, end) == (expected_start, datetime(2026, 3, 31, 12, tzinfo=UTC))
@@ -212,7 +217,7 @@ class TestDimensionalReadSelection(SimpleTestCase):
             patch(f"{_READ}.team_has_property_access_rules", return_value=has_rules),
             patch(f"{_READ}.dimensional_job_ids", side_effect=[job_ids]),
         ):
-            assert ready_dimensional_job_ids(runner) is None
+            assert ready_dimensional_job_ids(runner, _BOTH_TABLES) is None
 
     @parameterized.expand(
         [
@@ -268,35 +273,60 @@ class TestDimensionalReadSelection(SimpleTestCase):
             patch.dict(f"{_PRECOMPUTE}.SESSIONS_V3_COVERAGE_START_BY_REGION", {"US": _SESSIONS_V3_FLOOR}, clear=True),
             override_settings(CLOUD_DEPLOYMENT=region),
         ):
-            assert ready_dimensional_job_ids(runner) == (_JOB_IDS if serves else None)
+            assert ready_dimensional_job_ids(runner, _BOTH_TABLES) == (_JOB_IDS if serves else None)
 
     @parameterized.expand(
         [
-            ("both_ready", True, True, _JOB_IDS),
-            ("stats_gap", False, True, None),
-            ("bounces_gap", True, False, None),
+            ("both_ready", _BOTH_TABLES, _result(True, _STATS_IDS), _result(True, _BOUNCES_IDS), _JOB_IDS),
+            ("stats_gap", _BOTH_TABLES, _result(False, _STATS_IDS), _result(True, _BOUNCES_IDS), None),
+            ("bounces_gap", _BOTH_TABLES, _result(True, _STATS_IDS), _result(False, _BOUNCES_IDS), None),
+            (
+                "bounces_only_ignores_a_stats_gap",
+                (WEB_BOUNCES_DIMENSIONAL_READ_TABLE,),
+                _result(False, _STATS_IDS),
+                _result(True, _BOUNCES_IDS),
+                DimensionalJobIds(stats=None, bounces=_BOUNCES_IDS),
+            ),
+            (
+                "stale_job_and_oldest_computed_at",
+                _BOTH_TABLES,
+                _result(True, _STATS_IDS, computed_at=datetime(2026, 3, 2, 10, tzinfo=UTC)),
+                _result(True, _BOUNCES_IDS, stale=True, computed_at=datetime(2026, 3, 2, 9, tzinfo=UTC)),
+                DimensionalJobIds(
+                    stats=_STATS_IDS,
+                    bounces=_BOUNCES_IDS,
+                    stale=True,
+                    computed_at=datetime(2026, 3, 2, 9, tzinfo=UTC),
+                ),
+            ),
         ]
     )
-    def test_dimensional_job_ids_needs_both_tables_ready_and_only_checks(
-        self, _name, stats_ready, bounces_ready, expected
+    def test_dimensional_job_ids_checks_only_the_requested_tables(
+        self, _name, tables, stats_result, bounces_result, expected
     ):
+        modifiers = HogQLQueryModifiers()
         with (
+            patch(f"{_PRECOMPUTE}.ensure_web_stats_dimensional_precomputed", return_value=stats_result) as mock_stats,
             patch(
-                f"{_PRECOMPUTE}.ensure_web_stats_dimensional_precomputed", return_value=_result(stats_ready, _STATS_IDS)
-            ) as mock_stats,
-            patch(
-                f"{_PRECOMPUTE}.ensure_web_bounces_dimensional_precomputed",
-                return_value=_result(bounces_ready, _BOUNCES_IDS),
+                f"{_PRECOMPUTE}.ensure_web_bounces_dimensional_precomputed", return_value=bounces_result
             ) as mock_bounces,
         ):
             assert (
-                dimensional_job_ids(MagicMock(), datetime(2026, 3, 1, tzinfo=UTC), datetime(2026, 3, 2, tzinfo=UTC))
+                dimensional_job_ids(
+                    MagicMock(),
+                    datetime(2026, 3, 1, tzinfo=UTC),
+                    datetime(2026, 3, 2, tzinfo=UTC),
+                    tables=tables,
+                    modifiers=modifiers,
+                )
                 == expected
             )
 
+        assert mock_stats.called is (WEB_STATS_DIMENSIONAL_READ_TABLE in tables)
         for mock_ensure in (mock_stats, mock_bounces):
             if mock_ensure.called:
                 assert mock_ensure.call_args.kwargs["run_inserts"] is False
+                assert mock_ensure.call_args.kwargs["modifiers"] is modifiers
 
     @parameterized.expand(
         [
