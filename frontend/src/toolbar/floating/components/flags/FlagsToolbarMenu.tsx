@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPerson } from '@posthog/icons'
+import { IconCamera, IconPerson } from '@posthog/icons'
 
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -9,7 +9,9 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { ToolbarMenu } from '~/toolbar/floating/components/bar/ToolbarMenu'
+import { FlagComparisonModal } from '~/toolbar/floating/components/flags/FlagComparisonModal'
 import { FeatureFlagRow } from '~/toolbar/shared/flags/FeatureFlagRow'
+import { flagComparisonLogic } from '~/toolbar/shared/flags/flagComparisonLogic'
 import { toFlagInfo } from '~/toolbar/shared/flags/flagInfo'
 import { flagsToolbarLogic } from '~/toolbar/shared/flags/flagsToolbarLogic'
 import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
@@ -46,6 +48,9 @@ export const FlagsToolbarMenu = (): JSX.Element => {
         setImpersonationOpen,
     } = useActions(flagsToolbarLogic)
     const { uiHost, posthog: posthogClient, toolbarFlagsKey } = useValues(toolbarConfigLogic)
+    const { comparingFlagKey } = useValues(flagComparisonLogic)
+    const { compareFlag } = useActions(flagComparisonLogic)
+    const comparingReason = comparingFlagKey ? 'Wait for the comparison to finish' : null
 
     useOnMountEffect(() => {
         posthogClient?.onFeatureFlags(setFeatureFlagValueFromPostHogClient)
@@ -79,7 +84,9 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                         size="small"
                         className="flex-shrink-0"
                         onClick={clearAllOverrides}
-                        disabledReason={countFlagsOverridden === 0 ? 'No overrides to clear' : undefined}
+                        disabledReason={
+                            comparingReason ?? (countFlagsOverridden === 0 ? 'No overrides to clear' : undefined)
+                        }
                     >
                         Clear overrides
                     </LemonButton>
@@ -111,7 +118,7 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                         )}
                                         payloadDraft={openPayloadEditors[key] ? (draftPayloads[key] ?? '') : null}
                                         payloadError={payloadErrors[key] ?? null}
-                                        disabledReason={null}
+                                        disabledReason={comparingReason}
                                         onSetOverride={(value) => setOverriddenUserFlag(key, value)}
                                         onRemoveOverride={() => deleteOverriddenUserFlag(key)}
                                         onOpenPayloadEditor={(initialDraft) => {
@@ -121,6 +128,23 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                         onPayloadDraftChange={(draft) => setDraftPayload(key, draft)}
                                         onSavePayload={() => savePayloadOverride(key)}
                                         onClosePayloadEditor={() => setPayloadEditorOpen(key, false)}
+                                        actions={
+                                            <LemonButton
+                                                size="xsmall"
+                                                type="secondary"
+                                                icon={<IconCamera />}
+                                                onClick={() => compareFlag(flag)}
+                                                loading={comparingFlagKey === key}
+                                                disabledReason={
+                                                    comparingFlagKey === key
+                                                        ? null
+                                                        : (comparingReason ??
+                                                          (posthogClient ? null : 'The page has no PostHog client'))
+                                                }
+                                                tooltip="Compare the page with this flag off and on"
+                                                data-attr="toolbar-flag-compare"
+                                            />
+                                        }
                                         dataAttrPrefix="toolbar-flag"
                                     />
                                 )
@@ -149,7 +173,12 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                     <span className="text-xs flex-1 truncate">
                                         Viewing as: <strong>{impersonatedDistinctId}</strong>
                                     </span>
-                                    <LemonButton type="secondary" size="xsmall" onClick={clearImpersonation}>
+                                    <LemonButton
+                                        type="secondary"
+                                        size="xsmall"
+                                        onClick={clearImpersonation}
+                                        disabledReason={comparingReason}
+                                    >
                                         Clear
                                     </LemonButton>
                                 </div>
@@ -162,7 +191,7 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                         value={draftDistinctId}
                                         onChange={setDraftDistinctId}
                                         onPressEnter={() => {
-                                            if (draftDistinctId.trim()) {
+                                            if (!comparingFlagKey && draftDistinctId.trim()) {
                                                 loadFlagsForDistinctId(draftDistinctId.trim())
                                             }
                                         }}
@@ -176,7 +205,10 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                                 loadFlagsForDistinctId(draftDistinctId.trim())
                                             }
                                         }}
-                                        disabledReason={!draftDistinctId.trim() ? 'Enter a distinct ID' : undefined}
+                                        disabledReason={
+                                            comparingReason ??
+                                            (!draftDistinctId.trim() ? 'Enter a distinct ID' : undefined)
+                                        }
                                     >
                                         Load
                                     </LemonButton>
@@ -189,6 +221,7 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                     </span>
                 </div>
             </ToolbarMenu.Footer>
+            <FlagComparisonModal />
         </ToolbarMenu>
     )
 }
