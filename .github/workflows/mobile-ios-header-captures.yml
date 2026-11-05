@@ -3,7 +3,7 @@ name: iPhone report header captures
 on:
     push:
         branches: [posthog/android-report-blur-captures]
-        paths: ['.github/workflows/mobile-ios-header-captures.yml']
+        paths: ['.github/workflows/mobile-ios-header-captures.yml', 'products/mobile/scripts/capture-report-header.sh']
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.ref }}

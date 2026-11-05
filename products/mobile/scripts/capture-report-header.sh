@@ -60,6 +60,7 @@ report = (root / 'report-header.yaml').read_text()
 suffix = report[report.index('    - await: { idle: true }'):]
 details = 'steps:\n    - tap: { id: report-read-full }\n    - await: { visible: { id: report-details-scroll } }\n' + suffix.replace('report-', 'details-')
 (root / 'details-header.yaml').write_text(details)
+(root / 'report-header.yaml').write_text(report + details.removeprefix('steps:\n'))
 PY
 
 for file in "${files[@]}"; do
@@ -138,7 +139,7 @@ for phase in before after; do
         python3 scripts/capture-android-header.py "$phase_dir"
         continue
     fi
-    argent e2e run "$capture_dir/report-header.yaml" --platform "$platform" --device "$device" --output "$phase_dir" --json > "$phase_dir/report.json"
+    argent e2e run "$capture_dir/report-header.yaml" --platform "$platform" --device "$device" --output "$phase_dir" --json > "$phase_dir/report.json" || true
     python3 - "$phase_dir" <<'PY_COPY'
 from pathlib import Path
 import json, shutil, sys
@@ -147,24 +148,11 @@ report = json.loads((root / 'report.json').read_text())
 for step in report['steps']:
     if step['kind'] == 'echo':
         name = step['message']
-    if step.get('tool') == 'screenshot':
+    if step.get('tool') == 'screenshot' and step.get('status') == 'pass':
         shutil.copyfile(step['result']['image']['hostPath'], root / f'{name}.png')
+if not report['ok']:
+    raise SystemExit('Native report capture failed')
 PY_COPY
-    argent e2e run "$capture_dir/details-header.yaml" --platform "$platform" --device "$device" --output "$phase_dir" --json > "$phase_dir/details.json"
-    python3 - "$phase_dir" <<'PY'
-from pathlib import Path
-import json, shutil, sys
-root = Path(sys.argv[1])
-for source in ('report.json', 'details.json'):
-    report = json.loads((root / source).read_text())
-    if not report['ok']:
-        raise SystemExit(f'Capture failed: {source}')
-    for step in report['steps']:
-        if step['kind'] == 'echo':
-            name = step['message']
-        if step.get('tool') == 'screenshot':
-            shutil.copyfile(step['result']['image']['hostPath'], root / f'{name}.png')
-PY
 done
 
 argent server stop
