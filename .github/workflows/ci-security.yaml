@@ -132,6 +132,7 @@ jobs:
                         - 'docs/onboarding/**'
                         - 'ee/**'
                         - 'frontend/**'
+                        - 'hog/**'
                         - 'packages/**'
                         - 'posthog/**'
                         - 'products/**'
@@ -515,7 +516,7 @@ jobs:
                       --metrics=off \
                       --verbose \
                       --timeout 300 \
-                      bin/ common/ docs/onboarding/ ee/ frontend/ packages/ posthog/ products/ services/ tools/
+                      bin/ common/ docs/onboarding/ ee/ frontend/ hog/ packages/ posthog/ products/ services/ tools/
 
             # Pass 2: enforce ERROR-severity rules. Any finding fails the
             # job — regression guards live here.
@@ -532,7 +533,7 @@ jobs:
                       --metrics=off \
                       --verbose \
                       --timeout 300 \
-                      bin/ common/ docs/onboarding/ ee/ frontend/ packages/ posthog/ products/ services/ tools/
+                      bin/ common/ docs/onboarding/ ee/ frontend/ hog/ packages/ posthog/ products/ services/ tools/
 
             # Per-file ratchet: the INFO rule integration-model-through-sdk has a backlog, and its
             # baseline file lists the allowed count per file. More findings than the baseline fails, and
@@ -576,7 +577,7 @@ jobs:
                       --metrics=off \
                       --verbose \
                       --timeout 300 \
-                      bin/ common/ docs/onboarding/ ee/ frontend/ packages/ posthog/ products/ services/ tools/
+                      bin/ common/ docs/onboarding/ ee/ frontend/ hog/ packages/ posthog/ products/ services/ tools/
 
     semgrep-test-rules:
         needs: changes
