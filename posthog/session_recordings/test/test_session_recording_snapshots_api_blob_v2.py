@@ -15,6 +15,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value,
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.recordings.errors import RecordingDeletedError
+from posthog.session_recordings.session_recording_api import SESSION_RECORDING_THROTTLED
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock, listing_cache_key
 
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -1013,7 +1014,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
     @parameterized.expand(
         [("enforced", True, status.HTTP_429_TOO_MANY_REQUESTS), ("log_only", False, status.HTTP_200_OK)]
     )
-    @patch("posthog.event_usage.posthoganalytics.capture")
     @patch("posthog.session_recordings.session_recording_api.is_rate_limit_enabled", return_value=True)
     @patch("posthog.session_recordings.session_recording_api.recording_api_client")
     @patch("posthog.session_recordings.session_recording_api.list_blocks_async", new_callable=AsyncMock)
@@ -1032,7 +1032,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_list_blocks,
         mock_recording_api_client,
         _mock_rate_limit_enabled,
-        mock_capture,
     ):
         cache.clear()
         session_id = str(uuid7())
@@ -1050,6 +1049,12 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_storage.fetch_block = AsyncMock(return_value=b'{"timestamp": 1}')
         mock_recording_api_client.return_value.__aenter__.return_value = mock_storage
         url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=0&end_blob_key=0"
+        throttled = SESSION_RECORDING_THROTTLED.labels(
+            location="snapshots_user_burst" if enforced else "snapshots_user_burst_log_only",
+            auth_type="logged_in",
+            team_id=str(self.team.pk),
+        )
+        throttled_before = throttled._value.get()
 
         with override_settings(SNAPSHOT_USER_RATE_BURST="2/minute", SNAPSHOT_USER_RATE_LIMIT_ENFORCED=enforced):
             assert self.client.get(url).status_code == status.HTTP_200_OK
@@ -1058,15 +1063,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             assert self.client.get(url).status_code == expected_status_over_quota
         cache.clear()
 
-        over_limit_reports = [
-            call.kwargs
-            for call in mock_capture.call_args_list
-            if call.kwargs["event"] == "snapshot rate limit exceeded"
-        ]
-        assert len(over_limit_reports) == 1
-        assert over_limit_reports[0]["distinct_id"] == self.user.distinct_id
-        assert over_limit_reports[0]["properties"]["enforced"] is enforced
-        assert over_limit_reports[0]["properties"]["scope"] == "snapshots_user_burst"
+        assert throttled._value.get() - throttled_before == 2
 
     @patch(
         "posthog.session_recordings.session_recording_v2_service.fetch_blocks_from_recording_api",
