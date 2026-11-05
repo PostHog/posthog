@@ -5,7 +5,7 @@ the same transaction, so the caller owns it. Each function calls its implementat
 module attribute, so a test that patches the implementation also changes what callers see.
 """
 
-from products.signals.backend import report_assignments, report_task_actions, task_run_artefacts, tracker_issues
+from products.signals.backend import report_task_actions, task_run_artefacts, tracker_issues
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded
 
@@ -15,7 +15,7 @@ __all__ = [
     "delete_report_task_artefact",
     "enforce_report_implementation_rerun_cap",
     "enforce_report_task_cap",
-    "hand_off_task_claims",
+    "queue_task_handoff_claims",
     "is_pull_request_run_request",
     "is_report_implementation_task",
     "record_report_task",
@@ -76,9 +76,11 @@ def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, tas
     task_run_artefacts.enforce_report_implementation_rerun_cap(team_id=team_id, report_id=report_id, task_id=task_id)
 
 
-def hand_off_task_claims(*, team_id: int, task_id: str, previous_user_id: int) -> None:
-    """Move the report claims a handed-off task works under to its owner. Call after the handoff commits."""
-    report_assignments.hand_off_task_claims(team_id=team_id, task_id=task_id, previous_user_id=previous_user_id)
+def queue_task_handoff_claims(*, team_id: int, task_id: str, previous_user_id: int) -> None:
+    """Queue moving the report claims a handed-off task works under to its owner. Call after the handoff commits."""
+    from products.signals.backend.handoff_claim_tasks import reconcile_task_handoff_claims
+
+    reconcile_task_handoff_claims.delay(team_id=team_id, task_id=task_id, previous_user_id=previous_user_id)
 
 
 def release_quota_cancelled_implementation(*, team_id: int, task_id: str) -> list[str]:
