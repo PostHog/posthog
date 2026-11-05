@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
 import { IconChevronLeft } from '@posthog/icons'
@@ -7,6 +7,10 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { cn } from 'lib/utils/css-classes'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
+import { groupsModel } from '~/models/groupsModel'
+import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
+
+import { exposureAnswerComputedAt } from './exposureHealth'
 import { HealthCheckDetail } from './HealthCheckDetail'
 import { HealthCheckList } from './HealthCheckList'
 import { HealthChecksSummary } from './HealthChecksSummary'
@@ -20,6 +24,7 @@ import { type HealthPanelSelection, healthFindingKey, resolveHealthPanelSelectio
 export function HealthChecksOverview({
     checks,
     findings,
+    exposures,
     isDraft,
     exposureChecksMissing,
     onFindingActedOn,
@@ -27,6 +32,8 @@ export function HealthChecksOverview({
     checks: HealthPanelCheck[]
     /** Issues first, as `healthPanelFindings` sorts them. */
     findings: HealthPanelFinding[]
+    /** The exposure answer that the exposure checks come from. Null for a draft and before it loads. */
+    exposures: ExperimentExposureQueryResponse | null
     isDraft: boolean
     exposureChecksMissing: boolean
     onFindingActedOn?: () => void
@@ -34,10 +41,18 @@ export function HealthChecksOverview({
     const [pickedSelection, setPickedSelection] = useState<HealthPanelSelection | null>(null)
     // A narrow container shows the list or the detail, not both. Wide containers ignore this.
     const [isDetailOpenWhenNarrow, setIsDetailOpenWhenNarrow] = useState(false)
-    const { reportHealthCheckExpanded } = useActions(experimentLogic)
+    const { experiment } = useValues(experimentLogic)
+    const { aggregationLabel } = useValues(groupsModel)
+    const { reportHealthCheckExpanded, reportHealthSummaryOpened } = useActions(experimentLogic)
     const listedChecks = listedHealthChecks(checks)
     const issueCount = healthIssues(findings).length
     const selection = resolveHealthPanelSelection(pickedSelection, findings, listedChecks)
+    const units = aggregationLabel(experiment.feature_flag?.filters?.aggregation_group_type_index, true).plural
+    const exposureCheckKeys = new Set<string>(exposures?.health_checks?.map(({ key }) => key))
+    const exposureCheckedAt = exposureAnswerComputedAt(exposures)
+    // The checks of the experiment run on each load, so only the exposure checks say when they ran.
+    const checkedAt = (key: HealthPanelCheck['key']): string | null =>
+        exposureCheckKeys.has(key) ? exposureCheckedAt : null
 
     const detailRef = useRef<HTMLElement>(null)
 
@@ -61,12 +76,26 @@ export function HealthChecksOverview({
                         isDetailOpenWhenNarrow ? 'hidden' : 'flex'
                     )}
                 >
-                    <div className="flex flex-col gap-1 px-3 py-2">
-                        <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold">Health checks</span>
-                            <LemonTag type="completion">Beta</LemonTag>
-                        </div>
-                        <HealthChecksSummary checks={checks} issueCount={issueCount} isDraft={isDraft} />
+                    <div className="px-1 py-1">
+                        <LemonButton
+                            fullWidth
+                            active={selection.kind === 'summary'}
+                            onClick={() => {
+                                if (select({ kind: 'summary' }, selection.kind === 'summary')) {
+                                    reportHealthSummaryOpened()
+                                }
+                            }}
+                            aria-current={selection.kind === 'summary' ? 'true' : undefined}
+                            data-attr="experiment-health-summary-header"
+                        >
+                            <span className="flex flex-col gap-1 py-1 text-left font-normal">
+                                <span className="flex items-center gap-2">
+                                    <span className="text-sm font-semibold">Health checks</span>
+                                    <LemonTag type="completion">Beta</LemonTag>
+                                </span>
+                                <HealthChecksSummary checks={checks} issueCount={issueCount} isDraft={isDraft} />
+                            </span>
+                        </LemonButton>
                     </div>
                     {findings.length > 0 && (
                         // A note mounts, and so reports as shown, only when the reader opens the health tab. An issue
@@ -120,11 +149,29 @@ export function HealthChecksOverview({
                         All checks
                     </LemonButton>
                     {selection.kind === 'finding' ? (
-                        <HealthFindingDetail finding={selection.finding} onActedOn={onFindingActedOn} />
+                        <HealthFindingDetail
+                            finding={selection.finding}
+                            check={checks.find(({ key }) => key === selection.finding.check) ?? null}
+                            units={units}
+                            exposures={exposures}
+                            checkedAt={selection.finding.check ? checkedAt(selection.finding.check) : null}
+                            onActedOn={onFindingActedOn}
+                        />
                     ) : selection.kind === 'check' ? (
-                        <HealthCheckDetail check={selection.check} />
+                        <HealthCheckDetail
+                            check={selection.check}
+                            units={units}
+                            exposures={exposures}
+                            checkedAt={checkedAt(selection.check.key)}
+                        />
                     ) : (
-                        <HealthChecksSummaryDetail checks={checks} issueCount={issueCount} />
+                        <HealthChecksSummaryDetail
+                            checks={checks}
+                            issueCount={issueCount}
+                            units={units}
+                            countedFrom={exposures?.date_range.date_from ?? null}
+                            checkedAt={exposureCheckedAt}
+                        />
                     )}
                 </section>
             </div>

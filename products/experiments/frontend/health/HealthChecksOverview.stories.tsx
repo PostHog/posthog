@@ -1,10 +1,14 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { within } from '@testing-library/dom'
 
+import { type ExperimentExposureQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+
 import { userEvent } from 'storybook/test'
 
+import type { ExperimentHealthCheckResultApi, ExperimentHealthCheckRuleApi } from '../generated/api.schemas'
 import { HealthChecksOverview } from './HealthChecksOverview'
 import type { HealthPanelCheck } from './healthPanelChecks'
+import type { HealthPanelFinding } from './healthPanelFindings'
 
 const DESCRIPTIONS: Partial<Record<HealthPanelCheck['key'], string>> = {
     flag_state:
@@ -21,13 +25,14 @@ const DESCRIPTIONS: Partial<Record<HealthPanelCheck['key'], string>> = {
 const description = (key: HealthPanelCheck['key']): string =>
     DESCRIPTIONS[key] ?? 'Looks for a problem in the setup of the experiment that can make its results wrong.'
 
-const passed = (key: HealthPanelCheck['key'], name: string): HealthPanelCheck => ({
+const passed = (key: HealthPanelCheck['key'], name: string): ExperimentHealthCheckResultApi => ({
     key,
     name,
     description: description(key),
     status: 'passed',
     reason: null,
-    measurement: null,
+    values: {},
+    rule: null,
 })
 
 const skipped = (
@@ -35,7 +40,15 @@ const skipped = (
     name: string,
     status: 'not_applicable' | 'not_checked',
     reason: string
-): HealthPanelCheck => ({ key, name, description: description(key), status, reason, measurement: null })
+): ExperimentHealthCheckResultApi => ({
+    key,
+    name,
+    description: description(key),
+    status,
+    reason,
+    values: {},
+    rule: null,
+})
 
 const FLAG_SETUP_CHECKS = [
     passed('flag_state', "Flag state that doesn't match the experiment"),
@@ -48,9 +61,10 @@ const meta: Meta<typeof HealthChecksOverview> = {
     component: HealthChecksOverview,
     parameters: {
         layout: 'centered',
+        mockDate: '2026-11-03 12:00:00',
         testOptions: { snapshotBrowsers: ['chromium'] },
     },
-    args: { onFindingActedOn: () => {} },
+    args: { onFindingActedOn: () => {}, exposures: null },
     decorators: [
         (Story) => (
             <div className="w-[60rem]">
@@ -92,13 +106,14 @@ export const Draft: Story = {
     },
 }
 
-const found = (key: HealthPanelCheck['key'], name: string): HealthPanelCheck => ({
+const found = (key: HealthPanelCheck['key'], name: string): ExperimentHealthCheckResultApi => ({
     key,
     name,
     description: description(key),
     status: 'finding',
     reason: null,
-    measurement: null,
+    values: {},
+    rule: null,
 })
 
 export const DraftWithEventsNotReceived: Story = {
@@ -213,79 +228,175 @@ export const ChecksThatCouldNotRun: Story = {
     },
 }
 
+const SRM_RULE: ExperimentHealthCheckRuleApi = {
+    value: 'p_value',
+    threshold: 0.001,
+    warns: 'below',
+    test: 'chi_squared',
+    minimum: { value: 'compared_count', threshold: 100 },
+}
+
+const BIAS_RULE: ExperimentHealthCheckRuleApi = {
+    value: 'multiple_variant_percentage',
+    threshold: 0.1,
+    warns: 'above',
+    test: null,
+    minimum: { value: 'multiple_variant_count', threshold: 5 },
+}
+
+const MULTIPLE_VARIANTS_RULE: ExperimentHealthCheckRuleApi = { ...BIAS_RULE, threshold: 5 }
+
+const UNEVEN_SPLIT_EXPOSURES: ExperimentExposureQueryResponse = {
+    kind: NodeKind.ExperimentExposureQuery,
+    timeseries: [],
+    total_exposures: { control: 4790, test: 2420, 'test-2': 2392, $multiple: 403 },
+    date_range: { date_from: '2026-10-19T00:00:00Z' },
+    sample_ratio_mismatch: { expected: { control: 4801, test: 2400.5, 'test-2': 2400.5 }, p_value: 0.71 },
+    health_checks: [
+        { key: 'srm', name: 'Split of users across variants', status: 'passed', reason: null },
+        { key: 'bias_risk_multiple_excluded', name: 'Bias from an uneven split', status: 'finding', reason: null },
+        { key: 'multiple_variants_share', name: 'Users exposed to multiple variants', status: 'passed', reason: null },
+    ],
+    last_refresh: '2026-11-03T10:00:00Z',
+} as ExperimentExposureQueryResponse
+
+const MULTIPLE_VALUES = {
+    exposed_count: 10005,
+    multiple_variant_count: 403,
+    multiple_variant_percentage: 4.03,
+    multiple_variant_handling: 'exclude',
+}
+
+const READ_CHECKS: HealthPanelCheck[] = [
+    {
+        ...passed('flag_state', "Flag state that doesn't match the experiment"),
+        values: { flag_active: true, flag_deleted: false, flag_rolled_out: true, shipped_variant: null },
+    },
+    passed('flag_variants_mismatch', 'Flag variants not set up'),
+    {
+        ...passed('metric_calculation_failed', 'Failed metric calculations'),
+        values: {
+            metric_count: 3,
+            completed_metric_count: 3,
+            failed_metric_count: 0,
+            calculated_at: '2026-11-03T08:00:00Z',
+        },
+    },
+    {
+        ...passed('zero_exposures', 'Exposures not received since launch'),
+        values: { exposed_count: 10005, since_launch_hours: 348 },
+        rule: {
+            value: 'exposed_count',
+            threshold: 1,
+            warns: 'below',
+            test: null,
+            minimum: { value: 'since_launch_hours', threshold: 24 },
+        },
+    },
+    {
+        ...passed('srm', 'Split of users across variants'),
+        values: { p_value: 0.71, compared_count: 9602, multiple_variant_count: 403 },
+        rule: SRM_RULE,
+    },
+    {
+        ...passed('multiple_variants_share', 'Users exposed to multiple variants'),
+        values: MULTIPLE_VALUES,
+        rule: MULTIPLE_VARIANTS_RULE,
+    },
+    {
+        ...skipped(
+            'metrics_not_matured',
+            'Metric windows not complete yet',
+            'not_applicable',
+            'Runs when "Require completed conversion or retention window" is on'
+        ),
+        values: { only_count_matured_users: false },
+    },
+]
+
+const BIAS_FINDING: HealthPanelFinding = {
+    code: 'bias_risk_multiple_excluded',
+    subcode: null,
+    reason: null,
+    severity: 'warning',
+    title: 'The uneven split may bias the results',
+    detail: '4.0% of users were exposed to multiple variants. With an uneven variant split and the Exclude handling, these users were dropped more often from the smaller variant, so its metrics can be biased. Use an even split and control exposure with the overall rollout, or switch the handling to First seen.',
+    evidence: { multiple_variant_percentage: 4.03 },
+    actions: ['adjust_distribution', 'use_first_seen_variant'],
+    check: 'bias_risk_multiple_excluded',
+}
+
 export const RunningWithAnIssue: Story = {
     args: {
         checks: [
-            ...FLAG_SETUP_CHECKS,
-            passed('no_metric', 'Metrics not set up'),
-            found('srm', 'Split of users across variants'),
-        ],
-        findings: [
+            ...READ_CHECKS,
             {
-                code: 'srm',
-                subcode: null,
-                reason: null,
-                severity: 'warning',
-                title: 'Users are not split across variants as configured',
-                detail: "The distribution of users across variants doesn't match your configured rollout percentages (p < 0.001). This may indicate issues with randomization or data collection.",
-                evidence: { p_value: 0.0002 },
-                actions: [],
+                ...found('bias_risk_multiple_excluded', 'Bias from an uneven split'),
+                values: MULTIPLE_VALUES,
+                rule: BIAS_RULE,
             },
         ],
+        findings: [BIAS_FINDING],
+        exposures: UNEVEN_SPLIT_EXPOSURES,
         isDraft: false,
         exposureChecksMissing: false,
     },
 }
 
-export const CheckDetailsWithAMeasurement: Story = {
+export const NothingToFix: Story = {
     args: {
-        checks: [
-            ...FLAG_SETUP_CHECKS,
-            passed('no_metric', 'Metrics not set up'),
-            {
-                ...passed('srm', 'Split of users across variants'),
-                measurement: { value: 0.71, threshold: 0.001, unit: 'p_value', warns: 'below' },
-            },
-            {
-                ...passed('multiple_variants_share', 'Users exposed to multiple variants'),
-                measurement: { value: 4.2, threshold: 5, unit: 'percentage', warns: 'above' },
-            },
-        ],
+        checks: READ_CHECKS,
         findings: [],
+        exposures: UNEVEN_SPLIT_EXPOSURES,
         isDraft: false,
         exposureChecksMissing: false,
     },
+}
+
+export const CheckDetailsWithWhatItRead: Story = {
+    args: NothingToFix.args,
     play: async ({ canvasElement }) => {
         await userEvent.click(
-            await within(canvasElement).findByRole('button', { name: /Users exposed to multiple variants/ })
+            await within(canvasElement).findByRole('button', { name: /Split of users across variants/ })
         )
     },
 }
 
 export const CheckDetailsOfACheckThatDoesNotApply: Story = {
-    args: {
-        checks: [
-            ...FLAG_SETUP_CHECKS,
-            skipped(
-                'split_changed_mid_run',
-                'Variant split changes since launch',
-                'not_applicable',
-                'Runs after launch'
-            ),
-        ],
-        findings: [],
-        isDraft: true,
-        exposureChecksMissing: false,
-    },
+    args: NothingToFix.args,
     play: async ({ canvasElement }) => {
         await userEvent.click(
-            await within(canvasElement).findByRole('button', { name: /Variant split changes since launch/ })
+            await within(canvasElement).findByRole('button', { name: /Metric windows not complete yet/ })
         )
     },
 }
 
-export const NarrowWithACheckPicked: Story = {
-    args: CheckDetailsWithAMeasurement.args,
+export const CheckDetailsFromAnAnswerCachedBeforeTheValues: Story = {
+    args: {
+        checks: [
+            ...FLAG_SETUP_CHECKS,
+            {
+                key: 'srm',
+                name: 'Split of users across variants',
+                description: description('srm'),
+                status: 'passed',
+                reason: null,
+            },
+        ],
+        findings: [],
+        exposures: UNEVEN_SPLIT_EXPOSURES,
+        isDraft: false,
+        exposureChecksMissing: false,
+    },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(
+            await within(canvasElement).findByRole('button', { name: /Split of users across variants/ })
+        )
+    },
+}
+
+export const NarrowWithAnIssue: Story = {
+    args: RunningWithAnIssue.args,
     decorators: [
         (Story) => (
             <div className="w-[32rem]">
@@ -295,7 +406,7 @@ export const NarrowWithACheckPicked: Story = {
     ],
     play: async ({ canvasElement }) => {
         await userEvent.click(
-            await within(canvasElement).findByRole('button', { name: /Split of users across variants/ })
+            await within(canvasElement).findByRole('button', { name: /The uneven split may bias the results/ })
         )
     },
 }

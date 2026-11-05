@@ -15,13 +15,16 @@ export function healthFindingKey(finding: HealthPanelFinding): string {
     return `${finding.code}:${finding.subcode ?? ''}`
 }
 
-// A refresh can remove the picked finding or check, so the pick holds only while it is still on the list.
+// A refresh can remove the picked finding or check, so the pick holds only while it is still on the list. The summary
+// is always there.
 export function resolveHealthPanelSelection(
     picked: HealthPanelSelection | null,
     findings: HealthPanelFinding[],
     checks: ListedHealthCheck[]
 ): ResolvedHealthPanelSelection {
     switch (picked?.kind) {
+        case 'summary':
+            return picked
         case 'finding': {
             const finding = findings.find((candidate) => healthFindingKey(candidate) === picked.key)
             if (finding) {
