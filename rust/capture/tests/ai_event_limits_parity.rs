@@ -1,11 +1,13 @@
 //! The limits file lives outside this workspace, so point the test at it with `AI_EVENT_LIMITS_JSON`.
-//! Otherwise it walks up from the manifest dir looking for the file.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use capture::ai_event_limits::{
     AI_MAX_EVENT_BYTES_CEILING, AI_MAX_EVENT_BYTES_DEFAULT, AI_MAX_EVENT_BYTES_OVERRIDES,
 };
+use capture::config::Config;
+use envconfig::Envconfig;
 
 const RELATIVE_PATH: &str = "products/ai_observability/shared/crosslang/ai_event_limits.json";
 
@@ -51,5 +53,19 @@ fn mirror_matches_the_shared_json() {
     assert_eq!(
         from_file, from_mirror,
         "src/ai_event_limits.rs has drifted from {RELATIVE_PATH}. Edit the json first, then the mirror."
+    );
+}
+
+#[test]
+fn config_defaults_to_the_shared_cap() {
+    let env = HashMap::from([(
+        "REDIS_URL".to_string(),
+        "redis://localhost:6379/".to_string(),
+    )]);
+    let config = Config::init_from_hashmap(&env).expect("the config loads with only REDIS_URL set");
+
+    assert_eq!(
+        config.ai_max_event_bytes, AI_MAX_EVENT_BYTES_DEFAULT,
+        "the envconfig default of Config::ai_max_event_bytes has drifted from {RELATIVE_PATH}. Edit the json first, then the mirror and that default."
     );
 }

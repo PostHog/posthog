@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from products.ai_observability.backend.ai_event_limits import AIEventLimits, get_ai_event_limits
+from products.ai_observability.backend.facade.limits import AIEventLimits, get_ai_event_limits
 
 VALID = AIEventLimits(
     max_event_bytes_default=12_000_000,

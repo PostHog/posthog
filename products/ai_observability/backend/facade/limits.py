@@ -1,6 +1,4 @@
-"""Facade re-export for the AI event limits.
-
-Isolated from ``facade/api.py``, which imports the clustering workflows, so core Django can read the limits without
+"""Kept apart from ``facade/api.py``, which imports the clustering workflows, so core Django can read the limits without
 loading them.
 """
 

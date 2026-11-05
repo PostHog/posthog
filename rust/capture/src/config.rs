@@ -4,7 +4,6 @@ use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 use tracing::Level;
 
-use crate::ai_event_limits::AI_MAX_EVENT_BYTES_CEILING;
 use crate::producers::ProducerName;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
@@ -347,6 +346,10 @@ pub struct Config {
     #[envconfig(default = "0.0")]
     pub verbose_sample_percent: f32,
 
+    // AI endpoint size limits
+    #[envconfig(default = "26214400")] // 25MB in bytes
+    pub ai_max_sum_of_parts_bytes: usize,
+
     /// Largest single AI-lane event this deployment accepts. Measured on the
     /// serialized event body, except on v1, which measures the properties blob
     /// — see [`crate::v0_request::exceeds_max_ai_event_bytes`]. `0` disables
@@ -383,9 +386,8 @@ pub struct Config {
     /// raised its producer cap wants a lower value than this default; the boot
     /// warning says so when the two are out of order.
     ///
-    /// The default is `AI_MAX_EVENT_BYTES_DEFAULT`. envconfig takes only a
-    /// literal here, so a test holds the two equal.
-    #[envconfig(default = "8388608")]
+    /// Must equal `AI_MAX_EVENT_BYTES_DEFAULT`, or `tests/ai_event_limits_parity.rs` fails.
+    #[envconfig(default = "8388608")] // 8MiB
     pub ai_max_event_bytes: u64,
 
     // HMAC-SHA256 key shared with the AI gateway. When set, $ai_generation events
@@ -667,20 +669,9 @@ pub struct KafkaConfig {
     pub kafka_metrics_metadata_max_age_ms: Option<u32>,
 }
 
-impl Config {
-    pub fn ai_max_sum_of_parts_bytes(&self) -> usize {
-        let cap = match self.ai_max_event_bytes {
-            0 => AI_MAX_EVENT_BYTES_CEILING,
-            cap => cap.min(AI_MAX_EVENT_BYTES_CEILING),
-        };
-        cap as usize
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{CaptureMode, Config};
-    use crate::ai_event_limits::{AI_MAX_EVENT_BYTES_CEILING, AI_MAX_EVENT_BYTES_DEFAULT};
     use crate::producers::ProducerName;
     use std::collections::HashMap;
     use std::str::FromStr;
@@ -710,25 +701,6 @@ mod tests {
             config.outputs.error_tracking_topic,
             "ingestion-errortracking-main"
         );
-    }
-
-    #[rstest::rstest]
-    #[case::the_default_cap(None, AI_MAX_EVENT_BYTES_DEFAULT, AI_MAX_EVENT_BYTES_DEFAULT as usize)]
-    #[case::a_deployment_cap(Some("900000"), 900_000, 900_000)]
-    #[case::a_disabled_cap(Some("0"), 0, AI_MAX_EVENT_BYTES_CEILING as usize)]
-    #[case::a_cap_above_the_ceiling(Some("100000000"), 100_000_000, AI_MAX_EVENT_BYTES_CEILING as usize)]
-    fn ai_limits_follow_the_shared_cap(
-        #[case] env_value: Option<&str>,
-        #[case] expected_cap: u64,
-        #[case] expected_sum_of_parts: usize,
-    ) {
-        let mut env = required_config_env();
-        if let Some(value) = env_value {
-            env.insert("AI_MAX_EVENT_BYTES".into(), value.into());
-        }
-        let config: Config = envconfig::Envconfig::init_from_hashmap(&env).unwrap();
-        assert_eq!(config.ai_max_event_bytes, expected_cap);
-        assert_eq!(config.ai_max_sum_of_parts_bytes(), expected_sum_of_parts);
     }
 
     #[rstest::rstest]

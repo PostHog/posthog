@@ -1,6 +1,7 @@
 # AI event limits
 
 `ai_event_limits.json` holds the size limits and thresholds for AI events (`$ai_*`).
+It is the source of truth for these values: the Rust and Node copies follow it, and their parity tests fail when a copy differs.
 Every value is in decimal bytes: 100 KB is `100000` and 48 MB is `48000000`.
 `max_event_bytes_default` is the exception. It stays at the binary 8 MiB (`8388608`) that deployments run today, until the infrastructure around capture accepts larger events.
 
@@ -14,8 +15,7 @@ Every value is in decimal bytes: 100 KB is `100000` and 48 MB is `48000000`.
 | `text_offload_enabled`         | Whether ingestion moves the text content of large events to object storage. Off.                                                |
 | `text_offload_min_event_bytes` | The event size from which text offload applies, once it is on.                                                                  |
 
-Values that follow from these are computed, not stored here.
-For example, capture derives the multipart body limit from its event cap.
+Values that follow from these are computed by the code that needs them, never stored here.
 
 ## Who reads it
 
@@ -30,6 +30,7 @@ A key `k` is the constant `AI_<K>` in each mirror, for example `max_event_bytes_
 
 - `included_bytes_per_event` takes no environment override, because the Node usage records and the Django usage report must agree on it.
 - Capture reads `AI_MAX_EVENT_BYTES` to set a smaller cap for a deployment that needs one. Its default is `max_event_bytes_default`.
+- Capture's `AI_MAX_SUM_OF_PARTS_BYTES` bounds a whole multipart request, not an event, and is not one of these values.
 - The Node pipeline reads `AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH` as a tuning knob. Its default is the base64 length of `media_offload_min_bytes`.
 
 ## How to change a value
@@ -37,4 +38,5 @@ A key `k` is the constant `AI_<K>` in each mirror, for example `max_event_bytes_
 1. Edit this file first.
 2. Update each mirror that carries the key. Its parity test fails until you do:
    `cargo test -p capture --test ai_event_limits_parity` and `hogli test nodejs/src/ingestion/common/ai-event-limits.test.ts`.
+   For `max_event_bytes_default`, also update the `envconfig` default of `ai_max_event_bytes` in `rust/capture/src/config.rs`, which cannot name a constant.
 3. A cap change also needs the deployment limits around it, such as the Kafka producer limit and the edge proxy body limit.
