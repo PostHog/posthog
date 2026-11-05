@@ -42,6 +42,7 @@ interface LinkParts {
     segments: string[]
     web: boolean
     query: string
+    projectId: string | null
 }
 
 function linkParts(path: string): LinkParts {
@@ -51,10 +52,15 @@ function linkParts(path: string): LinkParts {
     const query = queryStart === -1 || rest[queryStart] !== '?' ? '' : rest.slice(queryStart + 1).split('#', 1)[0]
     const segments = pathname.split('/').filter(Boolean)
     const projectLink = segments[0] === 'project' && segments[1] !== undefined && /^\d+$/.test(segments[1])
+    const projectId = projectLink ? (segments[1] ?? null) : null
     if (projectLink) {
         segments.splice(0, 2)
     }
-    return { segments, web: projectLink || /^https?:/i.test(path), query: query ?? '' }
+    return { segments, web: projectLink || /^https?:/i.test(path), query: query ?? '', projectId }
+}
+
+function linkHost(path: string): string | null {
+    return /^https?:\/\/([^/?#:@]+)(?:[/?#:]|$)/i.exec(path)?.[1]?.toLowerCase() ?? null
 }
 
 /**
@@ -95,6 +101,9 @@ const ERROR_TRACKING_PAGES = new Set([
     'alerts',
 ])
 const REPLAY_PAGES = new Set(['home', 'playlists', 'settings', 'file-playback', 'kiosk'])
+const REPORT_PAGES = new Set(['triage'])
+// The scout harness posts its own Slack messages, see ReportLinkSource in products/signals/backend/report_urls.py.
+const SLACK_LINK_SOURCES = new Set(['slack', 'slack_scout'])
 const SAFE_ID = /^[\w-]+$/
 
 function sessionPath(sessionId: string, query: string): string {
@@ -104,13 +113,24 @@ function sessionPath(sessionId: string, query: string): string {
 }
 
 export function webLinkTarget(path: string): string | null {
-    const { segments, web, query } = linkParts(path)
+    const { segments, web, query, projectId } = linkParts(path)
     const [inbox, reports, reportId, ...rest] = segments
     if (web && inbox === 'inbox' && reports === 'reports' && reportId !== undefined && rest.length === 0) {
-        if (!SAFE_ID.test(reportId)) {
+        if (!SAFE_ID.test(reportId) || REPORT_PAGES.has(reportId)) {
             return null
         }
-        return `/report/${reportId}?from=${queryParam(query, 'link_source') === 'slack' ? 'slack' : 'link'}`
+        const source = queryParam(query, 'link_source')
+        const from = source !== null && SLACK_LINK_SOURCES.has(source) ? 'slack' : 'link'
+        // The report screen opens the report in the link's project and host, not in the session's current ones.
+        const params = new URLSearchParams({ from })
+        const host = linkHost(path)
+        if (projectId !== null) {
+            params.set('project', projectId)
+        }
+        if (host !== null) {
+            params.set('host', host)
+        }
+        return `/report/${reportId}?${params.toString()}`
     }
     const [section, id, ...more] = segments
     if (!web || more.length > 0 || (id !== undefined && !SAFE_ID.test(id))) {

@@ -37,7 +37,7 @@ export type { AuthOrganization, AuthProject, AuthUser } from './account'
 
 export type AuthStatus = 'loading' | 'signed_out' | 'signed_in'
 export type AuthMethod = 'oauth' | 'personal_api_key'
-export type ProjectSwitchSource = 'nav_menu' | 'settings' | 'push'
+export type ProjectSwitchSource = 'nav_menu' | 'settings' | 'push' | 'link'
 
 export interface AuthState {
     status: AuthStatus

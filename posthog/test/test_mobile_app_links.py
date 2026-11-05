@@ -14,7 +14,10 @@ def test_apple_app_site_association_is_served_without_login_or_redirect():
     assert response["Content-Type"] == "application/json"
     [detail] = response.json()["applinks"]["details"]
     assert f"{TEAM_ID}.com.posthog.code.mobile" in detail["appIDs"]
-    assert detail["components"] == [{"/": "/project/*/inbox/reports/*"}]
+    assert detail["components"] == [
+        {"/": "/project/*/inbox/reports/triage", "exclude": True},
+        {"/": "/project/*/inbox/reports/*"},
+    ]
 
 
 @override_settings(MOBILE_APP_APPLE_TEAM_ID=TEAM_ID, MOBILE_APP_ANDROID_CERT_FINGERPRINTS=[FINGERPRINT])

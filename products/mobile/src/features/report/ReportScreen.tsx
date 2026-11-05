@@ -1,8 +1,10 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useIsFocused, useRouter } from 'expo-router'
+import * as WebBrowser from 'expo-web-browser'
 import { type ReactElement, useEffect, useState } from 'react'
 import { View } from 'react-native'
 import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated'
+import { CLOUD_REGIONS } from '@/auth/regions'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useViewer } from '@/auth/useViewer'
 import { useDataMode } from '@/demo/demoMode'
@@ -56,6 +58,7 @@ import { ReportCharts } from './metrics/ReportCharts'
 import { reportDetailQuery } from './queries'
 import { ReportMeta } from './ReportMeta'
 import { apiErrorKind, type ReportOpenSource, type SheetEntry, useSheetFunnel } from './reportAnalytics'
+import { type ReportLink, useReportLinkScope } from './reportLinkScope'
 import { TextLinkRow } from './TextLinkRow'
 import { HEADLINE_GAP, TopChrome } from './TopChrome'
 import { useReportReadTracking } from './useReportReadTracking'
@@ -66,7 +69,11 @@ type Overlay = 'none' | Sheet
 interface ReportScreenProps {
     reportId: string
     from: ReportOpenSource
+    /** The project and host of the web link that opened the screen. */
+    link?: ReportLink
 }
+
+const NO_LINK: ReportLink = { projectId: null, host: null }
 
 function goBackOrInbox(router: ReturnType<typeof useRouter>): void {
     if (router.canGoBack()) {
@@ -76,7 +83,7 @@ function goBackOrInbox(router: ReturnType<typeof useRouter>): void {
     }
 }
 
-export function ReportScreen({ reportId, from }: ReportScreenProps): ReactElement {
+export function ReportScreen({ reportId, from, link = NO_LINK }: ReportScreenProps): ReactElement {
     const demo = useDataMode() === 'demo'
     const focused = useIsFocused()
     const {
@@ -89,6 +96,7 @@ export function ReportScreen({ reportId, from }: ReportScreenProps): ReactElemen
         reportPane,
         reportNavigation: navigation,
     } = useAppLayout()
+    const linkScope = useReportLinkScope(link)
     return (
         <OverlayHost>
             <View
@@ -125,10 +133,14 @@ export function ReportScreen({ reportId, from }: ReportScreenProps): ReactElemen
                         }
                     >
                         <ChartCanvasBudget active={focused}>
-                            {isReportId(reportId, demo) ? (
-                                <ReportContent reportId={reportId} from={from} />
-                            ) : (
+                            {!isReportId(reportId, demo) ? (
                                 <ReportNotFound />
+                            ) : linkScope === 'elsewhere' ? (
+                                <ReportElsewhere reportId={reportId} link={link} />
+                            ) : linkScope === 'pending' ? (
+                                <ReportPending />
+                            ) : (
+                                <ReportContent reportId={reportId} from={from} />
                             )}
                         </ChartCanvasBudget>
                     </SceneFrame>
@@ -136,6 +148,52 @@ export function ReportScreen({ reportId, from }: ReportScreenProps): ReactElemen
             </View>
             {navigation ? <ReportNavigation /> : null}
         </OverlayHost>
+    )
+}
+
+function ReportPending(): ReactElement {
+    const styles = useStyles()
+    const router = useRouter()
+    return (
+        <View style={styles.screen}>
+            <TopChrome onBack={() => goBackOrInbox(router)} />
+            <LoadingView label="Loading the report" />
+        </View>
+    )
+}
+
+function ReportElsewhere({ reportId, link }: { reportId: string; link: ReportLink }): ReactElement {
+    const styles = useStyles()
+    const colors = useColors()
+    const router = useRouter()
+    const goBack = (): void => goBackOrInbox(router)
+    // Only the cloud hosts the app links cover, so a crafted link cannot send the browser elsewhere.
+    const cloudHost = CLOUD_REGIONS.some((region) => region.host === `https://${link.host}`)
+    const webUrl =
+        cloudHost && link.projectId !== null
+            ? `https://${link.host}/project/${link.projectId}/inbox/reports/${reportId}`
+            : null
+    useEffect(() => {
+        track('mobile_report_load_failed', { report_id: reportId, kind: 'other_project' })
+    }, [reportId])
+    // An in-app browser, because Linking.openURL can hand an associated link straight back to this app.
+    const openWeb = (): void => {
+        if (webUrl) {
+            WebBrowser.openBrowserAsync(webUrl).catch(() => undefined)
+        }
+    }
+    return (
+        <View style={styles.screen}>
+            <TopChrome onBack={goBack} />
+            <StateView
+                icon={<WarningIcon size={iconSizes.empty} color={colors.tertiary} />}
+                title="This report is in another project"
+                message="The app isn't signed in to this report's project or region. Open the link in your browser instead."
+                actionLabel={webUrl ? 'Open in browser' : 'Go back'}
+                onAction={webUrl ? openWeb : goBack}
+                testID="report-elsewhere"
+            />
+        </View>
     )
 }
 

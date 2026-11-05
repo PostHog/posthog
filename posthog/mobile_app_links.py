@@ -7,6 +7,8 @@ ANDROID_PACKAGE_NAMES = ("com.posthog.mobile", "com.posthog.mobile.preview", "co
 # Keep in sync with the Android intent filter in products/mobile/app.config.ts and webLinkTarget() in
 # products/mobile/src/lib/deepLinkKind.ts. A path listed here that the app cannot route opens an empty screen.
 APP_LINK_PATHS = ("/project/*/inbox/reports/*",)
+# Web-only routes that match APP_LINK_PATHS. iOS checks components in order, so these come first.
+APP_LINK_EXCLUDED_PATHS = ("/project/*/inbox/reports/triage",)
 _CACHE_MAX_AGE_SECONDS = 3600
 
 
@@ -31,7 +33,10 @@ def apple_app_site_association(request: HttpRequest) -> HttpResponse:
                 "details": [
                     {
                         "appIDs": [f"{team_id}.{bundle_id}" for bundle_id in IOS_BUNDLE_IDS],
-                        "components": [{"/": path} for path in APP_LINK_PATHS],
+                        "components": [
+                            *({"/": path, "exclude": True} for path in APP_LINK_EXCLUDED_PATHS),
+                            *({"/": path} for path in APP_LINK_PATHS),
+                        ],
                     }
                 ]
             }

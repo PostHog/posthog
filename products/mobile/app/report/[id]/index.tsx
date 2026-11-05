@@ -5,6 +5,18 @@ import { ReportScreen } from '@/features/report/ReportScreen'
 import { reportOpenSourceParam } from '@/features/report/reportAnalytics'
 
 export default function ReportRoute(): ReactElement {
-    const { id, from } = useLocalSearchParams<{ id: string; from?: string }>()
-    return <ReportScreen reportId={id ?? ''} from={reportOpenSourceParam(from)} />
+    const { id, from, project, host } = useLocalSearchParams<{
+        id: string
+        from?: string
+        project?: string
+        host?: string
+    }>()
+    const projectId = project !== undefined && /^\d+$/.test(project) ? Number(project) : null
+    return (
+        <ReportScreen
+            reportId={id ?? ''}
+            from={reportOpenSourceParam(from)}
+            link={{ projectId, host: host?.toLowerCase() || null }}
+        />
+    )
 }
