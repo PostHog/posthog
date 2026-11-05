@@ -1,15 +1,15 @@
 import posthog from 'posthog-js'
 
-import api, { ApiConfig, ApiRequest } from 'lib/api'
+import { ApiConfig } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { isSandboxEmailSender } from 'lib/integrations/sandboxEmailSender'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { IntegrationType } from '~/types'
+import type { IntegrationKind, IntegrationType } from '~/types'
 
-import { integrationsEmailSandboxSenderCreate } from 'products/integrations/frontend/generated/api'
+import { integrationsEmailSandboxSenderCreate, integrationsList } from 'products/integrations/frontend/generated/api'
 
 import {
     DefaultEmailSender,
@@ -37,11 +37,25 @@ export function sandboxSenderEnabled(): boolean {
 }
 
 async function loadEveryIntegrationPage(): Promise<IntegrationType[]> {
-    const integrations = await api.loadPaginatedResults<IntegrationType>(
-        new ApiRequest().integrations().withQueryString({ kind: 'email', limit: 100 }).assembleFullUrl(),
-        Infinity
-    )
-    return integrations.map((integration) => ({ ...integration, config: integration.config ?? {} }))
+    const teamId = String(ApiConfig.getCurrentTeamId())
+    const integrations: IntegrationType[] = []
+    let hasNext = true
+    while (hasNext) {
+        const page = await integrationsList(teamId, { kind: 'email', limit: 100, offset: integrations.length })
+        for (const integration of page.results) {
+            integrations.push({
+                id: integration.id,
+                kind: integration.kind as IntegrationKind,
+                display_name: integration.display_name,
+                icon_url: '',
+                config: integration.config ?? {},
+                created_at: integration.created_at,
+                errors: integration.errors,
+            })
+        }
+        hasNext = !!page.next && page.results.length > 0
+    }
+    return integrations
 }
 
 async function provisionSandboxSender(): Promise<number> {
