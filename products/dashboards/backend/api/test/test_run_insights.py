@@ -121,11 +121,14 @@ class TestDashboardRunInsights(APIBaseTest):
         member = self._create_user("member@example.com", level=OrganizationMembership.Level.MEMBER)
         self.client.force_login(member)
 
-        with patch(
-            "products.dashboards.backend.api.dashboard.InsightResultSerializer.insight_result",
-            autospec=True,
-            side_effect=InsightResultSerializer.insight_result,
-        ) as insight_result:
+        computed_ids: list[int] = []
+        original_insight_result = InsightResultSerializer.insight_result
+
+        def recording_insight_result(serializer: InsightResultSerializer, insight: Insight) -> InsightResult:
+            computed_ids.append(insight.id)
+            return original_insight_result(serializer, insight)
+
+        with patch.object(InsightResultSerializer, "insight_result", recording_insight_result):
             body = self._run(dashboard_id, output_format=output_format)
 
         insights = {tile["insight"]["id"]: tile["insight"] for tile in body["results"]}
@@ -135,7 +138,7 @@ class TestDashboardRunInsights(APIBaseTest):
         )
         self.assertEqual(insights[visible_id]["name"], "Visible")
         self.assertIn("result", insights[visible_id])
-        computed_ids = {call.args[1].id for call in insight_result.call_args_list}
+        self.assertIn(visible_id, computed_ids)
         self.assertNotIn(hidden_id, computed_ids)
 
     def test_json_format_returns_raw_query_results(self) -> None:
