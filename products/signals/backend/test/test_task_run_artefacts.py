@@ -290,6 +290,30 @@ class TestTaskRunArtefacts(BaseTest):
         assert assignment is not None
         assert assignment.actor_user_id == claimer.id
 
+    def test_rerun_pr_links_to_the_claim_the_rerun_took(self):
+        report = self._report()
+        task = self._task(created_by=self.user)
+        record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+        first_claim = get_active_claim(team_id=self.team.id, report_id=report.id)
+        assert first_claim is not None
+        release_claim(first_claim, ArtefactAttribution.system())
+        with transaction.atomic():
+            enforce_report_implementation_rerun_cap(
+                team_id=self.team.id, report_id=str(report.id), task_id=str(task.id)
+            )
+        rerun_claim = get_active_claim(team_id=self.team.id, report_id=report.id)
+        assert rerun_claim is not None
+
+        TaskRun.objects.create(
+            team=self.team,
+            task=task,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": "https://github.com/PostHog/posthog/pull/44", "pr_state": "open"},
+        )
+
+        pr_artefact = SignalReportArtefact.objects.get(report=report, type="pull_request")
+        assert pr_artefact.claim_id == rerun_claim.claim_id
+
     @parameterized.expand([(False, False), (True, False), (False, True)])
     def test_task_run_pr_is_linked_to_the_claim(self, attach_after_merge, has_creator):
         report = self._report()

@@ -44,6 +44,7 @@ from products.signals.backend.report_claims import (
     actor_works_under_claim,
     claim_from_artefact,
     get_active_claim,
+    is_user_claim_of,
     is_user_claim_of_task_creator,
 )
 from products.signals.backend.report_monitoring_attempts import complete_implementation
@@ -159,16 +160,17 @@ def _associate_task_with_claim(report: SignalReport, task_id: str, claim: Signal
         type="task_run",
         task_id=task_id,
     )
-    if not associations.exists():
-        SignalReportArtefact.add_log(
-            team_id=report.team_id,
-            report_id=str(report.id),
-            content=TaskRunArtefact(task_id=task_id, product="tasks", type="agent_run"),
-            attribution=ArtefactAttribution.from_task(task_id),
-            claim_id=str(claim.id),
-        )
-    else:
-        associations.filter(claim__isnull=True).update(claim=claim)
+    if associations.filter(claim__isnull=True).update(claim=claim) or associations.filter(claim=claim).exists():
+        return
+    # A rerun under a new claim needs its own association, so the run's PR links to the current claim and not
+    # to one an earlier run released.
+    SignalReportArtefact.add_log(
+        team_id=report.team_id,
+        report_id=str(report.id),
+        content=TaskRunArtefact(task_id=task_id, product="tasks", type="agent_run"),
+        attribution=ArtefactAttribution.from_task(task_id),
+        claim_id=str(claim.id),
+    )
 
 
 def assignment_actor(assignment: SignalReportAssignment) -> ArtefactAttribution:
@@ -222,6 +224,34 @@ def claim_report_for_task(*, team_id: int, report_id: str, task_id: str, for_tas
         if creator_id is None:
             return create_claim(report, actor)
         return create_claim(report, ArtefactAttribution.from_user(creator_id), task_id=task_id)
+
+
+def hand_off_task_claims(*, team_id: int, task_id: str, previous_user_id: int, target_user_id: int) -> None:
+    """Move the report claims a task works under from its previous owner to the person it was handed to.
+
+    The task's runs work under its creator's claim, so a claim left with the previous owner would refuse
+    every later run of the task. Call inside the handoff transaction.
+    """
+    report_ids = (
+        SignalReportArtefact.objects.filter(team_id=team_id, type="task_run", task_id=task_id, claim__isnull=False)
+        .values_list("report_id", flat=True)
+        .distinct()
+    )
+    target = ArtefactAttribution.from_user(target_user_id)
+    for report_id in report_ids:
+        report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
+        claim = get_active_claim(team_id=team_id, report_id=str(report_id)) if report is not None else None
+        if (
+            report is None
+            or claim is None
+            or not is_user_claim_of(claim, previous_user_id)
+            or not SignalReportArtefact.objects.filter(
+                team_id=team_id, type="task_run", task_id=task_id, claim_id=claim.claim_id
+            ).exists()
+        ):
+            continue
+        release_claim(claim, target, takeover=True)
+        create_claim(report, target, task_id=task_id)
 
 
 def _pull_request_details(team_id: int, pr_url: str, *, raise_on_error: bool = False) -> PullRequestDetails:
