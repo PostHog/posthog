@@ -2143,11 +2143,6 @@ class MarketingAnalyticsConstants(StrEnum):
     CONST_ = "const:"
 
 
-class MarketingAnalyticsCostSource(StrEnum):
-    PRECOMPUTED = "precomputed"
-    LIVE = "live"
-
-
 class MarketingAnalyticsDrillDownLevel(StrEnum):
     CHANNEL = "channel"
     CHANNEL_SOURCE = "channel_source"

@@ -17,7 +17,6 @@ from posthog.schema import (
     EventsNode,
     HogQLQueryModifiers,
     MarketingAnalyticsCostFallback,
-    MarketingAnalyticsCostSource,
     MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsTableQuery,
     TrendsQuery,
@@ -152,9 +151,7 @@ class TestMarketingCostTrendsQueryResolver(SimpleTestCase):
         runner = self.runner()
         resolved = runner.resolve_query()
         result = resolved.query
-        assert resolved.source == (
-            MarketingAnalyticsCostSource.PRECOMPUTED if precomputed else MarketingAnalyticsCostSource.LIVE
-        )
+        assert resolved.warning is None
         assert result.marketingAnalyticsCostFallback is None
         assert result.dateRange == self.query.dateRange
         assert result.compareFilter == self.query.compareFilter
@@ -190,7 +187,9 @@ class TestMarketingCostTrendsQueryResolver(SimpleTestCase):
             self.ensure.assert_not_called()
             self.database.assert_not_called()
 
-    @parameterized.expand([("unmaterializable",), ("check_error",), ("inaccessible_source",), ("expired",)])
+    @parameterized.expand(
+        [("unmaterializable",), ("check_error",), ("inaccessible_source",), ("expired",), ("all_time",)]
+    )
     def test_uncertain_coverage_uses_live(self, case: str) -> None:
         self.query.breakdownFilter = BreakdownFilter(
             breakdowns=[Breakdown(type="data_warehouse", property="campaign_name")]
@@ -202,15 +201,36 @@ class TestMarketingCostTrendsQueryResolver(SimpleTestCase):
             self.ensure.side_effect = RuntimeError("Coverage service unavailable")
         elif case == "expired":
             self.ensure.return_value = LazyComputationResult(ready=True, job_ids=[], stale=True)
+        elif case == "all_time":
+            self.query.dateRange = DateRange(date_from="all")
         else:
             assert self.query.marketingAnalyticsCostFallback is not None
             self.query.marketingAnalyticsCostFallback.sourceIds = ["b"]
             self.factory.return_value.get_valid_adapters.return_value = self.adapters[:1]
         resolved = self.runner().resolve_query()
-        assert resolved.source == MarketingAnalyticsCostSource.LIVE
+        assert resolved.warning is not None
+        assert resolved.warning.type == "breakdown_not_applied"
         result = resolved.query
         assert result.series == self.live_series
         assert result.breakdownFilter is None
+        if case == "all_time":
+            self.factory.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("no_breakdown", None, False),
+            ("legacy_campaign", BreakdownFilter(breakdown="campaign_name"), True),
+            ("legacy_source_list", BreakdownFilter(breakdown=["source_name"]), False),
+        ]
+    )
+    def test_live_warning_only_for_a_breakdown_the_sources_cannot_reproduce(
+        self, _name: str, breakdown_filter: BreakdownFilter | None, warns: bool
+    ) -> None:
+        self.config.return_value.costs_precomputation_enabled = False
+        self.query.breakdownFilter = breakdown_filter
+        resolved = self.runner().resolve_query()
+        assert resolved.query.series == self.live_series
+        assert (resolved.warning is not None) == warns
 
     @parameterized.expand([(True,), (False,)])
     def test_only_selected_sources_and_current_period_need_coverage(self, ready: bool) -> None:
@@ -239,7 +259,7 @@ class TestMarketingCostTrendsQueryResolver(SimpleTestCase):
         event = EventsNode(event="$pageview")
         self.query.series = [event] if case == "replace_series" else [*self.query.series, event]
         resolved = self.runner().resolve_query()
-        assert resolved.source is None
+        assert resolved.warning is None
         result = resolved.query
         assert result.series == self.query.series
         assert result.breakdownFilter == self.query.breakdownFilter

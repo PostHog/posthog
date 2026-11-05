@@ -459,7 +459,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             if runner.modifiers == self.modifiers:
                 runner._shared_database = self._shared_database
             response = runner.calculate()
-            response.marketingAnalyticsCostSource = resolved.source
+            if resolved.warning is not None:
+                response.warnings = [*(response.warnings or []), resolved.warning]
             return response
 
         queries = self.to_queries()
