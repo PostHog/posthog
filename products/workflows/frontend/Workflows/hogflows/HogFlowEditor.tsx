@@ -20,13 +20,13 @@ import { IconInfo } from '@posthog/icons'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { workflowLogic } from '../workflowLogic'
+import { TileCanvas } from './editor/tile-canvas/TileCanvas'
 import { HogFlowBranchSelectionProvider } from './HogFlowBranchSelection'
 import { hogFlowEditorLogic } from './hogFlowEditorLogic'
 import { HogFlowEditorPanel } from './panel/HogFlowEditorPanel'
 import { LOW_DETAIL_ZOOM, MAX_ZOOM, MIN_ZOOM } from './react_flow_utils/constants'
 import { REACT_FLOW_EDGE_TYPES } from './react_flow_utils/SmartEdge'
 import { REACT_FLOW_NODE_TYPES } from './steps/Nodes'
-import { HogFlowTreeEditor } from './tree/HogFlowTreeEditor'
 import { HogFlowActionEdge, HogFlowActionNode } from './types'
 
 function HogFlowGraphEditor(): JSX.Element {
@@ -134,27 +134,15 @@ function HogFlowGraphEditor(): JSX.Element {
     )
 }
 
-function HogFlowTreeEditorContent(): JSX.Element {
-    return (
-        <div
-            className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden @max-[48rem]/workflow-editor:flex-col @max-[48rem]/workflow-editor:overflow-y-auto"
-            data-attr="workflow-editor"
-        >
-            <HogFlowTreeEditor />
-            <HogFlowEditorPanel layout="panel" />
-        </div>
-    )
-}
-
-export function HogFlowEditor({ isTreeView }: { isTreeView: boolean }): JSX.Element {
+export function HogFlowEditor({ isTileCanvas = false }: { isTileCanvas?: boolean }): JSX.Element {
     const { logicProps } = useValues(workflowLogic)
     return (
         <BindLogic logic={hogFlowEditorLogic} props={logicProps}>
             <HogFlowBranchSelectionProvider>
                 <div className="@container/workflow-editor flex min-h-0 min-w-0 flex-1">
-                    {isTreeView ? (
+                    {isTileCanvas ? (
                         <ReactFlowProvider>
-                            <HogFlowTreeEditorContent />
+                            <TileCanvas />
                         </ReactFlowProvider>
                     ) : (
                         <ReactFlowProvider>

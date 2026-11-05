@@ -1,40 +1,47 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { Fragment } from 'react'
 
-import { SceneMenuBarItem, SceneMenuBarSubMenu } from '~/layout/scenes/components/SceneMenuBar'
+import { SceneMenuBarItem, SceneMenuBarSeparator, SceneMenuBarSubMenu } from '~/layout/scenes/components/SceneMenuBar'
 
-import { getDashboardAddTileOptions } from './dashboardAddTileOptions'
+import { getDashboardAddTileOptions, groupDashboardAddTileOptions } from './dashboardAddTileOptions'
 import { dashboardLogic } from './dashboardLogic'
 
 export function DashboardAddTileSubMenu(): JSX.Element {
-    const { dashboardWidgetsEnabled } = useValues(dashboardLogic)
-    const { openAddInsightModal, openTextTileModal, openImageTileModal, openButtonTileModal, setAddWidgetModalOpen } =
-        useActions(dashboardLogic)
-    const { push } = useActions(router)
+    const { tileGroupSectionsEnabled } = useValues(dashboardLogic)
+    const {
+        openAddInsightModal,
+        openTextTileModal,
+        openImageTileModal,
+        openButtonTileModal,
+        setAddWidgetModalOpen,
+        addTileGroup,
+    } = useActions(dashboardLogic)
 
     const options = getDashboardAddTileOptions({
-        dashboardWidgetsEnabled,
         onAddInsight: openAddInsightModal,
         onAddText: openTextTileModal,
         onAddImage: openImageTileModal,
         onAddButton: openButtonTileModal,
-        push,
         setAddWidgetModalOpen,
+        onAddGroup: tileGroupSectionsEnabled ? () => addTileGroup() : undefined,
     })
 
     return (
         <SceneMenuBarSubMenu label="Add">
-            {options.map((option) => (
-                <SceneMenuBarItem
-                    key={option.key}
-                    // The beta widget link navigates to settings. Everything else opens a modal.
-                    opensFloatingUi={option.key !== 'widget-preview'}
-                    tooltip={option.tooltip}
-                    onClick={option.onClick}
-                    data-attr={`dashboard-menubar-add-${option.key}`}
-                >
-                    {option.tag === 'beta' ? `${option.label} (beta)` : option.label}
-                </SceneMenuBarItem>
+            {groupDashboardAddTileOptions(options).map(({ section, options: sectionOptions }, index) => (
+                <Fragment key={section}>
+                    {index > 0 && <SceneMenuBarSeparator />}
+                    {sectionOptions.map((option) => (
+                        <SceneMenuBarItem
+                            key={option.key}
+                            opensFloatingUi
+                            onClick={option.onClick}
+                            data-attr={`dashboard-menubar-add-${option.key}`}
+                        >
+                            {option.label}
+                        </SceneMenuBarItem>
+                    ))}
+                </Fragment>
             ))}
         </SceneMenuBarSubMenu>
     )

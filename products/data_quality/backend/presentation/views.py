@@ -36,7 +36,6 @@ from posthog.rate_limit import HogQLQueryThrottle
 
 from ..facade import api
 from ..facade.enums import CheckRunStatus, CheckType, SubjectStatus, SubjectType
-from ..facade.flags import is_data_quality_checks_enabled
 from ..facade.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from .serializers import (
     CheckTypeSerializer,
@@ -53,6 +52,7 @@ from .serializers import (
     DataQualitySubjectRefSerializer,
     DataQualitySubjectScheduleSerializer,
     DataQualitySubjectSerializer,
+    DataQualitySubjectsQuerySerializer,
     DataQualitySuiteRunSerializer,
     SubjectHealthSerializer,
 )
@@ -139,7 +139,6 @@ class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
 
     def initial(self, request: Request, *args, **kwargs) -> None:
         super().initial(request, *args, **kwargs)
-        self._require_flag()
         if getattr(self, "action", None) in self.QUERY_GATED_ACTIONS:
             self._require_query_access()
 
@@ -151,10 +150,6 @@ class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
         # keep demanding access_control:read rather than riding the warehouse scope alone.
         parent = getattr(super(), "dangerously_get_required_scopes", None)
         return parent(request, view) if parent is not None else None
-
-    def _require_flag(self) -> None:
-        if not is_data_quality_checks_enabled(self.team):
-            raise PermissionDenied("Data quality checks are not enabled for this project.")
 
     def _require_query_access(self) -> None:
         # required_scopes gates tokens; session users carry no scopes and AccessControlPermission
@@ -686,13 +681,21 @@ class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
         return Response(CheckTypeSerializer(api.list_check_types(subject_type), many=True).data)
 
     @extend_schema(
-        description="Everything in this project you can author a check on, with each subject's columns.",
+        description="Everything in this project you can author a check on, with each subject's columns. "
+        "Filter by subject_type or search, and page with limit and offset.",
+        parameters=[DataQualitySubjectsQuerySerializer],
         request=None,
         responses={200: DataQualitySubjectSerializer(many=True)},
     )
     @action(methods=["GET"], detail=False, pagination_class=None)
     def subjects(self, request: Request, **kwargs) -> Response:
-        selectable = api.selectable_subjects(self.team_id, self._authorized_subject_types())
+        query = DataQualitySubjectsQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        params = query.validated_data
+        kinds = self._authorized_subject_types()
+        if subject_type := params.get("subject_type"):
+            kinds = kinds & {SubjectType(subject_type)}
+        selectable = api.selectable_subjects(self.team_id, kinds, params.get("search", ""))
         editable_kinds = self._authorized_subject_types(write=True)
         if self._can_be_object_denied():
             readable = self._denial_context().readable
@@ -706,6 +709,11 @@ class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
             selectable = [
                 replace(subject, editable=SubjectType(subject.subject_type) in editable_kinds) for subject in selectable
             ]
+        offset = params["offset"]
+        limit = params.get("limit")
+        selectable = selectable[offset : None if limit is None else offset + limit]
+        if not params["include_columns"]:
+            selectable = [replace(subject, columns={}) for subject in selectable]
         return Response(DataQualitySubjectSerializer(selectable, many=True).data)
 
     @extend_schema(request=None, responses={200: DataQualityMetricSubjectSerializer(many=True)})
@@ -997,11 +1005,9 @@ class DataQualityRunViewSet(
 def data_quality_gate_response(team: Team, request: Request) -> Response:
     """GET/PATCH handler for the team's gate setting, mounted on the warehouse viewset.
 
-    Lives here so the warehouse surface stays a thin mount: the flag gate, the serializer, and the
-    config write all belong to this product.
+    Lives here so the warehouse surface stays a thin mount: the serializer and the config write
+    both belong to this product.
     """
-    if not is_data_quality_checks_enabled(team):
-        raise PermissionDenied("Data quality checks are not enabled for this project.")
     if request.method == "PATCH":
         serializer = DataQualityGateConfigSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

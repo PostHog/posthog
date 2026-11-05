@@ -3,6 +3,7 @@ from uuid import UUID
 from django.db import transaction
 
 from products.logs.backend import alert_incidents
+from products.logs.backend.alert_creation import AlertLimitReached, claim_alert_slot, first_check_at
 from products.logs.backend.alert_state_machine import FIRING_STATES, IncidentCloseReason, IncidentEdge, incident_edge
 from products.logs.backend.alert_utils import next_allowed_check_at
 from products.logs.backend.models import LogsAlertConfiguration
@@ -24,13 +25,16 @@ from products.logs.backend.tasks.tasks import follow_logs_alert_task
 
 __all__ = [
     "ALLOWED_WINDOW_MINUTES",
+    "AlertLimitReached",
     "MAX_MERGED_EVENT_ROWS",
     "NaturalLanguageQueryFailed",
     "NaturalLanguageQueryUnavailable",
     "PlatformCheckRow",
     "PlatformCheckRows",
+    "claim_alert_slot",
     "close_incident_before_delete",
     "close_incident_on_commit",
+    "first_check_at",
     "follow_logs_alert",
     "has_any_filter",
     "is_valid_date",

@@ -2,6 +2,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from decimal import Decimal
+from io import BytesIO
 from threading import Barrier, Event
 from uuid import UUID
 
@@ -19,12 +20,14 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import close_old_connections, connection, transaction
 from django.db.utils import IntegrityError
 from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
+from PIL import Image
 from rest_framework import status
 
 from posthog.schema import HogQLQueryModifiers, MaterializationMode
@@ -33,7 +36,9 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import ActivityLog, Comment, Organization, Tag, Team, User
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.redis import get_client
 from posthog.test.persons import create_person
@@ -64,6 +69,7 @@ from products.conversations.backend.reply_dedupe import (
     ReplyFingerprint,
     reserve,
 )
+from products.conversations.backend.services.attachments import CONVERSATIONS_ATTACHMENT_MEDIA_PURPOSE
 
 from ee.clickhouse.materialized_columns.columns import get_bloom_filter_lower_index_name
 
@@ -973,7 +979,7 @@ class TestTicketAPI(APIBaseTest):
 
         # Person reads go through personhog, so both page sizes should use the same database queries.
         for limit in (2, 3):
-            with self.subTest(limit=limit), self.assertNumQueries(10):
+            with self.subTest(limit=limit), self.assertNumQueries(9):
                 response = self.client.get(f"{list_url}?limit={limit}")
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 self.assertEqual(response.json()["count"], 3)
@@ -2593,8 +2599,28 @@ class TestComposeTicketAPI(APIBaseTest):
 
 
 class TestTicketPersonalAPIKeyScopes(APIBaseTest):
-    def _auth_with_pak(self, scopes: list[str]) -> None:
-        key = self.create_personal_api_key_with_scopes(scopes)
+    def _auth_with_scopes(self, scopes: list[str]) -> None:
+        if "signal_scout_internal:write" in scopes:
+            application = OAuthApplication.objects.create(
+                name="Ticket scout test",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                algorithm="RS256",
+                redirect_uris="https://example.com/callback",
+                organization=self.organization,
+                user=self.user,
+            )
+            key = "pha_ticket_scout_test"
+            OAuthAccessToken.objects.create(
+                user=self.user,
+                application=application,
+                token=key,
+                scope=" ".join(scopes),
+                expires=timezone.now() + timedelta(hours=1),
+                scoped_teams=[self.team.id],
+            )
+        else:
+            key = self.create_personal_api_key_with_scopes(scopes)
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
 
@@ -2624,7 +2650,7 @@ class TestTicketPersonalAPIKeyScopes(APIBaseTest):
         ]
     )
     def test_read_actions(self, _name, action, method, use_detail, scopes, expected_status):
-        self._auth_with_pak(scopes)
+        self._auth_with_scopes(scopes)
 
         base = f"/api/projects/{self.team.id}/conversations/tickets/"
         if use_detail:
@@ -2640,12 +2666,13 @@ class TestTicketPersonalAPIKeyScopes(APIBaseTest):
     @parameterized.expand(
         [
             ("compose_with_write", "compose", ["ticket:write"], status.HTTP_400_BAD_REQUEST),
+            ("scout_compose", "compose", ["ticket:write", "signal_scout_internal:write"], status.HTTP_403_FORBIDDEN),
             ("compose_with_read", "compose", ["ticket:read"], status.HTTP_403_FORBIDDEN),
             ("compose_wrong_scope", "compose", ["insight:write"], status.HTTP_403_FORBIDDEN),
         ]
     )
     def test_write_actions(self, _name, action, scopes, expected_status):
-        self._auth_with_pak(scopes)
+        self._auth_with_scopes(scopes)
         url = f"/api/projects/{self.team.id}/conversations/tickets/{action}/"
         response = self.client.post(url, {}, format="json")
         assert response.status_code == expected_status, f"{_name}: {response.status_code} != {expected_status}"
@@ -2675,7 +2702,7 @@ class TestTicketPersonalAPIKeyScopes(APIBaseTest):
         ]
     )
     def test_messages_and_reply_scopes(self, _name, action, method, scopes, expected_status):
-        self._auth_with_pak(scopes)
+        self._auth_with_scopes(scopes)
 
         url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/{action}/"
         if method == "post":
@@ -2687,6 +2714,8 @@ class TestTicketPersonalAPIKeyScopes(APIBaseTest):
     @parameterized.expand(
         [
             ("note_with_write", "patch", ["ticket:write"], status.HTTP_200_OK),
+            ("scout_edit_note", "patch", ["ticket:write", "signal_scout_internal:write"], status.HTTP_403_FORBIDDEN),
+            ("scout_delete_note", "delete", ["ticket:write", "signal_scout_internal:write"], status.HTTP_403_FORBIDDEN),
             ("note_with_read_only", "patch", ["ticket:read"], status.HTTP_403_FORBIDDEN),
             ("note_wrong_scope", "patch", ["insight:write"], status.HTTP_403_FORBIDDEN),
             ("delete_note_with_write", "delete", ["ticket:write"], status.HTTP_204_NO_CONTENT),
@@ -2705,7 +2734,7 @@ class TestTicketPersonalAPIKeyScopes(APIBaseTest):
             content="Original note",
             item_context={"author_type": "support", "is_private": True},
         )
-        self._auth_with_pak(scopes)
+        self._auth_with_scopes(scopes)
         url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/notes/{note.id}/"
         if method == "post":
             self.team.conversations_enabled = True
@@ -2720,6 +2749,74 @@ class TestTicketPersonalAPIKeyScopes(APIBaseTest):
         else:
             response = self.client.delete(url)
         assert response.status_code == expected_status, f"{_name}: {response.status_code} != {expected_status}"
+
+    @parameterized.expand(
+        [
+            ("omitted", {}, status.HTTP_403_FORBIDDEN),
+            ("public", {"is_private": False}, status.HTTP_403_FORBIDDEN),
+            ("private", {"is_private": True}, status.HTTP_201_CREATED),
+        ]
+    )
+    def test_scout_reply(self, _name: str, fields: dict[str, object], expected_status: int) -> None:
+        self._auth_with_scopes(["ticket:write", "signal_scout_internal:write"])
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/reply/",
+            {"message": "Private investigation result", **fields},
+            format="json",
+        )
+        assert response.status_code == expected_status
+        messages = Comment.objects.filter(team=self.team, item_id=str(self.ticket.id))
+        if expected_status == status.HTTP_201_CREATED:
+            assert messages.get().item_context["is_private"] is True
+        else:
+            assert not messages.exists()
+
+    @parameterized.expand(
+        [
+            ("identity", {"anonymous_traits": {"email": "other@example.com"}}, status.HTTP_403_FORBIDDEN),
+            ("status", {"status": Status.RESOLVED}, status.HTTP_200_OK),
+        ]
+    )
+    def test_scout_update(self, _name: str, fields: dict[str, object], expected_status: int) -> None:
+        self._auth_with_scopes(["ticket:write", "signal_scout_internal:write"])
+        original_traits = self.ticket.anonymous_traits
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/", fields, format="json"
+        )
+        assert response.status_code == expected_status
+        self.ticket.refresh_from_db()
+        assert self.ticket.anonymous_traits == original_traits
+        if expected_status == status.HTTP_200_OK:
+            assert self.ticket.status == Status.RESOLVED
+
+    @parameterized.expand([("create", "post"), ("update", "patch")])
+    def test_scout_cannot_write_generic_ticket_comments(self, _name: str, method: str) -> None:
+        note = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Original note",
+            item_context={"author_type": "support", "is_private": True},
+        )
+        self._auth_with_scopes(["ticket:write", "signal_scout_internal:write"])
+        url = f"/api/projects/{self.team.id}/comments/"
+        if method == "patch":
+            url += f"{note.id}/"
+        response = getattr(self.client, method)(
+            url,
+            {
+                "scope": "conversations_ticket",
+                "item_id": str(self.ticket.id),
+                "content": "Changed note",
+                "item_context": {"author_type": "customer"},
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        note.refresh_from_db()
+        assert note.content == "Original note"
+        assert Comment.objects.filter(team=self.team, item_id=str(self.ticket.id)).count() == 1
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
@@ -3314,6 +3411,116 @@ class TestTicketReplyAPI(APIBaseTest):
         assert Comment.objects.filter(scope="conversations_ticket", item_id=str(self.ticket.id)).count() == 1
 
 
+def _png_bytes() -> bytes:
+    buf = BytesIO()
+    Image.new("RGB", (1, 1), color="red").save(buf, format="PNG")
+    return buf.getvalue()
+
+
+@patch("products.conversations.backend.services.attachments.save_content_to_object_storage")
+class TestTicketAttachmentsAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.SLACK,
+            widget_session_id="test-session",
+            distinct_id="user-1",
+            status=Status.OPEN,
+        )
+        self.url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/attachments/"
+
+    def _upload(self, upload: SimpleUploadedFile, url: str | None = None):
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            return self.client.post(url or self.url, {"file": upload}, format="multipart")
+
+    @parameterized.expand(
+        [
+            ("pdf", "report.pdf", b"%PDF-1.4 test", "application/pdf", "application/pdf"),
+            ("log", "server.log", b"line one\nline two", "text/plain", "text/plain"),
+            ("png", "shot.png", None, "image/png", "image/png"),
+        ]
+    )
+    def test_upload_stores_file(self, _mock_save, _name, file_name, content, declared_type, expected_type):
+        upload = SimpleUploadedFile(file_name, content if content is not None else _png_bytes(), declared_type)
+
+        response = self._upload(upload)
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        body = response.json()
+        assert body["name"] == file_name
+        assert body["content_type"] == expected_type
+        media = UploadedMedia.objects.get(team=self.team, file_name=file_name)
+        assert media.purpose == CONVERSATIONS_ATTACHMENT_MEDIA_PURPOSE
+        assert media.content_type == expected_type
+        assert body["id"] == str(media.id)
+        assert body["url"] == media.get_absolute_url()
+
+    def test_upload_rejects_widget_ticket(self, _mock_save):
+        widget_ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="widget-session",
+            distinct_id="user-2",
+            status=Status.OPEN,
+        )
+
+        response = self._upload(
+            SimpleUploadedFile("report.pdf", b"%PDF-1.4", "application/pdf"),
+            url=f"/api/projects/{self.team.id}/conversations/tickets/{widget_ticket.id}/attachments/",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "channel_not_supported"
+        assert not UploadedMedia.objects.filter(team=self.team).exists()
+
+    def test_upload_rejects_disguised_image(self, _mock_save):
+        response = self._upload(SimpleUploadedFile("shot.png", b"<script>alert(1)</script>", "image/png"))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "invalid_image"
+        assert not UploadedMedia.objects.filter(team=self.team).exists()
+
+    def test_upload_rejects_large_file(self, _mock_save):
+        with patch("products.conversations.backend.api.tickets.CONVERSATIONS_MAX_IMAGE_BYTES", 4):
+            response = self._upload(SimpleUploadedFile("report.pdf", b"%PDF-1.4", "application/pdf"))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "file_too_large"
+
+    def test_upload_requires_object_storage(self, _mock_save):
+        with self.settings(OBJECT_STORAGE_ENABLED=False):
+            response = self.client.post(
+                self.url, {"file": SimpleUploadedFile("report.pdf", b"%PDF-1.4", "application/pdf")}, format="multipart"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "object_storage_required"
+
+    def test_upload_requires_file(self, _mock_save):
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            response = self.client.post(self.url, {}, format="multipart")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_upload_cross_team_404(self, _mock_save):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_ticket = Ticket.objects.create_with_number(
+            team=other_team,
+            channel_source=Channel.SLACK,
+            widget_session_id="other-session",
+            distinct_id="user-3",
+            status=Status.OPEN,
+        )
+
+        response = self._upload(
+            SimpleUploadedFile("report.pdf", b"%PDF-1.4", "application/pdf"),
+            url=f"/api/projects/{self.team.id}/conversations/tickets/{other_ticket.id}/attachments/",
+        )
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
 class TestAiFeedbackAPI(APIBaseTest):
     def setUp(self):
@@ -3387,6 +3594,25 @@ class TestAiFeedbackAPI(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @patch("products.conversations.backend.api.tickets.posthoganalytics.capture")
+    def test_ai_feedback_rejects_automated_update(self, mock_capture, mock_on_commit):
+        update = Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Pull request update",
+            item_context={"author_type": "AI", "is_private": True, "automated_update_key": "pr-123"},
+        )
+
+        response = self.client.post(
+            self.url,
+            {"message_id": str(update.id), "rating": "good"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_capture.assert_not_called()
 
 
 class TestTicketAccessControl(APIBaseTest):

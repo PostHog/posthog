@@ -10,7 +10,8 @@ import { getBIComparisonGroupLimit } from './biComparisonLimit'
 import { DEFAULT_BI_CONFIG } from './biEditorTypes'
 
 export function catalogMetricWorksheet(
-    metric: Pick<DataCatalogMetricApi, 'name' | 'definition'>
+    metric: Pick<DataCatalogMetricApi, 'name' | 'definition'> &
+        Partial<Pick<DataCatalogMetricApi, 'id' | 'status' | 'is_drifted' | 'unit' | 'owner' | 'updated_at'>>
 ): BIVisualizationNode | null {
     const definition = metric.definition
     if (definition?.kind !== NodeKind.HogQLQuery || typeof definition.query !== 'string') {
@@ -30,6 +31,20 @@ export function catalogMetricWorksheet(
             chartType: ChartDisplayType.ActionsTable,
             querySnapshot: source,
             catalogMetric: metric.name,
+            ...(metric.id &&
+            (metric.status === 'approved' || metric.status === 'proposed') &&
+            typeof metric.is_drifted === 'boolean'
+                ? {
+                      catalogMetricContext: {
+                          id: metric.id,
+                          status: metric.status,
+                          isDrifted: metric.is_drifted,
+                          unit: metric.unit ?? '',
+                          owner: metric.owner ?? null,
+                          updatedAt: metric.updated_at ?? null,
+                      },
+                  }
+                : {}),
         },
     }
 }

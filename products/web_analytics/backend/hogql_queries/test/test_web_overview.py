@@ -37,6 +37,7 @@ from posthog.schema import (
     WebStatsTableQuery,
 )
 
+from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import prepare_and_print_ast
@@ -863,6 +864,29 @@ class TestWebOverviewQueryRunner(FirstPageviewAttributionTestMixin, ClickhouseTe
             pre_agg_builder.can_use_preaggregated_tables(),
             "Should use pre-aggregated tables when date range includes current date (using UNION ALL with hourly tables)",
         )
+
+    @time_machine.travel("2023-12-15T12:00:00Z", tick=False)
+    def test_all_time_preaggregated_range_includes_the_first_hour(self) -> None:
+        s1 = str(uuid7("2023-11-01"))
+        self._create_events([("p1", [("2023-11-01T12:34:56", s1)])])
+        query = WebOverviewQuery(dateRange=DateRange(date_from="all"), properties=[])
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+
+        builder = WebOverviewPreAggregatedQueryBuilder(runner)
+        period_filters = builder.get_date_ranges()
+
+        assert isinstance(period_filters.current_period, ast.And)
+        lower_bound = period_filters.current_period.exprs[0]
+        assert isinstance(lower_bound, ast.CompareOperation)
+        assert lower_bound.right == ast.Constant(value=datetime(2023, 11, 1, 12, tzinfo=UTC))
+
+        generated_query = builder.get_query()
+        assert isinstance(generated_query.where, ast.And)
+        lower_bound_filter = generated_query.where.exprs[0]
+        assert isinstance(lower_bound_filter, ast.CompareOperation)
+        assert lower_bound_filter.op == ast.CompareOperationOp.GtEq
+        assert lower_bound_filter.left == ast.Field(chain=[builder.bounces_table, "period_bucket"])
+        assert lower_bound_filter.right == ast.Constant(value=datetime(2023, 11, 1, 12, tzinfo=UTC))
 
     @time_machine.travel("2023-12-15T12:00:00Z", tick=False)
     def test_cannot_use_preaggregated_tables_with_unsupported_properties(self):

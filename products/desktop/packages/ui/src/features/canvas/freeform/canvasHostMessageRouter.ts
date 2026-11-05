@@ -221,6 +221,7 @@ export function createCanvasHostMessageRouter(
         // firing writes just by being loaded or rendered.
         if (
           (message.method === "actionInvoke" ||
+            message.method === "toolCall" ||
             message.method === "agentRequest") &&
           !options.hasUserActivation()
         ) {
@@ -272,6 +273,7 @@ export function createCanvasHostMessageRouter(
           const result =
             message.method === "agentRequest" ||
             message.method === "actionInvoke" ||
+            message.method === "toolCall" ||
             message.method === "connectorCall"
               ? await call
               : await withRequestTimeout(call);

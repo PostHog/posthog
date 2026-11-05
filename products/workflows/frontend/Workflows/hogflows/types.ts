@@ -81,7 +81,7 @@ export const HogFlowBatchJobSchema = z.object({
     id: z.string(),
     hog_flow: z.string(),
     variables: z.record(z.string(), z.any()),
-    status: z.enum(['waiting', 'queued', 'active', 'completed', 'cancelled', 'failed']),
+    status: z.enum(['waiting', 'queued', 'active', 'completed', 'partially_failed', 'cancelled', 'failed']),
     filters: z.any(),
     created_at: z.string(),
     updated_at: z.string(),
@@ -112,6 +112,7 @@ export interface HogFlow extends z.infer<typeof HogFlowSchema> {
     // Suggested changes waiting for a person. Only the list endpoint counts it.
     pending_suggestions?: number | null
     suggestions_enabled?: boolean | null
+    tags?: string[]
 }
 
 export interface HogFlowEdge extends z.infer<typeof HogFlowEdgeSchema> {}

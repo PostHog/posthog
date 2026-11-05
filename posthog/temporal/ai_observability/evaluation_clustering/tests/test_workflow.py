@@ -6,7 +6,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from unittest.mock import patch
 
-from temporalio import activity
+from parameterized import parameterized
+from temporalio import activity, workflow
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -22,18 +23,25 @@ from posthog.temporal.ai_observability.evaluation_clustering.constants import (
     SAMPLER_MAX_SAMPLES_PER_JOB,
     SAMPLER_WINDOW_MINUTES,
     SAMPLER_WINDOW_OFFSET_MINUTES,
+    SAMPLER_WORKFLOW_NAME,
 )
-from posthog.temporal.ai_observability.evaluation_clustering.coordinator import _evaluation_jobs_for_team
+from posthog.temporal.ai_observability.evaluation_clustering.coordinator import (
+    AIObservabilityEvaluationSamplerCoordinatorWorkflow,
+    SamplerCoordinatorInputs,
+    _evaluation_jobs_for_team,
+)
 from posthog.temporal.ai_observability.evaluation_clustering.models import (
     SamplerActivityInputs,
     SamplerActivityResult,
     SamplerWorkflowInputs,
+    SamplerWorkflowResult,
 )
 from posthog.temporal.ai_observability.evaluation_clustering.workflow import (
     AIObservabilityEvaluationClusteringWorkflow,
     AIObservabilityEvaluationSamplerWorkflow,
 )
-from posthog.temporal.ai_observability.shared_activities import JobConfig
+from posthog.temporal.ai_observability.shared_activities import FetchAllClusteringJobsInput, JobConfig
+from posthog.temporal.ai_observability.team_discovery import TeamDiscoveryInput
 from posthog.temporal.ai_observability.trace_clustering.models import ClusteringMetrics, ClusteringResult, ClusterLabel
 
 
@@ -186,6 +194,75 @@ class TestSamplerWorkflowWindowMath:
         assert activity_inputs.job_id == "j-forward"
         assert activity_inputs.job_name == "forward test"
         assert activity_inputs.event_filters == filters
+
+
+sampler_child_windows: list[tuple[str, str]] = []
+sampler_discovery_inputs: list[TeamDiscoveryInput | None] = []
+
+
+@workflow.defn(name=SAMPLER_WORKFLOW_NAME)
+class FakeEvaluationSamplerWorkflow:
+    @workflow.run
+    async def run(self, inputs: SamplerWorkflowInputs) -> SamplerWorkflowResult:
+        if not workflow.unsafe.is_replaying():
+            sampler_child_windows.append((inputs.window_start or "", inputs.window_end or ""))
+        # A later continue_as_new leg then starts minutes after the first, so it would derive a different window.
+        await workflow.sleep(timedelta(minutes=10))
+        return SamplerWorkflowResult(
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            sampled=0,
+            embedded=0,
+            window_start=inputs.window_start or "",
+            window_end=inputs.window_end or "",
+        )
+
+
+@activity.defn(name="get_team_ids_for_llm_analytics")
+async def fake_eval_team_discovery(inputs: TeamDiscoveryInput | None = None) -> list[int]:
+    sampler_discovery_inputs.append(inputs)
+    return [1, 2]
+
+
+@activity.defn(name="fetch_all_clustering_jobs_activity")
+async def fake_fetch_eval_jobs(inputs: FetchAllClusteringJobsInput) -> dict[int, list[JobConfig]]:
+    return {
+        team_id: [JobConfig(job_id=f"j{team_id}", name="evals", analysis_level="evaluation", event_filters=[])]
+        for team_id in inputs.team_ids
+    }
+
+
+class TestSamplerCoordinatorWindow:
+    @parameterized.expand([("single_leg", False), ("continue_as_new_each_batch", True)])
+    @pytest.mark.asyncio
+    async def test_children_sample_the_window_discovery_checked(self, _name, continue_as_new):
+        sampler_child_windows.clear()
+        sampler_discovery_inputs.clear()
+        task_queue = str(uuid.uuid4())
+        with patch.object(workflow.Info, "is_continue_as_new_suggested", return_value=continue_as_new):
+            async with await WorkflowEnvironment.start_time_skipping() as env:
+                async with Worker(
+                    env.client,
+                    task_queue=task_queue,
+                    workflows=[AIObservabilityEvaluationSamplerCoordinatorWorkflow, FakeEvaluationSamplerWorkflow],
+                    activities=[fake_eval_team_discovery, fake_fetch_eval_jobs],
+                    workflow_runner=UnsandboxedWorkflowRunner(),
+                ):
+                    await env.client.execute_workflow(
+                        AIObservabilityEvaluationSamplerCoordinatorWorkflow.run,
+                        SamplerCoordinatorInputs(max_concurrent_teams=1),
+                        id=str(uuid.uuid4()),
+                        task_queue=task_queue,
+                    )
+
+        assert len(sampler_child_windows) == 2
+        windows = set(sampler_child_windows)
+        assert len(windows) == 1
+        window_start, window_end = next(iter(windows))
+        assert _parse_z(window_end) - _parse_z(window_start) == timedelta(minutes=SAMPLER_WINDOW_MINUTES)
+        assert sampler_discovery_inputs == [
+            TeamDiscoveryInput(window_start=window_start, window_end=window_end, trigger_events=["$ai_evaluation"])
+        ]
 
 
 class TestClusteringWorkflowWiring:

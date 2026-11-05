@@ -1,10 +1,13 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { SignalReportActionability, SignalReportPriority, SignalReportStatus } from '../../types'
+import { myClaim, teammateClaim } from '../../__mocks__/inboxMocks'
+import { SignalReport, SignalReportActionability, SignalReportPriority, SignalReportStatus } from '../../types'
 import { AnimatedEllipsis } from './AnimatedEllipsis'
+import { ReportClaimAvatar } from './ReportClaimAvatar'
 import { SignalReportActionabilityBadge } from './SignalReportActionabilityBadge'
 import { SignalReportPriorityBadge } from './SignalReportPriorityBadge'
 import { SignalReportStatusBadge } from './SignalReportStatusBadge'
+import { useReportClaim } from './useReportClaim'
 
 const meta: Meta = {
     title: 'Scenes-App/Inbox/Badges',
@@ -31,6 +34,11 @@ function Row({ label, children }: { label: string; children: React.ReactNode }):
     )
 }
 
+function Claim({ assignee }: { assignee: SignalReport['assignee'] }): JSX.Element | null {
+    const claim = useReportClaim(assignee)
+    return claim ? <ReportClaimAvatar claim={claim} /> : null
+}
+
 export const AllBadges: Story = {
     render: () => (
         <div className="bg-primary p-8 flex flex-col gap-4">
@@ -48,6 +56,10 @@ export const AllBadges: Story = {
                 {ACTIONABILITIES.map((a) => (
                     <SignalReportActionabilityBadge key={a} actionability={a} />
                 ))}
+            </Row>
+            <Row label="Claim">
+                <Claim assignee={myClaim} />
+                <Claim assignee={teammateClaim} />
             </Row>
             <Row label="Working">
                 <span className="text-sm text-secondary">

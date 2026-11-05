@@ -13,8 +13,10 @@ import {
     getPlaygroundChat,
     listPlaygroundChats,
     PLAYGROUND_CHAT_PAGE_SIZE,
+    searchKnowledge,
 } from '../../api'
 import type {
+    KnowledgeSearchResultApi,
     PaginatedPlaygroundChatListListApi,
     PlaygroundChatApi,
     PlaygroundChatListApi,
@@ -29,12 +31,14 @@ jest.mock('../../api', () => ({
     getPlaygroundChat: jest.fn(),
     askPlaygroundChat: jest.fn(),
     deletePlaygroundChat: jest.fn(),
+    searchKnowledge: jest.fn(),
 }))
 
 const mockedList = listPlaygroundChats as jest.MockedFunction<typeof listPlaygroundChats>
 const mockedCreate = createPlaygroundChat as jest.MockedFunction<typeof createPlaygroundChat>
 const mockedGet = getPlaygroundChat as jest.MockedFunction<typeof getPlaygroundChat>
 const mockedAsk = askPlaygroundChat as jest.MockedFunction<typeof askPlaygroundChat>
+const mockedSearch = searchKnowledge as jest.MockedFunction<typeof searchKnowledge>
 
 function run(status: SandboxRunApi['status'], extra: Partial<SandboxRunApi> = {}): SandboxRunApi {
     return {
@@ -259,6 +263,38 @@ describe('businessKnowledgePlaygroundLogic', () => {
             logic.actions.poll()
         }).toDispatchActions(['pollFailed'])
         expect(logic.values.asking).toBe(false)
+    })
+
+    it('shows a search error, then replaces it with the next results', async () => {
+        const hit: KnowledgeSearchResultApi = {
+            chunk_id: 'chunk-1',
+            document_id: 'doc-1',
+            ordinal: 0,
+            source_id: 'source-1',
+            source_name: 'Refund policy',
+            source_type: 'text',
+            document_title: 'Refund policy',
+            heading_path: '',
+            content: 'Refunds after 30 days need manager approval.',
+            is_generated: false,
+            url: '',
+        }
+        mockedSearch.mockRejectedValueOnce(new ApiError('invalid', 400, undefined, { detail: 'Query is too long.' }))
+        logic.actions.setSearchQuery('  refund  ')
+        await expectLogic(logic, () => {
+            logic.actions.search()
+        }).toDispatchActions(['setSearchError'])
+        expect(logic.values.searching).toBe(false)
+        expect(logic.values.searchError).toBe('Query is too long.')
+
+        mockedSearch.mockResolvedValueOnce([hit])
+        await expectLogic(logic, () => {
+            logic.actions.search()
+        }).toDispatchActions(['setSearchResults'])
+        expect(mockedSearch).toHaveBeenLastCalledWith({ query: 'refund' })
+        expect(logic.values.searching).toBe(false)
+        expect(logic.values.searchError).toBeNull()
+        expect(logic.values.searchResults).toEqual([hit])
     })
 
     it('ignores a poll response that arrives after a newer one', async () => {

@@ -3,7 +3,6 @@ import posthog from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
 
 import { isMobile } from 'lib/utils/dom'
-import { humanList } from 'lib/utils/strings'
 import { availableOnboardingProducts } from 'scenes/onboarding/shared/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -67,8 +66,7 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
         ? availableOnboardingProducts[currentStepProductKey as keyof typeof availableOnboardingProducts]?.name
         : undefined
     const isSdkInstallStep = currentFlowStep?.dedupKey === INSTALL_DEDUP_KEYS.POSTHOG_JS
-    // With several install steps in one flow, a bare "Install" reads as a duplicate, so the shared
-    // posthog-js step is titled after its dedup survivor; the subtitle names the full covered set.
+    // With several install steps in one flow, a bare "Install" reads as a duplicate.
     const installStepCount = flow.filter((step) => step.stepKey === OnboardingStepKey.INSTALL).length
     const installTitle =
         isSdkInstallStep && installStepCount <= 1
@@ -76,12 +74,6 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
             : productName
               ? `Install ${productName}`
               : 'Install your SDK'
-    // The dedup record is what this step actually covers; other products keep their own install step.
-    const coveredNames = (currentFlowStep?.additionalProductKeys ?? [currentStepProductKey])
-        .map((key) => availableOnboardingProducts[key as keyof typeof availableOnboardingProducts]?.name)
-        .filter((name): name is string => !!name)
-    const installSubtitle =
-        isSdkInstallStep && coveredNames.length > 1 ? `One install covers ${humanList(coveredNames)}.` : undefined
 
     const installationCompleteFromTeam = useInstallationComplete(teamPropertyToVerify)
     const installationComplete = hideInstallationCheck || installationCompleteFromTeam
@@ -160,7 +152,6 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
         header,
         wizardOverrides,
         installTitle,
-        installSubtitle,
     }
 
     const instructionsModal = selectedSDK && (

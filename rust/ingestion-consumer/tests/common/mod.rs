@@ -27,8 +27,10 @@ pub const ONE_MESSAGE_PER_REQUEST: PackTargets = PackTargets {
     latency_budget: Duration::ZERO,
 };
 
-/// A batcher over `pool_source`'s workers, with the transport's un-acked cap
-/// as its per-worker request cap.
+/// Every suite keeps one request in flight per worker, so a scenario's second
+/// send to a worker waits for the first to settle.
+const ONE_REQUEST_PER_WORKER: usize = 1;
+
 pub fn batcher(
     pool_source: WorkerPoolSource,
     transport: Arc<GrpcTransport>,
@@ -37,9 +39,8 @@ pub fn batcher(
     pack_targets: PackTargets,
     budget: Option<RequestBudget>,
 ) -> (Batcher, BatcherOutputs) {
-    let assigner =
-        WorkerAssigner::new(Router::new(pool_source.strategy()), transport.max_unacked())
-            .expect("valid request cap");
+    let assigner = WorkerAssigner::new(Router::new(pool_source.strategy()), ONE_REQUEST_PER_WORKER)
+        .expect("valid request cap");
     let retry = RetryPolicy::uniform(retry_delay).expect("valid retry delay");
     let state_machine = BatcherStateMachine::new(
         Packer::new(pack_targets),

@@ -5,7 +5,7 @@ import pytest
 import aioboto3
 import pytest_asyncio
 
-from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.service import AnyBatchExportModel, BatchExportEventsModel, BatchExportSchema
 from products.batch_exports.backend.temporal.destinations.constants import (
     COMPRESSION_EXTENSIONS,
     FILE_FORMAT_EXTENSIONS,
@@ -85,7 +85,7 @@ async def gcs_batch_export(
 
 @pytest.mark.parametrize("file_format", FILE_FORMAT_EXTENSIONS.keys(), indirect=True)
 @pytest.mark.parametrize("compression", [*COMPRESSION_EXTENSIONS.keys(), None], indirect=True)
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportEventsModel()])
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
 @pytest.mark.parametrize("bucket_name", [os.getenv("GCS_TEST_BUCKET")], indirect=True)
@@ -100,7 +100,7 @@ async def test_s3_export_workflow_with_gcs_bucket_with_various_file_formats(
     file_format,
     data_interval_start,
     data_interval_end,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     generate_test_data,
 ):
     """Test S3 Export Workflow end-to-end by using a GCS bucket.

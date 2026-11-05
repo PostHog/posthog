@@ -26,12 +26,14 @@ class Graph:
         team_id: int,
         exclude_table_sources: bool = True,
         exclude_table_targets: bool = True,
+        dag_id: UUID | str | None = None,
         hidden_types: frozenset[str] = frozenset(),
     ):
         """Load edges and build adjacency maps.
 
         Args:
             team_id: filter edges to this team
+            dag_id: when set, load only this DAG's edges instead of every edge for the team
             exclude_table_sources: skip edges whose source is a TABLE node (for upstream counts)
             exclude_table_targets: skip edges whose target is a TABLE node (for downstream counts)
             hidden_types: node types the reader may not see, dropped from both sides so a count
@@ -40,6 +42,8 @@ class Graph:
         qs = Edge.objects.filter(team_id=team_id).exclude(
             Q(source__saved_query__deleted=True) | Q(target__saved_query__deleted=True)
         )
+        if dag_id is not None:
+            qs = qs.filter(dag_id=dag_id)
 
         # Fetch edges with source/target types in a single query
         edge_rows = list(

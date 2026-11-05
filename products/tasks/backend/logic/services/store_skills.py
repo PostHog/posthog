@@ -88,6 +88,7 @@ def refresh_store_skills_state(task_run: TaskRun, user: User, *, reason: str) ->
         store_skills = (
             []
             if (task_run.state or {}).get("include_live_context") is False
+            or (task_run.state or {}).get("disable_skills") is True
             else resolve_store_skills(task_run.task.team, user, run_id=run_id)
         )
         if store_skills is None:

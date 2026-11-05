@@ -14,7 +14,7 @@ of those two snapshots.
 
 import json
 import datetime
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 import numpy as np
 import pandas as pd
@@ -22,7 +22,7 @@ import pyarrow as pa
 
 from posthog.dataclasses import frozen
 
-from products.signals.backend.ranking.features import PRIORITY_COLUMN, Extras, FeatureSet
+from products.signals.backend.ranking.features import PRIORITY_COLUMN, PROJECT_VECTOR_KINDS, Extras, FeatureSet
 from products.signals.dags.inbox_ranking.multihead.inputs import NetworkInputs
 from products.signals.dags.inbox_ranking.multihead.prototype import (
     FEATURE_SET,
@@ -119,12 +119,17 @@ def examples_from_arrow(arrow: pa.Table) -> NNExamples:
 
 
 def network_inputs(
-    table: ExampleTable, extras: Extras, labels: pa.Table, embeddings: pa.Table, feature_set: FeatureSet = FEATURE_SET
+    table: ExampleTable,
+    extras: Extras,
+    labels: pa.Table,
+    embeddings: pa.Table,
+    feature_set: FeatureSet = FEATURE_SET,
+    project_vector_kinds: Sequence[str] = PROJECT_VECTOR_KINDS,
 ) -> NetworkInputs:
     """The report input of each row as of its moment, built by `feature_set`, and its team's project
-    vectors as of the start of its snapshot day, the ones serving would read for a report born that
-    day."""
+    vectors of `project_vector_kinds` as of the start of its snapshot day, the ones serving would read
+    for a report born that day."""
     return NetworkInputs(
         reports=report_matrix(table.rows, extras, feature_set),
-        context=project_context(table.rows, labels, embeddings),
+        context=project_context(table.rows, labels, embeddings, project_vector_kinds),
     )

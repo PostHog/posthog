@@ -25,9 +25,9 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { isKeyOf } from 'lib/utils/guards'
 import { useMaxTool } from 'scenes/max/useMaxTool'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 

@@ -36,7 +36,9 @@ from posthog.models.web_preaggregated.sql import is_eu_cluster
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
+    TtlSchedule,
     ensure_precomputed,
+    parse_ttl_schedule,
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import SESSION_FORWARD_PAD_MINUTES
 
@@ -49,6 +51,14 @@ DIMENSIONAL_TTL_SECONDS: dict[str, int] = {
     "2d": 24 * 60 * 60,
     "default": 90 * 24 * 60 * 60,
 }
+
+
+def dimensional_ttl_schedule() -> TtlSchedule:
+    # The jobs cover UTC days, so the TTL bands must start at UTC midnight too. With bands in the
+    # team timezone, the current UTC day moves into the 1-day band when the team's local day
+    # starts, and that day then stops refreshing until the next UTC midnight. The band cutoffs are
+    # relative to now, so build the schedule per call.
+    return parse_ttl_schedule(DIMENSIONAL_TTL_SECONDS, "UTC")
 
 
 # Per-session row, then aggregated into hourly buckets. `host`/`device_type`/
@@ -342,7 +352,7 @@ def ensure_web_stats_dimensional_precomputed(
         insert_query=STATS_INSERT_TEMPLATE,
         time_range_start=time_range_start,
         time_range_end=time_range_end,
-        ttl_seconds=DIMENSIONAL_TTL_SECONDS,
+        ttl_seconds=dimensional_ttl_schedule(),
         table=LazyComputationTable.WEB_STATS_DIMENSIONAL_PREAGGREGATED,
         placeholders=_base_placeholders(),
         query_type="web_stats_dimensional_insert",
@@ -362,7 +372,7 @@ def ensure_web_bounces_dimensional_precomputed(
         insert_query=BOUNCES_INSERT_TEMPLATE,
         time_range_start=time_range_start,
         time_range_end=time_range_end,
-        ttl_seconds=DIMENSIONAL_TTL_SECONDS,
+        ttl_seconds=dimensional_ttl_schedule(),
         table=LazyComputationTable.WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED,
         placeholders=_base_placeholders(),
         query_type="web_bounces_dimensional_insert",

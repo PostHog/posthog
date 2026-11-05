@@ -1,0 +1,47 @@
+name: Shared image releases
+description: Inspect source policy and shared-image publication repositories
+inputs:
+    shared-image-registry:
+        description: Authenticated ECR registry from the publish login step
+        required: false
+    shared-image-force:
+        description: JSON array of explicit configured image/channel keys for an authorized manual release
+        required: false
+        default: '[]'
+    shared-image-bootstrap:
+        description: JSON object with one configured channel key, approved seed revision and digest
+        required: false
+    shared-image-digest:
+        description: Exact digest from the successful shared build
+        required: false
+    shared-image-alias:
+        description: Verified ordered alias for the executing revision
+        required: false
+    shared-image-budgets:
+        description: Numeric fetch, comparison, registry, copy, readback, fan-out and total budgets
+        required: false
+    shared-image-regctl:
+        description: Absolute path to the checksum-verified regctl executable
+        required: false
+    working-directory:
+        description: Relative path to the executing repository checkout
+        required: false
+    shared-image-operation:
+        description: Shared-image operation to execute
+        required: false
+        default: inspect
+    shared-image-policy:
+        description: Path to the canonical shared-image manifest in the executing checkout
+        required: false
+        default: .github/shared-image-releases.yaml
+    shared-image-repository:
+        description: Common build repository from workflow configuration
+        required: true
+outputs:
+    channels:
+        description: Whether the policy has configured publication channels
+    bindings:
+        description: JSON resolved publication bindings keyed by image and channel for inspect
+runs:
+    using: node24
+    main: dist/index.js

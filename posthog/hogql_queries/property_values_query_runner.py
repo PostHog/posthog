@@ -17,6 +17,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import FEATURE_FLAG_PROPERTY_PREFIX
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -31,6 +32,10 @@ from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.utils import convert_property_value, flatten, get_instance_region, relative_date_parse
 
 from products.access_control.backend.property_access_control import get_restricted_property_names
+from products.feature_flags.backend.facade.property_values import (
+    flag_property_values_revision,
+    get_flag_property_values,
+)
 
 PROPERTY_VALUES_TABLE_FLAG = "property-values-table"
 
@@ -67,6 +72,8 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
                 timings=self.timings.to_list(),
                 modifiers=self.modifiers,
             )
+        if self._feature_flag_property_values is not None:
+            return self._calculate_event_from_flag(self._feature_flag_property_values)
         if self._use_property_values_table:
             return self._calculate_event_from_table()
         result = execute_hogql_query(
@@ -102,12 +109,40 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         )
 
     @cached_property
+    def _feature_flag_key(self) -> str | None:
+        key = self.query.property_key
+        if (
+            self.query.property_type != PropertyType.EVENT
+            or self.query.is_column
+            or not key.startswith(FEATURE_FLAG_PROPERTY_PREFIX)
+        ):
+            return None
+        return key.removeprefix(FEATURE_FLAG_PROPERTY_PREFIX)
+
+    @cached_property
+    def _feature_flag_property_values(self) -> list[bool | str] | None:
+        if self._feature_flag_key is None:
+            return None
+        return get_flag_property_values(self.team, self._feature_flag_key)
+
+    def _calculate_event_from_flag(self, values: list[bool | str]) -> PropertyValuesQueryResponse:
+        search = (self.query.search_value or "").lower()
+        names = list(dict.fromkeys(convert_property_value(value) for value in values))
+        return PropertyValuesQueryResponse(
+            results=[PropertyValueItem(name=name) for name in names if search in name.lower()],
+            timings=self.timings.to_list(),
+            modifiers=self.modifiers,
+        )
+
+    @cached_property
     def _use_property_values_table(self) -> bool:
         # Column and virtual lookups stay on the events scan: the table only
-        # holds keys from the properties blob. event_names is deliberately not
-        # a fallback: the table has no event dimension, so flagged teams get
-        # event-agnostic value suggestions for event-scoped requests.
-        if self.query.is_column or self.query.property_key.startswith("$virt_"):
+        # holds keys from the properties blob. `$feature/` lookups stay there
+        # too, because property-vals-rs can be set to skip `$feature/` keys.
+        # event_names is deliberately not a fallback: the table has no event
+        # dimension, so flagged teams get event-agnostic value suggestions for
+        # event-scoped requests.
+        if self.query.is_column or self.query.property_key.startswith(("$virt_", FEATURE_FLAG_PROPERTY_PREFIX)):
             return False
         team_id = str(self.team.pk)
         if not posthoganalytics.feature_enabled(
@@ -182,6 +217,9 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         # Person values cached before the HogQL port were computed without property
         # masking; the version marker keeps them from being served.
         payload["property_values_version"] = 2
+        # A cached answer must not outlive a flag edit or a new access rule on the flag.
+        if self._feature_flag_key is not None:
+            payload["feature_flag_revision"] = flag_property_values_revision(self.team, self._feature_flag_key)
         return payload
 
     def _person_query(self) -> ast.SelectQuery:

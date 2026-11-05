@@ -614,10 +614,8 @@ async fn handle_batch_flag_evaluation(
         state.database_pools.non_persons_reader.clone(),
         state.database_pools.non_persons_writer.clone(),
     );
-    let enable_realtime_cohort_evaluation = state
-        .config
-        .realtime_cohort_evaluation_team_ids
-        .includes_team(request.team_id);
+    let enable_realtime_cohort_evaluation =
+        team.evaluates_realtime_cohorts(&state.config.realtime_cohort_evaluation_team_ids);
     let use_explicit_exact_matching = team.property_matching_version.uses_explicit_matching();
     let team_timezone = team.parsed_timezone();
     let optimize_experience_continuity_lookups =
@@ -659,7 +657,12 @@ async fn handle_batch_flag_evaluation(
             .with_timezone(team_timezone)
             // The deadline starts when the matcher is built. Building the matcher in this
             // closure gives the retry in `evaluate_with_one_retry` its own deadline.
-            .with_persons_db_deadline(state.config.persons_db_deadline());
+            .with_persons_db_deadline(
+                state
+                    .config
+                    .persons_db_deadline(tokio::time::Instant::now(), None)
+                    .map(|deadline| deadline.at),
+            );
 
             let flag_list = flag_list.clone();
             let target_key = target_key.clone();

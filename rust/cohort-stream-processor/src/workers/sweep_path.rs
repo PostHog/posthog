@@ -326,6 +326,7 @@ impl PreparedSweep {
 /// Run at most one sweep batch, then return so the worker can select again. No-op when nothing is
 /// due.
 #[allow(clippy::too_many_arguments)]
+#[hotpath::measure]
 pub(crate) async fn run_sweep_turn(
     partition_id: u16,
     handle: &StoreHandle,

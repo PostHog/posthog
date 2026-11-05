@@ -133,6 +133,7 @@ function CustomerAnalyticsAccountSceneContent(): JSX.Element {
                 resourceType={{
                     type: 'cohort',
                     forceIcon: <AccountLogo domain={getAccountLogoDomain(account)} name={account.name} />,
+                    iconLeadsName: true,
                 }}
                 actions={
                     <>

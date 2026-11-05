@@ -65,10 +65,19 @@ This is the recommended option for most developers.
 ### Prerequisites
 
 **GitHub access.**
-Before your first push, set up an [SSH key and commit signing](https://posthog.com/handbook/engineering/security#github) using Secretive or 1Password.
+Before your first push, set up an [SSH key and commit signing](https://posthog.com/handbook/engineering/security#github).
 Signing is required: an org-wide ruleset rejects unsigned commits in every PostHog repository, so an unsigned push fails with `GH013: Commits must have verified signatures`.
+The signing key must live in your Mac's Secure Enclave.
+A signing key in 1Password doesn't meet this, because 1Password syncs it off the Mac.
+On macOS 26 or later, `hogli git:signing-key` creates a Secure Enclave signing key. Secretive works too.
+It's an SSH key used only for signing, so no GPG key is involved, and SSH logins and pushes keep using your current agent.
+The key can't be copied off the Mac, so each Mac needs its own key.
+It signs without a prompt, also while the screen is locked, so agents can commit while you're away.
+If you commit from a devbox, keep your previous signing key on GitHub.
+A devbox signs through your forwarded SSH agent, which can't hold a Secure Enclave key, so it keeps signing with the previous key.
+Otherwise, once no repository signs with your previous key, remove it from your GitHub settings, so it can't sign verified commits anymore. Commits you already pushed stay verified.
 
-PR evidence uploads (`hogli pr:upload-image` and `hogli pr:upload-video`) prefer your stored GitHub CLI login over `GITHUB_TOKEN` from `.env.local`. Set `GH_TOKEN` to override the account; `GITHUB_TOKEN` remains the fallback when no CLI login exists.
+PR evidence uploads (`hogli pr:upload-image` and `hogli pr:upload-video`) attach to the PR description through `gh pr edit --attach` when the branch has an open PR and your gh supports `--attach`. Otherwise they upload to the public PostHog/pr-assets repo, and prefer your stored GitHub CLI login over `GITHUB_TOKEN` from `.env.local`. Set `GH_TOKEN` to override the account; `GITHUB_TOKEN` remains the fallback when no CLI login exists.
 
 #### macOS
 
@@ -140,7 +149,7 @@ To get PostHog running in a dev environment:
    brew install flox
    ```
 
-   Use Flox 1.18.2 or newer. To upgrade an existing Homebrew installation, run `brew update && brew upgrade flox`. For other installation methods, follow the [Flox upgrade instructions](https://flox.dev/docs/install-flox/install). Check the installed version with `flox --version`.
+   Use Flox 1.19.1 or newer. To upgrade an existing Homebrew installation, run `brew update && brew upgrade flox`. For other installation methods, follow the [Flox upgrade instructions](https://flox.dev/docs/install-flox/install). Check the installed version with `flox --version`.
 
    The repository's minimum CLI version only warns about older installations. Pulling the repository or running `flox activate` does not upgrade Flox itself or its Nix daemon.
 
@@ -330,11 +339,14 @@ You can narrow the run down to only files under matching paths:
 hogli test frontend/src/lib/components/DateFilter/DateFilter.test.tsx
 ```
 
-To update all visual regression test snapshots, make sure Storybook is running on your machine (you can start it with `hogli storybook` in a separate Terminal tab). You may also need to install Playwright with `pnpm exec playwright install`. And then run:
+CI takes the visual regression snapshots of every Storybook story, and you approve changed ones in the visual review run on your PR.
+To look at stories locally, run `pnpm storybook`. Set `STORYBOOK_STORIES` to a directory or a story file to load only those:
 
 ```bash
-hogli storybook:test
+STORYBOOK_STORIES=frontend/src/toolbar pnpm storybook
 ```
+
+The [Storybook README](https://github.com/PostHog/posthog/blob/master/common/storybook/README.md) covers the local snapshot runner, writing stories, and mocking data.
 
 ### Backend
 
@@ -410,6 +422,16 @@ No other personal API key is ever shown in full: the dev key is the only one who
 The PostHog repository includes [VS Code launch options for debugging](https://github.com/PostHog/posthog/blob/master/.vscode/launch.json). Simply go to the `Run and Debug` tab in VS Code, select the desired service you want to debug, and run it. Once it starts up, you can set breakpoints and step through code to see exactly what is happening. There are also debug launch options for frontend and backend tests if you're dealing with a tricky test failure.
 
 > **Note:** You can debug all services using the main "PostHog" launch option. If you are running most services with `hogli start` and only want to debug one (e.g. the backend), use `hogli dev:setup` to exclude that service so it doesn't conflict with the VS Code debugger.
+
+## Extra: Opening a component's source from the browser
+
+You can hold `Option+Shift` (macOS) or `Alt+Shift` (Windows and Linux) and click an element in the app. Your editor then opens the file and line that renders it. [code-inspector-plugin](https://github.com/zh-lx/code-inspector) adds this feature. It runs only with the Vite dev server, so production builds do not include it.
+
+The feature is off by default. To turn it on, add `DEV_CODE_INSPECTOR=1` to your `.env.local` and restart `hogli start`. The Vite dev server and Django both read this value.
+
+The click sends a request to a local server on port 5678. This server has no authentication and accepts requests from all interfaces and all origins. While it runs, another page in your browser or another device on your network can make your editor open a file in the repo. Turn the feature off when you do not use it, and do not turn it on for a devbox.
+
+The plugin finds your editor from the running processes. If the wrong editor opens, set `CODE_EDITOR` in `.env.local`, for example `CODE_EDITOR=cursor`. If another process uses port 5678, the plugin moves to the next free port and the click does nothing.
 
 ## Extra: Debugging the backend in PyCharm
 

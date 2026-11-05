@@ -40,7 +40,6 @@ def compare_interval_length(
         return ORDERED_INTERVALS.index(interval1) >= ORDERED_INTERVALS.index(interval2)
 
 
-# Originally similar to the legacy QueryDateRange (now posthog/hogql_queries/properties_timeline/query_date_range.py) but rewritten to be used in HogQL queries
 class QueryDateRange:
     """Translation of the raw `date_from` and `date_to` filter values to datetimes."""
 

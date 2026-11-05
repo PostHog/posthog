@@ -9,6 +9,7 @@ from products.customer_analytics.backend.logic.person_property_projection import
     person_properties_flag_enabled,
     person_property_projection,
     person_property_sync_sources,
+    saved_queries_with_property_sources,
 )
 from products.customer_analytics.backend.models import CustomPropertySource, TargetType
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
@@ -219,3 +220,37 @@ class PersonPropertyProjectionTest(TeamScopedTestMixin, BaseTest):
             return_value=False,
         ):
             assert resolver(self.team.id, self.binding) is None
+
+
+class SavedQueriesWithPropertySourcesTest(TeamScopedTestMixin, BaseTest):
+    def _source(self, saved_query, target_type: str, *, is_enabled: bool = True) -> None:
+        definition = create_custom_property_definition(
+            team_id=self.team.id, name=f"{saved_query.name} {target_type}", target_type=target_type
+        )
+        CustomPropertySource.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            definition=definition,
+            saved_query=saved_query,
+            key_column="distinct_id",
+            column_property_map={"plan": "plan_tier"},
+            is_enabled=is_enabled,
+        )
+
+    @patch(
+        "products.customer_analytics.backend.logic.person_property_projection.person_properties_flag_enabled",
+        return_value=False,
+    )
+    def test_finds_views_with_an_enabled_source_whatever_the_rollout_flag_says(self, _flag) -> None:
+        person = create_saved_query(team_id=self.team.id, name="person_view")
+        account = create_saved_query(team_id=self.team.id, name="account_view")
+        disabled = create_saved_query(team_id=self.team.id, name="disabled_view")
+        unused = create_saved_query(team_id=self.team.id, name="unused_view")
+        self._source(person, TargetType.PERSON.value)
+        self._source(account, TargetType.ACCOUNT.value)
+        self._source(disabled, TargetType.PERSON.value, is_enabled=False)
+
+        found = saved_queries_with_property_sources(
+            self.team.id, [str(view.id) for view in (person, account, disabled, unused)]
+        )
+
+        assert found == {str(person.id), str(account.id)}

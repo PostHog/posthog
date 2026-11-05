@@ -1,13 +1,15 @@
-//! Domain layer: pure day/band planning — `plan_days`, `conditions_active_on`, `bands_for_day`.
-//! Depends on `condition`, `window`, `ids`, and `cohort-core`.
+//! Domain layer: pure day/band planning (`plan_days`, `conditions_active_on`, `bands_for_day`)
+//! and the split of one chunk's scan by table (`table_scans`). Depends on `pinned`, `condition`,
+//! `window`, `ids`, and `cohort-core`.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU16;
 
 use cohort_core::bucket_tz::window_start_for_now;
 
-use super::condition::{Lookback, PinnedCondition};
+use super::condition::{EventNameSet, Lookback, PinnedCondition};
 use super::ids::{Band, ConditionHash, DayIdx};
+use super::pinned::{PinnedRun, ScanTable};
 use super::window::{Boundary, PlanCaps};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -111,6 +113,62 @@ pub fn bands_for_day(_day: DayIdx, bands_per_day: NonZeroU16) -> Vec<Band> {
         .collect()
 }
 
+/// One table's share of a chunk's scan.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TableScan {
+    pub event_names: EventNameSet,
+    pub active: ActiveConditions,
+}
+
+/// The chunk's active event names and active conditions, grouped by the table that holds each
+/// event. A table appears only when it has an event name to scan.
+pub fn table_scans(run: &PinnedRun, active: &ActiveConditions) -> BTreeMap<ScanTable, TableScan> {
+    let mut event_names = BTreeMap::<ScanTable, Vec<String>>::new();
+    for event_name in active_event_names(run, active) {
+        event_names
+            .entry(run.table_for(&event_name))
+            .or_default()
+            .push(event_name);
+    }
+    event_names
+        .into_iter()
+        .map(|(table, names)| {
+            let conditions = run
+                .conditions
+                .iter()
+                .filter(|condition| {
+                    active.contains(&condition.hash)
+                        && run.table_for(&condition.event_name) == table
+                })
+                .map(|condition| condition.hash);
+            let scan = TableScan {
+                event_names: EventNameSet::new(names),
+                active: ActiveConditions::new(conditions),
+            };
+            (table, scan)
+        })
+        .collect()
+}
+
+fn active_event_names(run: &PinnedRun, active: &ActiveConditions) -> EventNameSet {
+    EventNameSet::new(
+        run.event_names
+            .iter()
+            .filter(|event_name| {
+                run.filters
+                    .behavioral_by_event_name
+                    .get(*event_name)
+                    .is_some_and(|bucket| {
+                        bucket
+                            .conditions
+                            .iter()
+                            .any(|hash| active.get(hash).is_some())
+                    })
+            })
+            .cloned(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
@@ -120,6 +178,8 @@ mod tests {
     use proptest::prelude::*;
 
     use super::super::ids::UtcMillis;
+    use super::super::pinned::test_runs::{run_with, RunLeaf};
+    use super::super::row_filter::test_catalog::event_is;
     use super::*;
 
     fn condition(hash: &str, lookback: Lookback) -> PinnedCondition {
@@ -214,6 +274,96 @@ mod tests {
         assert_eq!(
             bands_for_day(5, NonZeroU16::new(3).unwrap()),
             vec![Band(0), Band(1), Band(2)]
+        );
+    }
+
+    /// Each table's scan narrows to its own conditions, so a condition filed under the wrong table
+    /// widens or narrows the other table's projection and row filter.
+    #[test]
+    fn a_chunk_splits_its_event_names_and_conditions_by_the_table_that_holds_each_event() {
+        const PAGEVIEW: &str = "pageview00000000";
+        const FLAG_CALL: &str = "flagcall00000000";
+        const LOOKALIKE: &str = "lookalike0000000";
+        const UNBUCKETED: &str = "unbucketed000000";
+        let leaves = || {
+            ["$pageview", "$feature_flag_called", "$Feature_Flag_Called"]
+                .into_iter()
+                .zip([PAGEVIEW, FLAG_CALL, LOOKALIKE])
+                .map(|(event, hash)| RunLeaf {
+                    cohort_id: 1,
+                    hash,
+                    event,
+                    body: event_is(event),
+                })
+                .collect::<Vec<_>>()
+        };
+        let hashes = |hashes: &[&str]| {
+            hashes
+                .iter()
+                .map(|hash| ConditionHash::parse(hash).unwrap())
+                .collect::<Vec<_>>()
+        };
+        let scan = |names: &[&str], active: &[&str]| TableScan {
+            event_names: EventNameSet::new(names.iter().map(|name| (*name).to_owned())),
+            active: ActiveConditions::new(hashes(active)),
+        };
+        let active_except = |run: &PinnedRun, inactive: &[&str]| {
+            let inactive = hashes(inactive);
+            ActiveConditions::new(
+                run.conditions
+                    .iter()
+                    .map(|condition| condition.hash)
+                    .filter(|hash| !inactive.contains(hash)),
+            )
+        };
+
+        let flags = run_with(ScanTable::FlagEvaluations, 7, &leaves());
+        assert_eq!(
+            table_scans(&flags, &active_except(&flags, &[])),
+            BTreeMap::from([
+                (
+                    ScanTable::Events,
+                    scan(
+                        &["$Feature_Flag_Called", "$pageview"],
+                        &[LOOKALIKE, PAGEVIEW]
+                    ),
+                ),
+                (
+                    ScanTable::FlagEvaluations,
+                    scan(&["$feature_flag_called"], &[FLAG_CALL]),
+                ),
+            ])
+        );
+        assert_eq!(
+            table_scans(&flags, &active_except(&flags, &[FLAG_CALL])),
+            BTreeMap::from([(
+                ScanTable::Events,
+                scan(
+                    &["$Feature_Flag_Called", "$pageview"],
+                    &[LOOKALIKE, PAGEVIEW]
+                ),
+            )]),
+            "a table with no active event name is not scanned"
+        );
+
+        // An `events` run scans one table with every active condition, even one whose event name
+        // no active bucket holds.
+        let mut events = run_with(ScanTable::Events, 7, &leaves());
+        events.conditions.push(PinnedCondition {
+            cohort_id: CohortId(1),
+            hash: ConditionHash::parse(UNBUCKETED).unwrap(),
+            event_name: "unbucketed".to_owned(),
+            lookback: Lookback::SlidingDays(7),
+        });
+        assert_eq!(
+            table_scans(&events, &active_except(&events, &[])),
+            BTreeMap::from([(
+                ScanTable::Events,
+                scan(
+                    &["$Feature_Flag_Called", "$feature_flag_called", "$pageview"],
+                    &[FLAG_CALL, LOOKALIKE, PAGEVIEW, UNBUCKETED],
+                ),
+            )])
         );
     }
 

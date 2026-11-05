@@ -7,6 +7,8 @@ from collections.abc import Callable, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
 
+from django.conf import settings
+from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
 from django.db.models import Q, QuerySet, Sum
 from django.http import Http404
@@ -24,17 +26,18 @@ from drf_spectacular.utils import (
     extend_schema_view,
 )
 from rest_framework import (
-    pagination,
     serializers,
     status as drf_status,
     viewsets,
 )
 from rest_framework.decorators import action
-from rest_framework.exceptions import MethodNotAllowed, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, MethodNotAllowed, PermissionDenied, ValidationError
+from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.person import get_person_name
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import (
@@ -53,7 +56,7 @@ from posthog.models.activity_logging.activity_log import Change, Detail, Trigger
 from posthog.models.comment import Comment
 from posthog.models.person.person import Person
 from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids
-from posthog.permissions import APIScopePermission
+from posthog.permissions import APIScopePermission, is_scout_sandbox_request
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import (
     ComposeTicketBurstThrottle,
@@ -101,6 +104,12 @@ from products.conversations.backend.models import (
 )
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status, TicketMessageType
 from products.conversations.backend.person_lookup import _get_persons_by_email
+from products.conversations.backend.services.attachments import (
+    CONVERSATIONS_MAX_IMAGE_BYTES,
+    resolve_attachment_content_type,
+    sanitize_attachment_filename,
+    save_uploaded_media,
+)
 from products.conversations.backend.services.delivery import cancel_open_deliveries_for_ticket
 from products.conversations.backend.services.messages import ticket_message_type
 from products.conversations.backend.tasks.email import cancel_pending_email_replies_for_ticket
@@ -257,6 +266,27 @@ class TicketReplyRequestSerializer(serializers.Serializer):
         return value
 
 
+class TicketAttachmentUploadRequestSerializer(serializers.Serializer):
+    file = serializers.FileField(allow_empty_file=False, help_text="File to attach.")
+
+    def validate_file(self, value: UploadedFile) -> UploadedFile:
+        if value.size is None or value.size > CONVERSATIONS_MAX_IMAGE_BYTES:
+            raise serializers.ValidationError(
+                f"Attachments must be under {CONVERSATIONS_MAX_IMAGE_BYTES // (1024 * 1024)} MiB.",
+                code="file_too_large",
+            )
+        return value
+
+
+class TicketAttachmentSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="ID of the stored file.")
+    url = serializers.CharField(help_text="Public download URL of the stored file.")
+    name = serializers.CharField(help_text="Sanitized file name.")
+    content_type = serializers.CharField(
+        help_text="Stored content type. Inline-safe images come back as their decoded image type."
+    )
+
+
 class AiFeedbackRequestSerializer(serializers.Serializer):
     """Payload for recording reviewer feedback on an AI reply."""
 
@@ -359,12 +389,12 @@ class BulkUpdateStatusResponseSerializer(serializers.Serializer):
     )
 
 
-class TicketPagination(pagination.LimitOffsetPagination):
+class TicketPagination(BoundedLimitOffsetPagination):
     default_limit = 100
     max_limit = 1000
 
 
-class TicketMessagePagination(pagination.LimitOffsetPagination):
+class TicketMessagePagination(BoundedLimitOffsetPagination):
     default_limit = 50
     max_limit = 200
 
@@ -768,6 +798,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         "patch",
         "compose",
         "reply",
+        "attachments",
         "ai_feedback",
         "ai_human_outcome",
         "note",
@@ -785,6 +816,16 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
     # Which search branch safely_get_queryset applied, for the latency histogram.
     _search_path: str | None = None
+
+    def check_permissions(self, request: Request) -> None:
+        super().check_permissions(request)
+        if is_scout_sandbox_request(request):
+            if self.action in {"compose", "note", "delete_note", "attachments"}:
+                raise PermissionDenied(
+                    "Scouts can add private notes but cannot compose emails, upload files or change existing notes."
+                )
+            if self.action in {"update", "partial_update"} and "anonymous_traits" in request.data:
+                raise PermissionDenied("Scouts cannot change customer identity fields.")
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         """Filter tickets by team."""
@@ -1713,6 +1754,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
     def _create_message(self, ticket: Ticket, *, message: str, rich_content: object, is_private: bool) -> Response:
         request = self.request
+        if is_scout_sandbox_request(request) and not is_private:
+            raise PermissionDenied("Scouts can only add private notes. Set is_private to true.")
+
         item_context = {"author_type": "support", "is_private": is_private}
 
         def create_comment() -> Comment:
@@ -1757,6 +1801,76 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         return Response(
             TicketMessageSerializer(self._serialize_message(comment, ticket)).data,
             status=drf_status.HTTP_201_CREATED if created else drf_status.HTTP_200_OK,
+        )
+
+    @extend_schema(
+        parameters=[TICKET_ID_PARAM],
+        request={
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {
+                    "file": {
+                        "type": "string",
+                        "format": "binary",
+                        "description": "File to attach. Must be under 20 MiB.",
+                    },
+                },
+                "required": ["file"],
+            }
+        },
+        responses={
+            201: OpenApiResponse(response=TicketAttachmentSerializer),
+            400: OpenApiResponse(response=TicketErrorSerializer),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        pagination_class=None,
+        parser_classes=[MultiPartParser],
+        throttle_classes=[ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle],
+    )
+    def attachments(self, request, *args, **kwargs):
+        """Upload a file to put in a reply to this ticket.
+
+        Images are validated and shown inline. Other files are stored as they are and
+        served as a download. Widget tickets do not accept file attachments yet.
+        """
+        ticket = self.get_object()
+
+        if ticket.channel_source == Channel.WIDGET:
+            raise ValidationError(code="channel_not_supported", detail="Widget tickets do not accept file attachments.")
+        if not settings.OBJECT_STORAGE_ENABLED:
+            raise ValidationError(
+                code="object_storage_required", detail="Object storage must be available to attach files."
+            )
+
+        serializer = TicketAttachmentUploadRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        file = serializer.validated_data["file"]
+
+        content = file.read()
+        # Validate before saving, so a disguised image gets a clear 400 rather than a storage error.
+        content_type = resolve_attachment_content_type(content, file.content_type or "application/octet-stream")
+        if content_type is None:
+            raise ValidationError(code="invalid_image", detail="The file is not a valid image.")
+
+        uploaded_media = save_uploaded_media(
+            self.team, sanitize_attachment_filename(file.name), content_type, content, validate_images=False
+        )
+        if uploaded_media is None:
+            raise APIException("Could not store the file.")
+
+        return Response(
+            TicketAttachmentSerializer(
+                {
+                    "id": uploaded_media.id,
+                    "url": uploaded_media.get_absolute_url(),
+                    "name": uploaded_media.file_name,
+                    "content_type": uploaded_media.content_type,
+                }
+            ).data,
+            status=drf_status.HTTP_201_CREATED,
         )
 
     @extend_schema(
@@ -1919,6 +2033,22 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         serializer = AiFeedbackRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+
+        try:
+            message_id = uuid.UUID(data["message_id"])
+        except ValueError:
+            message_id = None
+        if (
+            message_id
+            and Comment.objects.filter(
+                id=message_id,
+                team_id=self.team_id,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                item_context__automated_update_key__isnull=False,
+            ).exists()
+        ):
+            raise ValidationError({"message_id": "Automated updates cannot receive AI feedback."})
 
         ai_triage = ticket.ai_triage or {}
         trace_id = ai_triage.get("ai_trace_id")

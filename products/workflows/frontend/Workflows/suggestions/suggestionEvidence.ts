@@ -1,3 +1,5 @@
+import { dayjs } from 'lib/dayjs'
+
 // A rate under this many observations is noise. Mirrors MIN_EVIDENCE_SAMPLE in
 // products/workflows/backend/metrics.py.
 export const MIN_EVIDENCE_SAMPLE = 20
@@ -55,6 +57,14 @@ export function readMeasured(evidence: Record<string, unknown>): MeasuredEvidenc
 }
 
 export function describeWindow(window: string): string {
+    const interval = window.split('/')
+    if (interval.length === 2) {
+        const [start, end] = interval.map((part) => dayjs(part))
+        if (start.isValid() && end.isValid()) {
+            const viewerZone = dayjs.tz.guess()
+            return `${start.tz(viewerZone).format('MMM D, HH:mm')} to ${end.tz(viewerZone).format('MMM D, HH:mm z')}`
+        }
+    }
     const match = /^-(\d+)([dh])$/.exec(window)
     if (!match) {
         return window

@@ -1,7 +1,8 @@
 from collections.abc import Mapping
+from typing import Optional
 
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
-from products.workflows.backend.services.hog_flow_secrets import strip_content_secrets
+from products.workflows.backend.services.hog_flow_secrets import TemplateCache, strip_content_secrets
 
 # The content of a workflow: everything the draft cycle stages and publish promotes, and nothing
 # else. Metadata (name, description) and lifecycle (status) always apply to the live row. The draft
@@ -33,7 +34,7 @@ def deep_merge(target: dict, patch: dict) -> dict:
     return target
 
 
-def snapshot_content(values: Mapping[str, object]) -> dict:
+def snapshot_content(values: Mapping[str, object], template_cache: Optional[TemplateCache] = None) -> dict:
     """A workflow's content fields in the API shape, without secrets."""
     snapshot = {field: values.get(field) for field in DRAFT_CONTENT_FIELDS}
     # The model's legacy default for actions/edges is `{}`, but the API shape is a list — normalize
@@ -47,8 +48,8 @@ def snapshot_content(values: Mapping[str, object]) -> dict:
     # secrets. New rows are already stripped, so this is a no-op for them. Every create takes a
     # snapshot inside its transaction, so the cache resolves each template once instead of once per
     # action.
-    return strip_content_secrets(snapshot, template_cache={})
+    return strip_content_secrets(snapshot, template_cache=template_cache if template_cache is not None else {})
 
 
-def snapshot_flow_content(flow: HogFlow) -> dict:
-    return snapshot_content({field: getattr(flow, field) for field in DRAFT_CONTENT_FIELDS})
+def snapshot_flow_content(flow: HogFlow, template_cache: Optional[TemplateCache] = None) -> dict:
+    return snapshot_content({field: getattr(flow, field) for field in DRAFT_CONTENT_FIELDS}, template_cache)

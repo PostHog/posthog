@@ -4,40 +4,31 @@ import { useActions, useValues } from 'kea'
 import { IconCopy, IconDatabase, IconOpenSidebar, IconServer, IconShieldLock, IconSparkles } from '@posthog/icons'
 import { ProfilePicture } from '@posthog/lemon-ui'
 
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { IconMenu, IconWithBadge } from 'lib/lemon-ui/icons'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge/LemonBadge'
 import { Link } from 'lib/lemon-ui/Link/Link'
+import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
-import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
-import { RenderKeybind } from '../Shortcuts/ShortcutMenu'
+import { RenderKeybind } from '../Shortcuts/RenderKeybind'
 import { keyBinds } from '../Shortcuts/shortcuts'
 import { openCHQueriesDebugModal } from '../Shortcuts/utils/DebugCHQueries'
+import { healthSummaryLabel } from './healthSummaryLabel'
 import { healthSummaryLogic } from './healthSummaryLogic'
 import { helpMenuLogic } from './helpMenuLogic'
 import { posthogStatusLogic } from './posthogStatusLogic'
-
-function healthTooltip(unsnoozedCount: number, snoozedCount: number): string {
-    if (unsnoozedCount > 0) {
-        return `${unsnoozedCount} health issue${unsnoozedCount === 1 ? '' : 's'}`
-    }
-    if (snoozedCount > 0) {
-        return `${snoozedCount} snoozed health issue${snoozedCount === 1 ? '' : 's'}`
-    }
-    return 'All systems healthy'
-}
 
 export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
@@ -184,7 +175,9 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                             to={urls.health()}
                                             buttonProps={{ menuItem: true }}
                                             tooltip={
-                                                healthSummary ? healthTooltip(unsnoozedCount, snoozedCount) : undefined
+                                                healthSummary
+                                                    ? healthSummaryLabel(unsnoozedCount, snoozedCount)
+                                                    : undefined
                                             }
                                             tooltipPlacement="right"
                                             tooltipCloseDelayMs={0}

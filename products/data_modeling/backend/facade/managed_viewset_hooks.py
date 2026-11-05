@@ -19,12 +19,17 @@ from __future__ import annotations
 
 import dataclasses
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from datetime import timedelta
+from typing import TYPE_CHECKING, Any
+
+from products.data_modeling.backend.logic.freshness import ensure_schedulable
 
 if TYPE_CHECKING:
     from posthog.hogql.database.models import FieldOrTable
 
     from posthog.models.team import Team
+
+DEFAULT_MANAGED_VIEW_SYNC_FREQUENCY = timedelta(hours=12)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -37,9 +42,18 @@ class ProvidedView:
     name: str
     query: str
     fields: dict[str, FieldOrTable]
-    # Materialized views get a 12h sync schedule. A non-materialized view (e.g. engineering
-    # analytics) is computed at query time — no schedule, no S3 table.
+    # Non-materialized views are computed at query time, without a schedule or S3 table.
     materialized: bool = True
+    # One of the schedulable cadence buckets, stored as declared: readers never change it, and a run
+    # is never scheduled finer than the view's sources deliver.
+    sync_frequency: timedelta = DEFAULT_MANAGED_VIEW_SYNC_FREQUENCY
+    # The saved query's ``incremental_config`` blob: a run then upserts the rows past the last
+    # watermark instead of rebuilding the table. None keeps every run a full refresh. A dict rather
+    # than IncrementalConfig because that class imports Django, which this module must not.
+    incremental_config: dict[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        ensure_schedulable(self.sync_frequency)
 
 
 ExpectedViewsProvider = Callable[["Team"], list[ProvidedView]]

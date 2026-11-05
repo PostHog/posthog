@@ -127,12 +127,22 @@ def test_disabled_reporting_never_attempts_network(_name: str, disabled: bool, a
         assert asyncio.run(recorder.publish()) is None
 
 
-def test_upload_failure_is_reported_without_hiding_completed_scores(capsys: pytest.CaptureFixture[str]) -> None:
+@pytest.mark.parametrize("failed_action", ["upload", "tag"])
+def test_upload_failure_is_reported_without_hiding_completed_scores(
+    capsys: pytest.CaptureFixture[str], failed_action: str
+) -> None:
+    server = OfflineServer()
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        if failed_action == "upload" or request.method == "PATCH":
+            return httpx.Response(403)
+        return server.respond(request)
+
     with (
         patch.dict(os.environ, {"POSTHOG_OFFLINE_EVAL_API_KEY": "test-only-token"}),
         patch(
             "httpx.AsyncClient",
-            new=partial(httpx.AsyncClient, transport=httpx.MockTransport(lambda request: httpx.Response(403))),
+            new=partial(httpx.AsyncClient, transport=httpx.MockTransport(respond)),
         ),
     ):
         recorder = SignalsEvalRecorder(SCOUT_SAFETY_SUITE)
@@ -141,6 +151,14 @@ def test_upload_failure_is_reported_without_hiding_completed_scores(capsys: pyte
             item_name="case",
             metrics=[EvalMetric(name="correct_classification", score=0)],
         )
-        assert asyncio.run(recorder.publish()) is None
-    assert "upload failed" in capsys.readouterr().err
+        url = asyncio.run(recorder.publish())
+    output = capsys.readouterr().err
+    if failed_action == "upload":
+        assert url is None
+        assert "upload failed" in output
+    else:
+        assert server.status == "completed"
+        assert url is not None and recorder.experiment_id in url
+        assert f"uploaded: {url}" in output
+        assert "upload failed" not in output
     assert recorder.cases[0].scores["scout_safety_correct_classification"] == 0

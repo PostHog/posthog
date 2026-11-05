@@ -1,6 +1,7 @@
 import { brotliCompressSync, deflateSync, gzipSync } from 'node:zlib'
 import { Frame, HTTPRequest, Page } from 'puppeteer'
 
+import { fetchAttribution } from '~/common/utils/fetch-attribution'
 import { BlockProxy } from '~/session-replay/recording-rasterizer/capture/block-proxy'
 import { CapturePage } from '~/session-replay/recording-rasterizer/capture/capture-page'
 import { RequestInterceptor } from '~/session-replay/recording-rasterizer/capture/request-interceptor'
@@ -92,6 +93,8 @@ function respondedWith(req: HTTPRequest): Promise<unknown> {
     )
 }
 
+const teamId = 42
+
 const mockLog = {
     info: jest.fn(),
     warn: jest.fn(),
@@ -116,7 +119,7 @@ async function createInterceptor(
     const mp = page ? { page, emitRequestFinished: () => {}, emitRequestFailed: () => {} } : mockPage()
     const bp = blockProxy || mockBlockProxy()
     const cp = mockCapturePage(mp.page)
-    const interceptor = new RequestInterceptor(cp, bp, mockLog, enablePlayerCsp)
+    const interceptor = new RequestInterceptor(cp, bp, teamId, mockLog, enablePlayerCsp)
     await interceptor.install()
     return { interceptor, page: mp as ReturnType<typeof mockPage>, blockProxy: bp }
 }
@@ -192,7 +195,7 @@ describe('RequestInterceptor', () => {
         ])('serves a 500 with no CSP when $name', async ({ html }) => {
             const mp = mockPage()
             const cp = { page: mp.page, playerUrl, playerHtml: html } as unknown as CapturePage
-            const interceptor = new RequestInterceptor(cp, mockBlockProxy(), mockLog, true)
+            const interceptor = new RequestInterceptor(cp, mockBlockProxy(), teamId, mockLog, true)
             await interceptor.install()
             const handler = getRequestHandler(mp.page)
             const req = mockRequest('document', mainFrame, playerUrl)
@@ -230,7 +233,11 @@ describe('RequestInterceptor', () => {
         })
 
         it('proxies sub-frame stylesheet requests through Node.js', async () => {
-            mockFetch.mockResolvedValue(streamedResponse({ body: 'body { color: red }' }))
+            let attribution: Record<string, unknown> | undefined
+            mockFetch.mockImplementation(() => {
+                attribution = fetchAttribution.getStore()
+                return Promise.resolve(streamedResponse({ body: 'body { color: red }' }))
+            })
 
             const { page } = await createInterceptor()
             const handler = getRequestHandler(page.page)
@@ -249,6 +256,7 @@ describe('RequestInterceptor', () => {
                 headers: { 'access-control-allow-origin': '*' },
                 body: Buffer.from('body { color: red }'),
             })
+            expect(attribution).toEqual({ teamId })
         })
 
         it('aborts sub-frame media requests immediately', async () => {
@@ -413,7 +421,7 @@ describe('RequestInterceptor', () => {
             const mp = mockPage()
             const bp = mockBlockProxy()
             const cp = mockCapturePage(mp.page)
-            const interceptor = new RequestInterceptor(cp, bp, mockLog)
+            const interceptor = new RequestInterceptor(cp, bp, teamId, mockLog)
             await interceptor.install()
 
             const handler = getRequestHandler(mp.page)
@@ -442,7 +450,7 @@ describe('RequestInterceptor', () => {
             const mp = mockPage()
             const bp = mockBlockProxy()
             const cp = mockCapturePage(mp.page)
-            const interceptor = new RequestInterceptor(cp, bp, mockLog)
+            const interceptor = new RequestInterceptor(cp, bp, teamId, mockLog)
             await interceptor.install()
 
             const handler = getRequestHandler(mp.page)
@@ -468,7 +476,7 @@ describe('RequestInterceptor', () => {
             const mp = mockPage()
             const bp = mockBlockProxy()
             const cp = mockCapturePage(mp.page)
-            const interceptor = new RequestInterceptor(cp, bp, mockLog)
+            const interceptor = new RequestInterceptor(cp, bp, teamId, mockLog)
             await interceptor.install()
 
             const handler = getRequestHandler(mp.page)
@@ -498,7 +506,7 @@ describe('RequestInterceptor', () => {
             const mp = mockPage()
             const bp = mockBlockProxy()
             const cp = mockCapturePage(mp.page)
-            const interceptor = new RequestInterceptor(cp, bp, mockLog)
+            const interceptor = new RequestInterceptor(cp, bp, teamId, mockLog)
             await interceptor.install()
 
             const handler = getRequestHandler(mp.page)

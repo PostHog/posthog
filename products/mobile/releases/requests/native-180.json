@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "native-180",
+    "kind": "native",
+    "runtimeVersion": "1.8.0",
+    "previousRelease": "native-160",
+    "notes": "This release includes formula charts in report summaries and details, Android scrolling fixes for long verdicts, and inbox cache validation. Test sign-in, report charts, verdict scrolling, inbox refresh and pagination, and chats on iOS and Android."
+}

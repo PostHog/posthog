@@ -1010,12 +1010,14 @@ mod tests {
             dependency_stages: vec![vec![1]],
             flags_with_missing_deps: vec![],
             transitive_deps: [(1, Default::default())].into(),
+            ..Default::default()
         };
         let mut cached = live(vec![flag_from_json(base_flag_json(1))]);
         cached.evaluation_metadata = Some(EvaluationMetadata {
             dependency_stages: vec![vec![1]],
             flags_with_missing_deps: vec![1],
             transitive_deps: [(1, Default::default())].into(),
+            ..Default::default()
         });
 
         let diffs = diff_live_entry(&built, &cached);
@@ -1035,6 +1037,7 @@ mod tests {
             dependency_stages: vec![vec![1, 2]],
             flags_with_missing_deps: vec![],
             transitive_deps: [(1, Default::default()), (2, Default::default())].into(),
+            ..Default::default()
         };
         let mut built = wrapper(vec![]);
         built.evaluation_metadata = metadata();

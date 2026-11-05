@@ -1,19 +1,24 @@
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
+from temporalio.client import WorkflowExecutionStatus
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.scoping import team_scope
+from posthog.models.user import User
 
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
@@ -25,6 +30,8 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.recalculation import (
+    RECALCULATION_AGE_LIMIT_FEATURE_FLAG,
+    RECALCULATION_WINDOW_TOO_LONG_MESSAGE,
     RecalculationRateLimited,
     build_timeseries_cold_start_payload,
     get_active_recalculation,
@@ -33,7 +40,9 @@ from products.experiments.backend.recalculation import (
     get_recalculation_by_id,
     get_run_results,
     request_recalculation,
+    request_recalculation_without_age_limit,
 )
+from products.experiments.backend.test.utils import patch_calculation_key_version
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -50,6 +59,27 @@ def _calculation_key(experiment: Experiment, metric_uuid: str) -> str:
     calculation_config = get_metric_calculation_config(experiment, metric_uuid)
     assert calculation_config is not None
     return calculation_config.calculation_key()
+
+
+_RECALCULATION_MODULE = "products.experiments.backend.recalculation"
+
+
+def _workflow_running() -> SimpleNamespace:
+    return SimpleNamespace(status=WorkflowExecutionStatus.RUNNING)
+
+
+def _workflow_closed() -> SimpleNamespace:
+    return SimpleNamespace(status=WorkflowExecutionStatus.COMPLETED)
+
+
+def _workflow_not_found() -> RPCError:
+    return RPCError("workflow not found", RPCStatusCode.NOT_FOUND, b"")
+
+
+def _describe(outcome: SimpleNamespace | Exception) -> AsyncMock:
+    if isinstance(outcome, Exception):
+        return AsyncMock(side_effect=outcome)
+    return AsyncMock(return_value=outcome)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -77,7 +107,7 @@ class TestRecalculationService(BaseTest):
             created_by=self.user,
             feature_flag=self._flag(flag_key),
             name="exp",
-            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+            start_date=timezone.now() - timedelta(days=30),
         )
         exp.metrics = [_mean_metric("m1")]
         exp.save()
@@ -158,6 +188,31 @@ class TestRecalculationService(BaseTest):
         assert 170 <= exc_info.value.wait <= 180
         assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 1
 
+    @parameterized.expand(
+        [
+            ("fresh_latest_is_returned", 1, False),
+            ("stale_latest_starts_new", 13, True),
+        ]
+    )
+    def test_stale_refresh_checks_result_age_with_server_time(
+        self, name: str, query_to_hours_ago: int, expects_new_run: bool
+    ):
+        exp = self._launched_experiment(flag_key=f"stale-{name}")
+        latest = ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status="completed",
+            trigger="manual",
+            query_to=timezone.now() - timedelta(hours=query_to_hours_ago),
+            completed_at=timezone.now() - timedelta(hours=query_to_hours_ago),
+        )
+
+        result = request_recalculation(exp, self.user, "stale_refresh")
+
+        assert result["is_existing"] is not expects_new_run
+        assert (result["id"] == str(latest.id)) is not expects_new_run
+        assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == (2 if expects_new_run else 1)
+
     @override_settings(DEBUG=True, TEST=False)
     @patch("products.experiments.backend.recalculation.feature_enabled_or_false", return_value=True)
     def test_request_recalculation_skips_the_refresh_window_in_local_development(self, _mock_flag):
@@ -193,6 +248,107 @@ class TestRecalculationService(BaseTest):
         assert result["is_existing"] is False
         assert ExperimentMetricsRecalculation.objects.filter(experiment=exp).count() == 2
 
+    @parameterized.expand(
+        [
+            # (name, request function, age-limit flag outcome, experiment age in days, active run age in minutes, expected status)
+            ("flag_off_over_limit_starts_new", request_recalculation, False, 181, None, "pending"),
+            (
+                "flag_error_over_limit_starts_new",
+                request_recalculation,
+                RuntimeError("flags down"),
+                181,
+                None,
+                "pending",
+            ),
+            ("under_limit_starts_new", request_recalculation, True, 179, None, "pending"),
+            ("at_limit_starts_new", request_recalculation, True, 180, None, "pending"),
+            ("over_limit_is_rejected", request_recalculation, True, 181, None, "failed"),
+            ("over_limit_reuses_active_run", request_recalculation, True, 181, 5, "pending"),
+            ("over_limit_fails_a_stale_run", request_recalculation, True, 181, 120, "failed"),
+            ("admin_over_limit_starts_new", request_recalculation_without_age_limit, True, 181, None, "pending"),
+        ]
+    )
+    @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
+    def test_request_recalculation_age_limit(
+        self,
+        name: str,
+        request: Callable[[Experiment, User | None, str], dict],
+        flag_outcome: bool | Exception,
+        age_days: int,
+        active_run_minutes: int | None,
+        expected_status: str,
+    ):
+        def evaluate_flag(key: str, *args, **kwargs) -> bool:
+            if key != RECALCULATION_AGE_LIMIT_FEATURE_FLAG:
+                return False
+            if isinstance(flag_outcome, Exception):
+                raise flag_outcome
+            return flag_outcome
+
+        exp = self._launched_experiment(flag_key=f"age-{name}")
+        exp.start_date = timezone.now() - timedelta(days=age_days)
+        exp.save()
+        previous = ExperimentMetricsRecalculation.objects.create(
+            team=self.team,
+            experiment=exp,
+            status="completed",
+            query_to=timezone.now() - timedelta(days=1),
+            completed_at=timezone.now() - timedelta(days=1),
+        )
+        ExperimentMetricsRecalculation.objects.filter(id=previous.id).update(
+            created_at=timezone.now() - timedelta(days=1)
+        )
+        active = None
+        if active_run_minutes is not None:
+            active = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status="pending")
+            ExperimentMetricsRecalculation.objects.filter(id=active.id).update(
+                created_at=timezone.now() - timedelta(minutes=active_run_minutes)
+            )
+
+        with (
+            patch("products.experiments.backend.recalculation.feature_enabled_or_false", side_effect=evaluate_flag),
+            patch("products.experiments.backend.recalculation.posthoganalytics.capture") as mock_capture,
+            patch(f"{_RECALCULATION_MODULE}._describe_recalculation_workflow", new=_describe(_workflow_not_found())),
+            patch("products.experiments.backend.recalculation._cancel_superseded_workflows") as mock_cancel,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            result = request(exp, self.user, "manual")
+
+        assert result["status"] == expected_status
+        assert result["is_existing"] is (active_run_minutes is not None and expected_status == "pending")
+        if expected_status == "pending":
+            mock_capture.assert_not_called()
+            return
+        if active is not None:
+            active.refresh_from_db()
+            assert active.status == "failed"
+            mock_cancel.assert_called_once_with([str(active.id)])
+
+        row = ExperimentMetricsRecalculation.objects.get(id=result["id"])
+        assert row.completed_at == timezone.now()
+        assert row.query_to == previous.query_to
+        assert row.metric_errors == {
+            "m1": {
+                "step": "request",
+                "message": RECALCULATION_WINDOW_TOO_LONG_MESSAGE,
+                "error_type": "recalculation_window_too_long",
+                "retriable": False,
+                "timestamp": timezone.now().isoformat(),
+            }
+        }
+        assert get_latest_recalculation(exp) == row
+        mock_capture.assert_called_once()
+        assert mock_capture.call_args.kwargs["event"] == "experiment recalculation rejected"
+        assert mock_capture.call_args.kwargs["properties"] == {
+            "experiment_id": exp.id,
+            "team_id": self.team.id,
+            "organization_id": str(self.organization.id),
+            "trigger": "manual",
+            "recalculation_id": result["id"],
+            "experiment_age_days": 181,
+            "max_age_days": 180,
+        }
+
     def test_request_recalculation_is_idempotent(self):
         exp = self._launched_experiment()
         first = request_recalculation(exp, self.user, "manual")
@@ -204,16 +360,30 @@ class TestRecalculationService(BaseTest):
 
     @parameterized.expand(
         [
-            # (name, status, stale_field) — both lifecycle anchors must release the experiment when their
-            # respective timestamp is past the staleness threshold. Without this, a Temporal-connect failure
-            # that also lost its rollback UPDATE permanently locks the experiment out of recalculations.
-            ("pending_stale_by_created_at", "pending", "created_at"),
-            ("in_progress_stale_by_started_at", "in_progress", "started_at"),
+            # (name, status, stale_field, age in minutes, workflow describe outcome, row kept). Both lifecycle
+            # anchors must release the experiment when their timestamp is past the staleness threshold and the
+            # workflow is gone, or a Temporal-connect failure that also lost its rollback UPDATE locks the
+            # experiment out of recalculations. A run whose workflow still runs, or whose state is unknown, keeps
+            # its row until the ceiling, because its calcs can wait in a queue with no time budget.
+            ("pending_stale_by_created_at", "pending", "created_at", 45, _workflow_not_found(), False),
+            ("in_progress_stale_by_started_at", "in_progress", "started_at", 45, _workflow_closed(), False),
+            ("pending_workflow_running", "pending", "created_at", 45, _workflow_running(), True),
+            ("in_progress_workflow_running", "in_progress", "started_at", 45, _workflow_running(), True),
+            ("in_progress_describe_error", "in_progress", "started_at", 45, TimeoutError(), True),
+            ("in_progress_past_ceiling", "in_progress", "started_at", 75, _workflow_running(), False),
         ]
     )
-    def test_request_recalculation_recovers_from_stale_active_row(self, name: str, status: str, stale_field: str):
+    def test_request_recalculation_recovers_from_stale_active_row(
+        self,
+        name: str,
+        status: str,
+        stale_field: str,
+        age_minutes: int,
+        describe_outcome: SimpleNamespace | Exception,
+        row_kept: bool,
+    ):
         exp = self._launched_experiment(flag_key=f"stale-{name}")
-        long_ago = timezone.now() - timedelta(hours=2)
+        long_ago = timezone.now() - timedelta(minutes=age_minutes)
         stale_kwargs: dict = {"team": self.team, "experiment": exp, "status": status}
         if stale_field == "created_at":
             # created_at uses auto_now_add so we have to update after create.
@@ -223,18 +393,32 @@ class TestRecalculationService(BaseTest):
             stale_row = ExperimentMetricsRecalculation.objects.create(**stale_kwargs, started_at=long_ago)
 
         with (
+            patch(
+                f"{_RECALCULATION_MODULE}._describe_recalculation_workflow", new=_describe(describe_outcome)
+            ) as mock_describe,
+            patch(f"{_RECALCULATION_MODULE}.capture_exception") as mock_capture_exception,
             patch("products.experiments.backend.recalculation._cancel_superseded_workflows") as mock_cancel,
             self.captureOnCommitCallbacks(execute=True),
         ):
             result = request_recalculation(exp, self.user, "manual")
 
+        stale_row.refresh_from_db()
+        if row_kept:
+            assert result["is_existing"] is True
+            assert result["id"] == str(stale_row.id)
+            assert stale_row.status == status
+            mock_cancel.assert_not_called()
+            assert mock_capture_exception.called is isinstance(describe_outcome, TimeoutError)
+            return
+
         # A fresh row was created (NOT the stale one), the stale row was marked FAILED, and its workflow
         # was cancelled so it can't keep executing alongside the replacement run.
         assert result["is_existing"] is False
         assert result["id"] != str(stale_row.id)
-        stale_row.refresh_from_db()
         assert stale_row.status == "failed"
         mock_cancel.assert_called_once_with([str(stale_row.id)])
+        # Past the ceiling the row is stale whatever Temporal says, so Temporal is not asked.
+        assert mock_describe.await_count == (0 if age_minutes > 60 else 1)
 
     def test_request_recalculation_does_not_recover_recent_active_row(self):
         # Defensive: a row created N minutes ago (well under the threshold) must still block, no matter the
@@ -305,6 +489,8 @@ class TestRecalculationService(BaseTest):
             ("fresh_in_progress", {"status": "in_progress", "started_at": "now"}, False, True, False),
             ("stale_pending", {"status": "pending"}, True, False, False),
             ("stale_in_progress", {"status": "in_progress", "started_at": "old"}, False, False, False),
+            # Past the staleness threshold but inside the ceiling, with a running workflow: still the active run.
+            ("queued_in_progress", {"status": "in_progress", "started_at": "queued"}, False, True, False),
             ("completed", {"status": "completed"}, False, False, True),
             (
                 "failed_finalized_with_errors",
@@ -332,6 +518,8 @@ class TestRecalculationService(BaseTest):
                 kwargs["started_at"] = timezone.now()
             elif kwargs.get("started_at") == "old":
                 kwargs["started_at"] = timezone.now() - timedelta(hours=2)
+            elif kwargs.get("started_at") == "queued":
+                kwargs["started_at"] = timezone.now() - timedelta(minutes=45)
             if kwargs.get("completed_at") == "now":
                 kwargs["completed_at"] = timezone.now()
             row = ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, **kwargs)
@@ -341,7 +529,8 @@ class TestRecalculationService(BaseTest):
                     created_at=timezone.now() - timedelta(hours=2)
                 )
 
-        active = get_active_recalculation(exp)
+        with patch(f"{_RECALCULATION_MODULE}._describe_recalculation_workflow", new=_describe(_workflow_running())):
+            active = get_active_recalculation(exp)
         latest = get_latest_recalculation(exp)
         assert (active.id if active else None) == (row.id if row and expect_active else None)
         assert (latest.id if latest else None) == (row.id if row and expect_latest else None)
@@ -499,6 +688,10 @@ class TestRecalculationService(BaseTest):
 @pytest.mark.django_db(transaction=True)
 @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
 class TestTimeseriesColdStartPayload(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(patch_calculation_key_version(2))
+
     def _flag(self, key: str) -> FeatureFlag:
         return FeatureFlag.objects.create(
             team=self.team,
@@ -523,7 +716,14 @@ class TestTimeseriesColdStartPayload(BaseTest):
     def _config_fp(self, exp: Experiment, metric_uuid: str) -> str:
         return _calculation_key(exp, metric_uuid)
 
-    def _timeseries_point(self, exp: Experiment, metric_uuid: str, query_to: datetime, result: dict | None) -> None:
+    def _timeseries_point(
+        self,
+        exp: Experiment,
+        metric_uuid: str,
+        query_to: datetime,
+        result: dict | None,
+        completed_at: datetime | None = None,
+    ) -> None:
         assert exp.start_date is not None
         ExperimentMetricResult.objects.create(
             experiment=exp,
@@ -533,6 +733,7 @@ class TestTimeseriesColdStartPayload(BaseTest):
             query_to=query_to,
             status="completed" if result is not None else "failed",
             result=result,
+            completed_at=completed_at,
         )
 
     def test_returns_none_when_no_timeseries_data(self):
@@ -572,26 +773,56 @@ class TestTimeseriesColdStartPayload(BaseTest):
 
     @parameterized.expand(
         [
-            ("fresh_point", timedelta(hours=23), True),
-            ("stale_point", timedelta(hours=25), False),
+            ("fresh_point", timedelta(hours=23), None, True),
+            ("stale_point", timedelta(hours=25), None, False),
             # The backfill writes end-of-day points, so today's point can sit in the future.
-            ("future_point", timedelta(hours=-10), False),
+            ("future_point", timedelta(hours=-10), None, False),
+            # An ended experiment's point that reaches the end date is its final result, however old.
+            ("ended_with_a_point_at_the_end_date", timedelta(days=3), timedelta(days=3), True),
+            # A point before the end date misses the final hours, so a cold run must compute them.
+            ("ended_with_a_stale_point_before_the_end_date", timedelta(days=4), timedelta(days=3), False),
+            # A backfill stamps the end of the day it ran on, so its data stops at completed_at, before the end date.
+            (
+                "ended_with_a_backfill_point_computed_before_the_end_date",
+                timedelta(days=3) - timedelta(hours=6),
+                timedelta(days=3),
+                False,
+                timedelta(days=3) + timedelta(hours=8),
+            ),
         ]
     )
-    def test_only_points_inside_the_max_age_feed_the_fallback(self, _name: str, age: timedelta, included: bool):
+    def test_only_points_inside_the_max_age_feed_the_fallback(
+        self,
+        _name: str,
+        age: timedelta,
+        ended_ago: timedelta | None,
+        included: bool,
+        completed_ago: timedelta | None = None,
+    ) -> None:
         exp = self._experiment(f"ts-age-{_name}", ["m1"])
-        self._timeseries_point(exp, "m1", timezone.now() - age, {"ok": True})
+        if ended_ago is not None:
+            exp.end_date = timezone.now() - ended_ago
+            exp.save()
+        completed_at = timezone.now() - completed_ago if completed_ago is not None else None
+        self._timeseries_point(exp, "m1", timezone.now() - age, {"ok": True}, completed_at=completed_at)
 
         payload = build_timeseries_cold_start_payload(exp)
         assert (payload is not None) == included
 
-    def test_config_fingerprint_mismatch_yields_no_point(self):
-        exp = self._experiment("ts-drift", ["m1"])
-        # Store a point under a stale fingerprint, then change config so the recomputed fp won't match.
+    @parameterized.expand(
+        [
+            # An exclusion changes both keys, so neither the current nor the version 1 key finds the point.
+            ("excluded_variants", {"excluded_variants": ["test"]}),
+            # The version 1 key ignores the credible interval, but the point carries the current key of the old
+            # settings, so the version 1 fallback does not find it either.
+            ("credible_interval", {"stats_config": {"bayesian": {"ci_level": 0.9}}}),
+        ]
+    )
+    def test_a_settings_edit_after_the_point_yields_no_point(self, _name: str, changes: dict) -> None:
+        exp = self._experiment(f"ts-drift-{_name}", ["m1"])
         self._timeseries_point(exp, "m1", timezone.now() - timedelta(hours=1), {"ok": True})
-        exp.exposure_criteria = {"filterTestAccounts": True}
-        exp.save()
-        assert build_timeseries_cold_start_payload(exp) is None
+        Experiment.objects.filter(pk=exp.pk).update(**changes)
+        assert build_timeseries_cold_start_payload(Experiment.objects.get(pk=exp.pk)) is None
 
 
 @pytest.mark.django_db(transaction=True)

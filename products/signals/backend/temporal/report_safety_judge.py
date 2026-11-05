@@ -239,11 +239,12 @@ async def judge_report_safety(
     return SafetyJudgeResponse(choice=True)
 
 
-@dataclass
+@dataclass(frozen=False)
 class SafetyJudgeInput:
     team_id: int
     report_id: str
     signals: list[SignalData]
+    signal_id: str | None = None
 
 
 @dataclass
@@ -258,7 +259,7 @@ class SafetyJudgeOutput:
 async def report_safety_judge_activity(input: SafetyJudgeInput) -> SafetyJudgeOutput:
     """Assess report for prompt injection attacks and store result as artefact."""
     try:
-        signal_id = await database_sync_to_async(report_triggering_signal)(
+        signal_id = input.signal_id or await database_sync_to_async(report_triggering_signal)(
             team_id=input.team_id, report_id=input.report_id, ch_user=ClickHouseUser.SIGNALS
         )
     except Exception:

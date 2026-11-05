@@ -13,7 +13,9 @@
 //!
 //! Each test deletes its topics on the way out via `with_topics_cleanup`.
 
-use std::collections::HashSet;
+mod support;
+
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
@@ -21,6 +23,7 @@ use std::time::{Duration, Instant};
 
 use chrono_tz::UTC;
 use cohort_stream_processor::cascade::{first_cascade, CascadeMessage};
+use cohort_stream_processor::config::Config;
 use cohort_stream_processor::consumers::{
     CascadeRoute, CohortStreamEventsConsumer, EventDispatcher, FollowerConsumer, MergeRoute,
     TransferRoute,
@@ -29,8 +32,9 @@ use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFiltersBuilder, TeamId,
 };
 use cohort_stream_processor::partitions::{
-    merge_partition_key, partition_of, run_rebalance_worker, CohortConsumerContext, Follower,
-    FollowerSet, OffsetTracker, PartitionRouter, COHORT_PARTITION_COUNT,
+    merge_partition_key, partition_of, AdmittedSplit, ClaimedSplit, CohortConsumerContext,
+    Follower, FollowerSet, InputGroups, OffsetTracker, PartitionOwnership, PartitionRouter,
+    SplitClaim, COHORT_PARTITION_COUNT,
 };
 use cohort_stream_processor::producer::{
     CascadeSink, CohortMembershipChange, KafkaCascadeSink, KafkaMembershipSink,
@@ -44,20 +48,21 @@ use cohort_stream_processor::workers::{
     CascadeConfig, MergeWorkerDeps, TransferRetryPolicy, DEFAULT_MERGE_GC_SCAN_LIMIT,
 };
 use common_kafka::config::KafkaConfig;
+use envconfig::Envconfig;
 use futures::FutureExt;
 use lifecycle::{ComponentOptions, Handle, Manager};
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::client::DefaultClientContext;
 use rdkafka::consumer::{Consumer, StreamConsumer};
-use rdkafka::message::Message;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
-use rdkafka::{ClientConfig, Offset, TopicPartitionList};
+use rdkafka::ClientConfig;
 use serde_json::json;
 use tempfile::TempDir;
-use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
+
+use support::{bootstrap_servers, consume_all};
 
 const TEAM: i32 = 7;
 const A_HASH: &str = "aaaaaaaaaaaaaaaa";
@@ -65,10 +70,6 @@ const NUM_PARTITIONS: i32 = COHORT_PARTITION_COUNT as i32;
 const TS: &str = "2026-06-10 12:34:56.789000";
 const COMMIT_INTERVAL: Duration = Duration::from_millis(250);
 const RECV_TIMEOUT: Duration = Duration::from_millis(200);
-
-fn bootstrap_servers() -> String {
-    std::env::var("KAFKA_HOSTS").unwrap_or_else(|_| "localhost:9092".to_string())
-}
 
 /// Cohort 2 (A): single `performed_event` on `$a`. Cohort 1 (B): pure cohort-ref to A.
 /// With the cascade gate on, B is `Stage2ComposableRef` — only a cascade from A can flip it,
@@ -206,9 +207,7 @@ fn events_client_config(group: &str) -> ClientConfig {
         .set("group.id", group)
         .set("enable.auto.commit", "false")
         .set("enable.auto.offset.store", "false")
-        .set("auto.offset.reset", "earliest")
-        .set("partition.assignment.strategy", "cooperative-sticky")
-        .set("session.timeout.ms", "6000");
+        .set("auto.offset.reset", "earliest");
     config
 }
 
@@ -238,38 +237,6 @@ fn topic_message_count(topic: &str) -> i64 {
             high - low
         })
         .sum()
-}
-
-/// Read up to `expected` messages (all partitions from the beginning). Assigned explicitly — no group
-/// join, no commit.
-async fn consume_all(topic: &str, expected: usize, deadline: Duration) -> Vec<(i32, Vec<u8>)> {
-    let consumer: StreamConsumer = ClientConfig::new()
-        .set("bootstrap.servers", bootstrap_servers())
-        .set("group.id", format!("scan-verifier-{}", Uuid::new_v4()))
-        .set("enable.auto.commit", "false")
-        .create()
-        .expect("create scan verifier");
-    let mut tpl = TopicPartitionList::new();
-    for partition in 0..NUM_PARTITIONS {
-        tpl.add_partition_offset(topic, partition, Offset::Beginning)
-            .expect("add partition to scan TPL");
-    }
-    consumer.assign(&tpl).expect("assign scan verifier");
-
-    let mut messages = Vec::new();
-    let start = Instant::now();
-    while messages.len() < expected && start.elapsed() < deadline {
-        match tokio::time::timeout(Duration::from_secs(2), consumer.recv()).await {
-            Ok(Ok(message)) => {
-                if let Some(payload) = message.payload() {
-                    messages.push((message.partition(), payload.to_vec()));
-                }
-            }
-            Ok(Err(err)) => panic!("scan verifier recv error: {err}"),
-            Err(_) => {}
-        }
-    }
-    messages
 }
 
 async fn wait_for(what: &str, deadline: Duration, mut condition: impl FnMut() -> bool) {
@@ -383,6 +350,37 @@ impl Groups {
             cascade: format!("cohort-stream-cascade-{suffix}"),
         }
     }
+
+    /// The processor config that reads `topics` through these groups.
+    fn config(&self, topics: &Topics) -> Config {
+        let mut config = Config::init_from_hashmap(&HashMap::new()).expect("default config");
+        config.kafka_hosts = bootstrap_servers();
+        config.cohort_stream_events_topic = topics.events.clone();
+        config.kafka_consumer_group = self.events.clone();
+        config.person_merge_events_topic = topics.merges.clone();
+        config.kafka_merge_consumer_group = self.merges.clone();
+        config.cohort_merge_state_transfer_topic = topics.transfers.clone();
+        config.kafka_merge_apply_consumer_group = self.transfers.clone();
+        config.cohort_cascade_enabled = true;
+        config.cohort_cascade_events_topic = topics.cascade.clone();
+        config.kafka_cascade_consumer_group = self.cascade.clone();
+        config
+    }
+}
+
+/// Admits and claims `ownership` through the ownership fence on the groups `config` names, as the
+/// processor does at boot.
+async fn claim(config: Config, ownership: PartitionOwnership) -> ClaimedSplit {
+    let claim = SplitClaim::new(ownership, None).expect("a split outside a reshard");
+    tokio::task::spawn_blocking(move || {
+        let groups = InputGroups::new(&config);
+        AdmittedSplit::try_admit(claim, &groups)
+            .expect("the fence admits the split")
+            .claim(&groups)
+            .expect("claim the owned partitions")
+    })
+    .await
+    .expect("the claim panicked")
 }
 
 fn register_instance(manager: &mut Manager) -> [Handle; 4] {
@@ -502,32 +500,29 @@ async fn spawn_instance(
             .create()
             .expect("create cascade follower consumer"),
     );
-    let followers = Arc::new(FollowerSet::new([
+    let claimed = claim(
+        groups.config(topics),
+        PartitionOwnership::single(NUM_PARTITIONS as u16),
+    )
+    .await;
+    FollowerSet::new([
         Follower::new(merges_consumer.clone(), topics.merges.clone()),
         Follower::new(transfers_consumer.clone(), topics.transfers.clone()),
         Follower::new(cascade_consumer.clone(), topics.cascade.clone()),
-    ]));
+    ])
+    .assign(&claimed)
+    .expect("assign the followers");
 
-    let (context, rebalance_rx) = CohortConsumerContext::new(dispatcher.clone());
     let events_client: StreamConsumer<CohortConsumerContext> = events_client_config(&groups.events)
-        .create_with_context(context)
+        .create_with_context(CohortConsumerContext)
         .expect("create events consumer");
-    events_client
-        .subscribe(&[topics.events.as_str()])
-        .expect("subscribe events");
 
-    let (command_tx, command_rx) = mpsc::unbounded_channel();
-    let mut tasks = vec![tokio::spawn(run_rebalance_worker(
-        rebalance_rx,
-        dispatcher.clone(),
-        followers,
-        command_tx,
-        events_handle.shutdown_token(),
-    ))];
+    let mut tasks = Vec::new();
 
     let merge_follower = FollowerConsumer::<MergeRoute>::new(
         merges_consumer,
         topics.merges.clone(),
+        claimed.stamp(),
         dispatcher.clone(),
         merge_handle,
         100,
@@ -539,6 +534,7 @@ async fn spawn_instance(
     let transfer_follower = FollowerConsumer::<TransferRoute>::new(
         transfers_consumer,
         topics.transfers.clone(),
+        claimed.stamp(),
         dispatcher.clone(),
         transfer_handle,
         100,
@@ -550,6 +546,7 @@ async fn spawn_instance(
     let cascade_follower = FollowerConsumer::<CascadeRoute>::new(
         cascade_consumer,
         topics.cascade.clone(),
+        claimed.stamp(),
         dispatcher.clone(),
         cascade_handle,
         100,
@@ -566,10 +563,10 @@ async fn spawn_instance(
         100,
         RECV_TIMEOUT,
         COMMIT_INTERVAL,
-        NUM_PARTITIONS as usize,
-        command_rx,
+        &claimed,
         None,
-    );
+    )
+    .expect("assign cohort_stream_events");
     tasks.push(tokio::spawn(events_consumer.process()));
 
     Instance { dispatcher, tasks }

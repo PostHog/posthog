@@ -17,7 +17,10 @@ import { moduleKey } from './loggedOutScenes.mjs'
  * identity specifier (`@c/<identity>`) instead of a hashed path. An import map, rendered by the
  * backend, resolves each identity to its current file. A chunk's identity comes from the source
  * modules it contains, so it does not change when their code changes. A chunk's file name is a
- * hash of its own rewritten bytes, so it changes only when its own code changes.
+ * hash of its own rewritten and minified bytes, so it changes only when its own code changes.
+ *
+ * The app build does not minify identifiers. This step minifies each copy on its own, for the reason
+ * in minifySeparately.
  *
  * The copies sit next to esbuild's files in `dist/`, because some chunks resolve workers and wasm
  * files relative to `import.meta.url`. Their names (`<prefix>-S<10 hex>.js`) cannot collide with
@@ -77,6 +80,15 @@ export function alphanumericStem(name) {
     return name.replace(/[^A-Za-z0-9]+(.?)/g, (_, next) => next.toUpperCase())
 }
 
+/**
+ * Shifts a source map's mappings down by the one line a prelude occupies. A `;` with no VLQ
+ * segments before it marks that first generated line as empty, so everything the original map
+ * described moves down to line two.
+ */
+export function shiftMappingsForPrelude(mappings) {
+    return `;${mappings}`
+}
+
 export function stableFileName(originalFile, rewrittenSource) {
     const prefix = originalFile.replace(/-[^-./]+\.js$/, '')
     // Only holds because chunkNames/entryNames in common/esbuilder/utils.mjs are `[name]-[hash]` for non-dev builds.
@@ -93,8 +105,7 @@ export function stableFileName(originalFile, rewrittenSource) {
  *
  * `preludes` maps an output path to a function of its specifier that returns the chunk's first line.
  *
- * Returns, per JS output, its identity, stable file name and rewritten source, plus the import
- * map.
+ * Returns, per JS output, its identity and rewritten source.
  */
 export function planStableChunks(outputs, readSource, distPrefix = 'dist/', preludes = new Map()) {
     const jsOutputs = Object.entries(outputs).filter(([outputPath]) => outputPath.endsWith('.js'))
@@ -118,7 +129,6 @@ export function planStableChunks(outputs, readSource, distPrefix = 'dist/', prel
 
     const cssChunkFiles = new Set([...preludes.keys()].map(fileOf))
     const plan = new Map()
-    const imports = {}
     for (const [outputPath] of jsOutputs) {
         const file = fileOf(outputPath)
         const rawSource = readSource(outputPath)
@@ -130,11 +140,9 @@ export function planStableChunks(outputs, readSource, distPrefix = 'dist/', prel
         const identity = identityByFile.get(file)
         const prelude = preludes.get(outputPath)?.(`${SPECIFIER_PREFIX}${identity}`) ?? null
         const finalSource = prelude ? `${prelude}\n${source}` : source
-        const stableFile = stableFileName(file, finalSource)
-        plan.set(outputPath, { identity, file, stableFile, source: finalSource, mapValid, prelude })
-        imports[`${SPECIFIER_PREFIX}${identity}`] = `static/${stableFile}`
+        plan.set(outputPath, { identity, file, source: finalSource, mapValid, prelude })
     }
-    return { plan, imports }
+    return { plan }
 }
 
 /**
@@ -194,9 +202,12 @@ export function loggedOutSpecifiers(
  * manifest the backend reads. `chunks` is the chunk map (scene name -> esbuild chunk hashes) and
  * `entrypoints` the absolute paths of the entry files, as `buildOrWatch` returns them. `loggedOut`
  * holds the options for loggedOutSpecifiers. Without it, every page gets the full import map.
+ * `sourceDir` holds the build's unminified chunks and their maps, when they are no longer in `dist/`.
  */
-export function writeStableChunks({
+export async function writeStableChunks({
     absWorkingDir,
+    sourceDir = path.resolve(absWorkingDir, 'dist'),
+    target,
     outputs,
     chunks,
     entrypoints,
@@ -207,52 +218,90 @@ export function writeStableChunks({
     loggedOut = null,
 }) {
     const distDir = path.resolve(absWorkingDir, 'dist')
-    const { plan, imports } = planStableChunks(
+    const sourceOf = (file) => path.resolve(sourceDir, file)
+    const { plan } = planStableChunks(
         outputs,
-        (outputPath) => fs.readFileSync(path.resolve(absWorkingDir, outputPath), 'utf8'),
+        (outputPath) => fs.readFileSync(sourceOf(outputPath.slice('dist/'.length)), 'utf8'),
         'dist/',
         preludes
     )
-    Object.assign(imports, extraImports)
 
-    const stableByFile = new Map([...plan.values()].map((entry) => [entry.file, entry.stableFile]))
-    for (const { file, stableFile, source, mapValid, prelude } of plan.values()) {
-        const mapFile = path.resolve(distDir, `${file}.map`)
-        // A rewrite that changed the source's length invalidates the map's byte offsets, so serve
-        // the source with no map rather than one that points at the wrong columns.
-        const hasMap = fs.existsSync(mapFile) && mapValid
-        fs.writeFileSync(
-            path.resolve(distDir, stableFile),
-            hasMap ? `${source}\n//# sourceMappingURL=${stableFile}.map\n` : source
-        )
-        if (hasMap && prelude) {
-            const map = JSON.parse(fs.readFileSync(mapFile, 'utf8'))
-            map.mappings = `;${map.mappings}`
-            fs.writeFileSync(path.resolve(distDir, `${stableFile}.map`), JSON.stringify(map))
-        } else if (hasMap) {
-            fs.copyFileSync(mapFile, path.resolve(distDir, `${stableFile}.map`))
+    // A sibling of dist/, so the relative source paths in the maps resolve the same way.
+    const rewrittenDir = path.resolve(absWorkingDir, '.stable-chunks-rewritten')
+    fs.rmSync(rewrittenDir, { recursive: true, force: true })
+    fs.mkdirSync(rewrittenDir)
+    try {
+        const hasMapByFile = new Map()
+        for (const { file, source, mapValid, prelude } of plan.values()) {
+            const mapFile = sourceOf(`${file}.map`)
+            // A rewrite that changed the source's length invalidates the map's byte offsets, so serve
+            // the source with no map rather than one that points at the wrong columns.
+            const hasMap = fs.existsSync(mapFile) && mapValid
+            hasMapByFile.set(file, hasMap)
+            fs.writeFileSync(
+                path.resolve(rewrittenDir, file),
+                hasMap ? `${source}\n//# sourceMappingURL=${file}.map\n` : source
+            )
+            if (hasMap) {
+                const map = JSON.parse(fs.readFileSync(mapFile, 'utf8'))
+                if (prelude) {
+                    map.mappings = shiftMappingsForPrelude(map.mappings)
+                }
+                fs.writeFileSync(path.resolve(rewrittenDir, `${file}.map`), JSON.stringify(map))
+            }
         }
-    }
 
-    const toStable = (file) => stableByFile.get(file) ?? file
-    const chunkId = (file) => file.replace(/^chunk-/, '').replace(/\.js$/, '')
-    const stableChunks = Object.fromEntries(
-        Object.entries(chunks).map(([name, list]) => [name, list.map((hash) => chunkId(toStable(`chunk-${hash}.js`)))])
-    )
-    const stableEntrypoints = entrypoints.map((entrypoint) =>
-        entrypoint.endsWith('.js') ? path.resolve(distDir, toStable(path.relative(distDir, entrypoint))) : entrypoint
-    )
-    const toStableUrl = (url) => `static/${toStable(url.replace(/^static\//, ''))}`
-    const manifest = {
-        imports,
-        eagerCss: eagerCss.map((file) => `static/${file}`),
-        // The backend renders only these import map entries for a logged-out page.
-        loggedOutImports: loggedOut ? loggedOutSpecifiers(outputs, plan, loggedOut) : null,
-        preload: {
-            js: (preloadManifest?.js || []).map(toStableUrl),
-            authenticatedJs: (preloadManifest?.authenticatedJs || []).map(toStableUrl),
-        },
+        // Imported here, not at the top: esbuild refuses to load under jsdom, where the planning tests run.
+        const { minifySeparately } = await import('@posthog/esbuilder/minify.mjs')
+        const minified = await minifySeparately(
+            [...plan.values()].map(({ file }) => path.resolve(rewrittenDir, file)),
+            { inputDir: rewrittenDir, outdir: distDir, target }
+        )
+        const imports = {}
+        const stableByFile = new Map()
+        for (const { identity, file } of plan.values()) {
+            const { code, map } = minified.get(path.resolve(rewrittenDir, file))
+            const stableFile = stableFileName(file, code)
+            const hasMap = hasMapByFile.get(file)
+            fs.writeFileSync(
+                path.resolve(distDir, stableFile),
+                hasMap ? `${code}//# sourceMappingURL=${stableFile}.map\n` : code
+            )
+            if (hasMap) {
+                fs.writeFileSync(path.resolve(distDir, `${stableFile}.map`), map)
+            }
+            imports[`${SPECIFIER_PREFIX}${identity}`] = `static/${stableFile}`
+            stableByFile.set(file, stableFile)
+        }
+        Object.assign(imports, extraImports)
+
+        const toStable = (file) => stableByFile.get(file) ?? file
+        const chunkId = (file) => file.replace(/^chunk-/, '').replace(/\.js$/, '')
+        const stableChunks = Object.fromEntries(
+            Object.entries(chunks).map(([name, list]) => [
+                name,
+                list.map((hash) => chunkId(toStable(`chunk-${hash}.js`))),
+            ])
+        )
+        const stableEntrypoints = entrypoints.map((entrypoint) =>
+            entrypoint.endsWith('.js')
+                ? path.resolve(distDir, toStable(path.relative(distDir, entrypoint)))
+                : entrypoint
+        )
+        const toStableUrl = (url) => `static/${toStable(url.replace(/^static\//, ''))}`
+        const manifest = {
+            imports,
+            eagerCss: eagerCss.map((file) => `static/${file}`),
+            // The backend renders only these import map entries for a logged-out page.
+            loggedOutImports: loggedOut ? loggedOutSpecifiers(outputs, plan, loggedOut) : null,
+            preload: {
+                js: (preloadManifest?.js || []).map(toStableUrl),
+                authenticatedJs: (preloadManifest?.authenticatedJs || []).map(toStableUrl),
+            },
+        }
+        fs.writeFileSync(path.resolve(distDir, 'stable-chunks-manifest.json'), JSON.stringify(manifest))
+        return { chunks: stableChunks, entrypoints: stableEntrypoints, eagerCss, manifest }
+    } finally {
+        fs.rmSync(rewrittenDir, { recursive: true, force: true })
     }
-    fs.writeFileSync(path.resolve(distDir, 'stable-chunks-manifest.json'), JSON.stringify(manifest))
-    return { chunks: stableChunks, entrypoints: stableEntrypoints, eagerCss, manifest }
 }

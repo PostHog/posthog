@@ -7,6 +7,7 @@ from uuid import UUID
 
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 
+from posthog.api.tagged_item import current_tag_names
 from posthog.dataclasses import frozen
 
 from products.messaging.backend.models.message_template import MessageTemplate
@@ -36,9 +37,12 @@ class MessageTemplateRow:
     deleted: bool
     transactional_hog_flow_id: UUID | None
     draft_content: dict[str, Any] | None
+    sensitive: bool
+    # Tag names, sorted. Keeps its default last, so every field without one stays above it.
+    tags: tuple[str, ...] = ()
 
 
-def _to_contract(row: MessageTemplate) -> MessageTemplateRow:
+def _to_contract(row: MessageTemplate, *, with_tags: bool = True) -> MessageTemplateRow:
     return MessageTemplateRow(
         id=row.id,
         name=row.name,
@@ -52,6 +56,8 @@ def _to_contract(row: MessageTemplate) -> MessageTemplateRow:
         deleted=row.deleted,
         transactional_hog_flow_id=row.transactional_hog_flow_id,
         draft_content=row.draft_content,
+        sensitive=row.sensitive,
+        tags=tuple(sorted(current_tag_names(row))) if with_tags else (),
     )
 
 
@@ -60,9 +66,10 @@ def list_templates(team_id: int) -> Sequence[MessageTemplateRow]:
     return LazyList(templates_service.team_templates(team_id), _to_contract)
 
 
-def get_template(team_id: int, template_id: UUID | str) -> MessageTemplateRow:
+def get_template(team_id: int, template_id: UUID | str, *, with_tags: bool = True) -> MessageTemplateRow:
+    """The team's template that is not deleted. Without `with_tags`, `tags` stays empty and no tag query runs."""
     try:
-        return _to_contract(templates_service.team_template(team_id, template_id))
+        return _to_contract(templates_service.team_template(team_id, template_id), with_tags=with_tags)
     except (MessageTemplate.DoesNotExist, ValidationError, ValueError, TypeError) as e:
         raise MessageTemplateMissing() from e
 

@@ -24,12 +24,14 @@ from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_cache_key, calculate_for_query_based_insight
 from posthog.caching.insight_result import InsightResult, NothingInCacheResult
 from posthog.models import Team, User
+from posthog.models.utils import strip_null_bytes
+from posthog.query_creator_access import CreatorLeftOrganizationError, assert_creator_can_run
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.models.subscription import Subscription
-from products.subscriptions.backend.temporal.delivery_common import strip_null_bytes
 from products.subscriptions.backend.temporal.types import MISSING_QUERY_ERROR_TYPE, safe_error_message
 
 logger = structlog.get_logger(__name__)
@@ -100,7 +102,7 @@ def _serialize_insight_result(result: InsightResult) -> dict[str, Any]:
     #   over-trigger on literal escape text in the data, which is harmless — the walk then finds none.
     #
     # The AI-report path scrubs unconditionally instead, since those payloads are small (see
-    # delivery_common.strip_null_bytes callers).
+    # the strip_null_bytes calls in ai_subscription/activities.py).
     if b"\\u0000" in dumped:
         parsed = strip_null_bytes(parsed)
     return parsed
@@ -138,7 +140,7 @@ def _extract_value_format(query_json: Any) -> dict[str, Any] | None:
     The summarizer uses this to render metric values the way the chart does, so the AI
     summary reads "4d 4h" instead of a raw "360000". Returns None when no non-default
     format is configured. Mirrors the trendsFilter fields read by
-    frontend/src/scenes/insights/aggregationAxisFormat.ts.
+    frontend/src/lib/insights/aggregationAxisFormat.ts.
     """
     if not isinstance(query_json, dict):
         return None
@@ -188,6 +190,16 @@ def _execute_and_serialize_insight_query(
     query_json: Any,
 ) -> dict[str, Any]:
     """Run cache/calculate path and return snapshot fields to merge (``query_*`` / ``cache_key`` only)."""
+    # Same rule as the export: no query runs for an owner who left or who cannot view the insight.
+    try:
+        assert_creator_can_run(user, team, dashboard, insight)
+    except (CreatorLeftOrganizationError, UserAccessControlError) as error:
+        # Both messages are ours and name no query data, so they are safe to show as they are.
+        return {
+            "query_results": None,
+            "cache_key": None,
+            "query_error": {"type": type(error).__name__, "message": str(error), "human_readable_error": str(error)},
+        }
     try:
         insight_result = calculate_for_query_based_insight(
             insight,
@@ -273,6 +285,13 @@ def build_insight_delivery_snapshot(
 
     base["comparison_enabled"] = _has_comparison_enabled(query_json)
     base["value_format"] = _extract_value_format(query_json)
+    source = query_json.get("source") or query_json
+    if source.get("kind") == "EventsQuery":
+        # Event lists omit resolved_date_range; weekly delivery must not imply a weekly data window.
+        base["query_date_range"] = {
+            "date_from": source.get("after") or "-24h",
+            "date_to": source.get("before") or "now",
+        }
     base.update(
         _execute_and_serialize_insight_query(
             insight=insight,

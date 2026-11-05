@@ -518,6 +518,29 @@ class TestSelectCoarsenTarget:
 
     @parameterized.expand(
         [
+            # (name, count, target_bytes, min_count, preferred_count, expected_count)
+            ("nearest_divisor_below_the_target", 85, 10_000, 4, 8, 5),
+            ("nearest_divisor_above_the_target", 100, 10_000, 4, 8, 10),
+            ("a_tie_keeps_the_finer_layout", 60, 10_000, 4, 8, 10),
+            ("a_divisor_under_the_floor_never_wins", 96, 10_000, 4, 1, 4),
+            ("the_size_cap_overrides_the_preference", 64, 400, 4, 4, 8),
+            ("no_preference_keeps_the_coarsest_fit", 64, 10_000, 1, None, 1),
+        ]
+    )
+    def test_md5_count_bounds(self, _name, count, target_bytes, min_count, preferred_count, expected_count):
+        target, reason = select_coarsen_target(
+            _schema(partition_mode="md5", partition_count=count, partitioning_keys=["id"]),
+            {str(bucket): 50 for bucket in range(count)},
+            target_bytes,
+            min_md5_count=min_count,
+            preferred_md5_count=preferred_count,
+        )
+        assert reason == "selected"
+        assert target is not None
+        assert target.partition_count == expected_count
+
+    @parameterized.expand(
+        [
             ("hour", "day"),
             ("hour", "week"),
             ("hour", "month"),

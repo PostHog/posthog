@@ -181,6 +181,7 @@ class TestCreateExperimentTool(APIBaseTest):
             "variant_count": 2,
             "created_at": ANY,
             "creation_mode": "new",
+            "is_imported": False,
             "source": EventSource.POSTHOG_AI,
         }
         assert mock_report_user_action.call_args.kwargs["team"] == self.team
@@ -727,7 +728,7 @@ class TestExperimentSummaryTool(APIBaseTest):
         # Denied before any metric queries run
         tool = self._create_tool({})
         with patch.object(tool, "user_access_control") as mock_uac:
-            mock_uac.check_access_level_for_object.return_value = False
+            mock_uac.check_access_level_for_ref.return_value = False
             with self.assertRaises(MaxToolAccessDeniedError):
                 await tool._arun_impl(experiment_id=experiment.id)
 
