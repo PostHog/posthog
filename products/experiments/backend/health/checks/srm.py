@@ -19,7 +19,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
     ExperimentHealthValueKey,
 )
-from products.experiments.backend.health.checks.bias_risk import MULTIPLE_VARIANT_KEY
+from products.experiments.backend.health.checks.bias_risk import multiple_variant_count
 from products.experiments.backend.health.checks.forced_variant import (
     SOME_CONDITIONS_PINNED,
     assigns_nobody_by_split,
@@ -142,11 +142,14 @@ def srm_values(ctx: HealthContext) -> CheckValues:
     # The test compares the variants of `sample_ratio_expected`. Below its minimum the test doesn't run and leaves that
     # empty, so the variants come from the split, as the exposure query picks them.
     compared = exposures.sample_ratio_expected.keys() or _variants_in_split(ctx)
-    return {
+    values: dict[ExperimentHealthValueKey, int | float | None] = {
         ExperimentHealthValueKey.P_VALUE: exposures.sample_ratio_mismatch_p_value,
         ExperimentHealthValueKey.COMPARED_COUNT: sum(exposures.total_exposures.get(key, 0) for key in compared),
-        ExperimentHealthValueKey.MULTIPLE_VARIANT_COUNT: exposures.total_exposures.get(MULTIPLE_VARIANT_KEY, 0),
     }
+    multiple = multiple_variant_count(exposures)
+    if multiple is not None:
+        values[ExperimentHealthValueKey.MULTIPLE_VARIANT_COUNT] = multiple
+    return values
 
 
 def _variants_in_split(ctx: HealthContext) -> list[str]:

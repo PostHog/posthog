@@ -85,15 +85,22 @@ def evaluate_bias_risk(
     return BiasRisk(multiple_variant_percentage=share)
 
 
+def multiple_variant_count(exposures: ExposureTotals) -> int | None:
+    """The users exposed to more than one variant, or None under "First seen". There the exposure query gives each user
+    their first variant, so it counts none of these users."""
+    if exposures.multiple_variant_handling != MultipleVariantHandling.EXCLUDE:
+        return None
+    return exposures.total_exposures.get(MULTIPLE_VARIANT_KEY, 0)
+
+
 def multiple_variant_values(exposures: ExposureTotals) -> CheckValues:
     """The users exposed to more than one variant, which the bias and the multiple variants checks read."""
     values: dict[ExperimentHealthValueKey, int | float | str | None] = {
         ExperimentHealthValueKey.EXPOSED_COUNT: exposures.total,
         ExperimentHealthValueKey.MULTIPLE_VARIANT_HANDLING: exposures.multiple_variant_handling.value,
     }
-    # Under "First seen" the exposure query gives each user their first variant, so it counts none of these users.
-    if exposures.multiple_variant_handling == MultipleVariantHandling.EXCLUDE:
-        multiple = exposures.total_exposures.get(MULTIPLE_VARIANT_KEY, 0)
+    multiple = multiple_variant_count(exposures)
+    if multiple is not None:
         values[ExperimentHealthValueKey.MULTIPLE_VARIANT_COUNT] = multiple
         values[ExperimentHealthValueKey.MULTIPLE_VARIANT_PERCENTAGE] = (
             multiple / exposures.total * 100 if exposures.total else None

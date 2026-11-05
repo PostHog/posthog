@@ -394,6 +394,20 @@ class TestEvaluate(TestCase):
                 {Value.P_VALUE: 0.71, Value.COMPARED_COUNT: 1000, Value.MULTIPLE_VARIANT_COUNT: 20},
             ),
             (
+                "srm_leaves_out_the_multiple_count_under_first_seen",
+                Key.SRM,
+                {
+                    "exposures": replace(
+                        UNEVEN_SPLIT_TOTALS,
+                        total_exposures={"control": 800, "test": 200},
+                        multiple_variant_handling=MultipleVariantHandling.FIRST_SEEN,
+                        sample_ratio_mismatch_p_value=0.71,
+                    )
+                },
+                Status.PASSED,
+                {Value.P_VALUE: 0.71, Value.COMPARED_COUNT: 1000},
+            ),
+            (
                 "bias_risk_divides_by_every_exposure",
                 Key.BIAS_RISK_MULTIPLE_EXCLUDED,
                 {},

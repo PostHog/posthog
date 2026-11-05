@@ -61,9 +61,18 @@ function reading(label: string, text: string | null): HealthReading | null {
     return text === null ? null : { label, text }
 }
 
+function numberReading(
+    label: string,
+    values: HealthCheckValues | undefined,
+    key: string,
+    format: (value: number) => string
+): HealthReading | null {
+    const value = numberValue(values, key)
+    return reading(label, value === null ? null : format(value))
+}
+
 function exposedReading(values: HealthCheckValues | undefined, units: string): HealthReading | null {
-    const exposed = numberValue(values, 'exposed_count')
-    return reading(`Exposed ${units}`, exposed === null ? null : formatCount(exposed))
+    return numberReading(`Exposed ${units}`, values, 'exposed_count', formatCount)
 }
 
 function multipleVariantReading(values: HealthCheckValues | undefined): HealthReading | null {
@@ -106,31 +115,33 @@ function flagReading(values: HealthCheckValues | undefined): HealthReading | nul
 
 /** What a check read, in the order the panel lists it. The p-value shows with the rule that judges it instead. */
 export function healthCheckReadings(values: HealthCheckValues | undefined, units: string): HealthReading[] {
-    const compared = numberValue(values, 'compared_count')
     const handling = values?.multiple_variant_handling
-    const sinceLaunch = numberValue(values, 'since_launch_hours')
-    const withoutFilter = numberValue(values, 'exposed_without_test_account_filter_count')
-    const kept = numberValue(values, 'kept_by_test_account_filter_percentage')
     const onlyMatured = values?.only_count_matured_users
     const primaryMetrics = numberValue(values, 'primary_metric_count')
     const waitingMetrics = numberValue(values, 'waiting_metric_count')
-    const failedMetrics = numberValue(values, 'failed_metric_count')
     const calculatedAt = values?.calculated_at
 
     return [
         exposedReading(values, units),
-        reading(`${capitalizeFirstLetter(units)} compared`, compared === null ? null : formatCount(compared)),
+        numberReading(`${capitalizeFirstLetter(units)} compared`, values, 'compared_count', formatCount),
         multipleVariantReading(values),
         reading(
             'Multiple variant handling',
             typeof handling === 'string' ? (HANDLING_LABELS[handling] ?? handling) : null
         ),
-        reading('Since launch', sinceLaunch === null ? null : formatHours(sinceLaunch)),
-        reading(
+        numberReading('Since launch', values, 'since_launch_hours', formatHours),
+        numberReading(
             `Exposed ${units} without the test account filters`,
-            withoutFilter === null ? null : formatCount(withoutFilter)
+            values,
+            'exposed_without_test_account_filter_count',
+            formatCount
         ),
-        reading('Kept by the test account filters', kept === null ? null : formatHealthPercentage(kept)),
+        numberReading(
+            'Kept by the test account filters',
+            values,
+            'kept_by_test_account_filter_percentage',
+            formatHealthPercentage
+        ),
         reading(
             'Require completed conversion or retention window',
             typeof onlyMatured === 'boolean' ? (onlyMatured ? 'On' : 'Off') : null
@@ -142,7 +153,7 @@ export function healthCheckReadings(values: HealthCheckValues | undefined, units
                 : `${formatCount(waitingMetrics)} of ${formatCount(primaryMetrics)}`
         ),
         calculatedMetricsReading(values),
-        reading('Metrics whose calculation failed', failedMetrics === null ? null : formatCount(failedMetrics)),
+        numberReading('Metrics whose calculation failed', values, 'failed_metric_count', formatCount),
         typeof calculatedAt === 'string' ? { label: 'Last calculated', time: calculatedAt } : null,
         flagReading(values),
     ].filter((line): line is HealthReading => line !== null)
