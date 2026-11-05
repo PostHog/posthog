@@ -28,7 +28,7 @@ export const WithPeople: Story = {
 
 export const Empty: Story = {
     render: () => (
-        <div className="min-h-8">
+        <div style={{ height: 32, width: '100%' }}>
             <SelectedPeopleList people={{}} onRemove={noop} />
         </div>
     ),
