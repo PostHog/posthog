@@ -15,9 +15,8 @@ impl WebUrl {
             "The server returned a {} URL. The CLI only opens http and https URLs, so check that your PostHog host is correct",
             url.scheme()
         );
-        // On WSL, `open` passes the URL to `wslview`, which puts it in a double-quoted
-        // PowerShell string. PowerShell reads none of these characters as syntax there,
-        // and PostHog URLs use no others.
+        // On WSL, `wslview` puts the URL in a double-quoted PowerShell string, where none of
+        // these characters is syntax. PostHog URLs use no others.
         ensure!(
             url.as_str()
                 .chars()
@@ -32,8 +31,7 @@ impl WebUrl {
         Self::new(self.0)
     }
 
-    /// Only `that_detached` uses the `shellexecute-on-windows` feature in Cargo.toml.
-    /// The other `open` functions run `cmd /c start` on Windows.
+    /// `open::that` runs `cmd /c start` on Windows. Only `that_detached` uses ShellExecuteExW.
     #[allow(clippy::disallowed_methods)]
     pub fn open_in_browser(&self) -> Result<()> {
         open::that_detached(self.0.as_str()).context("Failed to open browser")
