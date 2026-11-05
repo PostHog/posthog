@@ -384,8 +384,8 @@ tools:
             idempotent: true
         title: Logs around a log line, trace or run
         description_file: ./prompts/logs-context.md
-        feature_flag: logs-agent-tools
         hooks: logs/redactCredentialsHooks
+        feature_flag: logs-agent-tools
     logs-count:
         operation: logs_count_create
         enabled: true
