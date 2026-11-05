@@ -35,7 +35,9 @@ import { wizardRunIsActive } from '../lib/wizardRunDisplay'
 
 const RUN_POLL_MS = 30_000
 // Discovery only finds runs started outside this tab (the CLI). Streams and refreshWatchedRun cover active runs,
-// so it can be slow: a user with no runs is checked on focus only, a user with runs once a minute.
+// so it can be slow: a user with no runs is checked on focus only, a user with runs once a minute. A view that
+// is waiting for a CLI run to appear (onboarding) opts into the fast tick with awaitRuns.
+const RUN_DISCOVERY_TICK_MS = 5_000
 const RUN_DISCOVERY_POLL_MS = 60_000
 const RUN_DISCOVERY_MIN_GAP_MS = 30_000
 
@@ -81,6 +83,8 @@ export interface wizardRunSyncLogicValues {
     userRuns: WizardRunApi[]
     activeUserRuns: WizardRunApi[]
     watchedRunIds: Record<string, string[]>
+    awaitingRunSources: Record<string, boolean>
+    awaitingRuns: boolean
     activeWatchedRuns: WizardRunApi[]
     tasksByRunId: Record<string, readonly WizardRunTaskApi[]>
     artifactsByRunId: Record<string, WizardRunArtifactApi[]>
@@ -111,6 +115,7 @@ export interface wizardRunSyncLogicActions {
     runDataFailed: (runId: string) => { runId: string }
     connectRuns: () => { value: true }
     watchRuns: (source: string, runIds: string[]) => { source: string; runIds: string[] }
+    awaitRuns: (source: string, waiting: boolean) => { source: string; waiting: boolean }
     refreshWatchedRun: () => { value: true }
 }
 
@@ -136,12 +141,17 @@ export const wizardRunSyncLogic: LogicWrapper<wizardRunSyncLogicType> = kea<wiza
         runDataFailed: (runId: string) => ({ runId }),
         connectRuns: true,
         watchRuns: (source: string, runIds: string[]) => ({ source, runIds }),
+        awaitRuns: (source: string, waiting: boolean) => ({ source, waiting }),
         refreshWatchedRun: true,
     }),
     reducers({
         watchedRunIds: [
             {} as Record<string, string[]>,
             { watchRuns: (state, { source, runIds }) => ({ ...state, [source]: runIds }) },
+        ],
+        awaitingRunSources: [
+            {} as Record<string, boolean>,
+            { awaitRuns: (state, { source, waiting }) => ({ ...state, [source]: waiting }) },
         ],
         runs: [
             [] as WizardRunApi[],
@@ -202,6 +212,10 @@ export const wizardRunSyncLogic: LogicWrapper<wizardRunSyncLogicType> = kea<wiza
                 user ? runs.filter((run) => run.created_by_id === user.id) : [],
         ],
         activeUserRuns: [(s) => [s.userRuns], (runs: WizardRunApi[]): WizardRunApi[] => runs.filter(wizardRunIsActive)],
+        awaitingRuns: [
+            (s) => [s.awaitingRunSources],
+            (sources: Record<string, boolean>): boolean => Object.values(sources).some(Boolean),
+        ],
         activeWatchedRuns: [
             (s) => [s.runs, s.watchedRunIds],
             (runs: WizardRunApi[], watched: Record<string, string[]>): WizardRunApi[] => {
@@ -396,18 +410,28 @@ export const wizardRunSyncLogic: LogicWrapper<wizardRunSyncLogicType> = kea<wiza
                 return () => window.clearInterval(timer)
             }, 'active-run-poll')
             cache.disposables.add(() => {
-                const discoverRuns = (): void => {
-                    if (Date.now() - cache.lastCheckStartedAt >= RUN_DISCOVERY_MIN_GAP_MS) {
-                        actions.checkRuns(true)
+                const discoverRuns = (minGapMs: number, recentOnly = true): void => {
+                    if (Date.now() - cache.lastCheckStartedAt >= minGapMs) {
+                        actions.checkRuns(recentOnly)
                     }
                 }
-                const timer = window.setInterval(() => values.userRuns.length && discoverRuns(), RUN_DISCOVERY_POLL_MS)
-                window.addEventListener('focus', discoverRuns)
+                const onFocus = (): void => discoverRuns(RUN_DISCOVERY_MIN_GAP_MS)
+                const timer = window.setInterval(() => {
+                    if (values.awaitingRuns) {
+                        discoverRuns(0)
+                    } else if (!cache.historyLoaded) {
+                        // Until one full list succeeds, an empty userRuns only means the first request failed.
+                        discoverRuns(RUN_DISCOVERY_POLL_MS, false)
+                    } else if (values.userRuns.length) {
+                        discoverRuns(RUN_DISCOVERY_POLL_MS)
+                    }
+                }, RUN_DISCOVERY_TICK_MS)
+                window.addEventListener('focus', onFocus)
                 // The disposable re-runs this setup when a hidden tab becomes visible, which is the catch-up check.
-                discoverRuns()
+                onFocus()
                 return () => {
                     window.clearInterval(timer)
-                    window.removeEventListener('focus', discoverRuns)
+                    window.removeEventListener('focus', onFocus)
                 }
             }, 'run-discovery-poll')
         },

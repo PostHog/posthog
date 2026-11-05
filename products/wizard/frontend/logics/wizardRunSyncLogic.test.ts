@@ -267,6 +267,36 @@ describe('wizardRunSyncLogic', () => {
         window.dispatchEvent(new Event('focus'))
         await expectLogic(logic).toFinishAllListeners()
         expect(mockWizardRunsList).toHaveBeenCalledTimes(2)
+
+        logic.actions.awaitRuns('onboarding', true)
+        jest.advanceTimersByTime(5_000)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockWizardRunsList).toHaveBeenCalledTimes(3)
+
+        logic.actions.awaitRuns('onboarding', false)
+        jest.advanceTimersByTime(60_000)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockWizardRunsList).toHaveBeenCalledTimes(3)
+    })
+
+    it('keeps retrying the first list on the interval until it succeeds', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.unmount()
+        jest.useFakeTimers()
+        mockWizardRunsList.mockReset()
+        mockWizardRunsList.mockRejectedValueOnce(new Error('offline')).mockResolvedValue({ results: [], next: null })
+        logic = wizardRunSyncLogic({ projectId: '1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockWizardRunsList).toHaveBeenCalledTimes(1)
+
+        jest.advanceTimersByTime(60_000)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockWizardRunsList).toHaveBeenCalledTimes(2)
+
+        jest.advanceTimersByTime(120_000)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockWizardRunsList).toHaveBeenCalledTimes(2)
     })
 
     it.each([
