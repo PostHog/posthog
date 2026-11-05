@@ -89,7 +89,12 @@ def check_test_owners(scope: Scope) -> Outcome:
     # Ownership resolves from the working tree, so an uncommitted owners.yaml would pass here and fail in CI.
     if scope.committed_only and (dirty := _uncommitted_ownership_files()):
         return "fail", f"commit or discard the changes to {', '.join(dirty[:3])}: the push carries only HEAD"
-    problems = drift_problems(baseline_drift())
+    drift = baseline_drift()
+    problems = drift_problems(drift)
     if not problems:
         return "pass", "no new directory of unowned tests"
-    return "fail", " · ".join(problems[:3]) + (f" · and {len(problems) - 3} more" if len(problems) > 3 else "")
+    detail = " · ".join(problems[:3]) + (f" · and {len(problems) - 3} more" if len(problems) > 3 else "")
+    # Same grace period as CI's enforce_baseline: a new directory only warns until the date, a stale entry fails now.
+    if drift.removed or date.today() >= BLOCKING_FROM:
+        return "fail", detail
+    return "warning", f"not blocking until {BLOCKING_FROM.isoformat()}: {detail}"
