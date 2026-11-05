@@ -112,6 +112,7 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.autoresearch.backend.presentation.views.views.AutoresearchSuggestionViewSet",
     "products.autoresearch.backend.presentation.views.views.AutoresearchTrainingRunViewSet",
     "products.batch_exports.backend.presentation.views.batch_export.backfills.BatchExportBackfillViewSet",
+    "products.batch_exports.backend.presentation.views.batch_export.exports.BatchExportViewSet",
     "products.batch_exports.backend.presentation.views.batch_export.runs.BatchExportRunViewSet",
     "products.batch_exports.backend.presentation.views.file_download.FileDownloadBatchExportOnDemandViewSet",
     # Lists at most MAX_LIBRARIES_PER_TEAM (100) libraries, so it has no pages.
@@ -127,8 +128,14 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.conversations.backend.api.ai_context.AIContextAccountPropertiesViewSet",
     "products.conversations.backend.api.ai_reply_playbook.AIReplyPlaybookViewSet",
     "products.conversations.backend.api.signing_secret.SigningSecretViewSet",
+    # extend_schema_view only sets the list operation_id; the list itself stays the stock paginated one,
+    # with -usage_count, -created_at, -id ordering and a page-boundary test.
+    "products.conversations.backend.api.ticket_macros.TicketMacroViewSet",
     "products.conversations.backend.api.tickets.TicketViewSet",
     "products.customer_analytics.backend.presentation.views.announcements.AnnouncementViewSet",
+    # HogQL paginates after person aggregation. Tied-sort boundaries are covered by
+    # TestAccountUsersQuery.test_persons_are_narrowed_aggregated_and_paginated.
+    "products.customer_analytics.backend.presentation.views.account_persons_query.AccountPersonsViewSet",
     "products.customer_analytics.backend.presentation.views.customer_tasks.CustomerTaskViewSet",
     "products.customer_analytics.backend.presentation.views.views.AccountNotebookViewSet",
     "products.customer_analytics.backend.presentation.views.views.AccountNotesViewSet",
@@ -225,6 +232,9 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.product_analytics.backend.presentation.events_retention.OrganizationEventsRetentionViewSet",
     "products.product_analytics.backend.presentation.insight.InsightViewSet",
     "products.product_tours.backend.api.product_tour.ProductTourViewSet",
+    # Pages with `limit`/`offset` over clusters ranked live, with `has_more`; the API tests cover the page boundary.
+    "products.replay_vision.backend.api.clusters.VisionGroupViewSet",
+    "products.replay_vision.backend.api.clusters.VisionThemeViewSet",
     "products.replay_vision.backend.api.observations.ReplayObservationViewSet",
     "products.replay_vision.backend.api.observations.SessionReplayObservationViewSet",
     "products.replay_vision.backend.api.quota.VisionQuotaViewSet",
@@ -248,6 +258,10 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.signals.backend.presentation.onboarding.InboxOnboardingViewSet",
     # Lists only the requesting member's own exclusions, a short list, so `pagination_class` is None.
     "products.signals.backend.presentation.reviewer_exclusions.SignalReviewerExclusionViewSet",
+    # Returns one usage overview document, not a page of rows.
+    "products.signals.backend.presentation.spend.SignalSpendViewSet",
+    # Returns one rollup per signal source type; Settings needs the complete breakdown to total usage.
+    "products.signals.backend.presentation.spend.SignalSourceSpendViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutConfigViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutMembersViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutNoteViewSet",

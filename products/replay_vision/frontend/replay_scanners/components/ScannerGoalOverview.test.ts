@@ -1,5 +1,5 @@
 import { NodeKind } from '~/queries/schema/schema-general'
-import { PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { ReplayScanner } from '../types'
 import { eligibleFilterGroups, goalOverviewSectionLabels } from './ScannerGoalOverview'
@@ -52,14 +52,41 @@ describe('eligibleFilterGroups', () => {
         // The session property gets its own row and is not double-counted as a page or cohort, which
         // are pulled from the same top-level properties list but keep their dedicated rows.
         expect(groups).toEqual([
-            { label: 'Experiment', values: ['Checkout CTA copy (test variant)'] },
-            { label: 'Pages', values: ['/billing', '/checkout'] },
-            { label: 'Event', values: ['billing_limit_set'] },
-            { label: 'Action', values: ['Completed checkout'] },
-            { label: 'Cohort', values: ['Power users'] },
-            { label: 'Session', values: ['Entry URL = /pricing'] },
+            { key: 'experiment', label: 'Experiment', values: ['Checkout CTA copy (test variant)'] },
+            { key: 'page:0', label: 'Pages', values: ['/billing', '/checkout'] },
+            { key: 'event', label: 'Event', values: ['billing_limit_set'] },
+            { key: 'action', label: 'Action', values: ['Completed checkout'] },
+            { key: 'cohort', label: 'Cohort', values: ['Power users'] },
+            { key: 'property:Session', label: 'Session', values: ['Entry URL = /pricing'] },
         ])
     })
+
+    it.each([
+        [false, 'Page'],
+        [true, 'Visited page'],
+    ])(
+        'gives each page filter its own row, so a page added to a chosen one does not merge into it (recordingsFirst=%s)',
+        (recordingsFirst, label) => {
+            const page = (value: string): AnyPropertyFilter => ({
+                type: PropertyFilterType.Recording,
+                key: 'visited_page',
+                value: [value],
+                operator: PropertyOperator.Regex,
+            })
+
+            const groups = eligibleFilterGroups(
+                scanner({
+                    query: { kind: NodeKind.RecordingsQuery, properties: [page('/checkout'), page('/billing')] },
+                }),
+                { recordingsFirst }
+            )
+
+            expect(groups).toEqual([
+                { key: 'page:0', label, values: ['/checkout'] },
+                { key: 'page:1', label, values: ['/billing'] },
+            ])
+        }
+    )
 
     it('names an experiment and a cohort it cannot resolve yet', () => {
         // Both load separately from the form, so the row has to stand on its own until they arrive.
@@ -76,8 +103,8 @@ describe('eligibleFilterGroups', () => {
         )
 
         expect(groups).toEqual([
-            { label: 'Experiment', values: ['Experiment 11 (all variants)'] },
-            { label: 'Cohort', values: ['Cohort 7'] },
+            { key: 'experiment', label: 'Experiment', values: ['Experiment 11 (all variants)'] },
+            { key: 'cohort', label: 'Cohort', values: ['Cohort 7'] },
         ])
     })
 
@@ -108,7 +135,7 @@ describe('eligibleFilterGroups', () => {
             })
         )
 
-        expect(groups).toEqual([{ label: 'Event', values: ['checkout_clicked where Country code = US'] }])
+        expect(groups).toEqual([{ key: 'event', label: 'Event', values: ['checkout_clicked where Country code = US'] }])
     })
 
     it('renders a HogQL condition by its comment, so a scoped $exception reads as the error', () => {
@@ -136,7 +163,9 @@ describe('eligibleFilterGroups', () => {
             })
         )
 
-        expect(groups).toEqual([{ label: 'Event', values: ['$exception where TypeError: x is not a function'] }])
+        expect(groups).toEqual([
+            { key: 'event', label: 'Event', values: ['$exception where TypeError: x is not a function'] },
+        ])
     })
 
     it('merges top-level person filters into one row, humanizing known keys and keeping custom ones', () => {
@@ -164,7 +193,9 @@ describe('eligibleFilterGroups', () => {
             })
         )
 
-        expect(groups).toEqual([{ label: 'Person', values: ['Latest browser = Chrome', 'plan = enterprise'] }])
+        expect(groups).toEqual([
+            { key: 'property:Person', label: 'Person', values: ['Latest browser = Chrome', 'plan = enterprise'] },
+        ])
     })
 
     it('has no groups when the draft watches every recording', () => {
@@ -173,7 +204,7 @@ describe('eligibleFilterGroups', () => {
 })
 
 describe('goalOverviewSectionLabels', () => {
-    it('reviews the eligible recordings before the prompt in the recordings-first arm', () => {
+    it('reviews the target recordings before the prompt, under the wizard step names, in the recordings-first arm', () => {
         expect(goalOverviewSectionLabels(false)).toEqual([
             'What it understood',
             'Name',
@@ -182,11 +213,10 @@ describe('goalOverviewSectionLabels', () => {
             'Sampling and budget',
         ])
         expect(goalOverviewSectionLabels(true)).toEqual([
-            'What it understood',
             'Name',
-            'Eligible recordings',
-            'What it will ask',
-            'Sampling and limits',
+            'Target recordings',
+            'Prompt & output',
+            'Sampling & limits',
         ])
     })
 })

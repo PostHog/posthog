@@ -3,7 +3,10 @@
 pub mod clicks;
 pub mod css;
 pub mod dom;
+pub mod edits;
 pub mod events;
+pub mod features;
 pub mod rrweb;
 pub mod session;
+pub mod srcset;
 pub mod stats;

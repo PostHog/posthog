@@ -9,7 +9,7 @@ from products.workflows.backend.services.data_suggestions.llm import invoke_stru
 
 from ee.hogai.utils.untrusted import as_untrusted_data
 
-IDEAS_MODEL = "claude-sonnet-5-5"
+IDEAS_MODEL = "claude-haiku-5-5"
 WindowDays = Literal[7, 14, 30]
 MinCount = Literal[3, 5, 10]
 
@@ -40,7 +40,7 @@ class AudienceIdeas(BaseModel):
 
 _PROMPT = """You suggest audiences for one-off email broadcasts, for a product team using PostHog.
 A broadcast is a single email to a group of people, like a feature announcement, a nudge to finish setting up, a
-beta invite, a product update for power users, or a win-back note. Suggest up to 6 audiences built from the project's
+beta invite, a product update for power users, or a win-back note. Suggest up to 4 audiences built from the project's
 own events, which are listed with how often they fired in the last 7 days.
 
 Rules:

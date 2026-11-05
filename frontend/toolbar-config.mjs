@@ -23,13 +23,16 @@ const toolbarPublicPathOverride = process.env.TOOLBAR_PUBLIC_PATH
 // will silently return undefined — keep shims in sync when connect contracts change.
 const shimmedModules = {
     'scenes/userLogic': 'src/toolbar/shared/shims/userLogic.ts',
-    'scenes/organization/membersLogic': 'src/toolbar/shared/shims/membersLogic.ts',
+    'models/membersLogic': 'src/toolbar/shared/shims/membersLogic.ts',
     'scenes/sceneLogic': 'src/toolbar/shared/shims/sceneLogic.ts',
     'scenes/teamLogic': 'src/toolbar/shared/shims/teamLogic.ts',
     'lib/logic/featureFlagLogic': 'src/toolbar/shared/shims/featureFlagLogic.ts',
     // Survey question labels load from an authenticated endpoint the toolbar can't reach, so
     // the shim keeps its shared consumers (PropertyKeyInfo, taxonomy helpers) out of the app zone.
     'scenes/surveys/surveyQuestionLabelsLogic': 'src/toolbar/shared/shims/surveyQuestionLabelsLogic.ts',
+    // The flag overview reads the feature flags API, which the toolbar can't reach, so the shim
+    // keeps PropertyKeyInfo out of the app zone.
+    'products/feature_flags/frontend/featureFlagSummaryLogic': 'src/toolbar/shared/shims/featureFlagSummaryLogic.ts',
     // Not a kea shim: the toolbar's parity-tested urls duplicate (see src/toolbar/shared/urls.ts).
     // Toolbar code imports it directly; this entry covers lib/ components shared with the
     // app (TZLabel, Link, HeatmapEventsPanel), whose scenes/urls import would otherwise pull
@@ -48,9 +51,9 @@ const deniedPaths = [
     'scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager.ts',
 ]
 
-// PayGateMini (shipped in the toolbar) imports scenes/billing, which we can't bundle because it
-// pulls in chart.js, monaco, and the rest of the app's billing scene graph.
-const deniedPatterns = [/scenes\/billing/]
+// PayGateMini (shipped in the toolbar) imports billingLogic, which we can't bundle because it
+// pulls in app-only logics and, through scenes/billing, the app's billing scene graph.
+const deniedPatterns = [/scenes\/billing/, /lib\/logic\/billing\//]
 
 /**
  * The toolbar shares lib/ code with the main app, and that code reaches app-only modules
@@ -63,7 +66,7 @@ const deniedPatterns = [/scenes\/billing/]
  *   the toolbar genuinely needs different answers (its own team context, no scene routing)
  *   than the app.
  * - Denied modules get replaced with an inert proxy. The deny list is kept minimal: only the
- *   paths a toolbar-shipped module actually reaches today (chiefly PayGateMini -> scenes/billing)
+ *   paths a toolbar-shipped module actually reaches today (chiefly PayGateMini -> billingLogic)
  *   need cutting here. Regressions that reintroduce heavier dependencies are caught by the guard
  *   scripts rather than pre-emptively denied.
  *

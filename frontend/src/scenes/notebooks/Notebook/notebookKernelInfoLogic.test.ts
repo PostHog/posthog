@@ -1,10 +1,12 @@
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { initKeaTests } from '~/test/init'
 
 import { notebooksKernelComputeOptionsRetrieve } from 'products/notebooks/frontend/generated/api'
 
-import { notebookKernelInfoLogic } from './notebookKernelInfoLogic'
+import { kernelActionErrorMessage, notebookKernelInfoLogic } from './notebookKernelInfoLogic'
 import type { NotebookLogicMode } from './notebookLogic'
 
 jest.mock('products/notebooks/frontend/generated/api', () => ({
@@ -24,6 +26,9 @@ const COMPUTE_OPTIONS = {
     allowed_memory_gb: [2, 4, 8, 16],
     allowed_idle_timeout_seconds: [600, 1800],
 }
+
+const SANDBOX_LIMIT_DETAIL = 'You started too many notebook kernels in the last hour. Try again later.'
+const THROTTLE_DETAIL = 'Request was throttled. Expected available in 120 seconds.'
 
 const setHidden = (hidden: boolean): void => {
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
@@ -203,6 +208,56 @@ describe('notebookKernelInfoLogic', () => {
         expect(configSpy).toHaveBeenCalled()
         expect(restartSpy).not.toHaveBeenCalled()
     })
+
+    test.each([
+        [
+            'a sandbox limit shows the sentence from the API',
+            new ApiError('refused', 429, undefined, { detail: SANDBOX_LIMIT_DETAIL }),
+            SANDBOX_LIMIT_DETAIL,
+        ],
+        [
+            'a throttle shows the wait from Retry-After',
+            new ApiError('refused', 429, new Headers({ 'Retry-After': '120' }), { detail: THROTTLE_DETAIL }),
+            'Too many kernel starts and restarts. Try again in 2m.',
+        ],
+        [
+            'a throttle with no Retry-After still shows a sentence',
+            new ApiError('refused', 429, undefined, { detail: THROTTLE_DETAIL }),
+            'Too many kernel starts and restarts. Try again later.',
+        ],
+        [
+            'a provider failure keeps the fallback',
+            new ApiError('failed', 503, undefined, { detail: 'Failed to start notebook kernel.' }),
+            'fallback',
+        ],
+        ['a network failure keeps the fallback', new Error('offline'), 'fallback'],
+    ])('kernelActionErrorMessage: %s', (_, error, expected) => {
+        expect(kernelActionErrorMessage(error, 'fallback')).toEqual(expected)
+    })
+
+    test.each(['kernelStart', 'kernelRestart'] as const)(
+        'shows the refusal and refreshes the panel when %s is refused',
+        async (endpoint) => {
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation()
+            jest.spyOn(api.notebooks, endpoint).mockRejectedValue(
+                new ApiError('refused', 429, undefined, { detail: SANDBOX_LIMIT_DETAIL })
+            )
+            logic = notebookKernelInfoLogic({ shortId: `refused-${endpoint}-01890abc`, mode: 'notebook' })
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(0)
+            kernelStatusSpy.mockClear()
+
+            if (endpoint === 'kernelStart') {
+                logic.actions.startKernel()
+            } else {
+                logic.actions.restartKernel()
+            }
+            await jest.advanceTimersByTimeAsync(0)
+
+            expect(toastSpy).toHaveBeenCalledWith(SANDBOX_LIMIT_DETAIL)
+            expect(kernelStatusSpy).toHaveBeenCalled()
+        }
+    )
 
     test('a shared notebook issues no team-scoped kernel requests', async () => {
         // A shared view renders from cachedNotebook so a logged-out viewer makes no team-scoped

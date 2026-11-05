@@ -63,18 +63,26 @@ class TestScoutChatTaskAPI(APIBaseTest):
         self.assertFalse(Task.objects.filter(origin_product=Task.OriginProduct.SIGNALS_CHAT).exists())
         mock_workflow.assert_not_called()
 
-    @patch("products.signals.backend.scout_chat.SCOUT_CHAT_DAILY_ATTEMPT_CAP", 0)
+    @patch("products.signals.backend.scout_chat.SCOUT_CHAT_DAILY_ATTEMPT_CAP", 3)
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_daily_attempt_cap_creates_no_task(self, mock_workflow):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/signals/scout/chat_tasks/",
-            {"chat_type": "recent_signals"},
-            format="json",
-        )
+    def test_daily_attempt_cap_is_the_only_per_user_limit(self, _mock_workflow):
+        cache.clear()
+        statuses = [
+            self.client.post(
+                f"/api/projects/{self.team.id}/signals/scout/chat_tasks/",
+                {"chat_type": "recent_signals"},
+                format="json",
+            )
+            for _ in range(4)
+        ]
 
-        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        self.assertFalse(Task.objects.filter(origin_product=Task.OriginProduct.SIGNALS_CHAT).exists())
-        mock_workflow.assert_not_called()
+        self.assertEqual(
+            [r.status_code for r in statuses],
+            [status.HTTP_201_CREATED] * 3 + [status.HTTP_429_TOO_MANY_REQUESTS],
+        )
+        self.assertEqual(statuses[-1].json()["code"], "throttled")
+        self.assertTrue(0 < int(statuses[-1]["Retry-After"]) <= 86400)
+        self.assertEqual(Task.objects.filter(origin_product=Task.OriginProduct.SIGNALS_CHAT).count(), 3)
 
     @parameterized.expand([("declined", False), ("undecided", None)])
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")

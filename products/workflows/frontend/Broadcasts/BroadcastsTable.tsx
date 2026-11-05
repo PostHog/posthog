@@ -5,6 +5,7 @@ import { LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TagSelect } from 'lib/components/TagSelect'
+import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -15,7 +16,9 @@ import { urls } from 'scenes/urls'
 
 import type { HogFlowMinimalApi } from 'products/workflows/frontend/generated/api.schemas'
 
+import { EmailMetricsIncidentBanner } from '../EmailMetricsIncidentBanner'
 import { archiveDisabledReason, manageDisabledReason } from './broadcastLifecycle'
+import { emailEngagement } from './broadcastPerformanceLogic'
 import { BroadcastsEmptyState } from './BroadcastsEmptyState'
 import {
     BROADCASTS_PAGE_SIZE,
@@ -81,7 +84,8 @@ export function BroadcastsTable(): JSX.Element {
             title: 'Status',
             width: 0,
             render: (_, item) => {
-                return <BroadcastStatusTag status={getBroadcastStatus(item, rowDetailsById[item.id])} />
+                const details = rowDetailsById[item.id]
+                return <BroadcastStatusTag status={getBroadcastStatus(item, details)} />
             },
         },
         {
@@ -125,7 +129,17 @@ export function BroadcastsTable(): JSX.Element {
                 if (!details?.totals) {
                     return <span className="text-muted">…</span>
                 }
-                return <span>{humanFriendlyNumber(details.totals[metric] ?? 0)}</span>
+                const engagement =
+                    metric === 'email_opened' ? 'opened' : metric === 'email_link_clicked' ? 'clicked' : null
+                return (
+                    <span>
+                        {humanFriendlyNumber(
+                            engagement
+                                ? emailEngagement(details.totals, engagement, details.latestBatchJob?.created_at)
+                                : (details.totals[metric] ?? 0)
+                        )}
+                    </span>
+                )
             },
         })),
         createdByColumn() as LemonTableColumns<HogFlowMinimalApi>[number],
@@ -179,6 +193,14 @@ export function BroadcastsTable(): JSX.Element {
         },
     ]
 
+    // Each row counts its latest send from the start of that run until now.
+    const earliestEmailRunStart = (hideRows ? [] : broadcasts.results)
+        .filter((item) => getBroadcastChannel(item.actions as any) !== 'push')
+        .map((item) => rowDetailsById[item.id]?.latestBatchJob?.created_at)
+        .filter((createdAt): createdAt is string => !!createdAt)
+        .map((createdAt) => dayjs(createdAt))
+        .sort((a, b) => a.diff(b))[0]
+
     const isEmpty =
         hasLoadedBroadcasts &&
         !broadcastsLoading &&
@@ -193,6 +215,7 @@ export function BroadcastsTable(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-2">
+            {earliestEmailRunStart ? <EmailMetricsIncidentBanner dateFrom={earliestEmailRunStart} /> : null}
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <LemonInput
                     type="search"
@@ -215,6 +238,7 @@ export function BroadcastsTable(): JSX.Element {
                             { label: 'Scheduled', value: 'scheduled' },
                             { label: 'Sending', value: 'sending' },
                             { label: 'Sent', value: 'sent' },
+                            { label: 'Partly failed', value: 'partially_failed' },
                             { label: 'Failed', value: 'failed' },
                             { label: 'Archived', value: 'archived' },
                         ]}

@@ -845,6 +845,10 @@ class PostgresSource(
             # parent) — deterministic, so don't retry. `XminUnsupportedError` matches once Temporal
             # wraps the failure; the message fragment matches the raw activity-level `str(e)`.
             "XminUnsupportedError": None,
+            "is already the name of another table of this source": (
+                "The history table for this table would have the same name as another table of this source. "
+                "Choose the consolidated table only for this table, or rename the other table on your database."
+            ),
             "xmin replication": None,
             "NoSuchTableError": None,
             "is not permitted to log in": _ROLE_CANNOT_LOG_IN_ERROR,
@@ -860,6 +864,18 @@ class PostgresSource(
                 '("tenant/user not found"). This usually means the database project is paused or '
                 "deleted, or the pooler username/host is wrong. Check that your database is active "
                 "and the connection details are correct, then re-enable the sync."
+            ),
+            # The sync-time twins of the permanent "(EAUTHQUERY)" outcomes in `PostgresErrors`. The
+            # transient "(eauthquery)" reconnect in postgres.py also matches them, so without these
+            # keys a dropped user retries on every run. Supavisor then trips its "(ECIRCUITBREAKER)"
+            # credential-fetch block, and the raw text leads with that line but still lists this one.
+            "user not found in the database": (
+                "Your database doesn't have the user this source connects as. Update the user for this "
+                "source, then re-enable the sync."
+            ),
+            "unsupported or invalid secret format": (
+                "Your connection pooler can't check this user's password because of how your database "
+                "stores it. Reset the user's password in your database, then re-enable the sync."
             ),
             # Supabase's Supavisor pooler reports a permanent DNS failure resolving its upstream
             # backend as "FATAL: Failed to connect to database: {:error, :nxdomain}" — Erlang's

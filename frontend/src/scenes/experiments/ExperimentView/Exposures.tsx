@@ -18,10 +18,9 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ExperimentExposureCriteria, ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from 'products/experiments/frontend/constants'
-import { healthFindingReason } from 'products/experiments/frontend/health/experimentHealthFindingEvents'
 import {
     getTotalExposures,
-    hasSampleRatioMismatch,
+    reportsMismatch,
     sampleRatioLine,
     serverSampleRatioFinding,
 } from 'products/experiments/frontend/health/exposureHealth'
@@ -37,6 +36,11 @@ import { VariantTag } from './VariantTag'
 // Below this, a load looks like any other; above it, the user has no way to tell a slow query
 // from a stuck one, so we start showing elapsed time and a way to retry.
 const SLOW_LOAD_THRESHOLD_SECONDS = 20
+
+const MISMATCH_LINE_STYLE = {
+    warning: { className: 'text-warning font-semibold', icon: <IconWarning className="text-sm" /> },
+    info: { className: 'text-secondary', icon: <IconInfo className="text-sm" /> },
+}
 
 /** Seconds since `active` last became true, ticking every second, reset to 0 when it goes false. */
 function useElapsedSeconds(active: boolean): number {
@@ -168,26 +172,25 @@ export function Exposures(): JSX.Element {
     const multipleTreatmentLabel =
         resolvedHandling === 'first_seen' ? 'using first seen variant' : 'excluded from analysis'
 
-    // Detect sample ratio mismatch (p < 0.001 is significant)
-    const hasSRM = hasSampleRatioMismatch(exposures)
     const srmLine = sampleRatioLine(exposures, healthUi === 'panel')
+    const hasSRM = reportsMismatch(srmLine)
 
     // The open panel says "No exposures yet" for a draft and after a failed exposure query too.
     // Only a launched experiment with an answer that holds no exposure is the zero-exposure state.
     // The answer holds a series for every configured variant, with zero counts, so only the total tells.
     const hasZeroExposures = !isExperimentDraft && !exposuresLoading && exposures != null && totalExposures === 0
 
-    // With the health panel, its row reports the finding as shown. The card reports the same finding, so that opening
-    // the card's evidence counts against the panel's "shown" event and not a second one.
+    // With the health findings, the health chip reports the finding as shown. The card reports the same finding, so that
+    // opening the card's evidence counts against the chip's "shown" event and not a second one.
     const srmFinding = healthUi === 'panel' ? serverSampleRatioFinding(exposures) : undefined
     const { reportOpened: reportSrmOpened } = useHealthFindingReporting(
         hasSRM && !isExperimentDraft && !exposuresLoading
             ? srmFinding
                 ? {
                       code: 'srm',
-                      variant: srmFinding.subcode ?? undefined,
+                      subcode: srmFinding.subcode ?? undefined,
                       severity: srmFinding.severity,
-                      reason: healthFindingReason(srmFinding.evidence),
+                      reason: srmFinding.reason ?? undefined,
                   }
                 : { code: 'srm' }
             : null,
@@ -497,12 +500,14 @@ export function Exposures(): JSX.Element {
                                     />
                                     {srmLine && exposures?.sample_ratio_mismatch != null && (
                                         <div className="flex items-center gap-1 text-xs mt-2">
-                                            {srmLine.tone === 'warning' ? (
+                                            {reportsMismatch(srmLine) ? (
                                                 <>
                                                     <Tooltip title={srmLine.tooltip}>
-                                                        <span className="flex items-center gap-1 text-warning cursor-pointer">
-                                                            <IconWarning className="text-sm" />
-                                                            <span className="font-semibold">{srmLine.label}</span>
+                                                        <span
+                                                            className={`flex items-center gap-1 cursor-pointer ${MISMATCH_LINE_STYLE[srmLine.tone].className}`}
+                                                        >
+                                                            {MISMATCH_LINE_STYLE[srmLine.tone].icon}
+                                                            <span>{srmLine.label}</span>
                                                         </span>
                                                     </Tooltip>
                                                     <span className="text-muted">

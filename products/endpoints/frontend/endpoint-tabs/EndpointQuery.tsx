@@ -8,8 +8,8 @@ import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 
 import { Query } from '~/queries/Query/Query'
+import { isHogQLQuery } from '~/queries/schema/node-guards'
 import { HogQLQuery, Node, NodeKind } from '~/queries/schema/schema-general'
-import { isHogQLQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import { endpointLogic } from '../endpointLogic'

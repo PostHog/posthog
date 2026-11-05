@@ -1839,12 +1839,14 @@ describe('exec tool', () => {
                     title: 'Refresh available schemas',
                     description: 'Fetch the latest table list from the remote database',
                     missingScopes: ['external_data_source:write'],
+                    requiredScopes: ['external_data_source:write'],
                 },
                 {
                     name: 'external-data-schemas-list',
                     title: 'List data import schemas',
                     description: 'List all table schemas',
                     missingScopes: ['external_data_source:read'],
+                    requiredScopes: ['external_data_source:read'],
                 },
             ])
             const result = JSON.parse(
@@ -1869,6 +1871,7 @@ describe('exec tool', () => {
                     title: 'List data import schemas',
                     description: 'List all table schemas',
                     missingScopes: ['external_data_source:read'],
+                    requiredScopes: ['external_data_source:read'],
                 },
             ])
             const result = await exec.handler(mockContext, { command: 'search feature-flag' })
@@ -1914,6 +1917,7 @@ describe('exec tool', () => {
                     title: 'Create experiment',
                     description: 'Create a new experiment',
                     missingScopes: ['experiment:write'],
+                    requiredScopes: ['experiment:write'],
                 },
             ])
             const result = JSON.parse(
@@ -2142,6 +2146,7 @@ describe('exec tool', () => {
                         title: 'Create endpoint',
                         description: 'Create a new endpoint',
                         missingScopes: ['endpoint:write'],
+                        requiredScopes: ['endpoint:write'],
                     },
                 ])
 
@@ -2178,6 +2183,7 @@ describe('exec tool', () => {
                         title: 'Create endpoint',
                         description: 'Create a new endpoint',
                         missingScopes: ['endpoint:write'],
+                        requiredScopes: ['endpoint:write'],
                     },
                 ]
                 const exec = createExecTool(
@@ -3174,6 +3180,71 @@ describe('exec tool', () => {
                 })
 
                 expect(message).toContain('parameter "series.0.nodes.0.properties.0.value"')
+            })
+        })
+
+        // Production traces show experiment-update rejections where a metrics
+        // payload failing deep validation read "parameter 'metrics_secondary':
+        // Invalid input: expected null, received array" — the null branch of the
+        // nullable metrics union, not the real error inside the array branch.
+        describe('a nullable field whose non-null branch failed inside', () => {
+            const formatFor = (input: unknown): string => {
+                const tool = GENERATED_TOOL_MAP['experiment-update']!()
+                const result = tool.schema.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+                return formatInputValidationError('experiment-update', result.error!, input, tool.schema)
+            }
+
+            // Two invalid entries, not one: a single bad metric yields one array-branch
+            // issue, which TIES the null branch's single complaint, and the pre-fix
+            // formatter already broke that tie in the array branch's favor. Two bad
+            // metrics make the array branch "noisier" than the null branch, which is
+            // the real production shape the old fewest-issues heuristic got wrong.
+            it.each(['metrics', 'metrics_secondary'] as const)(
+                'names the field inside the %s array, not the null branch',
+                (field) => {
+                    const message = formatFor({
+                        id: 1,
+                        [field]: [
+                            { kind: 'ExperimentMetric', metric_type: 'bogus' },
+                            { kind: 'ExperimentMetric', metric_type: 'bogus' },
+                        ],
+                    })
+
+                    expect(message).toContain(`${field}.0.metric_type`)
+                    expect(message).not.toContain('expected null')
+                }
+            )
+
+            it('still accepts an explicit null', () => {
+                const tool = GENERATED_TOOL_MAP['experiment-update']!()
+                const result = tool.schema.safeParse({ id: 1, metrics_secondary: null }, { reportInput: true })
+                expect(result.success, JSON.stringify(result.error?.issues)).toBe(true)
+            })
+
+            it('keeps the honest type error when the value matches no branch at all', () => {
+                const message = formatFor({ id: 1, metrics_secondary: 'garbage' })
+
+                expect(message).toContain('metrics_secondary')
+                expect(message).toContain('expected array')
+            })
+
+            // The synthetic shape pins the mechanism down without the generated
+            // schema's size: the null branch's single root complaint must lose to
+            // the branch that engaged with the array's contents, even when the
+            // engaged branch carries MORE issues (two bad entries) than null's one.
+            it('prefers the engaged branch on a minimal union([array, null])', () => {
+                const schema = z.object({
+                    metrics: z.union([z.array(z.object({ metric_type: z.enum(['mean', 'funnel']) })), z.null()]),
+                })
+                const input = { metrics: [{ metric_type: 'bogus' }, { metric_type: 'bogus' }] }
+                const result = schema.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+
+                const message = formatInputValidationError('some-tool', result.error!, input, schema)
+
+                expect(message).toContain('metrics.0.metric_type')
+                expect(message).not.toContain('expected null')
             })
         })
     })

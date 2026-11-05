@@ -251,7 +251,7 @@ export const ReviewHogSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .optional()
         .describe(
-            "Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: the posthog-review label, an @posthog review comment, and the Review button still review drafts."
+            "Give the user's draft pull requests automatic reviews. On by default. When off, a draft gets its first automatic review when it is marked ready for review. Applies to automatic reviews only: an @posthog review comment and the Review button still review drafts."
         ),
     resolve_comments: zod
         .boolean()

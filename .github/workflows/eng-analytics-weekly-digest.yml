@@ -1,23 +1,20 @@
 name: Engineering analytics weekly digest
 
-# Posts a weekly CI digest to #alerts-devex every Monday morning. PULL model: the
-# script reads the engineering_analytics product's repo_overview endpoint (the
-# curated layer behind its MCP tools/UI) and relays one week-over-week CI cost
-# table to Slack — it does not re-derive any metric from the GitHub API. See
-# .github/scripts/eng-analytics-weekly-digest.mjs for the row definitions.
+# Posts last week's Depot spend, pull request figures and slow PR workflows to #alerts-devex every Monday.
+# .github/scripts/eng-analytics-weekly-digest.mjs says where each figure comes from.
 #
-# Requires (no-ops with a warning until set, so it never spams failures):
-#   - vars.ENG_ANALYTICS_PROJECT_ID — the PostHog project with the GitHub data
-#     warehouse source connected (the one ingesting PostHog/posthog PR + CI data).
-#   - secrets.ENG_ANALYTICS_POSTHOG_API_KEY — a personal API key scoped to
-#     engineering_analytics:read for that project.
-#   - secrets.SLACK_DEVEX_BOT_TOKEN — the existing DevEx Slack bot (already used by
-#     ci-alerts-devex).
+# Required. Until these are set, the job logs a warning and posts nothing:
+#   - vars.ENG_ANALYTICS_PROJECT_ID: the PostHog project with the GitHub and Depot warehouse sources.
+#   - secrets.ENG_ANALYTICS_POSTHOG_API_KEY: a personal API key for that project, scoped to
+#     engineering_analytics:read.
+#   - secrets.SLACK_DEVEX_BOT_TOKEN: the DevEx Slack bot.
 #
-# Optional (the digest posts without the Depot contract rows when one is missing):
-#   - secrets.DEPOT_TOKEN: a Depot organization token that can read usage.
-#   - vars.DEPOT_CONTRACT_MINUTES: the GitHub Actions minutes the Depot contract includes.
+# Optional:
+#   - secrets.DEPOT_TOKEN: a Depot organization token that can read usage. Without it the digest
+#     posts no spend.
+#   - vars.DEPOT_CONTRACT_USD: the Depot contract's usage allowance in list-price dollars.
 #   - vars.DEPOT_CONTRACT_START and vars.DEPOT_CONTRACT_END: the contract dates, as YYYY-MM-DD.
+#     Without all three the digest posts no contract sentence.
 
 on:
     schedule:
@@ -35,9 +32,8 @@ permissions:
 jobs:
     digest:
         runs-on: ubuntu-24.04
-        # Covers the script's worst case: 3 endpoint attempts x 150s abort plus 2 x 30s
-        # backoffs (~8.5min; it retries transient 5xxs from a contended warehouse cluster), plus the
-        # 60s abort on the Depot usage calls, plus setup.
+        # The endpoint calls run in parallel. The slowest takes about 8.5 minutes: 3 attempts of 150s
+        # with 30s between them.
         timeout-minutes: 12
         # Never run from forks (no secret access anyway), only the canonical repo.
         # Manual dispatch is master-only so branch-controlled code can't run with the secrets.
@@ -45,29 +41,31 @@ jobs:
             github.repository == 'PostHog/posthog' &&
             (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/master')
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+            - uses: actions/checkout@v6.0.2
               with:
                   sparse-checkout: |
                       .github/scripts/eng-analytics-weekly-digest.mjs
                       .nvmrc
                   sparse-checkout-cone-mode: false
 
-            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+            - uses: actions/setup-node@v6.2.0
               with:
                   node-version-file: .nvmrc
 
             - name: Build and post weekly CI digest
-              # POSTHOG_HOST and SLACK_CHANNEL (#alerts-devex) ride the script's defaults.
+              # POSTHOG_HOST and SLACK_CHANNEL (#alerts-devex) use the script's defaults.
               env:
                   POSTHOG_PROJECT_ID: ${{ vars.ENG_ANALYTICS_PROJECT_ID }}
                   POSTHOG_API_KEY: ${{ secrets.ENG_ANALYTICS_POSTHOG_API_KEY }}
-                  # Optional: pin a specific GitHub source if the project has more than one.
+                  # Pins the GitHub source when the project has more than one.
                   ENG_ANALYTICS_SOURCE_ID: ${{ vars.ENG_ANALYTICS_SOURCE_ID }}
                   SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
                   DEPOT_TOKEN: ${{ secrets.DEPOT_TOKEN }}
-                  DEPOT_CONTRACT_MINUTES: ${{ vars.DEPOT_CONTRACT_MINUTES }}
+                  DEPOT_CONTRACT_USD: ${{ vars.DEPOT_CONTRACT_USD }}
                   DEPOT_CONTRACT_START: ${{ vars.DEPOT_CONTRACT_START }}
                   DEPOT_CONTRACT_END: ${{ vars.DEPOT_CONTRACT_END }}
-                  # Manual runs default to dry-run; the scheduled run posts (empty on schedule events).
+                  # Manual runs default to a dry run. Scheduled runs have no inputs, so they post.
                   DRY_RUN: ${{ inputs.dry_run }}
               run: node .github/scripts/eng-analytics-weekly-digest.mjs

@@ -2,7 +2,11 @@ from typing import Literal
 
 from posthog.dataclasses import frozen
 
-from products.experiments.backend.facade.contracts import ExperimentHealthCheckStatus, ExperimentHealthFinding
+from products.experiments.backend.facade.contracts import (
+    ExperimentHealthCheckStatus,
+    ExperimentHealthFinding,
+    ExperimentHealthMeasurement,
+)
 from products.experiments.backend.health.context import FlagState, HealthContext
 
 
@@ -12,8 +16,14 @@ class CheckSkip:
     reason: str
 
 
-# What a check returns: a finding, why the check doesn't look, or None when it looks and finds no problem.
-CheckOutcome = ExperimentHealthFinding | CheckSkip | None
+@frozen
+class CheckPassed:
+    measurement: ExperimentHealthMeasurement
+
+
+# What a check returns: a finding, why the check doesn't look, or a pass. CheckPassed is a pass that shows the value
+# that decided it against its threshold, and None is a pass without a value.
+CheckOutcome = ExperimentHealthFinding | CheckSkip | CheckPassed | None
 
 RUNS_AFTER_LAUNCH = "Runs after launch"
 RUNS_BEFORE_LAUNCH = "Runs only before launch"
@@ -22,6 +32,10 @@ NOT_ON_ARCHIVED = "Doesn't run on archived experiments"
 NO_FLAG = "The experiment has no feature flag"
 FLAG_DELETED = "The feature flag is deleted"
 NEEDS_VARIANTS = "Runs once the feature flag has variants"
+NEEDS_SPLIT_VARIANTS = "Needs two or more variants in the split"
+SPLIT_ASSIGNS_NOBODY = "The split assigns nobody, because every release condition sets a variant override"
+NEEDS_EXPOSURES = "Runs once enough users are exposed"
+NEEDS_PRIMARY_METRIC = "Runs once the experiment has a primary metric"
 
 
 def not_applicable(reason: str) -> CheckSkip:

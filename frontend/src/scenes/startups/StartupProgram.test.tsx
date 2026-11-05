@@ -5,7 +5,7 @@ import { cleanup, render, screen, within } from '@testing-library/react'
 import { BindLogic } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
-import { billingLogic } from 'scenes/billing/billingLogic'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 
 import { billingJson } from '~/mocks/fixtures/_billing'
 import { useMocks } from '~/mocks/jest'

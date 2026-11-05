@@ -1,6 +1,9 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
@@ -20,6 +23,7 @@ from products.review_hog.backend.models import (
     ReviewUserRepositoryChoice,
     ReviewUserSettings,
 )
+from products.review_hog.backend.repository_settings import ProjectRepositories
 from products.review_hog.backend.temporal.client import WorkflowProbe
 
 INSTALLATION = "1001"
@@ -143,6 +147,30 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
             table.status_code,
             choices.status_code,
         ) == expected
+
+    def test_installations_load_creators_in_one_query(self) -> None:
+        extra_creators = [User.objects.create(email=f"creator{i}@example.com", first_name=f"C{i}") for i in range(3)]
+        for index, creator in enumerate(extra_creators):
+            Integration.objects.create(
+                team=self.team,
+                kind="github",
+                integration_id=f"200{index}",
+                config={"account": {"name": f"org-{index}"}},
+                created_by=creator,
+            )
+        Integration.objects.create(team=self.team, kind="github", integration_id="3000", config={})
+
+        with CaptureQueriesContext(connection) as queries:
+            summaries = ProjectRepositories(self.team, self.user).installations()
+
+        assert len([query for query in queries if 'FROM "posthog_user"' in query["sql"]]) == 1
+        assert {summary.installation_id: summary.connected_by for summary in summaries} == {
+            INSTALLATION: self.user,
+            "2000": extra_creators[0],
+            "2001": extra_creators[1],
+            "2002": extra_creators[2],
+            "3000": None,
+        }
 
     def test_project_rule_stores_only_what_differs_and_is_logged(self) -> None:
         res = self.client.patch(

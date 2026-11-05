@@ -1,10 +1,16 @@
 # API
 
 Every request goes through `src/api/client.ts`: it prefixes the host, adds the bearer token,
-sets `X-PostHog-Client-Platform: mobile`, refreshes the token once on a 401, and throws
-`ApiError` with the server's `code` and `detail` on any other failure.
+sets `X-PostHog-Client-Platform: mobile`, refreshes the token once on a 401, and represents HTTP failures
+as `ApiError` with the server's `code` and `detail`.
 `projectPath('signals/reports/')` builds `/api/projects/{projectId}/signals/reports/`.
 Streams use `apiStream` (expo's fetch, so the body streams on native) and `src/api/sse.ts`.
+
+Ordinary API requests have a 30-second deadline across token refresh and body reads. Caller cancellation stays distinct
+from a deadline, and neither a timeout nor a lost connection automatically retries a write. A write can reach the server
+before its response is lost, so a timeout does not mean it failed on the server. Long-lived task streams use their own
+idle watchdog and reconnect policy. Transport failures have a dedicated error type; unrelated programming errors are
+not reported as connectivity failures.
 
 Most existing types are written by hand per module and name the Django serializer they mirror.
 PR checks use `PullRequestChecksResponseApi` from the Signals generated schemas. New API
@@ -12,9 +18,12 @@ types should come from the generated schemas; update the Django serializer and r
 `hogli build:openapi` when those contracts change. Mobile CI includes the Signals schema
 file for typechecking, and its type-only import adds nothing to the native bundle.
 
+Inbox pages validate the fields used to render report rows before they enter the query cache. A malformed page fails
+the request while previously loaded pages remain visible. The load-more retry requests the failed page again.
+
 | Domain                           | Module                                                                   | Endpoints                                                                                                                                                                                                                                                                                                                                                                         | Notes                                                                             |
 | -------------------------------- | ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Account                          | `src/api/users.ts`                                                       | `GET /api/users/@me/`, `GET /api/organizations/{id}/`                                                                                                                                                                                                                                                                                                                             | [AUTH.md](AUTH.md)                                                                |
+| Account                          | `src/api/users.ts`                                                       | `GET /api/users/@me/`, `GET /api/organizations/{id}/`                                                                                                                                                                                                                                                                                                                             | Account and organization membership                                               |
 | OAuth                            | `src/auth/oauth.ts`                                                      | `/oauth/authorize`, `/oauth/token`, `/oauth/revoke`                                                                                                                                                                                                                                                                                                                               | PKCE public client                                                                |
 | Inbox and reports                | `src/api/reports.ts`                                                     | `signals/reports/?view=for_you&sort=priority`, `.../{id}/`, `.../signals/`, `.../artefacts/`, `read_state/`, `.../state/`, `.../reviewers/`, `available_reviewers/`                                                                                                                                                                                                               | [DATA.md](DATA.md)                                                                |
 | Today                            | `src/api/today.ts`                                                       | `today/reports/{id}/page/`                                                                                                                                                                                                                                                                                                                                                        | 403 or 404 means the project lacks Today; the report screen shows signals instead |
@@ -33,7 +42,7 @@ file for typechecking, and its type-only import adds nothing to the native bundl
 time, the request is canceled and the caller gets a timeout error. Reviewer edits load artefact pages until the latest
 reviewer assignment is found before sending the replacement list, so GitHub-only reviewers remain assigned.
 
-OAuth scopes the app requests: `OAUTH_SCOPES` in `src/auth/oauth.ts`, listed in [AUTH.md](AUTH.md#scopes).
+OAuth scopes the app requests: `OAUTH_SCOPES` in `src/auth/oauth.ts`.
 
 ### Error tracking and replay scopes
 
@@ -49,7 +58,7 @@ The app asks for five more scopes for the Errors and Sessions screens. Views, th
 
 `session_recording:write` is never requested: the phone does not change or delete recordings.
 `ERRORS_SCOPES` and `REPLAY_SCOPES` in `src/api/scopeErrors.ts` hold the same lists, and `useFeatureAccess('errors' | 'replay')` reads them.
-A server that drops a scope (the OAuth application's ceiling, see [AUTH.md](AUTH.md#server-side-ceiling)) gets the feature's "isn't available yet" state, not a broken screen.
+A server that drops a scope (the OAuth application's ceiling) gets the feature's "isn't available yet" state, not a broken screen.
 
 ## Error tracking
 

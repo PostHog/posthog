@@ -1,8 +1,8 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'

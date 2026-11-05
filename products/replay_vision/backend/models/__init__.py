@@ -1,9 +1,14 @@
+from products.replay_vision.backend.models.replay_highlight_feed import (
+    ReplayHighlightFeedEntry,
+    ReplayHighlightFeedState,
+)
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_observation_anchor_similarity import ReplayObservationAnchorSimilarity
 from products.replay_vision.backend.models.replay_observation_feed_dismissal import ReplayObservationFeedDismissal
 from products.replay_vision.backend.models.replay_observation_feed_impression import ReplayObservationFeedImpression
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_observation_media import ReplayObservationMedia
+from products.replay_vision.backend.models.replay_observation_rank import ReplayObservationRank
 from products.replay_vision.backend.models.replay_observation_request import ReplayObservationRequest
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
@@ -24,6 +29,9 @@ from products.replay_vision.backend.models.vision_alert import (
 )
 
 __all__ = [
+    "ReplayHighlightFeedEntry",
+    "ReplayHighlightFeedState",
+    "ReplayObservationRank",
     "ReplayObservation",
     "ReplayObservationAnchorSimilarity",
     "ReplayObservationFeedDismissal",

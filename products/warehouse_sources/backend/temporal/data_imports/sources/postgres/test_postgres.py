@@ -468,6 +468,9 @@ class TestPostgresSourceNonRetryableErrors:
             # Supavisor blocks a project for a short time after failed sign-ins from any client, so the
             # block alone does not prove that this source's credentials are wrong.
             'connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL:  (ECIRCUITBREAKER) too many authentication failures, new connections are temporarily blocked',
+            # The one "(EAUTHQUERY)" outcome that clears on its own, so a key on the bare code must
+            # not disable it along with the missing-user and secret-format outcomes.
+            'connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL:  (EAUTHQUERY) auth_query secret check timed out',
         ],
     )
     def test_transient_connection_errors_are_retryable(self, source, error_msg):
@@ -528,6 +531,17 @@ class TestPostgresSourceNonRetryableErrors:
             # so libpq can't load the file `tls_files` wrote for it. Permanent until the customer
             # fixes the field. Host and temp path are invented, not real values.
             'connection failed: connection to server at "203.0.113.7", port 5432 failed: could not read root certificate file "/tmp/source-tls-xxxxxxxx/ca.crt": no certificate or crl found',
+            # Supavisor's auth_query finds no such role. Repeated misses trip its credential-fetch
+            # circuit breaker, so the first address can report that block while a later one still
+            # names the missing user. Hosts and IPs are invented, not real values.
+            'connection failed: connection to server at "203.0.113.20", port 5432 failed: FATAL:  '
+            "(ECIRCUITBREAKER) failed to retrieve database credentials after multiple attempts, new "
+            "connections are temporarily blocked\n"
+            "Multiple connection attempts failed. All failures were:\n"
+            "- host: 'pooler.example.com', port: '5432', hostaddr: '203.0.113.21': connection failed: "
+            'connection to server at "203.0.113.21", port 5432 failed: FATAL:  (EAUTHQUERY) user not '
+            "found in the database",
+            'connection failed: connection to server at "203.0.113.20", port 5432 failed: FATAL:  (EAUTHQUERY) unsupported or invalid secret format',
         ],
     )
     def test_permanent_connection_errors_are_non_retryable(self, source, error_msg):
@@ -2733,6 +2747,10 @@ class TestIsConnectionDroppedError:
             # error code, so it's matched on the full phrase including the ":closed" reason; same
             # transient class as the pooler drops above and recovers on reconnect.
             psycopg.errors.InternalError_("Internal error (authenticated): :closed"),
+            # Same Supavisor pooler-drop shape, but raised with Erlang's ":einval" (POSIX EINVAL)
+            # reason instead of ":closed" — gen_tcp returns it when an operation hits a backend
+            # socket the pooler has already torn down. Same transient class; recovers on reconnect.
+            psycopg.errors.InternalError_("Internal error (authenticated): :einval"),
             # Supavisor reports a transient timeout reaching the upstream backend as a
             # ConnectionFailure (08006, an OperationalError) carrying the Erlang-tuple reason
             # "{:error, :etimedout}" — a transient drop the in-process recovery must catch.
