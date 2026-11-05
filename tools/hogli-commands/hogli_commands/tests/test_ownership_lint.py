@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -62,16 +63,33 @@ def _check(*files: str, committed_only: bool = False) -> tuple[str, str]:
 
 class TestCheckTestOwners:
     @pytest.mark.parametrize(
-        ("baseline", "status", "named"),
+        ("baseline", "blocking_from", "status", "named"),
         [
-            pytest.param("nobody\nperson\n", "pass", None, id="baseline_matches"),
-            pytest.param("nobody\n", "fail", "person holds tests", id="person_only_owner_is_a_new_gap"),
-            pytest.param("nobody\nperson\nteam\n", "fail", "team has no unowned tests left", id="stale_entry"),
+            pytest.param("nobody\nperson\n", date.min, "pass", None, id="baseline_matches"),
+            pytest.param("nobody\n", date.min, "fail", "person holds tests", id="person_only_owner_is_a_new_gap"),
+            pytest.param("nobody\n", date.max, "warning", "not blocking until", id="new_gap_warns_in_the_grace_period"),
+            pytest.param(
+                "nobody\nperson\nteam\n", date.min, "fail", "team has no unowned tests left", id="stale_entry"
+            ),
+            pytest.param(
+                "nobody\nperson\nteam\n",
+                date.max,
+                "fail",
+                "team has no unowned tests left",
+                id="stale_entry_fails_in_the_grace_period",
+            ),
         ],
     )
     def test_compares_unowned_test_directories_with_the_baseline(
-        self, repo: Path, baseline: str, status: str, named: str | None
+        self,
+        repo: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        baseline: str,
+        blocking_from: date,
+        status: str,
+        named: str | None,
     ) -> None:
+        monkeypatch.setattr(ownership_lint, "BLOCKING_FROM", blocking_from)
         (repo / ownership_lint.BASELINE).write_text(baseline)
 
         result_status, detail = _check(str(ownership_lint.BASELINE))
