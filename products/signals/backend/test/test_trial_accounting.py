@@ -230,6 +230,12 @@ class TestTrialAccounting(BaseTest):
         )
 
     def test_pending_task_accounting_retries_and_releases_trial_admission(self) -> None:
+        self._assert_pending_task_recovers(final_attempt=False)
+
+    def test_pending_trial_task_can_settle_after_the_last_retry(self) -> None:
+        self._assert_pending_task_recovers(final_attempt=True)
+
+    def _assert_pending_task_recovers(self, *, final_attempt: bool) -> None:
         grant = self.claim()
         task = Task.objects.create(team=self.team, title="Trial research", origin_product="signal_report")
         run = TaskRun.objects.create(
@@ -249,9 +255,18 @@ class TestTrialAccounting(BaseTest):
         assert not spend.accounting_failed
         grant.refresh_from_db()
         assert grant.incomplete_sources == 1
-        with patch("products.tasks.backend.facade.billing.process_pending_gateway_usage"):
-            with self.assertRaises(TaskTokenUsageUnavailable):
-                complete_task_spend(team_id=self.team.id, run_id=str(run.id))
+        with (
+            patch("products.tasks.backend.facade.billing.process_pending_gateway_usage"),
+            patch("products.signals.backend.spend.submit_signal_metadata_updates", new_callable=AsyncMock),
+        ):
+            if final_attempt:
+                complete_task_spend(team_id=self.team.id, run_id=str(run.id), final_attempt=True)
+            else:
+                with self.assertRaises(TaskTokenUsageUnavailable):
+                    complete_task_spend(team_id=self.team.id, run_id=str(run.id))
+        waiting = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
+        assert waiting.accounting_pending
+        assert not waiting.accounting_failed
         run.state["unprocessed_request_ids"] = []
         run.state["token_cost"] = {"model": {"provider": {"cost_microusd": 100_000}}}
         run.save(update_fields=["state"])
