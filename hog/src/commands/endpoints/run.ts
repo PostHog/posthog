@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { defineCommand } from '@/core/command'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { plural } from '@/core/text'
-import { listInsightVariables } from '@/endpoints/api'
+import { findInsightVariables } from '@/endpoints/api'
 import { readEndpointFiles } from '@/endpoints/files'
 import { ApiError, type PostHogApi } from '@/posthog/api'
 
@@ -18,7 +18,7 @@ type RunResponse = z.infer<typeof RunResponse>
 // HogQL finds a variable by its project ID, so a file's variables must exist in the project. A
 // value left out uses the variable's default.
 async function queryVariables(api: PostHogApi, values: Map<string, unknown>): Promise<Record<string, unknown>> {
-    const known = new Map((await listInsightVariables(api)).map((variable) => [variable.code_name, variable]))
+    const known = await findInsightVariables(api, [...values.keys()])
     const missing = [...values.keys()].filter((name) => !known.has(name))
     if (missing.length > 0) {
         throw new HogError(
