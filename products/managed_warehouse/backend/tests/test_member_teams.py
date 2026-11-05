@@ -125,6 +125,33 @@ class TestMemberTeams(_MemberTeamsTest):
         self._rule(self.team, "external_data_source", "none")
         assert member_teams.member_teams(self.organization, self.member) == {}
 
+    def _role_editor_and_member_denied_on_one_table(self) -> None:
+        table = str(uuid4())
+        role_id = access_testing.create_role(organization_id=self.organization.id, name="Analysts")
+        access_testing.add_role_member(role_id=role_id, user_id=self.member.id)
+        self._rule(self.team, "warehouse_table", "editor", resource_id=table, role_id=role_id)
+        self._rule(self.team, "warehouse_table", "none", resource_id=table, organization_member_id=self.membership.id)
+
+    def test_most_specific_resolution_lets_a_member_denial_beat_a_role_grant(self) -> None:
+        # PostHog hides the table from the member, so the namespace grant must go.
+        self.organization.uses_most_specific_access_resolution = True
+        self.organization.save()
+        self._role_editor_and_member_denied_on_one_table()
+        assert member_teams.member_teams(self.organization, self.member) == {}
+
+    def test_legacy_resolution_lets_the_highest_explicit_row_win(self) -> None:
+        # Legacy resolution shows the member the table through the role, so the grant stays.
+        self.organization.uses_most_specific_access_resolution = False
+        self.organization.save()
+        self._role_editor_and_member_denied_on_one_table()
+        assert member_teams.member_teams(self.organization, self.member) == {self.team.id: "write"}
+
+    def test_an_object_default_viewer_lowers_write_to_read_under_most_specific(self) -> None:
+        self.organization.uses_most_specific_access_resolution = True
+        self.organization.save()
+        self._rule(self.team, "warehouse_table", "viewer", resource_id=str(uuid4()))
+        assert member_teams.member_teams(self.organization, self.member) == {self.team.id: "read"}
+
     def test_a_hidden_property_withholds_the_team(self) -> None:
         # The namespace holds raw property values, so a member who may not see one gets nothing.
         self._property_rule(self.team, "none", organization_member_id=self.membership.id)

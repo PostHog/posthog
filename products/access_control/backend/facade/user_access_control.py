@@ -1316,10 +1316,12 @@ class UserAccessControl:
         """The lowest level that an object rule gives this user, across every object of ``resources``.
 
         For a caller that grants a whole resource type at once and so cannot honor a restriction on one
-        object: it must not grant more than this. Each object is decided as the list filter decides it
-        (``_object_rows_decision``). An explicit (member or role) row decides. Without one, only a
-        default "none" restricts, because a higher object default loses to the resource rule. ``None``
-        means no object rule restricts the user. This includes org admins, who bypass object rules.
+        object: it must not grant more than this. Each object is decided as the list filter
+        (``_blocked_and_allowed_object_ids``) decides it in the organization's resolution mode. Most
+        specific: the object's resolved level, so a member row beats a role row. Legacy: an explicit
+        (member or role) row decides, and without one only a default "none" restricts, because a higher
+        object default loses to the resource rule. ``None`` means no object rule restricts the user.
+        This includes org admins, who bypass object rules.
 
         It ignores the creator exemption, so a creator can get a lower level than they have.
         """
@@ -1331,12 +1333,19 @@ class UserAccessControl:
             rows_by_object_id: dict[str, list[_AccessControl]] = defaultdict(list)
             for access_control in self._get_access_controls(self._access_controls_filters_for_queryset(resource)):
                 rows_by_object_id[access_control.resource_id].append(access_control)
+            most_specific = bool(rows_by_object_id) and self._is_most_specific_access_control_enabled
+            resource_access = self._most_specific_access_without_object_rules(resource, None) if most_specific else None
             for rows in rows_by_object_id.values():
-                row = self._object_rows_decision(resource, rows)
-                explicit = row.role_id is not None or row.organization_member_id is not None
-                if not explicit and row.access_level != NO_ACCESS_LEVEL:
-                    continue
-                level = cast(AccessControlLevel, row.access_level)
+                if most_specific:
+                    level = self._most_specific_object_access_from_rows(
+                        resource, rows, resource_access=resource_access
+                    ).access_level
+                else:
+                    row = self._object_rows_decision(resource, rows)
+                    explicit = row.role_id is not None or row.organization_member_id is not None
+                    if not explicit and row.access_level != NO_ACCESS_LEVEL:
+                        continue
+                    level = cast(AccessControlLevel, row.access_level)
                 if lowest is None or order.index(level) < order.index(lowest):
                     lowest = level
         return lowest
