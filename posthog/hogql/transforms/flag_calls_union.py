@@ -469,11 +469,11 @@ class _Aliases(CloningVisitor):
             declared.setdefault(name, (position, expr))
         return declared
 
-    def target(self, expr: ast.Expr, lambda_args: frozenset[str] = frozenset()) -> ast.Expr:
+    def target(self, expr: ast.Expr, lambda_names: frozenset[str] = frozenset()) -> ast.Expr:
         """The expression that `expr`, without its own alias, names through a chain of select aliases."""
         visible: float = math.inf
         expr = unwrap_alias(expr)
-        while isinstance(expr, ast.Field) and len(expr.chain) == 1 and expr.chain[0] not in lambda_args:
+        while isinstance(expr, ast.Field) and len(expr.chain) == 1 and expr.chain[0] not in lambda_names:
             declared = self.aliases.get(str(expr.chain[0]))
             # The resolver binds a name in an alias's expression only to an alias declared before it. In
             # `event AS event`, the inner `event` is therefore the column.
@@ -662,7 +662,8 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
         self.root = root
         self.reader = scan
         self.aliases = aliases
-        self.lambda_args: frozenset[str] = frozenset()
+        # The names that the enclosing lambdas bind, or None outside a lambda.
+        self.lambda_names: frozenset[str] | None = None
         self.found = False
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
@@ -670,10 +671,17 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
             super().visit_select_query(node)
 
     def visit_lambda(self, node: ast.Lambda) -> None:
-        outer = self.lambda_args
-        self.lambda_args = outer.union(node.args)
+        outer = self.lambda_names
+        self.lambda_names = (outer or frozenset()).union(node.args)
         super().visit_lambda(node)
-        self.lambda_args = outer
+        self.lambda_names = outer
+
+    def visit_alias(self, node: ast.Alias) -> None:
+        super().visit_alias(node)
+        # The resolver registers an alias inside a lambda in that lambda's scope once it reads the alias, so the name
+        # reads the alias for the rest of the lambda.
+        if self.lambda_names is not None:
+            self.lambda_names = self.lambda_names.union([node.alias])
 
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
         pass
@@ -688,7 +696,7 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
 
     def _check(self, expr: ast.Expr) -> None:
         def resolve(read: ast.Expr) -> ast.Expr:
-            return self.aliases.target(read, self.lambda_args)
+            return self.aliases.target(read, self.lambda_names or frozenset())
 
         values = compared_values(expr, lambda read: self.reader.column(resolve(read)) == ["event"])
         items = [
