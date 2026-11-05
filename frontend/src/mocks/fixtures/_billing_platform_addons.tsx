@@ -107,6 +107,11 @@ const sessionReplayDataRetention = (months: number): AddonPlanFeature =>
         'Keep a historical record of your Session Replay data.',
         { limit: months, unit: 'months' }
     )
+const eventsDataRetention = (years: number): AddonPlanFeature =>
+    feature('product_analytics_data_retention', 'Events data retention', 'Keep a historical record of your events.', {
+        limit: years,
+        unit: 'years',
+    })
 const auditLogs = (months: number): AddonPlanFeature =>
     feature(
         'audit_logs',
@@ -195,6 +200,7 @@ const TEAMS_FEATURES: AddonPlanFeature[] = [
     organizationSecuritySettings,
     memberGovernance,
     sessionReplayDataRetention(12),
+    eventsDataRetention(3),
     highFrequencyAlerts,
 ]
 
@@ -213,6 +219,7 @@ const BOOST_FEATURES: AddonPlanFeature[] = [
     organizationSecuritySettings,
     memberGovernance,
     sessionReplayDataRetention(12),
+    eventsDataRetention(3),
     highFrequencyAlerts,
 ]
 
@@ -236,6 +243,7 @@ const SCALE_FEATURES: AddonPlanFeature[] = [
     memberGovernance,
     xaaAuthentication,
     sessionReplayDataRetention(12),
+    eventsDataRetention(5),
     highFrequencyAlerts,
     realTimeAlerts,
 ]
@@ -251,6 +259,7 @@ const ENTERPRISE_FEATURES: AddonPlanFeature[] = [
     invoicePayments,
     auditLogs(60),
     sessionReplayDataRetention(60),
+    eventsDataRetention(7),
     projects,
     ssoEnforcement,
     twoFaEnforcement,

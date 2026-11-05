@@ -6,10 +6,18 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { compactNumber } from 'lib/utils/numbers'
-import { wordPluralize } from 'lib/utils/strings'
+import { pluralize, wordPluralize } from 'lib/utils/strings'
 import { Params } from 'scenes/sceneTypes'
 
-import { BillingPeriod, BillingProductV2AddonType, BillingProductV2Type, BillingTierType, BillingType } from '~/types'
+import {
+    AvailableFeature,
+    BillingFeatureType,
+    BillingPeriod,
+    BillingProductV2AddonType,
+    BillingProductV2Type,
+    BillingTierType,
+    BillingType,
+} from '~/types'
 
 import { SPEND_TYPES, USAGE_TYPES } from './constants'
 import type { BillingFilters, BillingUsageInteractionProps } from './types'
@@ -639,4 +647,25 @@ export function billingErrorGuidance(error: { code: string; detail: string }): s
         default:
             return error.detail
     }
+}
+
+export function eventsRetentionOf(plan?: { features?: BillingFeatureType[] }): BillingFeatureType | undefined {
+    return plan?.features?.find((feature) => feature.key === AvailableFeature.PRODUCT_ANALYTICS_DATA_RETENTION)
+}
+
+export function retentionInMonths(feature?: BillingFeatureType): number | null {
+    if (!feature?.limit || !feature.unit) {
+        return null
+    }
+    if (feature.unit.startsWith('year')) {
+        return feature.limit * 12
+    }
+    return feature.unit.startsWith('month') ? feature.limit : null
+}
+
+export function formatRetentionLimit(feature?: BillingFeatureType): string | null {
+    if (!feature?.limit || !feature.unit) {
+        return null
+    }
+    return pluralize(feature.limit, feature.unit.replace(/s$/, ''))
 }

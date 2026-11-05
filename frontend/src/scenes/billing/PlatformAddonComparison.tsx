@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import {
     IconActivity,
     IconCheckCircle,
+    IconClock,
     IconCrown,
     IconGroups,
     IconHeadset,
@@ -27,6 +28,7 @@ import { toSentenceCase } from 'lib/utils/strings'
 
 import { BillingFeatureType, BillingPlan, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
+import { eventsRetentionOf, formatRetentionLimit, retentionInMonths } from './billing-utils'
 import { BillingProductAddonActions } from './BillingProductAddonActions'
 import { billingProductLogic } from './billingProductLogic'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
@@ -114,6 +116,15 @@ const PlanCard = ({
     const description = plan?.description
     const isOnTrial = billing?.trial?.target === addon.type
 
+    const packageRetention = eventsRetentionOf(pricedPlan ?? addon.plans?.[0])
+    const packageRetentionLabel = formatRetentionLimit(packageRetention)
+    const currentPlanRetention = eventsRetentionOf(
+        billing?.products?.find((product) => product.type === 'product_analytics')?.plans?.find((p) => p.current_plan)
+    )
+    const currentPlanRetentionLabel = formatRetentionLimit(currentPlanRetention)
+    const currentPlanIsLonger =
+        (retentionInMonths(currentPlanRetention) ?? 0) > (retentionInMonths(packageRetention) ?? Infinity)
+
     return (
         <div
             data-attr={`billing-product-addon-${addon.type}`}
@@ -145,13 +156,29 @@ const PlanCard = ({
                 </div>
                 {description && <div>{description}</div>}
             </div>
-            {coreFeatures.length > 0 && (
+            {(coreFeatures.length > 0 || packageRetentionLabel) && (
                 <div className="flex flex-wrap items-center gap-1">
                     {coreFeatures.map((feature) => (
                         <LemonTag key={feature.label} icon={feature.icon}>
                             {feature.label}
                         </LemonTag>
                     ))}
+                    {packageRetentionLabel && (
+                        <Tooltip
+                            title={
+                                currentPlanIsLonger
+                                    ? `Your current plan has ${currentPlanRetentionLabel} of events retention. The longer of the two applies.`
+                                    : undefined
+                            }
+                        >
+                            <LemonTag
+                                icon={<IconClock />}
+                                data-attr={`billing-product-addon-${addon.type}-events-retention`}
+                            >
+                                {packageRetentionLabel} of events retention
+                            </LemonTag>
+                        </Tooltip>
+                    )}
                     <Link className="text-xs ml-1" onClick={onExpandCompare}>
                         + More
                     </Link>
