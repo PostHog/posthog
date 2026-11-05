@@ -454,7 +454,6 @@ def emit_issue_created_internal_event_activity(inputs: IssueCreatedWorkflowInput
         humanize_status=False,
     )
     # After the internal event, because a failed event retries the activity and would notify the assignee twice.
-    # A notification failure never raises, so it cannot cause that retry.
     outcome = _notify_rule_assignment(inputs)
     ERROR_TRACKING_RULE_ASSIGNMENT_NOTIFY_OUTCOMES.labels(outcome=outcome).inc()
 
