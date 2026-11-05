@@ -420,10 +420,14 @@ This also applies to the organization usage/spend time-series endpoints and CSV 
 The billing overview, usage, and spend tools do not need a rollout flag.
 API scopes and billing access checks still apply.
 
-The project-scoped `self-driving-usage-get` tool reads `GET /api/projects/:team_id/signals/usage/?month=YYYY-MM` with `signal_usage:read`.
+The project-scoped `inbox-usage-get` tool reads `GET /api/projects/:team_id/signals/usage/?month=YYYY-MM` with `signal_usage:read`.
 Its sources include signal processing, research, and downstream implementation attributed to each report's current triggering signal; its scouts include execution costs even when no report is produced.
 Those breakdowns are additive and retain missing attribution in a null-source bucket.
 Finalized spend is grouped by UTC calendar month, with unsettled work created in that month reported separately.
+The endpoint uses `InboxUsageQueryRunner`, with a five-minute cache per canonical project and month; `as_of` identifies when the returned totals were computed.
+Source attribution uses one bulk HogQL aggregate, retaining spend when signal metadata is missing or the report is deleted.
+The generic query API also accepts `{"kind": "InboxUsageQuery", "month": "YYYY-MM"}`, including its standard async execution modes, with both `query:read` and `signal_usage:read`.
+Direct queries must target the canonical parent project; the usage endpoint resolves child environments after checking parent-project access.
 The response returns fractional credits as decimal strings and `pricing.usd_per_credit` for USD conversion; recorded usage includes exemptions and is not an invoice amount.
 Use `system.signal_spend` for finer queries and `system.scout_runs.spend_credits` for per-run inspection, without adding the latter to the spend records again.
 Report details expose associated scout-run costs separately because one run can contribute to several reports.

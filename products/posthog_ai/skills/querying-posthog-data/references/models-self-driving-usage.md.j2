@@ -1,6 +1,6 @@
 # Self-driving usage
 
-Use `self-driving-usage-get` for a monthly overview by source and scout, including downstream report implementation.
+Use `inbox-usage-get` for a monthly overview by source and scout, including downstream report implementation.
 Use `execute-sql` for individual reports, runs, daily trends, or custom filters.
 The monthly tool is available when the project's rollout permits it; the SQL tables require their API read scopes.
 
@@ -11,7 +11,7 @@ The monthly tool is available when the project's rollout permits it; the SQL tab
 Requires `signal_usage:read` and project access.
 Each row owns one amount of recorded usage; sum these rows once.
 `credits` is a decimal, including fractional credits.
-Multiply credits by `pricing.usd_per_credit` returned by `self-driving-usage-get` for the recorded USD value.
+Multiply credits by `pricing.usd_per_credit` returned by `inbox-usage-get` for the recorded USD value.
 Do not describe this value as the invoice: exemptions, billing cutovers, grants, discounts, and billing rounding can change the amount charged.
 `billing_exempt` identifies exempt recorded usage but is not a complete billability decision.
 

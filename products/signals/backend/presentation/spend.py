@@ -1,5 +1,6 @@
 from dataclasses import asdict
 from datetime import date
+from typing import TYPE_CHECKING, cast
 
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from rest_framework import serializers, viewsets
@@ -7,13 +8,24 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.schema import CachedInboxUsageQueryResponse, InboxUsageQuery
+
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.clickhouse.workload import Workload
 from posthog.permissions import APIScopePermission
 
-from products.signals.backend.facade.spend import monthly_usage, scout_spend_overview, source_spend_overview
+from products.signals.backend.facade.spend import (
+    InboxUsageQueryRunner,
+    parse_usage_month,
+    scout_spend_overview,
+    source_spend_overview,
+)
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
+
+if TYPE_CHECKING:
+    from posthog.models import User
 
 
 class SpendAmountSerializer(serializers.Serializer):
@@ -93,12 +105,9 @@ class MonthlyUsageQuerySerializer(serializers.Serializer):
 
     def validate_month(self, value: str) -> date:
         try:
-            month = date.fromisoformat(f"{value}-01")
-        except ValueError:
-            raise serializers.ValidationError("Enter a valid month in YYYY-MM format.")
-        if month.year == 9999:
-            raise serializers.ValidationError("The year must be earlier than 9999.")
-        return month
+            return parse_usage_month(value)
+        except ValueError as error:
+            raise serializers.ValidationError(str(error)) from error
 
 
 class UsageCreditsSerializer(serializers.Serializer):
@@ -202,5 +211,13 @@ class SignalMonthlyUsageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         operation_id="signals_monthly_usage",
     )
     def list(self, request: ValidatedRequest, **kwargs: object) -> Response:
-        usage = monthly_usage(team=self.team, month=request.validated_query_data.get("month"))
-        return Response(MonthlyUsageSerializer(asdict(usage)).data)
+        month = request.validated_query_data.get("month")
+        user = cast("User", request.user)
+        usage = InboxUsageQueryRunner(
+            query=InboxUsageQuery(month=f"{month.year:04}-{month.month:02}" if month else None),
+            team=self.team.parent_team or self.team,
+            user=user,
+            workload=Workload.ONLINE,
+        ).run(user=user)
+        assert isinstance(usage, CachedInboxUsageQueryResponse)
+        return Response(MonthlyUsageSerializer(usage.results).data)

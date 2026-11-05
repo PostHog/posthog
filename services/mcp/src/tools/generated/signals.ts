@@ -3019,15 +3019,15 @@ const scoutTrialStart = (): ToolBase<ReturnType<typeof ScoutTrialStartSchema>, u
     },
 })
 
-const SelfDrivingUsageGetSchema = () => {
+const InboxUsageGetSchema = () => {
     const SignalsMonthlyUsageQueryParams = orvalSchemas.SignalsMonthlyUsageQueryParams()
     return SignalsMonthlyUsageQueryParams
 }
 
-const selfDrivingUsageGet = (): ToolBase<ReturnType<typeof SelfDrivingUsageGetSchema>, Schemas.MonthlyUsage> => ({
-    name: 'self-driving-usage-get',
-    schema: SelfDrivingUsageGetSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof SelfDrivingUsageGetSchema>>) => {
+const inboxUsageGet = (): ToolBase<ReturnType<typeof InboxUsageGetSchema>, Schemas.MonthlyUsage> => ({
+    name: 'inbox-usage-get',
+    schema: InboxUsageGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxUsageGetSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.MonthlyUsage>({
             method: 'GET',
@@ -3869,7 +3869,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-trial-resume': scoutTrialResume,
     'scout-trial-setup': scoutTrialSetup,
     'scout-trial-start': scoutTrialStart,
-    'self-driving-usage-get': selfDrivingUsageGet,
+    'inbox-usage-get': inboxUsageGet,
     'signals-scout-config-create': signalsScoutConfigCreate,
     'signals-scout-config-delete': signalsScoutConfigDelete,
     'signals-scout-config-list': signalsScoutConfigList,

@@ -188,6 +188,7 @@ export enum NodeKind {
     // AI queries
     SuggestedQuestionsQuery = 'SuggestedQuestionsQuery',
     TeamTaxonomyQuery = 'TeamTaxonomyQuery',
+    InboxUsageQuery = 'InboxUsageQuery',
     EventTaxonomyQuery = 'EventTaxonomyQuery',
     ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
     TracesQuery = 'TracesQuery',
@@ -294,6 +295,7 @@ export type AnyDataNode =
     | SessionQuery
     | TraceNeighborsQuery
     | VectorSearchQuery
+    | InboxUsageQuery
     | UsageMetricsQuery
     | AccountsQuery
     | AccountsTableQuery
@@ -428,6 +430,7 @@ export type QuerySchema =
     | VectorSearchQuery
 
     // Customer analytics
+    | InboxUsageQuery
     | UsageMetricsQuery
     | AccountsQuery
     | AccountsTableQuery
@@ -7519,6 +7522,69 @@ export interface TeamTaxonomyItem {
 }
 
 export type TeamTaxonomyResponse = TeamTaxonomyItem[]
+
+export interface InboxUsageQuery extends DataNode<InboxUsageQueryResponse> {
+    kind: NodeKind.InboxUsageQuery
+    /** UTC calendar month in YYYY-MM format. Defaults to the current month. */
+    month?: string
+}
+
+export interface InboxUsageCredits {
+    /** Recorded finalized credits, including exemptions. Decimal strings preserve fractional credits. */
+    total_credits: string
+    /** Billing-exempt subset of total_credits. */
+    exempt_credits: string
+    incomplete: boolean
+}
+
+export interface InboxUsageSource extends InboxUsageCredits {
+    source_product: string | null
+    source_type: string | null
+    processing_credits: string
+    research_credits: string
+    implementation_credits: string
+}
+
+export interface InboxUsageScout extends InboxUsageCredits {
+    scout_config_id: string | null
+    skill_name: string
+    display_name: string
+    run_count: integer
+    /** Distinct reports emitted by this scout; reports may be shared across scouts. */
+    reports_produced: integer
+}
+
+export interface InboxUsage extends InboxUsageCredits {
+    project_id: integer
+    /** @format date-time */
+    period_start: string
+    /** @format date-time */
+    period_end: string
+    /** @format date-time */
+    as_of: string
+    /** Unfinalized credits created in the month, excluded from total_credits. */
+    unsettled_credits: string
+    untracked_scout_run_count: integer
+    /** Missing source metadata is retained in a null-source bucket. */
+    attribution_incomplete: boolean
+    /** Processing, research and implementation. Excludes scout execution. */
+    sources: InboxUsageSource[]
+    /** Scout execution only. These totals and source totals sum to total_credits. */
+    scouts: InboxUsageScout[]
+    pricing: InboxUsagePricing
+}
+
+export interface InboxUsagePricing {
+    currency: 'USD'
+    /** Multiply credits by this value for recorded USD usage, before billing adjustments. */
+    usd_per_credit: string
+}
+
+export interface InboxUsageQueryResponse extends AnalyticsQueryResponseBase {
+    results: InboxUsage
+}
+
+export type CachedInboxUsageQueryResponse = CachedQueryResponse<InboxUsageQueryResponse>
 
 export interface TeamTaxonomyQuery extends DataNode<TeamTaxonomyQueryResponse> {
     kind: NodeKind.TeamTaxonomyQuery

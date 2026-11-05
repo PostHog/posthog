@@ -8611,6 +8611,22 @@
             "readOnlyHint": false
         }
     },
+    "inbox-usage-get": {
+        "description": "Get recorded Self-driving usage for the selected project's UTC calendar month, defaulting to this month. Returns credits by signal source (processing, research, and downstream report implementation) and by scout (execution costs, including runs that produce no report). The two breakdowns are additive: their totals sum to total_credits. Implementation uses the report's current triggering source. Missing source metadata stays in a null-source bucket. Finalized costs belong to the month they finalized, even if work started earlier. Unsettled work created in the month is reported separately, as are missing scout receipts. Fractional credits are decimal strings; multiply by pricing.usd_per_credit to convert to USD. Exempt credits are a subset of recorded usage. This is not an invoice: billing cutovers, grants, discounts and rounding can change billed amounts. Child environments resolve to the parent project, which requires parent-project access; project_id identifies the project whose usage is returned. For daily trends, individual runs or reports, custom filters, or finer breakdowns, use execute-sql with system.signal_spend, system.scout_runs and system.inbox_reports. Report detail can show associated scout costs shared with other reports; do not add those shared amounts to this summary or across reports.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Get monthly Self-driving usage",
+        "title": "Get monthly Self-driving usage",
+        "required_scopes": ["signal_usage:read"],
+        "api_operations": ["GET /api/projects/{project_id}/signals/usage/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "self-driving-usage-display"
+    },
     "insight-create": {
         "description": "Create a new saved insight from a name and query definition. Test queries with query-trends / query-funnel /\nquery-retention / query-paths / query-stickiness / query-lifecycle first to confirm the shape, then save.\nReturns insight metadata only — after creating, call the insight-query tool with the returned `short_id` if\nyou want to see the computed results.\n\nPut the insight definition in `query.source`, under the wrapper node that matches it. Use\n`InsightVizNode` for a product analytics chart, `DataVisualizationNode` for a SQL visualization, and `DataTableNode` with an `EventsQuery` source for a table of individual events:\n\n```json\n{ \"name\": \"Example\", \"query\": { \"kind\": \"DataVisualizationNode\", \"source\": { \"kind\": \"HogQLQuery\", \"query\": \"SELECT 1\" } } }\n```\nBare `TrendsQuery`, `HogQLQuery`, and `EventsQuery` definitions are accepted too. They are wrapped for you, so a query you just ran through one of the `query-*` tools can be passed straight through.\n\nA saved SQL insight must follow the dashboard and insight date range. Before you save a `HogQLQuery`, replace its fixed date window, such as `timestamp >= now() - INTERVAL 30 DAY`, with the `{filters}` placeholder: `WHERE event = 'signed_up' AND {filters}`. Then put the requested window in `query.source.filters.dateRange`, for example `{\"date_from\": \"-30d\"}`. A fixed window ignores the date picker, and `{filters}` without a `dateRange` shows all time. `{filters}` also applies the property and test-account filters. For a table without a `timestamp` column, bind its date column with `{filters(created_at AS timestamp)}`.\n\nSave a `MetricsQuery` or `MetricsHistogramQuery` bare, as the top-level `query`. Do not put it in an `InsightVizNode`.\n\nFor a PromQL metrics insight, set `language` to `promql`, put the expression in `promql`, and send `clauses` as an empty list. When query-metrics accepts a `promql` field, test the expression with it first:\n\n```json\n{ \"name\": \"Request rate\", \"query\": { \"kind\": \"MetricsQuery\", \"language\": \"promql\", \"promql\": \"sum(rate(http_requests_total[5m]))\", \"clauses\": [], \"dateRange\": { \"date_from\": \"-24h\" } } }\n```\n\nChoose the TrendsQuery `trendsFilter.display` from the question the insight answers:\n- Change over time: `ActionsLineGraph` (default), `ActionsAreaGraph`, or `ActionsBar`.\n- Compare breakdown values or series as totals (\"top pages\", \"failures by reason\"): `ActionsBarValue`, or `ActionsPie` for the share of a whole with a few values.\n- One number for the period, or this period against the previous one: `Metric` with `compareFilter.compare: true` for a comparison, or `BoldNumber` when a trend has no meaning.\n- Many breakdown rows that a person reads rather than compares: `ActionsTable`.\n- Totals per country from a `$geoip_country_code` breakdown: `WorldMap`.\n\nIn a TrendsQuery, `ActionsBar` is a time series with one bar per interval and the breakdown values stacked in each bar. It is not one bar per category. In a SQL `DataVisualizationNode`, `ActionsBar` is one bar per X-axis value, and `ActionsBarValue` draws the same bars horizontally.",
         "category": "Product analytics",
@@ -14089,22 +14105,6 @@
             "readOnlyHint": false
         },
         "feature_flag": "scout-trials"
-    },
-    "self-driving-usage-get": {
-        "description": "Get recorded Self-driving usage for the selected project's UTC calendar month, defaulting to this month. Returns credits by signal source (processing, research, and downstream report implementation) and by scout (execution costs, including runs that produce no report). The two breakdowns are additive: their totals sum to total_credits. Implementation uses the report's current triggering source. Missing source metadata stays in a null-source bucket. Finalized costs belong to the month they finalized, even if work started earlier. Unsettled work created in the month is reported separately, as are missing scout receipts. Fractional credits are decimal strings; multiply by pricing.usd_per_credit to convert to USD. Exempt credits are a subset of recorded usage. This is not an invoice: billing cutovers, grants, discounts and rounding can change billed amounts. Child environments resolve to the parent project, which requires parent-project access; project_id identifies the project whose usage is returned. For daily trends, individual runs or reports, custom filters, or finer breakdowns, use execute-sql with system.signal_spend, system.scout_runs and system.inbox_reports. Report detail can show associated scout costs shared with other reports; do not add those shared amounts to this summary or across reports.",
-        "category": "Signals",
-        "feature": "signals",
-        "summary": "Get monthly Self-driving usage",
-        "title": "Get monthly Self-driving usage",
-        "required_scopes": ["signal_usage:read"],
-        "api_operations": ["GET /api/projects/{project_id}/signals/usage/"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "self-driving-usage-display"
     },
     "session-recording-bulk-delete": {
         "description": "Delete a batch of session recordings by session ID, up to 100 per call. Deletion is permanent and cannot be undone — confirm with the user before deleting. Prefer this over `session-recording-delete` whenever more than one recording needs deleting: find the target IDs with `query-session-recordings-list`, then delete in batches. Pass `date_from` (e.g. '-30d') when the recordings' age is known — it makes the lookup much faster. IDs with no matching recording are skipped, so a `deleted_count` below `total_requested` is normal when some recordings were already deleted or never existed.",

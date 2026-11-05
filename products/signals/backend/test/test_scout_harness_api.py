@@ -6184,7 +6184,7 @@ class TestScoutSpendOverview(APIBaseTest):
     @parameterized.expand(
         [
             (endpoint, scope, report_status)
-            for endpoint in ("scouts", "sources", "report", "monthly")
+            for endpoint in ("scouts", "sources", "report", "monthly", "monthly_query")
             for scope in ("signal_usage", "signal_scout", "task")
             for report_status in (
                 [SignalReport.Status.POTENTIAL, SignalReport.Status.SUPPRESSED]
@@ -6199,6 +6199,7 @@ class TestScoutSpendOverview(APIBaseTest):
             "scouts": "signals/spend/",
             "sources": "signals/source_spend/",
             "monthly": "signals/usage/",
+            "monthly_query": "query/",
             "report": f"signals/reports/{report.id}/spend/",
         }[endpoint]
         raw = generate_random_token_personal()
@@ -6206,13 +6207,21 @@ class TestScoutSpendOverview(APIBaseTest):
             label="usage-read",
             user=self.user,
             secure_value=hash_key_value(raw),
-            scopes=[f"{scope}:read"],
+            scopes=[f"{scope}:read", "query:read"] if endpoint == "monthly_query" else [f"{scope}:read"],
             scoped_teams=[self.team.id],
         )
         self.client.logout()
         with patch("products.signals.backend.spend_reporting.execute_hogql_query") as query:
             query.return_value.results = []
-            response = self.client.get(f"/api/projects/{self.team.id}/{path}", HTTP_AUTHORIZATION=f"Bearer {raw}")
+            if endpoint == "monthly_query":
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/{path}",
+                    {"query": {"kind": "InboxUsageQuery"}},
+                    format="json",
+                    HTTP_AUTHORIZATION=f"Bearer {raw}",
+                )
+            else:
+                response = self.client.get(f"/api/projects/{self.team.id}/{path}", HTTP_AUTHORIZATION=f"Bearer {raw}")
         assert response.status_code == (200 if scope == "signal_usage" else 403), response.content
 
     @time_machine.travel("2026-12-15T12:00:00Z", tick=False)
@@ -6283,6 +6292,28 @@ class TestScoutSpendOverview(APIBaseTest):
         assert child_response.json()["project_id"] == self.team.id
         assert child_response.json()["total_credits"] == "19.1250"
         assert child_response.json()["scouts"] == data["scouts"]
+        query_payload = {"query": {"kind": "InboxUsageQuery"}}
+        query_response = self.client.post(f"/api/projects/{self.team.id}/query/", query_payload, format="json")
+        assert query_response.status_code == 200, query_response.content
+        assert query_response.json()["results"]["total_credits"] == data["total_credits"]
+        assert query_response.json()["is_cached"] is True
+        child_query = self.client.post(f"/api/projects/{child.id}/query/", query_payload, format="json")
+        assert child_query.status_code == 400, child_query.content
+
+        SignalSpend.objects.for_team(self.team.id).filter(scout_run=first).update(spend=Decimal("20.1250"))
+        cached = self.client.get(f"/api/projects/{self.team.id}/signals/usage/").json()
+        assert cached["total_credits"] == data["total_credits"]
+        assert cached["as_of"] == data["as_of"]
+        with time_machine.travel("2026-12-15T12:06:00Z", tick=False):
+            refreshed = self.client.get(f"/api/projects/{self.team.id}/signals/usage/").json()
+        assert refreshed["total_credits"] == "27.1250"
+        with time_machine.travel("2027-01-02T12:00:00Z", tick=False):
+            self.client.force_login(self.user)
+            next_month_response = self.client.get(f"/api/projects/{self.team.id}/signals/usage/")
+        assert next_month_response.status_code == 200, next_month_response.content
+        next_month = next_month_response.json()
+        assert next_month["period_start"] == "2027-01-01T00:00:00Z"
+        assert next_month["total_credits"] == "999.0000"
 
     def test_monthly_usage_rejects_invalid_month(self) -> None:
         response = self.client.get(f"/api/projects/{self.team.id}/signals/usage/?month=2026-13")

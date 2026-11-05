@@ -1791,7 +1791,7 @@ tools:
                     Steering instructions shared by every run in this trial, matching the trial UI's "Instructions for
                     every run" field. Up to 1000 characters. Does not edit the saved scout's instructions.
         feature_flag: scout-trials
-    self-driving-usage-get:
+    inbox-usage-get:
         operation: signals_monthly_usage
         enabled: true
         title: Get monthly Self-driving usage
