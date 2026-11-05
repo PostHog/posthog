@@ -2740,15 +2740,24 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert [row["content"] for row in response.json()] == ["the /checkout spike is expected"]
 
-    def test_list_excludes_expired_notes_by_default(self) -> None:
+    def test_list_filters_notes_by_expiry(self) -> None:
         SignalScoutNote.objects.create(
             team=self.team, content="stale steering", expires_at=timezone.now() - timedelta(days=1)
         )
         SignalScoutNote.objects.create(team=self.team, content="live steering")
+        SignalScoutNote.objects.create(
+            team=self.team, content="time-boxed steering", expires_at=timezone.now() + timedelta(days=1)
+        )
         default = self.client.get(self._list_url())
-        assert {row["content"] for row in default.json()} == {"live steering"}
+        assert {row["content"] for row in default.json()} == {"live steering", "time-boxed steering"}
         with_expired = self.client.get(f"{self._list_url()}?include_expired=true")
-        assert {row["content"] for row in with_expired.json()} == {"live steering", "stale steering"}
+        assert {row["content"] for row in with_expired.json()} == {
+            "live steering",
+            "stale steering",
+            "time-boxed steering",
+        }
+        standing = self.client.get(f"{self._list_url()}?only_without_expiry=true")
+        assert {row["content"] for row in standing.json()} == {"live steering"}
 
     @parameterized.expand(
         [

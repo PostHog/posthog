@@ -2279,7 +2279,8 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "`skill_name` to get the notes addressed to one scout (or one pipeline audience, e.g. "
             "`pipeline:report-research`) plus the general (blank-target) fleet-wide notes — the shape "
             "a scout run reads at cold start. Omit `skill_name` to "
-            "browse every note. Expired notes are excluded unless `include_expired=true`. "
+            "browse every note. Expired notes are excluded unless `include_expired=true`; "
+            "`only_without_expiry=true` keeps only the standing notes that have no `expires_at`. "
             "`date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, "
             "`< date_to`); pass `date_to` (the `created_at` of the oldest note seen) to walk past "
             "the cap. Pass `text` to keep only the notes whose content contains it, "
@@ -2296,6 +2297,7 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             skill_name=validated.get("skill_name") or None,
             include_general=bool(validated.get("include_general", True)),
             include_expired=bool(validated.get("include_expired", False)),
+            only_without_expiry=bool(validated.get("only_without_expiry", False)),
             date_from=validated.get("date_from"),
             date_to=validated.get("date_to"),
             limit=validated.get("limit") or DEFAULT_NOTES_LIST_LIMIT,
