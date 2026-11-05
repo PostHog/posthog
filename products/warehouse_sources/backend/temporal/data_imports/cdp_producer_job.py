@@ -44,7 +44,7 @@ async def produce_to_cdp_kafka_activity(inputs: CDPProducerWorkflowInputs) -> No
 
     try:
         resume_from = ProduceCheckpoint.from_heartbeat_details(activity.info().heartbeat_details)
-        throttle = RowThrottle(team_id=inputs.team_id, table_id=producer.table.id)
+        throttle = RowThrottle(team_id=inputs.team_id)
         async with Heartbeater() as heartbeater:
             if resume_from is not None:
                 heartbeater.details = resume_from.to_heartbeat_details()

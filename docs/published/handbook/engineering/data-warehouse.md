@@ -12,26 +12,8 @@ Onboarding only checks warehouse setup for non-demo projects without events. Sou
 
 ## Warehouse CDP producer
 
-The `warehouse-cdp-producer-rate-limits` feature flag payload sets `default_rows_per_second` for each table.
-The rate is 2,000 rows per second when this value is unset or invalid.
-Overlapping runs of the same table share a rate limit.
-Operators can change the flag payload live.
-The producer refreshes the rate at most once every 60 seconds, when its local allowance is empty.
-
-The `overrides` object sets a rate for each table id.
-Use the `ExternalDataSchema` id for a source table or the `DataWarehouseSavedQuery` id for a materialized view.
-Rates can be fractional, and the minimum is 0.01 rows per second.
-Invalid overrides fall back to the payload default.
-For example, this payload sets one table to 0.5 rows per second:
-
-```json
-{
-  "default_rows_per_second": 1000,
-  "overrides": {
-    "source-table-id": 0.5
-  }
-}
-```
+Each team is limited to `ROWS_PER_SECOND` (2,000 rows per second) in `cdp_producer_rate.py`.
+All producer runs of a team share one Redis bucket, across every table.
 
 The producer deletes each staged file only after Kafka confirms delivery of its rows.
 Checkpoints record progress after 10,000 produced rows or 30 seconds while processing rows.
