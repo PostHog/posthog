@@ -41,6 +41,7 @@ from products.alerts_platform.backend.facade.api import (
     refresh_settings,
     slot_of,
 )
+from products.alerts_platform.backend.facade.check_errors import classify as classify_alert_error
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
@@ -88,6 +89,11 @@ from products.alerts_platform.backend.facade.platform_metrics import (
     record_scheduler_lag,
     safe_record,
 )
+from products.alerts_platform.backend.facade.rolling_checks import (
+    derive_breaches,
+    resolve_alert_date_to,
+    rolling_check_lookback_minutes,
+)
 from products.alerts_platform.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
 from products.logs.backend.alert_check_query import (
     BatchedAlertCheckQuery,
@@ -95,20 +101,17 @@ from products.logs.backend.alert_check_query import (
     GroupedAlertCheckQuery,
     fetch_live_logs_checkpoint,
     is_projection_eligible,
-    resolve_alert_date_to,
 )
 from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG, EventKind
-from products.logs.backend.alert_error_classifier import classify as classify_alert_error
 from products.logs.backend.alert_evaluation_key import WINDOW_MARKER
 from products.logs.backend.alert_group_columns import grouping_problem
-from products.logs.backend.alert_lookback import rolling_check_lookback_minutes
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_alert_backfill import SETTINGS_FIELDS, platform_upsert_of
 from products.logs.backend.platform_source_config import filters_of, logs_alert_url
 
-# Private to the production activity. Reimplementing either would let this path drift from
-# what the logs stack evaluates. Promoting them to a shared home is the deeper fix.
-from products.logs.backend.temporal.activities import _derive_breaches, _detect_broken_filter_config
+# Private to the production activity. Reimplementing it would let this path drift from
+# what the logs stack evaluates. Promoting it to a shared home is the deeper fix.
+from products.logs.backend.temporal.activities import _detect_broken_filter_config
 from products.logs.backend.temporal.batch_slot import LogsBatchAdmission, LogsBatchSlot
 from products.logs.backend.temporal.constants import MAX_ALERT_COHORT_SIZE
 
@@ -156,7 +159,7 @@ class LogsAlertCondition:
     window_minutes: int
 
     def __post_init__(self) -> None:
-        # `_derive_breaches` reads any operator but `above` as `below`, so an unknown one would
+        # `derive_breaches` reads any operator but `above` as `below`, so an unknown one would
         # decide the alert against the wrong side of its bound instead of failing.
         if self.threshold_operator not in LogsAlertConfiguration.ThresholdOperator.values:
             raise ValueError(f"Unknown threshold operator {self.threshold_operator!r}")
@@ -533,8 +536,8 @@ def _evaluate_one(
     check: PlatformAlertCheckInput, buckets: list[BucketedCount], *, now: datetime, muted: bool
 ) -> AlertCheckOutcome:
     condition = LogsAlertCondition.of(check)
-    current_breached, *prior_windows_breached = _derive_breaches(
-        buckets, condition.threshold_count, condition.threshold_operator, check.evaluation_periods
+    current_breached, *prior_windows_breached = derive_breaches(
+        [b.count for b in buckets], condition.threshold_count, condition.threshold_operator, check.evaluation_periods
     ) or (False,)
     return _verdict(
         check,
@@ -830,8 +833,11 @@ def _evaluate_grouped(
     counts = {grouping_key_of(group.labels): group for group in result.groups}
 
     def observe(key: str, buckets: list[BucketedCount], labels: dict[str, str]) -> GroupObservation:
-        current_breached, *prior_breached = _derive_breaches(
-            buckets, condition.threshold_count, condition.threshold_operator, check.evaluation_periods
+        current_breached, *prior_breached = derive_breaches(
+            [b.count for b in buckets],
+            condition.threshold_count,
+            condition.threshold_operator,
+            check.evaluation_periods,
         ) or (False,)
         return GroupObservation(
             grouping_key=key,

@@ -737,11 +737,6 @@ class GroupedAlertCheckQuery:
         )
 
 
-# Fall back to `now` when the checkpoint is older than this — a quiet partition
-# can pin `min(...)` hours behind while other partitions have fresh data.
-CHECKPOINT_MAX_STALENESS = dt.timedelta(minutes=5)
-
-
 def fetch_live_logs_checkpoint(
     team: Team, *, ch_user: ClickHouseUser = ClickHouseUser.DEFAULT, max_execution_time: int | None = None
 ) -> dt.datetime | None:
@@ -768,20 +763,6 @@ def fetch_live_logs_checkpoint(
     if checkpoint.tzinfo is None:
         checkpoint = checkpoint.replace(tzinfo=ZoneInfo("UTC"))
     return checkpoint
-
-
-def resolve_alert_date_to(nca: dt.datetime, checkpoint: dt.datetime | None) -> dt.datetime:
-    """Anchor `date_to` on the alert's scheduled `next_check_at`, clamped to the
-    ingestion checkpoint when the checkpoint is fresh enough.
-
-    Anchoring on `next_check_at` (not wall-clock-now) is what makes the query
-    window deterministic across retries and immune to scheduler lag — two evals
-    of the same alert at different actual eval times produce the same `date_to`
-    and thus the same query.
-    """
-    if checkpoint is None or (nca - checkpoint) > CHECKPOINT_MAX_STALENESS:
-        return nca
-    return min(nca, checkpoint)
 
 
 def is_projection_eligible(filters: dict) -> bool:

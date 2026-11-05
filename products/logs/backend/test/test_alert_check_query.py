@@ -24,7 +24,6 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 
 from products.logs.backend.alert_check_query import (
-    CHECKPOINT_MAX_STALENESS,
     AlertCheckCountResult,
     AlertCheckQuery,
     BatchedAlertCheckQuery,
@@ -34,7 +33,6 @@ from products.logs.backend.alert_check_query import (
     _rolling_check_ranges,
     fetch_live_logs_checkpoint,
     is_projection_eligible,
-    resolve_alert_date_to,
 )
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.temporal.constants import MAX_ALERT_COHORT_SIZE
@@ -2283,34 +2281,6 @@ class TestFetchLiveLogsCheckpoint(APIBaseTest):
 
         assert result == datetime(2025, 1, 1, 12, 34, 56, tzinfo=UTC)
         assert result is not None and result.tzinfo is not None
-
-
-class TestResolveAlertDateTo(unittest.TestCase):
-    NEXT_CHECK_AT = datetime(2025, 1, 1, 12, 0, 0, tzinfo=UTC)
-
-    def test_none_checkpoint_returns_next_check_at(self):
-        assert resolve_alert_date_to(self.NEXT_CHECK_AT, None) == self.NEXT_CHECK_AT
-
-    def test_fresh_checkpoint_in_past_is_used(self):
-        checkpoint = self.NEXT_CHECK_AT - dt.timedelta(seconds=30)
-        assert resolve_alert_date_to(self.NEXT_CHECK_AT, checkpoint) == checkpoint
-
-    def test_checkpoint_equal_to_next_check_at_is_used(self):
-        assert resolve_alert_date_to(self.NEXT_CHECK_AT, self.NEXT_CHECK_AT) == self.NEXT_CHECK_AT
-
-    def test_future_checkpoint_is_clamped_to_next_check_at(self):
-        checkpoint = self.NEXT_CHECK_AT + dt.timedelta(seconds=60)
-        assert resolve_alert_date_to(self.NEXT_CHECK_AT, checkpoint) == self.NEXT_CHECK_AT
-
-    def test_stale_checkpoint_beyond_threshold_falls_back_to_next_check_at(self):
-        # The "quiet partition pins min() backwards" case — must not strand spikes
-        # on active partitions in the past.
-        checkpoint = self.NEXT_CHECK_AT - CHECKPOINT_MAX_STALENESS - dt.timedelta(seconds=1)
-        assert resolve_alert_date_to(self.NEXT_CHECK_AT, checkpoint) == self.NEXT_CHECK_AT
-
-    def test_checkpoint_exactly_at_threshold_is_still_used(self):
-        checkpoint = self.NEXT_CHECK_AT - CHECKPOINT_MAX_STALENESS
-        assert resolve_alert_date_to(self.NEXT_CHECK_AT, checkpoint) == checkpoint
 
 
 class TestRollingCheckRanges(unittest.TestCase):
