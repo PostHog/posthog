@@ -45,6 +45,40 @@ RUN set -eux; \
       "https://huggingface.co/ggerganov/whisper.cpp/resolve/${WHISPER_MODEL_REVISION}/${WHISPER_MODEL_FILE}"; \
     echo "${WHISPER_MODEL_SHA256}  /${WHISPER_MODEL_FILE}" | sha256sum -c -
 
+# Trimmed ffmpeg and ffprobe for the transcribing-slack-audio skill. The Ubuntu ffmpeg package
+# adds hundreds of MB of codec and media libraries. This build keeps only the demuxers and
+# decoders for Slack voice messages and attachments (M4A, MP3, OGG/Opus, WAV, WebM) and the
+# WAV output that whisper-cli reads.
+FROM ubuntu:24.04 AS ffmpeg-builder
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends build-essential nasm xz-utils curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+ARG FFMPEG_VERSION=7.1.1
+ARG FFMPEG_SHA256=733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1
+RUN set -eux; \
+    curl -fsSL --retry 3 -o /tmp/ffmpeg.tar.xz \
+      "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"; \
+    echo "${FFMPEG_SHA256}  /tmp/ffmpeg.tar.xz" | sha256sum -c -; \
+    mkdir /src; \
+    tar -xf /tmp/ffmpeg.tar.xz -C /src --strip-components=1; \
+    cd /src; \
+    ./configure \
+      --disable-everything --disable-autodetect --disable-doc --disable-debug --disable-network \
+      --disable-ffplay --enable-ffmpeg --enable-ffprobe --enable-small \
+      --enable-protocol=file,pipe \
+      --enable-demuxer=mov,mp3,ogg,wav,matroska,flac,aac \
+      --enable-parser=aac,aac_latm,mpegaudio,opus,vorbis,flac \
+      --enable-decoder=aac,aac_latm,mp3,mp3float,opus,vorbis,flac,pcm_s16le,pcm_s16be,pcm_s24le,pcm_s32le,pcm_f32le,pcm_u8 \
+      --enable-encoder=pcm_s16le --enable-muxer=wav \
+      --enable-filter=aresample,aformat,anull; \
+    make -j"$(nproc)"; \
+    install -m 0755 -s ffmpeg /ffmpeg; \
+    install -m 0755 -s ffprobe /ffprobe; \
+    /ffmpeg -version >/dev/null; \
+    /ffprobe -version >/dev/null
+
 FROM ubuntu:24.04
 
 # Set environment variables to prevent interactive prompts
@@ -83,8 +117,7 @@ RUN apt-get update && \
     postgresql-client \
     mysql-client \
     redis-tools \
-    # Audio decoding and the OpenMP runtime for whisper-cli (transcribing-slack-audio skill)
-    ffmpeg \
+    # OpenMP runtime for whisper-cli (transcribing-slack-audio skill)
     libgomp1 \
     # System libraries often needed by Python packages
     libssl-dev \
@@ -174,6 +207,7 @@ RUN set -eux; \
 ENV AGENTSH_SERVER=http://127.0.0.1:18080
 
 COPY --from=whisper-builder /whisper-cli /usr/local/bin/whisper-cli
+COPY --from=ffmpeg-builder /ffmpeg /ffprobe /usr/local/bin/
 COPY --from=whisper-builder /ggml-small-q5_1.bin /opt/whisper/models/ggml-small-q5_1.bin
 ENV WHISPER_MODEL_PATH=/opt/whisper/models/ggml-small-q5_1.bin
 RUN whisper-cli --help >/dev/null && ffmpeg -version >/dev/null && ffprobe -version >/dev/null
