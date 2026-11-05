@@ -25,7 +25,7 @@ type MigrateResult =
     | { status: 'nothing_to_migrate'; legacyFile: string; next: string }
 
 // The fields go through the brand factories below, so a bad value names what is wrong with it.
-const LegacyCredentials = z.looseObject({ token: z.unknown(), env_id: z.unknown(), host: z.unknown() })
+const LegacyCredentials = z.object({ token: z.unknown(), env_id: z.unknown(), host: z.unknown() })
 
 // TODO(v1.1): drop this command. It exists so people moving from posthog-cli keep their key
 // without logging in again, and hog reads the old file nowhere else.

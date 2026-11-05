@@ -6,7 +6,7 @@ import type { ApiKeyAccess } from '@posthog/mcp/src/cli/library-types'
 import { HogError } from '@/core/errors'
 import { withFileLock } from '@/core/file-lock'
 import type { Runtime } from '@/core/runtime'
-import { parseOrThrow, parseOrUndefined } from '@/core/schema'
+import { parseOrThrow } from '@/core/schema'
 import type { OAuthSecret, StoreChoice } from '@/posthog/credential-store/types'
 
 import type { AccessKey, AccessKeyStatus, AccessKeyStorage, LogoutOutcome } from './access-key'
@@ -28,7 +28,7 @@ const REQUEST_TIMEOUT_MS = 30_000
 // Refresh this long before the access token expires, so it doesn't expire during a command.
 const REFRESH_MARGIN_MS = 10 * 60_000
 
-export const TokenResponse = z.looseObject({
+export const TokenResponse = z.object({
     access_token: OAuthAccessTokenSchema,
     refresh_token: OAuthRefreshTokenSchema.optional(),
     expires_in: z.number(),
@@ -39,9 +39,9 @@ export const TokenResponse = z.looseObject({
 export type TokenResponse = z.output<typeof TokenResponse>
 
 // An RFC 6749 error answer. hog reads `error` only when the answer is one.
-export const OAuthErrorBody = z.looseObject({
-    error: z.string().optional().catch(undefined),
-    error_description: z.string().optional().catch(undefined),
+export const OAuthErrorBody = z.object({
+    error: z.string().optional(),
+    error_description: z.string().optional(),
 })
 
 export function oauthPost(
@@ -209,7 +209,7 @@ export class OAuthLogin implements AccessKey {
             })
             return OAuthLogin.fromTokens(runtime, body, this)
         }
-        if (parseOrUndefined(OAuthErrorBody, response.json)?.error === 'invalid_grant') {
+        if (OAuthErrorBody.safeParse(response.json).data?.error === 'invalid_grant') {
             throw new HogError(
                 'session_expired',
                 'Your hog login expired or was revoked.',

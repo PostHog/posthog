@@ -416,7 +416,7 @@ function toHogError(caught: unknown): HogError {
     return new HogError('internal_error', caught instanceof Error ? caught.message : String(caught))
 }
 
-const TelemetryOptOut = z.looseObject({ cli: z.looseObject({ telemetry: z.unknown() }).optional().catch(undefined) })
+const TelemetryOptOut = z.object({ cli: z.object({ telemetry: z.literal(false) }) })
 
 // Read without the full schema, so an opt-out still counts in a file another check rejects. A file
 // that isn't JSON stops the command later, with telemetry on.
@@ -426,8 +426,7 @@ async function configOptsOut(runtime: Runtime): Promise<boolean> {
         return false
     }
     try {
-        const config = parseJsonOrUndefined(await runtime.readFile(path), TelemetryOptOut)
-        return config?.cli?.telemetry === false
+        return parseJsonOrUndefined(await runtime.readFile(path), TelemetryOptOut) !== undefined
     } catch {
         return false
     }

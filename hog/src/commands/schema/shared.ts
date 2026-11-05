@@ -49,7 +49,7 @@ export function isLanguage(value: string): value is Language {
     return (LANGUAGES as readonly string[]).includes(value)
 }
 
-const Definitions = z.looseObject({ content: z.string(), event_count: z.number(), schema_hash: z.string() })
+const Definitions = z.object({ content: z.string(), event_count: z.number(), schema_hash: z.string() })
 
 export type Definitions = z.infer<typeof Definitions>
 

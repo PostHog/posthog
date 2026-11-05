@@ -1,9 +1,9 @@
 import { z } from 'zod'
 
 import { HogError } from '@/core/errors'
-import { parseJsonOrUndefined } from '@/core/json'
+import { parseLosslessJson } from '@/core/json'
 import type { RuntimeFetch } from '@/core/runtime'
-import { parseOrThrow, parseOrUndefined } from '@/core/schema'
+import { parseOrThrow } from '@/core/schema'
 import { VERSION } from '@/version'
 
 import { hostUrl } from './host'
@@ -63,7 +63,7 @@ export async function sendRequest(fetchFn: RuntimeFetch, url: URL, request: Http
         )
     }
     // Callers check `json` against a schema of their own. A body that isn't JSON leaves it undefined.
-    const json = text ? parseJsonOrUndefined(text, z.unknown(), { lossless: true }) : undefined
+    const json = text ? parseLosslessJson(text) : undefined
     return { status: response.status, ok: response.ok, json, text }
 }
 
@@ -85,10 +85,10 @@ export class ApiError extends HogError {
 }
 
 // A DRF error body. `type` is the DRF error type, such as `validation_error`.
-const DRFErrorBody = z.looseObject({
-    type: z.string().optional().catch(undefined),
-    code: z.string().optional().catch(undefined),
-    detail: z.string().optional().catch(undefined),
+const DRFErrorBody = z.object({
+    type: z.string().optional(),
+    code: z.string().optional(),
+    detail: z.string().optional(),
 })
 
 export class PostHogApi {
@@ -160,7 +160,7 @@ export class PostHogApi {
     }
 
     private failure(status: number, body: unknown): ApiError {
-        const error = parseOrUndefined(DRFErrorBody, body) ?? {}
+        const error = DRFErrorBody.safeParse(body).data ?? {}
         const hints: Record<number, string> = {
             401: 'Check that the personal API key is valid.',
             403: 'Check that the personal API key has access to this project.',

@@ -7,7 +7,6 @@ import { listInsightVariables } from '@/endpoints/api'
 import { readEndpointFiles } from '@/endpoints/files'
 import { ApiError, type PostHogApi } from '@/posthog/api'
 
-// The whole answer reaches agents, so fields hog doesn't name stay.
 const RunResponse = z.looseObject({
     columns: z.array(z.string()).nullish(),
     results: z.array(z.unknown()).nullish(),
