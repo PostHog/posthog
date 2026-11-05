@@ -349,34 +349,6 @@ def bound_prompt_over_columns(
         needing = [name for name in needing if name in kept_names]
 
 
-def upsert_user_edited_annotation(
-    model: Any,
-    team_id: int,
-    *,
-    parent_field: str,
-    parent: Any,
-    column_name: str,
-    description: str,
-) -> Any:
-    """Upsert a column annotation on ``(parent, column_name)`` as a user edit, protected from enrichment."""
-    # nosemgrep: orm-field-injection -- parent_field is a hardcoded caller constant ("table"/"saved_query"), not user input
-    annotation, created = model.objects.for_team(team_id).get_or_create(
-        **{parent_field: parent, "column_name": column_name},
-        defaults={
-            "team_id": team_id,
-            "description": description,
-            "description_source": model.DescriptionSource.USER_EDITED,
-            "is_user_edited": True,
-        },
-    )
-    if not created:
-        annotation.description = description
-        annotation.description_source = model.DescriptionSource.USER_EDITED
-        annotation.is_user_edited = True
-        annotation.save(update_fields=["description", "description_source", "is_user_edited", "updated_at"])
-    return annotation
-
-
 def upsert_column_annotation(
     *,
     model: Any,
