@@ -55,6 +55,7 @@ from products.warehouse_sources.backend.facade.api import (
     denied_table_ids,
     hosted_upload_s3_path,
     pending_source_ids_for_tables,
+    registered_history_table_id,
 )
 from products.warehouse_sources.backend.facade.contracts import (
     FileUploadSourceError,
@@ -544,6 +545,19 @@ class SimpleTableSerializer(UserAccessControlSerializerMixin, serializers.ModelS
         ]
 
 
+class HistoryTableRefSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="ID of the history table.")
+    name = serializers.CharField(help_text="Name the history table is queried by in HogQL.")
+
+
+class TableHistoryTableSerializer(serializers.Serializer):
+    history_table = HistoryTableRefSerializer(
+        allow_null=True,
+        help_text="The table's history table, which keeps every past version of its rows. `null` when the table "
+        "has none, or when you can't manage access to it.",
+    )
+
+
 class FileUploadResponseSerializer(serializers.Serializer):
     upload_id = serializers.UUIDField(
         help_text="Id of the stored upload. Pass it to create_from_upload to build the table."
@@ -775,6 +789,38 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         log_table_activity(table, "updated", before=before)
 
         return response.Response(status=status.HTTP_200_OK)
+
+    @extend_schema(
+        request=None,
+        responses={200: TableHistoryTableSerializer},
+        summary="Get the table's history table",
+        description=(
+            "The history table of a table that keeps the past versions of its rows. The history table is a "
+            "table of its own, so access rules set on this table don't apply to it."
+        ),
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["warehouse_table:read"])
+    def history_table(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        table: DataWarehouseTable = self.get_object()
+        history_table_id = registered_history_table_id(team_id=self.team_id, table_id=table.id)
+        history_table = (
+            DataWarehouseTable.objects.filter(team_id=self.team_id, id=history_table_id).first()
+            if history_table_id is not None
+            else None
+        )
+        if history_table is not None and not self.user_access_control.check_can_modify_access_levels_for_object(
+            history_table
+        ):
+            history_table = None
+        payload = {
+            "history_table": {
+                "id": history_table.id,
+                "name": get_data_warehouse_table_name(history_table.external_data_source, history_table.name),
+            }
+            if history_table
+            else None
+        }
+        return response.Response(TableHistoryTableSerializer(payload).data)
 
     @extend_schema(
         request=None,

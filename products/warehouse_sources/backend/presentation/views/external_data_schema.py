@@ -24,6 +24,7 @@ from posthog.models.user import User
 from posthog.permissions import AccessControlPermission, is_service_auth
 from posthog.utils import str_to_bool
 
+from products.access_control.backend.facade.api import InvalidObjectAccessControlError
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.data_warehouse.backend.facade.api import (
@@ -44,7 +45,12 @@ from products.data_warehouse.backend.facade.api import (
     update_external_job_status,
 )
 from products.warehouse_sources.backend.facade.api import schema_needs_webhook, sources_missing_webhook
-from products.warehouse_sources.backend.facade.contracts import ConfigValueError, UndecryptedConfigError
+from products.warehouse_sources.backend.facade.contracts import (
+    HISTORY_ACCESS_RULES_NOT_ALLOWED_MESSAGE,
+    ConfigValueError,
+    HistoryAccessRulesNotAllowedError,
+    UndecryptedConfigError,
+)
 from products.warehouse_sources.backend.facade.models import (
     CDC_SNAPSHOT_LANE_KEY,
     MAX_FULL_REFRESH_INTERVAL_DAYS,
@@ -80,6 +86,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     WebhookSource,
     add_table_failure_message,
     ambiguous_masked_columns,
+    check_access_rules_copy,
     collision_alias_masked_columns,
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     fold_column_name,
@@ -97,6 +104,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     pinned_history_naming,
     purge_buffer_prefix,
     repair_is_running,
+    request_access_rules_copy,
     reserved_column_collisions,
     reserved_column_names,
     resnapshot_stays_in_buffer,
@@ -914,6 +922,13 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         allow_null=True,
         help_text="For CDC syncs: consolidated, cdc_only, or both.",
     )
+    copy_access_rules_to_history = serializers.BooleanField(
+        required=False,
+        write_only=True,
+        help_text="When the table keeps history after this update, replace the history table's access rules with "
+        "the table's own rules. If the history table doesn't exist yet, the rules are copied when its first "
+        "snapshot loads. Requires the right to manage access to both tables.",
+    )
     incremental_sync_blocked = serializers.ChoiceField(
         choices=IncrementalSyncBlockedReason.choices,
         read_only=True,
@@ -1052,6 +1067,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "description",
             "primary_key_columns",
             "cdc_table_mode",
+            "copy_access_rules_to_history",
             "incremental_sync_blocked",
             "webhook_not_registered",
             "enabled_columns",
@@ -1414,6 +1430,16 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         validated_data.pop("incremental_field_lookback_seconds", None)
         validated_data.pop("primary_key_columns", None)
         validated_data.pop("cdc_table_mode", None)
+        copy_access_rules_to_history = validated_data.pop("copy_access_rules_to_history", False)
+        request = self.context.get("request")
+        if copy_access_rules_to_history:
+            # Checked before the save, so a refused copy leaves the schema unchanged.
+            if request is None or not isinstance(request.user, User):
+                raise PermissionDenied(HISTORY_ACCESS_RULES_NOT_ALLOWED_MESSAGE)
+            try:
+                check_access_rules_copy(instance, request.user)
+            except HistoryAccessRulesNotAllowedError as e:
+                raise PermissionDenied(str(e))
 
         enabled_columns_changed = "enabled_columns" in validated_data and (
             validated_data["enabled_columns"] != instance.enabled_columns
@@ -2122,11 +2148,15 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 )
                 self._run_temporal_side_effect(lambda: _reset_cdc_for_full_resnapshot(updated_instance))
 
-        request = self.context.get("request")
         if request is not None:
             report_history_change(
                 request.user, updated_instance, history_mode_before=history_mode_before, request=request
             )
+        if copy_access_rules_to_history and request is not None:
+            try:
+                request_access_rules_copy(updated_instance, cast(User, request.user))
+            except InvalidObjectAccessControlError as e:
+                raise ValidationError({"copy_access_rules_to_history": str(e)})
 
         return updated_instance
 

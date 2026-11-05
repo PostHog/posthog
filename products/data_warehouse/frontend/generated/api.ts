@@ -89,6 +89,7 @@ import type {
     SavedQueryRunApi,
     SavedQueryRunResponseApi,
     TableApi,
+    TableHistoryTableApi,
     UploadedFileApi,
     ViewLinkApi,
     ViewLinkValidationApi,
@@ -2310,6 +2311,25 @@ export const warehouseTablesDestroy = async (projectId: string, id: string, opti
     return apiMutator<void>(getWarehouseTablesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getWarehouseTablesHistoryTableRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_tables/${id}/history_table/`
+}
+
+/**
+ * The history table of a table that keeps the past versions of its rows. The history table is a table of its own, so access rules set on this table don't apply to it.
+ * @summary Get the table's history table
+ */
+export const warehouseTablesHistoryTableRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TableHistoryTableApi> => {
+    return apiMutator<TableHistoryTableApi>(getWarehouseTablesHistoryTableRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

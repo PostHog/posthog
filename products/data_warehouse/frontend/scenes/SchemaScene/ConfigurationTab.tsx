@@ -19,7 +19,9 @@ import {
 
 import api, { ApiConfig } from 'lib/api'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -62,6 +64,7 @@ import { replaceFileDisabledReason, replaceFileLogic, replaceFileTarget } from '
 import { RowFilterEditor } from '../SourceScene/tabs/RowFilterEditor'
 import { validateRowFilters } from '../SourceScene/tabs/rowFilterUtils'
 import { columnAnnotationsLogic } from './columnAnnotationsLogic'
+import { confirmHistoryAccessRules, turnsHistoryOn } from './confirmHistoryAccessRules'
 import { DestinationsSection } from './DestinationsSection'
 import { SchemaConfigurationSection, schemaSceneLogic } from './schemaSceneLogic'
 
@@ -424,6 +427,8 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
     const formRef = useRef<SyncMethodFormHandle>(null)
     const [saveDisabledReason, setSaveDisabledReason] = useState<string | undefined>()
     const [saving, setSaving] = useState(false)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { currentProjectId } = useValues(teamLogic)
 
     const { disabledReason: accessDisabledReason } = useSchemaEditorAccess(schema)
 
@@ -462,10 +467,11 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
     ): Promise<void> => {
         const noIncrementalField = syncType === 'full_refresh' || syncType === 'cdc' || syncType === 'xmin'
 
-        const applyUpdate = async (): Promise<void> => {
+        const applyUpdate = async (copyAccessRulesToHistory = false): Promise<void> => {
             setSaving(true)
             try {
                 await api.externalDataSchemas.update(schema.id, {
+                    ...(copyAccessRulesToHistory ? { copy_access_rules_to_history: true } : {}),
                     should_sync: true,
                     sync_type: syncType,
                     incremental_field: noIncrementalField ? null : incrementalField,
@@ -507,12 +513,26 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
             return
         }
 
+        const table = schema.table
+        const confirmThenApply = async (): Promise<void> => {
+            if (
+                table &&
+                currentProjectId &&
+                featureFlags[FEATURE_FLAGS.WAREHOUSE_HISTORY_ACCESS_RULES] &&
+                turnsHistoryOn(schema, syncType, cdcTableMode)
+            ) {
+                await confirmHistoryAccessRules(currentProjectId, table.id, (copy) => void applyUpdate(copy))
+                return
+            }
+            await applyUpdate()
+        }
+
         if (!schema.should_sync && schema.pending_self_managed_table) {
-            confirmPendingSelfManagedSync(1, () => void applyUpdate())
+            confirmPendingSelfManagedSync(1, () => void confirmThenApply())
             return
         }
 
-        await applyUpdate()
+        await confirmThenApply()
     }
 
     return (

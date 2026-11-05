@@ -40,6 +40,8 @@ _LAZY = {
     "history_table_name": "cdc.history_table",
     "history_table_ids": "cdc.history_table",
     "is_another_schemas_history_table": "cdc.history_table",
+    "check_access_rules_copy": "history_access_rules",
+    "request_access_rules_copy": "history_access_rules",
     "reserved_column_names": "cdc.batcher",
     "BUFFER_LANE": "cdc.snapshot_lane",
     "CDC_RESET_PENDING_KEY": "cdc.snapshot_lane",

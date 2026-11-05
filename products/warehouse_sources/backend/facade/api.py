@@ -100,6 +100,7 @@ __all__ = [
     "allowed_table_ids",
     "denied_table_ids",
     "pending_source_ids_for_tables",
+    "registered_history_table_id",
     "tables_awaiting_first_sync",
     "all_queryable_tables",
     "all_queryable_table_columns",
@@ -847,3 +848,13 @@ def list_column_statistics(team_id: int) -> list[contracts.ColumnStatistics]:
         )
         for table_id, column_name, null_fraction, min_value, max_value in qs
     ]
+
+
+def registered_history_table_id(*, team_id: int, table_id: UUID) -> UUID | None:
+    """The id of the table's registered history table, or None when it has none."""
+    # Imported here to keep the history-table modules off the `django.setup()` import path.
+    from products.warehouse_sources.backend.temporal.data_imports.history_access_rules import registered_history_table
+
+    table = _DataWarehouseTable.objects.filter(team_id=team_id, id=table_id, deleted=False).first()
+    history_table = registered_history_table(table) if table is not None else None
+    return history_table.id if history_table is not None else None

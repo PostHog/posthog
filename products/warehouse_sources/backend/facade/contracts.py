@@ -73,6 +73,15 @@ class UnsupportedSyncTypeError(ValueError):
     """The stored sync type is not a mode PostHog can run."""
 
 
+HISTORY_ACCESS_RULES_NOT_ALLOWED_MESSAGE = (
+    "You need to be able to manage access to this table and its history table to copy its access rules."
+)
+
+
+class HistoryAccessRulesNotAllowedError(Exception):
+    """The user may not set the access rules of a table or of its history table."""
+
+
 class UnreadableSourceInputsError(ValueError):
     """A source's stored inputs do not decode to a mapping. The message never holds the value, because the
     value can hold credentials."""

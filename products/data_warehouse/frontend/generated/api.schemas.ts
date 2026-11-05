@@ -2618,6 +2618,18 @@ export interface PatchedTableApi {
     readonly user_access_level?: string | null
 }
 
+export interface HistoryTableRefApi {
+    /** ID of the history table. */
+    id: string
+    /** Name the history table is queried by in HogQL. */
+    name: string
+}
+
+export interface TableHistoryTableApi {
+    /** The table's history table, which keeps every past version of its rows. `null` when the table has none, or when you can't manage access to it. */
+    history_table: HistoryTableRefApi | null
+}
+
 /**
  * * `csv` - csv
  * * `json` - json

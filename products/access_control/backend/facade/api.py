@@ -57,6 +57,7 @@ from . import contracts
 from .contracts import PropertyAccessLevel
 from .enums import AI_EVENT_PROPERTY_CHOICES
 from .user_access_control import (
+    ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE,
     RESOURCE_INHERITANCE_MAP,
     RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS,
     AccessControlLevel,
@@ -511,6 +512,40 @@ def replace_object_access_rules(
                     organization_member_id=member_id,
                     role_id=role_id,
                 )
+
+
+def copy_object_access_rules(*, team_id: int, resource: str, from_resource_id: str, to_resource_id: str) -> None:
+    """Make the rules on one object the same as the rules on another object of the same resource.
+
+    Replaces every rule the target has, through `replace_object_access_rules`, so each change goes
+    into the activity log. Rules naming a member or role of another organization never apply, so
+    they are not copied. The caller decides whether the change is allowed.
+    """
+    team = Team.objects.only("id", "organization_id").get(id=team_id)
+    rules = [
+        contracts.ObjectAccessRuleInput(
+            access_level=rule.access_level,
+            organization_member_id=rule.organization_member_id,
+            role_id=rule.role_id,
+        )
+        for rule in AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id=from_resource_id)
+        .filter(Q(organization_member__isnull=True) | Q(organization_member__organization_id=team.organization_id))
+        .filter(Q(role__isnull=True) | Q(role__organization_id=team.organization_id))
+    ]
+    # The same cap the rule endpoint applies when a rule is first set on an object.
+    if (
+        rules
+        and not AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id=to_resource_id).exists()
+        and AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id__isnull=False)
+        .values("resource_id")
+        .distinct()
+        .count()
+        >= ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE
+    ):
+        raise InvalidObjectAccessControlError(
+            f"Reached the limit of {ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE} {resource}s with access control overrides."
+        )
+    replace_object_access_rules(team_id=team_id, resource=resource, resource_id=to_resource_id, rules=rules)
 
 
 def role_belongs_to_organization(*, role_id: str | UUID, organization_id: UUID) -> bool:

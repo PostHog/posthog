@@ -47,6 +47,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table 
     HistoryTableNameTakenError,
     not_another_schemas_table,
 )
+from products.warehouse_sources.backend.temporal.data_imports.history_access_rules import run_pending_access_rules_copy
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
     retry_on_operational_error,
@@ -749,6 +750,8 @@ async def register_cdc_companion_table(
                     ph_naming=history_naming_of(table_schema_dict or {}) == HISTORY_NAMING
                 )
                 companion_table.save()
+            # Before the slow column read, so a new history table isn't left on its source's rules for long.
+            run_pending_access_rules_copy(schema_id, team_id, companion_table)
             _record_storage_delta(job, storage_delta_mib)
             _record_query_folder_pointer(
                 schema_id, team_id, previous_queryable_folder, queryable_folder, run_id, logger
