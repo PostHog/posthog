@@ -93227,9 +93227,9 @@ export namespace Schemas {
       next_slot_at: string | null;
       /** Most experiments any one training run gets. A pipeline's iterations_per_run above this is lowered to it. */
       max_iterations_per_run: number;
-      /** Most pipelines the project may have live (bootstrapping, running or converged). Starting a draft's first training run or resuming a paused pipeline is refused at this limit. */
+      /** Most pipelines the project may have live (bootstrapping, running or converged, or a draft with an open training run, which goes live when the run promotes). Starting a draft's first training run or resuming a paused pipeline is refused at this limit. */
       max_live_pipelines: number;
-      /** Pipelines that are live now. Can exceed max_live_pipelines if the limit was lowered. */
+      /** Pipelines that count against max_live_pipelines now. Can exceed it if the limit was lowered. */
       live_pipelines: number;
     }
 

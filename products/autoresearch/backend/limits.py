@@ -18,7 +18,7 @@ import json
 from datetime import datetime, timedelta
 
 from django.db import connection
-from django.db.models import Q, QuerySet
+from django.db.models import Exists, OuterRef, Q, QuerySet
 from django.utils import timezone
 
 import structlog
@@ -156,7 +156,21 @@ def check_live_pipeline_cap(team_id: int, limits: TeamLimits) -> LiveCapReached 
 
 
 def live_pipeline_count(team_id: int) -> int:
-    return AutoresearchPipeline.objects.for_team(team_id).filter(status__in=LIVE_PIPELINE_STATUSES).count()
+    """Live pipelines, plus drafts with an open training run.
+
+    A draft stays a draft while an external agent's run is open, and its promotion makes it live
+    with no check, so the open run holds its slot from the start.
+    """
+    open_run = AutoresearchTrainingRun.objects.for_team(team_id).filter(
+        pipeline=OuterRef("pk"),
+        status__in=[AutoresearchTrainingRun.Status.PENDING, AutoresearchTrainingRun.Status.RUNNING],
+    )
+    return (
+        AutoresearchPipeline.objects.for_team(team_id)
+        .annotate(has_open_run=Exists(open_run))
+        .filter(Q(status__in=LIVE_PIPELINE_STATUSES) | Q(status=AutoresearchPipeline.Status.DRAFT, has_open_run=True))
+        .count()
+    )
 
 
 def counted_training_runs(team_id: int) -> QuerySet[AutoresearchTrainingRun]:

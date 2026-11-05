@@ -1189,8 +1189,15 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert resp.status_code == expected, resp.content
         assert mock_run_training.called == (expected == status.HTTP_200_OK)
 
-    def test_opening_an_external_run_on_a_draft_at_the_live_pipeline_cap_returns_400(self):
-        self._make_live_pipelines([AutoresearchPipeline.Status.RUNNING] * 3)
+    @parameterized.expand([("three_live", 3), ("draft_with_an_open_external_run_holds_a_slot", 2)])
+    def test_opening_an_external_run_on_a_draft_at_the_live_pipeline_cap_returns_400(self, _name: str, live: int):
+        self._make_live_pipelines([AutoresearchPipeline.Status.RUNNING] * live)
+        if live < 3:
+            # Opened under the cap, still a draft, and live once the run promotes.
+            other_draft = self._make_pipeline(name="Draft with an open run")
+            AutoresearchTrainingRun.objects.create(
+                pipeline=other_draft, status=AutoresearchTrainingRun.Status.RUNNING, iteration_budget=5
+            )
         pipeline = self._make_pipeline()
         resp = self.client.post(f"{self.base_url}/{pipeline.id}/training_runs/", {}, format="json")
 

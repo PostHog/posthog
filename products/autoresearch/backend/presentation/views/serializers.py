@@ -2060,12 +2060,13 @@ class ProjectLimitsSerializer(DataclassSerializer):
     )
     max_live_pipelines = serializers.IntegerField(
         help_text=(
-            "Most pipelines the project may have live (bootstrapping, running or converged). "
-            "Starting a draft's first training run or resuming a paused pipeline is refused at this limit."
+            "Most pipelines the project may have live (bootstrapping, running or converged, or a draft with an open "
+            "training run, which goes live when the run promotes). Starting a draft's first training run or "
+            "resuming a paused pipeline is refused at this limit."
         )
     )
     live_pipelines = serializers.IntegerField(
-        help_text="Pipelines that are live now. Can exceed max_live_pipelines if the limit was lowered."
+        help_text=("Pipelines that count against max_live_pipelines now. Can exceed it if the limit was lowered.")
     )
 
     class Meta:
