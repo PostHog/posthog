@@ -176,8 +176,7 @@ function pickAttachmentLoadRetryDelayMs(tries: number): number {
 
 export const EMAIL_ATTACHMENTS_UNAVAILABLE = 'attachments_unavailable'
 
-// About 7.5 minutes of retries with the delays above, which outlasts a database failover. Workflow
-// pacing makes it longer, because each try waits for its own pacing slot. An error that lasts longer
+// About 7.5 minutes of retries before pacing waits, which outlasts a database failover. A longer error
 // while jobs still dequeue from the same database belongs to this job.
 export const EMAIL_ATTACHMENT_LOAD_MAX_TRIES = 30
 
@@ -741,10 +740,8 @@ export class EmailService {
                 }
             }
 
-            // Loaded after the pacing claim, so a send the limiter parks reads no blobs, and before the
-            // team budget, so a send that cannot load its files spends no team cap tokens. Each failed
-            // load still spends one pacing token, which keeps the spacing between sends when many
-            // retries succeed at once after the store recovers.
+            // After the pacing claim, so a parked send reads no blobs, and before the team budget, so a failed
+            // load spends no cap tokens. Every try claims pacing, which keeps recovered retries spaced.
             const files = await this.loadAttachments(invocation.id, invocation.teamId, params.attachments)
 
             // Project-wide pacing from the team's trust tier. Sits next to the per-workflow limit
