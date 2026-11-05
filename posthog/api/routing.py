@@ -710,11 +710,14 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         except (Project.DoesNotExist, ValueError):
             raise NotFound(detail="Project not found.")
 
-    def _get_team_or_404(self) -> Team:
+    def _get_project_team_or_404(self) -> Team:
         try:
-            return self.team
+            team = self.team
         except Team.DoesNotExist:
             raise NotFound(detail="Project not found.")
+        if team.project_id != self.project_id:
+            raise NotFound(detail="Project not found.")
+        return team
 
     @cached_property
     def organization_id(self) -> str:
@@ -727,7 +730,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 # TODO: self.team.project.organization_id when project environments are rolled out
                 current_organization_id = self.team.organization_id
             elif self._is_nested_project_view:
-                current_organization_id = self._get_team_or_404().organization_id
+                current_organization_id = self._get_project_team_or_404().organization_id
             elif self._is_project_view:
                 current_organization_id = self.project.organization_id
             elif user:
@@ -742,7 +745,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         if self._is_team_view:
             return self.team.organization
         if self._is_nested_project_view:
-            return self._get_team_or_404().organization
+            return self._get_project_team_or_404().organization
         try:
             return Organization.objects.get(
                 id=self.project.organization_id if self._is_project_view else self.organization_id

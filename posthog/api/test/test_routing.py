@@ -271,8 +271,17 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
         self.assertEqual(tables_read.count("posthog_team"), 1, tables_read)
         self.assertNotIn("posthog_project", tables_read)
 
-    def test_project_view_for_a_missing_project_is_not_found(self) -> None:
-        response = self.client.get(f"/api/projects/{self.team.id + 10_000}/foos/")
+    @parameterized.expand([("missing_project", False), ("child_environment_id", True)])
+    def test_project_view_for_an_id_that_names_no_project_is_not_found(
+        self, _name: str, child_environment: bool
+    ) -> None:
+        url_id = (
+            Team.objects.create(organization=self.organization, project=self.project, parent_team=self.team).id
+            if child_environment
+            else self.team.id + 10_000
+        )
+
+        response = self.client.get(f"/api/projects/{url_id}/foos/")
 
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json()["detail"], "Project not found.")
