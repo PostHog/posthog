@@ -222,10 +222,10 @@ class TestMaterializedCI(BaseTest):
     ) -> None:
         views = _ready_views(self)
         if jobs_seeded_earlier_by:
-            jobs = views[ci_rows.JOBS_VIEW_NAME]
-            fingerprint = get_incremental_state(jobs).definition_fingerprint
+            jobs_view = views[ci_rows.JOBS_VIEW_NAME]
+            fingerprint = get_incremental_state(jobs_view).definition_fingerprint
             with time_machine.travel(timezone.now() - jobs_seeded_earlier_by, tick=False):
-                set_incremental_state(jobs, watermark=timezone.now(), fingerprint=fingerprint, mode="full_refresh")
+                set_incremental_state(jobs_view, watermark=timezone.now(), fingerprint=fingerprint, mode="full_refresh")
         # The coverage starts at the later of the two seeds.
         covers_from = timezone.now() - SEED_LOOKBACK
         window_start = covers_from + offset_from_coverage_start if offset_from_coverage_start is not None else None
