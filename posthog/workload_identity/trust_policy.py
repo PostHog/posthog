@@ -24,7 +24,7 @@ from rest_framework.views import APIView
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication
+from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication, WorkloadAccessTokenAuthentication
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership, Team, User
 from posthog.models.oauth import OAuthApplication
@@ -333,6 +333,15 @@ def notify_admins_of_policy_change(
     )
 
 
+class DenyWorkloadAccessToken(BasePermission):
+    """A workload token can never reach a policy or a request, not even to read, so it can't widen its own policy."""
+
+    message = "Workload tokens can't use workload trust policy endpoints."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        return not isinstance(request.successful_authenticator, WorkloadAccessTokenAuthentication)
+
+
 class NotImpersonatedWritePermission(BasePermission):
     """A policy is a standing credential that acts as the owner, so staff impersonating a member can read
     policies but not change them, or ask for them."""
@@ -364,6 +373,7 @@ class WorkloadTrustPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     serializer_class = WorkloadTrustPolicySerializer
     lookup_field = "id"
     permission_classes = [
+        DenyWorkloadAccessToken,
         BrowserSessionWritePermission,
         NotImpersonatedWritePermission,
         TimeSensitiveActionPermission,
@@ -575,6 +585,7 @@ class WorkloadTrustPolicyRequestViewSet(
     serializer_class = WorkloadTrustPolicyRequestSerializer
     lookup_field = "id"
     permission_classes = [
+        DenyWorkloadAccessToken,
         NotImpersonatedWritePermission,
         TimeSensitiveActionPermission,
         WorkloadTrustPolicyRequestResolutionPermission,

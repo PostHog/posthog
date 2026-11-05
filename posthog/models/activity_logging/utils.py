@@ -44,6 +44,7 @@ DeclaredCredentialType = Literal[
     "project_secret_key",
     "team_secret_token",
     "id_jag",
+    "oidc_workload",
     "internal_jwt",
     "service_jwt",
     "internal_api_secret",

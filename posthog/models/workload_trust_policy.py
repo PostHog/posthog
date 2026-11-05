@@ -2,16 +2,18 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import datetime, timedelta
+from typing import Any
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
-from django.db import models
+from django.db import models, transaction
 from django.utils import timezone
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 from posthog.scopes import UNPRIVILEGED_SCOPES
+from posthog.utils import safe_cache_delete
 
 # A policy can grant any unprivileged scope except the ones that let a workload token outlive itself or
 # widen its own access. Risky scopes that stay grantable carry a warning from `RISKY_SCOPE_WARNINGS`.
@@ -78,6 +80,16 @@ def workload_trust_policy_request_url(team_id: int, request_id: str) -> str:
     return f"{settings.SITE_URL}/project/{team_id}/workload-trust-policy-requests/{request_id}"
 
 
+def workload_trust_policy_version(policy: WorkloadTrustPolicy) -> str:
+    """Changes on every save, so a token minted before an admin narrowed or disabled the policy stops
+    matching it."""
+    return str(int(policy.updated_at.timestamp() * 1_000_000))
+
+
+def workload_trust_policy_active_cache_key(policy_id: str) -> str:
+    return f"workload_trust_policy_active:{policy_id}"
+
+
 class WorkloadTrustPolicy(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     """Lets a workload, such as a CI job, exchange its OIDC token for a short-lived project token. Azure
     calls this a federated identity credential, AWS a role trust policy, Google Cloud a workload identity
@@ -115,6 +127,22 @@ class WorkloadTrustPolicy(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
                 name="posthog_unique_workload_trust_policy_conditions",
             ),
         ]
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        super().save(*args, **kwargs)
+        self._forget_active_state()
+
+    def delete(self, *args: Any, **kwargs: Any) -> tuple[int, dict[str, int]]:
+        policy_id = str(self.pk)
+        result = super().delete(*args, **kwargs)
+        self._forget_active_state(policy_id)
+        return result
+
+    def _forget_active_state(self, policy_id: str | None = None) -> None:
+        # Workload token authentication caches whether a policy is active. Dropping the entry after the commit
+        # makes a disable or delete take effect on the next request rather than when the entry expires.
+        key = workload_trust_policy_active_cache_key(policy_id or str(self.pk))
+        transaction.on_commit(lambda: safe_cache_delete(key))
 
     def __str__(self) -> str:
         return f"WorkloadTrustPolicy(team={self.team_id}, name={self.name!r})"

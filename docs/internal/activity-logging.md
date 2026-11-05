@@ -234,29 +234,30 @@ The session also applies only while `request.user` is still the session's user: 
 The values come from the authenticated object, never from a request header, so a caller cannot choose them.
 Unlike `client`, they are evidence of which credential made a change.
 
-| `credential_type`        | user                     | `credential_id`                                                                                                          |
-| ------------------------ | ------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
-| `session`                | the session user         | the session's public id, from `session_public_id`                                                                        |
-| `personal_api_key`       | the key owner            | the key id                                                                                                               |
-| `oauth`                  | the token user           | the OAuth application UUID                                                                                               |
-| `project_secret_key`     | none                     | the key id                                                                                                               |
-| `team_secret_token`      | none                     | none                                                                                                                     |
-| `id_jag`                 | the token user           | the `client_id` claim                                                                                                    |
-| `internal_jwt`           | the token user           | none                                                                                                                     |
-| `service_jwt`            | none                     | the audience of the scoped service JWT                                                                                   |
-| `internal_api_secret`    | none                     | none                                                                                                                     |
-| `scim`                   | none                     | the SCIM identity provider config id                                                                                     |
-| `vercel`                 | none                     | the Vercel installation id                                                                                               |
-| `partner`                | none                     | the partner's OAuth application UUID when it proved itself with a secret or a signed assertion, none for a public client |
-| `sharing_access_token`   | none                     | the sharing configuration id                                                                                             |
-| `sharing_password`       | none                     | the share password id                                                                                                    |
-| `widget_token`           | none                     | none                                                                                                                     |
-| `billing_service`        | none                     | none                                                                                                                     |
-| `gateway_agent`          | none                     | the gateway agent's service account id                                                                                   |
-| `export_renderer`        | the export's creator     | the exported asset id                                                                                                    |
-| `webhook`                | none                     | none                                                                                                                     |
-| `cross_region_signature` | none                     | none                                                                                                                     |
-| `unattributed`           | the session user, if any | none                                                                                                                     |
+| `credential_type`        | user                        | `credential_id`                                                                                                          |
+| ------------------------ | --------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `session`                | the session user            | the session's public id, from `session_public_id`                                                                        |
+| `personal_api_key`       | the key owner               | the key id                                                                                                               |
+| `oauth`                  | the token user              | the OAuth application UUID                                                                                               |
+| `project_secret_key`     | none                        | the key id                                                                                                               |
+| `team_secret_token`      | none                        | none                                                                                                                     |
+| `id_jag`                 | the token user              | the `client_id` claim                                                                                                    |
+| `oidc_workload`          | the owner the token acts as | the workload trust policy id                                                                                             |
+| `internal_jwt`           | the token user              | none                                                                                                                     |
+| `service_jwt`            | none                        | the audience of the scoped service JWT                                                                                   |
+| `internal_api_secret`    | none                        | none                                                                                                                     |
+| `scim`                   | none                        | the SCIM identity provider config id                                                                                     |
+| `vercel`                 | none                        | the Vercel installation id                                                                                               |
+| `partner`                | none                        | the partner's OAuth application UUID when it proved itself with a secret or a signed assertion, none for a public client |
+| `sharing_access_token`   | none                        | the sharing configuration id                                                                                             |
+| `sharing_password`       | none                        | the share password id                                                                                                    |
+| `widget_token`           | none                        | none                                                                                                                     |
+| `billing_service`        | none                        | none                                                                                                                     |
+| `gateway_agent`          | none                        | the gateway agent's service account id                                                                                   |
+| `export_renderer`        | the export's creator        | the exported asset id                                                                                                    |
+| `webhook`                | none                        | none                                                                                                                     |
+| `cross_region_signature` | none                        | none                                                                                                                     |
+| `unattributed`           | the session user, if any    | none                                                                                                                     |
 
 - A credential without a user clears any user the middleware took from a session cookie. The row has `user=None` and `is_system=True`, and it keeps the credential.
 - `impersonated_by_id` holds the staff user behind an impersonated session or an OAuth token minted during impersonation.
