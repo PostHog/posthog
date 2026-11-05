@@ -49,6 +49,7 @@ from posthog.models.oauth import (
     revoke_oauth_session,
 )
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.team.team import Team
 from posthog.scopes import ALL_SCOPES, ALWAYS_ALLOWED_SCOPES, MIN_SCOPES_BEFORE_TRUNCATION, get_oauth_scopes_supported
 from posthog.settings.utils import generate_rsa_private_key_pem
@@ -652,6 +653,54 @@ class TestOAuthAPI(APIBaseTest):
         expiration_minutes = expiration_seconds / 60
         expected_expiration = timezone.now() + timedelta(minutes=expiration_minutes)
         self.assertEqual(grant.expires, expected_expiration)
+
+    @parameterized.expand(
+        [
+            ("organization_blocked", "organization", "203.0.113.1", True, True, 403),
+            ("organization_allowed", "organization", "192.0.2.1", True, True, 200),
+            ("team_blocked", "team", "203.0.113.1", True, True, 403),
+            ("team_allowed", "team", "192.0.2.1", True, True, 200),
+            ("all_blocked", "all", "203.0.113.1", True, True, 403),
+            ("all_allowed", "all", "192.0.2.1", True, True, 200),
+            ("unrelated_policy", "organization", "203.0.113.1", False, True, 200),
+            ("declined", "organization", "203.0.113.1", True, False, 200),
+        ]
+    )
+    @override_settings(IS_BEHIND_PROXY=False)
+    def test_authorize_post_checks_grant_ip_policy(
+        self, _name: str, access_level: str, client_ip: str, target_restricted: bool, allow: bool, expected_status: int
+    ) -> None:
+        restricted_org, _, restricted_team = Organization.objects.bootstrap(self.user, name="Restricted organization")
+        OrganizationIPRestrictions.objects.create(
+            organization=restricted_org, enabled=True, ip_restrictions=["192.0.2.0/24"]
+        )
+        self.user.current_organization = self.organization
+        self.user.current_team = self.team
+        self.user.save()
+        target_org = restricted_org if target_restricted else self.organization
+        target_team = restricted_team if target_restricted else self.team
+        body = {
+            **self.base_authorization_post_body,
+            "allow": allow,
+            "access_level": access_level,
+            "scoped_organizations": [str(target_org.id)] if access_level == "organization" else [],
+            "scoped_teams": [target_team.id] if access_level == "team" else [],
+        }
+        grants_before = OAuthGrant.objects.count()
+
+        response = self.client.post("/oauth/authorize/", body, REMOTE_ADDR=client_ip)
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if expected_status == 403:
+            self.assertContains(response, "ip_not_allowed", status_code=403)
+            self.assertEqual(OAuthGrant.objects.count(), grants_before)
+        elif allow:
+            grant = OAuthGrant.objects.get(code=parse_qs(urlparse(response.json()["redirect_to"]).query)["code"][0])
+            self.assertEqual(grant.scoped_organizations, body["scoped_organizations"])
+            self.assertEqual(grant.scoped_teams, body["scoped_teams"])
+        else:
+            self.assertIn("error=access_denied", response.json()["redirect_to"])
+            self.assertEqual(OAuthGrant.objects.count(), grants_before)
 
     @parameterized.expand(
         [

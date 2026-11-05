@@ -270,7 +270,7 @@ When authorizing an application, users can scope access to:
 
 This is configured during the authorization step, not in the application settings.
 
-OAuth bearer requests, including provisioning requests, must satisfy the IP policy of the organization targeted by the request. Credential scopes still limit which organizations and projects a token can reach. Device and CLI approvals check the selected project before issuing scoped credentials. Setup runs and account-linking actions check the resolved project or organization before starting work. Staff impersonation retains its existing exemption.
+OAuth bearer requests, including provisioning requests, must satisfy the IP policy of the organization targeted by the request. Credential scopes still limit which organizations and projects a token can reach. OAuth consent checks every organization reachable by the selected grant before issuing an authorization code. Declining consent remains available. Device and CLI approvals check the selected project before issuing scoped credentials. Setup runs and account-linking actions check the resolved project or organization before starting work. Staff impersonation retains its existing exemption.
 
 If you would like to force the user to pick a single team or an organization you can use the `required_access_level=project` or `required_access_level=organization` query parameter in the authorization url.
 

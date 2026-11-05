@@ -85,6 +85,7 @@ from posthog.helpers.oauth_pending_connection import (
     clear_pending_oauth_connection_cookie,
     set_pending_oauth_connection_cookie,
 )
+from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.llm.wizard_blocklist import GATEWAY_BEARING_SCOPES, WIZARD_BLOCKED_DETAIL
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
@@ -1923,6 +1924,16 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                         + ", ".join(sorted(missing_required)),
                     },
                     status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            for organization_id in _scoped_organization_ids(
+                request.user,
+                serializer.validated_data.get("access_level"),
+                serializer.validated_data.get("scoped_organizations"),
+                serializer.validated_data.get("scoped_teams"),
+            ):
+                enforce_ip_restrictions(
+                    request, request.user, request.successful_authenticator, organization_id=str(organization_id)
                 )
 
             if block := _impersonation_ai_processing_block(
