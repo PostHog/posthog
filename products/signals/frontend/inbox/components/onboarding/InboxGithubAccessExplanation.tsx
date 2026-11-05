@@ -65,7 +65,6 @@ export function InboxGithubAccessExplanation({ children }: { children?: ReactNod
                                 }}
                             />
                         </div>
-                        <p className="m-0">We ask for GitHub access for a few reasons:</p>
                         <ul className="m-0 list-none space-y-3 p-0">
                             <li>
                                 <h4 className="m-0 text-sm font-semibold text-default">Find root causes</h4>
