@@ -44,11 +44,12 @@ async function eachPage<T>(
     api: PostHogApi,
     path: string,
     item: Schema<T>,
-    visit: (results: T[]) => boolean
+    visit: (results: T[]) => boolean,
+    maxPages = MAX_PAGES
 ): Promise<boolean> {
     let next: string | undefined = path
     for (let read = 0; next !== undefined; read++) {
-        if (read === MAX_PAGES) {
+        if (read === maxPages) {
             return false
         }
         const page: Page<T> = await getPage(api, next, item)
@@ -77,28 +78,35 @@ export async function readAll<T>(api: PostHogApi, path: string, item: Schema<T>,
 }
 
 // Reads pages until every name has turned up or the list ends. When `complete` is false, hog
-// stopped at MAX_PAGES and a name missing from `found` can still be in the list.
+// stopped at `maxPages` and a name missing from `found` can still be in the list.
 export async function findNamed<T>(
     api: PostHogApi,
     path: string,
     item: Schema<T>,
     names: Iterable<string>,
-    nameOf: (item: T) => string | null
+    nameOf: (item: T) => string | null,
+    maxPages = MAX_PAGES
 ): Promise<{ found: Map<string, T>; complete: boolean }> {
     const wanted = new Set(names)
     const found = new Map<string, T>()
     if (wanted.size === 0) {
         return { found, complete: true }
     }
-    const complete = await eachPage(api, path, item, (page) => {
-        for (const result of page) {
-            const name = nameOf(result)
-            if (name !== null && wanted.has(name)) {
-                found.set(name, result)
+    const complete = await eachPage(
+        api,
+        path,
+        item,
+        (page) => {
+            for (const result of page) {
+                const name = nameOf(result)
+                if (name !== null && wanted.has(name)) {
+                    found.set(name, result)
+                }
             }
-        }
-        return found.size === wanted.size
-    })
+            return found.size === wanted.size
+        },
+        maxPages
+    )
     return { found, complete }
 }
 

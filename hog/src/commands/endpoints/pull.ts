@@ -44,7 +44,10 @@ async function variableTypes(api: PostHogApi, ids: ReadonlyMap<string, string>):
         if (!complete) {
             for (const [name, id] of ids) {
                 if (!types.has(name)) {
-                    types.set(name, (await getInsightVariable(api, id)).type)
+                    const variable = await getInsightVariable(api, id).catch(missingAsUndefined)
+                    if (variable) {
+                        types.set(name, variable.type)
+                    }
                 }
             }
         }
@@ -55,6 +58,13 @@ async function variableTypes(api: PostHogApi, ids: ReadonlyMap<string, string>):
         }
         throw error
     }
+}
+
+function missingAsUndefined(error: unknown): undefined {
+    if (error instanceof ApiError && error.status === 404) {
+        return undefined
+    }
+    throw error
 }
 
 export function endpointYaml(path: string, item: PullItem, types: ReadonlyMap<string, string>): string {
