@@ -26,6 +26,7 @@ from typing import Any
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
+from django.utils import timezone
 
 from posthog.models.team.team import Team
 from posthog.storage.gateway_credential_cache import validate_overspend_allowance_usd
@@ -38,16 +39,6 @@ from posthog.storage.team_llm_gateway_quota_cache import (
     reconcile_quota_projection,
     team_llm_gateway_quota_hypercache,
 )
-
-from products.ai_gateway.backend.facade.api import change_team_access
-from products.ai_gateway.backend.facade.enums import TeamAccessAction
-
-_ACCESS_ACTIONS = {
-    "enable": TeamAccessAction.ENABLE,
-    "unenable": TeamAccessAction.UNENABLE,
-    "revoke": TeamAccessAction.REVOKE,
-    "unrevoke": TeamAccessAction.UNREVOKE,
-}
 
 _VERBS = (
     ("enable", "set llm_gateway_enabled_at to now (idempotent: no-op if already set)"),
@@ -102,17 +93,6 @@ class Command(BaseCommand):
         allowance = _parse_allowance(opts["usd"]) if action == "set-allowance" else None
 
         before = _snapshot(team)
-        if action in _ACCESS_ACTIONS:
-            change = change_team_access(team.id, _ACCESS_ACTIONS[action])
-            team.refresh_from_db()
-            if not change.changed:
-                self.stdout.write(f"team {team.id} ({team.api_token}): {action} no-op ({before})")
-                return
-            self.stdout.write(self.style.SUCCESS(f"team {team.id} ({team.api_token}): {action} ok"))
-            self.stdout.write(f"  before: {before}")
-            self.stdout.write(f"  after:  {_snapshot(team)}")
-            return
-
         changed = _apply(team, action, allowance)
         if not changed:
             self.stdout.write(f"team {team.id} ({team.api_token}): {action} no-op ({before})")
@@ -173,6 +153,27 @@ def _parse_allowance(raw: str) -> Decimal:
 
 def _apply(team: Team, action: str, allowance: Decimal | None) -> bool:
     """Mutate team in-place; return True if a save is required."""
+    now = timezone.now()
+    if action == "enable":
+        if team.llm_gateway_enabled_at is not None:
+            return False
+        team.llm_gateway_enabled_at = now
+        return True
+    if action == "unenable":
+        if team.llm_gateway_enabled_at is None:
+            return False
+        team.llm_gateway_enabled_at = None
+        return True
+    if action == "revoke":
+        if team.llm_gateway_revoked_at is not None:
+            return False
+        team.llm_gateway_revoked_at = now
+        return True
+    if action == "unrevoke":
+        if team.llm_gateway_revoked_at is None:
+            return False
+        team.llm_gateway_revoked_at = None
+        return True
     if action == "set-allowance":
         if team.llm_gateway_overspend_allowance_usd == allowance:
             return False
