@@ -98,8 +98,8 @@ describe('ReportExpectedImpact', () => {
         })
         initKeaTests()
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE], {
-            [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE]: true,
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_MONITORING], {
+            [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
         })
         inboxTaskKickoffLogic.mount()
         logic = inboxReportDetailLogic({ reportId: report.id, report })
@@ -204,7 +204,7 @@ describe('ReportExpectedImpact', () => {
     })
 
     it('disables metric suggestions until the replacement tool is available', () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE]: false })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: false })
         renderMeasurements([check])
         expect(screen.getByText('Suggest different metrics').closest('button')).toHaveAttribute('aria-disabled', 'true')
     })
