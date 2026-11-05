@@ -225,10 +225,10 @@ export interface loginLogicActions {
         errorObject?: any
     }
     sendSetPasswordLinkSuccess: (
-        setPasswordLinkSentTo: string | null,
+        setPasswordLinkSentTo: string,
         payload?: string
     ) => {
-        setPasswordLinkSentTo: string | null
+        setPasswordLinkSentTo: string
         payload?: string
     }
     setCodeVerificationManualErrors: (errors: Record<string, any>) => {
