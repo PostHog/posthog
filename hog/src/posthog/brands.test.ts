@@ -54,12 +54,12 @@ describe('brand factories', () => {
         [
             'an organization ID that is not a UUID',
             () => parseOrganizationId('acme'),
-            'invalid_organization_id: The organization ID must be a UUID, but it is "acme". Pass the organization\'s UUID, like 0188f5b4-1d2a-7000-8a1c-3f6e2b9c7d10.',
+            "invalid_organization_id: The organization ID must be a UUID. Pass the organization's UUID, like 0188f5b4-1d2a-7000-8a1c-3f6e2b9c7d10.",
         ],
         [
             'a project ID that is not a number',
             () => parseProjectId('two', { code: 'invalid_credentials' }),
-            'invalid_credentials: The project ID must be a number, but it is "two". Pass a numeric project ID, like 12345.',
+            'invalid_credentials: The project ID must be a number. Pass a numeric project ID, like 12345.',
         ],
         [
             'a host with a password in it',
