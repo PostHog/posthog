@@ -39,6 +39,7 @@ export function SearchPerformanceTab({
         allSearchSources,
         sourceNotices,
         readySources,
+        hasReadySourceInAnyBreakdown,
         displayMetrics,
         wrapText,
         conversionsDisabledReason,
@@ -68,6 +69,10 @@ export function SearchPerformanceTab({
         : sourceIssues.length > 0
           ? 'Search data shows up here once the sources above are ready.'
           : 'No search data to show for this view. Try another breakdown or channel.'
+    // With no breakdown ready, the panel above explains the wait. Keep the controls after a view change to allow a way back.
+    const isDefaultView = breakdown === 'keyword' && channel === 'all'
+    const showSearchCard =
+        allSearchSources.length > 0 && (hasReadySourceInAnyBreakdown || sourceIssues.length === 0 || !isDefaultView)
 
     return (
         <div className="@container flex flex-col gap-4 pb-8" data-attr="marketing-search-performance">
@@ -161,7 +166,7 @@ export function SearchPerformanceTab({
                             No search data matches your filters. Clear the filters to see all connected search sources.
                         </LemonBanner>
                     )}
-                    {allSearchSources.length > 0 && (
+                    {showSearchCard && (
                         <div className="border rounded bg-surface-primary">
                             <div className="flex flex-wrap items-center gap-2 p-3">
                                 {readySources.length > 0 && (
