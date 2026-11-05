@@ -26,12 +26,6 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                             },
                         ]}
                     />
-                    <CalloutBox type="fyi" title="SDK version">
-                        <Markdown>
-                            Session replay requires PostHog iOS SDK version 3.6.0 or higher. We recommend always using
-                            the latest version.
-                        </Markdown>
-                    </CalloutBox>
                 </>
             ),
         },

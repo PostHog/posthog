@@ -124,16 +124,12 @@ export function IOSSourceMapsInstructions(): JSX.Element {
                     Click the <strong>+</strong> button and select <strong>New Run Script Phase</strong>
                 </li>
                 <li>Make sure it's set to run last (after "Copy Bundle Resources" or similar)</li>
-                <li>Add the appropriate script for your package manager:</li>
+                <li>Add the following script:</li>
             </ol>
 
-            <h4 className="text-sm font-semibold mt-4 mb-2">Swift Package Manager:</h4>
             <CodeSnippet language={Language.Bash}>
                 {'${BUILD_DIR%/Build/*}/SourcePackages/checkouts/posthog-ios/build-tools/upload-symbols.sh'}
             </CodeSnippet>
-
-            <h4 className="text-sm font-semibold mt-4 mb-2">CocoaPods:</h4>
-            <CodeSnippet language={Language.Bash}>{'${PODS_ROOT}/PostHog/build-tools/upload-symbols.sh'}</CodeSnippet>
 
             <h3>4. Optional: Include source code context</h3>
             <p>
@@ -145,16 +141,10 @@ export function IOSSourceMapsInstructions(): JSX.Element {
                 <li>Set the environment variable when calling the upload script:</li>
             </ol>
 
-            <h4 className="text-sm font-semibold mt-4 mb-2">Swift Package Manager:</h4>
             <CodeSnippet language={Language.Bash}>
                 {
                     'POSTHOG_INCLUDE_SOURCE=1 ${BUILD_DIR%/Build/*}/SourcePackages/checkouts/posthog-ios/build-tools/upload-symbols.sh'
                 }
-            </CodeSnippet>
-
-            <h4 className="text-sm font-semibold mt-4 mb-2">CocoaPods:</h4>
-            <CodeSnippet language={Language.Bash}>
-                {'POSTHOG_INCLUDE_SOURCE=1 ${PODS_ROOT}/PostHog/build-tools/upload-symbols.sh'}
             </CodeSnippet>
 
             <p className="text-sm text-muted mt-2">

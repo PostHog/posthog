@@ -7,12 +7,9 @@ export const getIOSInstallSteps = (
     options?: {
         includeExperimentalSpi?: boolean
         experimentalDescription?: string
-        minVersionSPM?: string
     }
 ): StepDefinition[] => {
     const { CodeBlock, Markdown, CalloutBox, dedent } = ctx
-
-    const spmVersion = options?.minVersionSPM || '4.0.0'
 
     return [
         {
@@ -33,7 +30,7 @@ export const getIOSInstallSteps = (
                                 file: 'Package.swift',
                                 code: dedent`
                                     dependencies: [
-                                      .package(url: "https://github.com/PostHog/posthog-ios.git", from: "${spmVersion}")
+                                      .package(url: "https://github.com/PostHog/posthog-ios.git", from: "4.0.0")
                                     ]
                                 `,
                             },
@@ -112,7 +109,6 @@ export const getIOSSteps = (
     options?: {
         includeExperimentalSpi?: boolean
         experimentalDescription?: string
-        minVersionSPM?: string
     }
 ): StepDefinition[] => [...getIOSInstallSteps(ctx, options), getIOSEventStep(ctx)]
 
