@@ -18,6 +18,8 @@ from products.warehouse_sources.sources.sdk import (
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
     SourceInputs,
     SourceRegistry,
     SourceResponse,
@@ -59,8 +61,10 @@ class DescopeSource(ResumableSource[DescopeSourceConfig, DescopeResumeConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "401 Client Error: Unauthorized for url: https://api.descope.com": "Descope authentication failed. Please check your Project ID and Management Key.",
-            "403 Client Error: Forbidden for url: https://api.descope.com": "Descope authentication failed. Please check your Project ID and Management Key.",
+            "401 Client Error: Unauthorized for url: https://api.descope.com": "Descope authentication failed. Please check your Project ID, Management Key and Region.",
+            "403 Client Error: Forbidden for url: https://api.descope.com": "Descope authentication failed. Please check your Project ID, Management Key and Region.",
+            "401 Client Error: Unauthorized for url: https://api.euc1.descope.com": "Descope authentication failed. Please check your Project ID, Management Key and Region.",
+            "403 Client Error: Forbidden for url: https://api.euc1.descope.com": "Descope authentication failed. Please check your Project ID, Management Key and Region.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -86,10 +90,10 @@ class DescopeSource(ResumableSource[DescopeSourceConfig, DescopeResumeConfig]):
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_descope_credentials(config.project_id, config.management_key):
+        if validate_descope_credentials(config.project_id, config.management_key, config.region):
             return True, None
 
-        return False, "Invalid credentials. Please check your Project ID and Management Key."
+        return False, "Invalid credentials. Please check your Project ID, Management Key and Region."
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[DescopeResumeConfig]:
         return ResumableSourceManager[DescopeResumeConfig](inputs, DescopeResumeConfig)
@@ -103,6 +107,7 @@ class DescopeSource(ResumableSource[DescopeSourceConfig, DescopeResumeConfig]):
         return descope_source(
             project_id=config.project_id,
             management_key=config.management_key,
+            region=config.region,
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
@@ -143,6 +148,16 @@ class DescopeSource(ResumableSource[DescopeSourceConfig, DescopeResumeConfig]):
                         required=True,
                         placeholder="",
                         secret=True,
+                    ),
+                    SourceFieldSelectConfig(
+                        name="region",
+                        label="Region",
+                        required=True,
+                        defaultValue="us",
+                        options=[
+                            SourceFieldSelectConfigOption(label="US (api.descope.com)", value="us"),
+                            SourceFieldSelectConfigOption(label="EU (api.euc1.descope.com)", value="eu"),
+                        ],
                     ),
                 ],
             ),

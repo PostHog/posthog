@@ -25,7 +25,11 @@ from products.warehouse_sources.sources.sdk import (
     rest_api_resource,
 )
 
-DESCOPE_BASE_URL = "https://api.descope.com"
+DESCOPE_REGION_BASE_URLS = {
+    "us": "https://api.descope.com",
+    "eu": "https://api.euc1.descope.com",
+}
+DEFAULT_REGION = "us"
 USERS_PAGE_SIZE = 100
 DAY_MS = 24 * 60 * 60 * 1000
 # The fan-out endpoints issue one request per parent, so a single stalled request would hang a
@@ -40,6 +44,10 @@ class DescopeResumeConfig:
     # cursor. Every other endpoint returns its full result in one response, so there's nothing to
     # save between heartbeats.
     page: int
+
+
+def base_url(region: str) -> str:
+    return DESCOPE_REGION_BASE_URLS.get(region, DESCOPE_REGION_BASE_URLS[DEFAULT_REGION])
 
 
 def bearer_token(project_id: str, management_key: str) -> str:
@@ -244,9 +252,9 @@ def get_resource(
     raise ValueError(f"Unknown Descope endpoint: {name}")
 
 
-def _client(project_id: str, management_key: str) -> RESTClient:
+def _client(project_id: str, management_key: str, region: str) -> RESTClient:
     return RESTClient(
-        base_url=DESCOPE_BASE_URL,
+        base_url=base_url(region),
         auth=BearerTokenAuth(token=bearer_token(project_id, management_key)),
         request_timeout=REQUEST_TIMEOUT_SECONDS,
     )
@@ -264,14 +272,14 @@ def _tenant_ids(client: RESTClient) -> Iterator[str]:
                 yield str(tenant_id)
 
 
-def _groups_rows(project_id: str, management_key: str) -> Iterator[list[dict[str, Any]]]:
+def _groups_rows(project_id: str, management_key: str, region: str) -> Iterator[list[dict[str, Any]]]:
     """Every external group in the project, fanned out over the tenant list.
 
     Groups are only addressable per tenant, and each group already carries its members, so
     `/v1/mgmt/group/members` and `/v1/mgmt/group/member/all` would only re-return filtered views
     of these same rows.
     """
-    client = _client(project_id, management_key)
+    client = _client(project_id, management_key, region)
     for tenant_id in _tenant_ids(client):
         for page in client.paginate(
             method="post",
@@ -301,6 +309,7 @@ def _history_for_users(client: RESTClient, user_ids: list[str]) -> list[dict[str
 def _user_history_rows(
     project_id: str,
     management_key: str,
+    region: str,
     resumable_source_manager: ResumableSourceManager[DescopeResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     """Authentication history for every user, one request per page of the user search.
@@ -308,7 +317,7 @@ def _user_history_rows(
     The endpoint takes the user ids it reports on, so the user list has to be walked first. It
     takes no timestamp filter, which is why this table is full refresh only.
     """
-    client = _client(project_id, management_key)
+    client = _client(project_id, management_key, region)
     next_page = 0
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
@@ -339,6 +348,7 @@ def _user_history_rows(
 def descope_source(
     project_id: str,
     management_key: str,
+    region: str,
     endpoint: str,
     team_id: int,
     job_id: str,
@@ -351,9 +361,9 @@ def descope_source(
     # fan-out cannot express: it only resolves a parent field into the path or the query string.
     items: Callable[[], Any]
     if endpoint == "Groups":
-        items = lambda: _groups_rows(project_id, management_key)
+        items = lambda: _groups_rows(project_id, management_key, region)
     elif endpoint == "UserHistory":
-        items = lambda: _user_history_rows(project_id, management_key, resumable_source_manager)
+        items = lambda: _user_history_rows(project_id, management_key, region, resumable_source_manager)
     else:
         resource_config = get_resource(
             endpoint, should_use_incremental_field, incremental_field, db_incremental_field_last_value
@@ -361,7 +371,7 @@ def descope_source(
 
         config: RESTAPIConfig = {
             "client": {
-                "base_url": DESCOPE_BASE_URL,
+                "base_url": base_url(region),
                 "auth": {
                     "type": "bearer",
                     "token": bearer_token(project_id, management_key),
@@ -406,11 +416,11 @@ def descope_source(
     )
 
 
-def validate_credentials(project_id: str, management_key: str) -> bool:
+def validate_credentials(project_id: str, management_key: str, region: str = DEFAULT_REGION) -> bool:
     token = bearer_token(project_id, management_key)
     session = make_tracked_session(redact_values=(management_key, token))
     response = session.post(
-        f"{DESCOPE_BASE_URL}/v1/mgmt/projects/list",
+        f"{base_url(region)}/v1/mgmt/projects/list",
         json={},
         headers={"Authorization": f"Bearer {token}"},
         timeout=10,
