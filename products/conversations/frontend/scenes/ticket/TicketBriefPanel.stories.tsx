@@ -22,7 +22,8 @@ const fullBrief: TicketBriefApi = {
         'Is there a cache we can clear?',
     ],
     tried: ['Reset the rollout to 100%', 'Cleared local storage'],
-    error_message: '{"detail":"flag evaluation failed","code":"condition_error"}',
+    error_message:
+        'Traceback (most recent call last):\n  File "app/flags.py", line 212, in evaluate\n    return self._match(condition, properties)\n  File "app/flags.py", line 88, in _match\n    raise ConditionError("unknown operator: is_not_set_v2")\nConditionError: unknown operator: is_not_set_v2',
     affected_items: [
         {
             kind: 'feature_flag',
