@@ -95,6 +95,10 @@ class _AliasExpressions(TraversingVisitor):
             self.by_type[id(node.type)] = node.expr
         super().visit_alias(node)
 
+    def visit_field(self, node: ast.Field) -> None:
+        """A field holds no alias. The base visitor would walk its type, which the resolver shares between an alias
+        and every reference to it, so that walk doubles at every alias referred to twice."""
+
 
 def _aliased_expression(expr: ast.Expr, aliases: dict[int, ast.Expr]) -> ast.Expr:
     """The expression behind an alias, or behind a reference to one, which is what ClickHouse groups by."""
@@ -111,10 +115,28 @@ def _aliased_expression(expr: ast.Expr, aliases: dict[int, ast.Expr]) -> ast.Exp
 
 
 class _AggregateFinder(TraversingVisitor):
-    def __init__(self, aliases: dict[int, ast.Expr]) -> None:
+    """Whether an expression holds an aggregate.
+
+    Each node is answered once per query, through a memo shared by every call, because a scan that restarts at every
+    node is quadratic in the expression, and an alias that refers to an earlier alias twice doubles the expansion at
+    every link of the chain.
+    """
+
+    def __init__(self, aliases: dict[int, ast.Expr], memo: dict[int, bool]) -> None:
         super().__init__()
         self.aliases = aliases
+        self.memo = memo
         self.found = False
+
+    def visit(self, node: AST | None) -> None:
+        if node is None or self.found:
+            return
+        known = self.memo.get(id(node))
+        if known is not None:
+            self.found = known
+            return
+        super().visit(node)
+        self.memo[id(node)] = self.found
 
     def visit_call(self, node: ast.Call) -> None:
         if find_hogql_aggregation(node.name):
@@ -131,8 +153,8 @@ class _AggregateFinder(TraversingVisitor):
         """A subquery's aggregates group the subquery's rows."""
 
 
-def _has_aggregate(expr: ast.Expr, aliases: dict[int, ast.Expr]) -> bool:
-    finder = _AggregateFinder(aliases)
+def _has_aggregate(expr: ast.Expr, aliases: dict[int, ast.Expr], memo: dict[int, bool]) -> bool:
+    finder = _AggregateFinder(aliases, memo)
     finder.visit(expr)
     return finder.found
 
@@ -143,27 +165,44 @@ class _ImplicitGroupingKeys(TraversingVisitor):
     def __init__(self, aliases: dict[int, ast.Expr]) -> None:
         super().__init__()
         self.aliases = aliases
+        self.aggregate_memo: dict[int, bool] = {}
+        self.visited: set[int] = set()
         self.keys: list[ast.Expr] = []
 
     def visit(self, node: AST | None) -> None:
         if isinstance(node, ast.Expr):
             node = _aliased_expression(node, self.aliases)
+            # An alias expression reached through a second reference has given its keys already.
+            if id(node) in self.visited:
+                return
+            self.visited.add(id(node))
             if isinstance(node, ast.Call) and find_hogql_aggregation(node.name):
                 return
-            if not _has_aggregate(node, self.aliases):
+            if not _has_aggregate(node, self.aliases, self.aggregate_memo):
                 self.keys.append(node)
                 return
         super().visit(node)
 
 
-def _key_parts(key: ast.Expr, aliases: dict[int, ast.Expr]) -> list[ast.Expr]:
-    """A key as ClickHouse groups by it: an alias stands for its expression, and a tuple is one key per element."""
+def _key_parts(key: ast.Expr, aliases: dict[int, ast.Expr], seen: set[int]) -> Iterator[ast.Expr]:
+    """A key as ClickHouse groups by it: an alias stands for its expression, and a tuple is one key per element.
+
+    An alias expression reached through a second reference is the same key, so it is skipped: a chain of aliases that
+    each name the previous one twice would otherwise double the parts at every link.
+    """
     key = _aliased_expression(key, aliases)
+    if id(key) in seen:
+        return
+    seen.add(id(key))
     if isinstance(key, ast.Tuple):
-        return [part for element in key.exprs for part in _key_parts(element, aliases)]
-    if isinstance(key, ast.Call) and key.name == "tuple":
-        return [part for element in key.args for part in _key_parts(element, aliases)]
-    return [key]
+        elements = key.exprs
+    elif isinstance(key, ast.Call) and key.name == "tuple":
+        elements = key.args
+    else:
+        yield key
+        return
+    for element in elements:
+        yield from _key_parts(element, aliases, seen)
 
 
 def _reads_events_json_document(field_type: ast.Type | None, context: "HogQLContext") -> bool:
@@ -209,7 +248,8 @@ def _grouping_keys(node: ast.SelectQuery) -> list[ast.Expr]:
                 if isinstance(key, ast.Constant) and type(key.value) is int and 1 <= key.value <= len(node.select):
                     key = node.select[key.value - 1]
                 keys.append(key)
-    return [part for key in keys for part in _key_parts(key, aliases)]
+    seen: set[int] = set()
+    return [part for key in keys for part in _key_parts(key, aliases, seen)]
 
 
 def raise_on_whole_document_grouping(node: ast.SelectQuery, context: "HogQLContext") -> None:

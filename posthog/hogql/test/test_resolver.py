@@ -43,6 +43,13 @@ from posthog.hogql.test.utils import pretty_dataclasses
 from posthog.hogql.visitor import clone_expr
 
 
+def _doubled_alias_chain(root: str, depth: int, group_by: str) -> str:
+    """A select list where each alias names the previous one twice, so a pass that expands every reference doubles
+    its work at every link."""
+    columns = [f"{root} AS e0"] + [f"tuple(e{i - 1}, e{i - 1}) AS e{i}" for i in range(1, depth + 1)]
+    return f"SELECT {', '.join(columns)}, count() FROM events GROUP BY {group_by}"
+
+
 class TestSavedViewBounds(SimpleTestCase):
     def _context(self, views: dict[str, str]) -> HogQLContext:
         database = Database()
@@ -2432,6 +2439,11 @@ class TestResolver(BaseTest):
                 None,
             ),
             (
+                "document_behind_doubled_aliases_under_group_by_all",
+                _doubled_alias_chain("properties", 40, "ALL"),
+                None,
+            ),
+            (
                 "nested_tuple_alias",
                 "SELECT toString(tuple(properties, event) AS k), count() FROM events GROUP BY k",
                 None,
@@ -2505,6 +2517,8 @@ class TestResolver(BaseTest):
                 "lambda_local_alias",
                 "SELECT event AS p, any(arrayMap(x -> (properties AS p), [1])) FROM events GROUP BY p",
             ),
+            ("aggregate_behind_doubled_aliases_under_group_by_all", _doubled_alias_chain("count()", 40, "ALL")),
+            ("doubled_aliases_as_the_grouping_key", _doubled_alias_chain("event", 40, "e40")),
         ]
     )
     def test_grouping_by_a_property_key_or_a_wrapped_document_resolves(self, _name: str, query: str) -> None:
