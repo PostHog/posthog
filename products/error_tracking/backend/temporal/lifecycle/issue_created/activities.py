@@ -17,6 +17,7 @@ from posthog.kafka_client.routing import producer_scope
 from posthog.kafka_client.topics import KAFKA_DOCUMENT_EMBEDDINGS_TOPIC
 from posthog.llm.gateway_client import GatewayNotConfiguredError
 from posthog.models import Team
+from posthog.temporal.common.errors import NonReportableApplicationError
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
@@ -283,11 +284,12 @@ def infer_issue_created_severity_activity(inputs: IssueCreatedWorkflowInputs) ->
 def _generate_issue_created_summary(inputs: IssueCreatedWorkflowInputs) -> "IssueSummaryOutcome":
     # issue_summaries imports the lifecycle rendering module, whose package imports this module.
     from products.error_tracking.backend.logic.issue_summaries import (  # noqa: PLC0415
+        IssueSummaryOutcome,
         IssueSummaryTrigger,
         generate_issue_summary_from_event,
     )
 
-    return generate_summary_on_worker(
+    outcome = generate_summary_on_worker(
         inputs.team_id,
         inputs.issue_id,
         IssueSummaryTrigger.WRITE,
@@ -295,13 +297,18 @@ def _generate_issue_created_summary(inputs: IssueCreatedWorkflowInputs) -> "Issu
             inputs.team_id, inputs.issue_id, lambda team: fetch_event_properties(team, inputs)
         ),
     )
+    # Creation is the only time a summary is written, so a model failure raises to get a Temporal retry.
+    # Generation already reported the model error, so the retry error stays out of error tracking.
+    if outcome == IssueSummaryOutcome.MODEL_ERROR:
+        raise NonReportableApplicationError("Issue summary model call failed", type="IssueSummaryModelError")
+    return outcome
 
 
 @activity.defn
 @posthoganalytics.scoped(capture_exceptions=False)
 @close_db_connections
 def generate_issue_created_summary_activity(inputs: IssueCreatedWorkflowInputs) -> str:
-    # Model and output failures return an outcome, so an exception here is an infrastructure failure worth a retry.
+    # Output failures return an outcome. An exception here is a model or infrastructure failure, and Temporal retries it.
     return _generate_issue_created_summary(inputs).value
 
 

@@ -112,6 +112,7 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
     def test_token_cost_only_includes_generations_for_the_task_and_product(self) -> None:
         for team_id, task_id, product, cost in (
             (self.team.id, str(self.task.id), "posthog_code", 2.5),
+            (self.team.id, str(self.task.id), "slack_app", 1.25),
             (self.team.id, str(self.task.id), "background_agents", 10),
             (self.team.id, "00000000-0000-0000-0000-000000000001", "posthog_code", 20),
             (self.team.id + 1, str(self.task.id), "posthog_code", 40),
@@ -137,9 +138,9 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
                 task_created_at=self.task.created_at,
             )
 
-        assert usage.token_cost_usd == Decimal("2.5")
+        assert usage.token_cost_usd == Decimal("3.75")
         assert usage.compute_cost_usd == 0
-        assert usage.total_cost_usd == Decimal("2.5")
+        assert usage.total_cost_usd == Decimal("3.75")
 
     def test_run_token_costs_group_by_run_and_key_on_the_origin_product(self) -> None:
         # `ai_product` can't stand in for `task_origin_product`: a scout run reports

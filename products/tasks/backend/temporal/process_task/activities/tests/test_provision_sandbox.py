@@ -18,6 +18,7 @@ from asgiref.sync import async_to_sync
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.tasks.backend.exceptions import (
+    ActiveSessionCapError,
     ComputeBillingLimitError,
     OrganizationExecutionError,
     RepositoryAccessError,
@@ -27,6 +28,7 @@ from products.tasks.backend.exceptions import (
 )
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, SandboxTemplate
+from products.tasks.backend.logic.services.warm import SandboxWarmer
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.metrics import modal_sandbox_backend_label, resume_mode_label
 from products.tasks.backend.temporal.process_task.activities import provision_sandbox as provision_sandbox_module
@@ -947,12 +949,55 @@ def test_blocked_organization_creates_no_sandbox(
     sandbox_class.return_value.create.assert_not_called()
 
 
+@pytest.mark.parametrize("warm", [False, True])
+def test_active_session_cap_refuses_a_cold_start_before_create(mocker, warm: bool) -> None:
+    context = _context_for_desktop_bootstrap()
+    context.state = {"await_user_message": warm}
+    task = mocker.Mock(
+        origin_product=Task.OriginProduct.USER_CREATED, created_by_id=7, signal_report_id=None, id="task-id"
+    )
+    task.team.organization_id = "organization-id"
+    mocker.patch.object(provision_sandbox_module, "_load_task", return_value=task)
+    mocker.patch.object(provision_sandbox_module, "get_compute_quota_denial_reason", return_value=None)
+    cap_hit = mocker.patch.object(SandboxWarmer, "active_session_cap_hit", return_value="user")
+    mocker.patch.object(provision_sandbox_module, "_emit_image_source_log")
+    mocker.patch.object(provision_sandbox_module, "_apply_modal_network_policy")
+    mocker.patch.object(provision_sandbox_module, "_build_sandbox_tags", return_value={})
+    create = mocker.Mock(side_effect=RuntimeError("created"))
+    mocker.patch.object(
+        provision_sandbox_module, "get_sandbox_class_for_run_backend", return_value=mocker.Mock(create=create)
+    )
+
+    with pytest.raises(RuntimeError if warm else ActiveSessionCapError) as error:
+        async_to_sync(provision_sandbox_module._create_sandbox_for_repository)(
+            CreateSandboxForRepositoryInput(context=context, prepared=_prepared_for_create())
+        )
+
+    if warm:
+        cap_hit.assert_not_called()
+        create.assert_called_once()
+    else:
+        assert isinstance(error.value, ActiveSessionCapError)
+        assert error.value.non_retryable is True
+        assert error.value.message == SandboxWarmer.active_session_cap_detail(Task.OriginProduct.USER_CREATED, "user")
+        cap_hit.assert_called_once_with(
+            Task.OriginProduct.USER_CREATED,
+            organization_id="organization-id",
+            created_by_id=7,
+            exclude_run_id="run-id",
+            signal_report_id=None,
+            task_id="task-id",
+        )
+        create.assert_not_called()
+
+
 @pytest.mark.parametrize(
     "failing_step,destroy_fails",
     [
         ("get_connect_credentials", False),
         ("get_connect_credentials", True),
         ("start_cpu_billing_sampler", False),
+        ("persist_sandbox_connection", False),
     ],
 )
 def test_a_failure_after_create_destroys_the_fresh_sandbox(mocker, failing_step: str, destroy_fails: bool):
@@ -973,9 +1018,14 @@ def test_a_failure_after_create_destroys_the_fresh_sandbox(mocker, failing_step:
     sandbox.launch_dev_stack_bootstrap.return_value = False
     sandbox.start_cpu_billing_sampler.return_value = True
     sandbox.execute.return_value = ExecutionResult(stdout='{"version": "1.2.3"}', stderr="", exit_code=0)
-    getattr(sandbox, failing_step).side_effect = SandboxRateLimitedError(
+    failure: Exception = SandboxRateLimitedError(
         "Sandbox control plane is rate limited", {"sandbox_id": "sandbox-id", "operation": "create_connect_token"}
     )
+    if failing_step == "persist_sandbox_connection":
+        failure = ActiveSessionCapError({"run_id": "run-id"}, "org", "Your organization is at its cap.")
+        mocker.patch.object(provision_sandbox_module, "persist_sandbox_connection", side_effect=failure)
+    else:
+        getattr(sandbox, failing_step).side_effect = failure
     if destroy_fails:
         sandbox.destroy.side_effect = SandboxCleanupError(
             "Failed to destroy sandbox", {"sandbox_id": "sandbox-id"}, cause=RuntimeError("terminate failed")
@@ -996,7 +1046,7 @@ def test_a_failure_after_create_destroys_the_fresh_sandbox(mocker, failing_step:
     task_run = mocker.patch.object(provision_sandbox_module, "TaskRun")
     mocker.patch.object(provision_sandbox_module, "pinned_agent_version", return_value="1.2.3")
 
-    with pytest.raises(SandboxRateLimitedError):
+    with pytest.raises(type(failure)):
         async_to_sync(provision_sandbox_module._create_sandbox_for_repository)(
             CreateSandboxForRepositoryInput(context=context, prepared=_prepared_for_create())
         )

@@ -83,7 +83,7 @@ export class RerunJobManager {
         const state: RerunJobState = {
             function_kind: functionKind,
             function_id: functionId,
-            request: { filter },
+            request: { filter, replay_code_sends: request.replay_code_sends === true },
             progress: {
                 queued: 0,
                 skipped: 0,

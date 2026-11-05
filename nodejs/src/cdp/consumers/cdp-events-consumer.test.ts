@@ -762,6 +762,20 @@ describe('CdpEventsConsumer', () => {
                 expect(mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')).toHaveLength(0)
             })
 
+            it('skips an event whose team id is not a team id, and processes the rest of the batch', async () => {
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+                const bad = createKafkaMessage({ ...createIncomingEvent(team.id, {}), team_id: 3_000_000_000 })
+
+                await handleBatch([bad, createKafkaMessage(createIncomingEvent(team.id, {}), { offset: 1 })])
+
+                expect(mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')).toHaveLength(0)
+                expect(mockQueueInvocations).toHaveBeenCalledWith([expect.objectContaining({ teamId: team.id })])
+            })
+
             it.each([
                 {
                     name: 'a message that is not an event object',
@@ -769,15 +783,14 @@ describe('CdpEventsConsumer', () => {
                     bad: () => createKafkaMessage('not json at all'),
                 },
                 {
+                    name: 'a message that is an array, not an event object',
+                    step: 'parse',
+                    bad: () => createKafkaMessage([]),
+                },
+                {
                     name: 'an event whose properties are not JSON',
                     step: 'parse',
                     bad: (teamId: number) => createKafkaMessage(createIncomingEvent(teamId, { properties: '{' })),
-                },
-                {
-                    name: 'an event whose team_id is out of int4 range',
-                    step: 'parse',
-                    bad: (teamId: number) =>
-                        createKafkaMessage({ ...createIncomingEvent(teamId, {}), team_id: 3_000_000_000 }),
                 },
                 ...lookupSpies.map(({ lookup, spy }) => ({
                     name: `an event whose ${lookup} lookup throws a non-retriable error`,

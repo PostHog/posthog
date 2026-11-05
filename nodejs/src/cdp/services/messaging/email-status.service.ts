@@ -11,8 +11,8 @@ import { classifyError } from '../monitoring/hog-invocation-results.service'
 
 const counterEmailStatusRowsProduced = new Counter({
     name: 'cdp_email_status_rows_produced',
-    help: 'Transactional email status rows produced to the email_status Kafka topic.',
-    labelNames: ['status'],
+    help: 'Transactional email status rows produced to the email_status Kafka topic, by status and reason. The reason is empty for a status without one, a skip reason or a run error kind for failed, and the bounce type for bounced.',
+    labelNames: ['status', 'reason'],
 })
 
 const counterEmailStatusWriteFailed = new Counter({
@@ -253,7 +253,7 @@ export class EmailStatusService {
                         key: Buffer.from(row.message_id),
                         value: Buffer.from(JSON.stringify(row)),
                     })
-                    counterEmailStatusRowsProduced.inc({ status: row.status })
+                    counterEmailStatusRowsProduced.inc({ status: row.status, reason: row.reason })
                 } catch (error) {
                     counterEmailStatusWriteFailed.inc({ status: row.status })
                     logger.error('⚠️', 'failed to produce an email status row', {

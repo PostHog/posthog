@@ -122,6 +122,14 @@ EMAIL_SEND_COUNTER = Counter(
     labelnames=["outcome", "transport"],
 )
 
+# `failed` counts every attempt, including one that a retry later sends. This counts only the recipients a send gave
+# up on, so it shows the emails that did not go out.
+EMAIL_SEND_DROPPED_COUNTER = Counter(
+    "posthog_email_send_dropped_total",
+    "Recipients whose email send failed with no retry to follow, so the email did not go out, by transport.",
+    labelnames=["transport"],
+)
+
 # Retryable connection/network errors only. NOT bare OSError: every smtplib exception subclasses
 # it, so OSError would also retry auth/recipient failures and re-hammer the relay's per-IP limit.
 _TRANSIENT_SMTP_ERRORS = (
@@ -648,9 +656,10 @@ def _send_via_http_batch(
             )
         # Count every recipient that did not get through (the failing one + any not yet attempted),
         # so `failed` shares the per-recipient unit with `sent` instead of registering once per batch.
-        EMAIL_SEND_COUNTER.labels(outcome="failed", transport="http").inc(
-            len(to) - already_sent_count - sent_count - undeliverable_count
-        )
+        unsent_count = len(to) - already_sent_count - sent_count - undeliverable_count
+        EMAIL_SEND_COUNTER.labels(outcome="failed", transport="http").inc(unsent_count)
+        if not retrying:
+            EMAIL_SEND_DROPPED_COUNTER.labels(transport="http").inc(unsent_count)
         if retryable:
             # The retry sends the same idempotency key, so Workflows returns an email it already queued instead of
             # sending a second one, and recipients already marked sent are skipped.

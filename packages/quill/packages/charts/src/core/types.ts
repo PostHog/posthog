@@ -88,6 +88,10 @@ export interface Series<Meta = unknown> {
     }
     /** Line stroke configuration. */
     stroke?: {
+        /** Line width in CSS pixels. Defaults to 2. `0` draws no line, for an area fill or points
+         *  without a stroke. Lines have round caps, which close a dash gap narrower than the width,
+         *  so a wide line with a custom `pattern` needs wider gaps. */
+        width?: number
         /** Canvas line dash pattern, e.g. [10, 10] for evenly dashed. Omit for solid. */
         pattern?: number[]
         /** A range of indices that should be drawn with a different (typically dashed) pattern. */
@@ -100,7 +104,8 @@ export interface Series<Meta = unknown> {
              *  beyond it — everything before stays solid. Lets a two-point line dash just its second
              *  half without a phantom interior point. Takes precedence over `fromIndex`/`toIndex`. */
             fromFraction?: number
-            /** Dash pattern for the partial range. Defaults to [10, 10]. */
+            /** Dash pattern for the partial range. Defaults to 10px dashes with an 8px visible gap,
+             *  `[10, 10]` at the default width. */
             pattern?: number[]
         }
     }
@@ -280,7 +285,8 @@ export interface ChartConfig {
     /** Line/area interpolation. `linear` (default) draws straight segments; `monotone` smooths the
      *  line with monotone-cubic curves that pass through every point without overshooting. */
     curve?: 'linear' | 'monotone'
-    /** Tooltip behaviour. Defaults to enabled with no pinning and `follow-data` placement. */
+    /** Tooltip behaviour. Defaults to enabled with no pinning and `follow-data` placement on the base
+     *  `Chart`. Charts that apply `DEFAULT_CHART_CONFIG` use `cursor` placement. */
     tooltip?: TooltipConfig
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean

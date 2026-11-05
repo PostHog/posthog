@@ -52,9 +52,28 @@ const DEPOT_CI_USAGE = {
     [PRIOR_WEEK]: [{ repo: 'posthog/posthog', estimated_cost_usd: 500 }],
     [CONTRACT]: [{ repo: 'posthog/posthog', estimated_cost_usd: 6000 }],
 }
+const REPO = { provider: 'github', owner: 'PostHog', name: 'posthog' }
+const WORKFLOW_HEALTH = {
+    [WEEK]: [
+        { repo: REPO, workflow_name: 'Frontend CI', percentile_run_count: 500, p95_seconds: 1000 },
+        { repo: REPO, workflow_name: 'Storybook', percentile_run_count: 500, p95_seconds: 1716 },
+        { repo: REPO, workflow_name: 'E2E <CI>', percentile_run_count: 300, p95_seconds: 2400 },
+        { repo: REPO, workflow_name: 'Rarely run', percentile_run_count: 10, p95_seconds: 3000 },
+    ],
+    [PRIOR_WEEK]: [{ repo: REPO, workflow_name: 'Storybook', percentile_run_count: 500, p95_seconds: 1500 }],
+}
+const WORKFLOWS_URL = 'https://example.com/project/1/engineering-analytics/repos/PostHog/posthog/actions/workflows'
+const SLOW_WORKFLOWS_NOTE = [
+    '*PR workflows with a p95 over 20m*',
+    `• <${WORKFLOWS_URL}/E2E%20%3CCI%3E|E2E &lt;CI&gt;>: 40m`,
+    `• <${WORKFLOWS_URL}/Storybook|Storybook>: 29m (25m the week before)`,
+].join('\n')
 let importCount = 0
 
-async function runDigest(t, { env = {}, depotUsage = DEPOT_USAGE, depotCiUsage = DEPOT_CI_USAGE } = {}) {
+async function runDigest(
+    t,
+    { env = {}, depotUsage = DEPOT_USAGE, depotCiUsage = DEPOT_CI_USAGE, workflowHealth = WORKFLOW_HEALTH } = {}
+) {
     t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: new Date('2026-10-05T13:00:00Z') })
     const settings = { ...ENV, ...env }
     const previousEnv = Object.fromEntries(Object.keys(settings).map((key) => [key, process.env[key]]))
@@ -72,6 +91,10 @@ async function runDigest(t, { env = {}, depotUsage = DEPOT_USAGE, depotCiUsage =
             if (parsed.pathname.endsWith('/depot_ci_usage/')) {
                 const usage = depotCiUsage[parsed.searchParams.get('date_from')]
                 return usage instanceof Response ? usage : Response.json(usage)
+            }
+            if (parsed.pathname.endsWith('/workflow_health/')) {
+                const health = workflowHealth[parsed.searchParams.get('date_from')]
+                return health instanceof Response ? health : Response.json(health)
             }
             return Response.json(OVERVIEW)
         }
@@ -144,6 +167,36 @@ describe('weekly engineering analytics digest', () => {
                 blocks[3].text.text,
                 /runs out around 2026-11-07, 55 days before the contract ends on 2027-01-01\.$/
             )
+            const healthUrls = requests
+                .filter((request) => request.url.includes('/workflow_health/'))
+                .map((request) => new URL(request.url))
+            assert.deepEqual(
+                healthUrls.map((url) => url.searchParams.get('run_scope')),
+                ['pull_request', 'pull_request']
+            )
+            assert.equal(blocks[4].text.text, SLOW_WORKFLOWS_NOTE)
+        })
+    }
+
+    for (const [name, workflowHealth, expected] of [
+        [
+            'every PR workflow is under the budget',
+            { [WEEK]: [], [PRIOR_WEEK]: [] },
+            ['Every PR workflow had a p95 under 20m.'],
+        ],
+        [
+            'the durations cannot be read',
+            { ...WORKFLOW_HEALTH, [PRIOR_WEEK]: Response.json({ detail: 'Not found.' }, { status: 404 }) },
+            [],
+        ],
+    ]) {
+        it(`reports PR workflow durations when ${name}`, async (t) => {
+            const { blocks } = await runDigest(t, { workflowHealth })
+            assert.deepEqual(
+                blocks.slice(4).map((block) => block.text.text),
+                expected
+            )
+            assert.equal(tableText(blocks)[0][0], 'Depot spend')
         })
     }
 
@@ -204,11 +257,31 @@ describe('weekly engineering analytics digest', () => {
                 tableText(blocks).map((row) => row[0]),
                 ['merged PRs', 'ready→merge median']
             )
-            assert.equal(blocks.length, 2)
+            assert.deepEqual(
+                blocks.slice(2).map((block) => block.text.text),
+                [SLOW_WORKFLOWS_NOTE]
+            )
             assert.doesNotMatch(JSON.stringify(logs), /confidential-response/)
             assert.ok(logs.length > 0)
         })
     }
+
+    it('splits a long list of slow workflows across sections that Slack accepts', async (t) => {
+        const names = Array.from({ length: 40 }, (_, i) => `Slow workflow ${i}`)
+        const lastWeek = names.map((name) => ({
+            repo: REPO,
+            workflow_name: name,
+            percentile_run_count: 500,
+            p95_seconds: 1800,
+        }))
+        const { blocks } = await runDigest(t, {
+            workflowHealth: { [WEEK]: lastWeek, [PRIOR_WEEK]: [] },
+        })
+        const notes = blocks.slice(4).map((block) => block.text.text)
+        assert.ok(notes.length > 1)
+        assert.ok(notes.every((note) => note.length <= 3000))
+        assert.equal(notes.join('\n').match(/^• /gm).length, names.length)
+    })
 
     it('hides spend and never posts to Slack in a dry run', async (t) => {
         const { blocks, logs, requests } = await runDigest(t, { env: { DRY_RUN: 'true' } })

@@ -61,6 +61,7 @@ from .serializers import (
     StamphogAvailableRepositoriesQuerySerializer,
     StamphogAvailableRepositoriesSerializer,
     StamphogInstallInfoSerializer,
+    StamphogOwnersFileSerializer,
     StamphogRepoConfigSerializer,
     StamphogRepoConfigWriteSerializer,
     StamphogSyncInstallationRequestSerializer,
@@ -79,6 +80,9 @@ _INSTALL_STATE_MAX_AGE_SECONDS = 60 * 60
 # These decide when a pull request gets reviewed, so writing either of them takes the manager level.
 # `enabled` is split by direction: turning reviews on takes editor, turning them off takes manager.
 REVIEW_POLICY_FIELDS = ("review_mode", "trigger_label")
+# Reviewer requests decide which teams get asked on every pull request, and turning them off can leave
+# pull requests with no reviewer at all, so both directions take manager.
+MANAGER_FIELDS = (*REVIEW_POLICY_FIELDS, "routing_mode")
 
 ReviewLevel = Literal["editor", "manager"]
 
@@ -90,7 +94,7 @@ def _required_review_level(validated_data: dict[str, Any]) -> ReviewLevel | None
     facade refetches and saves it, so a value that looks unchanged can still overwrite a manager's
     decision made in between. That is why a supplied `enabled=False` always takes manager.
     """
-    if validated_data.get("enabled") is False or any(field in validated_data for field in REVIEW_POLICY_FIELDS):
+    if validated_data.get("enabled") is False or any(field in validated_data for field in MANAGER_FIELDS):
         return "manager"
     if validated_data.get("enabled") is True:
         return "editor"
@@ -234,7 +238,7 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
             return
         if level == "manager":
             raise PermissionDenied(
-                "Only a Stamphog manager can turn reviews off or change when they run. "
+                "Only a Stamphog manager can turn reviews off, change when they run, or change reviewer requests. "
                 "Ask an organization admin for manager access."
             )
         raise PermissionDenied(
@@ -306,6 +310,18 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
         self._require_review_level(request, "manager")
         facade_api.disable_repo_config(self.canonical_team_id, str(pk))
         return Response(status=204)
+
+    @extend_schema(
+        description=(
+            "Check whether the repository's default branch has a root owners.yaml. Reviewer requests "
+            "(routing_mode) read the code owners from it. Makes one GitHub call, so ask only when needed."
+        ),
+        responses={200: StamphogOwnersFileSerializer},
+    )
+    @action(detail=True, methods=["GET"], url_path="owners_file", required_scopes=["stamphog:read"])
+    def owners_file(self, request: Request, pk: UUID, **kwargs) -> Response:
+        config = self._get_or_404(pk)
+        return Response(StamphogOwnersFileSerializer({"owners_file": facade_api.check_owners_file(config)}).data)
 
     @extend_schema(
         description=(
