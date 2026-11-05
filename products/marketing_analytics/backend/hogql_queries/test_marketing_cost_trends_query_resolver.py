@@ -210,6 +210,7 @@ class TestMarketingCostTrendsQueryResolver(SimpleTestCase):
         resolved = self.runner().resolve_query()
         assert resolved.warning is not None
         assert resolved.warning.type == "breakdown_not_applied"
+        assert ("all time" in resolved.warning.message) == (case == "all_time")
         result = resolved.query
         assert result.series == self.live_series
         assert result.breakdownFilter is None
@@ -221,6 +222,16 @@ class TestMarketingCostTrendsQueryResolver(SimpleTestCase):
             ("no_breakdown", None, False),
             ("legacy_campaign", BreakdownFilter(breakdown="campaign_name"), True),
             ("legacy_source_list", BreakdownFilter(breakdown=["source_name"]), False),
+            (
+                "source_and_campaign",
+                BreakdownFilter(
+                    breakdowns=[
+                        Breakdown(type="data_warehouse", property="source_name"),
+                        Breakdown(type="data_warehouse", property="campaign_name"),
+                    ]
+                ),
+                True,
+            ),
         ]
     )
     def test_live_warning_only_for_a_breakdown_the_sources_cannot_reproduce(
