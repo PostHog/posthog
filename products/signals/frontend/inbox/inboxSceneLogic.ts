@@ -767,6 +767,11 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                                 report_id: id,
                             }).catch(() => null)
                             breakpoint()
+                            // Closing the report dispatches no new load, so the breakpoint above does not cancel
+                            // this one. Don't move a person who left the report to another project.
+                            if (values.selectedReportId !== id) {
+                                return null
+                            }
                             const teamId = located?.team_id ?? null
                             if (teamId !== null && teamId !== teamLogic.values.currentTeamId) {
                                 actions.redirectToReportProject(id, teamId)
