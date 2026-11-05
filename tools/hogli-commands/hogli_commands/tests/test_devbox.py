@@ -17,10 +17,12 @@ from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 from hogli.cli import cli
+from hogli_commands import worktrees
 from hogli_commands.devbox import (
     cli as devbox_cli,
     coder,
     config as devbox_config,
+    herdr as devbox_herdr,
     hogland as devbox_hogland,
     mutagen as devbox_mutagen,
     sync as devbox_sync,
@@ -580,6 +582,56 @@ class TestCoderVersion:
         with pytest.raises(SystemExit):
             coder.ensure_coder_authenticated()
 
+    def test_ensure_coder_authenticated_points_at_a_terminal_without_stdin(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(coder, "coder_authenticated", lambda: False)
+        monkeypatch.setattr(coder, "coder_installed", lambda: True)
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+        monkeypatch.setattr(coder, "coder_command_hint", lambda: "coder")
+        monkeypatch.setattr(coder.sys.stdin, "isatty", lambda: False)
+
+        def boom(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
+            raise AssertionError("coder login can't read a pasted token without a terminal")
+
+        monkeypatch.setattr(coder, "_run", boom)
+
+        with pytest.raises(SystemExit):
+            coder.ensure_coder_authenticated()
+
+        assert "Run `coder login https://coder.example.com` in a terminal" in capsys.readouterr().out
+
+    @pytest.mark.parametrize("user_bin_on_path", [True, False])
+    def test_ensure_coder_on_path(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        user_bin_on_path: bool,
+    ) -> None:
+        managed_dir = tmp_path / "hogli-bin"
+        managed_dir.mkdir()
+        (managed_dir / "coder").write_text("#!/bin/sh\n")
+        (managed_dir / "coder").chmod(0o755)
+        user_bin = tmp_path / "local-bin"
+        user_bin.mkdir()
+        other_dir = tmp_path / "other"
+        other_dir.mkdir()
+        monkeypatch.setattr(coder, "_MANAGED_CODER_DIR", managed_dir)
+        monkeypatch.setattr(coder, "_USER_BIN_DIRS", (user_bin,))
+        monkeypatch.setenv("PATH", os.pathsep.join([str(user_bin)] if user_bin_on_path else [str(other_dir)]))
+
+        coder.ensure_coder_on_path()
+
+        link = user_bin / "coder"
+        if user_bin_on_path:
+            assert link.resolve() == (managed_dir / "coder").resolve()
+            coder.ensure_coder_on_path()
+            assert link.resolve() == (managed_dir / "coder").resolve()
+        else:
+            assert not link.exists()
+            assert 'export PATH="$HOME/.hogli/bin:$PATH"' in capsys.readouterr().out
+
 
 class TestCoderReachable:
     """Test the Coder deployment reachability probe and diagnostic."""
@@ -911,8 +963,9 @@ class TestWorktreeLabel:
             ("feat/session-replay", "feat-session-replay"),
             ("Fix_Cohort__Query", "fix-cohort-query"),
             ("worktree-agent-abc", "agent-abc"),
+            ("worktree/brave-river-1a2b", "brave-river-1a2b"),
         ],
-        ids=["slash", "case-and-underscores", "claude-worktree-prefix"],
+        ids=["slash", "case-and-underscores", "claude-worktree-prefix", "herdr-worktree-prefix"],
     )
     def test_short_branch_becomes_readable_label(self, branch: str, expected: str) -> None:
         assert devbox_worktree.derive_label(branch, 20) == expected
@@ -966,6 +1019,139 @@ class TestWorktreeAutoProvision:
     ) -> None:
         root = Path("/work") / worktree_name
         assert devbox_worktree.should_auto_provision(root, source, frozenset(enabled)) is expected
+
+    @pytest.mark.parametrize(
+        "herdr_installed, listed_plugins, expected_link",
+        [
+            pytest.param(True, [], True, id="links-from-the-main-checkout"),
+            pytest.param(
+                True,
+                [{"plugin_id": "posthog.devbox", "plugin_root": "/elsewhere", "enabled": False}],
+                False,
+                id="keeps-an-existing-link-and-its-disabled-state",
+            ),
+            pytest.param(False, [], False, id="herdr-not-installed"),
+        ],
+    )
+    def test_auto_with_herdr_links_the_plugin_once(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        herdr_installed: bool,
+        listed_plugins: list[dict[str, object]],
+        expected_link: bool,
+    ) -> None:
+        main = tmp_path / "main"
+        (main / "tools" / "herdr-devbox-plugin").mkdir(parents=True)
+        (main / "tools" / "herdr-devbox-plugin" / "herdr-plugin.toml").write_text("")
+        monkeypatch.setattr(devbox_config, "get_config_path", lambda: tmp_path / "config.json")
+        monkeypatch.setattr(devbox_worktree, "_detect_local_posthog_checkout", lambda: tmp_path / "wt")
+        monkeypatch.setattr(
+            devbox_worktree.shutil, "which", lambda name: "/bin/herdr" if herdr_installed and name == "herdr" else None
+        )
+        herdr_calls: list[list[str]] = []
+
+        def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            if command[0] == "git":
+                return subprocess.CompletedProcess(command, 0, stdout=f"{main / '.git'}\n", stderr="")
+            herdr_calls.append(command)
+            listing = {"id": "cli", "result": {"type": "plugin_list", "plugins": listed_plugins}}
+            return subprocess.CompletedProcess(command, 0, stdout=json.dumps(listing), stderr="")
+
+        monkeypatch.setattr(devbox_worktree.subprocess, "run", fake_run)
+
+        result = runner.invoke(cli, ["devbox:worktree", "--auto", "claude,herdr"])
+
+        assert result.exit_code == 0, result.output
+        links = [call for call in herdr_calls if call[1:3] == ["plugin", "link"]]
+        assert links == (
+            [["/bin/herdr", "plugin", "link", str(main / "tools" / "herdr-devbox-plugin")]] if expected_link else []
+        )
+
+    @pytest.mark.parametrize(
+        "existing_settings, expected_settings",
+        [
+            pytest.param(None, devbox_worktree._CONDUCTOR_SCRIPTS, id="writes-the-local-settings"),
+            pytest.param(
+                '[scripts]\nsetup = "./my-setup.sh"\n',
+                '[scripts]\nsetup = "./my-setup.sh"\n',
+                id="keeps-the-users-own-scripts",
+            ),
+        ],
+    )
+    def test_auto_with_conductor_adds_scripts_only_to_uncommitted_settings(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        existing_settings: str | None,
+        expected_settings: str,
+    ) -> None:
+        main = tmp_path / "main"
+        settings_path = main / ".conductor" / "settings.local.toml"
+        main.mkdir()
+        if existing_settings is not None:
+            settings_path.parent.mkdir()
+            settings_path.write_text(existing_settings)
+        monkeypatch.setattr(devbox_config, "get_config_path", lambda: tmp_path / "config.json")
+        monkeypatch.setattr(devbox_worktree, "_detect_local_posthog_checkout", lambda: tmp_path / "wt")
+        monkeypatch.setattr(
+            devbox_worktree.subprocess,
+            "run",
+            lambda command, **kwargs: subprocess.CompletedProcess(command, 0, stdout=f"{main / '.git'}\n", stderr=""),
+        )
+
+        result = runner.invoke(cli, ["devbox:worktree", "--auto", "conductor"])
+
+        assert result.exit_code == 0, result.output
+        assert settings_path.read_text() == expected_settings
+
+    @pytest.mark.parametrize(
+        "source_arg, enabled, first_spawn_fails, expected_starts",
+        [
+            pytest.param("t3code", "t3code", False, 1, id="tool-hook-declares-an-enabled-source"),
+            pytest.param(None, "t3code", False, 0, id="husky-hook-sees-only-the-folder"),
+            pytest.param("t3code", "claude", False, 0, id="declared-source-not-enabled"),
+            pytest.param("t3code", "t3code", True, 1, id="failed-spawn-releases-the-claim"),
+        ],
+    )
+    def test_auto_starts_at_most_one_box_per_worktree(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        source_arg: str | None,
+        enabled: str,
+        first_spawn_fails: bool,
+        expected_starts: int,
+    ) -> None:
+        root = tmp_path / "wt"
+        (root / "admin").mkdir(parents=True)
+        (root / ".git").write_text("gitdir: elsewhere\n")
+        monkeypatch.setattr(devbox_config, "get_config_path", lambda: tmp_path / "config.json")
+        devbox_config.save_worktree_auto_sources([enabled])
+        monkeypatch.setattr(devbox_worktree, "_detect_local_posthog_checkout", lambda: root)
+        monkeypatch.setattr(devbox_worktree, "_git_dir", lambda root: root / "admin")
+        monkeypatch.setattr(devbox_worktree, "worktree_source", lambda root: "other")
+        starts: list[list[str]] = []
+        attempts: list[list[str]] = []
+        real_popen = subprocess.Popen
+
+        def fake_popen(command: list[str], *args: object, **kwargs: object) -> object:
+            if "devbox:worktree" not in command:
+                return real_popen(command, *args, **kwargs)
+            attempts.append(command)
+            if first_spawn_fails and len(attempts) == 1:
+                raise OSError("spawn failed")
+            starts.append(command)
+            return MagicMock()
+
+        monkeypatch.setattr(devbox_worktree.subprocess, "Popen", fake_popen)
+        args = ["devbox:worktree:auto", *(["--source", source_arg] if source_arg else [])]
+
+        for attempt in range(2):
+            result = runner.invoke(cli, args)
+            assert result.exit_code == (1 if first_spawn_fails and attempt == 0 else 0), result.output
+
+        assert len(starts) == expected_starts
 
 
 class TestDevboxWorktreeCommand:
@@ -1064,6 +1250,88 @@ class TestDevboxWorktreeCommand:
         expected_calls = [expected_box] if expected_exit == 0 else []
         assert (started, synced) == (expected_calls, expected_calls)
         assert devbox_config.load_worktree_boxes()[str(worktree_root)].workspace == expected_box
+
+    @pytest.mark.parametrize(
+        "live_id, expected_exit",
+        [
+            pytest.param("id-of-the-old-box", 0, id="adopts-the-box-it-replaces-and-resets-its-mirror"),
+            pytest.param("id-of-a-recreated-box", 1, id="refuses-a-same-name-box-it-did-not-set-up"),
+        ],
+    )
+    def test_worktree_recreated_at_the_same_path(
+        self, monkeypatch: pytest.MonkeyPatch, worktree_root: Path, live_id: str, expected_exit: int
+    ) -> None:
+        name = "devbox-test-user-wt"
+        workspaces = [{"name": name, "id": live_id, "latest_build": {"status": "stopped"}}]
+        monkeypatch.setattr(devbox_worktree, "fetch_user_workspaces", lambda: workspaces)
+        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: workspaces)
+        devbox_config.record_worktree_box(
+            worktree_root,
+            devbox_config.WorktreeBoxRecord(
+                workspace=name,
+                git_dir="admin",
+                workspace_id="id-of-the-old-box",
+                worktree_id="id-of-the-removed-worktree",
+            ),
+        )
+        started: list[str] = []
+        terminated: list[str] = []
+        monkeypatch.setattr(
+            devbox_worktree,
+            "devbox_start",
+            lambda workspace, region, verbose, start_app=None: started.append(workspace),
+        )
+        monkeypatch.setattr(devbox_worktree, "ensure_sync_session", lambda *a, **kw: None)
+        monkeypatch.setattr(devbox_worktree.mutagen, "sync_terminate", terminated.append)
+
+        result = runner.invoke(cli, ["devbox:worktree"])
+
+        assert result.exit_code == expected_exit, result.output
+        adopted = expected_exit == 0
+        assert started == (["wt"] if adopted else [])
+        assert terminated == ([devbox_worktree.mutagen.workspace_label_selector(name)] if adopted else [])
+        record = devbox_config.load_worktree_boxes()[str(worktree_root)]
+        assert (record.worktree_id != "id-of-the-removed-worktree") is adopted
+
+    def test_box_of_a_worktree_removed_during_setup_is_stopped_instead_of_synced(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, devbox_config_path: Path
+    ) -> None:
+        main = tmp_path / "main"
+        main.mkdir()
+        _git(main, "init", "-q", "-b", "master")
+        _git(main, "commit", "-q", "--allow-empty", "-m", "init")
+        root = tmp_path / "wt"
+        _git(main, "worktree", "add", "-q", "-b", "feat", str(root))
+        name = "devbox-test-user-feat"
+        workspaces: list[dict[str, Any]] = []
+        monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: tmp_path / "boxes.json")
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        monkeypatch.setattr(devbox_worktree, "get_username", lambda: "test-user")
+        monkeypatch.setattr(devbox_worktree, "get_coder_url", lambda: "https://coder.example.com")
+        monkeypatch.setattr(devbox_worktree, "_detect_local_posthog_checkout", lambda: root)
+        monkeypatch.setattr(devbox_worktree, "_preferred_region", lambda: "us-east-1")
+        monkeypatch.setattr(devbox_mutagen, "sync_list", lambda label_selector=None: [])
+        monkeypatch.setattr(devbox_mutagen, "sync_terminate", lambda selector: None)
+        for module in (devbox_worktree, worktrees):
+            monkeypatch.setattr(module, "ensure_runtime_ready", lambda: None)
+            monkeypatch.setattr(module, "fetch_user_workspaces", lambda: workspaces)
+        stopped: list[str] = []
+        synced: list[str] = []
+        monkeypatch.setattr(worktrees, "stop_workspace", stopped.append)
+        monkeypatch.setattr(devbox_worktree, "ensure_sync_session", lambda name, *a, **kw: synced.append(name))
+
+        def start_while_the_app_removes_the_worktree(
+            workspace: str, region: str, verbose: bool, start_app: bool | None = None
+        ) -> None:
+            workspaces.append({"name": name, "id": "id-new-box", "latest_build": {"status": "running"}})
+            _git(main, "worktree", "remove", "--force", str(root))
+
+        monkeypatch.setattr(devbox_worktree, "devbox_start", start_while_the_app_removes_the_worktree)
+
+        result = runner.invoke(cli, ["devbox:worktree"])
+
+        assert result.exit_code == 0, result.output
+        assert (stopped, synced) == ([name], [])
 
     @pytest.mark.parametrize("box_exists", [False, True], ids=["before-the-box-exists", "while-the-box-is-set-up"])
     def test_label_claimed_by_another_worktree_is_refused(
@@ -2567,12 +2835,136 @@ class TestDevboxCommands:
         assert "hogli devbox:forward --port 8011" in result.output
 
 
+class TestDevboxOpenHerdr:
+    @pytest.fixture
+    def herdr_calls(self, monkeypatch: pytest.MonkeyPatch) -> Callable[..., list[list[str]]]:
+        def install(
+            machines: list[dict], spaces: list[dict], *, connecting_polls: int = 0, add_times_out: bool = False
+        ) -> list[list[str]]:
+            calls: list[list[str]] = []
+            remaining = {"polls": connecting_polls}
+
+            def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+                if args[0] not in ("hc", "herdr-app"):
+                    raise AssertionError(f"unexpected command: {args}")
+                calls.append(args)
+                stdout = "{}"
+                if args[:3] == ["hc", "machine", "add"]:
+                    if add_times_out:
+                        raise subprocess.TimeoutExpired(args, 300)
+                    machines.append({"name": args[5], "target": args[3]})
+                elif args[:3] == ["hc", "machine", "ls"]:
+                    state = "connecting" if remaining["polls"] > 0 else "connected"
+                    remaining["polls"] = max(remaining["polls"] - 1, 0)
+                    stdout = json.dumps({"machines": [{**m, "state": state} for m in machines]})
+                elif args[:2] == ["herdr-app", "ls"]:
+                    stdout = json.dumps({"spaces": spaces})
+                elif args[:2] == ["herdr-app", "do"] and remaining["polls"] > 0:
+                    return subprocess.CompletedProcess(args, 1, '{"error": "no machine"}', "")
+                return subprocess.CompletedProcess(args, 0, stdout, "")
+
+            monkeypatch.setattr(devbox_herdr.subprocess, "run", fake_run)
+            monkeypatch.setattr(devbox_herdr.shutil, "which", lambda name: f"/usr/local/bin/{name}")
+            monkeypatch.setattr(devbox_herdr, "_POLL_INTERVAL", 0)
+            monkeypatch.setattr(devbox_herdr, "_WINDOW_SEES_MACHINE_TIMEOUT", 0)
+            return calls
+
+        return install
+
+    @pytest.fixture
+    def running_workspace(self, monkeypatch: pytest.MonkeyPatch) -> Callable[[str], None]:
+        def install(status: str) -> None:
+            monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+            monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+            monkeypatch.setattr(
+                devbox_cli,
+                "resolve_workspace_name",
+                lambda ws, **kw: (
+                    "devbox-test-user",
+                    [{"name": "devbox-test-user", "latest_build": {"status": status}}],
+                ),
+            )
+            monkeypatch.setattr(devbox_cli, "coder_ssh_alias_configured", lambda name: True)
+            monkeypatch.setattr(devbox_cli.mutagen, "sync_list", lambda **kw: [])
+
+        return install
+
+    def test_adds_the_machine_and_opens_a_space_in_the_repo(
+        self, herdr_calls: Callable[..., list[list[str]]], running_workspace: Callable[[str], None]
+    ) -> None:
+        running_workspace("running")
+        calls = herdr_calls(machines=[], spaces=[])
+
+        result = runner.invoke(cli, ["devbox:open", "--herdr"])
+
+        assert result.exit_code == 0, result.output
+        assert [
+            "hc",
+            "machine",
+            "add",
+            "coder.devbox-test-user",
+            "--name",
+            "devbox-test-user",
+            "--install",
+            "--json",
+        ] in calls
+        space_new = next(call for call in calls if call[:3] == ["herdr-app", "do", "space.new"])
+        assert json.loads(space_new[3]) == {
+            "name": "devbox-test-user",
+            "machine": "devbox-test-user",
+            "folder": "/home/coder/posthog",
+        }
+
+    def test_reuses_the_machine_and_space_already_in_herdr_once_it_reconnects(
+        self, herdr_calls: Callable[..., list[list[str]]], running_workspace: Callable[[str], None]
+    ) -> None:
+        running_workspace("running")
+        calls = herdr_calls(
+            machines=[{"name": "box", "target": "coder.devbox-test-user"}],
+            spaces=[{"id": "box/sp1", "machine": "box"}, {"id": "sp2", "machine": None}],
+            connecting_polls=2,
+        )
+
+        result = runner.invoke(cli, ["devbox:open", "--herdr"])
+
+        assert result.exit_code == 0, result.output
+        assert not any(call[:3] == ["hc", "machine", "add"] for call in calls)
+        assert not any(call[:3] == ["herdr-app", "do", "space.new"] for call in calls)
+        assert ["herdr-app", "do", "space.select", json.dumps({"id": "box/sp1"})] in calls
+
+    def test_stopped_devbox_points_at_devbox_start(
+        self, herdr_calls: Callable[..., list[list[str]]], running_workspace: Callable[[str], None]
+    ) -> None:
+        running_workspace("stopped")
+        calls = herdr_calls(machines=[], spaces=[])
+
+        result = runner.invoke(cli, ["devbox:open", "--herdr"])
+
+        assert result.exit_code == 1
+        assert "Devbox 'devbox-test-user' is stopped. Start it with `hogli devbox:start`" in result.output
+        assert calls == []
+
+    def test_a_timed_out_hc_call_fails_with_a_message(
+        self, herdr_calls: Callable[..., list[list[str]]], running_workspace: Callable[[str], None]
+    ) -> None:
+        running_workspace("running")
+        herdr_calls(machines=[], spaces=[], add_times_out=True)
+
+        result = runner.invoke(cli, ["devbox:open", "--herdr"])
+
+        assert result.exit_code == 1
+        assert isinstance(result.exception, SystemExit)
+        assert "Couldn't add 'devbox-test-user' to Herdr." in result.output
+        assert "timed out after 300s" in result.output
+
+
 @pytest.fixture
 def stub_setup_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     """No-op every external dependency in ``devbox_setup`` so reset/gate tests can run hermetically."""
     for name in ("ensure_coder_reachable", "ensure_coder_authenticated"):
         monkeypatch.setattr(devbox_cli, name, lambda *a, **kw: None)
     monkeypatch.setattr(devbox_cli, "ensure_coder_installed", lambda **kw: None)
+    monkeypatch.setattr(devbox_cli, "ensure_coder_on_path", lambda: None)
     monkeypatch.setattr(devbox_cli, "_resolve_local_identity_agent_for_coder", lambda: None)
     monkeypatch.setattr(devbox_cli, "maybe_configure_ssh", lambda *a, **kw: None)
     monkeypatch.setattr(devbox_cli, "maybe_configure_git_identity", lambda *a, **kw: None)

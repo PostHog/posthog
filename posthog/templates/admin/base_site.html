@@ -37,6 +37,31 @@
         // which leaves the operator on a page they cannot submit until they reload. A restore means
         // the POST is done with. Only a control the handler above marked is released, so a control
         // the template disabled on purpose stays disabled.
+        var BANNER_KEY = "console-banner-hidden-until";
+        document.addEventListener("DOMContentLoaded", function () {
+            var banner = document.querySelector(".console-banner");
+            if (!banner) {
+                return;
+            }
+            try {
+                if (Number(window.localStorage.getItem(BANNER_KEY)) > Date.now()) {
+                    banner.hidden = true;
+                }
+            } catch (error) {
+                // Storage can be blocked. The banner then stays visible.
+            }
+        });
+        document.addEventListener("click", function (event) {
+            if (!event.target.closest("[data-hide-console-banner]")) {
+                return;
+            }
+            document.querySelector(".console-banner").hidden = true;
+            try {
+                window.localStorage.setItem(BANNER_KEY, String(Date.now() + 30 * 24 * 60 * 60 * 1000));
+            } catch (error) {
+            }
+        });
+
         window.addEventListener("pageshow", function (event) {
             if (!event.persisted) {
                 return;
@@ -50,6 +75,24 @@
 {% endblock %}
 {% block extrastyle %}
     {{ block.super }}
+    <style>
+        .console-banner {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 8px 16px;
+            background: #fff4ec;
+            border-bottom: 2px solid #ff5c1c;
+            color: #3b2a1f;
+            font-size: 13px;
+            line-height: 1.4;
+        }
+        .console-banner img { width: 44px; height: auto; flex-shrink: 0; }
+        .console-banner p { margin: 0; padding: 0; }
+        .console-banner a.button { margin-left: auto; white-space: nowrap; }
+        .console-banner-hide { background: none; border: 0; color: inherit; text-decoration: underline; cursor: pointer; white-space: nowrap; }
+        .console-banner[hidden] { display: none; }
+    </style>
     {% if is_impersonated_session %}
         <style>
         .impersonation-banner {
@@ -80,6 +123,18 @@
             Acting as <strong>{{ user.email }}</strong> in admin while impersonating
             <strong>{{ impersonated_user.email }}</strong>.
             <a class="impersonation-stop" href="/admin/logout/">Stop impersonating</a>
+        </div>
+    {% endif %}
+    {% if user.is_staff %}
+        <div class="console-banner">
+            <img src="/static/admin-console/hoggies/desk-wizard.png" alt="" />
+            <p>
+                <strong>Psst, team actions moved to PostHog Admin,</strong> where the buttons say what they do.
+                This Django admin keeps the raw tables.
+            </p>
+            <a class="button"
+               href="{% block admin_console_url %}/admin/console/{% endblock %}">Open PostHog Admin &rarr;</a>
+            <button type="button" class="console-banner-hide" data-hide-console-banner>Hide for a month</button>
         </div>
     {% endif %}
     {{ block.super }}
