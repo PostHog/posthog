@@ -36,6 +36,11 @@ from products.conversations.backend.models.ticket_brief_limits import (
 # A support engineer who answers an invented purpose answers the wrong ticket.
 REQUIRED_FIELDS = ("ask", "area", "questions")
 
+# Every field of an affected item. DRF propagates the parent's partial flag through the
+# ListField into its child too, so an item needs the same validate() as the brief above it.
+# Without it a PATCH stores an item with no url, which the panel renders as a dead link.
+ITEM_REQUIRED_FIELDS = ("kind", "url", "label")
+
 
 class TicketBriefAffectedItemSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
@@ -46,10 +51,16 @@ class TicketBriefAffectedItemSerializer(serializers.Serializer):
         max_length=MAX_URL_LENGTH,
         help_text="Link to the item in PostHog, so the engineer can open it without a search.",
     )
-    label = serializers.CharField(
+    label = serializers.CharField(  # type: ignore[assignment]  # DRF Field.label collides with a field named label
         max_length=MAX_ITEM_LABEL,
         help_text="Name of the item as the customer would recognize it.",
     )
+
+    def validate(self, data: dict[str, Any]) -> dict[str, Any]:
+        missing = sorted(set(ITEM_REQUIRED_FIELDS) - set(data))
+        if missing:
+            raise serializers.ValidationError(dict.fromkeys(missing, "This field is required."))
+        return data
 
 
 class TicketBriefSerializer(serializers.Serializer):

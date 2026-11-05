@@ -87,7 +87,7 @@ class ClassifyOutput:
     llm_attempts: int = 1
 
 
-@dataclass
+@dataclass(frozen=False)
 class WriteBriefInput:
     team_id: int
     ticket_id: str

@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json as json_module
 from dataclasses import replace
+from typing import Any
 
+from django.core.exceptions import ValidationError
+from django.core.validators import URLValidator
 from django.db import transaction
 
 import structlog
@@ -26,6 +29,7 @@ from products.conversations.backend.models.ticket_brief_limits import (
     MAX_QUESTION,
     MAX_QUESTIONS,
     MAX_TRIED,
+    MAX_URL_LENGTH,
 )
 from products.conversations.backend.temporal.ai_reply.constants import UTILITY_MODEL
 from products.conversations.backend.temporal.ai_reply.llms import (
@@ -90,14 +94,22 @@ def _truncate(value: str, limit: int) -> str:
     return value[: limit - 3].rstrip() + "..."
 
 
-def _build_brief(parsed: dict) -> dict:
+def _shape_list(values: Any, item_limit: int, count_limit: int) -> list[str]:
+    """Clip each entry to its cap, drop the blank entries, then cap how many entries remain.
+
+    The blanks go before the count cap so that a blank entry cannot take one of the places and
+    push a real entry out of the brief.
+    """
+    items = [_truncate(str(value), item_limit) for value in (values or []) if str(value).strip()]
+    return items[:count_limit]
+
+
+def _build_brief(parsed: dict[str, Any]) -> dict[str, Any]:
     """Shape the model's object into the stored brief, applying the caps it may have ignored."""
-    brief: dict = {
+    brief: dict[str, Any] = {
         "ask": _truncate(str(parsed.get("ask") or ""), MAX_ASK),
         "area": _truncate(str(parsed.get("area") or ""), MAX_AREA),
-        "questions": [
-            _truncate(str(q), MAX_QUESTION) for q in (parsed.get("questions") or [])[:MAX_QUESTIONS] if str(q).strip()
-        ],
+        "questions": _shape_list(parsed.get("questions"), MAX_QUESTION, MAX_QUESTIONS),
     }
     purpose = _truncate(str(parsed.get("purpose") or ""), MAX_PURPOSE)
     if purpose:
@@ -105,28 +117,45 @@ def _build_brief(parsed: dict) -> dict:
     error_message = _truncate(str(parsed.get("error_message") or ""), MAX_ERROR_MESSAGE)
     if error_message:
         brief["error_message"] = error_message
-    tried = [_truncate(str(t), MAX_FACT) for t in (parsed.get("tried") or [])[:MAX_TRIED] if str(t).strip()]
+    tried = _shape_list(parsed.get("tried"), MAX_FACT, MAX_TRIED)
     if tried:
         brief["tried"] = tried
-    facts = [_truncate(str(f), MAX_FACT) for f in (parsed.get("facts") or [])[:MAX_FACTS] if str(f).strip()]
+    facts = _shape_list(parsed.get("facts"), MAX_FACT, MAX_FACTS)
     if facts:
         brief["facts"] = facts
     return brief
 
 
-def _store_brief(team_id: int, ticket_id: str, brief: dict) -> bool:
-    """Write the brief onto the ticket. Returns False when the ticket is gone.
+def _replay_url_for(ticket: Ticket) -> str | None:
+    """The replay link of the session the ticket came from, or None when it has no usable one.
 
-    The replay link is read here rather than asked of the model, so it is a link the session
-    really has. The widget writes it under `session_replay_url`; `replay_url` is the older key.
+    The link is read from the ticket rather than asked of the model, so it points at a session
+    that really exists. The widget writes it under `session_replay_url`; `replay_url` is the
+    older key.
+
+    It is checked against the same contract TicketBriefSerializer states for the field, because
+    the widget only caps the length of what a customer sends, and this value joins the brief
+    after the serializer has already run.
     """
+    context = ticket.session_context if isinstance(ticket.session_context, dict) else {}
+    candidate = context.get("session_replay_url") or context.get("replay_url")
+    if not isinstance(candidate, str) or len(candidate) > MAX_URL_LENGTH:
+        return None
+    try:
+        URLValidator()(candidate)
+    except ValidationError:
+        return None
+    return candidate
+
+
+def _store_brief(team_id: int, ticket_id: str, brief: dict[str, Any]) -> bool:
+    """Write the brief onto the ticket. Returns False when the ticket is gone."""
     with transaction.atomic():
         ticket = Ticket.objects.select_for_update().filter(team_id=team_id, id=ticket_id).first()
         if ticket is None:
             return False
-        context = ticket.session_context if isinstance(ticket.session_context, dict) else {}
-        replay_url = context.get("session_replay_url") or context.get("replay_url")
-        if isinstance(replay_url, str) and replay_url:
+        replay_url = _replay_url_for(ticket)
+        if replay_url:
             brief = {**brief, "replay_url": replay_url}
         ticket.ticket_brief = brief
         ticket.save(update_fields=["ticket_brief", "updated_at"])
@@ -151,7 +180,17 @@ def _brief_enabled(team_id: int) -> bool:
 
 
 async def _write_brief(input: WriteBriefInput, *, respect_opt_in: bool = True) -> WriteBriefOutput:
-    if respect_opt_in and not await database_sync_to_async(_brief_enabled, thread_sensitive=False)(input.team_id):
+    # Each step that leaves the process returns a reason instead of raising. The activity rides
+    # inside the reply pipeline, and an exception here would cost a retry, and with it a second
+    # model call, to recover from something as ordinary as a lock wait.
+    try:
+        enabled = not respect_opt_in or await database_sync_to_async(_brief_enabled, thread_sensitive=False)(
+            input.team_id
+        )
+    except Exception:
+        logger.warning("support_write_brief_gate_failed", ticket_id=input.ticket_id, exc_info=True)
+        return WriteBriefOutput(written=False, reason="gate_failed")
+    if not enabled:
         return WriteBriefOutput(written=False, reason="disabled")
 
     user_content = (
@@ -193,7 +232,13 @@ async def _write_brief(input: WriteBriefInput, *, respect_opt_in: bool = True) -
         logger.warning("support_write_brief_invalid", ticket_id=input.ticket_id, errors=sorted(serializer.errors))
         return WriteBriefOutput(written=False, reason="invalid")
 
-    stored = await database_sync_to_async(_store_brief, thread_sensitive=False)(input.team_id, input.ticket_id, brief)
+    try:
+        stored = await database_sync_to_async(_store_brief, thread_sensitive=False)(
+            input.team_id, input.ticket_id, brief
+        )
+    except Exception:
+        logger.warning("support_write_brief_store_failed", ticket_id=input.ticket_id, exc_info=True)
+        return WriteBriefOutput(written=False, reason="store_failed")
     if not stored:
         return WriteBriefOutput(written=False, reason="ticket_gone")
     return WriteBriefOutput(written=True)
