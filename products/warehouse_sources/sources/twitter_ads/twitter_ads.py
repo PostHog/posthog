@@ -39,14 +39,13 @@ class TwitterAdsResumeConfig:
     complete: bool = False
 
 
-# X rejects a stats window wider than this.
-MAX_STATS_WINDOW = timedelta(days=7)
+# X caps a stats window at 7 days but rejects some exact weeks: one with a fall-back hour, and every week on a
+# half-hour-offset account, which X reports as a misleading INVALID_PARAMETER (entity) error.
+STATS_WINDOW = timedelta(days=6)
 
 # Cap on how much of X's error body rides along in the exception message.
 _MAX_ERROR_DETAIL = 300
 _MAX_LOGGED_BODY = 2000
-# Bounds the extra stats requests one rejection spends against X's per-account rate limit.
-_MAX_PROBED_ENTITIES = 5
 
 
 def _account_midnight(day: date, account_timezone: ZoneInfo) -> datetime:
@@ -143,52 +142,6 @@ class TwitterAdsClient:
     def entities(self, account_id: str, table: str) -> list[dict[str, Any]]:
         return [row for page in self.pages(f"accounts/{quote(account_id, safe='')}/{table}") for row in page["data"]]
 
-    def probe_stats_rejection(
-        self,
-        path: str,
-        params: dict[str, str | int],
-        rejection: requests.Response,
-        *,
-        today: date,
-        account_timezone: ZoneInfo,
-        logger: FilteringBoundLogger,
-    ) -> None:
-        """X fills some 400 messages with unformatted placeholders, so only these retries show what it rejects."""
-        logger.warning("twitter_ads_stats_rejected", params=params, body=rejection.text[:_MAX_LOGGED_BODY])
-        day = timedelta(days=1)
-
-        def bounds(first: date, last: date) -> dict[str, str | int]:
-            return {
-                "start_time": _utc_param(_account_midnight(first, account_timezone)),
-                "end_time": _utc_param(_account_midnight(last, account_timezone)),
-            }
-
-        entity_ids = str(params["entity_ids"]).split(",")
-        probes: list[tuple[str, dict[str, str | int]]] = [
-            (f"entity {entity_id}", {"entity_ids": entity_id}) for entity_id in entity_ids[:_MAX_PROBED_ENTITIES]
-        ]
-        probes.append(("granularity TOTAL", {"granularity": "TOTAL"}))
-        probes.append(("granularity HOUR", {"granularity": "HOUR"}))
-        probes.append(("most recent week", bounds(today - 7 * day, today)))
-        probes.append(("engagement metrics only", {"metric_groups": "ENGAGEMENT"}))
-        probes.extend(
-            (f"placement {placement}", {"placement": placement})
-            for placement in PLACEMENTS
-            if placement != params["placement"]
-        )
-        for label, overrides in probes:
-            try:
-                response = self.session.get(f"{self.base_url}/{path}", params={**params, **overrides}, timeout=60)
-            except requests.RequestException as error:
-                logger.warning("twitter_ads_stats_probe", probe=label, error=str(error))
-                continue
-            logger.warning(
-                "twitter_ads_stats_probe",
-                probe=label,
-                status=response.status_code,
-                body="" if response.ok else response.text[:_MAX_LOGGED_BODY],
-            )
-
     @staticmethod
     def stats_rows(
         payload: dict[str, Any],
@@ -260,16 +213,11 @@ class TwitterAdsClient:
             start = date.fromisoformat(state.next_date)
         end = date.fromisoformat(state.end_date) if state.end_date else account_now.date()
         while start < end:
-            window_end = min(start + timedelta(days=7), end)
+            window_end = min(start + STATS_WINDOW, end)
             # X checks for whole hours in the account's timezone, not UTC, so local midnight on a
             # half-hour offset (18:30Z for UTC+5:30) is valid and a whole UTC hour (19:00Z) is not.
             start_time = _account_midnight(start, account_timezone)
             end_time = _account_midnight(window_end, account_timezone)
-            # A week containing a fall-back transition spans 169 hours, one over X's ceiling, so
-            # hand that window a day back rather than letting the request 400.
-            while end_time - start_time > MAX_STATS_WINDOW:
-                window_end -= timedelta(days=1)
-                end_time = _account_midnight(window_end, account_timezone)
             for batch_start in range(0, len(entity_ids), 20):
                 for placement in PLACEMENTS:
                     params: dict[str, str | int] = {
@@ -287,14 +235,12 @@ class TwitterAdsClient:
                     try:
                         payload = self.get(f"stats/{account_path}", params)
                     except requests.HTTPError as error:
-                        if error.response is not None and error.response.status_code == 400:
-                            self.probe_stats_rejection(
-                                f"stats/{account_path}",
-                                params,
-                                error.response,
-                                today=account_now.date(),
-                                account_timezone=account_timezone,
-                                logger=logger,
+                        if error.response is not None:
+                            # The exception message keeps a short summary; the body also echoes how X parsed the request.
+                            logger.warning(
+                                "twitter_ads_stats_rejected",
+                                params=params,
+                                body=error.response.text[:_MAX_LOGGED_BODY],
                             )
                         raise
                     rows = self.stats_rows(payload, start, window_end, placement, currencies, account_id)
