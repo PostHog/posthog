@@ -18,6 +18,10 @@ import { useTileStep } from './useTileStep'
 
 const HOVER_OPEN_DELAY_MS = 260
 
+function movingStepAttrs(isMoving: boolean): Record<string, string> {
+    return isMoving ? { [MOVING_STEP_ATTR]: '' } : {}
+}
+
 export function TileStepNode({
     action,
     workflow,
@@ -71,7 +75,7 @@ export function TileStepNode({
             onMouseMove={hover.onMouseMove}
             onMouseLeave={hover.onMouseLeave}
             data-attr={interactive ? 'workflow-tile-step' : undefined}
-            {...(movingNodeId === action.id ? { [MOVING_STEP_ATTR]: '' } : {})}
+            {...movingStepAttrs(movingNodeId === action.id)}
             draggable={draggable}
             onDragStart={
                 draggable
