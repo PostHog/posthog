@@ -243,16 +243,49 @@ def build_html_wrap_design(html: str) -> dict:
 
 
 _UNLAYER_BODY_CLASS = re.compile(r"\bu_body\b")
-_MARKUP_WITHOUT_TEXT = re.compile(
-    r"<head\b.*?</head>|<style\b.*?</style>|<!--.*?-->|<[^>]*>|&nbsp;|\s", re.DOTALL | re.IGNORECASE
-)
+_UNLAYER_LAYOUT_TAGS = frozenset({"!doctype", "html", "body", "table", "tbody", "tr", "td", "div"})
+_TAG_NAME = re.compile(r"</?\s*([a-z!][a-z0-9]*)")
+_SKIPPED_ELEMENT_ENDS = {"head": "</head>", "style": "</style>"}
+
+
+def _position_after_layout_markup(html: str, position: int) -> int:
+    if html.startswith("<!--", position):
+        end = html.find("-->", position + 4)
+        return -1 if end == -1 else end + 3
+    tag = _TAG_NAME.match(html, position)
+    end = html.find(">", position)
+    if tag is None or end == -1:
+        return -1
+    closing = _SKIPPED_ELEMENT_ENDS.get(tag.group(1))
+    if closing is not None:
+        end = html.find(closing, end)
+        return -1 if end == -1 else end + len(closing)
+    return end + 1 if tag.group(1) in _UNLAYER_LAYOUT_TAGS else -1
+
+
+def _is_only_unlayer_layout(html: str) -> bool:
+    html = html.lower()
+    position = 0
+    while position < len(html):
+        if html[position] == "<":
+            position = _position_after_layout_markup(html, position)
+            if position == -1:
+                return False
+        elif html.startswith("&nbsp;", position):
+            position += 6
+        elif html[position].isspace():
+            position += 1
+        else:
+            return False
+    return True
 
 
 def _is_unlayer_render_of(html: str, block_html: str) -> bool:
-    if block_html not in html:
+    start = html.find(block_html)
+    if start == -1:
         return False
-    around_block = html.replace(block_html, "", 1)
-    return bool(_UNLAYER_BODY_CLASS.search(around_block)) and not _MARKUP_WITHOUT_TEXT.sub("", around_block)
+    around_block = html[:start] + html[start + len(block_html) :]
+    return bool(_UNLAYER_BODY_CLASS.search(around_block)) and _is_only_unlayer_layout(around_block)
 
 
 def html_wrap_design_needs_refresh(html: str, design: Any) -> bool:

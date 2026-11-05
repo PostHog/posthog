@@ -41,11 +41,12 @@ const ADVANCED_FIELDS = EMAIL_TYPE_SUPPORTED_FIELDS.native_email.filter((f) => f
 const NON_ADVANCED_FIELDS = EMAIL_TYPE_SUPPORTED_FIELDS.native_email.filter((f) => !f.isAdvancedField)
 
 const renderAround = (block: string): string =>
-    `<html><head><style>#u_body a { color: #00e; }</style></head><body class="clean-body u_body"><!--[if mso]><table><tr><td><![endif]--><div class="u-row">${block}</div></body></html>`
+    `<html><head><style>#u_body a { color: #00e; }</style></head><body class="clean-body u_body"><!--[if mso]><table><tr><td><![endif]--><table id="u_body"><tbody><tr><td><div class="u-row">${block}</div></td></tr></tbody></table></body></html>`
 const RENDER_OF_OLD = renderAround('<p>old</p>')
 const RENDER_WITH_FOOTER = renderAround('<p>old</p><p>P.S.</p>')
 const RENDERED_PAGE = renderAround('<p>page</p>')
 const RENDERED_PAGE_WITH_FOOTER = `<div>${RENDERED_PAGE}<p>footer</p></div>`
+const RENDER_WITH_IMAGE = renderAround('<p>old</p><img src="https://example.com/offer.png">')
 
 describe('emailTemplaterLogic', () => {
     let logic: ReturnType<typeof emailTemplaterLogic.build>
@@ -361,6 +362,7 @@ describe('emailTemplaterLogic', () => {
                 RENDERED_PAGE_WITH_FOOTER,
                 RENDERED_PAGE_WITH_FOOTER,
             ],
+            ['an image was added inside its Unlayer render', '<p>old</p>', RENDER_WITH_IMAGE, RENDER_WITH_IMAGE],
             ['the html is the Unlayer render of the wrap', '<p>old</p>', RENDER_OF_OLD, '<p>old</p>'],
         ])('when %s, the canvas loads a wrap of the right html', (_name, blockHtml, html, expectedBlockHtml) => {
             const loadDesign = jest.fn()

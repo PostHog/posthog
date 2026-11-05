@@ -170,14 +170,63 @@ export function buildHtmlWrapDesign(html: string): JSONTemplate {
 }
 
 const UNLAYER_BODY_CLASS = /\bu_body\b/
-const MARKUP_WITHOUT_TEXT = /<head\b[\s\S]*?<\/head>|<style\b[\s\S]*?<\/style>|<!--[\s\S]*?-->|<[^>]*>|&nbsp;|\s/gi
+const UNLAYER_LAYOUT_TAGS = new Set(['!doctype', 'html', 'body', 'table', 'tbody', 'tr', 'td', 'div'])
+const TAG_NAME = /<\/?\s*([a-z!][a-z0-9]*)/y
+const SKIPPED_ELEMENT_ENDS = new Map([
+    ['head', '</head>'],
+    ['style', '</style>'],
+])
+
+function tagNameAt(html: string, position: number): string | null {
+    TAG_NAME.lastIndex = position
+    return TAG_NAME.exec(html)?.[1] ?? null
+}
+
+function positionAfterLayoutMarkup(html: string, position: number): number {
+    if (html.startsWith('<!--', position)) {
+        const end = html.indexOf('-->', position + 4)
+        return end === -1 ? -1 : end + 3
+    }
+    const tag = tagNameAt(html, position)
+    const end = html.indexOf('>', position)
+    if (tag === null || end === -1) {
+        return -1
+    }
+    const closing = SKIPPED_ELEMENT_ENDS.get(tag)
+    if (closing !== undefined) {
+        const closingAt = html.indexOf(closing, end)
+        return closingAt === -1 ? -1 : closingAt + closing.length
+    }
+    return UNLAYER_LAYOUT_TAGS.has(tag) ? end + 1 : -1
+}
+
+function isOnlyUnlayerLayout(markup: string): boolean {
+    const html = markup.toLowerCase()
+    let position = 0
+    while (position < html.length) {
+        if (html[position] === '<') {
+            position = positionAfterLayoutMarkup(html, position)
+            if (position === -1) {
+                return false
+            }
+        } else if (html.startsWith('&nbsp;', position)) {
+            position += 6
+        } else if (/\s/.test(html[position])) {
+            position += 1
+        } else {
+            return false
+        }
+    }
+    return true
+}
 
 function isUnlayerRenderOf(html: string, blockHtml: string): boolean {
-    if (!html.includes(blockHtml)) {
+    const start = html.indexOf(blockHtml)
+    if (start === -1) {
         return false
     }
-    const aroundBlock = html.replace(blockHtml, () => '')
-    return UNLAYER_BODY_CLASS.test(aroundBlock) && aroundBlock.replace(MARKUP_WITHOUT_TEXT, '') === ''
+    const aroundBlock = html.slice(0, start) + html.slice(start + blockHtml.length)
+    return UNLAYER_BODY_CLASS.test(aroundBlock) && isOnlyUnlayerLayout(aroundBlock)
 }
 
 export function editorDesignForEmail(value: Pick<EmailTemplate, 'html' | 'design'>): JSONTemplate | null {

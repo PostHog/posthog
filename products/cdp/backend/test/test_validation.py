@@ -94,7 +94,9 @@ def _render_around(block_html: str) -> str:
     return (
         "<!DOCTYPE html><html><head><style>#u_body a { color: #00e; }</style></head>"
         '<body class="clean-body u_body"><!--[if mso]><table><tr><td><![endif]-->'
-        f'<div class="u-row-container"><div class="u-row">{block_html}</div></div></body></html>'
+        '<table id="u_body"><tbody><tr><td><div class="u-row-container"><div class="u-row">'
+        f"{block_html}"
+        "</div></div></td></tr></tbody></table></body></html>"
     )
 
 
@@ -532,6 +534,17 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
                 "<p>Old copy</p>",
                 '<div class="menu_body"><p>Old copy</p></div>',
             ),
+            (
+                "image_added_inside_its_unlayer_render",
+                "<p>Old copy</p>",
+                _render_around('<p>Old copy</p><img src="https://example.com/offer.png">'),
+            ),
+            (
+                "link_added_inside_its_unlayer_render",
+                "<p>Old copy</p>",
+                _render_around('<p>Old copy</p><a href="https://example.com"></a>'),
+            ),
+            ("unterminated_tags_around_the_block", "<p>Old copy</p>", "<p>Old copy</p>" + "<div u_body" * 1000),
             (
                 "full_render_replaced_by_another",
                 '<html><body class="clean-body u_body"><p>Old copy</p></body></html>',
