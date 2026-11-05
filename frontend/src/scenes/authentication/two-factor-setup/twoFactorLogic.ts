@@ -150,9 +150,7 @@ export interface twoFactorLogicActions {
             value: true
         }
     }
-    loadStartSetup: () => {
-        value: true
-    }
+    loadStartSetup: () => any
     loadStartSetupFailure: (
         error: string,
         errorObject?: any
@@ -166,18 +164,14 @@ export interface twoFactorLogicActions {
             secret: string
             success: boolean
         } | null,
-        payload?: {
-            value: true
-        }
+        payload?: any
     ) => {
         startSetup: {
             qrCodeUrl: string
             secret: string
             success: boolean
         } | null
-        payload?: {
-            value: true
-        }
+        payload?: any
     }
     loadStatus: () => {
         value: true
