@@ -388,7 +388,10 @@ tools:
             one. Each id is processed independently, so the call returns 200 even on partial failure: read `results`
             (one entry per id, in request order) and the `transitioned_count`, `skipped_count`, `failed_count`, and
             `not_found_count` summary. An id whose current status does not allow the transition comes back as `skipped`,
-            and the rest still go through.
+            and the rest still go through. Before a bulk change, count the matching reports with inbox-reports-list and
+            `count_only=true`, tell the user the count and the filters, and get their confirmation. Keep a request that
+            names "my inbox" inside `view=for_you`. Do not page through the project to change more reports than the user
+            confirmed.
     inbox-reports-claim:
         operation: signals_reports_claim
         enabled: true
@@ -537,7 +540,9 @@ tools:
             List inbox reports in the current project. A report groups related findings into one issue or trend. Each
             parameter's description says how it filters.
 
-            For "what needs me", pass `view=for_you` with `sort=priority`. For the next fixable work across the project,
+            Without `view`, the list holds reports from the whole project, not only the user's. When the user says "my
+            inbox", "my reports", or "what needs me", pass `view=for_you` with `sort=priority`. For reports older than a
+            cutoff, pass `created_before` instead of reading every page. For the next fixable work across the project,
             pass `view=actionable` with `use_priority_preference=true`, `sort=priority`, and `limit=10`. For a personal
             ranked shortlist, such as "my top 10", the prioritizing-my-inbox skill combines these rows with the user's
             activity summary. For the work this agent claimed, pass `assignee=me`.
@@ -880,6 +885,26 @@ tools:
                 - research_instructions
                 - implementation_instructions
                 - scout_instructions
+    inbox-usage-get:
+        operation: signals_monthly_usage
+        enabled: true
+        title: Get monthly Self-driving usage
+        description: >
+            Get recorded Self-driving usage for the selected project's UTC calendar month, defaulting to this month.
+            Usage is available from October 2026 onward. Returns credits by signal source (processing, research, and
+            downstream report implementation) and by scout (execution costs, including runs that produce no report). The
+            two breakdowns are additive: their totals sum to total_credits. Implementation uses the report's current
+            triggering source. Missing source metadata stays in a null-source bucket. Finalized costs belong to the
+            month they finalized, even if work started earlier. Unsettled work created in the month is reported
+            separately, as are missing scout receipts. Fractional credits are decimal strings; multiply by
+            pricing.usd_per_credit to convert to USD. Exempt credits are a subset of recorded usage. This is not an
+            invoice: billing cutovers, grants, discounts and rounding can change billed amounts. Child environments
+            resolve to the parent project, which requires parent-project access; project_id identifies the project whose
+            usage is returned. For daily trends, individual runs or reports, custom filters, or finer breakdowns, use
+            execute-sql with system.signal_spend, system.scout_runs and system.inbox_reports. Report detail can show
+            associated scout costs shared with other reports; do not add those shared amounts to this summary or across
+            reports.
+        feature_flag: self-driving-usage-display
     scout-check-record-result:
         operation: signals_scout_record_check_result
         enabled: true
