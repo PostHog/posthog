@@ -178,7 +178,6 @@ export type CdpConfig = ClickhouseConfig & {
     SES_SANDBOX_TENANT_NAME: string
     SES_SANDBOX_CONFIGURATION_SET: string
     SES_SANDBOX_FROM_ADDRESS: string
-    // Daily sandbox allowances per project and per recipient address. An empty or invalid value skips every sandbox send.
     WORKFLOWS_SANDBOX_DAILY_TEAM_CAP: string
     WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP: string
     // Comma-separated allowlist of SNS Topic ARNs the SES webhook accepts events from. Empty string

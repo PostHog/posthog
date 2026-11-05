@@ -13,7 +13,6 @@ export type EmailActionValkeys = Pick<
     'emailValidationValkey' | 'frequencyCapValkey' | 'sandboxEmailCapValkey'
 >
 
-// The Valkey pools of the cyclotron workers that run the hogflow email action.
 export function createEmailActionValkeys(
     config: SandboxEmailCapValkeyConfig & FrequencyCapValkeyConfig
 ): EmailActionValkeys {
@@ -27,7 +26,6 @@ export function createEmailActionValkeys(
 export function createSandboxEmailCapValkey(
     config: SandboxEmailCapValkeyConfig
 ): Pick<CdpCoreServicesDeps, 'sandboxEmailCapValkey'> {
-    // The caps run inside a send, so a stalled Valkey must fail the check instead of holding the worker's batch.
     return config.WORKFLOWS_SANDBOX_SENDER_ENABLED
         ? {
               sandboxEmailCapValkey: createSesRateLimiterValkeyPool(config, 'sandbox-email-cap', {
