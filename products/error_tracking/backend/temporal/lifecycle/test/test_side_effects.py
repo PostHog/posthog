@@ -390,7 +390,7 @@ HIGH_SEVERITY = {"key": "severity", "value": ["high"], "operator": "exact", "typ
 
 
 def _compiled(*leaves: dict) -> dict:
-    return compile_filters_bytecode({"properties": list(leaves)}, Team(id=42))
+    return compile_filters_bytecode({"properties": list(leaves)}, Team(id=42, project_id=42))
 
 
 @pytest.mark.asyncio
