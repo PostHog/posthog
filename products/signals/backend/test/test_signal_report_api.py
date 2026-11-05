@@ -6461,6 +6461,38 @@ class TestSignalReportClaimToCloseAPI(APIBaseTest):
         self.report.refresh_from_db()
         assert self.report.status == expected_status
 
+    @parameterized.expand(
+        [
+            ("unclaimed", SignalReport.Status.READY, None, status.HTTP_409_CONFLICT),
+            ("teammate_claim", SignalReport.Status.READY, "teammate", status.HTTP_409_CONFLICT),
+            ("own_claim", SignalReport.Status.READY, "self", status.HTTP_200_OK),
+            # Nothing has been implemented from a report still awaiting input, so its snooze
+            # closes no pull request and stays outside the gate.
+            ("pending_input", SignalReport.Status.PENDING_INPUT, "teammate", status.HTTP_200_OK),
+        ]
+    )
+    def test_snoozing_needs_the_claim_where_it_closes_the_pull_request(
+        self, _name: str, report_status: str, holder: str | None, expected: int
+    ) -> None:
+        """A snooze closes the implementation PR, and GitHub's close webhook then suppresses the report."""
+        if report_status != SignalReport.Status.READY:
+            self.report.status = report_status
+            self.report.save(update_fields=["status"])
+        if holder is not None:
+            user = self.user if holder == "self" else self.teammate
+            create_claim(self.report, ArtefactAttribution.from_user(user.id))
+
+        with self._flag():
+            response = self.client.post(self._state_url(), {"state": "potential"}, format="json")
+
+        assert response.status_code == expected, response.json()
+        self.report.refresh_from_db()
+        if expected == status.HTTP_409_CONFLICT:
+            assert "snooze" in response.json()["error"].lower()
+            assert self.report.status == report_status
+        else:
+            assert self.report.status == SignalReport.Status.POTENTIAL
+
     def test_bulk_dismiss_skips_reports_the_caller_has_not_claimed(self) -> None:
         claimed = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="Mine")
         create_claim(claimed, ArtefactAttribution.from_user(self.user.id))

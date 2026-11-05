@@ -175,7 +175,7 @@ from products.signals.backend.ranking.inbox_sort import (
 from products.signals.backend.ranking.public_outcomes import MODEL_HEAD_BY_OUTCOME, PUBLIC_OUTCOME_NAMES
 from products.signals.backend.ranking.served_outcomes import served_outcomes
 from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES
-from products.signals.backend.receivers import capture_verdict_reason_added_analytics
+from products.signals.backend.receivers import SNOOZE_SOURCE_STATUSES, capture_verdict_reason_added_analytics
 from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.report_assignments import (
     CLAIMABLE_REPORT_STATUSES,
@@ -889,12 +889,21 @@ _RESOLVABLE_STATUSES_BEFORE_SUPPRESSION = frozenset(
 # Targets the claim gate covers, and the verb each one is refused with. Monitoring is here because
 # it is a way of closing a report: `complete_implementation` resolves outright when no check
 # applies, and a report that does enter Monitoring leaves the claimable set, so a later resolve is
-# no longer gated either.
+# no longer gated either. Snoozing only closes from some statuses, so `_close_verb` answers for it.
 _CLOSE_TARGET_VERBS = {
     SignalReport.Status.SUPPRESSED: "dismiss",
     SignalReport.Status.RESOLVED: "resolve",
     SignalReport.Status.MONITORING: "start monitoring",
 }
+
+
+def _close_verb(report: SignalReport, target_status: SignalReport.Status) -> str | None:
+    """The verb this transition would close the report with, or None when it closes nothing."""
+    if target_status == SignalReport.Status.POTENTIAL:
+        # Snoozing a researched report closes its implementation PR (see `_pr_close_reason`), and
+        # GitHub's close webhook then suppresses the report — a dismissal by a slower route.
+        return "snooze" if report.status in SNOOZE_SOURCE_STATUSES else None
+    return _CLOSE_TARGET_VERBS.get(target_status)
 
 
 class SignalReportState(models.TextChoices):
@@ -2148,9 +2157,10 @@ class SignalReportViewSet(
         return ArtefactAttribution.from_user(user_id) if user_id is not None else ArtefactAttribution.system()
 
     def _close_denial_message(self, report: SignalReport, target_status: SignalReport.Status) -> str | None:
-        """Why this request may not dismiss, resolve or start monitoring the report, or None when it may."""
+        """Why this request may not close the report by this route, or None when it may."""
+        verb = _close_verb(report, target_status)
         if (
-            target_status not in _CLOSE_TARGET_VERBS
+            verb is None
             or report.status not in CLAIMABLE_REPORT_STATUSES
             or not self._inbox_claim_to_close
             or self._is_automatic_signal_agent
@@ -2172,7 +2182,6 @@ class SignalReportViewSet(
                 "surface": "mcp" if is_mcp_request(self.request) else "api",
             },
         )
-        verb = _CLOSE_TARGET_VERBS[target_status]
         if denial == "unclaimed":
             return f"Claim this report before you {verb} it."
         return f"Someone else holds the claim on this report. Take over the claim before you {verb} it."

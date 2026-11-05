@@ -71,7 +71,7 @@ def enqueue_first_report_notification(
         _schedule_first_report_notification(instance.team_id)
 
 
-_SNOOZE_SOURCE_STATUSES = frozenset(
+SNOOZE_SOURCE_STATUSES = frozenset(
     {SignalReport.Status.READY, SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}
 )
 
@@ -396,7 +396,7 @@ def _pr_close_reason(
     if instance.status == SignalReport.Status.SUPPRESSED:
         return "suppressed"
 
-    if instance.status == SignalReport.Status.POTENTIAL and prior_status in _SNOOZE_SOURCE_STATUSES:
+    if instance.status == SignalReport.Status.POTENTIAL and prior_status in SNOOZE_SOURCE_STATUSES:
         return "snoozed"
 
     # Only a resolve that a caller asked for through the state API supersedes the PR. The PR-merge
@@ -1080,7 +1080,7 @@ def _is_dismissal_transition(previous_status: str, new_status: str) -> bool:
     by the tasks PR-merge webhook writes none, and inferring it from the status would attach
     whatever unrelated reason last landed inside the freshness window."""
     return new_status == SignalReport.Status.SUPPRESSED or (
-        new_status == SignalReport.Status.POTENTIAL and previous_status in _SNOOZE_SOURCE_STATUSES
+        new_status == SignalReport.Status.POTENTIAL and previous_status in SNOOZE_SOURCE_STATUSES
     )
 
 
