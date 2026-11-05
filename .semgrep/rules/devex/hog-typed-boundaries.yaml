@@ -12,15 +12,16 @@ rules:
       languages: [typescript, javascript]
       paths:
           include:
-              - 'hog/**'
+              - '/hog/**'
           exclude:
-              - 'hog/src/core/json.ts'
-      pattern: JSON.parse(...)
+              - '/hog/src/core/json.ts'
+      # The bare reference also catches `lines.map(JSON.parse)`.
+      pattern: JSON.parse
       metadata:
           category: best-practice
 
     - id: hog-host-cast-outside-host-module
-      message: &brand-cast-message |
+      message: |
           A cast to a branded type outside the module that defines the brand. The brand promises
           the value passed its schema, and a cast skips that check.
 
@@ -31,47 +32,59 @@ rules:
       languages: [typescript]
       paths:
           include:
-              - 'hog/**'
+              - '/hog/**'
           exclude:
-              - 'hog/src/posthog/host.ts'
+              - '/hog/src/posthog/host.ts'
       patterns:
           - pattern: $X as $T
           - metavariable-regex:
                 metavariable: $T
-                regex: ^(Host|HostKey)$
+                regex: (?<![\w.])(Host|HostKey)(?!\w)
       metadata:
           category: best-practice
 
     - id: hog-id-cast-outside-ids-module
-      message: *brand-cast-message
+      message: |
+          A cast to a branded type outside the module that defines the brand. The brand promises
+          the value passed its schema, and a cast skips that check.
+
+          Get the value from the brand's factory, such as `parseHost`, `parseProjectId` or
+          `parsePersonalApiKey`, or embed the brand's schema in the schema of the document it comes
+          from.
       severity: ERROR
       languages: [typescript]
       paths:
           include:
-              - 'hog/**'
+              - '/hog/**'
           exclude:
-              - 'hog/src/posthog/ids.ts'
+              - '/hog/src/posthog/ids.ts'
       patterns:
           - pattern: $X as $T
           - metavariable-regex:
                 metavariable: $T
-                regex: ^(ProjectId|OrganizationId)$
+                regex: (?<![\w.])(ProjectId|OrganizationId)(?!\w)
       metadata:
           category: best-practice
 
     - id: hog-token-cast-outside-tokens-module
-      message: *brand-cast-message
+      message: |
+          A cast to a branded type outside the module that defines the brand. The brand promises
+          the value passed its schema, and a cast skips that check.
+
+          Get the value from the brand's factory, such as `parseHost`, `parseProjectId` or
+          `parsePersonalApiKey`, or embed the brand's schema in the schema of the document it comes
+          from.
       severity: ERROR
       languages: [typescript]
       paths:
           include:
-              - 'hog/**'
+              - '/hog/**'
           exclude:
-              - 'hog/src/posthog/tokens.ts'
+              - '/hog/src/posthog/tokens.ts'
       patterns:
           - pattern: $X as $T
           - metavariable-regex:
                 metavariable: $T
-                regex: ^(PersonalApiKey|ProjectToken|ProjectSecretApiKey|TeamSecretToken|OAuthAccessToken|OAuthRefreshToken|WorkloadToken|BearerToken)$
+                regex: (?<![\w.])(PersonalApiKey|ProjectToken|ProjectSecretApiKey|TeamSecretToken|OAuthAccessToken|OAuthRefreshToken|WorkloadToken|BearerToken)(?!\w)
       metadata:
           category: best-practice

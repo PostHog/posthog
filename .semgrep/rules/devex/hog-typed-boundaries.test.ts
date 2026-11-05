@@ -6,6 +6,9 @@ import { parseHost } from '@/posthog/host'
 // ruleid: hog-json-parse-outside-json-helper
 const settings = JSON.parse(text)
 
+// ruleid: hog-json-parse-outside-json-helper
+const rows = lines.map(JSON.parse)
+
 // ok: hog-json-parse-outside-json-helper
 const checked = parseJson(text, Settings, { code: 'invalid_settings' })
 
@@ -25,6 +28,13 @@ const projectId = (value as unknown) as ProjectId
 // ruleid: hog-id-cast-outside-ids-module
 const organizationId = value as OrganizationId
 
+// A union or a list of a brand is a cast to the brand too.
+// ruleid: hog-id-cast-outside-ids-module
+const maybeProjectId = value as ProjectId | undefined
+
+// ruleid: hog-host-cast-outside-host-module
+const hosts = values as Host[]
+
 // ruleid: hog-token-cast-outside-tokens-module
 const apiKey = value as PersonalApiKey
 
@@ -34,6 +44,9 @@ const accessToken = value as OAuthAccessToken
 // A type that only contains a brand name is not a brand.
 // ok: hog-token-cast-outside-tokens-module
 const kinds = value as PersonalApiKeyKinds
+
+// ok: hog-host-cast-outside-host-module
+const schema = value as typeof HostSchema
 
 // ok: hog-host-cast-outside-host-module
 const text2 = value as string
