@@ -68,7 +68,13 @@ from products.tasks.backend.facade import (
     api as tasks_facade,
     contracts as tasks_contracts,
 )
-from products.tasks.backend.facade.profiles import NetworkAccess, NetworkPolicy, TaskProfile, get_task_profile
+from products.tasks.backend.facade.profiles import (
+    GithubResolution,
+    NetworkAccess,
+    NetworkPolicy,
+    TaskProfile,
+    get_task_profile,
+)
 from products.tasks.backend.facade.repo_selection import RepoSelectionResult
 from products.tasks.backend.facade.run_config import TaskArtifactAdapter, TaskArtifactType
 from products.tasks.backend.logic.services.ai_run_defaults import update_team_ai_run_preferences
@@ -3102,6 +3108,10 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
         self.assertEqual(data["signal_report"], str(report.id))
+        task = Task.objects.get(id=data["id"])
+        self.assertEqual(
+            (task.signal_report_id, task.source_kind, task.source_id), (report.id, "signal_report", str(report.id))
+        )
         # A manual "start implementation" records the implementation task_run artefact (the
         # task↔report association and work-log entry) and writes the legacy SignalReportTask gate
         # row that blocks the auto-start pipeline from double-starting.
@@ -5228,6 +5238,55 @@ class TestTaskAPI(BaseTaskAPITest):
         )
         self.assertIsNone(task.github_user_integration_id)
         mock_workflow.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("create_run_user_authored", "runs", "user", None, {"github_access": "none"}, "bot", False),
+            ("create_run_bot_authored", "runs", "bot", None, {"github_access": "none"}, "bot", False),
+            ("run_user_authored", "run", "user", None, {"github_access": "none"}, "bot", False),
+            ("run_bot_authored", "run", "bot", None, {"github_access": "none"}, "bot", False),
+            ("run_caller_token", "run", "user", "ghu_test_token", {"github_access": "none"}, "bot", False),
+            ("create_run_without_a_limit", "runs", "user", None, None, "user", True),
+            ("create_run_with_a_read_limit", "runs", "user", None, {"github_access": "read"}, "user", True),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_starting_a_run_honors_the_task_github_access_limit(
+        self,
+        _name: str,
+        endpoint: str,
+        requested_mode: str,
+        github_user_token: str | None,
+        options: dict | None,
+        expected_mode: str,
+        attached: bool,
+        _mock_workflow,
+    ):
+        Integration.objects.create(team=self.team, kind="github", config={"access_token": "token"})
+        user_integration = _grant_user_github_access(self.user)
+        task = self.create_task(created_by=self.user)
+        task.repository = "posthog/posthog"
+        task.options = options
+        task.save(update_fields=["repository", "options"])
+        payload = {"pr_authorship_mode": requested_mode, "run_source": "manual"}
+        if endpoint == "runs":
+            payload["environment"] = "cloud"
+        else:
+            payload.update(mode="interactive", branch="main")
+        if github_user_token:
+            payload["github_user_token"] = github_user_token
+
+        response = self.client.post(f"/api/projects/@current/tasks/{task.id}/{endpoint}/", payload, format="json")
+
+        self.assertIn(response.status_code, (status.HTTP_200_OK, status.HTTP_201_CREATED), response.content)
+        task.refresh_from_db()
+        run_id = response.json()["id"] if endpoint == "runs" else response.json()["latest_run"]["id"]
+        task_run = TaskRun.objects.get(id=run_id)
+        self.assertEqual(task_run.state["pr_authorship_mode"], expected_mode)
+        self.assertEqual(task.github_user_integration_id, user_integration.id if attached else None)
+        self.assertIsNone(task.github_integration_id)
+        self.assertEqual("github_credential_source" in task_run.state, attached)
+        self.assertIsNone(get_cached_github_user_token(run_id))
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_run_endpoint_cannot_start_a_product_private_account_audit(self, mock_workflow):
@@ -17307,15 +17366,22 @@ class TestCloudUsageGate(BaseTaskAPITest):
         assert mock_feature_enabled.call_args.args[0] == GATED_MODEL_FLAG
         assert not Task.objects.filter(title="Gated").exists()
 
-    def _inbox_task(self, origin: Task.OriginProduct) -> Task:
+    def _inbox_task(self, origin: Task.OriginProduct, *, source_columns: bool = False) -> Task:
         from products.signals.backend.models import SignalReport
 
         task = self.create_task()
         task.origin_product = origin
         if origin == Task.OriginProduct.SIGNAL_REPORT:
-            task.signal_report = SignalReport.objects.create(team=self.team)
+            self._link_report(task, SignalReport.objects.create(team=self.team), source_columns=source_columns)
         task.save()
         return task
+
+    def _link_report(self, task: Task, report, *, source_columns: bool) -> None:
+        if source_columns:
+            task.source_kind = "signal_report"
+            task.source_id = str(report.id)
+        else:
+            task.signal_report = report
 
     def _create_pr_task(
         self,
@@ -17323,6 +17389,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
         relationship: str = "implementation",
         link_other_report: bool = False,
         report_in_other_team: bool = False,
+        source_columns: bool = False,
     ) -> Task:
         # `record_report_task` writes this row on the manual and the auto-start path.
         from products.signals.backend.models import SignalReport, SignalReportTask
@@ -17335,7 +17402,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
         report = SignalReport.objects.create(team=report_team)
         task = self.create_task()
         task.origin_product = Task.OriginProduct.SIGNAL_REPORT
-        task.signal_report = report
+        self._link_report(task, report, source_columns=source_columns)
         task.repository = "posthog/posthog"
         task.save()
         SignalReportTask.objects.create(
@@ -17557,18 +17624,38 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self.assertEqual(response.status_code, expected_status)
         self.assertEqual(mock_warm.called, inbox)
 
-    def test_exemption_ignores_cross_team_report_link(self):
+    @parameterized.expand([("old_columns", False), ("new_columns", True)])
+    def test_exemption_ignores_cross_team_report_link(self, _name, source_columns):
         # The write serializer blocks cross-team report links, so forge one at the ORM level:
-        # the exemption query must re-check the report's team rather than trust the FK alone.
+        # the exemption query must re-check the report's team rather than trust the link alone.
         from products.signals.backend.models import SignalReport
 
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
         task = self.create_task()
         task.origin_product = Task.OriginProduct.SIGNAL_REPORT
-        task.signal_report = SignalReport.objects.create(team=other_team)
+        self._link_report(task, SignalReport.objects.create(team=other_team), source_columns=source_columns)
         task.save()
 
         self.assertFalse(tasks_facade.task_exempt_from_code_access(task.id, self.team.id))
+
+    @parameterized.expand(
+        [
+            ("report_kind_without_id", {"source_kind": "signal_report"}, True),
+            ("flow_kind_without_id", {"source_kind": "hog_flow"}, True),
+            (
+                "complete_flow_source",
+                {"source_kind": "hog_flow", "source_id": "33333333-3333-4333-8333-333333333333"},
+                False,
+            ),
+        ]
+    )
+    def test_exemption_reads_the_old_report_when_the_new_columns_are_incomplete(self, _name, new_columns, exempt):
+        task = self._inbox_task(Task.OriginProduct.SIGNAL_REPORT)
+        for field, value in new_columns.items():
+            setattr(task, field, value)
+        task.save()
+
+        self.assertEqual(tasks_facade.task_exempt_from_code_access(task.id, self.team.id), exempt)
 
     @parameterized.expand(
         [
@@ -17585,8 +17672,9 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
         self.assertFalse(tasks_facade.task_exempt_from_code_access(task.id, self.team.id))
 
-    def test_exemption_drops_for_signal_report_task_with_repository(self):
-        task = self._inbox_task(Task.OriginProduct.SIGNAL_REPORT)
+    @parameterized.expand([("old_columns", False), ("new_columns", True)])
+    def test_exemption_drops_for_signal_report_task_with_repository(self, _name, source_columns):
+        task = self._inbox_task(Task.OriginProduct.SIGNAL_REPORT, source_columns=source_columns)
         self.assertTrue(tasks_facade.task_exempt_from_code_access(task.id, self.team.id))
 
         task.repository = "posthog/posthog"
@@ -17596,19 +17684,24 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("implementation_link", "implementation", False, False, True),
-            ("discussion_label", "discussion", False, False, False),
-            ("link_to_another_report", "implementation", True, False, False),
-            ("report_in_another_team", "implementation", False, True, False),
+            (f"{name}_{style}", style == "new_columns", relationship, link_other_report, report_in_other_team, expected)
+            for style in ("old_columns", "new_columns")
+            for name, relationship, link_other_report, report_in_other_team, expected in [
+                ("implementation_link", "implementation", False, False, True),
+                ("discussion_label", "discussion", False, False, False),
+                ("link_to_another_report", "implementation", True, False, False),
+                ("report_in_another_team", "implementation", False, True, False),
+            ]
         ]
     )
     def test_exemption_for_create_pr_task_needs_a_team_scoped_implementation_link(
-        self, _name, relationship, link_other_report, report_in_other_team, expected
+        self, _name, source_columns, relationship, link_other_report, report_in_other_team, expected
     ):
         task = self._create_pr_task(
             relationship=relationship,
             link_other_report=link_other_report,
             report_in_other_team=report_in_other_team,
+            source_columns=source_columns,
         )
 
         self.assertEqual(tasks_facade.task_exempt_from_code_access(task.id, self.team.id), expected)
@@ -17689,6 +17782,91 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self.assertIsNone(task.repository)
         self.assertEqual(task.repositories, [])
         self.assertTrue(tasks_facade.task_exempt_from_code_access(task.id, self.team.id))
+
+    @parameterized.expand(
+        [
+            ("never_refuses_a_later_attachment", GithubResolution.NEVER, None, False, "attach", False),
+            (
+                "with_repository_drops_both_when_the_repo_goes",
+                GithubResolution.WITH_REPOSITORY,
+                "a/b",
+                True,
+                "unset",
+                False,
+            ),
+            (
+                "with_repository_keeps_both_while_the_repo_stays",
+                GithubResolution.WITH_REPOSITORY,
+                "a/b",
+                True,
+                "title",
+                True,
+            ),
+            (
+                "with_repository_keeps_a_repo_less_attachment_on_a_title_edit",
+                GithubResolution.WITH_REPOSITORY,
+                None,
+                True,
+                "title",
+                True,
+            ),
+            ("always_takes_a_later_attachment", GithubResolution.ALWAYS, None, False, "attach", True),
+        ]
+    )
+    def test_update_follows_the_profile_github_resolution(
+        self,
+        _name,
+        resolution: GithubResolution,
+        repository: str | None,
+        preattached: bool,
+        change: str,
+        attached: bool,
+    ):
+        profile = replace(BUSINESS_KNOWLEDGE, key="test.github", github_resolution=resolution)
+        integration = Integration.objects.create(team=self.team, kind="github", config={})
+        task = self.create_task()
+        task.profile = profile.key
+        if preattached:
+            task.github_integration = integration
+        if repository is not None:
+            task.repository = repository
+            task.repositories = [repository]
+            task.github_user_integration = _grant_user_github_access(self.user)
+        task.save()
+        payload = {
+            "attach": {"github_integration": integration.id},
+            "unset": {"repositories": []},
+            "title": {"title": "Renamed"},
+        }[change]
+
+        with patch.dict("products.tasks.backend.facade.profiles._profiles", {profile.key: profile}):
+            response = self.client.patch(f"/api/projects/@current/tasks/{task.id}/", payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        task.refresh_from_db()
+        self.assertEqual(task.github_integration_id is not None, attached)
+        self.assertEqual(task.github_user_integration_id is not None, attached and repository is not None)
+
+    @parameterized.expand(
+        [
+            ("none_refuses_a_later_attachment", {"github_access": "none"}, False),
+            ("read_takes_a_later_attachment", {"github_access": "read"}, True),
+            ("no_options_take_a_later_attachment", None, True),
+        ]
+    )
+    def test_update_follows_the_task_github_access_option(self, _name, options: dict | None, attached: bool):
+        integration = Integration.objects.create(team=self.team, kind="github", config={})
+        task = self.create_task()
+        task.options = options
+        task.save()
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/", {"github_integration": integration.id}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        task.refresh_from_db()
+        self.assertEqual(task.github_integration_id is not None, attached)
 
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_start_without_code_access_returns_403(self, mock_gate):

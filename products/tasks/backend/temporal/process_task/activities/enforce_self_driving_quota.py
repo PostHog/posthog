@@ -91,7 +91,7 @@ def enforce_self_driving_run_quota(input: EnforceSelfDrivingRunQuotaInput) -> st
             if gate.enforced or not already_reported:
                 capture_signal_report_quota_paused(
                     team,
-                    report_id=str(task.signal_report_id) if task.signal_report_id else None,
+                    report_id=str(task.signal_report_source_id) if task.signal_report_source_id else None,
                     stage="implementation_run",
                     enforced=gate.enforced,
                 )

@@ -1,12 +1,13 @@
 import { QueryClientProvider } from '@tanstack/react-query'
-import { Stack, useSegments } from 'expo-router'
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider, useSegments } from 'expo-router'
 import * as SplashScreen from 'expo-splash-screen'
 import { StatusBar } from 'expo-status-bar'
-import { type ReactElement, useEffect, useState } from 'react'
+import { type ReactElement, useEffect, useMemo, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { KeyboardProvider } from 'react-native-keyboard-controller'
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
+import { ReservedRegionsProvider } from 'react-native-reserved-regions'
+import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { queryClient } from '@/api/queryClient'
 import { installAuthProvider, useAuthStore } from '@/auth/authStore'
 import { BootSplash } from '@/auth/BootSplash'
@@ -14,6 +15,7 @@ import { SPLASH_TIMEOUT_MS, shouldHideSplash, useBootGate } from '@/auth/bootGat
 import { useAuthRedirect } from '@/auth/useAuthRedirect'
 import { useDemoHydrated } from '@/demo/demoMode'
 import { installOfflineCache } from '@/features/offlineCache'
+import { MobileScene } from '@/ui/MobileScene'
 import '@/features/chat/draftPersistence'
 import { AiApprovalDialog } from '@/features/ai/AiApprovalDialog'
 import { useHedgehogWidgetSync } from '@/features/hedgehog/useHedgehogWidgetSync'
@@ -30,6 +32,10 @@ import { SceneFrame } from '@/ui/SceneFrame'
 import { createStyles, useTheme } from '@/ui/theme'
 
 export { RouteErrorBoundary as ErrorBoundary }
+
+function renderMobileScene({ children, route }: { children: ReactElement; route: { name: string } }): ReactElement {
+    return route.name === '(tabs)' ? children : <MobileScene>{children}</MobileScene>
+}
 
 SplashScreen.preventAutoHideAsync().catch(() => undefined)
 SplashScreen.setOptions({ fade: true, duration: 250 })
@@ -52,6 +58,21 @@ export default function RootLayout(): ReactElement {
     const firstScreenReady = useBootGate((state) => state.firstScreenReady)
     const segments = useSegments()
     const { colors, scheme } = useTheme()
+    const navigationTheme = useMemo(() => {
+        const base = scheme === 'dark' ? DarkTheme : DefaultTheme
+        return {
+            ...base,
+            colors: {
+                ...base.colors,
+                primary: colors.ink,
+                background: colors.background,
+                card: colors.background,
+                text: colors.ink,
+                border: colors.hairline,
+                notification: colors.orange,
+            },
+        }
+    }, [colors, scheme])
     const styles = useStyles()
     const [timedOut, setTimedOut] = useState(false)
     const [splashHidden, setSplashHidden] = useState(false)
@@ -92,27 +113,30 @@ export default function RootLayout(): ReactElement {
     return (
         <GestureHandlerRootView style={styles.root}>
             <SafeAreaProvider>
-                <SafeAreaView style={styles.root} edges={['left', 'right']}>
+                <ReservedRegionsProvider style={styles.root}>
                     <SceneFrame>
                         <KeyboardProvider>
                             <QueryClientProvider client={queryClient}>
                                 <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
                                 {/* Screens mount only after the session loads, so no query runs without a token. */}
                                 {ready ? (
-                                    <Stack
-                                        screenOptions={{
-                                            headerShown: false,
-                                            contentStyle: { backgroundColor: colors.background },
-                                        }}
-                                    >
-                                        <Stack.Screen
-                                            name="chat"
-                                            dangerouslySingular={(): string => 'chat'}
-                                            options={{
-                                                presentation: 'card',
+                                    <ThemeProvider value={navigationTheme}>
+                                        <Stack
+                                            screenLayout={renderMobileScene}
+                                            screenOptions={{
+                                                headerShown: false,
+                                                contentStyle: { backgroundColor: colors.background },
                                             }}
-                                        />
-                                    </Stack>
+                                        >
+                                            <Stack.Screen
+                                                name="chat"
+                                                dangerouslySingular={(): string => 'chat'}
+                                                options={{
+                                                    presentation: 'card',
+                                                }}
+                                            />
+                                        </Stack>
+                                    </ThemeProvider>
                                 ) : null}
                                 {!splashHidden && (
                                     <View style={StyleSheet.absoluteFill} onLayout={hideNativeSplash}>
@@ -123,7 +147,7 @@ export default function RootLayout(): ReactElement {
                             </QueryClientProvider>
                         </KeyboardProvider>
                     </SceneFrame>
-                </SafeAreaView>
+                </ReservedRegionsProvider>
             </SafeAreaProvider>
         </GestureHandlerRootView>
     )

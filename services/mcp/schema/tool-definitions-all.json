@@ -8109,7 +8109,7 @@
         "feature_flag_behavior": "enable"
     },
     "inbox-report-artefacts-create": {
-        "description": "Append an artefact to an inbox report so it reads as a living document. Everything is append-only. Status judgments are consequential, not advisory: the canonical priority and actionability steer what people and agents pick up next, and PostHog's automation uses them to decide which reports to act on. Follow-up goals live in report checks, not artefacts. Writes are attributed to your task automatically. Returns the created artefact with its id.",
+        "description": "Append an artefact to an inbox report so it reads as a living document. Everything is append-only. Status judgments are consequential, not advisory: the canonical priority and actionability steer what people and agents pick up next, and PostHog's automation uses them to decide which reports to act on. Follow-up goals live in report checks, not artefacts. Writes are attributed to your task automatically, or to the calling user when no task is running. Returns the created artefact with its id.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Append an artefact to a report",
@@ -8214,11 +8214,11 @@
         }
     },
     "inbox-report-checks-replace": {
-        "description": "Replace one open metric check after investigating a better measure or threshold. Read the current check and report first. Supply a bounded live Trends query or a report metric ID, an explicit comparison, and a measured baseline. The old check stays live if the replacement fails validation. A successful replacement starts unapproved and is scheduled independently of human approval. Do not use this to change an agent check. The replacement preserves the existing soak and remaining recurrence. The measurement also requires event_definition:read for event series, action:read for action series, and cohort:read for cohort filters when present.",
+        "description": "Replace one open agent or metric check with a metric check after investigating a better measure or threshold. Read the current check and report first. Supply a bounded live Trends query or a report metric ID, an explicit comparison, and a measured baseline. The old check stays live if the replacement fails validation. A successful replacement starts unapproved and is scheduled independently of human approval. The replacement preserves the existing soak and remaining recurrence. The measurement also requires event_definition:read for event series, action:read for action series, and cohort:read for cohort filters when present.",
         "category": "Signals",
         "feature": "signals",
-        "summary": "Replace a metric follow-up check",
-        "title": "Replace a metric follow-up check",
+        "summary": "Replace a follow-up check with a metric",
+        "title": "Replace a follow-up check with a metric",
         "required_scopes": ["inbox:write", "query:read"],
         "api_operations": ["POST /api/projects/{project_id}/signals/reports/{report_id}/checks/{id}/replace/"],
         "annotations": {
@@ -8903,6 +8903,22 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "integrations-push-tokens-create": {
+        "description": "Register existing mobile devices, for example exported from another push provider, on an APNs or Firebase push channel so workflows can send them push notifications. Find the channel with integrations-list: kind apns takes hex APNs device tokens, kind firebase takes FCM registration tokens. Expo push tokens (ExponentPushToken[...]) work on neither and are always rejected. Each row pairs a device token with a distinct_id, which must be the ID the app passes to identify, so the device lands on the person workflows target. A distinct ID with no person fails as unknown_person unless create_missing_persons is true; leave it false unless the user confirms those IDs are right. Always call with dry_run=true first: it reports every failing row (unknown_person, token_mismatch) without storing anything. Fix or drop those rows, then call again without dry_run. Send at most 1000 rows per call and at most 60 calls per minute per project; on HTTP 429 wait a minute and retry. Rows that fail as not_stored can be sent again. Importing the same row twice stores it once.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "Import push device tokens",
+        "title": "Import push device tokens",
+        "required_scopes": ["integration:write", "person:write"],
+        "api_operations": ["POST /api/projects/{project_id}/integrations/{id}/push_tokens/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-push-token-import-mcp"
     },
     "integrations-users-retrieve": {
         "description": "List the Slack workspace members a Slack integration can send direct messages to. Slack-only — non-Slack integration ids return an error (400 if the integration is otherwise visible, 404 if it isn't). Returns each member's id (e.g. U0123ABC), name (handle without the leading @), and display_name; bots, deactivated accounts, and Slackbot are excluded. Supports `search` (fuzzy match on display name and handle, plus id-contains), `limit`, `offset`, and a `user_id` query parameter for a direct lookup. Results are cached for 1 hour (no force-refresh exposed via MCP). Use this to find member ids when configuring a scout's Slack DM destination — pass them as `output_destinations.slack.users` entries (`member_id|@display-name`) via scout-config-update or scout-create. Requires the Slack integration's id; use integrations-list (filter by kind=slack) to find it.",
@@ -13631,7 +13647,7 @@
         }
     },
     "scout-notes-create": {
-        "description": "Leave a steering note the scout fleet picks up on its next runs — the lightweight way to nudge the scouts without editing a scout's skill: feedback on past reports ('the staging spike you keep flagging is known noise'), pointers ('we shipped a new checkout Tuesday, watch conversion'), or focus requests ('dig into the EU signup funnel this week'). Address the note to one scout via `skill_name` (the scout's exact name; it must match a skill on this project that holds a scout config, so check `scout-config-list` for the roster), or omit it for a general note every scout sees. A `skill_name` from the reserved `pipeline:*` family addresses one stage of the report pipeline instead of a scout: use `pipeline:report-research` for guidance about how reports get researched, judged, and routed ('route billing-adjacent reports to the billing folks'), so it reaches that stage and no scout. `pipeline:report-research` is the only pipeline audience today; any other `pipeline:*` value is rejected. Optionally set `expires_at` so a time-boxed note retires itself. Notes are advisory: scouts weigh them seriously as prior context but still apply their own evidence bar. Because scouts read notes verbatim, writing one requires the same authorization as editing a scout's skill: the `llm_skill:write` scope plus skill editor access. Each call creates a new note (NOT idempotent — a retry leaves a duplicate); use `scout-notes-delete` to retire one that's been acted on.",
+        "description": "Leave a steering note the scout fleet picks up on its next runs — the lightweight way to nudge the scouts without editing a scout's skill: feedback on past reports ('the staging spike you keep flagging is known noise'), pointers ('we shipped a new checkout Tuesday, watch conversion'), or focus requests ('dig into the EU signup funnel this week'). Address the note to one scout via `skill_name` (the scout's exact name; it must match a skill on this project that holds a scout config, so check `scout-config-list` for the roster), or omit it for a general note every scout sees. A `skill_name` from the reserved `pipeline:*` family addresses one stage of the report pipeline instead of a scout: use `pipeline:report-research` for guidance about how reports get researched, judged, and routed ('route billing-adjacent reports to the billing folks'), so it reaches that stage and no scout. `pipeline:report-research` is the only pipeline audience today; any other `pipeline:*` value is rejected. Optionally set `expires_at` so a time-boxed note retires itself. Pass `report_id` when the note is about one inbox report: the note then names that report, and the report's activity log records the note. Notes are advisory: scouts weigh them seriously as prior context but still apply their own evidence bar. Because scouts read notes verbatim, writing one requires the same authorization as editing a scout's skill: the `llm_skill:write` scope plus skill editor access. Each call creates a new note (NOT idempotent — a retry leaves a duplicate); use `scout-notes-delete` to retire one that's been acted on.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Leave a note for the scouts",

@@ -896,6 +896,7 @@ export interface WelcomeResponseApi {
  * * `project_secret_key` - project_secret_key
  * * `team_secret_token` - team_secret_token
  * * `id_jag` - id_jag
+ * * `oidc_workload` - oidc_workload
  * * `internal_jwt` - internal_jwt
  * * `service_jwt` - service_jwt
  * * `internal_api_secret` - internal_api_secret
@@ -922,6 +923,7 @@ export const ActivityLogCredentialTypeEnumApi = {
     ProjectSecretKey: 'project_secret_key',
     TeamSecretToken: 'team_secret_token',
     IdJag: 'id_jag',
+    OidcWorkload: 'oidc_workload',
     InternalJwt: 'internal_jwt',
     ServiceJwt: 'service_jwt',
     InternalApiSecret: 'internal_api_secret',
@@ -971,6 +973,7 @@ export interface ActivityLogApi {
      * * `project_secret_key` - project_secret_key
      * * `team_secret_token` - team_secret_token
      * * `id_jag` - id_jag
+     * * `oidc_workload` - oidc_workload
      * * `internal_jwt` - internal_jwt
      * * `service_jwt` - service_jwt
      * * `internal_api_secret` - internal_api_secret
@@ -1570,6 +1573,7 @@ export type ActivityLogListParams = {
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
      * * `OAuthApplication` - OAuthApplication
      * * `WorkloadTrustPolicy` - WorkloadTrustPolicy
+     * * `WorkloadTrustPolicyRequest` - WorkloadTrustPolicyRequest
      * * `User` - User
      * * `Action` - Action
      * * `AccountView` - AccountView
@@ -1689,6 +1693,7 @@ export const ActivityLogListScope = {
     ProjectSecretAPIKey: 'ProjectSecretAPIKey',
     OAuthApplication: 'OAuthApplication',
     WorkloadTrustPolicy: 'WorkloadTrustPolicy',
+    WorkloadTrustPolicyRequest: 'WorkloadTrustPolicyRequest',
     User: 'User',
     Action: 'Action',
     AccountView: 'AccountView',
@@ -1795,6 +1800,7 @@ export const ActivityLogListScope = {
  * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
  * * `OAuthApplication` - OAuthApplication
  * * `WorkloadTrustPolicy` - WorkloadTrustPolicy
+ * * `WorkloadTrustPolicyRequest` - WorkloadTrustPolicyRequest
  * * `User` - User
  * * `Action` - Action
  * * `AccountView` - AccountView
@@ -1902,6 +1908,7 @@ export const ActivityLogListScopesItem = {
     ProjectSecretAPIKey: 'ProjectSecretAPIKey',
     OAuthApplication: 'OAuthApplication',
     WorkloadTrustPolicy: 'WorkloadTrustPolicy',
+    WorkloadTrustPolicyRequest: 'WorkloadTrustPolicyRequest',
     User: 'User',
     Action: 'Action',
     AccountView: 'AccountView',
