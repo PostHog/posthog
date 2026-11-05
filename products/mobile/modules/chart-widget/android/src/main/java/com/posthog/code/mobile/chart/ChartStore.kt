@@ -15,6 +15,11 @@ object ChartStore {
     private const val KEY_CATALOG = "chart.catalog"
     private const val SNAPSHOT_PREFIX = "chart.snapshot."
     private const val ERROR_PREFIX = "chart.snapshotError."
+    private const val KEY_RETRY_AT = "chart.retryAt"
+    private var sessionGeneration = 0L
+
+    internal data class Session(val generation: Long, val credentials: Credentials)
+
     private const val WIDGET_PREFIX = "chart.widget."
 
     private var secure: SharedPreferences? = null
@@ -58,7 +63,10 @@ object ChartStore {
     }
 
     // commit() rather than apply() so the refresh that follows reads the new values.
+    @Synchronized
     fun setCredentials(context: Context, json: String) {
+        val previous = credentials(context)
+        sessionGeneration += 1
         for (attempt in 0..1) {
             try {
                 securePrefs(context)?.edit()?.putString(KEY_CREDENTIALS, json)?.commit()
@@ -67,6 +75,10 @@ object ChartStore {
                 Log.e(TAG, "Could not store the widget credentials (attempt ${attempt + 1})", e)
                 resetSecure(context)
             }
+        }
+        val next = credentials(context)
+        if (previous?.host != next?.host || previous?.projectId != next?.projectId || previous?.userUuid != next?.userUuid) {
+            clearSnapshots(context)
         }
         // A new token answers a rejected one, so the next render may show the cache again.
         val prefs = prefs(context)
@@ -79,19 +91,26 @@ object ChartStore {
         editor.commit()
     }
 
+    @Synchronized
     fun clearCredentials(context: Context) {
+        sessionGeneration += 1
         try {
             securePrefs(context)?.edit()?.remove(KEY_CREDENTIALS)?.commit()
         } catch (e: Exception) {
             Log.e(TAG, "Could not clear the widget credentials", e)
             resetSecure(context)
         }
+        clearSnapshots(context)
+    }
+
+    private fun clearSnapshots(context: Context) {
         val prefs = prefs(context)
-        val editor = prefs.edit()
+        val editor = prefs.edit().remove(KEY_RETRY_AT)
         prefs.all.keys.filter { it.startsWith(SNAPSHOT_PREFIX) || it.startsWith(ERROR_PREFIX) }.forEach { editor.remove(it) }
         editor.commit()
     }
 
+    @Synchronized
     fun credentials(context: Context): Credentials? = try {
         securePrefs(context)?.getString(KEY_CREDENTIALS, null)?.let(Credentials::parse)
     } catch (e: Exception) {
@@ -100,6 +119,7 @@ object ChartStore {
         null
     }
 
+    @Synchronized
     fun setCatalogJson(context: Context, json: String?) {
         val editor = prefs(context).edit()
         if (json == null) editor.remove(KEY_CATALOG) else editor.putString(KEY_CATALOG, json)
@@ -156,6 +176,36 @@ object ChartStore {
         val prefs = prefs(context)
         val json = prefs.getString("$WIDGET_PREFIX$from", null) ?: return
         prefs.edit().remove("$WIDGET_PREFIX$from").putString("$WIDGET_PREFIX$to", json).commit()
+    }
+
+    @Synchronized
+    internal fun session(context: Context): Session? = credentials(context)?.let { Session(sessionGeneration, it) }
+
+    internal fun retryAt(context: Context): Long = prefs(context).getLong(KEY_RETRY_AT, 0L)
+
+    @Synchronized
+    internal fun commitFetch(
+        context: Context,
+        expectedSession: Session,
+        expectedCatalog: Catalog,
+        pinIds: List<String>,
+        outcome: ChartFetcher.Outcome,
+        isStopped: () -> Boolean,
+    ): Boolean {
+        if (isStopped() || expectedSession != session(context) || expectedCatalog != catalog(context)) return false
+        val editor = prefs(context).edit()
+        when (outcome) {
+            is ChartFetcher.Outcome.Success -> editor
+                .putString("$SNAPSHOT_PREFIX${outcome.snapshot.pinId}", outcome.snapshot.toJson())
+                .remove("$ERROR_PREFIX${outcome.snapshot.pinId}")
+            is ChartFetcher.Outcome.Failure -> {
+                val now = System.currentTimeMillis()
+                val error = SnapshotError(now, outcome.kind)
+                pinIds.forEach { editor.putString("$ERROR_PREFIX$it", error.toJson()) }
+                if (outcome.kind == ErrorKind.RATE_LIMITED) editor.putLong(KEY_RETRY_AT, now + outcome.retryAfterMs)
+            }
+        }
+        return editor.commit()
     }
 
     fun snapshot(context: Context, pinId: String): ChartSnapshot? =

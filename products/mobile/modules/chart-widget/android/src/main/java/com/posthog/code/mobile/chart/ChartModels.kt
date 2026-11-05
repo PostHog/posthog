@@ -235,3 +235,12 @@ data class ChartSnapshot(
         }.getOrNull()
     }
 }
+
+internal fun ChartSnapshot?.visibleAfter(error: SnapshotError?): ChartSnapshot? {
+    if (this == null) return null
+    return if (error != null && error.at >= fetchedAt &&
+        (error.kind == ErrorKind.AUTH || error.kind == ErrorKind.NOT_FOUND)
+    ) null else this
+}
+
+internal fun ChartSnapshot.updatedAt(): Long = lastRefreshAt?.let(DateText::parseInstant) ?: fetchedAt

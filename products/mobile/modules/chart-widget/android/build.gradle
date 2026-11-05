@@ -12,10 +12,15 @@ android {
     versionCode 1
     versionName '1.0.0'
   }
+  testOptions {
+    unitTests.includeAndroidResources = true
+  }
 }
 
 dependencies {
   // The widget fetches PostHog on a timer off the main thread; the session copy lives in encrypted preferences.
   implementation 'androidx.work:work-runtime-ktx:2.9.1'
   implementation 'androidx.security:security-crypto:1.1.0-alpha06'
+  testImplementation 'junit:junit:4.13.2'
+  testImplementation 'org.robolectric:robolectric:4.16.1'
 }

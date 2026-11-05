@@ -15,10 +15,7 @@ object ChartWidgetRefresh {
     private const val KEEP_ENABLED_WORK = "chart-widget-keep-enabled"
     private const val KEEP_ENABLED_DAYS = 3650L
 
-    /**
-     * Renders every placed widget from the cache now, then queues one network pass off the main thread. A new call
-     * replaces a queued pass, so the newest credentials and catalog win.
-     */
+    /** A new request replaces the queued pass so it uses the latest session and catalog. */
     fun refreshAll(context: Context) {
         val app = context.applicationContext
         ChartRenderer.renderAll(app)
@@ -57,29 +54,32 @@ object ChartWidgetRefresh {
      * Reads each distinct pin that a placed widget shows, once, and stores the snapshot or the error. A rejected token
      * fails every other pin too, so the pass stops there and marks the rest.
      */
-    internal fun fetchShownPins(context: Context, isStopped: () -> Boolean) {
-        val credentials = ChartStore.credentials(context) ?: return
+    internal fun fetchShownPins(
+        context: Context,
+        isStopped: () -> Boolean,
+        fetch: (Context, Credentials, CatalogPin) -> ChartFetcher.Outcome = { app, credentials, pin ->
+            ChartFetcher.fetch(app, credentials, pin)
+        },
+    ) {
+        val session = ChartStore.session(context) ?: return
+        val credentials = session.credentials
         val now = System.currentTimeMillis()
-        if (credentials.isExpired(now)) return
-        val catalog = ChartStore.catalog(context)?.takeIf { it.projectId == credentials.projectId } ?: return
+        if (credentials.isExpired(now) || now < ChartStore.retryAt(context)) return
+        val catalog = ChartStore.catalog(context)?.takeIf {
+            it.projectId == credentials.projectId && it.host == credentials.host
+        } ?: return
         val pins = ChartRenderer.widgetIds(context).asList()
             .mapNotNull { ChartStore.widgetConfig(context, it) }
             .flatMap { listOf(it.pinId) + it.extraPinIds }
             .distinct()
             .mapNotNull { catalog.pin(it)?.takeIf { pin -> pin.eligible } }
         for ((index, pin) in pins.withIndex()) {
-            if (isStopped()) return
-            when (val outcome = ChartFetcher.fetch(context, credentials, pin)) {
-                is ChartFetcher.Outcome.Success -> ChartStore.setSnapshot(context, outcome.snapshot)
-                is ChartFetcher.Outcome.Failure -> {
-                    val error = SnapshotError(System.currentTimeMillis(), outcome.kind)
-                    if (outcome.kind == ErrorKind.AUTH) {
-                        pins.drop(index).forEach { ChartStore.setSnapshotError(context, it.id, error) }
-                        return
-                    }
-                    ChartStore.setSnapshotError(context, pin.id, error)
-                }
-            }
+            if (isStopped() || session != ChartStore.session(context)) return
+            val outcome = fetch(context, credentials, pin)
+            val stopsPass = outcome is ChartFetcher.Outcome.Failure &&
+                (outcome.kind == ErrorKind.AUTH || outcome.kind == ErrorKind.RATE_LIMITED)
+            val affected = if (stopsPass) pins.drop(index).map { it.id } else listOf(pin.id)
+            if (!ChartStore.commitFetch(context, session, catalog, affected, outcome, isStopped) || stopsPass) return
         }
     }
 }

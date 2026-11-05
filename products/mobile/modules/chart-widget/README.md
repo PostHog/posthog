@@ -269,7 +269,7 @@ RemoteViews only (no Glance, no Compose), API 24 and up. Code in `android/src/ma
 | `ChartStore.kt`                      | The two preferences files below. Every write uses `commit()`.                                                              |
 | `TrendsParser.kt`                    | Insight response to snapshot: mirrors `insightSnapshot.ts`, `insightFormatting.ts`, `snapshotChart.ts`, `rangePresets.ts`. |
 | `ChartFetcher.kt`                    | One `HttpURLConnection` read per pin, `refresh=force_cache`, 20 s timeouts, status to error kind.                          |
-| `ChartWidgetRefresh.kt`              | `refreshAll(context)`: render from the cache now, then queue one network pass.                                             |
+| `ChartWidgetRefresh.kt`              | `refreshAll(context)`: render from the cache on a background executor, then queue one network pass.                        |
 | `ChartRefreshWorker.kt`              | The `WorkManager` pass: each distinct pin once, then a render of every widget.                                             |
 | `ChartRenderer.kt`, `ChartCanvas.kt` | Layout choice, states, text, deep links; the chart drawn on a `Canvas` into a `Bitmap`.                                    |
 | `ChartWidgetProvider.kt`             | The `AppWidgetProvider`. Every callback is wrapped, because a receiver exception kills the app process.                    |
@@ -295,13 +295,16 @@ A corrupt or restored keystore file is deleted and counts as signed out; the app
 ### Cadence
 
 - `updatePeriodMillis` is 30 minutes. Each `onUpdate`, each module call and each configure Done calls `refreshAll`.
-- `refreshAll` renders every placed widget from the cache on the calling thread, then queues the unique network pass.
+- `refreshAll` renders every placed widget from the cache on a serial background executor, then queues the unique network pass.
   It queues nothing when no widget is placed or the token is missing or expired; the widget then shows its state.
 - The pass reads each distinct pin of every placed widget once, writes the snapshot (which clears its error) or the error, then renders all widgets.
   A rejected token stops the pass and marks the remaining pins `auth`. A new token from the app clears every `auth` error.
+  Responses are discarded if the session or catalog changed, or if the worker was canceled.
+  A 429 or 503 stops the pass and pauses every pin for at least one minute, or longer when `Retry-After` says so.
 - WorkManager disables its reschedule receiver when no work is pending, and that component change makes the system send `APPWIDGET_UPDATE` again.
   A no-op job 10 years out (`chart-widget-keep-enabled`) stays queued while a widget is placed, so that loop cannot start. `onDisabled` cancels both.
-- The age text is computed at each render, from `lastRefreshAt` (when the server computed the numbers) or else `fetchedAt`.
+- The age text is computed at each render from the oldest displayed snapshot, using `lastRefreshAt` (when the server computed the numbers) or else `fetchedAt`.
+  Extra tiles hide cached values after a newer authentication or not-found error, as the primary pin does.
 
 ### Layout and theme
 

@@ -3,7 +3,7 @@
   <application>
     <receiver
       android:name=".ChartWidgetProvider"
-      android:exported="true"
+      android:exported="false"
       android:label="@string/chart_widget_label">
       <intent-filter>
         <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />

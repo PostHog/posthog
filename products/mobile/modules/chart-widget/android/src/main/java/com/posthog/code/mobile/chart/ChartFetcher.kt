@@ -8,6 +8,9 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 
 /** Reads one pin's insight. Only `force_cache`: the widget shows what the server already computed and never computes. */
 object ChartFetcher {
@@ -16,7 +19,7 @@ object ChartFetcher {
 
     sealed class Outcome {
         class Success(val snapshot: ChartSnapshot) : Outcome()
-        class Failure(val kind: String) : Outcome()
+        class Failure(val kind: String, val retryAfterMs: Long = 60_000L) : Outcome()
     }
 
     fun fetch(context: Context, credentials: Credentials, pin: CatalogPin, now: Long = System.currentTimeMillis()): Outcome {
@@ -45,7 +48,7 @@ object ChartFetcher {
             when (status) {
                 401, 403 -> return Outcome.Failure(ErrorKind.AUTH)
                 404 -> return Outcome.Failure(ErrorKind.NOT_FOUND)
-                429, 503 -> return Outcome.Failure(ErrorKind.RATE_LIMITED)
+                429, 503 -> return Outcome.Failure(ErrorKind.RATE_LIMITED, retryAfterMs(connection.getHeaderField("Retry-After"), now))
                 200 -> Unit
                 else -> return Outcome.Failure(ErrorKind.NETWORK)
             }
@@ -68,6 +71,19 @@ object ChartFetcher {
         } finally {
             connection.disconnect()
         }
+    }
+
+    internal fun retryAfterMs(value: String?, now: Long): Long {
+        val seconds = value?.trim()?.toLongOrNull()
+        if (seconds != null) return seconds.coerceIn(0L, Long.MAX_VALUE / 1000L - now / 1000L).times(1000L).coerceAtLeast(60_000L)
+        val retryAt = value?.let {
+            runCatching {
+                SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", Locale.US).apply {
+                    timeZone = TimeZone.getTimeZone("GMT")
+                }.parse(it)?.time
+            }.getOrNull()
+        }
+        return ((retryAt ?: now) - now).coerceAtLeast(60_000L)
     }
 
     private fun findByShortId(json: JSONObject, shortId: String?): JSONObject? {

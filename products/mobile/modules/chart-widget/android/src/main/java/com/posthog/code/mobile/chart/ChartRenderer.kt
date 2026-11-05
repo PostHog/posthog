@@ -14,9 +14,13 @@ import android.util.Log
 import android.util.TypedValue
 import android.view.View
 import android.widget.RemoteViews
+import java.util.concurrent.Executors
+import java.util.concurrent.Future
 import kotlin.math.max
 
 object ChartRenderer {
+    private val renderExecutor = Executors.newSingleThreadExecutor()
+
     const val TAG = "ChartWidget"
 
     private const val DEFAULT_SIZE_DP = 180
@@ -65,7 +69,12 @@ object ChartRenderer {
         AppWidgetManager.getInstance(context).getAppWidgetIds(ComponentName(context, ChartWidgetProvider::class.java))
 
     /** Catches everything, because an exception thrown from a broadcast receiver crashes the whole app process. */
-    fun renderAll(context: Context) {
+    fun renderAll(context: Context): Future<*> {
+        val app = context.applicationContext
+        return renderExecutor.submit { renderAllNow(app) }
+    }
+
+    private fun renderAllNow(context: Context) {
         try {
             val ids = widgetIds(context)
             if (ids.isEmpty()) return
@@ -77,11 +86,14 @@ object ChartRenderer {
         }
     }
 
-    fun renderOne(context: Context, manager: AppWidgetManager, id: Int) {
-        try {
-            render(context, manager, id, inputs(context))
-        } catch (e: Exception) {
-            Log.e(TAG, "Could not render chart widget $id", e)
+    fun renderOne(context: Context, manager: AppWidgetManager, id: Int): Future<*> {
+        val app = context.applicationContext
+        return renderExecutor.submit {
+            try {
+                render(app, manager, id, inputs(app))
+            } catch (e: Exception) {
+                Log.e(TAG, "Could not render chart widget $id", e)
+            }
         }
     }
 
@@ -127,7 +139,7 @@ object ChartRenderer {
                 context.getString(R.string.chart_widget_other_project_message, project),
             )
         }
-        val catalog = inputs.catalog?.takeIf { it.projectId == credentials.projectId }
+        val catalog = inputs.catalog?.takeIf { it.projectId == credentials.projectId && it.host == credentials.host }
         val pin = catalog?.pin(config.pinId)
         val name = pin?.name ?: config.pinName ?: context.getString(R.string.chart_widget_this_pin)
         if (pin == null) {
@@ -191,7 +203,10 @@ object ChartRenderer {
         views.setTextViewText(R.id.chart_title, data.pin.name)
         bindValue(context, views, R.id.chart_value, R.id.chart_delta, snapshot)
         views.setTextViewText(R.id.chart_range, snapshot.rangeLabel ?: "")
-        val age = max(0L, now - (snapshot.lastRefreshAt?.let(DateText::parseInstant) ?: snapshot.fetchedAt))
+        val displayed = listOf(snapshot) + if (family == Family.LARGE) {
+            data.extras.mapNotNull { it.snapshot.visibleAfter(it.error) }
+        } else emptyList()
+        val age = max(0L, now - displayed.minOf { it.updatedAt() })
         val updated = ageText(context, age)
         views.setTextViewText(R.id.chart_updated, updated)
         setTextColor(context, views, R.id.chart_updated, if (age > STALE_MS) R.color.chart_widget_orange else R.color.chart_widget_tertiary)
@@ -275,7 +290,7 @@ object ChartRenderer {
                 return@forEachIndexed
             }
             val pin = extra.pin
-            val snapshot = extra.snapshot
+            val snapshot = extra.snapshot.visibleAfter(extra.error)
             views.setViewVisibility(ids.root, View.VISIBLE)
             views.setTextViewText(ids.title, pin.name)
             views.setOnClickPendingIntent(ids.root, linkIntent(context, pinLink(context, pin, Family.LARGE), id, index + 1))

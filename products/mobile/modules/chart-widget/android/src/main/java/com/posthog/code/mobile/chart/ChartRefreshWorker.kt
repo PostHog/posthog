@@ -9,11 +9,11 @@ import androidx.work.WorkerParameters
 class ChartRefreshWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
     override fun doWork(): Result {
         try {
-            ChartWidgetRefresh.fetchShownPins(applicationContext) { isStopped }
+            ChartWidgetRefresh.fetchShownPins(applicationContext, isStopped = { isStopped })
+            if (!isStopped) ChartRenderer.renderAll(applicationContext).get()
         } catch (e: Exception) {
             Log.e("ChartWidget", "Chart widget refresh failed", e)
         }
-        if (!isStopped) ChartRenderer.renderAll(applicationContext)
         return Result.success()
     }
 }
