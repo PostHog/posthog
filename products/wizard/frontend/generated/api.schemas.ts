@@ -886,6 +886,7 @@ export const WizardRunPullRequestArtifactArtifactTypeEnumApi = {
 export type WizardRegistryListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
@@ -927,6 +928,7 @@ export const WizardRunsListStatusItem = {
 export type WizardRunsArtifactsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
