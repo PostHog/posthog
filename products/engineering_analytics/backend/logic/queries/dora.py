@@ -455,7 +455,7 @@ class _DoraScan:
     placeholders: dict[str, ast.Expr]
     date_from: datetime
     date_to: datetime | None
-    # The earliest run start the merge-attribution scan reads, which is where the runs source must cover from.
+    # The earliest run start the merge-attribution scan reads, so the runs source must cover it.
     runs_from: datetime
 
     def run(self, sql: str, *, query_type: str, placeholders: dict[str, ast.Expr] | None = None) -> HogQLQueryResponse:

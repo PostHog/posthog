@@ -304,7 +304,7 @@ def query_workflow_health(
     workflow_clause = workflow_name_filter_clause(workflow_name, placeholders)
 
     prev_from = _prior_window(date_from, date_to).scan_from
-    # One source serves the current and the previous window, so it must cover the earlier start.
+    # One source feeds both the current and the previous window, so it must cover the earlier start.
     runs_source = curated.run_source(started_floor=True, since=prev_from)
 
     def fill(template: str) -> str:

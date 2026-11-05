@@ -77,8 +77,8 @@ class MaterializedCI:
     repository: str
     freshness: CIDataFreshness
     cache_scope: str
-    # The stored rows hold every row created at or after this instant, by creation time. The first
-    # build seeds the last SEED_LOOKBACK, and each incremental run extends the coverage forward.
+    # The creation time of the oldest row both views hold. A full build seeds SEED_LOOKBACK before
+    # it starts, and incremental runs only add newer rows.
     covers_from: datetime
 
     @classmethod
@@ -171,8 +171,8 @@ class MaterializedCI:
             state = get_incremental_state(view)
             if fingerprint is None or fingerprint != state.definition_fingerprint:
                 return None
-            # The seed's floor is computed when the full build starts, and the state is written when
-            # it completes, so the recorded instant claims no row the seed did not read.
+            # Data modeling records this instant when the full build completes, after the build
+            # computed its seed floor, so SEED_LOOKBACK before it never reaches past the seed.
             full_refresh_at = deserialize_watermark(state.last_full_refresh_at, "datetime")
             if full_refresh_at is None:
                 return None
@@ -204,11 +204,11 @@ class MaterializedCI:
         )
 
     def covers(self, since: datetime) -> bool:
-        """Whether every row a read windowed from ``since`` would scan was created inside the coverage.
+        """True when every row a read windowed from ``since`` scans was created inside the coverage.
 
-        A run created before the coverage and rerun inside the window is the creation-time coarseness
-        SPEC §5 documents. A naive window start cannot be placed against the coverage, so it reads the
-        raw tables like every other unready case.
+        Coverage is by creation time, so a run created before it and rerun inside the window is
+        missing from the stored rows. SPEC §5 accepts that. A naive ``since`` cannot be compared with
+        the coverage start, so it reads the raw tables.
         """
         if since.tzinfo is None:
             return False

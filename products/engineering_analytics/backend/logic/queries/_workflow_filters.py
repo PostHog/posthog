@@ -128,8 +128,8 @@ def run_started_floor_constant(window_start: datetime) -> ast.Constant:
 _JOB_FLOOR_SLACK_ON_JOB_CREATED = _DATE_FLOOR_SLACK
 JOB_FLOOR_SLACK_ON_RUN_STARTED = timedelta(days=7)
 
-# The furthest any scan floor reaches below its window start. A stored read whose window start is
-# this far inside the stored coverage keeps every floor it registers inside the stored rows.
+# The furthest any scan floor reaches below its window start. A read whose window start is at least
+# this far after the stored coverage start scans only stored rows.
 WIDEST_SCAN_FLOOR_SLACK = JOB_FLOOR_SLACK_ON_RUN_STARTED + _DATE_FLOOR_REACH
 
 
