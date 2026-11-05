@@ -1,20 +1,38 @@
-import { buildCreatePrReportPrompt } from "@posthog/core/inbox/reportActions";
+import {
+  buildCreatePrReportPrompt,
+  implementationClaimStep,
+} from "@posthog/core/inbox/reportActions";
 import { buildPostHogUrl } from "@posthog/core/settings/posthogUrl";
 import type { TaskCreationInput } from "@posthog/core/task-detail/taskService";
 import type { InboxReportActionSurface } from "@posthog/shared/analytics-events";
-import type { Task } from "@posthog/shared/types";
+import type { SignalReport, Task } from "@posthog/shared/types";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import { useMeQuery } from "@posthog/ui/features/auth/useMeQuery";
+import {
+  ImplementClaimDialog,
+  type ImplementClaimDialogStep,
+} from "@posthog/ui/features/inbox/components/ImplementClaimDialog";
 import {
   type InboxCloudTaskInputContext,
   useInboxCloudTaskRunner,
 } from "@posthog/ui/features/inbox/hooks/useInboxCloudTaskRunner";
 import { useSignalTeamConfig } from "@posthog/ui/features/inbox/hooks/useSignalTeamConfig";
-import { useCallback, useMemo, useRef } from "react";
+import { useTakeOverReportClaim } from "@posthog/ui/features/inbox/hooks/useTakeOverReportClaim";
+import { toast } from "@posthog/ui/primitives/toast";
+import {
+  type ReactElement,
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 interface UseCreatePrReportOptions {
   reportId: string;
   reportTitle: string | null;
   cloudRepository: string | null;
+  /** Who holds the report decides whether Create PR asks first or takes over a claim. */
+  claim?: Pick<SignalReport, "assignee" | "implementation_in_flight">;
   surface?: InboxReportActionSurface;
   triageId?: string;
   /** Fires after the implementation task starts successfully. */
@@ -34,6 +52,8 @@ interface UseCreatePrReportReturn {
   createPrReport: (feedback?: string) => Promise<void>;
   /** True while the task is being created. */
   isCreatingPr: boolean;
+  /** The confirmation Create PR is waiting on, to render next to the trigger. */
+  claimDialog: ReactElement | null;
 }
 
 /**
@@ -50,10 +70,17 @@ export function useCreatePrReport({
   reportId,
   reportTitle,
   cloudRepository,
+  claim,
   surface = "detail_pane",
   triageId,
   onTaskCreated,
 }: UseCreatePrReportOptions): UseCreatePrReportReturn {
+  const { data: currentUser } = useMeQuery();
+  const takeOver = useTakeOverReportClaim();
+  const [pending, setPending] = useState<{
+    step: ImplementClaimDialogStep;
+    feedback?: string;
+  } | null>(null);
   const { data: teamConfig } = useSignalTeamConfig();
   const baseBranchOverrides = teamConfig?.autostart_base_branches ?? null;
   const cloudRegion = useAuthStateValue((s) => s.cloudRegion);
@@ -145,7 +172,7 @@ export function useCreatePrReport({
     onTaskStarted: onTaskCreated,
   });
 
-  const createPrReport = useCallback(
+  const start = useCallback(
     async (feedback?: string) => {
       feedbackRef.current = feedback?.trim() || undefined;
       await run();
@@ -153,5 +180,56 @@ export function useCreatePrReport({
     [run],
   );
 
-  return { createPrReport, isCreatingPr: isRunning };
+  const createPrReport = useCallback(
+    async (feedback?: string) => {
+      const step = implementationClaimStep(claim ?? {}, currentUser?.uuid);
+      if (step.kind === "blocked") {
+        toast.error("Failed to start PR task", { description: step.reason });
+        return;
+      }
+      if (step.kind === "start") {
+        await start(feedback);
+        return;
+      }
+      setPending({ step, feedback });
+    },
+    [claim, currentUser?.uuid, start],
+  );
+
+  const confirmPending = useCallback(async () => {
+    if (!pending) return;
+    if (pending.step.kind === "take_over") {
+      try {
+        await takeOver.mutateAsync({
+          reportId,
+          claimId: pending.step.claimId,
+        });
+      } catch {
+        // A confirmed takeover does not retry: the claim may now belong to
+        // someone the user did not confirm.
+        setPending(null);
+        toast.error("Couldn't take over this report", {
+          description: "It may have changed. Refresh it and try again.",
+        });
+        return;
+      }
+    }
+    setPending(null);
+    await start(pending.feedback);
+  }, [pending, reportId, start, takeOver]);
+
+  const claimDialog = pending ? (
+    <ImplementClaimDialog
+      step={pending.step}
+      isSubmitting={takeOver.isPending}
+      onConfirm={() => void confirmPending()}
+      onCancel={() => setPending(null)}
+    />
+  ) : null;
+
+  return {
+    createPrReport,
+    isCreatingPr: isRunning || takeOver.isPending,
+    claimDialog,
+  };
 }
