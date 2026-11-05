@@ -3,12 +3,14 @@
 from typing import Any
 from uuid import uuid4
 
-from django.db import transaction
+from django.db import models, transaction
+from django.db.models import Q, QuerySet
 
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.team.team import Team
 
+from products.experiments.backend.list_filters import parse_tag_names
 from products.experiments.backend.metric_utils import without_action_names
 from products.experiments.backend.metric_validation import (
     extract_entity_nodes,
@@ -17,6 +19,14 @@ from products.experiments.backend.metric_validation import (
 )
 from products.experiments.backend.models.experiment import ExperimentSavedMetric, saved_metric_has_legacy_query
 from products.experiments.backend.warehouse_access_control import validate_warehouse_metrics
+from products.feature_flags.backend.api.feature_flag import parse_created_by_ids
+
+
+class SharedMetricType(models.TextChoices):
+    MEAN = "mean", "Mean"
+    FUNNEL = "funnel", "Funnel"
+    RATIO = "ratio", "Ratio"
+    RETENTION = "retention", "Retention"
 
 
 class ExperimentSavedMetricService:
@@ -32,6 +42,30 @@ class ExperimentSavedMetricService:
         if not query:
             raise ValidationError("Query is required to create a saved metric")
         parse_and_validate_metric(query, error_prefix="Invalid metric: ")
+
+    def filter_list_queryset(self, queryset: QuerySet, query_params: Any) -> QuerySet:
+        """Apply the `created_by_id`, `tags` and `metric_type` list filters."""
+        user_ids = parse_created_by_ids(query_params.get("created_by_id"))
+        if user_ids:
+            queryset = queryset.filter(created_by_id__in=user_ids)
+
+        tags = parse_tag_names(query_params.get("tags"))
+        if tags:
+            # An ID subquery keeps a metric with several matching tags to one row.
+            tagged = ExperimentSavedMetric.objects.filter(team_id=self.team.pk, tagged_items__tag__name__in=tags)
+            queryset = queryset.filter(pk__in=tagged.values("pk"))
+
+        metric_type = query_params.get("metric_type")
+        if metric_type:
+            if metric_type not in SharedMetricType.values:
+                raise ValidationError({"metric_type": f"Must be one of: {', '.join(SharedMetricType.values)}."})
+            type_filter = Q(query__kind="ExperimentMetric", query__metric_type=metric_type)
+            if metric_type == SharedMetricType.FUNNEL:
+                # The list shows legacy funnel metrics with the same "Funnel" type label.
+                type_filter |= Q(query__kind="ExperimentFunnelsQuery")
+            queryset = queryset.filter(type_filter)
+
+        return queryset
 
     @transaction.atomic
     def create_saved_metric(

@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "created_by_id": {
+            "description": "Filter to shared metrics created by the given user(s). Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.",
+            "type": "string"
+        },
         "event": {
             "description": "Filter to shared metrics whose query references this event name — matched directly (an EventsNode) or via the step events of any action the metric references. For finding a reusable metric by what it measures; then confirm the match against each row's 'query'.",
             "type": "string"
@@ -9,12 +13,21 @@
             "description": "Number of results to return per page.",
             "type": "number"
         },
+        "metric_type": {
+            "description": "Filter by metric type. 'funnel' also matches legacy funnel metrics.",
+            "enum": ["funnel", "mean", "ratio", "retention"],
+            "type": "string"
+        },
         "offset": {
             "description": "The initial index from which to return the results.",
             "type": "number"
         },
         "search": {
             "description": "A search term.",
+            "type": "string"
+        },
+        "tags": {
+            "description": "JSON-encoded list of tag names. Returns shared metrics carrying at least one of the given tags, e.g. `[\"growth\", \"checkout\"]`.",
             "type": "string"
         }
     },

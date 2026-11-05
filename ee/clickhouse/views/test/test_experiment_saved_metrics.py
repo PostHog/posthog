@@ -1,9 +1,12 @@
+from collections.abc import Callable
+
 from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
+from posthog.models.tag import Tag
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
@@ -1060,6 +1063,68 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         ids_page1 = {row["id"] for row in page1["results"]}
         ids_page2 = {row["id"] for row in page2["results"]}
         self.assertEqual(ids_page1 & ids_page2, set())
+
+    def _seed_metrics_for_list_filters(self) -> None:
+        other_user = self._create_user("other-creator@posthog.com")
+        growth = Tag.objects.create(team=self.team, name="growth")
+        checkout = Tag.objects.create(team=self.team, name="checkout")
+        for name, creator, tags, query in [
+            ("Mine mean growth", self.user, [growth], {"metric_type": "mean"}),
+            ("Mine funnel checkout", self.user, [checkout], {"metric_type": "funnel"}),
+            ("Other ratio both tags", other_user, [growth, checkout], {"metric_type": "ratio"}),
+            ("Other legacy funnel", other_user, [], {"kind": "ExperimentFunnelsQuery"}),
+        ]:
+            metric = ExperimentSavedMetric.objects.create(
+                team=self.team,
+                created_by=creator,
+                name=name,
+                query={"kind": "ExperimentMetric", "source": {"kind": "EventsNode", "event": "$pageview"}, **query},
+            )
+            for tag in tags:
+                metric.tagged_items.create(tag=tag, team=self.team)
+        self.other_user_id = other_user.id
+
+    @parameterized.expand(
+        [
+            ("creator", lambda t: {"created_by_id": f"[{t.user.id}]"}, {"Mine mean growth", "Mine funnel checkout"}),
+            ("one_tag", lambda t: {"tags": '["growth"]'}, {"Mine mean growth", "Other ratio both tags"}),
+            # A metric carrying both tags is still listed once.
+            (
+                "any_of_tags",
+                lambda t: {"tags": '["growth", "checkout"]'},
+                {"Mine mean growth", "Mine funnel checkout", "Other ratio both tags"},
+            ),
+            # Legacy funnels show the same "Funnel" type label in the list.
+            (
+                "funnel_includes_legacy",
+                lambda t: {"metric_type": "funnel"},
+                {"Mine funnel checkout", "Other legacy funnel"},
+            ),
+            ("ratio", lambda t: {"metric_type": "ratio"}, {"Other ratio both tags"}),
+            (
+                "combined",
+                lambda t: {"created_by_id": str(t.other_user_id), "tags": '["checkout"]', "metric_type": "ratio"},
+                {"Other ratio both tags"},
+            ),
+            ("combined_no_match", lambda t: {"created_by_id": str(t.user.id), "metric_type": "ratio"}, set()),
+        ]
+    )
+    def test_list_filters_by_creator_tags_and_type(
+        self, _name: str, params: Callable[["TestExperimentSavedMetricsCRUD"], dict[str, str]], expected_names: set[str]
+    ) -> None:
+        self._seed_metrics_for_list_filters()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/", data=params(self))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertEqual({row["name"] for row in body["results"]}, expected_names)
+        self.assertEqual(body["count"], len(expected_names))
+
+    def test_list_rejects_unknown_metric_type(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/?metric_type=trend")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def _seed_metrics_for_event_filter(self) -> None:
         # Created via the ORM so the stored query JSON is exactly what the filter inspects. The action fires

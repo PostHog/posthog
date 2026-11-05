@@ -87,6 +87,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_exposure_event_and_property,
     resolve_default_exposure_event,
 )
+from products.experiments.backend.list_filters import parse_tag_names
 from products.experiments.backend.logic.result_stats import MetricTimeseries
 from products.experiments.backend.logic.timeseries_text import ExperimentTimeseriesFormatter
 from products.experiments.backend.metric_calculation.config import (
@@ -187,21 +188,6 @@ BACKDATED_LAUNCH_THRESHOLD = timedelta(days=1)
 def _is_imported_concluded(experiment: Experiment) -> bool:
     """An experiment whose end_date has passed at create or launch never ran in PostHog: it is an import."""
     return experiment.end_date is not None and experiment.end_date <= timezone.now()
-
-
-def _parse_tag_names(value: Any) -> list[str]:
-    """Parse a tags query param that arrives as a list or a JSON-encoded string.
-
-    Anything that doesn't decode to a list is ignored rather than an error: a scalar like
-    ``?tags=5`` or ``?tags="growth"`` decodes fine but isn't a tag list.
-    """
-    try:
-        tags = value if isinstance(value, list) else json.loads(value) if isinstance(value, str) else []
-    except (json.JSONDecodeError, TypeError):
-        return []
-    if not isinstance(tags, list):
-        return []
-    return [tag for tag in tags if isinstance(tag, str)]
 
 
 DEFAULT_VARIANTS = [
@@ -4500,7 +4486,7 @@ class ExperimentService:
                 # narrow the queryset by primary key to preserve ordering and pagination.
                 queryset = queryset.filter(pk__in=self._experiments_matching_event(queryset, event))
 
-            tags = _parse_tag_names(query_params.get("tags"))
+            tags = parse_tag_names(query_params.get("tags"))
             if tags:
                 # Filter by ID subquery instead of join + .distinct(): the list queryset joins six
                 # tables (including jsonb columns), so SELECT DISTINCT over it dedupes every column.
@@ -4509,7 +4495,7 @@ class ExperimentService:
                 ).values("pk")
                 queryset = queryset.filter(pk__in=experiments_with_tags)
 
-            excluded_tags = _parse_tag_names(query_params.get("excluded_tags"))
+            excluded_tags = parse_tag_names(query_params.get("excluded_tags"))
             if excluded_tags:
                 # Exclude by ID subquery so an experiment carrying both an excluded and a
                 # non-excluded tag is still reliably filtered out.
