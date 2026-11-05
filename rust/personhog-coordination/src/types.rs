@@ -338,6 +338,13 @@ pub struct ChangelogConfig {
     pub draining: Vec<Generation>,
 }
 
+/// A migration to a partition count that does not divide `shards` is refused.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PropertyStoreLayout {
+    pub shards: u32,
+    pub location: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Generation {
     pub topic: String,
