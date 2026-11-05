@@ -453,7 +453,145 @@ export interface WizardRunPullRequestArtifactApi {
     readonly created_at: string
 }
 
-export type WizardRunArtifactApi = WizardRunGitDiffArtifactApi | WizardRunPullRequestArtifactApi
+/**
+ * Format of the changes produced by the run.
+ *
+ * * `notebook` - notebook
+ */
+export type WizardRunNotebookArtifactApiArtifactType =
+    (typeof WizardRunNotebookArtifactApiArtifactType)[keyof typeof WizardRunNotebookArtifactApiArtifactType]
+
+export const WizardRunNotebookArtifactApiArtifactType = {
+    Notebook: 'notebook',
+} as const
+
+export interface WizardRunNotebookArtifactApi {
+    /** Unique ID of the run artifact. */
+    readonly id: string
+    /** Project that owns the run artifact. */
+    readonly team_id: number
+    /** Wizard run that produced the artifact. */
+    readonly run_id: string
+    /** Format of the changes produced by the run.
+     *
+     * * `notebook` - notebook */
+    readonly artifact_type: WizardRunNotebookArtifactApiArtifactType
+    /** Short ID of the notebook the run created. */
+    readonly short_id: string
+    /** IDs of the dashboards the run created in the project. */
+    readonly dashboard_ids: readonly number[]
+    /** IDs of the insights the run created in the project. */
+    readonly insight_ids: readonly number[]
+    /** Time when the artifact was stored. */
+    readonly created_at: string
+}
+
+/**
+ * Format of the changes produced by the run.
+ *
+ * * `spend_projection` - spend_projection
+ */
+export type WizardRunSpendProjectionArtifactApiArtifactType =
+    (typeof WizardRunSpendProjectionArtifactApiArtifactType)[keyof typeof WizardRunSpendProjectionArtifactApiArtifactType]
+
+export const WizardRunSpendProjectionArtifactApiArtifactType = {
+    SpendProjection: 'spend_projection',
+} as const
+
+export interface WizardSpendRangeApi {
+    /** Lower end of the range. */
+    readonly low: number
+    /** Upper end of the range. */
+    readonly high: number
+}
+
+/**
+ * * `code` - Code
+ * * `setting` - Setting
+ * * `billing` - Billing
+ */
+export type WizardSpendEffortEnumApi = (typeof WizardSpendEffortEnumApi)[keyof typeof WizardSpendEffortEnumApi]
+
+export const WizardSpendEffortEnumApi = {
+    Code: 'code',
+    Setting: 'setting',
+    Billing: 'billing',
+} as const
+
+/**
+ * * `pr` - Pull request
+ * * `notebook` - Notebook
+ */
+export type WizardSpendFixLocationEnumApi =
+    (typeof WizardSpendFixLocationEnumApi)[keyof typeof WizardSpendFixLocationEnumApi]
+
+export const WizardSpendFixLocationEnumApi = {
+    Pr: 'pr',
+    Notebook: 'notebook',
+} as const
+
+export interface WizardSpendProjectionItemApi {
+    /** Stable ID of the recommendation within the run. */
+    readonly id: string
+    /** What to change, in one line. */
+    readonly title: string
+    /** Billed product or add-on the change reduces. */
+    readonly billing_type: string
+    /** Billable unit of the volume, such as events. */
+    readonly unit: string
+    /** Measured monthly volume before the change. */
+    readonly volume_before: number
+    /** Expected monthly volume after the change. */
+    readonly volume_after: WizardSpendRangeApi
+    /** Monthly saving in USD, priced from the organization's billing tiers. */
+    readonly saving_monthly: WizardSpendRangeApi
+    /** The measurement the saving is based on. */
+    readonly evidence: string
+    /** What the customer gives up with the change. */
+    readonly tradeoff: string
+    /** Kind of work the change takes: code, a setting, or billing.
+     *
+     * * `code` - Code
+     * * `setting` - Setting
+     * * `billing` - Billing */
+    readonly effort: WizardSpendEffortEnumApi
+    /** Where the change is made: the pull request or the notebook.
+     *
+     * * `pr` - Pull request
+     * * `notebook` - Notebook */
+    readonly fixed_in: WizardSpendFixLocationEnumApi
+}
+
+export interface WizardRunSpendProjectionArtifactApi {
+    /** Unique ID of the run artifact. */
+    readonly id: string
+    /** Project that owns the run artifact. */
+    readonly team_id: number
+    /** Wizard run that produced the artifact. */
+    readonly run_id: string
+    /** Format of the changes produced by the run.
+     *
+     * * `spend_projection` - spend_projection */
+    readonly artifact_type: WizardRunSpendProjectionArtifactApiArtifactType
+    /** Currency of every amount. Always USD. */
+    readonly currency: string
+    /** Projected monthly bill of the organization before the changes. */
+    readonly baseline_monthly: number
+    /** Projected monthly saving if every recommendation ships. */
+    readonly saving_monthly: WizardSpendRangeApi
+    /** Recommendations ordered by saving, largest first. */
+    readonly items: readonly WizardSpendProjectionItemApi[]
+    /** Time when the savings were priced. */
+    readonly priced_at: string
+    /** Time when the artifact was stored. */
+    readonly created_at: string
+}
+
+export type WizardRunArtifactApi =
+    | WizardRunGitDiffArtifactApi
+    | WizardRunPullRequestArtifactApi
+    | WizardRunNotebookArtifactApi
+    | WizardRunSpendProjectionArtifactApi
 
 export interface PaginatedWizardRunArtifactListApi {
     count: number
@@ -881,6 +1019,26 @@ export type WizardRunPullRequestArtifactArtifactTypeEnumApi =
 
 export const WizardRunPullRequestArtifactArtifactTypeEnumApi = {
     PullRequest: 'pull_request',
+} as const
+
+/**
+ * * `notebook` - notebook
+ */
+export type WizardRunNotebookArtifactArtifactTypeEnumApi =
+    (typeof WizardRunNotebookArtifactArtifactTypeEnumApi)[keyof typeof WizardRunNotebookArtifactArtifactTypeEnumApi]
+
+export const WizardRunNotebookArtifactArtifactTypeEnumApi = {
+    Notebook: 'notebook',
+} as const
+
+/**
+ * * `spend_projection` - spend_projection
+ */
+export type WizardRunSpendProjectionArtifactArtifactTypeEnumApi =
+    (typeof WizardRunSpendProjectionArtifactArtifactTypeEnumApi)[keyof typeof WizardRunSpendProjectionArtifactArtifactTypeEnumApi]
+
+export const WizardRunSpendProjectionArtifactArtifactTypeEnumApi = {
+    SpendProjection: 'spend_projection',
 } as const
 
 export type WizardRegistryListParams = {

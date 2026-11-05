@@ -128,6 +128,12 @@ def recently_viewed_insights(*, team_id: int, user_id: int, limit: int) -> list[
     return logic.recently_viewed_insights(team_id=team_id, user_id=user_id, limit=limit)
 
 
+def unknown_insight_ids(insight_ids: Collection[int], *, team_id: int) -> list[int]:
+    """Which of these ids are not a live insight of this team, in the order they were given."""
+    known = set(Insight.objects.filter(team_id=team_id, id__in=insight_ids, deleted=False).values_list("id", flat=True))
+    return [insight_id for insight_id in dict.fromkeys(insight_ids) if insight_id not in known]
+
+
 def insight_short_ids_built_by(*, team: Team, user_id: int, since: datetime, limit: int) -> list[str]:
     """Short ids of saved insights in the project that the user created or last edited since `since`, newest first."""
     return list(

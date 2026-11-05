@@ -78528,7 +78528,142 @@ export namespace Schemas {
       readonly created_at: string;
     }
 
-    export type WizardRunArtifact = WizardRunGitDiffArtifact | WizardRunPullRequestArtifact;
+    /**
+     * Format of the changes produced by the run.
+     *
+     * * `notebook` - notebook
+     */
+    export type WizardRunNotebookArtifactArtifactType = typeof WizardRunNotebookArtifactArtifactType[keyof typeof WizardRunNotebookArtifactArtifactType];
+
+
+    export const WizardRunNotebookArtifactArtifactType = {
+      Notebook: 'notebook',
+    } as const;
+
+    export interface WizardRunNotebookArtifact {
+      /** Unique ID of the run artifact. */
+      readonly id: string;
+      /** Project that owns the run artifact. */
+      readonly team_id: number;
+      /** Wizard run that produced the artifact. */
+      readonly run_id: string;
+      /** Format of the changes produced by the run.
+       *
+       * * `notebook` - notebook */
+      readonly artifact_type: WizardRunNotebookArtifactArtifactType;
+      /** Short ID of the notebook the run created. */
+      readonly short_id: string;
+      /** IDs of the dashboards the run created in the project. */
+      readonly dashboard_ids: readonly number[];
+      /** IDs of the insights the run created in the project. */
+      readonly insight_ids: readonly number[];
+      /** Time when the artifact was stored. */
+      readonly created_at: string;
+    }
+
+    /**
+     * Format of the changes produced by the run.
+     *
+     * * `spend_projection` - spend_projection
+     */
+    export type WizardRunSpendProjectionArtifactArtifactType = typeof WizardRunSpendProjectionArtifactArtifactType[keyof typeof WizardRunSpendProjectionArtifactArtifactType];
+
+
+    export const WizardRunSpendProjectionArtifactArtifactType = {
+      SpendProjection: 'spend_projection',
+    } as const;
+
+    export interface WizardSpendRange {
+      /** Lower end of the range. */
+      readonly low: number;
+      /** Upper end of the range. */
+      readonly high: number;
+    }
+
+    /**
+     * * `code` - Code
+     * * `setting` - Setting
+     * * `billing` - Billing
+     */
+    export type WizardSpendEffortEnum = typeof WizardSpendEffortEnum[keyof typeof WizardSpendEffortEnum];
+
+
+    export const WizardSpendEffortEnum = {
+      Code: 'code',
+      Setting: 'setting',
+      Billing: 'billing',
+    } as const;
+
+    /**
+     * * `pr` - Pull request
+     * * `notebook` - Notebook
+     */
+    export type WizardSpendFixLocationEnum = typeof WizardSpendFixLocationEnum[keyof typeof WizardSpendFixLocationEnum];
+
+
+    export const WizardSpendFixLocationEnum = {
+      Pr: 'pr',
+      Notebook: 'notebook',
+    } as const;
+
+    export interface WizardSpendProjectionItem {
+      /** Stable ID of the recommendation within the run. */
+      readonly id: string;
+      /** What to change, in one line. */
+      readonly title: string;
+      /** Billed product or add-on the change reduces. */
+      readonly billing_type: string;
+      /** Billable unit of the volume, such as events. */
+      readonly unit: string;
+      /** Measured monthly volume before the change. */
+      readonly volume_before: number;
+      /** Expected monthly volume after the change. */
+      readonly volume_after: WizardSpendRange;
+      /** Monthly saving in USD, priced from the organization's billing tiers. */
+      readonly saving_monthly: WizardSpendRange;
+      /** The measurement the saving is based on. */
+      readonly evidence: string;
+      /** What the customer gives up with the change. */
+      readonly tradeoff: string;
+      /** Kind of work the change takes: code, a setting, or billing.
+       *
+       * * `code` - Code
+       * * `setting` - Setting
+       * * `billing` - Billing */
+      readonly effort: WizardSpendEffortEnum;
+      /** Where the change is made: the pull request or the notebook.
+       *
+       * * `pr` - Pull request
+       * * `notebook` - Notebook */
+      readonly fixed_in: WizardSpendFixLocationEnum;
+    }
+
+    export interface WizardRunSpendProjectionArtifact {
+      /** Unique ID of the run artifact. */
+      readonly id: string;
+      /** Project that owns the run artifact. */
+      readonly team_id: number;
+      /** Wizard run that produced the artifact. */
+      readonly run_id: string;
+      /** Format of the changes produced by the run.
+       *
+       * * `spend_projection` - spend_projection */
+      readonly artifact_type: WizardRunSpendProjectionArtifactArtifactType;
+      /** Currency of every amount. Always USD. */
+      readonly currency: string;
+      /** Projected monthly bill of the organization before the changes. */
+      readonly baseline_monthly: number;
+      /** Projected monthly saving if every recommendation ships. */
+      readonly saving_monthly: WizardSpendRange;
+      /** Recommendations ordered by saving, largest first. */
+      readonly items: readonly WizardSpendProjectionItem[];
+      /** Time when the savings were priced. */
+      readonly priced_at: string;
+      /** Time when the artifact was stored. */
+      readonly created_at: string;
+    }
+
+    export type WizardRunArtifact = WizardRunGitDiffArtifact | WizardRunPullRequestArtifact | WizardRunNotebookArtifact | WizardRunSpendProjectionArtifact;
 
     export interface PaginatedWizardRunArtifactList {
       count: number;
@@ -116203,6 +116338,16 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `notebook` - notebook
+     */
+    export type WizardRunNotebookArtifactArtifactTypeEnum = typeof WizardRunNotebookArtifactArtifactTypeEnum[keyof typeof WizardRunNotebookArtifactArtifactTypeEnum];
+
+
+    export const WizardRunNotebookArtifactArtifactTypeEnum = {
+      Notebook: 'notebook',
+    } as const;
+
+    /**
      * * `pull_request` - pull_request
      */
     export type WizardRunPullRequestArtifactArtifactTypeEnum = typeof WizardRunPullRequestArtifactArtifactTypeEnum[keyof typeof WizardRunPullRequestArtifactArtifactTypeEnum];
@@ -116210,6 +116355,16 @@ export namespace Schemas {
 
     export const WizardRunPullRequestArtifactArtifactTypeEnum = {
       PullRequest: 'pull_request',
+    } as const;
+
+    /**
+     * * `spend_projection` - spend_projection
+     */
+    export type WizardRunSpendProjectionArtifactArtifactTypeEnum = typeof WizardRunSpendProjectionArtifactArtifactTypeEnum[keyof typeof WizardRunSpendProjectionArtifactArtifactTypeEnum];
+
+
+    export const WizardRunSpendProjectionArtifactArtifactTypeEnum = {
+      SpendProjection: 'spend_projection',
     } as const;
 
     export interface WizardRunTask {

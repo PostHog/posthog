@@ -54,6 +54,9 @@ export function WizardInstallRunArtifacts({
                             </li>
                         )
                     }
+                    if (artifact.artifact_type !== 'git_diff') {
+                        return null
+                    }
                     return (
                         <li key={artifact.id}>
                             <span className="flex min-w-0 items-center gap-2 text-xs text-muted">

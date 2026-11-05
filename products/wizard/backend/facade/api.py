@@ -47,6 +47,7 @@ from products.wizard.backend.logic import (
 )
 from products.wizard.backend.logic.artifacts import service as artifacts
 from products.wizard.backend.logic.installs import service as installs
+from products.wizard.backend.logic.results import service as results
 from products.wizard.backend.logic.runs import pubsub as run_pubsub
 from products.wizard.backend.logic.sessions import pubsub
 from products.wizard.backend.tool_catalog.catalog import tool_catalog_json
@@ -191,6 +192,13 @@ def create_pull_request_artifact(params: CreatePullRequestArtifactInput) -> Wiza
     Uploads a pull request artifact generated in a Wizard run.
     """
     return artifacts.create_pull_request_artifact(params)
+
+
+def record_program_result(team_id: int, run_id: UUID, raw: bytes | None, *, has_pull_request: bool) -> None:
+    """
+    Stores the notebook and spend projection a Wizard run reported in its result file.
+    """
+    results.record_program_result(team_id, run_id, raw, has_pull_request=has_pull_request)
 
 
 def list_run_artifacts(team_id: int, run_id: UUID) -> list[WizardRunArtifactDTO]:

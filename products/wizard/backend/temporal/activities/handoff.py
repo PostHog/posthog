@@ -82,5 +82,13 @@ def create_run_artifacts(input: PreparedGitRepositoryWorkspace) -> None:
             )
         )
 
+    with wizard_span("wizard.artifacts.record_program_result"):
+        wizard_facade.record_program_result(
+            input.team_id,
+            input.run_id,
+            result.program_result,
+            has_pull_request=result.pull_request is not None,
+        )
+
     worker_lifecycle.record_worker_usage(input.team_id, input.run_id, input.sandbox_id)
     transition_cloud_run(input.team_id, input.run_id, WizardRunStatus.COMPLETED)
