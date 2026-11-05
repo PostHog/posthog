@@ -17,6 +17,7 @@ import { captureMarketingCrossSellSourceCreated, getMarketingCrossSellAttributio
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { VALID_SELF_MANAGED_MARKETING_SOURCES } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import {
@@ -25,6 +26,7 @@ import {
     ExternalDataSourceSyncSchema,
     type ExternalDataSourceType,
     IncrementalField,
+    ManualLinkSourceType,
     manualLinkSources,
     RowFilter,
 } from '~/types'
@@ -45,7 +47,7 @@ import type { AvailableSetupTaskIdsEnumApi } from '../../../../../frontend/src/g
 import type { PaginatedResponse } from '../../../../../frontend/src/lib/api'
 import type { FeatureFlagsSet } from '../../../../../frontend/src/lib/logic/featureFlagLogic'
 import type { ProductIntentProperties } from '../../../../../frontend/src/lib/utils/product-intents'
-import type { ExternalDataSource, PreflightStatus } from '../../../../../frontend/src/types'
+import type { DataWarehouseTable, ExternalDataSource, PreflightStatus } from '../../../../../frontend/src/types'
 import {
     getDefaultExpandedSchemaKeys,
     groupTablesBySchema,
@@ -57,6 +59,7 @@ import { sourceManagementLogic } from '../../shared/logics/sourceManagementLogic
 import { clonePayloadPreservingFiles, findUploadedFiles, readJsonFile } from '../../shared/sourceFieldFiles'
 import { destinationStepBlockReason, shouldShowDestinationStep } from './components/destinationStepUtils'
 import { FILE_UPLOAD_SOURCE_CONFIG, FILE_UPLOAD_SOURCE_NAME } from './fileUploadSource'
+import { selfManagedSourceLogic } from './selfManagedSourceLogic'
 import { restoreSourceFormState, saveSourceFormState } from './wizardFormStorage'
 
 export const SSH_FIELD: SourceFieldSwitchGroupConfigApi = {
@@ -481,6 +484,7 @@ export interface SourceWizardLogicProps {
 export interface sourceWizardLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     preflight: PreflightStatus | null // preflightLogic
+    tableLoading: boolean // selfManagedSourceLogic
     dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null // sourceManagementLogic
     currentTeamId: number | null // teamLogic
     availableSources: any
@@ -515,12 +519,15 @@ export interface sourceWizardLogicValues {
     hasWebhookSchemas: boolean
     isDirectQueryMode: boolean
     isLoading: boolean
+    isManualLinkFormVisible: boolean
     isManualLinkingSelected: boolean
+    isSelfManagedSource: boolean
     isSourceConnectionDetailsSubmitting: boolean
     isSourceConnectionDetailsValid: boolean
     isWebhookFieldInputsSubmitting: boolean
     isWebhookFieldInputsValid: boolean
     isWrapped: boolean
+    manualLinkingProvider: ManualLinkSourceType | null
     modalTitle:
         | ''
         | 'Choose destinations'
@@ -545,7 +552,7 @@ export interface sourceWizardLogicValues {
     schemaNameFilter: string
     selectedConnector: SourceConfigResponseApi | null
     showDestinationStep: boolean
-    showFooter: boolean
+    showFooter: boolean | SourceConfigResponseApi
     showSkipButton: boolean
     showSourceConnectionDetailsErrors: boolean
     showWebhookFieldInputsErrors: boolean
@@ -593,6 +600,16 @@ export interface sourceWizardLogicActions {
     markTaskAsCompleted: (taskIdOrIds: SetupTaskId | SetupTaskId[]) => {
         taskIdOrIds: AvailableSetupTaskIdsEnumApi | AvailableSetupTaskIdsEnumApi[]
     } // globalSetupLogic
+    createTableSuccess: (
+        table: DataWarehouseTable,
+        payload?: any
+    ) => {
+        payload?: any
+        table: DataWarehouseTable
+    } // selfManagedSourceLogic
+    resetTable: (values?: DataWarehouseTable | undefined) => {
+        values?: DataWarehouseTable
+    } // selfManagedSourceLogic
     loadSources: () => {
         value: true
     } // sourceManagementLogic
@@ -746,6 +763,9 @@ export interface sourceWizardLogicActions {
     setIsLoading: (isLoading: boolean) => {
         isLoading: boolean
     }
+    setManualLinkingProvider: (provider: ManualLinkSourceType) => {
+        provider: 'aws' | 'azure' | 'cloudflare-r2' | 'google-cloud'
+    }
     setReturnConfig: (
         returnUrl: string,
         returnLabel: string,
@@ -881,6 +901,9 @@ export interface sourceWizardLogicActions {
         selectAll: boolean
         tableNames: string[] | undefined
     }
+    toggleManualLinkFormVisible: (visible: boolean) => {
+        visible: boolean
+    }
     toggleSchemaGroup: (
         schemaName: string,
         shouldSync: boolean
@@ -1011,7 +1034,10 @@ export interface sourceWizardLogicMeta {
             } | null,
             sourceId: string | null
         ) => string
-        showFooter: (selectedConnector: SourceConfigResponseApi | null) => boolean
+        showFooter: (
+            selectedConnector: SourceConfigResponseApi | null,
+            isManualLinkFormVisible: boolean
+        ) => boolean | SourceConfigResponseApi
         prefixRequired: (
             dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
             selectedConnector: SourceConfigResponseApi | null
@@ -1020,6 +1046,9 @@ export interface sourceWizardLogicMeta {
             dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
             availableSources: any
         ) => SourceConfigResponseApi[]
+        isSelfManagedSource: (
+            manualLinkingProvider: 'aws' | 'azure' | 'cloudflare-r2' | 'google-cloud' | null
+        ) => boolean
         filteredDatabaseSchema: (
             databaseSchema: ExternalDataSourceSyncSchema[],
             schemaNameFilter: string
@@ -1088,6 +1117,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             accessMethod,
         }),
         setInitialConnector: (connector: SourceConfigResponseApi | null) => ({ connector }),
+        toggleManualLinkFormVisible: (visible: boolean) => ({ visible }),
         handleRedirect: (source: ExternalDataSourceType, searchParams?: any) => ({
             source,
             searchParams,
@@ -1150,6 +1180,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         cancelWizard: true,
         setStep: (step: number) => ({ step }),
         getDatabaseSchemas: true,
+        setManualLinkingProvider: (provider: ManualLinkSourceType) => ({
+            provider,
+        }),
         openSyncMethodModal: (schema: ExternalDataSourceSyncSchema) => ({ schema }),
         cancelSyncMethodModal: true,
         toggleAllTables: (selectAll: boolean, tableNames?: string[]) => ({ selectAll, tableNames }),
@@ -1178,6 +1211,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     }),
     connect(() => ({
         values: [
+            selfManagedSourceLogic,
+            ['tableLoading'],
             sourceManagementLogic,
             ['dataWarehouseSources'],
             preflightLogic,
@@ -1188,6 +1223,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             ['currentTeamId'],
         ],
         actions: [
+            selfManagedSourceLogic,
+            ['resetTable', 'createTableSuccess'],
             sourceManagementLogic,
             ['loadSources'],
             teamLogic,
@@ -1197,6 +1234,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
     })),
     reducers({
+        manualLinkingProvider: [
+            null as ManualLinkSourceType | null,
+            {
+                setManualLinkingProvider: (_, { provider }) => provider,
+            },
+        ],
         cdcSelfManagedSetupDialogOpen: [
             false,
             {
@@ -1210,6 +1253,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             {
                 selectConnector: (_, { connector }) => connector,
                 setInitialConnector: (_, { connector }) => connector,
+            },
+        ],
+        isManualLinkFormVisible: [
+            false,
+            {
+                toggleManualLinkFormVisible: (_, { visible }) => visible,
             },
         ],
         wizardDestinationIds: [
@@ -1828,8 +1877,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         showFooter: [
-            (s) => [s.selectedConnector],
-            (selectedConnector: SourceConfigResponseApi | null): boolean => !!selectedConnector,
+            (s) => [s.selectedConnector, s.isManualLinkFormVisible],
+            (selectedConnector: SourceConfigResponseApi | null, isManualLinkFormVisible: boolean) =>
+                selectedConnector || isManualLinkFormVisible,
         ],
         prefixRequired: [
             (s) => [s.dataWarehouseSources, s.selectedConnector],
@@ -1859,6 +1909,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             : false,
                 }))
             },
+        ],
+        isSelfManagedSource: [
+            (s) => [s.manualLinkingProvider],
+            (manualLinkingProvider: ManualLinkSourceType | null): boolean => manualLinkingProvider !== null,
         ],
         filteredDatabaseSchema: [
             (s) => [s.databaseSchema, s.schemaNameFilter],
@@ -2042,6 +2096,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             actions.selectConnector(null)
             actions.resetSourceConnectionDetails()
             actions.clearSource()
+            actions.toggleManualLinkFormVisible(false)
+            actions.resetTable()
             actions.setIsLoading(false)
         },
         onSubmit: () => {
@@ -2057,6 +2113,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
             if (step === 2 && values.selectedConnector?.name) {
                 actions.submitSourceConnectionDetails()
+            } else if (step === 2 && values.isManualLinkFormVisible) {
+                selfManagedSourceLogic.actions.submitTable()
+                posthog.capture('source created', { sourceType: 'Manual' })
             }
 
             if (step === 3 && values.selectedConnector?.name) {
@@ -2268,6 +2327,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     actions.closeWizard()
                 }
             }
+        },
+        createTableSuccess: () => {
+            actions.cancelWizard()
         },
         closeWizard: () => {
             const returnUrl = values.returnConfig?.returnUrl
@@ -2735,6 +2797,17 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
 
             actions.setIsLoading(false)
+        },
+        setManualLinkingProvider: ({ provider }) => {
+            actions.onNext()
+
+            // Track marketing analytics intent for self-managed marketing sources
+            if (provider && VALID_SELF_MANAGED_MARKETING_SOURCES.includes(provider)) {
+                actions.addProductIntent({
+                    product_type: ProductKey.MARKETING_ANALYTICS,
+                    intent_context: ProductIntentContext.MARKETING_ANALYTICS_ADS_INTEGRATION_VISITED,
+                })
+            }
         },
         selectConnector: ({ connector, accessMethod }) => {
             syncExpandedSchemaGroupKeys(actions, values)
