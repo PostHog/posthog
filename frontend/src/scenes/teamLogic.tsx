@@ -130,6 +130,7 @@ export interface teamLogicValues {
     customerAnalyticsConfig: CustomerAnalyticsConfig
     demoOnlyProject: boolean
     hasOnboardedAnyProduct: boolean
+    isCurrentProjectAccessDenied: boolean
     isCurrentTeamUnavailable: boolean
     isTeamTokenResetAvailable: boolean
     teamBeingDeleted: TeamType | null
@@ -248,6 +249,9 @@ export interface teamLogicActions {
     ) => {
         currentTeam: TeamPublicType | TeamType | null
         payload?: any
+    }
+    currentProjectAccessDenied: () => {
+        value: true
     }
     deleteTeam: (team: TeamType) => {
         team: TeamType
@@ -392,11 +396,13 @@ export const teamLogic = kea<teamLogicType>([
         ],
     })),
     actions({
+        currentProjectAccessDenied: true,
         deleteTeam: (team: TeamType) => ({ team }),
         deleteTeamSuccess: true,
         deleteTeamFailure: true,
     }),
     reducers({
+        isCurrentProjectAccessDenied: [false, { currentProjectAccessDenied: () => true }],
         teamBeingDeleted: [
             null as TeamType | null,
             {

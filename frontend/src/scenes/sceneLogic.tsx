@@ -421,6 +421,7 @@ export interface sceneLogicMeta {
         activeSceneId: (
             sceneId: string | null,
             isCurrentTeamUnavailable: boolean,
+            isCurrentProjectAccessDenied: boolean,
             location: {
                 hash: string
                 pathname: string
@@ -617,8 +618,18 @@ export const sceneLogic = kea<sceneLogicType>([
             { resultEqualityCheck: equal },
         ],
         activeSceneId: [
-            (s) => [s.sceneId, teamLogic.selectors.isCurrentTeamUnavailable, router.selectors.location],
-            (sceneId: string | null, isCurrentTeamUnavailable: boolean, location: { pathname: string }) => {
+            (s) => [
+                s.sceneId,
+                teamLogic.selectors.isCurrentTeamUnavailable,
+                teamLogic.selectors.isCurrentProjectAccessDenied,
+                router.selectors.location,
+            ],
+            (
+                sceneId: string | null,
+                isCurrentTeamUnavailable: boolean,
+                isCurrentProjectAccessDenied: boolean,
+                location: { pathname: string }
+            ) => {
                 const appContext = getAppContext()
                 const effectiveResourceAccessControl = appContext?.effective_resource_access_control
 
@@ -626,6 +637,10 @@ export const sceneLogic = kea<sceneLogicType>([
                 // so the page cannot load. Once the address bar names a project we do serve, the
                 // scene loads as usual.
                 if (sceneId && sceneConfigurations[sceneId]?.projectBased && isRefusedProjectPath(location.pathname)) {
+                    return Scene.ErrorProjectAccessDenied
+                }
+
+                if (sceneId && sceneConfigurations[sceneId]?.projectBased && isCurrentProjectAccessDenied) {
                     return Scene.ErrorProjectAccessDenied
                 }
 

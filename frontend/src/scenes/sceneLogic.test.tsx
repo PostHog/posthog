@@ -612,6 +612,15 @@ describe('sceneLogic', () => {
         }
     )
 
+    it('renders the project access denied scene for project pages once the server refuses the current project', async () => {
+        router.actions.push(urls.eventDefinitions())
+        await expectLogic(logic).delay(1)
+        expect(logic.values.activeSceneId).toEqual(Scene.DataManagement)
+
+        teamLogic.actions.currentProjectAccessDenied()
+        expect(logic.values.activeSceneId).toEqual(Scene.ErrorProjectAccessDenied)
+    })
+
     it("shows the project access denied scene, not onboarding, when the user's own project is not onboarded", async () => {
         const priorAppContext = window.POSTHOG_APP_CONTEXT
         try {
