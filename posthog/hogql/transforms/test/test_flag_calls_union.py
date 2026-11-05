@@ -784,8 +784,7 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
     def test_flag_only_and_mixed_queries_count_a_call_from_before_the_coverage_start(
         self, _name: str, mode: FlagEvaluationsMode
     ):
-        # Mode 1 writes a call to both tables. Before the coverage start, only events is sure to hold every call.
-        # Mode 2 writes a call only to flag_evaluations.
+        # Mode 2 writes a flag call only to flag_evaluations.
         timestamp = datetime.now(UTC) - timedelta(days=FLAG_EVALUATIONS_COMPLETE_DAYS + 1)
         if mode == READ:
             _create_event(
@@ -901,16 +900,14 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
         def rows(*values) -> list[tuple]:
             return [("$feature_flag_called", "flag_evaluations", *values), ("$pageview", "events", *values)]
 
-        # Lazy table resolution names a property read by joining its path with `___`. A rewritten read of the flat
-        # key `a___b` would get the same column name as the nested read `properties.a.b`.
+        # A rewritten read of the flat key `a___b` gets the export name of `properties.a.b`.
         assert run(
             "events",
             "JSONExtractString(properties, 'probe'), toFloatOrZero(JSONExtractString(properties, 'amount')), "
             "JSONExtractString(properties, 'newline'), properties.a.b, JSONExtractString(properties, 'a___b')",
         ) == rows("text", 12.5, "a\nb", "nested", "flat")
         assert run("e", "JSONExtractString(e.properties, 'probe')") == rows("text")
-        # The union refuses a query that reads both `properties` and `person.properties`. This query reads person
-        # properties alone for that reason.
+        # The union refuses a query that reads both `properties` and `person.properties`.
         assert run("events", "JSONExtractString(person.properties, 'probe')") == rows("text")
 
     def test_prewhere_reads_both_tables(self):

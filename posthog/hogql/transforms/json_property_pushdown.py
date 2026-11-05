@@ -37,10 +37,9 @@ def _matched_property_access(node: ast.AST, context: HogQLContext):
         table_type = table_type.table_type
     if not isinstance(table_type, (ast.LazyTableType, ast.LazyJoinType)):
         return None
-    # A property access on the flag calls union reads with the team's event property types and decodes JSON escapes
-    # differently from JSONExtractString. The union validates its reads before this rewrite runs. A read that the
-    # rewrite adds would skip that validation. A join to events keeps the rewrite. Without it, the join stores the
-    # whole-field reads of `properties` and `person.properties` under one key, and both reads return the same document.
+    # On the union, property access applies event property types and decodes escapes unlike JSONExtractString. The
+    # union also validated its reads before this rewrite. A join to events keeps the rewrite, because its whole-field
+    # reads of `properties` and `person.properties` share one export name.
     if union_table_of(table_type) is not None:
         return None
 
