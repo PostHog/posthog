@@ -292,6 +292,13 @@ def _to_notebook_user(user) -> contracts.NotebookUserInfo | None:
     )
 
 
+def _notebook_tag_names(notebook: Notebook) -> list[str]:
+    prefetched = getattr(notebook, "prefetched_tags", None)
+    if prefetched is not None:
+        return sorted(item.tag.name for item in prefetched)
+    return sorted(notebook.tagged_items.values_list("tag__name", flat=True))
+
+
 def _to_account_notebook(notebook: Notebook) -> contracts.AccountNotebook:
     return contracts.AccountNotebook(
         id=notebook.id,
@@ -303,20 +310,39 @@ def _to_account_notebook(notebook: Notebook) -> contracts.AccountNotebook:
         last_modified_at=notebook.last_modified_at,
         created_by=_to_notebook_user(notebook.created_by),
         last_modified_by=_to_notebook_user(notebook.last_modified_by),
+        tags=_notebook_tag_names(notebook),
     )
 
 
 def list_account_notebooks(
-    account_id: str | UUID, *, search: str | None = None, order: str | None = None
+    account_id: str | UUID,
+    *,
+    search: str | None = None,
+    order: str | None = None,
+    tags: Iterable[str] | None = None,
 ) -> list[contracts.AccountNotebook]:
     return [
         _to_account_notebook(notebook)
-        for notebook in logic.list_account_notebooks(account_id, search=search, order=order)
+        for notebook in logic.list_account_notebooks(account_id, search=search, order=order, tags=tags)
     ]
 
 
 def get_account_notebook(account_id: str | UUID, short_id: str) -> contracts.AccountNotebook | None:
     notebook = logic.get_account_notebook(account_id, short_id)
+    return _to_account_notebook(notebook) if notebook is not None else None
+
+
+def update_account_notebook(
+    account_id: str | UUID,
+    short_id: str,
+    *,
+    title: str | None = None,
+    tags: Iterable[str] | None = None,
+    last_modified_by_id: int | None = None,
+) -> contracts.AccountNotebook | None:
+    notebook = logic.update_account_notebook(
+        account_id, short_id, title=title, tags=tags, last_modified_by_id=last_modified_by_id
+    )
     return _to_account_notebook(notebook) if notebook is not None else None
 
 
@@ -336,6 +362,7 @@ def _to_team_account_note(link: ResourceNotebook) -> contracts.TeamAccountNote:
         account_id=link.account.id,
         account_name=link.account.name,
         created_by=_to_notebook_user(link.notebook.created_by),
+        tags=_notebook_tag_names(link.notebook),
     )
 
 
@@ -346,6 +373,8 @@ def list_team_account_notes(
     account_id: UUID | str | None = None,
     created_by_ids: Iterable[int] | None = None,
     search: str | None = None,
+    tags: Iterable[str] | None = None,
+    order: str | None = None,
     offset: int = 0,
     limit: int = 100,
 ) -> tuple[list[contracts.TeamAccountNote], int]:
@@ -355,6 +384,8 @@ def list_team_account_notes(
         account_id=account_id,
         created_by_ids=created_by_ids,
         search=search,
+        tags=tags,
+        order=order,
         offset=offset,
         limit=limit,
     )

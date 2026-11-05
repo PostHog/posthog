@@ -118,6 +118,7 @@ import type {
     PaginatedGroupUsageMetricListApi,
     PaginatedMeetingListApi,
     PatchedAccountApi,
+    PatchedAccountNotebookUpdateApi,
     PatchedAccountRelationshipDefinitionApi,
     PatchedCustomPropertyDefinitionApi,
     PatchedCustomPropertySourceUpdateApi,
@@ -733,6 +734,28 @@ export const accountsNotebooksDestroy = async (
     return apiMutator<void>(getAccountsNotebooksDestroyUrl(projectId, accountId, shortId), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+/**
+ * Update the title or tags of an account notebook. Fields left out stay as they are.
+ */
+export const getAccountsNotebooksPartialUpdateUrl = (projectId: string, accountId: string, shortId: string) => {
+    return `/api/projects/${projectId}/accounts/${accountId}/notebooks/${shortId}/`
+}
+
+export const accountsNotebooksPartialUpdate = async (
+    projectId: string,
+    accountId: string,
+    shortId: string,
+    patchedAccountNotebookUpdateApi?: PatchedAccountNotebookUpdateApi,
+    options?: RequestInit
+): Promise<AccountNotebookApi> => {
+    return apiMutator<AccountNotebookApi>(getAccountsNotebooksPartialUpdateUrl(projectId, accountId, shortId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedAccountNotebookUpdateApi),
     })
 }
 
