@@ -176,9 +176,18 @@ def is_claim_of_task_creator(claim: ReportClaim, task_id: str) -> bool:
 def actor_works_under_claim(claim: ReportClaim, actor: ArtefactAttribution) -> bool:
     """Whether the actor can resume the claim and add work to it. Only the owner can release it.
 
-    Requests reach this with a caller-supplied task id, so a task inherits only its creator's direct claim
-    here. Task creation decides on server-side facts and also lets a task work under its creator's agent claim.
+    Requests reach this with a caller-supplied task id. A task inherits its creator's direct claim, and an
+    agent claim only when task creation already associated the task with it, which is a server-side fact.
     """
-    return actor_owns_claim(claim, actor) or (
-        actor.task_id is not None and claim.actor_kind == "user" and is_claim_of_task_creator(claim, actor.task_id)
+    if actor_owns_claim(claim, actor):
+        return True
+    if actor.task_id is None:
+        return False
+    if claim.actor_kind == "user":
+        return is_claim_of_task_creator(claim, actor.task_id)
+    return (
+        claim.actor_kind == "agent"
+        and SignalReportArtefact.objects.filter(
+            team_id=claim.team_id, type="task_run", task_id=actor.task_id, claim_id=claim.claim_id
+        ).exists()
     )
