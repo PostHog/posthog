@@ -25,6 +25,7 @@ from products.workflows.backend.facade.contracts import (
     WorkflowNotFound,
     WorkflowSummary,
     WorkflowTaskDailyLimits,
+    WorkflowViewAccess,
     WorkflowVisionScanDailyLimits,
 )
 from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
@@ -71,6 +72,7 @@ __all__ = [
     "get_email_sending_state",
     "get_email_sending_tier_limits",
     "get_viewable_workflow_ids",
+    "get_workflow_view_access",
     "get_hog_flows_referencing_template_input_keys",
     "list_owned_workflow_health",
     "max_email_sending_tier",
@@ -231,6 +233,18 @@ def get_viewable_workflow_ids(*, team_id: int, user_access_control: UserAccessCo
             HogFlow.objects.filter(team_id=team_id)
         ).values_list("id", flat=True)
     }
+
+
+def get_workflow_view_access(*, team_id: int, user_access_control: UserAccessControl) -> WorkflowViewAccess:
+    """What the reader may view, for records that outlive their workflow. A deleted workflow has no access rules left,
+    so its records follow the reader's access to workflows as a whole."""
+    viewable = get_viewable_workflow_ids(team_id=team_id, user_access_control=user_access_control)
+    existing = {str(pk) for pk in HogFlow.objects.filter(team_id=team_id).values_list("id", flat=True)}
+    return WorkflowViewAccess(
+        viewable_ids=frozenset(viewable),
+        blocked_ids=frozenset(existing - viewable),
+        can_view_deleted=user_access_control.has_resource_access("hog_flow"),
+    )
 
 
 def get_workflow_summary(*, team_id: int, workflow_id: str) -> WorkflowSummary:

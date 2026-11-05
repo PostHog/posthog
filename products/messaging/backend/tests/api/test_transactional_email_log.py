@@ -20,6 +20,7 @@ from products.access_control.backend.facade.testing import create_access_control
 from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_EVENTS_DATA_TABLE
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.workflows.backend.facade.testing import create_workflow_for_test
+from products.workflows.backend.facade.writes import destroy_workflow
 
 # `run_failed` is the failure the whole run writes, which ranks below the email step's own failure.
 RANK = {
@@ -339,6 +340,11 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         restricted = create_workflow_for_test(team_id=self.team.id, name="Payroll").id
         visible_id = self._send(20, "jane@example.com", [("sent", 1, "")])
         hidden_id = self._send(10, "boss@example.com", [("sent", 1, "")], workflow_id=restricted)
+        deleted_workflow = create_workflow_for_test(team_id=self.team.id, name="Old").id
+        deleted_id = self._send(
+            5, "old@example.com", [("sent", 1, "")], workflow_id=deleted_workflow, domain="old.example.com"
+        )
+        destroy_workflow(team_id=self.team.id, hog_flow_id=deleted_workflow)
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
@@ -358,6 +364,43 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         detail = self.client.get(self._url(f"{hidden_id}/"))
         results = self.client.get(self._url("results/"), {"workflow_id": restricted, "event": "purchase"})
 
-        assert [r["message_id"] for r in listed] == [visible_id]
+        stats = self.client.get(self._url("stats/"), {"group_by": "sending_domain"}).json()["results"]
+
+        assert [r["message_id"] for r in listed] == [deleted_id, visible_id]
         assert detail.status_code == status.HTTP_404_NOT_FOUND
         assert results.status_code == status.HTTP_404_NOT_FOUND
+        assert {row["label"] for row in stats} == {"mail.example.com", "old.example.com"}
+        assert self.client.get(self._url(f"{deleted_id}/")).json()["recipient"] == "old@example.com"
+
+    def test_no_access_to_workflows_also_hides_the_sends_of_deleted_ones(self, _flag):
+        deleted_workflow = create_workflow_for_test(team_id=self.team.id, name="Old").id
+        deleted_id = self._send(5, "old@example.com", [("sent", 1, "")], workflow_id=deleted_workflow)
+        destroy_workflow(team_id=self.team.id, hog_flow_id=deleted_workflow)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        create_access_control(
+            team_id=self.team.id,
+            resource="hog_flow",
+            access_level="none",
+            organization_member_id=self.organization_membership.id,
+        )
+        assert self.client.get(self._url()).status_code == status.HTTP_403_FORBIDDEN
+
+        granted_id = self._send(10, "jane@example.com", [("sent", 1, "")])
+        create_access_control(
+            team_id=self.team.id,
+            resource="hog_flow",
+            resource_id=str(self.workflow_id),
+            access_level="viewer",
+            organization_member_id=self.organization_membership.id,
+        )
+
+        listed = self.client.get(self._url())
+        assert listed.status_code == status.HTTP_200_OK, listed.json()
+        assert [r["message_id"] for r in listed.json()["results"]] == [granted_id]
+        assert self.client.get(self._url(f"{deleted_id}/")).status_code == status.HTTP_404_NOT_FOUND
