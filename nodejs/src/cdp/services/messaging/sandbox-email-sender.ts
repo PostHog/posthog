@@ -87,12 +87,15 @@ function addressDigest(address: string): string {
     return createHash('sha256').update(address.toLowerCase()).digest('hex')
 }
 
-function distinctAddresses(recipients: string[]): string[] {
-    const addresses = new Map<string, string>()
+function deliveredCopiesByAddress(recipients: string[]): { address: string; copies: number }[] {
+    const addresses = new Map<string, { address: string; copies: number }>()
     for (const recipient of recipients) {
-        const trimmed = recipient.trim()
-        if (!addresses.has(trimmed.toLowerCase())) {
-            addresses.set(trimmed.toLowerCase(), trimmed)
+        const address = recipient.trim()
+        const entry = addresses.get(address.toLowerCase())
+        if (entry) {
+            entry.copies += 1
+        } else {
+            addresses.set(address.toLowerCase(), { address, copies: 1 })
         }
     }
     return [...addresses.values()]
@@ -630,10 +633,7 @@ export class SandboxEmailSender {
             return { type: 'check_failed' }
         }
         const { team: dailyTeamCap, recipient: dailyRecipientCap } = this.dailyCaps
-        const addresses = distinctAddresses(recipients)
-        // Members may store one address in two cases, and a mail server can treat each case as its own
-        // mailbox, so the project allowance counts each distinct spelling as one email.
-        const emails = new Set(recipients.map((recipient) => recipient.trim())).size
+        const addresses = deliveredCopiesByAddress(recipients)
         let claim: Awaited<ReturnType<RateLimiterService['claimAllOrNothing']>>
         try {
             const team = await this.teamManager.getTeam(teamId)
@@ -642,9 +642,9 @@ export class SandboxEmailSender {
             }
             const prefix = dailyCapKeyPrefix(team.organization_id)
             claim = await this.dailyCapLimiter.claimAllOrNothing([
-                dailyBucket(`${prefix}/project/${teamId}`, emails, dailyTeamCap),
-                ...addresses.map((address) =>
-                    dailyBucket(`${prefix}/recipient/${addressDigest(address)}`, 1, dailyRecipientCap)
+                dailyBucket(`${prefix}/project/${teamId}`, recipients.length, dailyTeamCap),
+                ...addresses.map(({ address, copies }) =>
+                    dailyBucket(`${prefix}/recipient/${addressDigest(address)}`, copies, dailyRecipientCap)
                 ),
             ])
         } catch (error) {
@@ -660,7 +660,10 @@ export class SandboxEmailSender {
         if (claim.deniedIndexes.includes(0)) {
             return { type: 'project_cap_reached' }
         }
-        return { type: 'recipient_cap_reached', addresses: claim.deniedIndexes.map((index) => addresses[index - 1]) }
+        return {
+            type: 'recipient_cap_reached',
+            addresses: claim.deniedIndexes.map((index) => addresses[index - 1].address),
+        }
     }
 
     public async returnDailyCaps(grant: SandboxDailyCapGrant): Promise<void> {
