@@ -537,7 +537,11 @@ def import_replaces_table(
 
 
 def resets_table_before_extraction(
-    reset_pipeline: bool, should_resume: bool, schema: "ExternalDataSchema", webhook_only: bool = False
+    reset_pipeline: bool,
+    should_resume: bool,
+    schema: "ExternalDataSchema",
+    webhook_only: bool = False,
+    keeps_table: bool = False,
 ) -> bool:
     """Whether `handle_reset_or_full_refresh` deletes the table for these inputs."""
     from products.warehouse_sources.backend.models.external_data_schema import (  # noqa: PLC0415 — Django model import kept off this activity module's load path
@@ -547,7 +551,7 @@ def resets_table_before_extraction(
     if should_resume:
         return False
     if reset_pipeline:
-        return not webhook_only
+        return not webhook_only and not keeps_table
     return schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
 

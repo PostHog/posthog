@@ -1,5 +1,6 @@
 import uuid
 import contextlib
+import dataclasses
 from datetime import UTC, datetime, time, timedelta
 from typing import Any
 
@@ -4527,6 +4528,18 @@ class TestExternalDataSchemaSerializerValidation(APIBaseTest):
         assert self.schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
 
 
+@dataclasses.dataclass(frozen=True)
+class _OutputTablesCase:
+    mode: str
+    initial_mode: str
+    cursor_type: str = "datetime"
+    flag_on: bool = True
+    request_body: dict[str, Any] | None = None
+    source_supports_history: bool = True
+    initial_sync_type: str = ExternalDataSchema.SyncType.INCREMENTAL
+    blocking_table: str | None = None
+
+
 class TestSerializerLostUpdateProtection(APIBaseTest):
     """A PATCH must not revert what another writer committed after the request loaded the row —
     a sync_type_config key from a CDC extract activity, or the link fields "Delete data" clears."""
@@ -4790,107 +4803,121 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("flag_off", "both", "consolidated", "datetime", False, "not enabled"),
-            ("integer_cursor", "both", "consolidated", "integer", True, "date and time"),
-            ("turn_on", "both", "consolidated", "datetime", True, None),
-            ("turn_off", "consolidated", "both", "date", True, None),
-            # The form sends the mode it shows on every save, which must not need the flag again.
-            ("flag_off_keeping_the_mode", "both", "both", "datetime", False, None),
+            ("flag_off", _OutputTablesCase(mode="both", initial_mode="consolidated", flag_on=False), "not enabled"),
+            (
+                "integer_cursor",
+                _OutputTablesCase(mode="both", initial_mode="consolidated", cursor_type="integer"),
+                "date and time",
+            ),
             (
                 "source_replaces_rows_by_file",
-                "both",
-                "consolidated",
-                "datetime",
-                True,
+                _OutputTablesCase(mode="both", initial_mode="consolidated", source_supports_history=False),
                 "replaces rows by file",
-                None,
-                False,
             ),
             (
                 "integer_field_while_keeping_history",
-                "both",
-                "both",
-                "datetime",
-                True,
+                _OutputTablesCase(
+                    mode="both",
+                    initial_mode="both",
+                    request_body={"incremental_field": "id", "incremental_field_type": "integer"},
+                ),
                 "date and time",
-                {"incremental_field": "id", "incremental_field_type": "integer"},
             ),
             (
                 "integer_field_sent_with_the_unchanged_mode",
-                "both",
-                "both",
-                "datetime",
-                True,
+                _OutputTablesCase(
+                    mode="both",
+                    initial_mode="both",
+                    request_body={
+                        "cdc_table_mode": "both",
+                        "incremental_field": "id",
+                        "incremental_field_type": "integer",
+                    },
+                ),
                 "date and time",
-                {"cdc_table_mode": "both", "incremental_field": "id", "incremental_field_type": "integer"},
-            ),
-            (
-                "switch_from_cdc_keeping_the_history_table",
-                "both",
-                "both",
-                "datetime",
-                True,
-                None,
-                {"sync_type": "incremental", "cdc_table_mode": "both"},
-                True,
-                ExternalDataSchema.SyncType.CDC,
             ),
             (
                 "switch_from_cdc_with_a_legacy_history_table",
-                "both",
-                "both",
-                "datetime",
-                True,
+                _OutputTablesCase(
+                    mode="both",
+                    initial_mode="both",
+                    request_body={"sync_type": "incremental", "cdc_table_mode": "both"},
+                    initial_sync_type=ExternalDataSchema.SyncType.CDC,
+                    blocking_table="legacy_history_table",
+                ),
                 "older history table",
-                {"sync_type": "incremental", "cdc_table_mode": "both"},
-                True,
-                ExternalDataSchema.SyncType.CDC,
-                "legacy_history_table",
             ),
             (
                 "switch_from_cdc_when_a_sibling_syncs_the_history_name",
-                "both",
-                "both",
-                "datetime",
-                True,
+                _OutputTablesCase(
+                    mode="both",
+                    initial_mode="both",
+                    request_body={"sync_type": "incremental", "cdc_table_mode": "both"},
+                    initial_sync_type=ExternalDataSchema.SyncType.CDC,
+                    blocking_table="sibling_schema",
+                ),
                 "share its name",
-                {"sync_type": "incremental", "cdc_table_mode": "both"},
-                True,
-                ExternalDataSchema.SyncType.CDC,
-                "sibling_schema",
+            ),
+        ]
+    )
+    @mock.patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
+    def test_patch_refuses_output_tables_an_incremental_table_cannot_have(
+        self, _name: str, case: _OutputTablesCase, refusal: str
+    ):
+        with pytest.raises(ValidationError, match=refusal):
+            self._patch_output_tables(case)
+
+        self.schema.refresh_from_db()
+        assert self.schema.cdc_table_mode == case.initial_mode
+        assert self.schema.keeps_history == (case.initial_mode != "consolidated")
+        assert not self.schema.sync_type_config.get("reset_pipeline")
+
+    @parameterized.expand(
+        [
+            ("turn_on", _OutputTablesCase(mode="both", initial_mode="consolidated"), True),
+            ("turn_off", _OutputTablesCase(mode="consolidated", initial_mode="both", cursor_type="date"), False),
+            # The form sends the mode it shows on every save, which must not need the flag again.
+            ("flag_off_keeping_the_mode", _OutputTablesCase(mode="both", initial_mode="both", flag_on=False), False),
+            (
+                "switch_from_cdc_keeping_the_history_table",
+                _OutputTablesCase(
+                    mode="both",
+                    initial_mode="both",
+                    request_body={"sync_type": "incremental", "cdc_table_mode": "both"},
+                    initial_sync_type=ExternalDataSchema.SyncType.CDC,
+                ),
+                False,
             ),
         ]
     )
     @mock.patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
     def test_patch_sets_the_output_tables_of_an_incremental_table(
-        self,
-        _name: str,
-        mode: str,
-        initial_mode: str,
-        cursor_type: str,
-        flag_on: bool,
-        refusal: str | None,
-        request_body: dict | None = None,
-        source_supports_history: bool = True,
-        initial_sync_type: str = ExternalDataSchema.SyncType.INCREMENTAL,
-        blocking_table: str | None = None,
+        self, _name: str, case: _OutputTablesCase, reloads: bool
     ):
+        self._patch_output_tables(case)
+
+        self.schema.refresh_from_db()
+        assert self.schema.cdc_table_mode == case.mode
+        assert self.schema.keeps_history == (case.mode != "consolidated")
+        assert bool(self.schema.sync_type_config.get("reset_pipeline")) == reloads
+
+    def _patch_output_tables(self, case: _OutputTablesCase) -> None:
         from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
 
-        self.schema.sync_type = initial_sync_type
+        self.schema.sync_type = case.initial_sync_type
         self.schema.sync_type_config = {
             "incremental_field": "updated_at",
-            "incremental_field_type": cursor_type,
+            "incremental_field_type": case.cursor_type,
             "primary_key_columns": ["id"],
-            "cdc_table_mode": initial_mode,
+            "cdc_table_mode": case.initial_mode,
         }
-        if initial_sync_type == ExternalDataSchema.SyncType.INCREMENTAL:
-            self.schema.sync_type_config[INCREMENTAL_HISTORY_KEY] = initial_mode != "consolidated"
+        if case.initial_sync_type == ExternalDataSchema.SyncType.INCREMENTAL:
+            self.schema.sync_type_config[INCREMENTAL_HISTORY_KEY] = case.initial_mode != "consolidated"
         self.schema.table = DataWarehouseTable.objects.create(
             team=self.team, name="orders", format="Parquet", external_data_source=self.source
         )
         self.schema.save()
-        if blocking_table == "legacy_history_table":
+        if case.blocking_table == "legacy_history_table":
             DataWarehouseTable.objects.create(
                 team=self.team,
                 name=build_table_name(self.source, f"{self.schema.name}_cdc"),
@@ -4898,7 +4925,7 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
                 external_data_source=self.source,
                 options={"history_table": True},
             )
-        elif blocking_table == "sibling_schema":
+        elif case.blocking_table == "sibling_schema":
             ExternalDataSchema.objects.create(
                 name=f"{self.schema.name}_history", team=self.team, source=self.source, should_sync=True
             )
@@ -4906,24 +4933,14 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
         with (
             mock.patch(
                 "products.warehouse_sources.backend.presentation.views.external_data_schema.is_incremental_history_enabled_for_team",
-                return_value=flag_on,
+                return_value=case.flag_on,
             ),
             mock.patch(
                 "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.supports_incremental_history",
-                new=source_supports_history,
+                new=case.source_supports_history,
             ),
         ):
-            body = request_body or {"cdc_table_mode": mode}
-            if refusal:
-                with pytest.raises(ValidationError, match=refusal):
-                    self._save_through_serializer(self.schema, body)
-            else:
-                self._save_through_serializer(self.schema, body)
-
-        self.schema.refresh_from_db()
-        assert self.schema.cdc_table_mode == (initial_mode if refusal else mode)
-        assert self.schema.keeps_history == ((initial_mode if refusal else mode) != "consolidated")
-        assert bool(self.schema.sync_type_config.get("reset_pipeline")) == (_name == "turn_on")
+            self._save_through_serializer(self.schema, case.request_body or {"cdc_table_mode": case.mode})
 
     @mock.patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
     def test_leaving_incremental_drops_the_history_choice(self):
@@ -4944,18 +4961,31 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("keeps_history", "both", True),
-            ("history_only", "cdc_only", True),
+            ("keeps_history", ExternalDataSchema.SyncType.INCREMENTAL, "both", True, [], ["email"], True),
+            ("history_only", ExternalDataSchema.SyncType.INCREMENTAL, "cdc_only", True, [], ["email"], True),
             # The history table stays registered after the schema stops writing it.
-            ("history_turned_off", "consolidated", False),
+            ("history_turned_off", ExternalDataSchema.SyncType.INCREMENTAL, "consolidated", False, [], ["email"], True),
+            ("cdc_left_history", ExternalDataSchema.SyncType.CDC, "consolidated", False, [], ["email"], True),
+            # A CDC table that keeps history reseeds it from the new snapshot.
+            ("cdc_keeps_history", ExternalDataSchema.SyncType.CDC, "both", False, [], ["email"], False),
+            # The past versions stay masked, so removing a mask leaks nothing.
+            ("removing_a_mask", ExternalDataSchema.SyncType.INCREMENTAL, "both", True, ["email"], [], False),
         ]
     )
-    def test_masking_a_column_of_a_table_with_a_history_table_is_refused(
-        self, _name: str, mode: str, chose_history: bool
+    def test_masking_a_column_of_a_table_with_a_history_table(
+        self,
+        _name: str,
+        sync_type: str,
+        mode: str,
+        chose_history: bool,
+        stored_masks: list[str],
+        requested_masks: list[str],
+        refused: bool,
     ):
         from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
 
-        self.schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        self.schema.sync_type = sync_type
+        self.schema.masked_columns = stored_masks
         self.schema.sync_type_config = {
             "incremental_field": "updated_at",
             "incremental_field_type": "datetime",
@@ -4977,15 +5007,25 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
             options={"history_table": True, "history_naming": "ph_validity"},
         )
 
-        with pytest.raises(ValidationError, match="history table"):
-            self._save_through_serializer(self.schema, {"masked_columns": ["email"]})
+        if refused:
+            with pytest.raises(ValidationError, match="history table"):
+                self._save_through_serializer(self.schema, {"masked_columns": requested_masks})
+        else:
+            self._save_through_serializer(self.schema, {"masked_columns": requested_masks})
 
         self.schema.refresh_from_db()
-        assert not self.schema.masked_columns
+        assert (self.schema.masked_columns or []) == (stored_masks if refused else requested_masks)
 
-    @parameterized.expand([("both",), ("cdc_only",)])
-    def test_unselecting_a_column_hides_it_from_the_incremental_history_table(self, mode: str):
-        from products.warehouse_sources.backend.facade.source_management import history_table_name
+    @parameterized.expand(
+        [
+            ("both", True),
+            ("cdc_only", True),
+            # The history table stays queryable after history is turned off.
+            ("both", False),
+        ]
+    )
+    def test_unselecting_a_column_hides_it_from_the_incremental_history_table(self, mode: str, keeps_history: bool):
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
 
         self.schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
         self.schema.sync_type_config = {
@@ -4993,7 +5033,7 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
             "incremental_field_type": "datetime",
             "primary_key_columns": ["id"],
             "cdc_table_mode": mode,
-            INCREMENTAL_HISTORY_KEY: True,
+            INCREMENTAL_HISTORY_KEY: keeps_history,
             "schema_metadata": {
                 "columns": [
                     {"name": name, "data_type": "text", "is_nullable": True} for name in ("id", "email", "updated_at")
@@ -5004,7 +5044,7 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
         source_columns = dict.fromkeys(("id", "email", "updated_at"), "String")
         history = DataWarehouseTable.objects.create(
             team=self.team,
-            name=history_table_name(self.schema),
+            name=build_table_name(self.source, f"{self.schema.name}_history"),
             format="DeltaS3Wrapper",
             external_data_source=self.source,
             columns={**source_columns, "_ph_valid_from": "DateTime", "_ph_valid_to": "DateTime"},

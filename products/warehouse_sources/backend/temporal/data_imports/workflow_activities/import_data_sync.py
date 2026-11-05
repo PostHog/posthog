@@ -1151,16 +1151,16 @@ async def _handle_import_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )
 
-    # The shared REST engine raises RESTClientNonRetryableError only for responses retrying can
-    # never turn into data (a non-JSON body on an otherwise-successful response). Honor that
-    # contract by type so every REST-based source stops immediately, rather than depending on each
-    # source listing the message in get_non_retryable_errors.
     # The schema's settings or the source's shape rule out its history table, so a retry fails the same way.
     if isinstance(error, IncrementalHistoryUnavailableError):
         await handle_non_retryable_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error
         )
 
+    # The shared REST engine raises RESTClientNonRetryableError only for responses retrying can
+    # never turn into data (a non-JSON body on an otherwise-successful response). Honor that
+    # contract by type so every REST-based source stops immediately, rather than depending on each
+    # source listing the message in get_non_retryable_errors.
     if isinstance(error, RESTClientNonRetryableError):
         await handle_non_retryable_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error

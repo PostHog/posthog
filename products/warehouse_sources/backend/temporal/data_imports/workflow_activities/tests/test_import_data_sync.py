@@ -795,49 +795,21 @@ async def test_proxy_auth_failure_is_still_reported():
 @pytest.mark.parametrize(
     "error",
     [
+        # The REST engine's "retrying can never help" signal: a non-JSON body on an otherwise-successful response.
         RESTClientNonRetryableError("Non-JSON response from https://api.example.com/v1/data/leads"),
-        # A schema that keeps history on a source that replaces rows by file fails every run the same way.
+        # A schema whose history table needs a primary key it doesn't have fails every run the same way.
         IncrementalHistoryUnavailableError("orders keeps a history table, which needs a primary key"),
+        # A 404 from the REST engine's fallback raise_for_status() means the endpoint doesn't exist, so
+        # every retry hits the same dead URL.
+        HTTPError(
+            "404 Client Error: Not Found for url: https://api.example.com/export",
+            response=mock.MagicMock(status_code=404),
+        ),
     ],
 )
-async def test_typed_non_retryable_errors_route_through_handler_without_source_opt_in(error: Exception):
-    # RESTClientNonRetryableError is the REST engine's "retrying can never help" signal (a non-JSON
-    # body on an otherwise-successful response). It must be honored by type even when the source's
-    # get_non_retryable_errors doesn't list the message, so any REST-based source stops instead of
-    # retrying the deterministic failure to the activity max and minting error-tracking noise.
-    source = mock.MagicMock(spec=SimpleSource)
-    source.get_non_retryable_errors.return_value = {}
-    source.get_retryable_errors.return_value = set()
-
-    logger = mock.MagicMock()
-    logger.awarning = mock.AsyncMock()
-    logger.aexception = mock.AsyncMock()
-    logger.adebug = mock.AsyncMock()
-
-    with (
-        mock.patch.object(module.SourceRegistry, "get_source", return_value=source),
-        mock.patch.object(module, "handle_non_retryable_error", new=mock.AsyncMock()) as handle_mock,
-    ):
-        handle_mock.side_effect = NonRetryableException()
-        with pytest.raises(NonRetryableException):
-            await module._handle_import_error(mock.MagicMock(), logger, error)
-
-    handle_mock.assert_awaited_once()
-    assert handle_mock.await_args is not None
-    assert handle_mock.await_args.args[5] is error
-    logger.aexception.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_http_404_routes_through_handler_without_source_opt_in():
-    # A 404 from the shared REST engine's fallback raise_for_status() path means the configured
-    # endpoint/resource doesn't exist — every retry hits the identical dead URL. It must be honored
-    # by status code even when the source's get_non_retryable_errors doesn't list the message, so
-    # any REST-based source stops instead of retrying to the activity max and minting error-tracking
-    # noise on every attempt.
-    error = HTTPError(
-        "404 Client Error: Not Found for url: https://api.example.com/export", response=mock.MagicMock(status_code=404)
-    )
+async def test_deterministic_errors_route_through_handler_without_source_opt_in(error: Exception):
+    # Honored by type or status even when the source's get_non_retryable_errors doesn't list the message,
+    # so the run stops instead of retrying the same failure to the activity max and minting error-tracking noise.
     source = mock.MagicMock(spec=SimpleSource)
     source.get_non_retryable_errors.return_value = {}
     source.get_retryable_errors.return_value = set()

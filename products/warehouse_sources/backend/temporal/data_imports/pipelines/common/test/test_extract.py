@@ -910,19 +910,21 @@ class TestHandleResetOrFullRefresh:
         assert "incremental_field_last_value" not in schema.sync_type_config
 
 
-def _reset_inputs() -> list[tuple[str, bool, bool, str, bool]]:
+def _reset_inputs() -> list[tuple[str, bool, bool, str, bool, bool]]:
     return [
         (
-            f"reset_{reset}_resume_{resume}_{sync_type}_webhook_only_{webhook_only}",
+            f"reset_{reset}_resume_{resume}_{sync_type}_webhook_only_{webhook_only}_keeps_table_{keeps_table}",
             reset,
             resume,
             sync_type,
             webhook_only,
+            keeps_table,
         )
         for reset in (False, True)
         for resume in (False, True)
         for sync_type in (ExternalDataSchema.SyncType.FULL_REFRESH, ExternalDataSchema.SyncType.INCREMENTAL)
         for webhook_only in (False, True)
+        for keeps_table in (False, True)
     ]
 
 
@@ -937,17 +939,29 @@ class TestCorruptionCheckBeforeAReset:
 
     @parameterized.expand(_reset_inputs())
     def test_prediction_matches_what_the_reset_step_does(
-        self, _name: str, reset_pipeline: bool, should_resume: bool, sync_type: str, webhook_only: bool
+        self,
+        _name: str,
+        reset_pipeline: bool,
+        should_resume: bool,
+        sync_type: str,
+        webhook_only: bool,
+        keeps_table: bool,
     ) -> None:
         schema = self._schema(sync_type)
         table_ref = MagicMock(reset_table=AsyncMock())
 
         with patch("products.warehouse_sources.backend.models.external_data_schema.update_sync_type_config_keys"):
             async_to_sync(handle_reset_or_full_refresh)(
-                reset_pipeline, should_resume, schema, table_ref, self._logger(), webhook_only=webhook_only
+                reset_pipeline,
+                should_resume,
+                schema,
+                table_ref,
+                self._logger(),
+                webhook_only=webhook_only,
+                keeps_table=keeps_table,
             )
 
-        predicted = resets_table_before_extraction(reset_pipeline, should_resume, schema, webhook_only)
+        predicted = resets_table_before_extraction(reset_pipeline, should_resume, schema, webhook_only, keeps_table)
         assert predicted is (table_ref.reset_table.await_count == 1)
 
     @parameterized.expand(

@@ -82,6 +82,16 @@ def registered_history_naming(schema: ExternalDataSchema) -> HistoryNaming | Non
     A stamped `_history` table wins over a table under the legacy name, which a source table can also
     carry. A legacy table predates the stamp and the marker, so its name is all it has.
     """
+    return _naming_of_registered(_registered_history_tables(schema))
+
+
+def registered_stamped_history_table(schema: ExternalDataSchema) -> DataWarehouseTable | None:
+    """The schema's registered `_history` table with the `_ph_` validity names, also once its mode stops writing it."""
+    table = _registered_history_tables(schema).get(HISTORY_NAMING)
+    return table if table is not None and table.has_ph_history_naming else None
+
+
+def _registered_history_tables(schema: ExternalDataSchema) -> dict[HistoryNaming, DataWarehouseTable]:
     source = schema.source
     names = {
         build_table_name(source, companion_resource_name(schema.name, naming)): naming
@@ -93,7 +103,7 @@ def registered_history_naming(schema: ExternalDataSchema) -> HistoryNaming | Non
         ),
         schema.id,
     )
-    return _naming_of_registered({names[table.name]: table for table in tables})
+    return {names[table.name]: table for table in tables}
 
 
 def _naming_of_registered(tables_by_naming: dict[HistoryNaming, DataWarehouseTable]) -> HistoryNaming | None:
@@ -300,10 +310,6 @@ def history_tables(source: ExternalDataSource) -> list[DataWarehouseTable]:
         ).values_list("table_id", "name")
     }
     return [table for table in candidates if table.is_history_table or own_tables.get(table.id) != table.name]
-
-
-def history_table_ids(source: ExternalDataSource) -> list[UUID]:
-    return [table.id for table in history_tables(source)]
 
 
 def history_table_name(schema: ExternalDataSchema) -> str | None:

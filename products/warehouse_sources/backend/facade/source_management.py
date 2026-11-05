@@ -41,7 +41,6 @@ _LAZY = {
     "new_history_naming": "cdc.history_table",
     "new_history_names_taken": "cdc.history_table",
     "history_table_name": "cdc.history_table",
-    "history_table_ids": "cdc.history_table",
     "history_tables": "cdc.history_table",
     "is_another_schemas_history_table": "cdc.history_table",
     "incremental_history_refusal": "incremental_history",

@@ -86,7 +86,9 @@ def run_completed_on_every_table(job_id: str, team_id: int) -> bool:
 
     job = ExternalDataJob.objects.get(id=job_id, team_id=team_id)
     parent_id = (job.schema_snapshot or {}).get(COMPANION_OF_KEY)
-    parent = ExternalDataJob.objects.get(id=parent_id, team_id=team_id) if parent_id else job
+    # Called inside the completion transaction. Locking the parent waits out a parent completing at the
+    # same moment, so the second of the two completions sees both and promotes the cursor.
+    parent = ExternalDataJob.objects.select_for_update().get(id=parent_id, team_id=team_id) if parent_id else job
     return parent.status == ExternalDataJob.Status.COMPLETED and companions_completed(
         (parent.schema_snapshot or {}).get(COMPANION_JOB_IDS_KEY) or []
     )

@@ -347,7 +347,7 @@ class PipelineV3(Generic[ResumableData]):
         # and loads it again. The reset then stages that target (see `handle_reset_or_full_refresh`),
         # so no rewrite of the old table is necessary.
         replaces_table = attempt <= 1 and resets_table_before_extraction(
-            reset_pipeline, is_resume, self._schema, self._resource.webhook_only
+            reset_pipeline, is_resume, self._schema, self._resource.webhook_only, self._keeps_table_on_reset()
         )
         staged_scheme = self._schema.pending_scheme_for_table_replacement if replaces_table else None
         self._writes_staged_repartition_scheme = staged_scheme is not None
@@ -918,7 +918,11 @@ class PipelineV3(Generic[ResumableData]):
             # overwrite handles it. Wiping the delta table mid-retry while the consumer
             # is loading the previous attempt's batches causes data loss.
             table_will_be_reset = self._attempt <= 1 and resets_table_before_extraction(
-                self._reset_pipeline, should_resume, self._schema, self._resource.webhook_only
+                self._reset_pipeline,
+                should_resume,
+                self._schema,
+                self._resource.webhook_only,
+                self._keeps_table_on_reset(),
             )
             if self._writes_staged_repartition_scheme and not table_will_be_reset:
                 # The batches of this attempt carry a scheme that is only correct for a new table.

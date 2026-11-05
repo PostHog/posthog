@@ -1,6 +1,6 @@
 import datetime as dt
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager, nullcontext
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -810,28 +810,67 @@ class TestFileCountAfterWrite:
 
 
 class TestHistoryLaneFinalBatch:
-    @parameterized.expand(
-        [
-            ("final_batch", False),
-            ("redelivered_final_batch", False),
-            ("final_batch_after_an_unloaded_batch", True),
-            ("redelivered_final_batch_after_an_unloaded_batch", True),
-        ]
-    )
+    @parameterized.expand([("after_every_batch_loaded", False), ("after_an_unloaded_batch", True)])
     @patch(f"{_PROCESSOR}.BatchQueue.get_unfinished_earlier_batches_sync")
     @patch(f"{_PROCESSOR}._complete_run")
     @patch(f"{_PROCESSOR}.posthoganalytics")
     @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value=_POST_LOAD_RESULT)
     @patch(f"{_PROCESSOR}.ExternalDataJob")
-    def test_post_load_sees_the_history_table_after_finalize(
+    def test_final_batch_finalizes_the_history_table_before_post_load(
         self,
-        case: str,
+        _name: str,
         earlier_batch_unloaded: bool,
         mock_job_model: MagicMock,
         mock_post_load: AsyncMock,
         _analytics: MagicMock,
         _complete: MagicMock,
         mock_unfinished: MagicMock,
+    ) -> None:
+        def finalize(signal: MagicMock, ref: DeltaTableRef, batch: pa.Table) -> None:
+            batch_schema = HogQLSchema()
+            batch_schema.add_pyarrow_table(batch)
+            _finalize_run(
+                signal,
+                job=MagicMock(),
+                schema=MagicMock(),
+                delta_table_ref=ref,
+                internal_schema=batch_schema,
+                verify_ownership=None,
+            )
+
+        self._assert_post_load_sees_the_history_table(finalize, earlier_batch_unloaded, mock_unfinished, mock_post_load)
+
+    @parameterized.expand([("after_every_batch_loaded", False), ("after_an_unloaded_batch", True)])
+    @patch(f"{_PROCESSOR}.BatchQueue.get_unfinished_earlier_batches_sync")
+    @patch(f"{_PROCESSOR}._complete_run")
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value=_POST_LOAD_RESULT)
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    def test_redelivered_final_batch_finalizes_the_history_table_before_post_load(
+        self,
+        _name: str,
+        earlier_batch_unloaded: bool,
+        mock_job_model: MagicMock,
+        mock_post_load: AsyncMock,
+        _analytics: MagicMock,
+        _complete: MagicMock,
+        mock_unfinished: MagicMock,
+    ) -> None:
+        mock_job_model.objects.prefetch_related.return_value.aget = AsyncMock(return_value=MagicMock())
+
+        self._assert_post_load_sees_the_history_table(
+            lambda signal, _ref, _batch: _run_post_load_for_already_processed_batch(signal),
+            earlier_batch_unloaded,
+            mock_unfinished,
+            mock_post_load,
+        )
+
+    def _assert_post_load_sees_the_history_table(
+        self,
+        complete: Callable[[MagicMock, DeltaTableRef, pa.Table], object],
+        earlier_batch_unloaded: bool,
+        mock_unfinished: MagicMock,
+        mock_post_load: AsyncMock,
     ) -> None:
         mock_unfinished.return_value = MagicMock(count=int(earlier_batch_unloaded), states=["failed"])
         ts = pa.timestamp("us", tz="UTC")
@@ -873,20 +912,7 @@ class TestHistoryLaneFinalBatch:
                     batch_index=0,
                 )
                 with pytest.raises(IncompleteRunError) if earlier_batch_unloaded else nullcontext():
-                    if case.startswith("final_batch"):
-                        batch_schema = HogQLSchema()
-                        batch_schema.add_pyarrow_table(batch)
-                        _finalize_run(
-                            signal,
-                            job=MagicMock(),
-                            schema=MagicMock(),
-                            delta_table_ref=ref,
-                            internal_schema=batch_schema,
-                            verify_ownership=None,
-                        )
-                    else:
-                        mock_job_model.objects.prefetch_related.return_value.aget = AsyncMock(return_value=MagicMock())
-                        _run_post_load_for_already_processed_batch(signal)
+                    complete(signal, ref, batch)
                 history_written = Path(f"{root}/orders_history").exists()
 
         if earlier_batch_unloaded:

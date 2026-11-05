@@ -33,8 +33,8 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCReservedColumnError
 from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import (
     HistoryTableNameTakenError,
-    history_table_name,
     incremental_history_naming,
+    registered_stamped_history_table,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import SCD2_APPEND_MODE
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import resolve_primary_keys
@@ -157,15 +157,8 @@ def registered_history_columns(
 
 
 def incremental_history_table(schema: ExternalDataSchema) -> DataWarehouseTable | None:
-    """The registered history table of an incremental schema that keeps history, or None."""
-    if not schema.is_incremental:
-        return None
-    name = history_table_name(schema)
-    if name is None:
-        return None
-    return DataWarehouseTable.objects.filter(
-        team_id=schema.team_id, external_data_source_id=schema.source_id, name=name, deleted=False
-    ).first()
+    """The registered `_history` table of a schema that doesn't sync with CDC, also after it stopped keeping history."""
+    return None if schema.is_cdc else registered_stamped_history_table(schema)
 
 
 def stages_history(cdc_write_mode: str | None, sync_type: str | None) -> bool:

@@ -995,7 +995,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         choices=["consolidated", "cdc_only", "both"],
         required=False,
         allow_null=True,
-        help_text="For CDC syncs: consolidated, cdc_only, or both.",
+        help_text="For CDC and incremental syncs: consolidated, cdc_only, or both.",
     )
     incremental_sync_blocked = serializers.ChoiceField(
         choices=IncrementalSyncBlockedReason.choices,
@@ -1540,17 +1540,21 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     )
 
         masked_columns_changed = _validate_masked_columns(instance, validated_data, data)
-        # The rebuild a mask change starts leaves a registered history table as it is, also after the schema
+        # The rebuild a new mask starts leaves a registered history table as it is, also after the schema
         # stopped writing it, so the earlier values would stay readable there. Only a CDC table that keeps
-        # history reseeds that table from its new snapshot.
+        # history reseeds that table from its new snapshot. Removing a mask leaks nothing.
+        stored_masks = {fold_column_name(column) for column in instance.masked_columns or []}
+        adds_a_mask = masked_columns_changed and any(
+            fold_column_name(column) not in stored_masks for column in validated_data.get("masked_columns") or []
+        )
         if (
-            masked_columns_changed
+            adds_a_mask
             and not (instance.is_cdc and history_mode_before is not None)
             and registered_history_naming(instance) is not None
         ):
             raise ValidationError(
-                "This table has a history table that keeps the past values of its columns, and masking "
-                "can't change them, so its columns can't be masked."
+                "This table has a history table that keeps the past values of its columns. A new mask can't "
+                "hide those values, so the column can't be masked."
             )
 
         # Validate against the schema's columns; raw filters are persisted as-is and re-coerced at sync time.
@@ -2064,7 +2068,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             # (reset to None or re-enabling a column) is deferred to the next sync — Delta may
             # not contain the column yet, so exposing it now would surface all-NULL queries.
             tables = [instance.table]
-            history_table = incremental_history_table(instance) if instance.keeps_history else None
+            # A history table stays queryable after the schema stops writing it, so unselected columns are hidden there too.
+            history_table = incremental_history_table(instance)
             if history_table is not None and history_table.id != instance.table.id:
                 tables.append(history_table)
             for table in tables:
@@ -2072,7 +2077,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 # A history table also carries its validity and partition columns, which no source column selects.
                 project = (
                     registered_history_columns
-                    if instance.is_incremental and table.is_history_table
+                    if history_table is not None and table.id == history_table.id
                     else _filter_dwh_columns_by_enabled_columns
                 )
                 projected_columns = project(
@@ -3194,7 +3199,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "append_available": schema.supports_append,
             "cdc_available": cdc_available,
             "xmin_available": xmin_available,
-            "incremental_history_available": is_incremental_history_enabled_for_team(self.team),
+            "incremental_history_available": is_incremental_history_enabled_for_team(self.team)
+            and source_impl.supports_incremental_history,
             "full_refresh_available": not schema.webhook_only,
             "supports_webhooks": schema.supports_webhooks,
             "webhook_only": schema.webhook_only,
