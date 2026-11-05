@@ -156,6 +156,7 @@ APIScopeObject = Literal[
     "wizard_session",
     "wizard_run",
     "workload_trust_policy",
+    "workload_trust_policy_request",
 ]
 
 
