@@ -52,7 +52,7 @@ A long SES outage or a blocked endpoint stays `transient` on every read, so an a
 The sending tier leaves `email_sandbox_sent` out of its volume and its rate denominators, and the sending allowance leaves it out too, also after the sandbox settings are cleared.
 The worker records each sandbox send's `email_sandbox_sent` in the same batch and workflow as its `email_sent`. Both readers keep the raw cutoff they used before for `email_sent`, so a team without sandbox sends gets the same numbers as before.
 The metrics table keeps one arbitrary timestamp per merged hour, so a cutoff inside an hour can split a send from its pair.
-The tier reads `email_sandbox_sent` over the whole clock hour at each bound and subtracts it per workflow and hour, floored at zero, so a split pair cancels no other sends.
+Per workflow and clock hour, the tier counts the smaller of the `email_sent` inside the window and the hour's `email_sent` minus its `email_sandbox_sent`, so a split pair cancels no other sends.
 The allowance subtracts per workflow over the window, floored at zero, so a split pair can only lower that workflow's count.
 Bounces and complaints of sandbox sends still count, so the exclusion can only raise a rate.
 
