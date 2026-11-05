@@ -44,7 +44,11 @@ export function InboxSetupGithubStep(): JSX.Element {
                     />
                 )}
             </GuidedWizardSection>
-            {!hasGithubIntegration && <InboxGithubAccessExplanation />}
+            {!hasGithubIntegration && (
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 empty:hidden">
+                    <InboxGithubAccessExplanation />
+                </div>
+            )}
             {featureFlags[FEATURE_FLAGS.SELF_DRIVING_UBP] && <InboxSetupImplementation />}
         </>
     )
