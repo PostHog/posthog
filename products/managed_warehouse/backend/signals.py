@@ -6,8 +6,9 @@ a managed warehouse. ``member_teams`` reads the committed state when the push ru
 - An organization membership is created, changed (its level) or deleted: that member.
 - A user is deactivated: that user, in each of their organizations.
 - A role membership is created or deleted: that member.
-- A project is created, deleted or moved to another organization, or an access rule on the
-  project or on warehouse data changes: every member of the organization (both, for a move).
+- A project is created, deleted or moved to another organization, an access rule on the
+  project, on warehouse data or on a property changes, or the organization switches its access
+  resolution: every member of the organization (both, for a move).
 
 Access rules and role memberships arrive through the access_control facade, as ids.
 """
@@ -20,7 +21,7 @@ from uuid import UUID
 from django.db import transaction
 from django.db.models.signals import post_delete, post_save, pre_delete, pre_save
 
-from posthog.models import OrganizationMembership, Team, User
+from posthog.models import Organization, OrganizationMembership, Team, User
 
 from products.managed_warehouse.backend import member_teams
 
@@ -105,6 +106,14 @@ def team_saving(sender: Any, instance: Team, update_fields: Any = None, **kwargs
         _on_commit_organization(instance.organization_id)
 
 
+def organization_saved(sender: Any, instance: Organization, update_fields: Any = None, **kwargs: Any) -> None:
+    # Switching to most-specific resolution can hide an object that a role used to show. The
+    # endpoint that switches one organization names the field. The batch migration switches only
+    # organizations whose rules resolve the same either way, so it needs no push.
+    if update_fields is not None and "uses_most_specific_access_resolution" in update_fields:
+        _on_commit_organization(instance.id)
+
+
 def team_deleted(sender: Any, instance: Team, **kwargs: Any) -> None:
     _on_commit_organization(instance.organization_id)
 
@@ -130,6 +139,7 @@ def connect() -> None:
     pre_save.connect(team_saving, sender=Team, dispatch_uid=f"{uid}_team_saving")
     post_save.connect(team_saved, sender=Team, dispatch_uid=f"{uid}_team_saved")
     post_delete.connect(team_deleted, sender=Team, dispatch_uid=f"{uid}_team_deleted")
+    post_save.connect(organization_saved, sender=Organization, dispatch_uid=f"{uid}_organization_saved")
     connect_access_change_receivers(
         on_rule_change=access_rule_changed,
         on_role_membership_change=role_membership_changed,

@@ -146,11 +146,14 @@ class TestMemberTeams(_MemberTeamsTest):
         self._role_editor_and_member_denied_on_one_table()
         assert member_teams.member_teams(self.organization, self.member) == {self.team.id: "write"}
 
-    def test_an_object_default_viewer_lowers_write_to_read_under_most_specific(self) -> None:
-        self.organization.uses_most_specific_access_resolution = True
-        self.organization.save()
-        self._rule(self.team, "warehouse_table", "viewer", resource_id=str(uuid4()))
-        assert member_teams.member_teams(self.organization, self.member) == {self.team.id: "read"}
+    def test_an_object_default_viewer_lowers_write_to_read_in_both_modes(self) -> None:
+        # Both resolutions give the member viewer on that view when no resource rule outranks it.
+        for most_specific in (True, False):
+            self.organization.uses_most_specific_access_resolution = most_specific
+            self.organization.save()
+            team = Team.objects.create(organization=self.organization, name=f"most specific {most_specific}")
+            self._rule(team, "warehouse_view", "viewer", resource_id=str(uuid4()))
+            assert member_teams.member_teams(self.organization, self.member)[team.id] == "read", most_specific
 
     def test_a_hidden_property_withholds_the_team(self) -> None:
         # The namespace holds raw property values, so a member who may not see one gets nothing.
@@ -315,6 +318,20 @@ class TestReceivers(_MemberTeamsTest):
         with self.captureOnCommitCallbacks(execute=True):
             access_testing.delete_property_access_control_rule(team_id=self.team.id, property_access_control_id=rule_id)
         self.org_push.assert_called_once_with(str(self.organization.id))
+
+    def test_switching_to_most_specific_resolution_pushes_the_organization(self) -> None:
+        self.organization.uses_most_specific_access_resolution = False
+        self.organization.save()
+        self.org_push.reset_mock()
+        with self.captureOnCommitCallbacks(execute=True):
+            self.organization.uses_most_specific_access_resolution = True
+            self.organization.save(update_fields=["uses_most_specific_access_resolution", "updated_at"])
+        self.org_push.assert_called_once_with(str(self.organization.id))
+        self.org_push.reset_mock()
+        with self.captureOnCommitCallbacks(execute=True):
+            self.organization.name = "renamed"
+            self.organization.save(update_fields=["name"])
+        self.org_push.assert_not_called()
 
     def test_other_rules_push_nothing(self) -> None:
         with self.captureOnCommitCallbacks(execute=True):

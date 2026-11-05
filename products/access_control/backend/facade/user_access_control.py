@@ -1313,39 +1313,37 @@ class UserAccessControl:
         return False
 
     def lowest_object_access_level(self, resources: Iterable[APIScopeObject]) -> Optional[AccessControlLevel]:
-        """The lowest level that an object rule gives this user, across every object of ``resources``.
+        """The lowest level this user has on any object of ``resources`` that has an access rule.
 
         For a caller that grants a whole resource type at once and so cannot honor a restriction on one
-        object: it must not grant more than this. Each object is decided as the list filter
-        (``_blocked_and_allowed_object_ids``) decides it in the organization's resolution mode. Most
-        specific: the object's resolved level, so a member row beats a role row. Legacy: an explicit
-        (member or role) row decides, and without one only a default "none" restricts, because a higher
-        object default loses to the resource rule. ``None`` means no object rule restricts the user.
-        This includes org admins, who bypass object rules.
+        object: it must not grant more than this. Each object goes through the enforced object
+        resolution (``_resolved_access_for_target``), so the answer follows the organization's
+        resolution mode and its default, role and member rules exactly as PostHog applies them. An
+        object without a rule resolves to the resource level, which the caller reads on its own.
+        ``None`` means no object restricts the user. This includes org admins, who bypass object rules.
 
-        It ignores the creator exemption, so a creator can get a lower level than they have.
+        Two inputs are left out, and both can only lower the answer: the creator exemption (no
+        creator is passed), and a table's fallback to its source (the source's own rules count as
+        objects of their resource, when the caller passes ``external_data_source``).
         """
         if not self._organization_membership or self.is_organization_admin:
             return None
         lowest: Optional[AccessControlLevel] = None
         for resource in resources:
             order = ordered_access_levels(resource)
-            rows_by_object_id: dict[str, list[_AccessControl]] = defaultdict(list)
-            for access_control in self._get_access_controls(self._access_controls_filters_for_queryset(resource)):
-                rows_by_object_id[access_control.resource_id].append(access_control)
-            most_specific = bool(rows_by_object_id) and self._is_most_specific_access_control_enabled
-            resource_access = self._most_specific_access_without_object_rules(resource, None) if most_specific else None
-            for rows in rows_by_object_id.values():
-                if most_specific:
-                    level = self._most_specific_object_access_from_rows(
-                        resource, rows, resource_access=resource_access
-                    ).access_level
-                else:
-                    row = self._object_rows_decision(resource, rows)
-                    explicit = row.role_id is not None or row.organization_member_id is not None
-                    if not explicit and row.access_level != NO_ACCESS_LEVEL:
-                        continue
-                    level = cast(AccessControlLevel, row.access_level)
+            object_ids = {
+                access_control.resource_id
+                for access_control in self._get_access_controls(self._access_controls_filters_for_queryset(resource))
+            }
+            for object_id in sorted(object_ids):
+                resolved = self._resolved_access_for_target(
+                    _ObjectAccessTarget(
+                        resource=resource, object_id=object_id, created_by_id=None, fallback_parent_id=None
+                    )
+                )
+                level = cast(AccessControlLevel, resolved.access_level if resolved else NO_ACCESS_LEVEL)
+                if level not in order:
+                    level = cast(AccessControlLevel, NO_ACCESS_LEVEL)
                 if lowest is None or order.index(level) < order.index(lowest):
                     lowest = level
         return lowest
