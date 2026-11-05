@@ -179,7 +179,7 @@ class TestSignedOutSessionReason(SimpleTestCase):
         if has_cookie:
             request.COOKIES[settings.SESSION_COOKIE_NAME] = "a-session-key"
         session = SessionStore()
-        session._session_cache = session_data
+        session.__dict__["_session_cache"] = session_data
         session.loaded_row = Session() if store_found_row else None
         request.session = session
 
