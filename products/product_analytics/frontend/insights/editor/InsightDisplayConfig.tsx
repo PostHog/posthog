@@ -180,7 +180,7 @@ export function InsightDisplayConfig({ chartTypeControl }: { chartTypeControl?: 
                         <QuillFunnelVizType insightProps={insightProps} disabledReason={editingDisabledReason} />
                     </ConfigFilter>
                 )}
-                {!!isStepsFunnel && (
+                {!!isStepsFunnel && !todayRailNav && (
                     <ConfigFilter>
                         <FunnelDisplayLayoutPicker />
                     </ConfigFilter>
