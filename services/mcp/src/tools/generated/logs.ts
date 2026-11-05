@@ -722,6 +722,29 @@ const logsGroupBy = (): ToolBase<ReturnType<typeof LogsGroupBySchema>, Schemas._
     },
 })
 
+const LogsImpactSchema = () => {
+    const LogsImpactCreateBody = orvalSchemas.LogsImpactCreateBody()
+    return LogsImpactCreateBody
+}
+
+const logsImpact = (): ToolBase<ReturnType<typeof LogsImpactSchema>, Schemas._LogsImpactResponse> => ({
+    name: 'logs-impact',
+    schema: LogsImpactSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LogsImpactSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        const result = await context.api.request<Schemas._LogsImpactResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/impact/`,
+            body,
+        })
+        return result
+    },
+})
+
 const LogsPatternsSchema = () => {
     const LogsPatternsCreateBody = orvalSchemas.LogsPatternsCreateBody()
     return LogsPatternsCreateBody
@@ -902,6 +925,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'logs-count-ranges': logsCountRanges,
     'logs-facet-values-create': logsFacetValuesCreate,
     'logs-group-by': logsGroupBy,
+    'logs-impact': logsImpact,
     'logs-patterns': logsPatterns,
     'logs-patterns-diff': logsPatternsDiff,
     'logs-services-create': logsServicesCreate,
