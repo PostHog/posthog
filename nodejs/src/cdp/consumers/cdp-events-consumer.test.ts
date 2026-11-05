@@ -36,6 +36,7 @@ import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { currentRuntimeContractHash } from '../utils/filter-runtime'
 import { CdpEventsConsumer } from './cdp-events.consumer'
+import { counterUnmatchedEventName, counterUnmatchedEventNameInvoked } from './metrics'
 
 jest.setTimeout(1000)
 
@@ -924,13 +925,29 @@ describe('CdpEventsConsumer', () => {
                         }),
                         createIncomingEvent(team.id, { event: '$autocapture' }),
                         createIncomingEvent(team.id, { event: 'signed_up' }),
-                        createIncomingEvent(team.id, { event: '$push_notification_opened' }),
+                        createIncomingEvent(team.id, {
+                            event: '$push_notification_opened',
+                            properties: JSON.stringify({
+                                $notification_workflow_id: hogFlow.id,
+                                $notification_action_id: 'push_step_1',
+                            }),
+                        }),
                     ]
-
+                    const counted = async () => ({
+                        unmatched: Object.fromEntries(
+                            (await counterUnmatchedEventName.get()).values.map(({ labels, value }) => [
+                                String(labels.skipped),
+                                value,
+                            ])
+                        ),
+                        invoked: (await counterUnmatchedEventNameInvoked.get()).values[0]?.value ?? 0,
+                    })
                     const outcome = async (skip: boolean) => {
                         hub.CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES = skip
                         mockQueueInvocations.mockClear()
                         mockProducerObserver.resetKafkaProducer()
+                        counterUnmatchedEventName.reset()
+                        counterUnmatchedEventNameInvoked.reset()
                         await handleBatch(events.map(withHeaders))
                         const queued = mockQueueInvocations.mock.calls.flatMap(([invocations]: any[]) => invocations)
                         return {
@@ -947,7 +964,11 @@ describe('CdpEventsConsumer', () => {
                     const parsed = await outcome(false)
                     expect(parsed.invocations).toHaveLength(4)
                     expect(parsed.metrics).toContain(`${pageviewFunction.id} filtered 3`)
+                    expect(parsed.metrics).toContain(`${hogFlow.id} push_opened 1`)
+                    expect(await counted()).toEqual({ unmatched: { false: 1 }, invoked: 0 })
+
                     expect(await outcome(true)).toEqual(parsed)
+                    expect(await counted()).toEqual({ unmatched: { true: 1 }, invoked: 0 })
                 })
             })
 

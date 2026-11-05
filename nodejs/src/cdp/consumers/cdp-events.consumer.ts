@@ -18,11 +18,11 @@ import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { EventNameGate, buildEventNameGate, runsOnEvents, triggersOnEvents } from './event-name-gate'
 import { parseBatch, readEventNameHeader, readTeamIdHeader } from './message-parsing'
 import {
-    counterEventNameHeaderMismatch,
     counterParseError,
     counterTeamIdHeaderMismatch,
     counterTeamIdSource,
     counterUnmatchedEventName,
+    counterUnmatchedEventNameInvoked,
 } from './metrics'
 import { PUSH_NOTIFICATION_OPENED_EVENT, buildPushOpenedMetric } from './push-open-tracking'
 
@@ -45,6 +45,8 @@ export class CdpEventsConsumer<
     private deadLetterService: CdpDeadLetterService
     /** The message each set of globals was built from, so a failure can find its bytes. */
     private messageByGlobals = new WeakMap<HogFunctionInvocationGlobals, Message>()
+    // Events the name gate rejected while the skip is off, for the check after the build.
+    private rejectedByName = new WeakSet<HogFunctionInvocationGlobals>()
 
     constructor(
         config: TConfig,
@@ -120,6 +122,10 @@ export class CdpEventsConsumer<
         ])
         const hogInvocations = hogBuild.invocations
         const hogflowInvocations = hogflowBuild.invocations
+        this.countInvokedAfterNameRejection(invocationGlobals, [
+            ...hogInvocations.map((invocation) => invocation.state.globals.event.uuid),
+            ...hogflowInvocations.flatMap((invocation) => invocation.state?.event.uuid ?? []),
+        ])
 
         const invocationsToBeQueued = [...hogInvocations, ...hogflowInvocations]
 
@@ -207,13 +213,30 @@ export class CdpEventsConsumer<
         }
     }
 
+    /**
+     * While the skip is off, an event the gate rejects is still parsed. One that a destination or workflow
+     * then invokes is a wrong rejection, which the skip would have dropped.
+     */
+    private countInvokedAfterNameRejection(globalsList: HogFunctionInvocationGlobals[], invokedUuids: string[]): void {
+        const rejected = new Set(globalsList.filter((g) => this.rejectedByName.has(g)).map((g) => g.event.uuid))
+        if (!rejected.size) {
+            return
+        }
+        const invoked = new Set(invokedUuids.filter((uuid) => rejected.has(uuid)))
+        counterUnmatchedEventNameInvoked.inc(invoked.size)
+    }
+
     @instrumented('cdpConsumer.handleEachBatch.parseKafkaMessages')
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
         const park =
             (step: 'parse' | 'lookup') =>
             (message: Message, error: string): boolean =>
                 this.deadLetterService.recordMessageFailure(message, { step, error })
-        return await parseBatch<TeamWithEventNameGate>(messages, {
+        const skip = this.config.CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES
+        const gates = new Map<number, EventNameGate>()
+        // Queued once the whole batch parsed, so a batch read again after a failed lookup records them once.
+        const skippedMetrics: EventNameGate[] = []
+        const globals = await parseBatch<TeamWithEventNameGate>(messages, {
             errorLog: 'Error parsing message',
             parse: (message) => {
                 const parseEvent = (): RawClickHouseEvent => {
@@ -240,8 +263,13 @@ export class CdpEventsConsumer<
                     return {
                         teamId: headerTeamId,
                         toGlobals: ({ team, gate }) => {
-                            if (headerEventName !== null && !gate.admits(headerEventName) && this.skipUnmatched(gate)) {
-                                return null
+                            const rejected = headerEventName !== null && !gate.admits(headerEventName)
+                            if (rejected) {
+                                counterUnmatchedEventName.labels({ skipped: String(skip) }).inc()
+                                if (skip) {
+                                    skippedMetrics.push(gate)
+                                    return null
+                                }
                             }
                             const clickHouseEvent = parseEvent()
                             if (clickHouseEvent.team_id !== headerTeamId) {
@@ -251,10 +279,11 @@ export class CdpEventsConsumer<
                                 counterTeamIdHeaderMismatch.inc()
                                 throw new Error('team_id_header_mismatch')
                             }
-                            if (headerEventName !== null && clickHouseEvent.event !== headerEventName) {
-                                counterEventNameHeaderMismatch.inc()
+                            const globals = buildGlobals(team, clickHouseEvent)
+                            if (rejected) {
+                                this.rejectedByName.add(globals)
                             }
-                            return buildGlobals(team, clickHouseEvent)
+                            return globals
                         },
                     }
                 }
@@ -266,7 +295,7 @@ export class CdpEventsConsumer<
                     toGlobals: ({ team }) => buildGlobals(team, clickHouseEvent),
                 }
             },
-            loadTeam: (teamId) => this.loadTeamWithEventNameGate(teamId),
+            loadTeam: (teamId) => this.loadTeamWithEventNameGate(teamId, gates),
             onInvalidTeamId: () => counterParseError.labels({ error: 'invalid_team_id' }).inc(),
             // Parked rather than dropped: a schema we cannot read today is often one a later
             // version can.
@@ -278,32 +307,36 @@ export class CdpEventsConsumer<
             // the dead-letter circuit breaker, which also fails the batch.
             parkLookupError: park('lookup'),
         })
-    }
-
-    private async loadTeamWithEventNameGate(teamId: number): Promise<TeamWithEventNameGate | null> {
-        const work = await this.loadTeamWork(teamId, this.hogTypes)
-        if (!work) {
-            return null
-        }
-        const gate = buildEventNameGate({
-            hogFunctions: work.hogFunctions,
-            hogFlows: work.hogFlows,
-            // Push open tracking reads these for any team with a flow, whatever the flows' filters.
-            alsoAdmitted: work.hogFlows.length ? [PUSH_NOTIFICATION_OPENED_EVENT] : [],
-        })
-        return { team: work.team, gate }
-    }
-
-    /** Counts an event no source admits by name, and skips it when the switch is on. */
-    private skipUnmatched(gate: EventNameGate): boolean {
-        const skipped = this.config.CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES
-        counterUnmatchedEventName.labels({ skipped: String(skipped) }).inc()
-        if (skipped) {
+        for (const gate of skippedMetrics) {
             const { hogFunctions, hogFlows } = gate.filteredMetrics()
             this.hogFunctionMonitoringService.queueAppMetrics(hogFunctions, 'hog_function')
             this.hogFunctionMonitoringService.queueAppMetrics(hogFlows, 'hog_flow')
         }
-        return skipped
+        return globals
+    }
+
+    /**
+     * Looks the team up for every message, so a failed lookup parks only its own message, and builds the
+     * gate once per team in a batch.
+     */
+    private async loadTeamWithEventNameGate(
+        teamId: number,
+        gates: Map<number, EventNameGate>
+    ): Promise<TeamWithEventNameGate | null> {
+        const work = await this.loadTeamWork(teamId, this.hogTypes)
+        if (!work) {
+            return null
+        }
+        const gate =
+            gates.get(teamId) ??
+            buildEventNameGate({
+                hogFunctions: work.hogFunctions,
+                hogFlows: work.hogFlows,
+                // Push open tracking reads these for any team with a flow, whatever the flows' filters.
+                alsoAdmitted: work.hogFlows.length ? [PUSH_NOTIFICATION_OPENED_EVENT] : [],
+            })
+        gates.set(teamId, gate)
+        return { team: work.team, gate }
     }
 
     protected async startQueueProducers(): Promise<void> {

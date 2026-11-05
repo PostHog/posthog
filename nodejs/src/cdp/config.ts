@@ -56,8 +56,8 @@ export type CdpConfig = ClickhouseConfig & {
 
     CDP_EVENTS_CONSUMER_TOPIC: string
     CDP_EVENTS_CONSUMER_GROUP_ID: string
-    // Off until the event name header is on every produced event and the skip counter matches the
-    // filtered metrics it replaces.
+    // Off until every produced event carries the event name header and
+    // cdp_events_unmatched_event_name_invoked stays at zero.
     CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES: boolean
     CDP_HOGFLOW_SUBSCRIPTION_MATCHER_REALTIME_ONLY_EVENTS_TOPIC: string
 

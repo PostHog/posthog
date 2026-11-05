@@ -1,6 +1,6 @@
 import { HogFlow } from '../schema/hogflow'
 import { HogFunctionType, MinimalAppMetric } from '../types'
-import { eventNamePassesPreFilter, preFiltersOnEventName } from '../utils/hog-function-filtering'
+import { filteredMetric, rejectsEventName } from '../utils/hog-function-filtering'
 
 export const runsOnEvents = (fn: HogFunctionType): boolean => (fn.filters?.source ?? 'events') === 'events'
 
@@ -13,14 +13,6 @@ export type EventNameGate = {
     /** The metrics the pre-filter records for an event no source admits, so skipping it records the same. */
     filteredMetrics: () => { hogFunctions: MinimalAppMetric[]; hogFlows: MinimalAppMetric[] }
 }
-
-const filtered = (teamId: number, sourceId: string): MinimalAppMetric => ({
-    team_id: teamId,
-    app_source_id: sourceId,
-    metric_kind: 'other',
-    metric_name: 'filtered',
-    count: 1,
-})
 
 /**
  * Decides from the event name alone whether any event destination or event-triggered flow of a team
@@ -41,12 +33,11 @@ export function buildEventNameGate({
 
     return {
         admits: (eventName) =>
-            alsoAdmitted.includes(eventName) ||
-            filters.some((filter) => !preFiltersOnEventName(filter) || eventNamePassesPreFilter(filter, eventName)),
+            alsoAdmitted.includes(eventName) || filters.some((filter) => !rejectsEventName(filter, eventName)),
         filteredMetrics: () => ({
-            hogFunctions: eventFunctions.map((fn) => filtered(fn.team_id, fn.id)),
+            hogFunctions: eventFunctions.map(filteredMetric),
             hogFlows: eventFlows.map((flow) => ({
-                ...filtered(flow.team_id, flow.id),
+                ...filteredMetric(flow),
                 app_source_version: { id: flow.id, version: flow.version },
             })),
         }),

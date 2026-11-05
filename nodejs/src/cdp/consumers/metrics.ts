@@ -41,7 +41,7 @@ export const counterUnmatchedEventName = new Counter({
     labelNames: ['skipped'],
 })
 
-export const counterEventNameHeaderMismatch = new Counter({
-    name: 'cdp_events_event_name_header_mismatch',
-    help: 'An event body named a different event than its header. The consumer uses the body, but a skip on that header may have dropped an event a destination wanted.',
+export const counterUnmatchedEventNameInvoked = new Counter({
+    name: 'cdp_events_unmatched_event_name_invoked',
+    help: 'Events the name gate rejected that a destination or workflow still invoked once parsed. Counted while CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES is off. Each one is an event the skip would drop, so it must stay at zero before the switch goes on.',
 })
