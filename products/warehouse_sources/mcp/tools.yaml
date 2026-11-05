@@ -43,17 +43,22 @@ tools:
         title: Set up a data warehouse source (one step)
         description: >
             Reach for this the moment a user wants to analyze data PostHog doesn't store — Stripe revenue, Hubspot or
-            Salesforce CRM, Zendesk tickets, Shopify orders, or their own Postgres/MySQL/BigQuery/Snowflake database.
+            Salesforce CRM, Zendesk tickets, Shopify orders, their own database, or files in an Amazon S3, Google
+            Cloud Storage, Azure Blob, or Cloudflare R2 bucket. Use source_type AmazonS3, GoogleCloudStorage,
+            AzureBlob, or CloudflareR2 for bucket files. For a local file, ask the user to upload it in the PostHog
+            app. That flow creates a FileUpload source; no MCP tool uploads files.
             Connect an external data source and start importing it into queryable warehouse tables in a single call.
             Validates credentials, discovers all available tables, enables them with sensible sync defaults (incremental
-            where supported to keep ongoing cost low), and creates the source — no 'schemas' array required. For
-            webhook-capable sources (e.g. Stripe) a webhook is auto-registered after creation: check the 'webhook' key
+            where supported to keep ongoing cost low), and creates the source. No 'schemas' array is required. Bucket
+            sources use full_refresh by default. For webhook-capable sources (e.g. Stripe), a webhook is auto-registered
+            after creation: check the 'webhook' key
             in the response — on success webhook-capable tables sync in real time (including webhook-only tables like
             Stripe Discount); on failure (e.g. the API key can't create webhooks) tables keep the polling defaults and
             webhook-only tables stay disabled. If 'webhook.pending_inputs' is non-empty, ask the user for those values
             and submit them via 'external-data-sources-update-webhook-inputs-create'. Use this for revenue (Stripe), CRM
-            (Hubspot, Salesforce), support tickets (Zendesk), e-commerce (Shopify), and your own databases (Postgres,
-            MySQL, BigQuery, Snowflake). Discover required credential fields per source_type with
+            (Hubspot, Salesforce), support tickets (Zendesk), e-commerce (Shopify), your own databases (Postgres,
+            MySQL, BigQuery, Snowflake), and bucket files (AmazonS3, GoogleCloudStorage, AzureBlob, CloudflareR2).
+            Discover required credential fields per source_type with
             'external-data-sources-wizard'. Prefer references over raw secrets in the payload: pass {'credential_id':
             '<uuid>'} referencing the connection details the user stored via the 'data-warehouse-source-connect-link'
             page (discover ids with 'data-warehouse-stored-credentials-list'); stored credentials are deleted once the
@@ -157,8 +162,10 @@ tools:
         list: true
         title: List data warehouse table schemas (imported tables)
         description: >
-            List all table schemas across all data warehouse sources. Each schema represents one table being synced from
-            an external source. Returns the schema name, sync status, sync frequency, incremental field configuration,
+            List all table schemas across all data warehouse sources. Each schema represents one table linked to an
+            external source. A migrated table with pending_self_managed_table=true and should_sync=false still reads
+            its original bucket. Its first sync imports the table. Read the syncing-migrated-self-managed-tables skill
+            before you turn syncing on. Returns the schema name, sync status, sync frequency, incremental field configuration,
             last_synced_at, and latest error. Use this to see which tables are actively syncing and their health. To
             check one table's freshness, pass `search` with the table/schema name to narrow to that schema. Column
             definitions are omitted here — use external-data-schemas-retrieve for a single schema's columns. When a
@@ -318,7 +325,8 @@ tools:
             primary_key_columns. Build the entries from the rows returned by 'external-data-sources-db-schema' first.
             Omit 'schemas' entirely and every discovered table syncs with default settings. Sources back queryable
             warehouse tables for revenue (Stripe), CRM (Hubspot, Salesforce), support (Zendesk), and your own databases
-            (Postgres, MySQL, BigQuery).
+            (Postgres, MySQL, BigQuery) or bucket files (AmazonS3, GoogleCloudStorage, AzureBlob, CloudflareR2).
+            For a local file, direct the user to upload it in the PostHog app. The upload creates a FileUpload source.
         exclude_params:
             - client_secret
             - account_id
@@ -575,15 +583,18 @@ tools:
         description: >
             Use this whenever the user needs data PostHog doesn't capture natively — revenue and payments (Stripe,
             Chargebee), CRM contacts and deals (Hubspot, Salesforce), support tickets (Zendesk), e-commerce orders
-            (Shopify), ad spend, or their own application/production database (Postgres, MySQL, BigQuery, Snowflake) —
-            or when a HogQL query fails because the table doesn't exist yet. Importing turns that data into queryable
+            (Shopify), ad spend, their own database (Postgres, MySQL, BigQuery, Snowflake), or files in an Amazon S3,
+            Google Cloud Storage, Azure Blob, or Cloudflare R2 bucket. Use it when a HogQL query fails because the
+            table doesn't exist yet. Importing turns that data into queryable
             warehouse tables you can JOIN against product events. Returns the configuration metadata for every supported
             source type: the required fields (host, port, database, credentials, etc.), field types, and OAuth flows, so
             you know what a connection needs. ALWAYS pass 'source_type' with the specific kind(s) you need
             (comma-separated, e.g. 'Postgres,Stripe') — the unfiltered response describes every source and is very large
             (hundreds of KB). Only omit 'source_type' if you genuinely need to enumerate every available type — and when
             enumerating, pass fields: ['*.name', '*.caption'] to skip the large per-source field definitions. To
-            actually connect a source, prefer 'data-warehouse-source-setup'.
+            actually connect a bucket source, use source_type AmazonS3, GoogleCloudStorage, AzureBlob, or CloudflareR2
+            with 'data-warehouse-source-setup'. For a local file, direct the user to upload it in the PostHog app.
+            That flow creates a FileUpload source; no MCP tool uploads files.
         response:
             include:
                 - '*.name'
