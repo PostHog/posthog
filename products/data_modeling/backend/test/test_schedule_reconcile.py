@@ -628,6 +628,7 @@ class TestMaybeReconcileDag(BaseTest):
         [
             ("flag_raises", mock.Mock(side_effect=RuntimeError("flags down"))),
             ("bad_payload", _free_plan_floor({"min_interval": "soon"})),
+            ("floor_endpoints_cannot_meet", _free_plan_floor({"min_interval": "30day"})),
         ]
     )
     def test_unreadable_plan_floor_leaves_existing_schedules_alone(self, _name, flag):

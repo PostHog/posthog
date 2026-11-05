@@ -29,7 +29,11 @@ logger = structlog.get_logger(__name__)
 
 REFRESH_FLOOR_FLAG = "data-modeling-refresh-floor"
 
-_BUCKETS_BY_NAME = {format_cadence(bucket): bucket for bucket in SCHEDULABLE_BUCKETS} | {"24hour": timedelta(days=1)}
+# An endpoint's freshness stops at seven days, so a coarser floor would leave its materialization no cadence to pick.
+_COARSEST_FLOOR = timedelta(days=7)
+_BUCKETS_BY_NAME = {format_cadence(bucket): bucket for bucket in SCHEDULABLE_BUCKETS if bucket <= _COARSEST_FLOOR} | {
+    "24hour": timedelta(days=1)
+}
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
