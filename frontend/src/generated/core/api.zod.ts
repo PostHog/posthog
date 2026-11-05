@@ -1137,10 +1137,17 @@ export const ProjectSecretApiKeysPartialUpdateBody = /* @__PURE__ */ zod.object(
         ),
 })
 
+export const propertyDefinitionsUpdateBodyTagsItemMax = 255
+
 export const PropertyDefinitionsUpdateBody = /* @__PURE__ */ zod
     .object({
         description: zod.string().nullish(),
-        tags: zod.array(zod.unknown()).optional(),
+        tags: zod
+            .array(zod.string().max(propertyDefinitionsUpdateBodyTagsItemMax))
+            .optional()
+            .describe(
+                'Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.'
+            ),
         property_type: zod
             .union([
                 zod
@@ -1157,10 +1164,17 @@ export const PropertyDefinitionsUpdateBody = /* @__PURE__ */ zod
     })
     .describe('Serializer mixin that handles tags for objects.')
 
+export const propertyDefinitionsPartialUpdateBodyTagsItemMax = 255
+
 export const PropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         description: zod.string().nullish(),
-        tags: zod.array(zod.unknown()).optional(),
+        tags: zod
+            .array(zod.string().max(propertyDefinitionsPartialUpdateBodyTagsItemMax))
+            .optional()
+            .describe(
+                'Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.'
+            ),
         property_type: zod
             .union([
                 zod

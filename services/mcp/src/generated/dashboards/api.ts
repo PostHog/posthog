@@ -113,6 +113,8 @@ export const DashboardsCreateQueryParams = () => zod.object({
 export const dashboardsCreateBodyNameMax = 400
 
 export const dashboardsCreateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
+export const dashboardsCreateBodyTagsItemMax = 255
+
 export const dashboardsCreateBodyGroupsTitleMax = 200
 
 export const dashboardsCreateBodyDeleteInsightsDefault = false
@@ -163,7 +165,12 @@ export const DashboardsCreateBody = () => zod
                 "Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them."
             ),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
-        tags: zod.array(zod.unknown()).optional(),
+        tags: zod
+            .array(zod.string().max(dashboardsCreateBodyTagsItemMax))
+            .optional()
+            .describe(
+                'Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.'
+            ),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()

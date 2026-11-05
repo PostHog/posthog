@@ -9070,7 +9070,11 @@ export interface InsightApi {
      */
     description?: string | null
     readonly updated_at: string
-    tags?: unknown[]
+    /**
+     * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+     * @items.maxLength 255
+     */
+    tags?: string[]
     favorited?: boolean
     readonly last_modified_at: string
     readonly last_modified_by: UserBasicApi
@@ -9229,7 +9233,11 @@ export interface PatchedInsightApi {
      */
     description?: string | null
     readonly updated_at?: string
-    tags?: unknown[]
+    /**
+     * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+     * @items.maxLength 255
+     */
+    tags?: string[]
     favorited?: boolean
     readonly last_modified_at?: string
     readonly last_modified_by?: UserBasicApi
@@ -9760,7 +9768,11 @@ export interface TrendingInsightApi {
     /** @nullable */
     readonly last_refresh: string | null
     readonly refreshing: boolean
-    tags?: unknown[]
+    /**
+     * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+     * @items.maxLength 255
+     */
+    tags?: string[]
     readonly updated_at: string
     readonly created_by: UserBasicApi
     /** @nullable */

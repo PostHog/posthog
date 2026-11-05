@@ -11,6 +11,8 @@ import * as zod from 'zod'
 
 export const eventDefinitionsCreateBodyNameMax = 400
 
+export const eventDefinitionsCreateBodyTagsItemMax = 255
+
 export const eventDefinitionsCreateBodyPrimaryPropertyMax = 400
 
 export const eventDefinitionsCreateBodyPostToSlackDefault = false
@@ -20,7 +22,12 @@ export const EventDefinitionsCreateBody = /* @__PURE__ */ zod
         name: zod.string().max(eventDefinitionsCreateBodyNameMax),
         owner: zod.number().nullish().describe('ID of the user responsible for the event. Null removes the owner.'),
         description: zod.string().nullish(),
-        tags: zod.array(zod.unknown()).optional(),
+        tags: zod
+            .array(zod.string().max(eventDefinitionsCreateBodyTagsItemMax))
+            .optional()
+            .describe(
+                'Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.'
+            ),
         verified: zod.boolean().optional(),
         hidden: zod.boolean().nullish(),
         enforcement_mode: zod.enum(['allow', 'reject']).optional().describe('\* `allow` - Allow\n\* `reject` - Reject'),
@@ -38,6 +45,8 @@ export const EventDefinitionsCreateBody = /* @__PURE__ */ zod
 
 export const eventDefinitionsUpdateBodyNameMax = 400
 
+export const eventDefinitionsUpdateBodyTagsItemMax = 255
+
 export const eventDefinitionsUpdateBodyPrimaryPropertyMax = 400
 
 export const eventDefinitionsUpdateBodyPostToSlackDefault = false
@@ -47,7 +56,12 @@ export const EventDefinitionsUpdateBody = /* @__PURE__ */ zod
         name: zod.string().max(eventDefinitionsUpdateBodyNameMax),
         owner: zod.number().nullish().describe('ID of the user responsible for the event. Null removes the owner.'),
         description: zod.string().nullish(),
-        tags: zod.array(zod.unknown()).optional(),
+        tags: zod
+            .array(zod.string().max(eventDefinitionsUpdateBodyTagsItemMax))
+            .optional()
+            .describe(
+                'Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.'
+            ),
         verified: zod.boolean().optional(),
         hidden: zod.boolean().nullish(),
         enforcement_mode: zod.enum(['allow', 'reject']).optional().describe('\* `allow` - Allow\n\* `reject` - Reject'),
@@ -65,6 +79,8 @@ export const EventDefinitionsUpdateBody = /* @__PURE__ */ zod
 
 export const eventDefinitionsPartialUpdateBodyNameMax = 400
 
+export const eventDefinitionsPartialUpdateBodyTagsItemMax = 255
+
 export const eventDefinitionsPartialUpdateBodyPrimaryPropertyMax = 400
 
 export const eventDefinitionsPartialUpdateBodyPostToSlackDefault = false
@@ -74,7 +90,12 @@ export const EventDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
         name: zod.string().max(eventDefinitionsPartialUpdateBodyNameMax).optional(),
         owner: zod.number().nullish().describe('ID of the user responsible for the event. Null removes the owner.'),
         description: zod.string().nullish(),
-        tags: zod.array(zod.unknown()).optional(),
+        tags: zod
+            .array(zod.string().max(eventDefinitionsPartialUpdateBodyTagsItemMax))
+            .optional()
+            .describe(
+                'Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.'
+            ),
         verified: zod.boolean().optional(),
         hidden: zod.boolean().nullish(),
         enforcement_mode: zod.enum(['allow', 'reject']).optional().describe('\* `allow` - Allow\n\* `reject` - Reject'),

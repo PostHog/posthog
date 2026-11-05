@@ -87,7 +87,11 @@ export interface EnterpriseEventDefinitionApi {
     readonly owner?: UserBasicApi | null
     /** @nullable */
     description?: string | null
-    tags?: unknown[]
+    /**
+     * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+     * @items.maxLength 255
+     */
+    tags?: string[]
     /** @nullable */
     readonly created_at: string | null
     readonly updated_at: string
@@ -143,7 +147,11 @@ export interface EnterpriseEventDefinitionRequestApi {
     owner?: number | null
     /** @nullable */
     description?: string | null
-    tags?: unknown[]
+    /**
+     * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+     * @items.maxLength 255
+     */
+    tags?: string[]
     /** @nullable */
     readonly created_at: string | null
     readonly updated_at: string
@@ -188,7 +196,11 @@ export interface PatchedEnterpriseEventDefinitionApi {
     owner?: number | null
     /** @nullable */
     description?: string | null
-    tags?: unknown[]
+    /**
+     * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+     * @items.maxLength 255
+     */
+    tags?: string[]
     /** @nullable */
     readonly created_at?: string | null
     readonly updated_at?: string
@@ -312,7 +324,11 @@ export interface EventDefinitionRecordApi {
     /** @nullable */
     last_seen_at?: string | null
     readonly last_updated_at: string
-    tags?: unknown[]
+    /**
+     * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+     * @items.maxLength 255
+     */
+    tags?: string[]
     enforcement_mode?: SchemaEnforcementModeEnumApi
     /**
      * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.

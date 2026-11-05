@@ -598,6 +598,7 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
 export const featureFlagsUpdateBodyKeyMax = 400
 
 export const featureFlagsUpdateBodyVersionDefault = 0
+export const featureFlagsUpdateBodyTagsItemMax = 255
 
 export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -617,7 +618,12 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
             ),
         version: zod.number().default(featureFlagsUpdateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
-        tags: zod.array(zod.unknown()).optional(),
+        tags: zod
+            .array(zod.string().max(featureFlagsUpdateBodyTagsItemMax))
+            .optional()
+            .describe(
+                'Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.'
+            ),
         evaluation_contexts: zod.array(zod.unknown()).optional(),
         analytics_dashboards: zod.array(zod.number()).optional(),
         has_enriched_analytics: zod.boolean().nullish(),

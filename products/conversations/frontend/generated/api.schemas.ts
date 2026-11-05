@@ -427,7 +427,11 @@ export interface TicketApi {
      */
     readonly organization_id_source: string | null
     readonly person: TicketPersonApi | null
-    tags?: unknown[]
+    /**
+     * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+     * @items.maxLength 255
+     */
+    tags?: string[]
     /**
      * The effective access level the user has for this object
      * @nullable

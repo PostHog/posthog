@@ -192,12 +192,19 @@ def _bulk_tag_activity_entry(
     )
 
 
+TAG_NAME_MAX_LENGTH = 255  # Mirrors Tag.name's max_length
+
+
 class TaggedItemSerializerMixin(serializers.Serializer):
     """
     Serializer mixin that handles tags for objects.
     """
 
-    tags = serializers.ListField(required=False)
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=TAG_NAME_MAX_LENGTH, allow_blank=True),
+        required=False,
+        help_text="Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.",
+    )
 
     def _attempt_set_tags(self, tags, obj):
         if not obj or tags is None:
@@ -219,18 +226,17 @@ class TaggedItemSerializerMixin(serializers.Serializer):
     def create(self, validated_data):
         validated_data.pop("tags", None)
         instance = super().create(validated_data)
-        self._attempt_set_tags(self.initial_data.get("tags"), instance)
+        self._attempt_set_tags(self.validated_data.get("tags"), instance)
         return instance
 
     def update(self, instance, validated_data):
         instance = super().update(instance, validated_data)
-        self._attempt_set_tags(self.initial_data.get("tags"), instance)
+        self._attempt_set_tags(self.validated_data.get("tags"), instance)
         return instance
 
 
 BULK_UPDATE_TAGS_MAX_IDS = 500
 BULK_UPDATE_TAGS_MAX_TAGS = 100
-TAG_NAME_MAX_LENGTH = 255  # Mirrors Tag.name's max_length
 # One reason for both missing and inaccessible objects, so callers can't probe which
 # restricted IDs exist by comparing skipped reasons.
 BULK_UPDATE_TAGS_SKIPPED_REASON = "Not found or no edit access"

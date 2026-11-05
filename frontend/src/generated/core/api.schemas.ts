@@ -5479,7 +5479,11 @@ export interface EnterprisePropertyDefinitionApi {
     readonly name: string
     /** @nullable */
     description?: string | null
-    tags?: unknown[]
+    /**
+     * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+     * @items.maxLength 255
+     */
+    tags?: string[]
     readonly is_numerical: boolean
     readonly updated_at: string
     readonly updated_by: UserBasicApi
@@ -5513,7 +5517,11 @@ export interface PatchedEnterprisePropertyDefinitionApi {
     readonly name?: string
     /** @nullable */
     description?: string | null
-    tags?: unknown[]
+    /**
+     * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+     * @items.maxLength 255
+     */
+    tags?: string[]
     readonly is_numerical?: boolean
     readonly updated_at?: string
     readonly updated_by?: UserBasicApi

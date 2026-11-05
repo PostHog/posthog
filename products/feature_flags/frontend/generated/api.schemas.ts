@@ -645,7 +645,11 @@ export interface FeatureFlagApi {
     readonly surveys: FeatureFlagApiSurveys
     readonly features: FeatureFlagApiFeatures
     readonly can_edit: boolean
-    tags?: unknown[]
+    /**
+     * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+     * @items.maxLength 255
+     */
+    tags?: string[]
     evaluation_contexts?: unknown[]
     /**
      * Legacy dashboard of saved usage insights for this flag, or null if it has none. Usage charts are on the flag's Usage tab. The API does not create these dashboards.

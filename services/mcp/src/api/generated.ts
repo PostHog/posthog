@@ -4950,7 +4950,11 @@ export namespace Schemas {
       name?: string | null;
       /** Human-readable description of what this action represents. */
       description?: string;
-      tags?: unknown[];
+      /**
+         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * @items.maxLength 255
+         */
+      tags?: string[];
       /** Whether to post a notification to Slack when this action is triggered. */
       post_to_slack?: boolean;
       /**
@@ -11893,7 +11897,11 @@ export namespace Schemas {
          */
       description?: string | null;
       readonly updated_at: string;
-      tags?: unknown[];
+      /**
+         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * @items.maxLength 255
+         */
+      tags?: string[];
       favorited?: boolean;
       readonly last_modified_at: string;
       readonly last_modified_by: UserBasic;
@@ -30398,7 +30406,11 @@ export namespace Schemas {
          * @nullable
          */
       data_color_theme_id?: number | null;
-      tags?: unknown[];
+      /**
+         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * @items.maxLength 255
+         */
+      tags?: string[];
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -30499,7 +30511,11 @@ export namespace Schemas {
       readonly is_shared: boolean;
       readonly deleted: boolean;
       readonly creation_mode: DashboardCreationModeEnum;
-      tags?: unknown[];
+      /**
+         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * @items.maxLength 255
+         */
+      tags?: string[];
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -38319,7 +38335,11 @@ export namespace Schemas {
       readonly owner?: UserBasic | null;
       /** @nullable */
       description?: string | null;
-      tags?: unknown[];
+      /**
+         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * @items.maxLength 255
+         */
+      tags?: string[];
       /** @nullable */
       readonly created_at: string | null;
       readonly updated_at: string;
@@ -38364,7 +38384,11 @@ export namespace Schemas {
       owner?: number | null;
       /** @nullable */
       description?: string | null;
-      tags?: unknown[];
+      /**
+         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * @items.maxLength 255
+         */
+      tags?: string[];
       /** @nullable */
       readonly created_at: string | null;
       readonly updated_at: string;
@@ -38421,7 +38445,11 @@ export namespace Schemas {
       readonly name: string;
       /** @nullable */
       description?: string | null;
-      tags?: unknown[];
+      /**
+         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * @items.maxLength 255
+         */
+      tags?: string[];
       readonly is_numerical: boolean;
       readonly updated_at: string;
       readonly updated_by: UserBasic;
@@ -41887,7 +41915,11 @@ export namespace Schemas {
       /** @nullable */
       last_seen_at?: string | null;
       readonly last_updated_at: string;
-      tags?: unknown[];
+      /**
+         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * @items.maxLength 255
+         */
+      tags?: string[];
       enforcement_mode?: SchemaEnforcementModeEnum;
       /**
          * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
@@ -45117,7 +45149,11 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
-      tags?: unknown[];
+      /**
+         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * @items.maxLength 255
+         */
+      tags?: string[];
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -47987,7 +48023,11 @@ export namespace Schemas {
       readonly surveys: FeatureFlagSurveys;
       readonly features: FeatureFlagFeatures;
       readonly can_edit: boolean;
-      tags?: unknown[];
+      /**
+         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * @items.maxLength 255
+         */
+      tags?: string[];
       evaluation_contexts?: unknown[];
       /**
          * Legacy dashboard of saved usage insights for this flag, or null if it has none. Usage charts are on the flag's Usage tab. The API does not create these dashboards.
@@ -76789,7 +76829,11 @@ export namespace Schemas {
          */
       readonly organization_id_source: string | null;
       readonly person: TicketPerson | null;
-      tags?: unknown[];
+      /**
+         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * @items.maxLength 255
+         */
+      tags?: string[];
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -77271,7 +77315,11 @@ export namespace Schemas {
       /** @nullable */
       readonly last_refresh: string | null;
       readonly refreshing: boolean;
-      tags?: unknown[];
+      /**
+         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * @items.maxLength 255
+         */
+      tags?: string[];
       readonly updated_at: string;
       readonly created_by: UserBasic;
       /** @nullable */
@@ -79380,7 +79428,11 @@ export namespace Schemas {
       name?: string | null;
       /** Human-readable description of what this action represents. */
       description?: string;
-      tags?: unknown[];
+      /**
+         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * @items.maxLength 255
+         */
+      tags?: string[];
       /** Whether to post a notification to Slack when this action is triggered. */
       post_to_slack?: boolean;
       /**
@@ -81246,7 +81298,11 @@ export namespace Schemas {
       owner?: number | null;
       /** @nullable */
       description?: string | null;
-      tags?: unknown[];
+      /**
+         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * @items.maxLength 255
+         */
+      tags?: string[];
       /** @nullable */
       readonly created_at?: string | null;
       readonly updated_at?: string;
@@ -81285,7 +81341,11 @@ export namespace Schemas {
       readonly name?: string;
       /** @nullable */
       description?: string | null;
-      tags?: unknown[];
+      /**
+         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * @items.maxLength 255
+         */
+      tags?: string[];
       readonly is_numerical?: boolean;
       readonly updated_at?: string;
       readonly updated_by?: UserBasic;
@@ -81923,7 +81983,11 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
       readonly created_at?: string;
       readonly updated_at?: string;
-      tags?: unknown[];
+      /**
+         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * @items.maxLength 255
+         */
+      tags?: string[];
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -83334,7 +83398,11 @@ export namespace Schemas {
          */
       description?: string | null;
       readonly updated_at?: string;
-      tags?: unknown[];
+      /**
+         * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+         * @items.maxLength 255
+         */
+      tags?: string[];
       favorited?: boolean;
       readonly last_modified_at?: string;
       readonly last_modified_by?: UserBasic;

@@ -552,7 +552,11 @@ export interface ExperimentSavedMetricApi {
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
-    tags?: unknown[]
+    /**
+     * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+     * @items.maxLength 255
+     */
+    tags?: string[]
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -592,7 +596,11 @@ export interface PatchedExperimentSavedMetricApi {
     readonly created_by?: UserBasicApi
     readonly created_at?: string
     readonly updated_at?: string
-    tags?: unknown[]
+    /**
+     * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+     * @items.maxLength 255
+     */
+    tags?: string[]
     /**
      * The effective access level the user has for this object
      * @nullable

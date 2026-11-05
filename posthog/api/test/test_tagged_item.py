@@ -105,6 +105,34 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
         self.assertEqual(response.json()["tags"], [])
         self.assertEqual(Tag.objects.all().count(), 0)
 
+    @parameterized.expand(
+        [
+            ("dashboards", "dict", {"a": 1}),
+            ("dashboards", "list", ["nested"]),
+            ("dashboards", "null", None),
+            ("dashboards", "bool", True),
+            ("dashboards", "too_long", "x" * 256),
+            ("insights", "dict", {"a": 1}),
+            ("actions", "dict", {"a": 1}),
+        ]
+    )
+    def test_create_with_invalid_tag_is_rejected(self, endpoint: str, _case: str, tag: object) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/{endpoint}/", {"name": "tagged", "tags": ["valid", tag]}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "tags__1"
+        assert Tag.objects.count() == 0
+
+    def test_create_with_numeric_tag_stores_it_as_a_string(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/", {"name": "tagged", "tags": [7]}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["tags"] == ["7"]
+
     def test_can_list_tags(self) -> None:
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
         tag = Tag.objects.create(name="zebra tag", team_id=self.team.id)

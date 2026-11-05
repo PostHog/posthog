@@ -378,6 +378,8 @@ export const DashboardTemplatesCopyBetweenProjectsCreateBody = /* @__PURE__ */ z
 export const dashboardsCreateBodyNameMax = 400
 
 export const dashboardsCreateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
+export const dashboardsCreateBodyTagsItemMax = 255
+
 export const dashboardsCreateBodyGroupsTitleMax = 200
 
 export const dashboardsCreateBodyGroupTitlesMaxOne = 200
@@ -431,7 +433,12 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
                 "Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them."
             ),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
-        tags: zod.array(zod.unknown()).optional(),
+        tags: zod
+            .array(zod.string().max(dashboardsCreateBodyTagsItemMax))
+            .optional()
+            .describe(
+                'Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.'
+            ),
         last_refresh: zod.iso.datetime({ offset: true }).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
@@ -518,6 +525,8 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
 export const dashboardsUpdateBodyNameMax = 400
 
 export const dashboardsUpdateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
+export const dashboardsUpdateBodyTagsItemMax = 255
+
 export const dashboardsUpdateBodyGroupsTitleMax = 200
 
 export const dashboardsUpdateBodyGroupTitlesMaxOne = 200
@@ -571,7 +580,12 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
                 "Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them."
             ),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
-        tags: zod.array(zod.unknown()).optional(),
+        tags: zod
+            .array(zod.string().max(dashboardsUpdateBodyTagsItemMax))
+            .optional()
+            .describe(
+                'Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.'
+            ),
         last_refresh: zod.iso.datetime({ offset: true }).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
@@ -1096,6 +1110,8 @@ export const dashboardsCreateFromTemplateJsonCreateBodyNameMax = 400
 export const dashboardsCreateFromTemplateJsonCreateBodyBreakdownColorsItemColorTokenRegExp = new RegExp(
     '^preset-[1-9][0-9]\*$'
 )
+export const dashboardsCreateFromTemplateJsonCreateBodyTagsItemMax = 255
+
 export const dashboardsCreateFromTemplateJsonCreateBodyGroupsTitleMax = 200
 
 export const dashboardsCreateFromTemplateJsonCreateBodyGroupTitlesMaxOne = 200
@@ -1149,7 +1165,12 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
                 "Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them."
             ),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
-        tags: zod.array(zod.unknown()).optional(),
+        tags: zod
+            .array(zod.string().max(dashboardsCreateFromTemplateJsonCreateBodyTagsItemMax))
+            .optional()
+            .describe(
+                'Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.'
+            ),
         last_refresh: zod.iso.datetime({ offset: true }).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
@@ -1243,6 +1264,8 @@ export const dashboardsCreateUnlistedDashboardCreateBodyNameMax = 400
 export const dashboardsCreateUnlistedDashboardCreateBodyBreakdownColorsItemColorTokenRegExp = new RegExp(
     '^preset-[1-9][0-9]\*$'
 )
+export const dashboardsCreateUnlistedDashboardCreateBodyTagsItemMax = 255
+
 export const dashboardsCreateUnlistedDashboardCreateBodyGroupsTitleMax = 200
 
 export const dashboardsCreateUnlistedDashboardCreateBodyGroupTitlesMaxOne = 200
@@ -1296,7 +1319,12 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
                 "Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them."
             ),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
-        tags: zod.array(zod.unknown()).optional(),
+        tags: zod
+            .array(zod.string().max(dashboardsCreateUnlistedDashboardCreateBodyTagsItemMax))
+            .optional()
+            .describe(
+                'Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.'
+            ),
         last_refresh: zod.iso.datetime({ offset: true }).nullish(),
         quick_filter_ids: zod
             .array(zod.string())

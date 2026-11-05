@@ -570,7 +570,11 @@ export interface ActionApi {
     name?: string | null
     /** Human-readable description of what this action represents. */
     description?: string
-    tags?: unknown[]
+    /**
+     * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+     * @items.maxLength 255
+     */
+    tags?: string[]
     /** Whether to post a notification to Slack when this action is triggered. */
     post_to_slack?: boolean
     /**
@@ -624,7 +628,11 @@ export interface PatchedActionApi {
     name?: string | null
     /** Human-readable description of what this action represents. */
     description?: string
-    tags?: unknown[]
+    /**
+     * Tag names to set on the object. Each is normalized (trimmed and lowercased). Omit to leave tags unchanged, or pass an empty list to clear them.
+     * @items.maxLength 255
+     */
+    tags?: string[]
     /** Whether to post a notification to Slack when this action is triggered. */
     post_to_slack?: boolean
     /**
