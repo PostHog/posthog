@@ -7,7 +7,6 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import type { WorkflowLogicProps } from './workflowLogic'
 
-// Only teams with the sandbox sender flag can see the banner, so other teams never download it or mount its logic.
 const WorkflowSandboxSwitchBanner = lazyWithRetry(() =>
     import('./WorkflowSandboxSwitchBanner').then((m) => ({ default: m.WorkflowSandboxSwitchBanner }))
 )

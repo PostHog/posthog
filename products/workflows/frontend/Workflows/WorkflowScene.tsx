@@ -258,7 +258,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                 {isSavedWorkflow && <WorkflowImportNotesBanner id={props.id!} />}
                 {isSavedWorkflow && <WorkflowBroadcastMoveBanner id={props.id!} />}
                 {!isSavedWorkflow && <WorkflowAiEmailDraftStatus {...workflowProps} />}
-                <LazyWorkflowSandboxSwitchBanner {...workflowProps} />
+                {isSavedWorkflow && !editTemplateId && <LazyWorkflowSandboxSwitchBanner {...workflowProps} />}
                 {suggestionsAvailable && isSavedWorkflow && <WorkflowSuggestionsNotice id={props.id!} />}
                 {/* Only show Logs and Metrics tabs if the workflow has already been created */}
                 {!props.id || props.id === 'new' ? (

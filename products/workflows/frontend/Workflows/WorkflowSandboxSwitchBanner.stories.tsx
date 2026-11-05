@@ -93,7 +93,6 @@ const SANDBOX_WORKFLOW: HogFlow = {
 type StoryArgs = {
     ownSenders: (typeof OWN_SENDER)[]
     narrow?: boolean
-    constrained?: boolean
 }
 
 const meta: Meta<StoryArgs> = {
@@ -107,7 +106,7 @@ const meta: Meta<StoryArgs> = {
 }
 export default meta
 
-const Template: StoryFn<StoryArgs> = ({ ownSenders, narrow, constrained }): JSX.Element => {
+const Template: StoryFn<StoryArgs> = ({ ownSenders, narrow }): JSX.Element => {
     useStorybookMocks({
         get: {
             '/api/environments/:team_id/hog_flows/:id/': SANDBOX_WORKFLOW,
@@ -119,10 +118,7 @@ const Template: StoryFn<StoryArgs> = ({ ownSenders, narrow, constrained }): JSX.
     return (
         <BindLogic logic={workflowLogic} props={LOGIC_PROPS}>
             <div className={narrow ? 'w-[520px]' : 'max-w-4xl'}>
-                <div className={constrained ? 'h-[400px] flex flex-col' : undefined}>
-                    <WorkflowSandboxSwitchBanner {...LOGIC_PROPS} />
-                    {constrained && <div className="grow min-h-[400px]" />}
-                </div>
+                <WorkflowSandboxSwitchBanner {...LOGIC_PROPS} />
             </div>
         </BindLogic>
     )
@@ -130,15 +126,6 @@ const Template: StoryFn<StoryArgs> = ({ ownSenders, narrow, constrained }): JSX.
 
 export const OneOwnSender = Template.bind({})
 OneOwnSender.args = { ownSenders: [OWN_SENDER] }
-
-export const OneOwnSenderNarrow = Template.bind({})
-OneOwnSenderNarrow.args = { ownSenders: [OWN_SENDER], narrow: true }
-
-export const ConstrainedScene = Template.bind({})
-ConstrainedScene.args = { ownSenders: [OWN_SENDER], constrained: true }
-
-export const ConstrainedSceneNarrow = Template.bind({})
-ConstrainedSceneNarrow.args = { ownSenders: [OWN_SENDER], constrained: true, narrow: true }
 
 export const OneOwnSenderLongAddressNarrow = Template.bind({})
 OneOwnSenderLongAddressNarrow.args = {
@@ -154,6 +141,3 @@ OneOwnSenderLongAddressNarrow.args = {
 
 export const SeveralOwnSenders = Template.bind({})
 SeveralOwnSenders.args = { ownSenders: [OWN_SENDER, SECOND_OWN_SENDER] }
-
-export const SeveralOwnSendersNarrow = Template.bind({})
-SeveralOwnSendersNarrow.args = { ownSenders: [OWN_SENDER, SECOND_OWN_SENDER], narrow: true }

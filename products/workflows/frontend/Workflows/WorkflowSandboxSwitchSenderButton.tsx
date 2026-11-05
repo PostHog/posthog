@@ -20,7 +20,7 @@ export function WorkflowSandboxSwitchSenderButton({
     }
 
     if (senders.length === 1) {
-        const label = `Switch to ${senders[0].config.email}`
+        const label = `Switch to ${senders[0].config.email ?? senders[0].display_name}`
         return (
             <LemonButton {...buttonProps} truncate tooltip={label} onClick={() => onSwitch(senders[0].id)}>
                 {label}
