@@ -64,10 +64,11 @@ from products.web_analytics.backend.hogql_queries.web_dimensional_precompute imp
     WEB_STATS_DIMENSIONAL_READ_TABLE,
 )
 from products.web_analytics.backend.hogql_queries.web_dimensional_read import (
+    DimensionalReadFailure,
     DimensionalStatsTableQueryBuilder,
+    classify_dimensional_read_failure,
     dimensional_precompute_stale,
     dimensional_precomputed_at,
-    falls_back_to_live_after,
     ready_dimensional_job_ids,
 )
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import lazy_precompute_ineligible_reason
@@ -823,6 +824,7 @@ WHERE and(
 
     def _calculate(self):
         self.dimensional_query_builder = None
+        live_blocking_error: Exception | None = None
         if self._is_preaggregated_shape():
             job_ids = ready_dimensional_job_ids(
                 self, tables=(WEB_STATS_DIMENSIONAL_READ_TABLE, WEB_BOUNCES_DIMENSIONAL_READ_TABLE)
@@ -832,10 +834,13 @@ WHERE and(
                 try:
                     return self._calculate_from_query()
                 except Exception as error:
-                    if not falls_back_to_live_after(error):
+                    failure = classify_dimensional_read_failure(error)
+                    if failure is DimensionalReadFailure.RERAISE:
                         raise
                     logger.exception("web_stats_dimensional_read_failed", team_id=self.team.pk)
                     self.dimensional_query_builder = None
+                    if failure is DimensionalReadFailure.SKIP_LIVE:
+                        live_blocking_error = error
 
         # Ask only the family that owns this shape. Trying all three in turn made the other two
         # refuse a query they could never have served, and each refusal recorded its own rejection
@@ -855,6 +860,8 @@ WHERE and(
             if lazy_result is not None:
                 return self._build_response_from_lazy(lazy_result)
 
+        if live_blocking_error is not None and not self._can_serve_preaggregated():
+            raise live_blocking_error
         return self._calculate_from_query()
 
     def _calculate_from_query(self) -> WebStatsTableQueryResponse:

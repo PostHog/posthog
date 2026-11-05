@@ -30,10 +30,11 @@ from products.web_analytics.backend.hogql_queries.web_dimensional_precompute imp
     DimensionalJobIds,
 )
 from products.web_analytics.backend.hogql_queries.web_dimensional_read import (
+    DimensionalReadFailure,
     DimensionalWebOverviewQueryBuilder,
+    classify_dimensional_read_failure,
     dimensional_precompute_stale,
     dimensional_precomputed_at,
-    falls_back_to_live_after,
     ready_dimensional_job_ids,
 )
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import lazy_precompute_ineligible_reason
@@ -276,7 +277,7 @@ CROSS JOIN {sessions_agg} AS sessions_agg
         response = self._execute_pre_aggregated(
             DimensionalWebOverviewQueryBuilder(self, job_ids),
             query_type="web_overview_dimensional_query",
-            reraise_overload_errors=True,
+            raise_errors=True,
         )
         return response, job_ids if response else None
 
@@ -296,7 +297,7 @@ CROSS JOIN {sessions_agg} AS sessions_agg
         )
 
     def _execute_pre_aggregated(
-        self, builder: WebOverviewPreAggregatedQueryBuilder, query_type: str, reraise_overload_errors: bool = False
+        self, builder: WebOverviewPreAggregatedQueryBuilder, query_type: str, raise_errors: bool = False
     ):
         try:
             # Pre-aggregated tables store data in UTC **buckets**, so we need to disable timezone conversion
@@ -325,7 +326,7 @@ CROSS JOIN {sessions_agg} AS sessions_agg
 
             return response
         except Exception as e:
-            if reraise_overload_errors and not falls_back_to_live_after(e):
+            if raise_errors:
                 raise
             logger.exception("Error getting pre-aggregated web_overview", query_type=query_type, error=e)
             return None
@@ -480,13 +481,25 @@ WHERE and(
         if self.should_split_conversion_goal:
             return self._calculate_split_conversion_goal()
 
-        pre_aggregated_response, dimensional_job_ids = self.get_dimensional_response()
+        live_blocking_error: Exception | None = None
+        try:
+            pre_aggregated_response, dimensional_job_ids = self.get_dimensional_response()
+        except Exception as error:
+            failure = classify_dimensional_read_failure(error)
+            if failure is DimensionalReadFailure.RERAISE:
+                raise
+            logger.exception("web_overview_dimensional_read_failed", team_id=self.team.pk)
+            pre_aggregated_response, dimensional_job_ids = None, None
+            if failure is DimensionalReadFailure.SKIP_LIVE:
+                live_blocking_error = error
         if not pre_aggregated_response:
             lazy_row = self.get_lazy_precomputed_row()
             if lazy_row is not None:
                 return self._build_response_from_row(lazy_row)
 
             pre_aggregated_response = self.get_pre_aggregated_response()
+            if live_blocking_error is not None and not pre_aggregated_response:
+                raise live_blocking_error
 
         # Preflight only when the main query will actually run — if the
         # pre-aggregated builder already served the response, spending a

@@ -338,20 +338,37 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
 
     @parameterized.expand(
         [
-            ("stats_table_at_capacity", "DimensionalStatsTableQueryBuilder", ClickHouseAtCapacity()),
-            ("overview_at_capacity", "DimensionalWebOverviewQueryBuilder", ClickHouseAtCapacity()),
-            ("stats_table_timeout", "DimensionalStatsTableQueryBuilder", ClickHouseQueryTimeOut()),
+            ("stats_table_at_capacity", "DimensionalStatsTableQueryBuilder", ClickHouseAtCapacity(), LEGACY),
+            ("overview_at_capacity", "DimensionalWebOverviewQueryBuilder", ClickHouseAtCapacity(), LEGACY),
             (
                 "overview_cancelled",
                 "DimensionalWebOverviewQueryBuilder",
                 CHQueryErrorQueryWasCancelled("cancelled", code=394, code_name="query_was_cancelled"),
+                LEGACY,
             ),
+            ("stats_table_timeout_without_v2", "DimensionalStatsTableQueryBuilder", ClickHouseQueryTimeOut(), None),
+            ("overview_timeout_without_v2", "DimensionalWebOverviewQueryBuilder", ClickHouseQueryTimeOut(), None),
         ]
     )
-    def test_overload_and_cancel_errors_do_not_rerun_live(self, _name, builder_name, error):
-        self._assert_dimensional_failure(builder_name, error, falls_back=False)
+    def test_overload_and_cancel_errors_do_not_rerun_live(self, _name, builder_name, error, modifiers):
+        self._assert_dimensional_failure(builder_name, error, falls_back=False, modifiers=modifiers)
 
-    def _assert_dimensional_failure(self, builder_name: str, error: Exception, falls_back: bool) -> None:
+    @parameterized.expand(
+        [
+            ("stats_table", "DimensionalStatsTableQueryBuilder"),
+            ("overview", "DimensionalWebOverviewQueryBuilder"),
+        ]
+    )
+    def test_timeout_falls_back_to_v2(self, _name, builder_name):
+        self._assert_dimensional_failure(builder_name, ClickHouseQueryTimeOut(), falls_back=True, modifiers=LEGACY)
+
+    def _assert_dimensional_failure(
+        self,
+        builder_name: str,
+        error: Exception,
+        falls_back: bool,
+        modifiers: HogQLQueryModifiers | None = None,
+    ) -> None:
         def run(web_query_modifiers):
             if builder_name == "DimensionalStatsTableQueryBuilder":
                 stats_runner = WebStatsTableQueryRunner(
@@ -363,6 +380,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
                         limit=100,
                         webQueryModifiers=web_query_modifiers,
                     ),
+                    modifiers=modifiers,
                 )
                 return self._sort_results(stats_runner.calculate().results)
             overview_runner = WebOverviewQueryRunner(
@@ -372,6 +390,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
                     properties=[],
                     webQueryModifiers=web_query_modifiers,
                 ),
+                modifiers=modifiers,
             )
             return [(item.key, item.value) for item in overview_runner.calculate().results]
 

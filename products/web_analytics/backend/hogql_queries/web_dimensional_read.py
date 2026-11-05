@@ -9,6 +9,7 @@ generation.
 
 from collections.abc import Collection
 from datetime import UTC, datetime, timedelta
+from enum import Enum, auto
 from typing import TYPE_CHECKING, Union
 
 from django.utils import timezone
@@ -102,15 +103,22 @@ def ready_dimensional_job_ids(
         return None
 
 
-# A live query after one of these would add load to a cluster that is already overloaded, or repeat
-# a read that the user or the server cancelled.
-_NO_LIVE_FALLBACK_ERROR_CATEGORIES = frozenset(
-    {QueryErrorCategory.CANCELLED, QueryErrorCategory.RATE_LIMITED, QueryErrorCategory.QUERY_PERFORMANCE_ERROR}
-)
+class DimensionalReadFailure(Enum):
+    # Cancelled by the user or the server, or refused for cluster capacity: no other read may run.
+    RERAISE = auto()
+    # Too slow or too large: the cheaper lazy and v2 reads may run, but not the live query, which
+    # reads more data than the dimensional query that failed.
+    SKIP_LIVE = auto()
+    FALL_BACK = auto()
 
 
-def falls_back_to_live_after(error: Exception) -> bool:
-    return classify_query_error(error) not in _NO_LIVE_FALLBACK_ERROR_CATEGORIES
+def classify_dimensional_read_failure(error: Exception) -> DimensionalReadFailure:
+    category = classify_query_error(error)
+    if category in (QueryErrorCategory.CANCELLED, QueryErrorCategory.RATE_LIMITED):
+        return DimensionalReadFailure.RERAISE
+    if category == QueryErrorCategory.QUERY_PERFORMANCE_ERROR:
+        return DimensionalReadFailure.SKIP_LIVE
+    return DimensionalReadFailure.FALL_BACK
 
 
 def dimensional_precompute_stale(job_ids: DimensionalJobIds | None) -> bool | None:
