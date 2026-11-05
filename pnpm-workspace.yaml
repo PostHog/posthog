@@ -128,6 +128,10 @@ patchedDependencies:
     # passes enableUserSelectHack=false to both drag and resize.
     # Track https://github.com/react-grid-layout/react-draggable/issues/709.
     react-draggable@4.5.0: patches/react-draggable@4.5.0.patch
+    # A dragged or resized grid item repaints only when its memoized props change, which with stable tile
+    # children means once per grid cell, so the tile trails the pointer. The patch re-renders that one item on
+    # each move. Remove it after an upstream release repaints the moving item on its own.
+    react-grid-layout@2.3.0: patches/react-grid-layout@2.3.0.patch
     # Browser process shims must not select v86's Node-only scheduler.
     v86@0.5.458: patches/v86@0.5.458.patch
     jest-junit@16.0.0: patches/jest-junit@16.0.0.patch

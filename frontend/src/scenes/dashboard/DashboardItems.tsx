@@ -7,7 +7,7 @@ import { RefObject, memo, useCallback, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { GridLayout, Responsive as ReactGridLayout } from 'react-grid-layout'
 import type { Layout, LayoutItem } from 'react-grid-layout'
-import { type PositionStrategy, setTransform } from 'react-grid-layout/core'
+import { calcGridItemPosition, type PositionStrategy, setTransform } from 'react-grid-layout/core'
 
 import { DashboardWidgetItem } from '@posthog/products-dashboards/frontend/components/DashboardWidgetItem/DashboardWidgetItem'
 import { getDashboardWidgetFetchDisplayError } from '@posthog/products-dashboards/frontend/widgets/constants'
@@ -551,6 +551,54 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         }
     }, [dashboard?.id, effectiveZoom, finishInteraction])
 
+    // Toggled on the DOM rather than in state, so a drag does not re-render every tile.
+    const setTileDragActive = useCallback(
+        (active: boolean): void => {
+            containerRef.current?.classList.toggle('dashboard-tile-drag', active)
+        },
+        // oxlint-disable-next-line react-hooks/exhaustive-deps -- containerRef is a stable ref
+        []
+    )
+
+    // The grid's placeholder sits where the tile lands once tiles stack up, which in an empty column is the top,
+    // so it looks stuck while the tile moves away. This preview follows the cell under the tile instead.
+    const showDragPreview = useCallback(
+        (item: LayoutItem | null, element: HTMLElement | null): void => {
+            const preview = element
+                ?.closest('[data-dashboard-grid-frame]')
+                ?.querySelector<HTMLElement>(':scope > .DashboardDragPreview')
+            if (!preview || !item) {
+                return
+            }
+            const { top, left, width, height } = calcGridItemPosition(
+                {
+                    cols: BREAKPOINT_COLUMN_COUNTS.sm,
+                    rowHeight,
+                    margin,
+                    containerPadding: CONTAINER_PADDING,
+                    containerWidth: gridWidth,
+                    maxRows: Infinity,
+                },
+                item.x,
+                item.y,
+                item.w,
+                item.h
+            )
+            preview.style.transform = `translate(${left}px, ${top}px)`
+            preview.style.width = `${width}px`
+            preview.style.height = `${height}px`
+            preview.hidden = false
+        },
+        [rowHeight, margin, gridWidth]
+    )
+
+    const hideDragPreviews = useCallback((): void => {
+        containerRef.current?.querySelectorAll<HTMLElement>('.DashboardDragPreview').forEach((preview) => {
+            preview.hidden = true
+        })
+        // oxlint-disable-next-line react-hooks/exhaustive-deps -- containerRef is a stable ref
+    }, [])
+
     const handleDragStart = useCallback(
         (
             layout: Layout,
@@ -563,24 +611,34 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             if (!newItem) {
                 return
             }
+            setTileDragActive(true)
+            showDragPreview(newItem, element)
             startInteraction(layout, newItem, 'drag')
             startTileDrag(newItem, element)
             startAutoScroll()
             carryHeldDrag(element)
         },
-        [startInteraction, startTileDrag, startAutoScroll, carryHeldDrag]
+        [startInteraction, startTileDrag, startAutoScroll, carryHeldDrag, setTileDragActive, showDragPreview]
     )
 
     const handleDrag = useCallback(
-        (_layout: unknown, _oldItem: unknown, _newItem: unknown, _placeholder: unknown, e: Event) => {
+        (
+            _layout: Layout,
+            _oldItem: LayoutItem | null,
+            newItem: LayoutItem | null,
+            _placeholder: LayoutItem | null,
+            e: Event,
+            element: HTMLElement | null
+        ) => {
             isDragging.current = true
+            showDragPreview(newItem, element)
             trackTileDrag(e as Event)
             if (dragEndTimeout.current) {
                 window.clearTimeout(dragEndTimeout.current)
             }
             autoScrollOnDrag(e)
         },
-        [autoScrollOnDrag, trackTileDrag]
+        [autoScrollOnDrag, trackTileDrag, showDragPreview]
     )
 
     const handleDragStop = useCallback(
@@ -601,12 +659,23 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             }, 250)
             finishInteraction()
             finishTileDrag(newItem, element, event)
+            hideDragPreviews()
+            setTileDragActive(false)
             const input = tileMoveInputRef.current
             if (dashboard?.id && input !== 'canceled') {
                 reportDashboardTileRepositioned(dashboard.id, 'moved', effectiveZoom, input)
             }
         },
-        [dashboard?.id, effectiveZoom, finishInteraction, finishTileDrag, stopAutoScroll, tileMoveInputRef]
+        [
+            dashboard?.id,
+            effectiveZoom,
+            finishInteraction,
+            finishTileDrag,
+            stopAutoScroll,
+            tileMoveInputRef,
+            hideDragPreviews,
+            setTileDragActive,
+        ]
     )
 
     const renderTile = (tile: DashboardTile): JSX.Element | undefined => {
@@ -806,8 +875,9 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             !!dropTargetKey && section.tiles.some((tile) => tile.id.toString() === draggingTileId)
         return (
             <div
-                className="relative"
+                className={clsx('relative', isDraggingOutOfSection && '[&_.DashboardDragPreview]:hidden')}
                 data-dashboard-section-grid={section.key}
+                data-dashboard-grid-frame
                 style={frozenSourceGrid?.key === section.key ? { height: frozenSourceGrid.height } : undefined}
             >
                 {layoutEditMode && !isMobileView && (
@@ -818,6 +888,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         margin={margin}
                     />
                 )}
+                {layoutEditMode && !isMobileView && <div className="DashboardDragPreview" aria-hidden hidden />}
                 {/* Not Responsive: its layout copy and the inner grid's can swap on every render while tiles stream in. */}
                 <GridLayout
                     {...gridProps}
@@ -902,7 +973,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 </div>
             )}
             {gridWidth > 0 && !showBands && (
-                <div className={clsx('relative', showDecorationSpace && 'mt-10')}>
+                <div className={clsx('relative', showDecorationSpace && 'mt-10')} data-dashboard-grid-frame>
                     {layoutEditMode && !isMobileView && (
                         <DashboardGridBackground
                             width={gridWidth}
@@ -911,6 +982,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                             margin={margin}
                         />
                     )}
+                    {layoutEditMode && !isMobileView && <div className="DashboardDragPreview" aria-hidden hidden />}
 
                     <ReactGridLayout
                         {...gridProps}

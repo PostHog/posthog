@@ -12,6 +12,40 @@
             padding: 0.25rem;
         }
     }
+
+    // A drag shows its own preview under the tile, so the grid's stacked placeholder would be a second outline.
+    &.dashboard-tile-drag {
+        cursor: grabbing;
+
+        .react-grid-item.react-grid-placeholder {
+            visibility: hidden;
+        }
+
+        // Charts under the pointer would show tooltips and hover states mid-drag, the dragged tile's own too.
+        .react-grid-item > * {
+            pointer-events: none;
+        }
+    }
+
+    .DashboardDragPreview {
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 2;
+        pointer-events: none;
+        background: color-mix(in sRGB, var(--color-accent) 8%, transparent);
+        border: 2px dashed var(--color-accent);
+        border-radius: var(--radius);
+        transition: transform 100ms ease;
+
+        &[hidden] {
+            display: none;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            transition: none;
+        }
+    }
 }
 
 .react-grid-layout {
@@ -151,6 +185,9 @@
 .react-grid-item.react-draggable-dragging {
     z-index: 105;
     cursor: grabbing;
+
+    // See-through, so the drop preview and the tiles under it stay visible.
+    opacity: 0.8;
     transition: none;
     will-change: transform;
 }

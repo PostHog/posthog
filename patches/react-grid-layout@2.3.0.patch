@@ -1,0 +1,56 @@
+diff --git a/dist/chunk-CUP5Y2ZG.js b/dist/chunk-CUP5Y2ZG.js
+index 23399caefebeefb2038279331382aa20e5932bc1..b5868634a6c23a33a18c9713de73ac3f520c3ce8 100644
+--- a/dist/chunk-CUP5Y2ZG.js
++++ b/dist/chunk-CUP5Y2ZG.js
+@@ -125,6 +125,7 @@ function GridItemInner(props) {
+   } = props;
+   const [dragging, setDragging] = React2.useState(false);
+   const [resizing, setResizing] = React2.useState(false);
++  const [, setMoveTick] = React2.useState(0);
+   const elementRef = React2.useRef(null);
+   const dragPositionRef = React2.useRef({ left: 0, top: 0 });
+   const resizePositionRef = React2.useRef({
+@@ -334,6 +335,7 @@ function GridItemInner(props) {
+       }
+       const newPosition = { top, left };
+       dragPositionRef.current = newPosition;
++      setMoveTick((tick) => tick + 1);
+       const rawPos = chunkVJJIA3HC_js.calcXYRaw(positionParams, top, left);
+       const { x: newX, y: newY } = chunkQAIA5KAO_js.applyPositionConstraints(
+         constraints,
+@@ -430,6 +432,7 @@ function GridItemInner(props) {
+         };
+       }
+       resizePositionRef.current = updatedSize;
++      setMoveTick((tick) => tick + 1);
+       const containerHeight = node?.offsetParent?.clientHeight ?? 0;
+       const rawSize = chunkVJJIA3HC_js.calcWHRaw(
+         positionParams,
+diff --git a/dist/chunk-Z6CWRR74.mjs b/dist/chunk-Z6CWRR74.mjs
+index 5d3ee00ad7b14cfe15445fcf7bfdbee04408236e..2ac70cbc97b98c85492f26a8d87120b87823e260 100644
+--- a/dist/chunk-Z6CWRR74.mjs
++++ b/dist/chunk-Z6CWRR74.mjs
+@@ -118,6 +118,7 @@ function GridItemInner(props) {
+   } = props;
+   const [dragging, setDragging] = useState(false);
+   const [resizing, setResizing] = useState(false);
++  const [, setMoveTick] = useState(0);
+   const elementRef = useRef(null);
+   const dragPositionRef = useRef({ left: 0, top: 0 });
+   const resizePositionRef = useRef({
+@@ -327,6 +328,7 @@ function GridItemInner(props) {
+       }
+       const newPosition = { top, left };
+       dragPositionRef.current = newPosition;
++      setMoveTick((tick) => tick + 1);
+       const rawPos = calcXYRaw(positionParams, top, left);
+       const { x: newX, y: newY } = applyPositionConstraints(
+         constraints,
+@@ -423,6 +425,7 @@ function GridItemInner(props) {
+         };
+       }
+       resizePositionRef.current = updatedSize;
++      setMoveTick((tick) => tick + 1);
+       const containerHeight = node?.offsetParent?.clientHeight ?? 0;
+       const rawSize = calcWHRaw(
+         positionParams,
