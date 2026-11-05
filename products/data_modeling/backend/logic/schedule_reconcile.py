@@ -12,7 +12,7 @@ the Temporal schedule API.
 
 import uuid
 import dataclasses
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -55,6 +55,7 @@ from products.data_modeling.backend.logic.freshness import (
     UnsatisfiableFrequencyError,
     UnsupportedFrequencyTargetError,
     format_cadence,
+    humanize_cadence,
     is_finer_than,
     validate_declared_target,
     validate_pin,
@@ -87,6 +88,10 @@ if TYPE_CHECKING:
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 logger = structlog.get_logger(__name__)
+
+PLAN_FLOOR_UNREADABLE_REFUSAL = (
+    "Couldn't check your plan, so this refresh frequency can't be saved right now. Try again in a few minutes."
+)
 
 
 class PlanFloorUnavailableError(Exception):
@@ -199,9 +204,7 @@ def _validate_saved_query_target(
     """
     stored = graph.declared_targets.get(node_id)
     if not graph.plan_floor_evaluated and (stored is None or is_finer_than(target, stored)):
-        raise UnsatisfiableFrequencyError(
-            "Couldn't check your plan, so this refresh frequency can't be saved right now. Try again in a few minutes."
-        )
+        raise UnsatisfiableFrequencyError(PLAN_FLOOR_UNREADABLE_REFUSAL)
     validate_declared_target(
         node_id=node_id,
         target=target,
@@ -304,13 +307,38 @@ def apply_saved_query_frequency_target(
     return written
 
 
-def carry_saved_query_frequency_target(team_id: int, saved_query_id: uuid.UUID, target: timedelta) -> None:
+def carry_saved_query_frequency_target(
+    team_id: int,
+    saved_query_id: uuid.UUID,
+    target: timedelta,
+    *,
+    retained_saved_query_ids: Collection[uuid.UUID],
+) -> None:
     """Store on the saved query's nodes a cadence it inherits from the saved query it replaces.
 
     The plan floor lets a saved cadence stay, so a query edit must not turn an existing cadence into
     a new one. This writes without validating: the `apply_saved_query_frequency_target` that follows
     still checks the sources and consumers of the new query.
+
+    The endpoint version it replaces keeps running, so each edit would add a query below the floor.
+    `retained_saved_query_ids` are the endpoint's other materialized versions. If one of them is also
+    below the floor this refuses, which caps a saved cadence at the version replaced and the new one.
     """
+    reading = read_plan_refresh_floor(team_id)
+    if not reading.evaluated:
+        raise UnsatisfiableFrequencyError(PLAN_FLOOR_UNREADABLE_REFUSAL)
+    floor = reading.floor.min_interval if reading.floor is not None else None
+    if floor is not None and is_finer_than(target, floor):
+        retained_nodes = Node.objects.filter(team_id=team_id, saved_query_id__in=retained_saved_query_ids)
+        if any(
+            (retained := get_declared_target(node)) is not None and is_finer_than(retained, floor)
+            for node in retained_nodes
+        ):
+            raise UnsatisfiableFrequencyError(
+                f"Can't keep refreshing every {humanize_cadence(target)}: an older version of this endpoint also"
+                f" refreshes more often than your plan allows. Pick {humanize_cadence(floor)} for this version,"
+                " or upgrade to refresh more often."
+            )
     with transaction.atomic():
         for node in Node.objects.select_for_update(of=("self",)).filter(team_id=team_id, saved_query_id=saved_query_id):
             set_declared_target(node, target)

@@ -344,16 +344,25 @@ class EndpointMaterializationService:
                 # tell them to retry, and would page on-call through the status="error" metric.
                 raise ValidationError(f"Cannot materialize endpoint. Reason: {e}")
 
-            if replaced_version is not None and replaced_version.declared_target_seconds() == data_freshness_seconds:
-                carry_saved_query_frequency_target(
-                    saved_query.team_id, saved_query.id, timedelta(seconds=data_freshness_seconds)
-                )
-
             # NOTE: on v1, schedule_materialization only triggers an immediate run when it CREATES
             # the Temporal schedule; re-enabling an existing materialization just (re)syncs it.
             # trigger_immediate_run mirrors that on v2: first run only for a newly created saved
             # query (deferred to on_commit, so it sees the version link above).
             try:
+                if (
+                    replaced_version is not None
+                    and replaced_version.declared_target_seconds() == data_freshness_seconds
+                ):
+                    carry_saved_query_frequency_target(
+                        saved_query.team_id,
+                        saved_query.id,
+                        timedelta(seconds=data_freshness_seconds),
+                        retained_saved_query_ids=list(
+                            endpoint.versions.filter(saved_query__isnull=False)
+                            .exclude(pk__in=[version.pk, replaced_version.pk])
+                            .values_list("saved_query_id", flat=True)
+                        ),
+                    )
                 saved_query.schedule_materialization(
                     trigger_immediate_run=newly_materialized, triggered_by_id=self.user.pk
                 )
