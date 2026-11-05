@@ -14,6 +14,8 @@ export type PageAgentRequest =
     | { method: 'subscribe-events'; forwardSnapshotPayloads: boolean }
     | { method: 'unsubscribe-events' }
     | { method: 'read-debug-info' }
+    /** While a flag comparison runs, the page puts these overrides back if it unloads. `null` ends the comparison. */
+    | { method: 'restore-flags-on-unload'; flags: Record<string, string | boolean> | null }
 
 export type PageAgentReply =
     /** `id` is null when the page agent reports by itself that posthog-js appeared on the page. */

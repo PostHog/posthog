@@ -9,6 +9,7 @@ import type { SelectorMatchCounts } from '~/toolbar/shared/actions/SelectorCount
 import type { EventCategory } from '~/toolbar/shared/debug/eventCategories'
 import type { PosthogDebugInfo } from '~/toolbar/shared/debug/posthogDebugInfo'
 import type { ElementSelectorType } from '~/toolbar/shared/experiments/elementSelectorTypes'
+import type { FlagComparison, FlagComparisonFailureReason } from '~/toolbar/shared/flags/flagComparisonLogic'
 import type { FlagInfo } from '~/toolbar/shared/flags/flagInfo'
 import type { ActionForm, WebExperimentForm } from '~/toolbar/shared/types'
 import type { WebVitalsMetrics } from '~/toolbar/shared/web-vitals/webVitalsToolbarLogic'
@@ -220,6 +221,9 @@ export interface PageToolbarFlagsState {
     mutationError: string | null
     /** Goes up when the page finishes applying an override, whether it worked or not. */
     mutationRevision: number
+    /** The flag the page is comparing. The page refuses other flag changes until the comparison ends. */
+    comparingFlagKey: string | null
+    comparisonError: FlagComparisonFailureReason | null
 }
 
 export interface DebugEventRow {
@@ -298,6 +302,8 @@ export type PageToolbarMessage =
     | { type: 'tokens'; tokens: PageToolbarTokens }
     | { type: 'token-expired' }
     | { type: 'screenshot-preview'; dataUrl: string }
+    /** The comparison's captures are data URLs, so they go in their own message rather than in every flags patch. */
+    | { type: 'flag-comparison'; comparison: FlagComparison | null }
 
 function isObject(message: unknown): message is Record<string, unknown> {
     return !!message && typeof message === 'object'

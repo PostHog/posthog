@@ -90,6 +90,13 @@ function analyticsInfo(posthog: PagePosthog): PageAnalyticsInfo {
     }
 }
 
+type FlagOverrides = Record<string, string | boolean>
+
+function sameOverrides(first: FlagOverrides, second: FlagOverrides): boolean {
+    const keys = Object.keys(first)
+    return keys.length === Object.keys(second).length && keys.every((key) => first[key] === second[key])
+}
+
 function reply(message: PageAgentReply): void {
     window.postMessage(
         { source: PAGE_AGENT_REPLY_SOURCE, reply: message } satisfies PageAgentReplyMessage,
@@ -145,6 +152,9 @@ function install(): void {
     let flagsSubscribed = false
     let forwardSnapshotPayloads = false
     let unsubscribeEvents: (() => void) | null = null
+    // `applied` is the last override the comparison wrote. Different overrides at unload mean something else, such as
+    // a logout, replaced them, and those win.
+    let unloadRestore: { flags: FlagOverrides; applied: FlagOverrides | null } | null = null
 
     const subscribeToFlags = (posthog: PagePosthog): void => {
         if (!flagsSubscribed && posthog.onFeatureFlags) {
@@ -175,6 +185,9 @@ function install(): void {
             case 'read-debug-info':
                 void readDebugInfo(posthog).then((info) => reply({ kind: 'debug-info', id, info }))
                 return
+            case 'restore-flags-on-unload':
+                unloadRestore = request.flags ? { flags: request.flags, applied: null } : null
+                return
             case 'override-flags':
             case 'reload-flags':
                 try {
@@ -183,6 +196,9 @@ function install(): void {
                         posthog.featureFlags?.overrideFeatureFlags?.(
                             request.flags === false ? false : { flags: request.flags, payloads: request.payloads }
                         )
+                        if (unloadRestore && request.flags !== false) {
+                            unloadRestore.applied = request.flags
+                        }
                     } else {
                         posthog.featureFlags?.reloadFeatureFlags?.()
                     }
@@ -211,6 +227,24 @@ function install(): void {
             reply({ kind: 'analytics', id, info: null })
         } else {
             reply({ kind: 'result', id, ok: false, error: 'The page has no posthog-js' })
+        }
+    })
+
+    window.addEventListener('pagehide', () => {
+        const posthog = pagePosthog()
+        const restore = unloadRestore
+        unloadRestore = null
+        if (!posthog || !restore?.applied) {
+            return
+        }
+        const current = read(() => posthog.get_property?.('$override_feature_flags') as FlagOverrides, {})
+        if (!sameOverrides(current, restore.applied)) {
+            return
+        }
+        try {
+            posthog.featureFlags?.overrideFeatureFlags?.({ flags: restore.flags })
+        } catch {
+            // The page is unloading, so nothing is left to report the failure to.
         }
     })
 

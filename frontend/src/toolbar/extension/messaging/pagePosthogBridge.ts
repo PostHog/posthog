@@ -63,6 +63,14 @@ export function requestPageAnalytics(): Promise<PageAnalyticsInfo | null> {
     })
 }
 
+/**
+ * The content script's own `pagehide` listener can only post a message, which an unloading page may never handle. The page
+ * agent writes these overrides back in the page's world instead, unless the page changed them during the comparison.
+ */
+export function restoreFlagsOnUnload(flags: Record<string, string | boolean> | null): void {
+    postToPageAgent({ method: 'restore-flags-on-unload', flags })
+}
+
 /** The page agent reports by itself when a page's posthog-js loads after the page tools started. */
 export function onPagePosthogAppeared(handler: () => void): void {
     onPageAgentReply((reply) => {

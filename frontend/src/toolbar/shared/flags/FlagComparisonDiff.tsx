@@ -1,6 +1,6 @@
 import { LemonBanner, LemonSegmentedButton } from '@posthog/lemon-ui'
 
-import { VisualImageDiffViewer } from 'lib/components/VisualImageDiffViewer'
+import { ComparisonMode, VisualImageDiffViewer } from 'lib/components/VisualImageDiffViewer'
 
 import type { FlagComparisonCapture } from './flagComparisonLogic'
 
@@ -11,6 +11,9 @@ export interface FlagComparisonDiffProps {
     onCaptures: FlagComparisonCapture[]
     identical: boolean
     onAfterValueChange: (value: string) => void
+    /** Leave both out to let the viewer keep its own mode. */
+    mode?: ComparisonMode
+    onModeChange?: (mode: ComparisonMode) => void
 }
 
 export function FlagComparisonDiff({
@@ -19,6 +22,8 @@ export function FlagComparisonDiff({
     onCaptures,
     identical,
     onAfterValueChange,
+    mode,
+    onModeChange,
 }: FlagComparisonDiffProps): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
@@ -49,6 +54,8 @@ export function FlagComparisonDiff({
                 currentHeight={after.height}
                 imageWidth={after.width}
                 imageHeight={after.height}
+                mode={mode}
+                onModeChange={onModeChange}
             />
         </div>
     )

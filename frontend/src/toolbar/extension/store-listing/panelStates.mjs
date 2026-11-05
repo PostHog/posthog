@@ -104,6 +104,8 @@ const base = {
         mutationPending: false,
         mutationError: null,
         mutationRevision: 0,
+        comparingFlagKey: null,
+        comparisonError: null,
     },
     events: {
         available: true,
