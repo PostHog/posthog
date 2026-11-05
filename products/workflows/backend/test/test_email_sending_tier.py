@@ -25,7 +25,6 @@ from products.workflows.backend.services.email_sending_tier import (
     TierDecision,
     apply_tier_decision,
     build_sending_histories,
-    build_sending_history_windows,
     decide_tier,
     highest_qualifying_tier,
     recompute_email_sending_tier_for_team,
@@ -528,32 +527,6 @@ class TestBackfillEmailSendingTiers(BaseTest):
 
 
 @override_settings(**TIER_SETTINGS)
-class TestSendingHistoryFromMetrics(SimpleTestCase):
-    def test_sandbox_sends_count_toward_neither_volume_nor_rates(self) -> None:
-        today = timezone.now().date()
-        yesterday, today_key = (today - timedelta(days=1)).strftime("%Y-%m-%d"), today.strftime("%Y-%m-%d")
-        days = {
-            yesterday: {"email_sent": 900, "email_sandbox_sent": 300},
-            today_key: {"email_sent": 400, "email_sandbox_sent": 400, "email_bounced_hard": 2},
-        }
-
-        def requested(*, name: list[str], **_kwargs: object) -> dict[int, dict[str, dict[str, int]]]:
-            return {7: {day: {m: c for m, c in counts.items() if m in name} for day, counts in days.items()}}
-
-        with patch(
-            "products.workflows.backend.services.email_sending_tier.fetch_app_metric_daily_totals_by_team",
-            side_effect=requested,
-        ):
-            windows = build_sending_history_windows(
-                after=timezone.now() - timedelta(days=30), recent_after=timezone.now() - timedelta(days=7)
-            )
-
-        assert windows.window[7].sent == 600
-        assert windows.window[7].hard_bounced == 2
-        assert windows.window[7].daily_sends == {yesterday: 600}
-
-
-@override_settings(**TIER_SETTINGS)
 class TestOwnSendsAtTheWindowStart(ClickhouseTestMixin, BaseTest):
     NOW = datetime(2026, 11, 4, 11, 30, tzinfo=UTC)
 
@@ -586,7 +559,12 @@ class TestOwnSendsAtTheWindowStart(ClickhouseTestMixin, BaseTest):
             self._record("email_sent", after - timedelta(minutes=20), source="flow-b")
             self._record("email_sent", after + timedelta(minutes=20))
             self._record("email_sandbox_sent", after + timedelta(minutes=20))
+            self._record("email_sent", after - timedelta(minutes=10), source="flow-c")
+            self._record("email_sandbox_sent", after + timedelta(minutes=10), source="flow-c")
             self._record("email_sent", after + timedelta(hours=4), count=3)
+            self._record("email_bounced_hard", after + timedelta(hours=4))
             histories = build_sending_histories(after=after, team_ids=[self.team.id])
 
         assert histories[self.team.id].sent == 3
+        assert histories[self.team.id].hard_bounced == 1
+        assert histories[self.team.id].daily_sends == {(after + timedelta(hours=4)).strftime("%Y-%m-%d"): 3}
