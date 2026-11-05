@@ -51,17 +51,15 @@ describe('brand factories', () => {
             () => parseProjectToken('phx_abc123'),
             'invalid_project_token: This is a personal API key, not a project token.',
         ],
-        ['@current as a project ID', () => parseProjectId('@current'), 'parsed'],
-        ['@current as an organization ID', () => parseOrganizationId('@current'), 'parsed'],
         [
-            'an organization ID that is neither a UUID nor @current',
+            'an organization ID that is not a UUID',
             () => parseOrganizationId('acme'),
-            'invalid_organization_id: The organization ID must be a UUID or @current, but it is "acme".',
+            'invalid_organization_id: The organization ID must be a UUID, but it is "acme". Pass the organization\'s UUID, like 0188f5b4-1d2a-7000-8a1c-3f6e2b9c7d10.',
         ],
         [
             'a project ID that is not a number',
             () => parseProjectId('two', { code: 'invalid_credentials' }),
-            'invalid_credentials: The project ID must be a number or @current, but it is "two".',
+            'invalid_credentials: The project ID must be a number, but it is "two". Pass a numeric project ID, like 12345.',
         ],
         [
             'a host with a password in it',
