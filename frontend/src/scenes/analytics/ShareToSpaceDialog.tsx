@@ -35,7 +35,7 @@ export function ShareToSpaceDialog(): JSX.Element {
         pickerSearching,
         pickerRows,
         pickerLoading,
-        pickerFailed,
+        pickerErrorMessage,
         pickerEmptyMessage,
         newFolderOpen,
         moveDisabledReason,
@@ -76,10 +76,10 @@ export function ShareToSpaceDialog(): JSX.Element {
                             <Skeleton className="h-11" />
                             <Skeleton className="h-11" />
                         </div>
-                    ) : pickerFailed ? (
+                    ) : pickerErrorMessage ? (
                         <Empty className="py-8">
                             <EmptyHeader>
-                                <EmptyTitle>Couldn’t load this folder. Close this and try again.</EmptyTitle>
+                                <EmptyTitle>{pickerErrorMessage}</EmptyTitle>
                             </EmptyHeader>
                         </Empty>
                     ) : !pickerRows.length ? (

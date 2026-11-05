@@ -104,6 +104,17 @@ describe('analyticsShareLogic', () => {
         expect(logic.values.spaces.map((space) => space.name)).toEqual(folders)
     })
 
+    it('lists every folder of an open collection, past the first page', async () => {
+        folders = Array.from({ length: 205 }, (_, index) => `Finance/Folder ${String(index).padStart(3, '0')}`)
+        const logic = analyticsShareLogic()
+        logic.mount()
+        await expectLogic(logic, () => logic.actions.browseTo('Finance')).toDispatchActions([
+            'loadFolderContentsSuccess',
+        ])
+
+        expect(logic.values.folderContents.map((entry) => entry.path)).toEqual(folders)
+    })
+
     it('refuses to share a canvas from a private channel, since the space would not make it visible', async () => {
         const logic = analyticsShareLogic()
         logic.mount()

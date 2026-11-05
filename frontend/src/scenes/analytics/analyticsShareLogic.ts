@@ -71,12 +71,13 @@ export interface analyticsShareLogicValues {
     newFolderName: string
     newFolderOpen: boolean
     pickerEmptyMessage: string
-    pickerFailed: boolean
+    pickerErrorMessage: string | null
     pickerLoading: boolean
     pickerRows: PickerRow[]
     pickerSearch: string
     pickerSearching: boolean
     searchResults: ShareDestination[]
+    searchResultsFailed: boolean
     searchResultsLoading: boolean
     sharing: boolean
     spaces: AnalyticsSpace[]
@@ -212,7 +213,12 @@ export interface analyticsShareLogicMeta {
             spaces: AnalyticsSpace[],
             folderContentsLoading: boolean
         ) => boolean
-        pickerFailed: (pickerSearching: boolean, browsePath: string | null, folderContentsFailed: boolean) => boolean
+        pickerErrorMessage: (
+            pickerSearching: boolean,
+            browsePath: string | null,
+            searchResultsFailed: any,
+            folderContentsFailed: boolean
+        ) => string | null
         pickerEmptyMessage: (pickerSearching: boolean, pickerSearch: string, browsePath: string | null) => string
         currentFolder: (entry: FileSystemEntry | null) => string | null
         moveButtonLabel: (
@@ -260,6 +266,17 @@ function folderOfEntry(entry: FileSystemEntry | null): string | null {
 
 function toDestination(entry: FileSystemEntry): ShareDestination {
     return { path: entry.path, name: fileSystemEntryName(entry) }
+}
+
+async function listChildFolders(parent: string, depth: number): Promise<FileSystemEntry[]> {
+    const folders: FileSystemEntry[] = []
+    for (let offset = 0; ; offset += 200) {
+        const page = await api.fileSystem.list({ parent, depth, type: 'folder', limit: 200, offset })
+        folders.push(...page.results)
+        if (!page.next || !page.results.length) {
+            return folders
+        }
+    }
 }
 
 async function findEntry(target: ShareToSpaceTarget): Promise<FileSystemEntry | null> {
@@ -322,7 +339,7 @@ export const analyticsShareLogic = kea<analyticsShareLogicType>([
                     const depth = splitPath(parent).length + 1
                     // Folders load apart from items, so a full page of items cannot hide a folder to move into.
                     const [folders, items] = await Promise.all([
-                        api.fileSystem.list({ parent, depth, type: 'folder', limit: 200 }),
+                        listChildFolders(parent, depth),
                         api.fileSystem.list({ parent, depth, notType: 'folder', limit: 100 }),
                     ])
                     breakpoint()
@@ -336,9 +353,7 @@ export const analyticsShareLogic = kea<analyticsShareLogicType>([
                         }
                     }
                     return [
-                        ...folders.results
-                            .map((entry) => ({ ...toDestination(entry), kind: 'folder' as const }))
-                            .sort(byName),
+                        ...folders.map((entry) => ({ ...toDestination(entry), kind: 'folder' as const })).sort(byName),
                         ...itemRows.sort(byName),
                     ]
                 },
@@ -407,6 +422,7 @@ export const analyticsShareLogic = kea<analyticsShareLogicType>([
             },
         ],
         folderContentsFailed: [false, { loadFolderContents: () => false, loadFolderContentsFailure: () => true }],
+        searchResultsFailed: [false, { loadSearchResults: () => false, loadSearchResultsFailure: () => true }],
         newFolderOpen: [
             false,
             {
@@ -492,10 +508,23 @@ export const analyticsShareLogic = kea<analyticsShareLogicType>([
                 return browsePath === null ? spacesLoading && !spaces.length : folderContentsLoading
             },
         ],
-        pickerFailed: [
-            (s) => [s.pickerSearching, s.browsePath, s.folderContentsFailed],
-            (searching: boolean, browsePath: string | null, folderContentsFailed: boolean): boolean =>
-                !searching && browsePath !== null && folderContentsFailed,
+        pickerErrorMessage: [
+            (s) => [s.pickerSearching, s.browsePath, s.searchResultsFailed, s.folderContentsFailed],
+            (
+                searching: boolean,
+                browsePath: string | null,
+                searchResultsFailed: boolean,
+                folderContentsFailed: boolean
+            ): string | null => {
+                if (searching) {
+                    return searchResultsFailed
+                        ? 'Couldn’t search collections and folders. Change the search to try again.'
+                        : null
+                }
+                return browsePath !== null && folderContentsFailed
+                    ? 'Couldn’t load this folder. Close this and try again.'
+                    : null
+            },
         ],
         pickerEmptyMessage: [
             (s) => [s.pickerSearching, s.pickerSearch, s.browsePath],
