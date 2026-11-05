@@ -162,9 +162,7 @@ def evaluate_and_close_campaign_batch(campaign_ids: list[str], now: datetime) ->
     result = CloseBatchResult()
     closed: list[tuple[ProductPushCampaign, str]] = []
 
-    campaigns = ProductPushCampaign.objects.filter(
-        id__in=campaign_ids, status=ProductPushCampaign.Status.ACTIVE
-    ).select_related("organization")
+    campaigns = ProductPushCampaign.objects.filter(id__in=campaign_ids, status=ProductPushCampaign.Status.ACTIVE)
 
     for campaign in campaigns:
         if campaign.started_at is None:
@@ -440,12 +438,10 @@ def cancel_campaigns(campaign_ids: list[str], now: datetime) -> int:
     cancelled: list[tuple[ProductPushCampaign, str]] = []
     with transaction.atomic():
         campaigns = list(
-            ProductPushCampaign.objects.select_for_update(skip_locked=True)
-            .filter(
+            ProductPushCampaign.objects.select_for_update(skip_locked=True).filter(
                 id__in=campaign_ids,
                 status__in=[ProductPushCampaign.Status.SCHEDULED, ProductPushCampaign.Status.ACTIVE],
             )
-            .select_related("organization")
         )
         for campaign in campaigns:
             campaign.status = ProductPushCampaign.Status.CANCELLED
@@ -555,6 +551,22 @@ def _capture_campaign_events(campaign_events: list[tuple[ProductPushCampaign, st
     """
     if not campaign_events:
         return
+
+    # groups() reads only the org's pk and customer_id, so fetch those two columns for the orgs not
+    # already attached, rather than joining full organization rows into every batch query.
+    missing_org_ids = {
+        campaign.organization_id
+        for campaign, _ in campaign_events
+        if not ProductPushCampaign.organization.is_cached(campaign)
+    }
+    if missing_org_ids:
+        organizations_by_id = {
+            organization.id: organization
+            for organization in Organization.objects.filter(id__in=missing_org_ids).only("id", "customer_id")
+        }
+        for campaign, _ in campaign_events:
+            if campaign.organization_id in organizations_by_id:
+                campaign.organization = organizations_by_id[campaign.organization_id]
 
     with ph_scoped_capture() as capture:
         for campaign, transition in campaign_events:

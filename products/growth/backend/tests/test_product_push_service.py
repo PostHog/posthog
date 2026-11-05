@@ -3,6 +3,8 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from posthog.models.organization import Organization
@@ -168,9 +170,13 @@ class TestProductPushService(BaseTest):
         assert campaign.status == ProductPushCampaign.Status.ACTIVE
 
     def test_expired_campaign_without_adoption_closes_as_skipped(self) -> None:
+        Organization.objects.filter(id=self.organization.id).update(customer_id="cus_test_123")
         campaign = self._active_campaign("product_analytics", started_days_ago=CAMPAIGN_DURATION_DAYS + 1)
 
-        with patch("products.growth.backend.product_push.service.ph_scoped_capture") as mock_scoped:
+        with (
+            patch("products.growth.backend.product_push.service.ph_scoped_capture") as mock_scoped,
+            CaptureQueriesContext(connection) as queries,
+        ):
             mock_capture = MagicMock()
             mock_scoped.return_value.__enter__.return_value = mock_capture
             result = evaluate_and_close_campaign_batch([str(campaign.id)], self.now)
@@ -180,6 +186,10 @@ class TestProductPushService(BaseTest):
         assert campaign.status == ProductPushCampaign.Status.SKIPPED
         assert campaign.ended_at == self.now
         assert mock_capture.call_args.kwargs["event"] == "product push campaign skipped"
+        groups = mock_capture.call_args.kwargs["groups"]
+        assert groups["organization"] == str(self.organization.id)
+        assert groups["customer"] == "cus_test_123"
+        assert not [q["sql"] for q in queries.captured_queries if 'JOIN "posthog_organization"' in q["sql"]]
 
     def test_intent_created_during_campaign_adopts_product_without_activation_criterion(self) -> None:
         campaign = self._active_campaign("web_analytics")
