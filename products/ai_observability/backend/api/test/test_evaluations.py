@@ -2159,7 +2159,6 @@ class TestEvaluationSamplePreviews(ClickhouseTestMixin, APIBaseTest):
                         "$ai_session_id": f"session-{name}",
                         "$ai_input": [{"role": "user", "content": f"Question {name}"}],
                         "$ai_output_choices": [{"role": "assistant", "content": f"Answer {name}"}],
-                        "$ai_total_cost_usd": 0.5,
                     },
                 ),
                 "trace": f"trace-{name}",
@@ -2198,8 +2197,6 @@ class TestEvaluationSamplePreviews(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[0]["trace_id"], "trace-a")
         self.assertEqual(results[0]["input_preview"], "Question a")
         self.assertEqual(results[0]["output_preview"], "Answer a")
-        self.assertEqual(results[0]["generation_count"], 1)
-        self.assertEqual(results[0]["total_cost_usd"], 0.5)
 
     @parameterized.expand(["generation", "trace", "session"])
     def test_test_hog_runs_pinned_units_even_outside_the_conditions(self, target: str) -> None:

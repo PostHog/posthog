@@ -1911,7 +1911,7 @@ export const getEvaluationsSampleTrafficCreateUrl = (projectId: string) => {
 }
 
 /**
- * Recent units an unsaved evaluation would run on: the latest and a random pick, newest first.
+ * The latest units an unsaved evaluation would run on, newest first.
  */
 export const evaluationsSampleTrafficCreate = async (
     projectId: string,

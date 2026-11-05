@@ -1596,7 +1596,7 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('An evaluation that scores LLM generations, traces, or sessions.')
 
 /**
- * Recent units an unsaved evaluation would run on: the latest and a random pick, newest first.
+ * The latest units an unsaved evaluation would run on, newest first.
  */
 export const evaluationsSampleTrafficCreateBodyTargetDefault = `generation`
 export const evaluationsSampleTrafficCreateBodyTargetConfigOneWindowSecondsDefault = 1800

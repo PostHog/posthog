@@ -1301,10 +1301,6 @@ class EvaluationSampleTrafficItemSerializer(serializers.Serializer):
     output_preview = serializers.CharField(
         help_text="First 200 characters of the last assistant message in the unit's latest generation."
     )
-    generation_count = serializers.IntegerField(help_text="Number of $ai_generation events in the unit.")
-    total_cost_usd = serializers.FloatField(
-        allow_null=True, help_text="Summed cost of the unit's generations in USD, or null when none reported a cost."
-    )
 
 
 class EvaluationSampleTrafficResponseSerializer(serializers.Serializer):
@@ -1697,7 +1693,6 @@ def _sample_unit_ids(
     condition_filter: ast.Expr | None,
     count: int,
     target_config: Mapping[str, Any],
-    random_order: bool,
 ) -> list[str]:
     """Ids of settled units matching `condition_filter`, from the samplers the test previews use."""
     if target == EvaluationTarget.SESSION.value:
@@ -1707,7 +1702,6 @@ def _sample_unit_ids(
             count,
             quiet_period_seconds=target_config.get("quiet_period_seconds", SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS),
             user=user,
-            random_order=random_order,
         )
     if target == EvaluationTarget.TRACE.value:
         samples = sample_test_traces(
@@ -1716,19 +1710,17 @@ def _sample_unit_ids(
             count,
             window_seconds=target_config.get("window_seconds", TRACE_EVAL_DEFAULT_WINDOW_SECONDS),
             user=user,
-            random_order=random_order,
         )
         return [sample.trace_id for sample in samples]
 
     where_exprs: list[ast.Expr] = [_is_generation(), _generation_lookback()]
     if condition_filter is not None:
         where_exprs.append(condition_filter)
-    order_key: ast.Expr = ast.Call(name="rand", args=[]) if random_order else ast.Field(chain=["timestamp"])
     query = ast.SelectQuery(
         select=[ai_events_unit_key(EvaluationTarget.GENERATION.value)],
         select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "ai_events"]), alias="ai_events"),
         where=ast.Placeholder(expr=ast.Field(chain=["where_clause"])),
-        order_by=[ast.OrderExpr(expr=order_key, order="DESC")],
+        order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
         limit=ast.Constant(value=count),
     )
     response = query_ai_events(
@@ -1748,8 +1740,6 @@ SELECT
     {{unit_key}} AS unit_id,
     argMax(trace_id, timestamp) AS latest_trace_id,
     max(timestamp) AS latest,
-    count() AS generation_count,
-    sum(total_cost_usd) AS total_cost_usd,
     {", ".join(f"argMax({column_name}, timestamp)" for column_name in HEAVY_COLUMN_NAMES)}
 FROM posthog.ai_events AS ai_events
 WHERE event = '$ai_generation'
@@ -1782,20 +1772,17 @@ def _unit_previews(*, team: Team, user: "User", target: str, unit_ids: Sequence[
     )
     previews = []
     for row in response.results or []:
-        unit_id, trace_id, latest, generation_count, total_cost = row[:5]
-        properties = merge_heavy_properties({}, dict(zip(HEAVY_COLUMN_NAMES, row[5:], strict=True)))
+        unit_id, trace_id, latest = row[:3]
+        properties = merge_heavy_properties({}, dict(zip(HEAVY_COLUMN_NAMES, row[3:], strict=True)))
         io_preview = _generation_io_preview({"event": "$ai_generation", "properties": properties})
-        input_preview, output_preview = io_preview.input, io_preview.output
         previews.append(
             {
                 "sample_id": str(unit_id),
                 "sample_type": target,
                 "trace_id": trace_id or None,
                 "timestamp": latest,
-                "input_preview": input_preview,
-                "output_preview": output_preview,
-                "generation_count": int(generation_count),
-                "total_cost_usd": float(total_cost) if total_cost is not None else None,
+                "input_preview": io_preview.input,
+                "output_preview": io_preview.output,
             }
         )
     return previews
@@ -2270,15 +2257,14 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 bytecode, event_data, allows_na=allows_na, output_type=output_type, output_config=output_config
             )
             io_preview = _generation_io_preview(event_data)
-            input_preview, output_preview = io_preview.input, io_preview.output
             results.append(
                 {
                     "sample_id": event_data["uuid"],
                     "sample_type": EvaluationTarget.GENERATION.value,
                     "event_uuid": event_data["uuid"],
                     "trace_id": event_data["properties"].get("$ai_trace_id"),
-                    "input_preview": input_preview,
-                    "output_preview": output_preview,
+                    "input_preview": io_preview.input,
+                    "output_preview": io_preview.output,
                     "result": result.get("verdict"),
                     **({"score": result.get("score")} if output_type == "numeric" else {}),
                     **({"categories": result.get("categories")} if output_type == "categorical" else {}),
@@ -2311,7 +2297,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
     )
     @action(detail=False, methods=["post"], url_path="sample_traffic", required_scopes=["evaluation:read"])
     def sample_traffic(self, request: Request, **kwargs) -> Response:
-        """Recent units an unsaved evaluation would run on: the latest and a random pick, newest first."""
+        """The latest units an unsaved evaluation would run on, newest first."""
         if not self.user_access_control.check_access_level_for_resource("evaluation", "viewer"):
             raise exceptions.PermissionDenied()
 
@@ -2326,22 +2312,16 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         # outside the sampling percentage never shows up here.
         condition_filter = build_condition_filter(data["conditions"], team, ai_events_unit_key(target))
 
-        def sample(sample_count: int, random_order: bool) -> list[str]:
-            return _sample_unit_ids(
+        tag_queries(product=Product.LLM_ANALYTICS, feature=Feature.QUERY)
+        try:
+            unit_ids = _sample_unit_ids(
                 team=team,
                 user=user,
                 target=target,
                 condition_filter=condition_filter,
-                count=sample_count,
+                count=count,
                 target_config=data["target_config"],
-                random_order=random_order,
             )
-
-        tag_queries(product=Product.LLM_ANALYTICS, feature=Feature.QUERY)
-        try:
-            latest = sample((count + 1) // 2, random_order=False)
-            # Ask for the full count so duplicates of the latest units still leave enough to fill it.
-            unit_ids = list(dict.fromkeys([*latest, *sample(count, random_order=True)]))[:count]
             results = _unit_previews(team=team, user=user, target=target, unit_ids=unit_ids)
         except AIEventsUnavailableError:
             results = []

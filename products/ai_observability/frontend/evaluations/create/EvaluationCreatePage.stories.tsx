@@ -25,8 +25,6 @@ const SAMPLE_TRAFFIC = {
         timestamp,
         input_preview: input,
         output_preview: '',
-        generation_count: 1,
-        total_cost_usd: null,
     })),
 }
 

@@ -17,8 +17,6 @@ const sample = (sampleId: string): EvaluationSampleTrafficItemApi => ({
     timestamp: '2026-11-05T10:00:00Z',
     input_preview: '',
     output_preview: '',
-    generation_count: 1,
-    total_cost_usd: null,
 })
 
 const evaluation = {

@@ -3361,13 +3361,6 @@ export interface EvaluationSampleTrafficItemApi {
     input_preview: string
     /** First 200 characters of the last assistant message in the unit's latest generation. */
     output_preview: string
-    /** Number of $ai_generation events in the unit. */
-    generation_count: number
-    /**
-     * Summed cost of the unit's generations in USD, or null when none reported a cost.
-     * @nullable
-     */
-    total_cost_usd: number | null
 }
 
 export interface EvaluationSampleTrafficResponseApi {

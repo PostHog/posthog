@@ -44,16 +44,6 @@ const SESSION_HOG_TEST_LIMIT = 3
 /** Hog runs re-test as the code changes, once typing pauses. */
 const HOG_RETEST_DEBOUNCE_MS = 500
 
-export interface PreviewRow {
-    sampleId: string
-    traceId: string | null
-    timestamp: string | null
-    inputPreview: string
-    outputPreview: string
-    generationCount: number | null
-    totalCostUsd: number | null
-}
-
 /** What a test can run on: Hog code, or an LLM judge or decision model with a model picked. */
 export function testableKind(evaluation: EvaluationConfig | null): 'hog' | 'judge' | null {
     if (!evaluation) {
@@ -66,18 +56,6 @@ export function testableKind(evaluation: EvaluationConfig | null): 'hog' | 'judg
         return evaluation.evaluation_config.prompt.trim() && evaluation.model_configuration ? 'judge' : null
     }
     return null
-}
-
-function toRow(item: EvaluationSampleTrafficItemApi): PreviewRow {
-    return {
-        sampleId: item.sample_id,
-        traceId: item.trace_id,
-        timestamp: item.timestamp,
-        inputPreview: item.input_preview,
-        outputPreview: item.output_preview,
-        generationCount: item.generation_count,
-        totalCostUsd: item.total_cost_usd,
-    }
 }
 
 /** Why the output settings cannot be tested yet, such as a minimum above the maximum, which the Returns step shows. */
@@ -134,7 +112,7 @@ function previewTargetConfig(evaluation: EvaluationConfig): TestHogRequestApi['t
 
 function scope(evaluation: EvaluationConfig): Pick<TestHogRequestApi, 'conditions' | 'target' | 'target_config'> {
     return {
-        conditions: evaluation.conditions as TestHogRequestApi['conditions'],
+        conditions: evaluation.conditions.map((conditionSet) => ({ ...conditionSet })),
         target: evaluation.target,
         target_config: previewTargetConfig(evaluation),
     }
@@ -144,8 +122,8 @@ function scope(evaluation: EvaluationConfig): Pick<TestHogRequestApi, 'condition
 export interface evaluationPreviewLogicValues {
     evaluation: EvaluationConfig | null // llmEvaluationLogic
     currentTeamId: number | null // teamLogic
-    rows: PreviewRow[]
-    samples: PreviewRow[] | null
+    rows: EvaluationSampleTrafficItemApi[]
+    samples: EvaluationSampleTrafficItemApi[] | null
     samplesError: boolean
     samplesKey: string
     samplesLoading: boolean
@@ -166,10 +144,10 @@ export interface evaluationPreviewLogicActions {
         errorObject?: any
     }
     loadSamplesSuccess: (
-        samples: PreviewRow[] | null,
+        samples: EvaluationSampleTrafficItemApi[] | null,
         payload?: void
     ) => {
-        samples: PreviewRow[] | null
+        samples: EvaluationSampleTrafficItemApi[] | null
         payload?: void
     }
     testRows: ({ auto }: { auto: boolean }) => {
@@ -203,7 +181,7 @@ export interface evaluationPreviewLogicActions {
 export interface evaluationPreviewLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        rows: (samples: PreviewRow[] | null) => PreviewRow[]
+        rows: (samples: EvaluationSampleTrafficItemApi[] | null) => EvaluationSampleTrafficItemApi[]
         samplesKey: (evaluation: EvaluationConfig | null) => string
         testKey: (evaluation: EvaluationConfig | null) => string
     }
@@ -230,7 +208,7 @@ export const evaluationPreviewLogic = kea<evaluationPreviewLogicType>([
     })),
     loaders(({ values }) => ({
         samples: [
-            null as PreviewRow[] | null,
+            null as EvaluationSampleTrafficItemApi[] | null,
             {
                 loadSamples: async (_: void, breakpoint) => {
                     await breakpoint(SAMPLE_DEBOUNCE_MS)
@@ -243,7 +221,7 @@ export const evaluationPreviewLogic = kea<evaluationPreviewLogicType>([
                         count: SAMPLE_COUNT,
                     })
                     breakpoint()
-                    return response.results.map(toRow)
+                    return response.results
                 },
             },
         ],
@@ -270,7 +248,7 @@ export const evaluationPreviewLogic = kea<evaluationPreviewLogicType>([
                                   output_type: evaluation.output_type as TestHogRequestApi['output_type'],
                                   output_config: outputConfig,
                                   allows_na: evaluation.output_config.allows_na ?? false,
-                                  sample_ids: rows.slice(0, hogLimit).map((row) => row.sampleId),
+                                  sample_ids: rows.slice(0, hogLimit).map((row) => row.sample_id),
                               })
                             : await evaluationsTestOnSampleCreate(teamId, {
                                   ...scope(evaluation),
@@ -282,7 +260,7 @@ export const evaluationPreviewLogic = kea<evaluationPreviewLogicType>([
                                   output_type:
                                       evaluation.output_type as EvaluationTestOnSampleRequestApi['output_type'],
                                   output_config: outputConfig as EvaluationTestOnSampleRequestApi['output_config'],
-                                  sample_ids: rows.slice(0, JUDGE_TEST_LIMIT).map((row) => row.sampleId),
+                                  sample_ids: rows.slice(0, JUDGE_TEST_LIMIT).map((row) => row.sample_id),
                               })
                     breakpoint()
                     // A judge edit clears the results without starting a test, so nothing cancels this call. Its
@@ -323,7 +301,10 @@ export const evaluationPreviewLogic = kea<evaluationPreviewLogicType>([
         ],
     }),
     selectors({
-        rows: [(s) => [s.samples], (samples: PreviewRow[] | null): PreviewRow[] => samples ?? []],
+        rows: [
+            (s) => [s.samples],
+            (samples: EvaluationSampleTrafficItemApi[] | null): EvaluationSampleTrafficItemApi[] => samples ?? [],
+        ],
         // The traffic changes with what it runs on, not with the check, so editing a prompt queries nothing.
         samplesKey: [
             (s) => [s.evaluation],

@@ -388,12 +388,11 @@ def _sample_recent_traces(
     date_to: datetime,
     *,
     user: "User | None" = None,
-    random_order: bool = False,
 ) -> list[TraceHogTestSample]:
-    """Pick the most recent (or, with `random_order`, random) distinct trace ids whose *triggering*
-    generation matches the evaluation's conditions — mirroring the online scheduler, which starts a
-    trace-eval run from the first matching `$ai_generation`. Historical previews use that event
-    timestamp as the closest available proxy for the workflow start time."""
+    """Pick the most recent distinct trace ids whose *triggering* generation matches the
+    evaluation's conditions — mirroring the online scheduler, which starts a trace-eval run
+    from the first matching `$ai_generation`. Historical previews use that event timestamp as
+    the closest available proxy for the workflow start time."""
     where_exprs: list[ast.Expr] = [
         ast.CompareOperation(
             op=ast.CompareOperationOp.In,
@@ -428,11 +427,7 @@ def _sample_recent_traces(
         select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "ai_events"]), alias="ai_events"),
         where=ast.Placeholder(expr=ast.Field(chain=["where_clause"])),
         group_by=[ast.Field(chain=["trace_id"])],
-        order_by=[
-            ast.OrderExpr(
-                expr=ast.Call(name="rand", args=[]) if random_order else ast.Field(chain=["latest"]), order="DESC"
-            )
-        ],
+        order_by=[ast.OrderExpr(expr=ast.Field(chain=["latest"]), order="DESC")],
         limit=ast.Constant(value=sample_count),
     )
     response = query_ai_events(
@@ -458,7 +453,6 @@ def sample_test_traces(
     lookback_days: int = EVALUATION_TEST_LOOKBACK_DAYS,
     user: "User | None" = None,
     sample_ids: Sequence[str] | None = None,
-    random_order: bool = False,
 ) -> list[TraceHogTestSample]:
     """Traces an editor preview runs on: settled matches from the lookback, or exactly `sample_ids`.
 
@@ -482,7 +476,6 @@ def sample_test_traces(
         date_to - timedelta(days=lookback_days),
         date_to,
         user=user,
-        random_order=random_order,
     )
 
 

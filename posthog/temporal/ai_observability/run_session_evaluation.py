@@ -614,7 +614,7 @@ WHERE event IN ('$ai_generation', '$ai_span', '$ai_embedding', '$ai_trace')
   )
 GROUP BY session_id
 HAVING last_seen <= {quiet_cutoff}
-ORDER BY {order_key} DESC
+ORDER BY last_seen DESC
 LIMIT {sample_count}
 """
 
@@ -628,7 +628,6 @@ def _sample_quiet_sessions(
     quiet_cutoff: datetime,
     *,
     user: "User | None" = None,
-    random_order: bool = False,
 ) -> list[str]:
     with tags_context(product=Product.LLM_ANALYTICS):
         response = query_ai_events(
@@ -638,7 +637,6 @@ def _sample_quiet_sessions(
                 "date_to": ast.Constant(value=date_to),
                 "quiet_cutoff": ast.Constant(value=quiet_cutoff),
                 "sample_count": ast.Constant(value=sample_count),
-                "order_key": ast.Call(name="rand", args=[]) if random_order else ast.Field(chain=["last_seen"]),
                 "condition_filter": condition_filter if condition_filter is not None else ast.Constant(value=True),
             },
             team=team,
@@ -658,7 +656,6 @@ def sample_test_sessions(
     lookback_days: int = EVALUATION_TEST_LOOKBACK_DAYS,
     user: "User | None" = None,
     sample_ids: Sequence[str] | None = None,
-    random_order: bool = False,
 ) -> list[str]:
     """Sessions an editor preview runs on: settled matches from the lookback, or exactly `sample_ids`.
 
@@ -683,7 +680,6 @@ def sample_test_sessions(
         now,
         quiet_cutoff,
         user=user,
-        random_order=random_order,
     )
 
 

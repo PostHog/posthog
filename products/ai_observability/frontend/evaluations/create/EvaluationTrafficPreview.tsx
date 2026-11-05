@@ -8,13 +8,12 @@ import { pluralize } from 'lib/utils/strings'
 
 import { urls } from '~/scenes/urls'
 
-import type { TestHogResultItemApi } from '../../generated/api.schemas'
+import type { EvaluationSampleTrafficItemApi, TestHogResultItemApi } from '../../generated/api.schemas'
 import { TraceDrawerRowsSync, useTraceDrawerRows } from '../../redesign/trace/TraceDrawerRowsHost'
 import type { TraceListRow } from '../../redesign/trace/traceListRows'
 import {
     HOG_TEST_LIMIT,
     JUDGE_TEST_LIMIT,
-    type PreviewRow,
     evaluationPreviewLogic,
     outputConfigError,
     resultPasses,
@@ -63,19 +62,19 @@ function ResultTag({
     )
 }
 
-function rowTitle(row: PreviewRow): string {
-    return row.inputPreview ? `"${row.inputPreview}"` : row.sampleId
+function rowTitle(row: EvaluationSampleTrafficItemApi): string {
+    return row.input_preview ? `"${row.input_preview}"` : row.sample_id
 }
 
 /** A generation row opens on that generation, any other on its trace. */
-function drawerRow(row: PreviewRow, evaluation: EvaluationConfig): TraceListRow | null {
-    if (!row.traceId) {
+function drawerRow(row: EvaluationSampleTrafficItemApi, evaluation: EvaluationConfig): TraceListRow | null {
+    if (!row.trace_id) {
         return null
     }
     return {
-        traceId: row.traceId,
+        traceId: row.trace_id,
         timestamp: row.timestamp,
-        stepId: evaluation.target === 'generation' ? row.sampleId : row.traceId,
+        stepId: evaluation.target === 'generation' ? row.sample_id : row.trace_id,
     }
 }
 
@@ -103,7 +102,7 @@ export function EvaluationTrafficPreview({ testable }: { testable: boolean }): J
     // A failed run, such as code that no longer compiles, leaves the last results behind, so they stop showing.
     const results = testError ? null : testResults
     const verdicts = rows.flatMap((row) => {
-        const result = results?.[row.sampleId]
+        const result = results?.[row.sample_id]
         return result ? [resultPasses(result, evaluation)] : []
     })
     const graded = verdicts.filter((passes) => passes !== null)
@@ -148,18 +147,18 @@ export function EvaluationTrafficPreview({ testable }: { testable: boolean }): J
             ) : (
                 <ul className="-mx-1.5 m-0 flex list-none flex-col p-0">
                     {rows.map((row, index) => {
-                        const result = results?.[row.sampleId]
+                        const result = results?.[row.sample_id]
                         const { className, onClickCapture } = rowProps(drawerRow(row, evaluation))
                         return (
                             <li
-                                key={row.sampleId}
+                                key={row.sample_id}
                                 onClickCapture={onClickCapture}
                                 className={`flex items-center gap-2 rounded px-1.5 py-1 hover:bg-fill-highlight-100 animate-fade-in motion-reduce:animate-none ${ROW_STAGGER[Math.min(index, ROW_STAGGER.length - 1)]} ${className ?? ''}`}
                                 data-attr="llma-evaluation-create-preview-row"
                             >
-                                {row.traceId ? (
+                                {row.trace_id ? (
                                     <Link
-                                        to={urls.aiObservabilityTrace(row.traceId)}
+                                        to={urls.aiObservabilityTrace(row.trace_id)}
                                         className={`${TRACE_LINK.slice(1)} min-w-0 flex-1 truncate text-xs`}
                                         subtle
                                     >
