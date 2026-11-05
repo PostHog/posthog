@@ -7,20 +7,12 @@ import { objectsEqual } from 'lib/utils/objects'
 
 import { FeatureFlagRulesV2ReturnType, JsonType } from '~/types'
 
-import { RULES_V2_NO_VALUE_TOOLTIP } from 'products/feature_flags/frontend/RulesV2Flow'
-
 import { JSONEditorInput } from './JSONEditorInput'
 
 const BOOLEAN_OPTIONS = [
     { value: 'true', label: 'true' },
     { value: 'false', label: 'false' },
 ]
-
-const NO_VALUE_OPTION = {
-    value: 'null',
-    label: 'No value',
-    tooltip: RULES_V2_NO_VALUE_TOOLTIP,
-}
 
 function objectInputText(value: JsonType | null): string {
     if (value === null) {
@@ -89,7 +81,8 @@ function RulesV2ObjectInput({
 }
 
 /**
- * A value of the flag's return type. A nullable string, number or object value is null while its input is empty. An
+ * A value of the flag's return type. A boolean is always true or false. A nullable string, number or object value is
+ * null while its input is empty. An
  * object input holds its text until it parses to an object, so the draft shows the error rather than dropping the edit.
  */
 export function RulesV2ValueInput({
@@ -164,8 +157,8 @@ export function RulesV2ValueInput({
             <LemonSegmentedButton
                 size="small"
                 value={String(value)}
-                onChange={(option) => onChange(option === 'null' ? null : option === 'true')}
-                options={nullable ? [...BOOLEAN_OPTIONS, NO_VALUE_OPTION] : BOOLEAN_OPTIONS}
+                onChange={(option) => onChange(option === 'true')}
+                options={BOOLEAN_OPTIONS}
             />
         </div>
     )

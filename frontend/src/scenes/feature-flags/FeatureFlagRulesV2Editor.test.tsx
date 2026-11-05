@@ -170,6 +170,11 @@ describe('FeatureFlagRulesV2Editor', () => {
             expect(screen.getByLabelText('Rollout percentage')).toHaveValue('20')
         })
 
+        it('offers only true and false as the default value', () => {
+            const defaultValue = within(screen.getByLabelText('Default value'))
+            expect(defaultValue.getAllByRole('button').map((button) => button.textContent)).toEqual(['true', 'false'])
+        })
+
         it('estimates how many users each rule matches and its rollout reaches', async () => {
             const [, rolloutRule] = document.querySelectorAll('[data-attr="rules-v2-rule"]')
             await waitFor(() => expect(rolloutRule).toHaveTextContent('≈ 120 users'))

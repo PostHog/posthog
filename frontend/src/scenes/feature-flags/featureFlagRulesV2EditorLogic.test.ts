@@ -292,6 +292,14 @@ describe('featureFlagRulesV2EditorLogic', () => {
             ).toEqual({})
         })
 
+        it('requires a boolean default, which the editor offers no empty choice for', () => {
+            const config = V2_FLAG.filters as FeatureFlagRulesV2Config
+            expect(rulesV2DraftErrors({ ...config, default_value: null })).toEqual({
+                'filters.default_value': 'Must be true or false.',
+            })
+            expect(rulesV2DraftErrors({ ...config, default_value: true })).toEqual({})
+        })
+
         it('adds, moves and removes variants, and distributes their weights to exactly 100', () => {
             const variants = [...EXPERIMENT_RULE.variants, newVariant('string', 3)]
             expect(variants[3]).toEqual({ key: '', weight: 0, value: '' })
@@ -718,7 +726,7 @@ describe('featureFlagRulesV2EditorLogic', () => {
             const confirm = jest.spyOn(window, 'confirm').mockReturnValue(false)
             expect(logic.values.hasUnsavedChanges).toBe(false)
 
-            logic.actions.setConfig({ default_value: null })
+            logic.actions.setConfig({ default_value: true })
             router.actions.push(urls.featureFlags())
             expect(confirm).toHaveBeenCalledTimes(1)
 
@@ -734,12 +742,12 @@ describe('featureFlagRulesV2EditorLogic', () => {
             await expectLogic(pageLogic).toDispatchActions(['loadFeatureFlagSuccess']).toFinishAllListeners()
             pageLogic.actions.editFeatureFlag(true)
 
-            logic.actions.setConfig({ default_value: null })
+            logic.actions.setConfig({ default_value: true })
             // The project-prefixed path passes the editor's unload prompt, so only featureFlagLogic's guard keeps the draft.
             await expectLogic(pageLogic, () => router.actions.push(router.values.location.pathname))
                 .toFinishAllListeners()
                 .toMatchValues({ isEditingFlag: true })
-            expect(logic.values.draft.config.default_value).toBeNull()
+            expect(logic.values.draft.config.default_value).toBe(true)
 
             // Cancel leaves the draft dirty, so closing the editor is what lets later pushes reach the page.
             expect(pageLogic.values.rulesV2DraftDirty).toBe(true)
@@ -815,7 +823,7 @@ describe('featureFlagRulesV2EditorLogic', () => {
                 saveError: { message: 'Must be at most 100.' },
             })
 
-            logic.actions.setConfig({ default_value: null })
+            logic.actions.setConfig({ default_value: true })
             expect(logic.values.saveError).toBeNull()
         })
 

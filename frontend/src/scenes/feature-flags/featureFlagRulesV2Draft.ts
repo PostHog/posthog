@@ -312,7 +312,7 @@ export function rulesV2DraftErrors(config: FeatureFlagRulesV2DraftConfig): Recor
             experimentErrors(rule, path, config.return_type, errors)
         }
     })
-    if (config.default_value !== null) {
+    if (config.default_value !== null || config.return_type === 'boolean') {
         addError(errors, 'filters.default_value', valueError(config.default_value, config.return_type))
     }
     return errors
