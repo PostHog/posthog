@@ -1470,6 +1470,48 @@ export const WorkloadTrustPoliciesPartialUpdateBody = /* @__PURE__ */ zod.object
     enabled: zod.boolean().optional().describe('Whether the policy can mint tokens. Disabling it cuts off its tokens.'),
 })
 
+export const workloadTrustPolicyRequestsCreateBodyNameMax = 200
+
+export const workloadTrustPolicyRequestsCreateBodyIssuerMax = 255
+
+export const workloadTrustPolicyRequestsCreateBodySubjectNameMax = 255
+
+export const workloadTrustPolicyRequestsCreateBodySubjectMax = 255
+
+export const workloadTrustPolicyRequestsCreateBodyScopesItemMax = 100
+
+export const WorkloadTrustPolicyRequestsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(workloadTrustPolicyRequestsCreateBodyNameMax)
+        .describe('The name the policy gets once approved.'),
+    issuer: zod
+        .string()
+        .max(workloadTrustPolicyRequestsCreateBodyIssuerMax)
+        .describe('The OIDC issuer of the workload provider, from the list of supported providers.'),
+    subject_name: zod
+        .string()
+        .max(workloadTrustPolicyRequestsCreateBodySubjectNameMax)
+        .describe(
+            "The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly."
+        ),
+    subject: zod
+        .string()
+        .max(workloadTrustPolicyRequestsCreateBodySubjectMax)
+        .describe(
+            "The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match."
+        ),
+    conditions: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            "Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition."
+        ),
+    scopes: zod
+        .array(zod.string().max(workloadTrustPolicyRequestsCreateBodyScopesItemMax))
+        .describe("The scopes the policy's tokens would carry."),
+})
+
 /**
  * Public, unauthenticated endpoint for self-service revocation of a leaked PostHog personal API key, project secret API key, legacy feature flags secure API key, or OAuth access/refresh token. If the token matches a real credential, it is revoked immediately and the owner is notified by email. This includes an expired OAuth access token: the paired refresh token it protects may still be live. A legacy feature flags secure API key is matched through its migrated project secret API key row; it cannot be rotated automatically, so its project admins get an email to rotate it.
  *

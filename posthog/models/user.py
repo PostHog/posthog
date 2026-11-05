@@ -391,6 +391,25 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         instance._original_is_active = instance.is_active
         return instance
 
+    # The stored `is_staff` of an instance whose staff rights are withheld, or None when nothing is withheld.
+    _withheld_is_staff: bool | None = None
+
+    def withhold_staff_rights(self) -> None:
+        """Make this instance act as non-staff without changing the stored value."""
+        self._withheld_is_staff = self.is_staff
+        self.is_staff = False
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        if self._withheld_is_staff is None:
+            super().save(*args, **kwargs)
+            return
+        # Write the stored value back, so a save neither drops the person's staff rights nor logs a change.
+        self.is_staff = self._withheld_is_staff
+        try:
+            super().save(*args, **kwargs)
+        finally:
+            self.is_staff = False
+
     @property
     def is_superuser(self) -> bool:  # type: ignore[override]
         return self.is_staff
