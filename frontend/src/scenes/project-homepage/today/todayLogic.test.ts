@@ -25,7 +25,7 @@ describe('todayLogic', () => {
     let reportResponse: [number, any] | null
     let highlightResponses: [number, any][]
     let highlightCalls: number
-    let sourceMetaResponse: [number, any]
+    let sourceMetaResponse: [number, any] | null
     let sourceMetaRequests: string[][]
 
     beforeEach(() => {
@@ -35,7 +35,7 @@ describe('todayLogic', () => {
         highlightCalls = 0
         listParams = null
         reportResponse = null
-        sourceMetaResponse = [200, { reports: [] }]
+        sourceMetaResponse = null
         sourceMetaRequests = []
         useMocks({
             get: {
@@ -52,8 +52,12 @@ describe('todayLogic', () => {
             },
             post: {
                 '/api/projects/:team_id/signals/reports/source_metadata/': async ({ request }) => {
-                    sourceMetaRequests.push((await request.json()).report_ids)
-                    return sourceMetaResponse
+                    const reportIds = ((await request.json()) as { report_ids: string[] }).report_ids
+                    sourceMetaRequests.push(reportIds)
+                    // Like the API, answer every requested id, with no sources by default.
+                    return (
+                        sourceMetaResponse ?? [200, { reports: reportIds.map((id) => ({ id, source_products: [] })) }]
+                    )
                 },
                 '/api/projects/:team_id/signals/reports/:id/state/': () => [200, {}],
             },
@@ -230,9 +234,11 @@ describe('todayLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.reports[0].source_products).toEqual(['error_tracking'])
-        // A reload of the same list does not impress its reports again.
+        // A reload of the same list does not impress its reports again, and keeps their source products.
         logic.actions.loadTopReports()
         await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.reports[0].source_products).toEqual(['error_tracking'])
+        expect(sourceMetaRequests).toEqual([['a']])
 
         reportResponse = [200, report]
         logic.actions.reportOpened(report, 'list')

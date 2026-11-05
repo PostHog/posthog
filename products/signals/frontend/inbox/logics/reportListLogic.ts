@@ -57,6 +57,19 @@ const METRIC_REFRESH_PAGE_SIZE = 20
 /** The row fields the list leaves empty (`include_source_metadata=false`) and `source_metadata` fills in. */
 export type ReportSourceMeta = Pick<SignalReport, 'source_products' | 'scout_name'>
 
+export async function fetchReportSourceMeta(
+    projectId: string,
+    reportIds: string[]
+): Promise<Record<string, ReportSourceMeta>> {
+    const response = await signalsReportsSourceMetadataCreate(projectId, { report_ids: reportIds })
+    return Object.fromEntries(
+        response.reports.map(({ id, source_products, scout_name }) => [
+            id,
+            { source_products: [...source_products], scout_name },
+        ])
+    )
+}
+
 /** Fixed, section-defining server filter (e.g. `{ has_implementation_pr: 'true' }`). */
 export type ReportListParams = Record<string, string>
 
@@ -998,16 +1011,8 @@ export const reportListLogic = kea<reportListLogicType>([
             }
             requested.forEach((id) => inFlight.add(id))
             try {
-                const response = await signalsReportsSourceMetadataCreate(String(ApiConfig.getCurrentProjectId()), {
-                    report_ids: requested,
-                })
                 actions.applyReportSourceMeta(
-                    Object.fromEntries(
-                        response.reports.map(({ id, source_products, scout_name }) => [
-                            id,
-                            { source_products: [...source_products], scout_name },
-                        ])
-                    )
+                    await fetchReportSourceMeta(String(ApiConfig.getCurrentProjectId()), requested)
                 )
             } catch (error) {
                 posthog.captureException(error)
