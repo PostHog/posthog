@@ -148,10 +148,14 @@ function taskNotificationUserMessage(sessionId: string, event: string) {
   };
 }
 
-function taskNotificationResult(sessionId: string, uuid: string) {
+function taskNotificationResult(
+  sessionId: string,
+  uuid: string,
+  runId?: string,
+) {
   return {
     ...resultSuccess(sessionId, uuid),
-    origin: { kind: "task-notification" },
+    origin: { kind: "task-notification", runId },
   };
 }
 
@@ -210,9 +214,13 @@ describe("ClaudeAcpAgent — task-notification results", () => {
     ).toHaveLength(0);
   });
 
-  it.each(["completed", "failed", "stopped"])(
-    "waits for every sub-agent and the parent's reply when a worker %s",
-    async (status) => {
+  it.each(
+    ["completed", "failed", "stopped"].flatMap((status) =>
+      [true, false].map((echo) => ({ status, echo })),
+    ),
+  )(
+    "waits for every sub-agent and the parent's reply when a worker $status (echo: $echo)",
+    async ({ status, echo }) => {
       const { agent, client } = makeAgent();
       const sessionId = "s-pending-subagents";
       const { query, input } = installFakeSession(agent, sessionId, true);
@@ -233,6 +241,7 @@ describe("ClaudeAcpAgent — task-notification results", () => {
           type: "system",
           subtype: "task_started",
           task_id: taskId,
+          run_id: taskId,
           task_type: "local_agent",
           is_backgrounded: true,
         });
@@ -252,12 +261,15 @@ describe("ClaudeAcpAgent — task-notification results", () => {
           type: "system",
           subtype: "task_notification",
           task_id: taskId,
+          run_id: taskId,
           status,
           summary: "Worker ended.",
           output_file: "/tmp/worker-output",
         });
         expect(settled).not.toHaveBeenCalled();
-        await send(query, taskNotificationUserMessage(sessionId, taskId));
+        if (echo) {
+          await send(query, taskNotificationUserMessage(sessionId, taskId));
+        }
         await send(
           query,
           assistantMessage(
@@ -269,11 +281,12 @@ describe("ClaudeAcpAgent — task-notification results", () => {
           ),
         );
         await send(query, {
-          ...taskNotificationResult(sessionId, taskId),
+          ...taskNotificationResult(sessionId, taskId, taskId),
           usage: { output_tokens: 5 },
         });
         if (taskId === "worker-a") expect(settled).not.toHaveBeenCalled();
       }
+      expect(settled).toHaveBeenCalledOnce();
       await expect(prompt).resolves.toMatchObject({
         stopReason: "end_turn",
         usage: { outputTokens: 13 },
@@ -294,7 +307,14 @@ describe("ClaudeAcpAgent — task-notification results", () => {
     },
   );
 
-  it.each(["overlapping", "batched", "late_snapshot", "late_start", "resumed"])(
+  it.each([
+    "overlapping",
+    "missing_echo",
+    "batched",
+    "late_snapshot",
+    "late_start",
+    "resumed",
+  ])(
     "handles %s notifications without accepting an unrelated wakeup",
     async (delivery) => {
       const { agent } = makeAgent();
@@ -358,9 +378,17 @@ describe("ClaudeAcpAgent — task-notification results", () => {
         status: "completed",
         summary: "Worker ended.",
       });
-      if (delivery === "overlapping") {
+      if (delivery === "overlapping" || delivery === "missing_echo") {
         await send(query, workerNotification("worker-b"));
-        await send(query, taskNotificationResult(sessionId, "worker-a"));
+        await send(
+          query,
+          taskNotificationResult(sessionId, "unrelated", "unrelated-run"),
+        );
+        expect(settled).not.toHaveBeenCalled();
+        await send(
+          query,
+          taskNotificationResult(sessionId, "worker-a", "worker-a"),
+        );
         expect(settled).not.toHaveBeenCalled();
       } else {
         await send(query, {
@@ -403,7 +431,14 @@ describe("ClaudeAcpAgent — task-notification results", () => {
           run_id: delivery === "resumed" ? "worker-b-2" : "worker-b",
         });
       }
-      await send(query, taskNotificationResult(sessionId, "final"));
+      await send(
+        query,
+        taskNotificationResult(
+          sessionId,
+          "final",
+          delivery === "missing_echo" ? "worker-b" : undefined,
+        ),
+      );
       if (delivery === "resumed") {
         expect(settled).not.toHaveBeenCalled();
         await send(query, {
@@ -414,15 +449,19 @@ describe("ClaudeAcpAgent — task-notification results", () => {
           status: "completed",
           summary: "Worker ended.",
         });
-        await send(query, {
-          ...taskNotificationUserMessage(sessionId, "worker-b"),
-          origin: { kind: "task-notification", runId: "worker-b-2" },
-        });
+        await send(
+          query,
+          taskNotificationResult(sessionId, "stale", "worker-b"),
+        );
+        expect(settled).not.toHaveBeenCalled();
         await send(
           query,
           assistantMessage(sessionId, "resumed", "Research complete."),
         );
-        await send(query, taskNotificationResult(sessionId, "resumed"));
+        await send(
+          query,
+          taskNotificationResult(sessionId, "resumed", "worker-b-2"),
+        );
       }
       expect(settled).toHaveBeenCalledOnce();
       await prompt;
