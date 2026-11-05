@@ -25,6 +25,7 @@ from products.signals.backend.models import (
     SignalReportMonitoringAttempt,
     SignalReportMonitoringResult,
 )
+from products.signals.backend.report_assignments import create_claim
 from products.signals.backend.report_check_authoring import cancel_check
 from products.signals.backend.report_check_evaluation import CheckVerdict
 from products.signals.backend.report_check_execution import (
@@ -368,6 +369,8 @@ class TestReportCheckConcurrency(NonAtomicBaseTest):
     def test_monitoring_entry_rechecks_eligibility_after_a_lock_wait(self, outcome: str, entry: str) -> None:
         now = timezone.now()
         SignalReport.objects.filter(id=self.report.id, team_id=self.team.id).update(status=SignalReport.Status.READY)
+        # Entering Monitoring closes the report, so the API entries need the claim.
+        create_claim(self.report, ArtefactAttribution.from_user(self.user.id))
         checks = SignalReportCheck.objects.for_team(self.team.id).filter(id=self.check.id)
         checks.update(expires_at=now + timedelta(days=1))
 
