@@ -3437,9 +3437,16 @@ signal_spend = PostgresTable(
     push_team_guard_with_predicates=True,
     predicates=[
         parse_expr("kind IS NOT NULL"),
-        parse_expr(
-            "coalesce(finalized_at, created_at) >= toDateTime({usage_start}, 'UTC')",
-            placeholders={"usage_start": ast.Constant(value=SIGNAL_USAGE_START.strftime("%Y-%m-%d %H:%M:%S"))},
+        ast.CompareOperation(
+            left=parse_expr("coalesce(finalized_at, created_at)"),
+            op=ast.CompareOperationOp.GtEq,
+            right=ast.Call(
+                name="toDateTime",
+                args=[
+                    ast.Constant(value=SIGNAL_USAGE_START.strftime("%Y-%m-%d %H:%M:%S")),
+                    ast.Constant(value="UTC"),
+                ],
+            ),
         ),
         parse_expr("scout_run_id IS NULL OR scout_run_id IN (SELECT id FROM system._signal_spend_scout_runs)"),
     ],
