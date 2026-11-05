@@ -399,21 +399,22 @@ class ObjectStorage(ObjectStorageClient):
             self.aws_client.abort_multipart_upload(Bucket=bucket, Key=key, UploadId=upload_id)
             raise
 
-    def _try_append_by_part_copy(self, bucket: str, key: str, content: bytes) -> bool:
+    def _try_append_by_part_copy(self, bucket: str, key: str, suffix: bytes, existing_length: int) -> bool:
         try:
-            self._append_by_part_copy(bucket, key, content)
+            self._append_by_part_copy(bucket, key, suffix)
             return True
         except Exception as e:
             logger.warning("object_storage.append_by_part_copy_failed", bucket=bucket, file_name=key, error=e)
             capture_exception(e)
-            return False
+        head = self.head_object(bucket, key)
+        return head is not None and head["ContentLength"] == existing_length + len(suffix)
 
     def append(self, bucket: str, key: str, content: bytes, *, separator: bytes) -> bool:
         try:
             existing = self._get_object_or_none(bucket, key)
             if existing is not None and existing["ContentLength"] >= MULTIPART_MIN_PART_BYTES:
                 existing["Body"].close()
-                if self._try_append_by_part_copy(bucket, key, separator + content):
+                if self._try_append_by_part_copy(bucket, key, separator + content, existing["ContentLength"]):
                     return False
                 existing = self._get_object_or_none(bucket, key)
             existing_content = existing["Body"].read() if existing is not None else b""

@@ -98,7 +98,7 @@ class TestStorage(APIBaseTest):
             created = append(file_name, b'{"n": 1}', separator=b"\n")
 
             assert created == (existing is None)
-            assert read_bytes(file_name) == (existing + b"\n" if existing else b"") + b'{"n": 1}'
+            self.assertEqual(read_bytes(file_name), (existing + b"\n" if existing else b"") + b'{"n": 1}')
             head = head_object(file_name)
             assert head is not None
             assert head["ETag"].endswith('-2"') == expected_assembled_in_storage
@@ -287,7 +287,15 @@ class TestStorage(APIBaseTest):
         with self.assertRaises(ObjectStorageError):
             storage.read_bytes("test-bucket", "test-key")
 
-    def test_append_rewrites_the_object_when_part_copy_fails(self) -> None:
+    @parameterized.expand(
+        [
+            ("part_copy_fails", "upload_part_copy", b"", 1),
+            ("completion_response_lost", "complete_multipart_upload", b"\nnew", 0),
+        ]
+    )
+    def test_append_rewrites_the_object_only_when_part_copy_did_not_land(
+        self, _name: str, failing_call: str, landed_suffix: bytes, expected_rewrites: int
+    ) -> None:
         existing_content = b"x" * MULTIPART_MIN_PART_BYTES
         closed_stream = {"ContentLength": len(existing_content), "Body": MagicMock(read=MagicMock(return_value=b""))}
         reread_stream = {
@@ -296,17 +304,17 @@ class TestStorage(APIBaseTest):
         }
         mock_client = MagicMock()
         mock_client.get_object.side_effect = [closed_stream, reread_stream]
-        error_response = {"Error": {"Code": "NotImplemented", "Message": "UploadPartCopy is not supported"}}
-        mock_client.upload_part_copy.side_effect = ClientError(error_response, "UploadPartCopy")  # type: ignore[arg-type]
+        mock_client.head_object.return_value = {"ContentLength": len(existing_content) + len(landed_suffix)}
+        error_response = {"Error": {"Code": "InternalError", "Message": "We encountered an internal error"}}
+        getattr(mock_client, failing_call).side_effect = ClientError(error_response, failing_call)  # type: ignore[arg-type]
         storage = ObjectStorage(mock_client)
 
         created = storage.append("test-bucket", "test-key", b"new", separator=b"\n")
 
         assert not created
         mock_client.abort_multipart_upload.assert_called_once()
-        mock_client.put_object.assert_called_once_with(
-            Bucket="test-bucket", Key="test-key", Body=existing_content + b"\nnew"
-        )
+        rewritten_bodies = [put.kwargs["Body"] for put in mock_client.put_object.call_args_list]
+        assert [body == existing_content + b"\nnew" for body in rewritten_bodies] == [True] * expected_rewrites
 
     def test_delete_objects_batches_keys_and_returns_failures(self) -> None:
         mock_client = MagicMock()
