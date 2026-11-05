@@ -487,6 +487,11 @@ export const formatSesEventLogs = (rec: SesEventRecord): SesEventLogLine[] => {
     }
 }
 
+// A malformed SES event still carries recipients and links, so only text that does not open like
+// JSON, such as an SNS or SES notice, is safe to quote in a log.
+const plainTextPrefix = (message: string): string | undefined =>
+    /^\s*[{[]/.test(message) ? undefined : message.slice(0, 200)
+
 export class SesWebhookHandler {
     certCache: Record<string, Promise<string> | undefined> = {}
     private allowedTopicArns: Set<string>
@@ -598,7 +603,8 @@ export class SesWebhookHandler {
             logger.warn('[SesWebhookHandler] Ignoring Notification whose Message is not JSON', {
                 topicArn: envelope.TopicArn,
                 messageId: envelope.MessageId,
-                messagePrefix: envelope.Message.slice(0, 200),
+                messageLength: envelope.Message.length,
+                messagePrefix: plainTextPrefix(envelope.Message),
             })
             return []
         }

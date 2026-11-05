@@ -757,11 +757,12 @@ describe('SesWebhookHandler', () => {
     })
 
     describe('a Notification whose Message is not JSON', () => {
-        const plainTextNotification = (): Record<string, any> => ({
+        const plainText = 'Successfully validated SNS topic for Amazon SES event publishing.'
+        const plainTextNotification = (message = plainText): Record<string, any> => ({
             Type: 'Notification',
             MessageId: 'sns-msg-1',
             TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-topic',
-            Message: 'Successfully validated SNS topic for Amazon SES event publishing.',
+            Message: message,
             Timestamp: '2025-10-03T12:10:00Z',
             SignatureVersion: '1',
             Signature: 'forged',
@@ -772,18 +773,36 @@ describe('SesWebhookHandler', () => {
             return metric?.values.find((v) => v.labels.reason === 'non_json_message')?.value ?? 0
         }
 
-        it('is acknowledged without metrics when signed, so SNS does not retry it', async () => {
-            const envelope = plainTextNotification()
-            const fetchSpy = signEnvelope(envelope)
-            const before = await ignoredCount()
+        it.each([
+            { label: 'plain text', message: plainText, logged: plainText },
+            {
+                label: 'truncated SES JSON',
+                message: '{"eventType":"Bounce","mail":{"destination":["victim@example.com"',
+                logged: undefined,
+            },
+        ])(
+            'is acknowledged without metrics when signed, logging its $label prefix only if not JSON-shaped',
+            async ({ message, logged }) => {
+                const warnSpy = jest.spyOn(logger, 'warn')
+                const envelope = plainTextNotification(message)
+                const fetchSpy = signEnvelope(envelope)
+                const before = await ignoredCount()
 
-            const result = await handler.handleWebhook({ body: envelope, headers: {}, verifySignature: true })
+                const result = await handler.handleWebhook({ body: envelope, headers: {}, verifySignature: true })
 
-            expect(result.status).toBe(200)
-            expect(result.metrics).toEqual([])
-            expect(await ignoredCount()).toBe(before + 1)
-            fetchSpy.mockRestore()
-        })
+                expect(result.status).toBe(200)
+                expect(result.metrics).toEqual([])
+                expect(await ignoredCount()).toBe(before + 1)
+                expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('not JSON'), {
+                    topicArn: envelope.TopicArn,
+                    messageId: envelope.MessageId,
+                    messageLength: message.length,
+                    messagePrefix: logged,
+                })
+                fetchSpy.mockRestore()
+                warnSpy.mockRestore()
+            }
+        )
 
         it('is rejected when its signature does not verify', async () => {
             const fetchSpy = jest.spyOn(handler as any, 'fetchText').mockResolvedValue('not a certificate')
