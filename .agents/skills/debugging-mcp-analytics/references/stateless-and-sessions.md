@@ -5,8 +5,9 @@ analytics used to key attribution on — the `initialize` handshake and the `Mcp
 header — so "what is one session?" had to be rebuilt at the application layer. This file is the
 reference for that: what the spec says, what the SDK does about it, and what it means for a query.
 
-Verified 2026-08-25 against spec `2026-07-28`, `@posthog/mcp` 0.11.7, `posthog` 7.44.0, and
-dotcom master. Versions move fast — re-check before trusting a number here.
+Verified 2026-11-05 against `@posthog/mcp` 0.25.0, `posthog` 7.84.0, and dotcom master. The
+spec summary below was last checked against `2026-07-28` on 2026-08-25. Versions move fast —
+re-check before trusting a number here.
 
 ## What the spec actually changed
 
@@ -95,11 +96,19 @@ the data.
 So the conversation handle is a _new step 1_ in front of the mechanism the older docs describe —
 the legacy paths still work and still matter for legacy clients.
 
-> **`enableConversationId` is off by default.** When off it is "fully inert: no parameter is
-> injected, no schema is touched, no prompt-back is appended, and `$session_id` resolves exactly
-> as it did before". So a stateless client against a server with the flag off has no transport
-> session _and_ no handle, and lands on step 3 — sessions fragment, often to one per request.
-> **That is the first thing to check when someone reports fragmented or single-call sessions.**
+> **`enableConversationId` is on by default** since `@posthog/mcp` 0.17.0 (ADR-0013,
+> posthog-js#4924; Python matches since `posthog` 7.56.0, posthog-python#944). A host opts out with
+> `enableConversationId: false`, and then it is "fully inert: no parameter is injected, no schema
+> is touched, no prompt-back is appended, and `$session_id` resolves exactly as it did before". A
+> stateless client in that state has no transport session _and_ no handle, and lands on step 3 —
+> sessions fragment, often to one per request. **When someone reports fragmented or single-call
+> sessions, check in this order: did the host turn the flag off, then does the agent echo the
+> handle.**
+
+A request that already carries an MCP transport session or a PostHog session token mints no
+handle and gets no prompt-back (ADR-0013 decision 3), so a legacy session is never replaced
+mid-flight. An agent-echoed handle still wins over it. Requests carrying neither keep the
+conversation fallback.
 
 `$session_id` and `$mcp_conversation_id` are different values on the same event: `$session_id` is
 `ses_<hash-of-handle>`, `$mcp_conversation_id` is the raw handle.
@@ -177,13 +186,15 @@ groups with the work that hit it instead of falling back to the transport sessio
 
 ## Where each repo stands
 
-> **None of the session model above applies to PostHog's own dogfood data yet.** `services/mcp`
-> uses the custom-dispatcher (`PostHogMCP`) path, pins `@posthog/mcp@0.10.2`, and sources
-> `$mcp_conversation_id` from an **`mcp-conversation-id` HTTP header** rather than a tool
-> argument (`src/index.ts`) — its `$session_id` is not derived from it. The code comment says the
-> tool-arg path arrives "once the SDK is bumped with `enableConversationId`". So when you query
-> project 2, you are looking at header-supplied conversation ids and transport-derived sessions,
-> not the mint/echo loop.
+> **PostHog's own dogfood data resolves `$session_id` in `services/mcp`, not in the SDK's
+> `getSessionId`.** `services/mcp` uses the custom-dispatcher (`PostHogMCP`) path and pins
+> `@posthog/mcp` 0.25.0 (alias `@posthog/mcp-analytics`). `resolveSessionKey`
+> (`src/hono/mcp-context.ts`) takes the first of: the echoed `conversation_id` tool argument or
+> the `mcp-conversation-id` header (both land on `mcpConversationId`), then the wrapper-supplied
+> `sessionId` hint (a query parameter), then `Mcp-Session-Id`. `getEffectiveSessionUuid`
+> (`src/hono/request-context.ts`) maps that key to a UUID the server minted, stored by
+> `SessionManager` in Redis, so `$session_id` is a server-minted UUID rather than the SDK's
+> `ses_<hash>`. A wrapper-only hint groups analytics but does not replace a conversation handle.
 
 **`services/mcp` — dual-dialect at the protocol layer, already shipped.** `src/lib/stateless-protocol.ts` (#72223)
 defines `STATELESS_PROTOCOL_VERSION = '2026-07-28'`, the reserved `_meta` keys, `server/discover`,
@@ -193,8 +204,8 @@ dialect per request from `_meta`'s protocol-version key or the header, then bran
 clients still get `initialize`/`ping`, modern clients get `server/discover` and **no session
 minting**. So the server speaks both today.
 
-**TypeScript SDK — shipped through 0.11.7.** The session model above is current, plus the
-0.11.x era work on top of it:
+**TypeScript SDK.** The session model above is current through 0.25.0, plus the 0.11.x era
+work on top of it (later releases are in `packages/mcp/CHANGELOG.md`):
 
 - MCP TypeScript SDK **v2** servers are instrumented at all (0.10.9/0.11.1 — structural probes
   in `detect.ts`; before that, a v2 server silently produced no events).
@@ -267,8 +278,8 @@ agent was never told about.
 
 ## Consequences for queries and debugging
 
-- **Fragmented or one-call sessions** on a stateless client almost always means
-  `enableConversationId` is off (or the agent isn't echoing the handle). Check the flag before
+- **Fragmented or one-call sessions** on a stateless client almost always means the host set
+  `enableConversationId: false` or the agent isn't echoing the handle. Check both before
   suspecting ingestion.
 - **`$mcp_initialize` is not a session-start anchor, and whether it fires at all depends on whose
   server you're looking at.** A customer server on the SDK's `instrument()` path emits nothing for
