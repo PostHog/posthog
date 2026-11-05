@@ -411,10 +411,15 @@ def _stored_email_values_by_mapping(instance: Optional[HogFunction], mappings: A
     if not isinstance(mappings, list):
         return []
     stored_mappings = [m for m in (instance.mappings if instance else None) or [] if isinstance(m, dict)]
-    result = []
+    claimed: list[dict] = []
+    result: list[dict[str, dict]] = []
     for index, mapping in enumerate(mappings):
         stored = _stored_mapping_for(mapping, index, stored_mappings) if isinstance(mapping, dict) else None
-        result.append(_stored_email_values_by_key(stored.get("inputs_schema"), stored.get("inputs")) if stored else {})
+        if stored is None or any(stored is earlier for earlier in claimed):
+            result.append({})
+            continue
+        claimed.append(stored)
+        result.append(_stored_email_values_by_key(stored.get("inputs_schema"), stored.get("inputs")))
     return result
 
 

@@ -187,12 +187,13 @@ class TestSandboxSenderValidation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("unchanged_mapping_keeps_its_stored_sender", "mapping", 200),
-            ("new_mapping_cannot_borrow_the_top_level_sender", "top_level", 400),
+            ("unchanged_mapping_keeps_its_stored_sender", "mapping", 1, 200),
+            ("duplicated_mapping_cannot_borrow_its_original_sender", "mapping", 2, 400),
+            ("new_mapping_cannot_borrow_the_top_level_sender", "top_level", 1, 400),
         ]
     )
     def test_mapping_sender_is_compared_only_with_its_own_stored_mapping(
-        self, _name: str, stored_in: str, expected_status: int
+        self, _name: str, stored_in: str, submitted: int, expected_status: int
     ) -> None:
         mapping = {"name": "Mapping", "inputs_schema": self.email_schema, "inputs": {"email": {"value": self._email()}}}
         function = HogFunction.objects.create(
@@ -206,10 +207,13 @@ class TestSandboxSenderValidation(APIBaseTest):
         )
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_functions/{function.id}/", {"mappings": [deepcopy(mapping)]}
+            f"/api/projects/{self.team.id}/hog_functions/{function.id}/",
+            {"mappings": [deepcopy(mapping) for _ in range(submitted)]},
         )
 
         assert response.status_code == expected_status, response.json()
+        if expected_status == 400:
+            assert "workflow email steps and test sends" in response.json()["detail"].lower()
 
     def test_destination_with_an_own_rotation_ignores_a_stale_sandbox_fallback(self) -> None:
         own_sender = Integration.objects.create(
