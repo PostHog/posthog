@@ -10829,12 +10829,12 @@ Note: Current coverage is essentially only the suppression family plus templates
 
 ## Sendowl — gaps
 
-Today (4): `discount_codes`, `orders`, `products`, `subscriptions`
+Today (6): `bundles`, `discount_codes`, `licenses`, `orders`, `products`, `subscriptions`
 
 Diffed against: <https://dashboard.sendowl.com/developers/api/bundles (resource nav enumerated from https://dashboard.sendowl.com/developers/api/orders; per-resource endpoint lists read from /developers/api/{bundles,discounts,drip_items,licenses,products,subscriptions})>
 
-- [ ] `GET /api/v1/packages (Bundles)` — Product bundles — a first-class sellable object alongside products, and the lookup that resolves bundle purchases appearing on orders (high)
-- [ ] `GET /api/v1/products/{product_id}/licenses and GET /api/v1/orders/{order_id}/licenses` — Issued license keys per product and per order — the fulfillment record for license-based products (medium)
+- [x] `GET /api/v1/packages (Bundles)` — Product bundles — a first-class sellable object alongside products, and the lookup that resolves bundle purchases appearing on orders (high) → `bundles` (full refresh)
+- [x] `GET /api/v1/products/{product_id}/licenses and GET /api/v1/orders/{order_id}/licenses` — Issued license keys per product and per order — the fulfillment record for license-based products (medium) → `licenses` (full refresh, fan-out over software `products`; the per-order list is a subset of the per-product list, so it is not synced separately)
 
 Note: SendOwl's public API is small: products, packages (bundles), orders, subscriptions, discounts, drip_items, licenses. Four of the seven are already synced. drip_items exposes no index/list endpoint (only nested POST, PUT, DELETE), so it is not syncable. Licenses are only listable nested under a product or order ID, so they need a parent-driven fan-out rather than a flat list resource.
 
