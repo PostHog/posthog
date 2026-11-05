@@ -1,5 +1,5 @@
 diff --git a/lib/index.cjs.js b/lib/index.cjs.js
-index 917e1c5..0c70918 100644
+index 6cd21508919609f0b6fa59765919a97420946fe1..0bec447a8bb462c1e6f2569dc1780ba240b55109 100644
 --- a/lib/index.cjs.js
 +++ b/lib/index.cjs.js
 @@ -612,9 +612,27 @@ var isPaused = function isPaused() {
@@ -31,8 +31,37 @@ index 917e1c5..0c70918 100644
    });
  }
  function useValues(logic) {
+@@ -1062,7 +1080,7 @@ function addListeners(logic) {
+     if (!byAction[type]) {
+       byAction[type] = {};
+     }
+-    byAction[type][logic.pathString] = listenerArray;
++    byAction[type][logic.pathString] = listenerArray.slice();
+   }
+ }
+ function removeListeners(logic) {
+@@ -1738,11 +1756,16 @@ var corePlugin = {
+               byAction = _getPluginContext.byAction;
+             var listeners = byAction[action.type];
+             if (listeners) {
+-              for (var _i = 0, _Object$values = Object.values(listeners); _i < _Object$values.length; _i++) {
+-                var listenerArray = _Object$values[_i];
++              for (var _i = 0, _Object$entries = Object.entries(listeners); _i < _Object$entries.length; _i++) {
++                var listenerPath = _Object$entries[_i][0];
++                var listenerArray = _Object$entries[_i][1];
+                 for (var _iterator = _createForOfIteratorHelperLoose(listenerArray), _step; !(_step = _iterator()).done;) {
+                   var innerListener = _step.value;
+-                  innerListener(action, previousState);
++                  var currentListeners = getPluginContext('listeners').byAction[action.type];
++                  // An earlier listener can unmount or replace a later listener's logic during this dispatch.
++                  if (currentListeners && currentListeners[listenerPath] === listenerArray) {
++                    innerListener(action, previousState);
++                  }
+                 }
+               }
+             }
 diff --git a/lib/index.esm.js b/lib/index.esm.js
-index 8116790..3500e6a 100644
+index 03fc2ba40b1c6445f0b642ed236dceccc5659fcb..f00b48fe86b92fbe9eeba5156736396dcaa72e81 100644
 --- a/lib/index.esm.js
 +++ b/lib/index.esm.js
 @@ -586,9 +586,27 @@ var isPaused = function isPaused() {
@@ -64,3 +93,64 @@ index 8116790..3500e6a 100644
    });
  }
  function useValues(logic) {
+@@ -1036,7 +1054,7 @@ function addListeners(logic) {
+     if (!byAction[type]) {
+       byAction[type] = {};
+     }
+-    byAction[type][logic.pathString] = listenerArray;
++    byAction[type][logic.pathString] = listenerArray.slice();
+   }
+ }
+ function removeListeners(logic) {
+@@ -1712,11 +1730,16 @@ var corePlugin = {
+               byAction = _getPluginContext.byAction;
+             var listeners = byAction[action.type];
+             if (listeners) {
+-              for (var _i = 0, _Object$values = Object.values(listeners); _i < _Object$values.length; _i++) {
+-                var listenerArray = _Object$values[_i];
++              for (var _i = 0, _Object$entries = Object.entries(listeners); _i < _Object$entries.length; _i++) {
++                var listenerPath = _Object$entries[_i][0];
++                var listenerArray = _Object$entries[_i][1];
+                 for (var _iterator = _createForOfIteratorHelperLoose(listenerArray), _step; !(_step = _iterator()).done;) {
+                   var innerListener = _step.value;
+-                  innerListener(action, previousState);
++                  var currentListeners = getPluginContext('listeners').byAction[action.type];
++                  // An earlier listener can unmount or replace a later listener's logic during this dispatch.
++                  if (currentListeners && currentListeners[listenerPath] === listenerArray) {
++                    innerListener(action, previousState);
++                  }
+                 }
+               }
+             }
+diff --git a/src/core/index.ts b/src/core/index.ts
+index 58f700ca2f8ea9dbc07bbf7ae7c596b98654a5c5..691b2dcd653fbe38082f67da422eac1be2c25d4e 100644
+--- a/src/core/index.ts
++++ b/src/core/index.ts
+@@ -64,9 +64,13 @@ export const corePlugin: KeaPlugin = {
+         const { byAction } = getPluginContext<ListenersPluginContext>('listeners')
+         const listeners = byAction[action.type]
+         if (listeners) {
+-          for (const listenerArray of Object.values(listeners)) {
++          for (const [listenerPath, listenerArray] of Object.entries(listeners)) {
+             for (const innerListener of listenerArray) {
+-              innerListener(action, previousState)
++              const currentListeners = getPluginContext<ListenersPluginContext>('listeners').byAction[action.type]
++              // An earlier listener can unmount or replace a later listener's logic during this dispatch.
++              if (currentListeners?.[listenerPath] === listenerArray) {
++                innerListener(action, previousState)
++              }
+             }
+           }
+         }
+diff --git a/src/core/listeners.ts b/src/core/listeners.ts
+index e07fc39d05156268790c5a4900f7f71a09b0a541..dfe0d0c46f79e0551299cb01cbb0f1e1526f2ac6 100644
+--- a/src/core/listeners.ts
++++ b/src/core/listeners.ts
+@@ -143,6 +143,6 @@ function addListeners(logic: BuiltLogic) {
+     if (!byAction[type]) {
+       byAction[type] = {}
+     }
+-    byAction[type][logic.pathString] = listenerArray
++    byAction[type][logic.pathString] = [...listenerArray]
+   }
+ }
