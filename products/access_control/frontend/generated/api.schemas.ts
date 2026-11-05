@@ -100,6 +100,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `insight` - insight
  * * `insight_variable` - insight_variable
  * * `integration` - integration
+ * * `knowledge_writer` - knowledge_writer
  * * `legal_document` - legal_document
  * * `link` - link
  * * `live_debugger` - live_debugger
@@ -226,6 +227,7 @@ export const ScopeObjectEnumApi = {
     Insight: 'insight',
     InsightVariable: 'insight_variable',
     Integration: 'integration',
+    KnowledgeWriter: 'knowledge_writer',
     LegalDocument: 'legal_document',
     Link: 'link',
     LiveDebugger: 'live_debugger',
@@ -375,6 +377,7 @@ export interface ProjectAccessSourceApi {
      * * `insight` - insight
      * * `insight_variable` - insight_variable
      * * `integration` - integration
+     * * `knowledge_writer` - knowledge_writer
      * * `legal_document` - legal_document
      * * `link` - link
      * * `live_debugger` - live_debugger
@@ -544,6 +547,7 @@ export interface AccessControlObjectRuleApi {
      * * `insight` - insight
      * * `insight_variable` - insight_variable
      * * `integration` - integration
+     * * `knowledge_writer` - knowledge_writer
      * * `legal_document` - legal_document
      * * `link` - link
      * * `live_debugger` - live_debugger
@@ -941,6 +945,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `insight` - insight
      * * `insight_variable` - insight_variable
      * * `integration` - integration
+     * * `knowledge_writer` - knowledge_writer
      * * `legal_document` - legal_document
      * * `link` - link
      * * `live_debugger` - live_debugger
@@ -1233,6 +1238,7 @@ export interface ResolvedAccessApi {
      * * `insight` - insight
      * * `insight_variable` - insight_variable
      * * `integration` - integration
+     * * `knowledge_writer` - knowledge_writer
      * * `legal_document` - legal_document
      * * `link` - link
      * * `live_debugger` - live_debugger

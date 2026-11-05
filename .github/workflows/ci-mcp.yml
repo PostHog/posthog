@@ -233,6 +233,11 @@ jobs:
             - name: Build package
               run: cd services/mcp && pnpm build
 
+            - name: Check charts build in the integration test environment
+              run: pnpm --dir packages/quill --filter=@posthog/quill-charts build
+              env:
+                  NODE_ENV: test
+
             - name: Type check (tsgo)
               run: cd services/mcp && pnpm typecheck
 
@@ -322,7 +327,7 @@ jobs:
 
                   if [ -z "$(git status --porcelain -- "$SNAPSHOT_PATH")" ]; then
                     echo "No MCP unit test changes"
-                    echo "has-changes=false" >> $GITHUB_OUTPUT
+                    echo "has-changes=false" >> "$GITHUB_OUTPUT"
                   else
                     echo "MCP unit test changes detected:"
                     git status --short -- "$SNAPSHOT_PATH"
@@ -330,7 +335,7 @@ jobs:
                     git add -N "$SNAPSHOT_PATH"
                     mkdir -p /tmp/patches
                     git diff --binary --full-index "$SNAPSHOT_PATH" > /tmp/patches/mcp-unit-tests.patch
-                    echo "has-changes=true" >> $GITHUB_OUTPUT
+                    echo "has-changes=true" >> "$GITHUB_OUTPUT"
                   fi
 
             - name: Upload snapshot patch
@@ -398,7 +403,9 @@ jobs:
 
             - name: Clean up data directories with container permissions
               run: |
-                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+                  if [ -d "data" ]; then
+                      docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+                  fi
               continue-on-error: true
 
             - name: Pull Docker images
@@ -540,8 +547,8 @@ jobs:
                       MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
                   fi
                   if [ -z "$MERGE_BASE" ]; then
-                      echo "key=" >> $GITHUB_OUTPUT
-                      echo "migrations_key=" >> $GITHUB_OUTPUT
+                      echo "key=" >> "$GITHUB_OUTPUT"
+                      echo "migrations_key=" >> "$GITHUB_OUTPUT"
                       echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
                       exit 0
                   fi
@@ -552,12 +559,12 @@ jobs:
                   DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
                   DB_ROUTING_HEAD=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
                   if [ "$DB_ROUTING" != "$DB_ROUTING_HEAD" ]; then
-                      echo "key=" >> $GITHUB_OUTPUT
-                      echo "migrations_key=" >> $GITHUB_OUTPUT
+                      echo "key=" >> "$GITHUB_OUTPUT"
+                      echo "migrations_key=" >> "$GITHUB_OUTPUT"
                       echo "::notice::db routing config or router differs from the merge base, so the schema cache is skipped"
                       exit 0
                   fi
-                  echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
+                  echo "key=posthog-schema-master-${MERGE_BASE}" >> "$GITHUB_OUTPUT"
                   # Last-resort restore prefix: matches the newest saved dump of any
                   # migration set, for the window where both exact keys miss. Gated on
                   # checkout age (a day) because a re-run of an old run keeps its original
@@ -566,7 +573,7 @@ jobs:
                   # dump that is newer than the code.
                   HEAD_AGE_SECONDS=$(( $(date +%s) - $(git show -s --format=%ct HEAD) ))
                   if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
-                      echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
+                      echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> "$GITHUB_OUTPUT"
                   fi
                   # Match the inputs and hashing in .depot/workflows/ci-backend.yml to find its schema dump.
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" \
@@ -576,11 +583,11 @@ jobs:
                   PG_IMAGE=$(git show "${MERGE_BASE}:docker-compose.base.yml" 2>/dev/null \
                       | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
                   if [ -z "$MIG_FILES" ]; then
-                      echo "migrations_key=" >> $GITHUB_OUTPUT
+                      echo "migrations_key=" >> "$GITHUB_OUTPUT"
                       echo "::notice::no migration files matched — restore will fall back to the SHA schema key"
                   else
                       MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
-                      echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
+                      echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> "$GITHUB_OUTPUT"
                   fi
 
             - name: Restore schema cache from master
@@ -663,7 +670,7 @@ jobs:
               run: |
                   ./target/debug/feature-flags > /tmp/rust-flags.log 2>&1 &
                   RUST_FLAGS_PID=$!
-                  echo "RUST_FLAGS_PID=$RUST_FLAGS_PID" >> $GITHUB_ENV
+                  echo "RUST_FLAGS_PID=$RUST_FLAGS_PID" >> "$GITHUB_ENV"
                   for i in {1..30}; do
                       if ! kill -0 "$RUST_FLAGS_PID" 2>/dev/null; then
                           echo "ERROR: Rust flags service exited unexpectedly"
@@ -720,12 +727,12 @@ jobs:
                   )
                   print(f'TEST_ORG_ID={org.id}')
                   print(f'TEST_PROJECT_ID={team.id}')
-                  " >> $GITHUB_ENV
+                  " >> "$GITHUB_ENV"
 
             - name: Source celery queues
               run: |
                   source ./bin/celery-queues.env
-                  echo "CELERY_WORKER_QUEUES=$CELERY_WORKER_QUEUES" >> $GITHUB_ENV
+                  echo "CELERY_WORKER_QUEUES=$CELERY_WORKER_QUEUES" >> "$GITHUB_ENV"
 
             - name: Start PostHog web & Celery worker
               run: |
@@ -825,17 +832,17 @@ jobs:
               id: check-patches
               run: |
                   if [ "${{ steps.download-patches.outcome }}" == "failure" ] || [ ! -d /tmp/snapshot-patches ]; then
-                    echo "has-patches=false" >> $GITHUB_OUTPUT
+                    echo "has-patches=false" >> "$GITHUB_OUTPUT"
                     echo "No snapshot patches found"
                     exit 0
                   fi
 
                   if [ -n "$(find /tmp/snapshot-patches -name '*.patch' -type f -size +0c 2>/dev/null)" ]; then
-                    echo "has-patches=true" >> $GITHUB_OUTPUT
+                    echo "has-patches=true" >> "$GITHUB_OUTPUT"
                     echo "Found patches:"
                     ls -la /tmp/snapshot-patches/
                   else
-                    echo "has-patches=false" >> $GITHUB_OUTPUT
+                    echo "has-patches=false" >> "$GITHUB_OUTPUT"
                     echo "Patch files empty or missing - no snapshot changes"
                   fi
 
