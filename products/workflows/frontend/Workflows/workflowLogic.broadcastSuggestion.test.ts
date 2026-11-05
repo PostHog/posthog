@@ -27,6 +27,10 @@ const sandboxEmail = step('email_node', 'function_email', {
     template_id: 'template-email',
     inputs: { email: { value: { from: { integrationId: SANDBOX_SENDER_ID } } } },
 })
+const unlistedEmail = step('email_node', 'function_email', {
+    template_id: 'template-email',
+    inputs: { email: { value: { from: { integrationId: 11 } } } },
+})
 const exit = step('exit_node', 'exit', { reason: 'Default exit' })
 const emailEdges: HogFlow['edges'] = [
     { from: 'trigger_node', to: 'email_node', type: 'continue' },
@@ -133,6 +137,17 @@ describe('workflowLogic broadcast suggestion on create', () => {
         {
             name: 'a batch email on the sandbox sender',
             actions: [trigger('batch'), sandboxEmail, exit],
+            exitCondition: 'exit_only_at_end' as const,
+            choice: 'broadcast' as const,
+            asked: false,
+            others: [],
+            moved: [],
+            originProduct: undefined,
+            path: `/workflows/${CREATED_ID}/workflow`,
+        },
+        {
+            name: 'a batch email on a sender the project list lacks',
+            actions: [trigger('batch'), unlistedEmail, exit],
             exitCondition: 'exit_only_at_end' as const,
             choice: 'broadcast' as const,
             asked: false,

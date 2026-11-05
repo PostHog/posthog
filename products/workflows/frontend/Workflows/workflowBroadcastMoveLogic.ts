@@ -23,21 +23,13 @@ function emailSenderIds(workflow: HogFlow): string[] {
     return ids.filter((id) => id !== null && id !== undefined).map(String)
 }
 
-export function sendsFromSandboxSender(
-    workflow: HogFlow,
-    integrations: IntegrationType[],
-    knownSandboxId?: number | null
-): boolean {
-    const sandboxIds = new Set(integrations.filter(isSandboxEmailSender).map((integration) => String(integration.id)))
-    if (knownSandboxId != null) {
-        sandboxIds.add(String(knownSandboxId))
-    }
-    return emailSenderIds(workflow).some((id) => sandboxIds.has(id))
-}
-
-function sendersAreListed(workflow: HogFlow, integrations: IntegrationType[]): boolean {
-    const listed = new Set(integrations.map((integration) => String(integration.id)))
-    return emailSenderIds(workflow).every((id) => listed.has(id))
+export function sendsFromListedOwnSenders(workflow: HogFlow, integrations: IntegrationType[]): boolean {
+    const ownIds = new Set(
+        integrations
+            .filter((integration) => !isSandboxEmailSender(integration))
+            .map((integration) => String(integration.id))
+    )
+    return emailSenderIds(workflow).every((id) => ownIds.has(id))
 }
 
 /** Mirrors is_convertible_to_broadcast on the server, which still checks on the move. */
@@ -46,8 +38,7 @@ export function canMoveToBroadcasts(workflow: HogFlow | null, integrations: Inte
         return false
     }
     return (
-        sendersAreListed(workflow, integrations) &&
-        !sendsFromSandboxSender(workflow, integrations) &&
+        sendsFromListedOwnSenders(workflow, integrations) &&
         !workflow.origin_product &&
         workflow.status !== 'archived' &&
         workflow.exit_condition === 'exit_only_at_end' &&
