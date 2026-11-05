@@ -103,19 +103,35 @@ describe('TemporalService', () => {
             {
                 name: 'configures an encryption codec when a temporal secret key is set',
                 env: {
+                    CLOUD_DEPLOYMENT: 'US',
                     TEMPORAL_SECRET_KEY: 'test-secret-key-for-codec-000000',
                     TEMPORAL_FALLBACK_SECRET_KEYS: 'fallback-key-one-000000000000000,fallback-key-two-000000000000000',
                 },
-                encryptionCodecs: [true],
+                expected: { encryptionCodecs: [true] },
             },
-            { name: 'sends payloads unencrypted when no secret key is set', env: {}, encryptionCodecs: undefined },
             {
-                name: 'does not use SECRET_KEY as the codec key',
-                env: { SECRET_KEY: 'app-secret-key-not-for-temporal-00' },
-                encryptionCodecs: undefined,
+                name: 'sends payloads unencrypted when no secret key is set',
+                env: {},
+                expected: { encryptionCodecs: undefined },
             },
-        ])('$name', async ({ env, encryptionCodecs }) => {
-            const names = ['SECRET_KEY', 'TEMPORAL_SECRET_KEY', 'TEMPORAL_FALLBACK_SECRET_KEYS']
+            {
+                name: 'does not use SECRET_KEY as the codec key on self-hosted',
+                env: { NODE_ENV: 'production', SECRET_KEY: 'app-secret-key-not-for-temporal-00' },
+                expected: { encryptionCodecs: undefined },
+            },
+            {
+                name: 'refuses to start on cloud without a temporal secret key',
+                env: { CLOUD_DEPLOYMENT: 'US', SECRET_KEY: 'app-secret-key-not-for-temporal-00' },
+                expected: { error: expect.stringContaining('TEMPORAL_SECRET_KEY is required') },
+            },
+        ])('$name', async ({ env, expected }) => {
+            const names = [
+                'CLOUD_DEPLOYMENT',
+                'SECRET_KEY',
+                'TEMPORAL_SECRET_KEY',
+                'TEMPORAL_FALLBACK_SECRET_KEYS',
+                ...Object.keys(env),
+            ]
             const original = Object.fromEntries(names.map((name) => [name, process.env[name]]))
             for (const name of names) {
                 delete process.env[name]
@@ -123,18 +139,29 @@ describe('TemporalService', () => {
             Object.assign(process.env, env)
 
             try {
-                const { TEMPORAL_SECRET_KEY, TEMPORAL_FALLBACK_SECRET_KEYS } = getDefaultAIObservabilityConfig()
-                const newService = new TemporalService({
-                    ...config,
-                    TEMPORAL_SECRET_KEY,
-                    TEMPORAL_FALLBACK_SECRET_KEYS,
-                })
-                await newService.startEvaluationRunWorkflow('test', createMockEvent({ uuid: 'test-uuid' }), 'llm_judge')
+                const startWorkflow = async (): Promise<boolean[] | undefined> => {
+                    const { TEMPORAL_SECRET_KEY, TEMPORAL_FALLBACK_SECRET_KEYS } = getDefaultAIObservabilityConfig()
+                    const newService = new TemporalService({
+                        ...config,
+                        TEMPORAL_SECRET_KEY,
+                        TEMPORAL_FALLBACK_SECRET_KEYS,
+                    })
+                    await newService.startEvaluationRunWorkflow(
+                        'test',
+                        createMockEvent({ uuid: 'test-uuid' }),
+                        'llm_judge'
+                    )
+                    const clientOptions = (Client as unknown as jest.Mock).mock.calls[0][0]
+                    return clientOptions.dataConverter?.payloadCodecs.map(
+                        (codec: unknown) => codec instanceof EncryptionCodec
+                    )
+                }
+                const outcome = await startWorkflow().then(
+                    (encryptionCodecs) => ({ encryptionCodecs }),
+                    (error: Error) => ({ error: error.message })
+                )
 
-                const clientOptions = (Client as unknown as jest.Mock).mock.calls[0][0]
-                expect(
-                    clientOptions.dataConverter?.payloadCodecs.map((codec: unknown) => codec instanceof EncryptionCodec)
-                ).toEqual(encryptionCodecs)
+                expect(outcome).toEqual(expected)
             } finally {
                 for (const name of names) {
                     if (original[name] === undefined) {
