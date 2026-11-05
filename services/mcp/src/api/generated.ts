@@ -17748,7 +17748,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.
+     * Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected.
      */
     export type RedshiftCopyInputsAuthorization = number | string | {
       aws_access_key_id: string;
@@ -17756,7 +17756,7 @@ export namespace Schemas {
     };
 
     /**
-     * Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.
+     * AWS S3 integration ID used to stage files in the S3 bucket. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected.
      */
     export type RedshiftCopyInputsBucketCredentials = number | {
       aws_access_key_id: string;
@@ -17773,9 +17773,9 @@ export namespace Schemas {
       region_name: string;
       /** Key prefix for staged files in the S3 bucket. */
       s3_key_prefix: string;
-      /** Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration. */
+      /** Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected. */
       authorization: RedshiftCopyInputsAuthorization;
-      /** Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration. */
+      /** AWS S3 integration ID used to stage files in the S3 bucket. Updates can keep legacy AWS access keys unchanged. New or changed keys are rejected. */
       bucket_credentials: RedshiftCopyInputsBucketCredentials;
     }
 
@@ -63519,6 +63519,25 @@ export namespace Schemas {
       readonly count: number;
     }
 
+    export interface MCPCustomHarness {
+      readonly id: string;
+      /**
+         * Name to show for calls from this harness.
+         * @maxLength 100
+         * @pattern ^[\w .+&()/-]+$
+         */
+      name: string;
+      /**
+         * Text to look for in the client name or User-Agent product that the harness reports. Matching ignores case and finds the text anywhere in the name, so `acme-agent` matches `Acme-Agent/1.2`.
+         * @maxLength 100
+         */
+      match_pattern: string;
+      /** Optional icon shown next to the harness name. A base64 data URI of a PNG, GIF or WebP image with a transparent background, 16 KB or smaller and at most 256 by 256 pixels. The icon shows in one color, like the built-in harness logos. An empty string means no icon. */
+      icon?: string;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
     /**
      * Score breakdown so an agent can explain its choice: fit, liveness, trust, and whether real usage signal contributed.
      */
@@ -83984,6 +84003,25 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
       /** @nullable */
       readonly updated_at?: string | null;
+    }
+
+    export interface PatchedMCPCustomHarness {
+      readonly id?: string;
+      /**
+         * Name to show for calls from this harness.
+         * @maxLength 100
+         * @pattern ^[\w .+&()/-]+$
+         */
+      name?: string;
+      /**
+         * Text to look for in the client name or User-Agent product that the harness reports. Matching ignores case and finds the text anywhere in the name, so `acme-agent` matches `Acme-Agent/1.2`.
+         * @maxLength 100
+         */
+      match_pattern?: string;
+      /** Optional icon shown next to the harness name. A base64 data URI of a PNG, GIF or WebP image with a transparent background, 16 KB or smaller and at most 256 by 256 pixels. The icon shows in one color, like the built-in harness logos. An empty string means no icon. */
+      icon?: string;
+      readonly created_at?: string;
+      readonly updated_at?: string;
     }
 
     export interface PatchedMCPGatewayServerUpdate {
@@ -113091,6 +113129,21 @@ export namespace Schemas {
       nodeIdsByAlias: TraceNodeIdsByAlias;
       /** The branch the trace's work ran on: the latest stamped branch other than main or master, else the first stamp. Null when no event carries a branch. */
       git: TraceGit | null;
+    }
+
+    export interface TraceAvailability {
+      /** Requested trace IDs readable from AI events or the shared events table. */
+      available_trace_ids: string[];
+    }
+
+    export interface TraceAvailabilityRequest {
+      /**
+         * Application and evaluator trace IDs to check without loading trace contents.
+         * @minItems 1
+         * @maxItems 2
+         * @items.maxLength 255
+         */
+      trace_ids: string[];
     }
 
     export interface TraceChoiceAnswer {
