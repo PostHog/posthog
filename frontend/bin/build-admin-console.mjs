@@ -44,7 +44,6 @@ function inlineFonts(css) {
     })
 }
 
-// The color icon's near-black head disappears on a dark surface, so dark mode uses a white mark, as the web app does.
 function writeMonoIcon() {
     const icon = fs.readFileSync(path.join(FRONTEND, 'public/posthog-icon.svg'), 'utf8')
     fs.writeFileSync(path.join(OUT_DIR, 'posthog-icon-mono.svg'), icon.replace(/fill="[^"]+"/g, 'fill="#fff"'))

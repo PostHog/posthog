@@ -40,8 +40,8 @@
 }
 
 /* Each deployment gets its own tint, so a staff member with several regions open can tell the tabs
- * apart. `--theme-hue`, `--theme-dark-hue` and `--theme-tint` are quill's documented theme knobs; they
- * shift every surface, not only the stripe. */
+ * apart. `--theme-hue` and `--theme-tint` are quill's documented theme knobs; they shift every
+ * surface, not only the stripe. */
 [data-env='dev'] {
     --console-env: #a0ca21;
     --console-env-ink: #4a5e0f;
@@ -66,7 +66,6 @@
     --theme-tint: 0.014;
 }
 
-/* The light inks are too dark to read on a dark surface. */
 [data-env='dev'][theme='dark'] {
     --console-env-ink: #c8e86a;
 }
