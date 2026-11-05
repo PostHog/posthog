@@ -53,7 +53,11 @@ from two_factor.views.utils import get_remember_device_cookie, validate_remember
 from webauthn.helpers import base64url_to_bytes, bytes_to_base64url, options_to_json
 from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredentialDescriptor
 
-from posthog.api.email_verification import email_verification_code_verifier, is_email_verification_disabled
+from posthog.api.email_verification import (
+    EmailVerificationCodeUndeliverable,
+    email_verification_code_verifier,
+    is_email_verification_disabled,
+)
 from posthog.auth import ACCOUNT_BLOCKED_DETAIL
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
@@ -309,7 +313,11 @@ def is_email_verified_for_login(user: User) -> bool:
     if is_email_verification_disabled(user):
         return True
 
-    email_verification_code_verifier.send_code(user)
+    try:
+        email_verification_code_verifier.send_code(user)
+    except EmailVerificationCodeUndeliverable:
+        if user.is_email_verified is False:
+            raise
     if user.is_email_verified is False:
         return False
 

@@ -13,6 +13,7 @@ type StoryArgs = {
     view: VerifyEmailView
     reason?: VerifyEmailReason
     verificationEmailSent?: boolean
+    codeUndeliverable?: boolean
 }
 
 const meta: Meta<StoryArgs> = {
@@ -45,7 +46,7 @@ const meta: Meta<StoryArgs> = {
 }
 export default meta
 
-const Template: StoryFn<StoryArgs> = ({ view, reason, verificationEmailSent = true }) => {
+const Template: StoryFn<StoryArgs> = ({ view, reason, verificationEmailSent = true, codeUndeliverable }) => {
     useStorybookMocks({
         get: {
             '/_preflight': { ...preflightJson },
@@ -57,7 +58,10 @@ const Template: StoryFn<StoryArgs> = ({ view, reason, verificationEmailSent = tr
         verifyEmailLogic.actions.setView(view)
         verifyEmailLogic.actions.setUuid('12345678')
         verifyEmailLogic.actions.setDeepLinkContext(reason ?? null, verificationEmailSent)
-    }, [view, reason, verificationEmailSent])
+        if (codeUndeliverable) {
+            verifyEmailLogic.actions.setCodeUndeliverable('signup')
+        }
+    }, [view, reason, verificationEmailSent, codeUndeliverable])
 
     return <VerifyEmail />
 }
@@ -78,3 +82,6 @@ PendingFromStripeDeepLink.args = { view: 'pending', reason: 'stripe_deep_link' }
 
 export const PendingWithFailedSend: StoryFn<StoryArgs> = Template.bind({})
 PendingWithFailedSend.args = { view: 'pending', reason: 'stripe_deep_link', verificationEmailSent: false }
+
+export const PendingWithUndeliverableAddress: StoryFn<StoryArgs> = Template.bind({})
+PendingWithUndeliverableAddress.args = { view: 'pending', codeUndeliverable: true }

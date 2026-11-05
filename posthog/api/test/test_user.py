@@ -32,6 +32,7 @@ from posthog.api.oauth.toolbar_service import ToolbarOAuthState, build_toolbar_o
 from posthog.api.user import MAX_PRODUCT_INTROS_SEEN, UserSerializer
 from posthog.auth import SessionAuthentication
 from posthog.constants import AvailableFeature
+from posthog.email import EmailRecipientUndeliverableError
 from posthog.helpers.two_factor_session import code_based_verification_token_generator
 from posthog.models import Team, User
 from posthog.models.instance_setting import set_instance_setting
@@ -1290,6 +1291,18 @@ class TestUserAPI(APIBaseTest):
         self.user.refresh_from_db()
         assert self.user.pending_email == "beta.gamma@example.com"
         assert mock_send_code.call_args[0][2] == "beta.gamma@example.com"
+
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    @patch(
+        "posthog.api.email_verification.send_email_verification_code",
+        side_effect=EmailRecipientUndeliverableError("refused"),
+    )
+    def test_email_change_to_a_refused_address_does_not_reveal_the_refusal(self, _mock_send_code, _mock_available):
+        response = self.client.patch("/api/users/@me/", {"email": "bounced@example.com"})
+
+        assert response.status_code == status.HTTP_200_OK
+        self.user.refresh_from_db()
+        assert self.user.pending_email == "bounced@example.com"
 
     @patch("posthog.api.user.is_email_available", return_value=False)
     def test_email_change_without_email_configured_writes_the_normalized_address(self, _mock_is_email_available):

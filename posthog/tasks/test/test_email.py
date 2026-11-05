@@ -4,6 +4,7 @@ import datetime as dt
 from typing import cast
 from uuid import uuid4
 
+import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, run_clickhouse_statement_in_parallel
 from unittest.mock import MagicMock, patch
@@ -17,6 +18,7 @@ from parameterized import parameterized
 
 from posthog.api.authentication import password_reset_token_generator
 from posthog.constants import AvailableFeature
+from posthog.email import EmailRecipientUndeliverableError
 from posthog.helpers.email_utils import ESPSuppressionReason, ESPSuppressionResult
 from posthog.models import Comment, Organization, Team, User
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
@@ -626,6 +628,18 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
+
+    @patch("posthog.tasks.email.ph_scoped_capture")
+    def test_send_email_verification_code_raises_when_the_address_is_refused(
+        self, mock_scoped_capture: MagicMock, MockEmailMessage: MagicMock
+    ) -> None:
+        MockEmailMessage.return_value.send.return_value = ["admin@posthog.com"]
+        _, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
+
+        with pytest.raises(EmailRecipientUndeliverableError):
+            send_email_verification_code(user.id, "123456")
+
+        mock_scoped_capture.assert_not_called()
 
     def test_send_fatal_plugin_error(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)

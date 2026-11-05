@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { verifyEmailLogic } from './verifyEmailLogic'
@@ -54,5 +55,34 @@ describe('verifyEmailLogic', () => {
         router.actions.push('/verify_email/abc-123', { reason: 'stripe_deep_link', email_sent: 'false' })
 
         await expectLogic(logic).toMatchValues({ verificationEmailSent: false })
+    })
+
+    it.each([
+        [
+            'signup',
+            async (): Promise<void> => {
+                router.actions.push('/verify_email/abc-123', { email_sent: 'undeliverable' })
+            },
+        ],
+        [
+            'resend',
+            async (): Promise<void> => {
+                useMocks({
+                    post: {
+                        '/api/users/request_email_verification/': () => [
+                            400,
+                            { type: 'server_error', code: 'email_verification_code_undeliverable', detail: 'refused' },
+                        ],
+                    },
+                })
+                logic.actions.requestVerificationCode('abc-123')
+                await expectLogic(logic).toDispatchActions(['requestVerificationCodeSuccess'])
+            },
+        ],
+    ])('shows a refused address after %s', async (source, trigger) => {
+        await trigger()
+
+        await expectLogic(logic).toMatchValues({ codeUndeliverable: true })
+        expect(posthog.capture).toHaveBeenCalledWith('email verification code undeliverable shown', { source })
     })
 })

@@ -3,7 +3,7 @@ import time
 import structlog
 from rest_framework import exceptions
 
-from posthog.email import is_email_available
+from posthog.email import EmailRecipientUndeliverableError, is_email_available
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.two_factor_session import (
     CODE_MAX_ATTEMPTS,
@@ -45,6 +45,15 @@ def email_verification_pending(user: User) -> bool:
     switched off cannot ask for one.
     """
     return user.is_email_verified is False and is_email_available() and not is_email_verification_disabled(user)
+
+
+class EmailVerificationCodeUndeliverable(exceptions.APIException):
+    status_code = 400
+    default_detail = (
+        "We can't send email to this address, so we can't send you a verification code. "
+        "Contact support to verify your account."
+    )
+    default_code = "email_verification_code_undeliverable"
 
 
 class EmailVerificationCodeVerifier:
@@ -94,6 +103,12 @@ class EmailVerificationCodeVerifier:
             # Write the state before the send, so a delivered code can always verify.
             get_client().set(self._state_key(user.pk), f"{issued_at}:{target or ''}", ex=CODE_TTL_SECONDS)
             send_email_verification_code(user.pk, code, target)
+        except EmailRecipientUndeliverableError:
+            logger.info("Email verification code refused as undeliverable", user_id=user.pk)
+            # A staged address can be any address, so a refusal there would tell the caller what the provider
+            # suppresses. Only the account's own address gets the refusal back.
+            if target is None:
+                raise EmailVerificationCodeUndeliverable()
         except Exception as e:
             logger.exception("Email verification code send failed", user_id=user.pk, error=str(e))
             capture_exception(Exception(f"Email verification code send failed: {e}"))
