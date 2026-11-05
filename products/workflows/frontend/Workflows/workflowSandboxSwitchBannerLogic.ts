@@ -69,7 +69,7 @@ export interface workflowSandboxSwitchBannerLogicMeta {
             workflowUserAccessLevel: AccessControlLevel | null,
             workflowLoading: boolean,
             isSyncingExternalEdit: boolean,
-            draftActionPending: 'discard' | 'publish' | null
+            draftActionPending: WorkflowDraftAction | null
         ) => string | null
         verifiedOwnSenders: (ownEmailIntegrations: IntegrationType[]) => IntegrationType[]
         sandboxEmailSteps: (workflow: HogFlow, sandboxEmailSender: IntegrationType | null) => EmailAction[]
@@ -107,7 +107,7 @@ export const workflowSandboxSwitchBannerLogic = kea<workflowSandboxSwitchBannerL
                 workflowUserAccessLevel: AccessControlLevel | null,
                 workflowLoading: boolean,
                 isSyncingExternalEdit: boolean,
-                draftActionPending: 'discard' | 'publish' | null
+                draftActionPending: WorkflowDraftAction | null
             ): string | null =>
                 getAccessControlDisabledReason(
                     AccessControlResourceType.Workflow,
