@@ -98,13 +98,15 @@ def last_cargo_build_epoch(target: Path) -> float:
 
 
 def looks_like_cargo_target(path: Path) -> bool:
-    return (path / "CACHEDIR.TAG").exists() or (path / "debug").exists() or (path / "release").exists()
+    # Cargo writes CACHEDIR.TAG into every target dir it creates, and other build tools also make `target/release`.
+    return (path / "CACHEDIR.TAG").is_file()
 
 
 @dataclass(frozen=True, kw_only=True)
 class SharedCargoTarget:
     path: Path
     reason: str
+    configured_by_user: bool
 
 
 def shared_cargo_targets() -> list[SharedCargoTarget]:
@@ -113,18 +115,23 @@ def shared_cargo_targets() -> list[SharedCargoTarget]:
     cargo_home = Path(os.environ.get("CARGO_HOME") or Path.home() / ".cargo")
     candidates: list[SharedCargoTarget] = []
     if env_target := os.environ.get("CARGO_TARGET_DIR"):
-        candidates.append(SharedCargoTarget(path=Path(env_target), reason="CARGO_TARGET_DIR points here."))
+        candidates.append(
+            SharedCargoTarget(path=Path(env_target), reason="CARGO_TARGET_DIR points here.", configured_by_user=True)
+        )
     else:
         candidates.append(
             SharedCargoTarget(
                 path=Path.home() / ".cargo" / "target",
                 reason="Cargo built here while the Flox env set CARGO_TARGET_DIR.",
+                configured_by_user=False,
             )
         )
     if config_target := _configured_target_dir(cargo_home / "config.toml"):
         candidates.append(
             SharedCargoTarget(
-                path=config_target, reason=f"build.target-dir in {cargo_home / 'config.toml'} points here."
+                path=config_target,
+                reason=f"build.target-dir in {cargo_home / 'config.toml'} points here.",
+                configured_by_user=True,
             )
         )
 
@@ -153,8 +160,7 @@ def _configured_target_dir(config: Path) -> Path | None:
 def unused_cargo_target(target: Path, built_before_epoch: float) -> bool:
     """Whether no build used *target* after *built_before_epoch* and no cargo runs that could be using it now."""
 
-    # Cargo writes CACHEDIR.TAG into every target dir it creates, and a folder that a user's config names may hold other files.
-    if target.is_symlink() or not (target / "CACHEDIR.TAG").is_file():
+    if target.is_symlink() or not looks_like_cargo_target(target):
         return False
     if last_cargo_build_epoch(target) >= built_before_epoch:
         return False

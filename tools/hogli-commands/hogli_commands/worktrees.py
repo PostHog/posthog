@@ -361,7 +361,8 @@ def worktrees_clean(
                 before=age,
                 mode=tier,
                 repo=repo,
-                sources=sources,
+                # A worktree outside every tool folder is often a long-lived checkout that a person made by hand.
+                sources=sources or tuple(source for source in WORKTREE_SOURCES if source != "other"),
                 orphans=orphans,
                 dry_run=dry_run,
                 yes=True,
@@ -1569,8 +1570,15 @@ def _cargo_built_since(path: Path, cutoff: float) -> bool:
 
 def _clean_shared_cargo_targets(cutoff: float, dry_run: bool, yes: bool) -> None:
     for shared in shared_cargo_targets():
-        if unused_cargo_target(shared.path, cutoff) and not _holds_nested_repo(shared.path):
-            _clean_shared_cargo_target(shared, cutoff, dry_run, yes)
+        if not unused_cargo_target(shared.path, cutoff) or _holds_nested_repo(shared.path):
+            continue
+        # A target that the user's own config names serves all their Rust projects, so it needs a person to say yes.
+        if shared.configured_by_user and yes and not dry_run:
+            click.echo(
+                f"Kept the shared Cargo target {_display_path(shared.path)}. Run without --yes to be asked about it.\n"
+            )
+            continue
+        _clean_shared_cargo_target(shared, cutoff, dry_run, yes)
 
 
 def _clean_shared_cargo_target(shared: SharedCargoTarget, cutoff: float, dry_run: bool, yes: bool) -> None:

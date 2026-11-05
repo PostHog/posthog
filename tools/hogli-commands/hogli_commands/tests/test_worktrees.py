@@ -13,6 +13,7 @@ import pytest
 from unittest.mock import Mock, patch
 
 import click
+from click.testing import CliRunner
 from hogli import telemetry
 from hogli_commands import worktrees
 from hogli_commands.cargo_targets import (
@@ -125,6 +126,25 @@ class TestUnattendedLock:
             return False
         lock.close()
         return True
+
+    def test_unattended_tiers_never_select_hand_made_worktrees(self, monkeypatch) -> None:
+        selections: list[set[str] | None] = []
+
+        def record(repo_root, registry, selected_sources, mode):
+            selections.append(selected_sources)
+            return []
+
+        monkeypatch.setattr(worktrees, "_discover_candidate_worktrees", record)
+        monkeypatch.setattr(worktrees, "_registered_worktrees", lambda repo_root: {})
+        monkeypatch.setattr(worktrees, "_process_cwds", lambda: {Path("/nowhere")})
+        monkeypatch.setattr(worktrees, "_clean_shared_cargo_targets", lambda *args: None)
+        monkeypatch.setattr(worktrees, "_leftover_worktree_dirs", lambda *args: [])
+
+        result = CliRunner().invoke(worktrees.worktrees_clean, ["--unattended", "--dry-run"])
+
+        assert result.exit_code == 0, result.output
+        assert len(selections) == 2
+        assert all(selected is not None and "other" not in selected for selected in selections)
 
     def test_second_run_same_day_is_refused(self) -> None:
         assert self._take(dry_run=False)
@@ -347,6 +367,7 @@ class TestCollectDepsItems:
                 "scratch/node_modules/left-pad/index.js": "",
                 "vendored/node_modules/shim/index.js": "",
                 "tools/.venv/pyvenv.cfg": "",
+                "tools/target/release/notes.md": "",
                 "libs/.venv/pyvenv.cfg": "",
                 "libs/.venv/src/editable-pkg/.git/HEAD": "",
                 ".flox/cache/venv/pyvenv.cfg": "",
@@ -506,6 +527,23 @@ class TestCargoTargets:
         assert [shared.path for shared in shared_cargo_targets() if unused_cargo_target(shared.path, cutoff)] == (
             [target] if expected_offered else []
         )
+
+    def test_yes_deletes_only_the_old_flox_target_and_keeps_targets_the_user_configured(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        home = tmp_path / "home"
+        monkeypatch.setattr(Path, "home", lambda: home)
+        monkeypatch.delenv("CARGO_HOME", raising=False)
+        legacy = _write_cargo_target(home / ".cargo" / "target", time.time() - 10 * 86400)
+        configured = _write_cargo_target(tmp_path / "shared-target", time.time() - 10 * 86400)
+        (home / ".cargo" / "config.toml").write_text(f'[build]\ntarget-dir = "{configured}"\n')
+        monkeypatch.delenv("CARGO_TARGET_DIR", raising=False)
+        _fake_cargo_processes(monkeypatch, None)
+
+        worktrees._clean_shared_cargo_targets(time.time() - 7 * 86400, dry_run=False, yes=True)
+
+        assert not legacy.exists()
+        assert configured.is_dir()
 
     @pytest.mark.parametrize("broken_git_metadata", [False, True], ids=["checkout", "checkout_git_cannot_read"])
     def test_cargo_target_dir_inside_a_checkout_is_not_treated_as_shared(
