@@ -359,8 +359,9 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
                 def get_object(self):
                     pass
 
-        assert (
-            str(e.value) == "Method get_object is protected and should not be overridden. Use safely_get_object instead"
+        assert str(e.value) == (
+            "Method get_object is protected and should not be overridden. "
+            "Use safely_get_object, or read_object for a view without a queryset, instead"
         )
 
 

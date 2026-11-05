@@ -20,7 +20,7 @@ export interface FakeRuntimeOptions {
     answers?: string[]
     // Answers every API request. Without it, requests fail with HTTP 500. A string body is sent
     // as is, for JSON that JSON.stringify can't produce.
-    respond?: (url: string, body: unknown) => { status: number; body: unknown }
+    respond?: (url: string, body: unknown, authorization: string | null) => { status: number; body: unknown }
     telemetryToken?: string
     // The MCP tool catalog `hog api` loads. Without it, loading the catalog fails the test.
     apiTools?: ApiToolLibrary
@@ -55,6 +55,15 @@ function fakePrompts(answers: string[]): Prompts {
         confirm: async (message) => (await next(message)) === 'yes',
         note: () => {},
         spinner: () => ({ stop: () => {}, error: () => {} }),
+    }
+}
+
+// Requests carry JSON, except OAuth requests, which are form encoded.
+function parseBody(body: string): unknown {
+    try {
+        return JSON.parse(body)
+    } catch {
+        return Object.fromEntries(new URLSearchParams(body))
     }
 }
 
@@ -148,9 +157,13 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
         },
         fetch: (async (input: string | URL | Request, init?: RequestInit) => {
             const url = String(input)
-            const body = init?.body === undefined ? undefined : JSON.parse(String(init.body))
+            const body = init?.body === undefined ? undefined : parseBody(String(init.body))
             requests.push({ method: init?.method ?? 'GET', url, body })
-            const reply = options.respond?.(url, body) ?? { status: 500, body: { detail: 'no fake response' } }
+            const authorization = new Headers(init?.headers).get('authorization')
+            const reply = options.respond?.(url, body, authorization) ?? {
+                status: 500,
+                body: { detail: 'no fake response' },
+            }
             const text = typeof reply.body === 'string' ? reply.body : JSON.stringify(reply.body)
             return new Response(text, { status: reply.status })
         }) as typeof fetch,
@@ -197,6 +210,13 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
         },
         writePrivateFile: async (path, contents) => {
             files[path] = contents
+        },
+        createFile: async (path, contents) => {
+            if (path in files) {
+                return false
+            }
+            files[path] = contents
+            return true
         },
         removeFile: async (path) => {
             delete files[path]

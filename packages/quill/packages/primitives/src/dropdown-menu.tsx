@@ -25,13 +25,16 @@ type DescribedMenuItemExtras = MenuItemExtras & {
     description?: React.ReactNode
 }
 
-/** Disabled items ignore the pointer, so the tooltip listens on a wrapper and opens beside the row. */
+/**
+ * Disabled items ignore the pointer, so the tooltip listens on a wrapper and opens beside the row. Rows without a
+ * tooltip skip the wrapper: a long list would mount one per row, and it hides a row's neighbours from sibling selectors.
+ */
 function withItemTooltip(
     item: React.ReactElement,
     { tooltip, disabledReason }: Pick<MenuItemExtras, 'tooltip' | 'disabledReason'>
 ): React.ReactElement {
     const content = hasTooltipContent(disabledReason) ? disabledReason : tooltip
-    return withTooltip(item, content, { target: 'block', side: 'inline-end' })
+    return hasTooltipContent(content) ? withTooltip(item, content, { target: 'block', side: 'inline-end' }) : item
 }
 
 function DropdownMenu({ ...props }: MenuPrimitive.Root.Props): React.ReactElement {
@@ -76,7 +79,7 @@ const DropdownMenuContent = React.forwardRef<
                     data-slot="dropdown-menu-content"
                     data-flush={flush ? '' : undefined}
                     className={cn(
-                        'quill-menu__content w-max min-w-(--anchor-width) max-w-(--available-width)',
+                        'quill-menu__content w-max min-w-[max(10rem,var(--anchor-width))] max-w-(--available-width)',
                         className
                     )}
                     {...props}

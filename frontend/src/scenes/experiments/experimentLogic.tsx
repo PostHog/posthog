@@ -83,6 +83,8 @@ import {
     type ExperimentHealthFindingOpenKind,
     type ExperimentHealthUi,
     captureExperimentHealthChecked,
+    captureExperimentHealthCheckExpanded,
+    captureExperimentHealthOverviewOpened,
     captureExperimentHealthChecksOpened,
     captureExperimentHealthFindingActedOn,
     captureExperimentHealthFindingOpened,
@@ -759,8 +761,11 @@ export interface experimentLogicActions {
         experiment: Experiment
         forceRefresh: boolean
     }
+    reportHealthCheckExpanded: (check: HealthPanelCheck) => {
+        check: HealthPanelCheck
+    }
     reportHealthChecksOpened: (openedFrom: ExperimentHealthChecksOpenedFrom) => {
-        openedFrom: 'meta_bar'
+        openedFrom: ExperimentHealthChecksOpenedFrom
     }
     reportHealthFindingActedOn: (
         finding: ExperimentHealthFinding,
@@ -778,6 +783,9 @@ export interface experimentLogicActions {
     }
     reportHealthFindingShown: (finding: ExperimentHealthFinding) => {
         finding: ExperimentHealthFinding
+    }
+    reportHealthOverviewOpened: () => {
+        value: true
     }
     resetRunningExperiment: () => {
         value: true
@@ -1089,6 +1097,8 @@ export const experimentLogic = kea<experimentLogicType>([
             actionKind: ExperimentHealthFindingActionKind
         ) => ({ finding, actionKind }),
         reportHealthChecksOpened: (openedFrom: ExperimentHealthChecksOpenedFrom) => ({ openedFrom }),
+        reportHealthCheckExpanded: (check: HealthPanelCheck) => ({ check }),
+        reportHealthOverviewOpened: true,
         setExperimentMissing: true,
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
         setLaunchExperimentLoading: (loading: boolean) => ({ loading }),
@@ -1573,6 +1583,17 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         reportHealthFindingActedOn: ({ finding, actionKind }) => {
             captureExperimentHealthFindingActedOn(values.experiment, finding, values.healthUi, actionKind)
+        },
+        reportHealthCheckExpanded: ({ check }) => {
+            captureExperimentHealthCheckExpanded(values.experiment, check, values.healthUi)
+        },
+        reportHealthOverviewOpened: () => {
+            captureExperimentHealthOverviewOpened(
+                values.experiment,
+                values.healthChecks ?? [],
+                values.healthFindings?.length ?? 0,
+                values.healthUi
+            )
         },
         reportHealthChecksOpened: ({ openedFrom }) => {
             captureExperimentHealthChecksOpened(

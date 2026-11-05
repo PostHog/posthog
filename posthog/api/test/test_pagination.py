@@ -138,15 +138,6 @@ class TestCursorPagination(BaseTest):
         for cursor in cursors:
             assert self._drf_page_ids(cursor) == [row["id"] for row in self._page(mode, cursor)["results"]]
 
-    def test_ordering_keeps_one_term_per_field_and_caps_the_field_count(self) -> None:
-        def ordering_for(param: str) -> tuple[str, ...]:
-            request = Request(APIRequestFactory().get("/media/", {"ordering": param}))
-            return _ByArchivedAtQueryset().get_ordering(request, UploadedMedia.objects.all(), _OrderableMediaView())
-
-        assert ordering_for("archived_at,-archived_at,archived_at") == ("archived_at", "id")
-        with self.assertRaises(ValidationError):
-            ordering_for("archived_at,created_at,file_name,purpose,-id")
-
     @parameterized.expand(
         [
             ("negative_offset", b64encode(b"o=-1").decode("ascii")),
@@ -166,3 +157,12 @@ class TestCursorPagination(BaseTest):
     def test_rejects_a_malformed_cursor(self, _name: str, cursor: str) -> None:
         with self.assertRaises(NotFound):
             self._page("queryset", cursor)
+
+    def test_ordering_keeps_one_term_per_field_and_caps_the_field_count(self) -> None:
+        def ordering_for(param: str) -> tuple[str, ...]:
+            request = Request(APIRequestFactory().get("/media/", {"ordering": param}))
+            return _ByArchivedAtQueryset().get_ordering(request, UploadedMedia.objects.all(), _OrderableMediaView())
+
+        assert ordering_for("archived_at,-archived_at,archived_at") == ("archived_at", "id")
+        with self.assertRaises(ValidationError):
+            ordering_for("archived_at,created_at,file_name,purpose,-id")

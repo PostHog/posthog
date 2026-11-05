@@ -19,6 +19,7 @@ from collections.abc import Collection, Iterable
 
 from django.conf import settings
 
+from markdown_to_mrkdwn import SlackMarkdownConverter
 from rest_framework import serializers
 from slack_sdk.errors import SlackApiError
 
@@ -44,6 +45,7 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from products.signals.backend.report_content_gates import organization_inbox_slack_section_blocks_enabled
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     enrich_reviewer_dicts_with_org_members,
@@ -56,8 +58,10 @@ from products.signals.backend.report_urls import ReportLinkSource, build_report_
 from products.signals.backend.scout_authorship import report_is_hidden_from_inbox
 from products.signals.backend.slack_formatting import (
     first_sentence as _first_sentence,
+    is_safe_slack_http_url,
     prepare_slack_markdown as _prepare_markdown,
     strip_chart_references as _strip_chart_references,
+    truncate_slack_text,
 )
 from products.signals.backend.slack_notification_targets import is_slack_member_target, lookup_slack_user_id_by_email
 from products.signals.backend.slack_report_threads import record_report_slack_thread
@@ -340,13 +344,25 @@ def _display_title(title: str | None) -> str:
     return description or title
 
 
-def _build_message_blocks(report: SignalReport, *, reviewer_mentions: list[str]) -> tuple[list[dict], str]:
+def _section_body(markdown: str) -> str:
+    def safe_token(match: re.Match[str]) -> str:
+        destination = match.group(1).partition("|")[0]
+        return match.group(0) if is_safe_slack_http_url(destination) else _escape_mrkdwn(match.group(0))
+
+    # Conversion creates Slack tokens, so only HTTP links may survive in the untrusted body.
+    converted = SlackMarkdownConverter().convert(markdown)
+    return truncate_slack_text(re.sub(r"<([^<>]*)>", safe_token, converted), 3000)
+
+
+def _build_message_blocks(
+    report: SignalReport, *, reviewer_mentions: list[str], use_section_blocks: bool = False
+) -> tuple[list[dict], str]:
     title_line = _display_title(report.title)
     header_text = (
         title_line if len(title_line) <= _SLACK_HEADER_MAX_LEN else title_line[: _SLACK_HEADER_MAX_LEN - 3] + "..."
     )
 
-    # The body is escaped once as a whole below, so the LLM-derived parts assembled here stay raw.
+    # The body is prepared as a whole below, so the LLM-derived parts assembled here stay raw.
     # The `**` this adds is the one piece of Markdown the message means, and escaping leaves it be.
     body_parts: list[str] = []
     # Strip before excerpting so truncation can't slice a chart link mid-syntax.
@@ -360,12 +376,21 @@ def _build_message_blocks(report: SignalReport, *, reviewer_mentions: list[str])
     if not body_parts:
         body_parts.append(f"**{title_line}**")
 
+    body = _prepare_markdown("\n\n".join(body_parts))
+    body_block = (
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": _section_body(body), "verbatim": True},
+        }
+        if use_section_blocks
+        else _markdown_block(body)
+    )
     blocks: list[dict] = [
         {"type": "header", "text": {"type": "plain_text", "text": header_text}},
-        _markdown_block(_prepare_markdown("\n\n".join(body_parts))),
+        body_block,
     ]
 
-    # Mentions sit in mrkdwn, not plain_text, so the `<@U…>` token still pings the owner.
+    # Plain-text blocks would show the raw mention token instead of resolving the user.
     if reviewer_mentions:
         owner_label = "Suggested owner" if len(reviewer_mentions) == 1 else "Suggested owners"
         blocks.append(
@@ -533,7 +558,11 @@ def _deliver_route_notification(
             return False
         # The only reviewer a direct message could mention is the person already reading it.
         mentions = [] if route.is_direct_message else _resolve_reviewer_mentions(slack, route.users)
-        blocks, text = _build_message_blocks(report, reviewer_mentions=mentions)
+        blocks, text = _build_message_blocks(
+            report,
+            reviewer_mentions=mentions,
+            use_section_blocks=organization_inbox_slack_section_blocks_enabled(report.team.organization_id),
+        )
         # Added here rather than inside the block builder, which stays free of the integration so it
         # can be tested without one. Approval is read now, not assumed from generation time: a
         # reviewer can be added to a retained report after the org revoked it.

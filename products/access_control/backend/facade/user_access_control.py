@@ -390,6 +390,17 @@ def _fallback_parent_fk(model: type[Model], parent_resource: APIScopeObject) -> 
     return None
 
 
+def _require_model_instance(obj: object, ref_method: str) -> None:
+    # model_to_resource() returns None for an object it cannot classify, and the object checks read
+    # None as "no access control applies". A facade contract would pass every check without this guard.
+    if isinstance(obj, Model):
+        return
+    raise TypeError(
+        f"Expected a Django model instance, got {type(obj).__name__}. For an object held as a "
+        f"contract, build an ObjectAccessRef and call {ref_method}() instead."
+    )
+
+
 def fallback_parent_object_id(obj: Model, parent_resource: APIScopeObject) -> Optional[str]:
     """Id of the object `obj` falls back to for access, or None when it has no such parent.
 
@@ -896,6 +907,7 @@ class UserAccessControl:
             explicit: If True, only return explicit access controls (no fallback to default)
             specific_only: If True, only consider access controls with roles or organization members
         """
+        _require_model_instance(obj, "access_level_for_ref")
 
         resource = resource or model_to_resource(obj)
         org_membership = self._organization_membership
@@ -1007,6 +1019,7 @@ class UserAccessControl:
 
         Returns true or false if access controls are applied, otherwise None
         """
+        _require_model_instance(obj, "check_access_level_for_ref")
 
         resource = model_to_resource(obj)
         if not resource:
@@ -1052,6 +1065,7 @@ class UserAccessControl:
         3. The user is an org admin
         4. The user has "manager" access to the resource
         """
+        _require_model_instance(obj, "check_can_modify_access_levels_for_ref")
 
         if self._is_creator(obj):
             # TODO: Should this always be the case, even for projects?

@@ -1,6 +1,8 @@
 import time_machine
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
+from django.db import transaction
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -12,6 +14,10 @@ from posthog.models.events_retention_config import OrganizationEventsRetentionCo
 from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.facade.testing import create_access_control
+from products.product_analytics.backend.facade.events_retention import (
+    set_organization_events_retention,
+    set_project_events_retention,
+)
 
 
 @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
@@ -115,10 +121,12 @@ class TestEventsRetentionAPI(APIBaseTest):
         self._set_membership(level)
         OrganizationEventsRetentionConfig.objects.create(organization=self.organization, min_events_retention_months=6)
 
-        response = self.client.post(self.url(), {"retention_months": months}, format="json")
+        with patch("posthoganalytics.capture") as capture, self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(self.url(), {"retention_months": months}, format="json")
 
         assert response.status_code == expected_status
         assert not TeamEventsRetentionConfig.objects.filter(team=self.team).exists()
+        assert not any(call.kwargs.get("event") == "events retention set" for call in capture.call_args_list)
 
     def test_organization_admin_sets_and_clears_the_default_window(self) -> None:
         self._set_membership("organization_admin")
@@ -153,9 +161,11 @@ class TestEventsRetentionAPI(APIBaseTest):
         self._set_membership(level)
         OrganizationEventsRetentionConfig.objects.create(organization=self.organization, max_events_retention_months=12)
 
-        response = self.client.post(self.organization_url(), {"retention_months": months}, format="json")
+        with patch("posthoganalytics.capture") as capture, self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(self.organization_url(), {"retention_months": months}, format="json")
 
         assert response.status_code == expected_status
+        assert not any(call.kwargs.get("event") == "events retention set" for call in capture.call_args_list)
         assert (
             OrganizationEventsRetentionConfig.objects.get(
                 organization=self.organization
@@ -187,3 +197,134 @@ class TestEventsRetentionAPI(APIBaseTest):
             response = getattr(self.client, method)(url, {"retention_months": 1})
 
             assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+
+    @parameterized.expand(
+        [(scope, source) for scope in ("project", "organization") for source in ("web", "api", "mcp")]
+    )
+    def test_tracks_saved_retention_changes(self, scope: str, source: str) -> None:
+        self._set_membership("organization_admin")
+        url = self.url() if scope == "project" else self.organization_url()
+        headers = {}
+        if source == "api":
+            self.client.logout()
+            self.client.force_authenticate(user=self.user)
+        elif source == "mcp":
+            headers = {
+                "HTTP_X_POSTHOG_CLIENT": "mcp",
+                "HTTP_X_POSTHOG_MCP_SESSION_ID": "test-mcp-session",
+                "HTTP_X_POSTHOG_MCP_CONVERSATION_ID": "test-mcp-conversation",
+                "HTTP_X_POSTHOG_TRACE_ID": "test-ai-trace",
+            }
+
+        self.client.credentials(**headers)
+        with patch("posthoganalytics.capture") as capture:
+            for before, after in [(None, 6), (6, 12), (12, None)]:
+                capture.reset_mock()
+                with self.captureOnCommitCallbacks(execute=True):
+                    response = self.client.post(url, {"retention_months": after}, format="json")
+                assert response.status_code == status.HTTP_200_OK
+                events = [
+                    call.kwargs for call in capture.call_args_list if call.kwargs.get("event") == "events retention set"
+                ]
+                assert len(events) == 1
+                event = events[0]
+                assert event["distinct_id"] == self.user.distinct_id
+                assert event["groups"]["organization"] == str(self.organization.id)
+                assert event["properties"]["source"] == source
+                assert event["properties"]["scope"] == scope
+                assert event["properties"]["retention_months"] == after
+                assert event["properties"]["previous_retention_months"] == before
+                assert event["properties"]["organization_id"] == str(self.organization.id)
+                if scope == "project":
+                    assert event["properties"]["project_id"] == self.team.id
+                if source == "mcp":
+                    assert event["properties"]["$mcp_session_id"] == "test-mcp-session"
+                    assert event["properties"]["$mcp_conversation_id"] == "test-mcp-conversation"
+                    assert event["properties"]["$ai_trace_id"] == "test-ai-trace"
+                else:
+                    assert "$mcp_session_id" not in event["properties"]
+                    assert "$ai_trace_id" not in event["properties"]
+
+                capture.reset_mock()
+                with self.captureOnCommitCallbacks(execute=True):
+                    response = self.client.post(url, {"retention_months": after}, format="json")
+                assert response.status_code == status.HTTP_200_OK
+                assert not any(call.kwargs.get("event") == "events retention set" for call in capture.call_args_list)
+
+    @parameterized.expand([("project",), ("organization",)])
+    def test_saves_retention_with_malformed_analytics_headers(self, scope: str) -> None:
+        self._set_membership("organization_admin")
+        url = self.url() if scope == "project" else self.organization_url()
+
+        with patch("posthoganalytics.capture"), self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(url, {"retention_months": 6}, format="json", HTTP_REFERER="https://[")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[f"{scope}_retention_months"] == 6
+
+    @parameterized.expand([("project",), ("organization",)])
+    def test_does_not_track_rolled_back_retention_changes(self, scope: str) -> None:
+        self._set_membership("organization_admin")
+        url = self.url() if scope == "project" else self.organization_url()
+
+        with patch("posthoganalytics.capture") as capture, self.captureOnCommitCallbacks(execute=True):
+            with transaction.atomic():
+                response = self.client.post(url, {"retention_months": 6}, format="json")
+                assert response.status_code == status.HTTP_200_OK
+                assert not any(call.kwargs.get("event") == "events retention set" for call in capture.call_args_list)
+                transaction.set_rollback(True)
+
+        assert not any(call.kwargs.get("event") == "events retention set" for call in capture.call_args_list)
+
+    @parameterized.expand(
+        [(scope, source) for scope in ("project", "organization") for source in ("mcp", "invalid", 42)]
+    )
+    def test_sanitizes_retention_analytics_properties(self, scope: str, source: str | int) -> None:
+        properties: dict[str, object] = {
+            "source": source,
+            "$mcp_session_id": " \x00session\n ",
+            "$mcp_conversation_id": {"id": "invalid"},
+            "$ai_trace_id": "t" * 2000,
+            "$session_id": 42,
+            "mcp_client_name": " \rclient\x7f ",
+            "was_impersonated": True,
+            "scope": "invalid",
+            "organization_id": "invalid",
+            "project_id": -1,
+            "retention_months": 1200,
+            "previous_retention_months": 1200,
+            "$set": {"email": "invalid@example.com"},
+            "unexpected_property": "invalid",
+        }
+
+        with patch("posthoganalytics.capture") as capture, self.captureOnCommitCallbacks(execute=True):
+            if scope == "project":
+                set_project_events_retention(
+                    self.team, 6, user=self.user, was_impersonated=False, analytics_properties=properties
+                )
+            else:
+                set_organization_events_retention(
+                    self.organization, 6, user=self.user, was_impersonated=False, analytics_properties=properties
+                )
+            properties["$ai_trace_id"] = "changed after save"
+
+        events = [call.kwargs for call in capture.call_args_list if call.kwargs.get("event") == "events retention set"]
+        assert len(events) == 1
+        captured = events[0]["properties"]
+        assert captured["source"] == ("mcp" if source == "mcp" else "unknown")
+        assert captured["$mcp_session_id"] == "session"
+        assert captured["$ai_trace_id"] == "t" * 1000
+        assert captured["mcp_client_name"] == "client"
+        assert captured["scope"] == scope
+        assert captured["organization_id"] == str(self.organization.id)
+        assert captured["retention_months"] == 6
+        assert captured["previous_retention_months"] is None
+        assert captured["was_impersonated"] is False
+        assert "$mcp_conversation_id" not in captured
+        assert "$session_id" not in captured
+        assert "$set" not in captured
+        assert "unexpected_property" not in captured
+        if scope == "project":
+            assert captured["project_id"] == self.team.id
+        else:
+            assert "project_id" not in captured
