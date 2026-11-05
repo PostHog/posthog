@@ -202,7 +202,12 @@ def _reject_new_inline_copy_keys(
     as "unchanged" legacy credentials.
     """
     copy_inputs = merged_config.get("copy_inputs")
+    if copy_inputs is None:
+        return
     if not isinstance(copy_inputs, dict):
+        # The workflow JSON-decodes string `copy_inputs`, so a string could carry inline keys.
+        if instance is None or copy_inputs != existing_config.get("copy_inputs"):
+            raise contracts.InvalidBatchExportDestinationError("'copy_inputs' must be an object.")
         return
 
     existing_copy_inputs = existing_config.get("copy_inputs") or {}
@@ -233,6 +238,8 @@ def _check_redshift_copy_inputs(
     copy_inputs = merged_config.get("copy_inputs", {})
     if not copy_inputs:
         raise contracts.InvalidBatchExportDestinationError("Missing required inputs for 'COPY'")
+    if not isinstance(copy_inputs, dict):
+        raise contracts.InvalidBatchExportDestinationError("'copy_inputs' must be an object.")
 
     required_inputs = {"s3_bucket", "region_name", "authorization", "bucket_credentials"}
     if required_inputs - copy_inputs.keys():

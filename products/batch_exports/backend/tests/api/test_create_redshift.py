@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 import pytest
@@ -509,3 +510,37 @@ def test_create_redshift_batch_export_rejects_inline_copy_keys_in_insert_mode(
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
     assert "Inline AWS access keys are no longer accepted" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("mode", ["INSERT", "COPY"])
+def test_create_redshift_batch_export_rejects_json_string_copy_inputs(
+    client: HttpClient,
+    mode: str,
+    team: Team,
+    user: User,
+    aws_redshift_integration: IntegrationRecord,
+) -> None:
+    copy_inputs = json.dumps(
+        {
+            "s3_bucket": "my-production-s3-bucket",
+            "region_name": "us-east-1",
+            "bucket_credentials": {"aws_access_key_id": "test-access-key", "aws_secret_access_key": "test-secret-key"},
+            "authorization": "default",
+        }
+    )
+    batch_export_data = {
+        "name": "my-production-redshift-destination",
+        "destination": {
+            "type": "Redshift",
+            "config": {"database": "my-db", "host": "localhost", "mode": mode, "copy_inputs": copy_inputs},
+            "integration": aws_redshift_integration.id,
+        },
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+    response = create_batch_export(client, team.pk, batch_export_data)
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert "'copy_inputs' must be an object." in response.json()["detail"]
+    assert "test-secret-key" not in response.json()["detail"]
