@@ -12,6 +12,8 @@ from posthog.exceptions_capture import capture_exception
 
 logger = structlog.get_logger(__name__)
 
+MULTIPART_MIN_PART_BYTES = 5 * 1024 * 1024
+
 
 class ObjectStorageError(Exception):
     pass
@@ -77,6 +79,11 @@ class ObjectStorageClient(metaclass=abc.ABCMeta):
 
     @abc.abstractmethod
     def write(self, bucket: str, key: str, content: Union[str, bytes], extras: dict | None) -> None:
+        pass
+
+    @abc.abstractmethod
+    def append(self, bucket: str, key: str, content: bytes, *, separator: bytes) -> bool:
+        """Not atomic: callers serialize appends to one key. Returns whether this call created the object."""
         pass
 
     @abc.abstractmethod
@@ -154,6 +161,9 @@ class UnavailableStorage(ObjectStorageClient):
 
     def write(self, bucket: str, key: str, content: Union[str, bytes], extras: dict | None) -> None:
         pass
+
+    def append(self, bucket: str, key: str, content: bytes, *, separator: bytes) -> bool:
+        return False
 
     def write_stream(self, bucket: str, key: str, fileobj: IO[bytes], extras: dict | None = None) -> None:
         pass
@@ -355,6 +365,66 @@ class ObjectStorage(ObjectStorageClient):
             capture_exception(e)
             raise ObjectStorageError("write failed") from e
 
+    def _get_object_or_none(self, bucket: str, key: str) -> dict | None:
+        from botocore.exceptions import ClientError  # noqa: PLC0415 — keeps the heavy dep off the import path
+
+        try:
+            return self.aws_client.get_object(Bucket=bucket, Key=key)
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") == "NoSuchKey":
+                return None
+            raise
+
+    def _append_by_part_copy(self, bucket: str, key: str, content: bytes) -> None:
+        upload_id = self.aws_client.create_multipart_upload(Bucket=bucket, Key=key)["UploadId"]
+        try:
+            existing_part = self.aws_client.upload_part_copy(
+                Bucket=bucket, Key=key, UploadId=upload_id, PartNumber=1, CopySource={"Bucket": bucket, "Key": key}
+            )
+            new_part = self.aws_client.upload_part(
+                Bucket=bucket, Key=key, UploadId=upload_id, PartNumber=2, Body=content
+            )
+            self.aws_client.complete_multipart_upload(
+                Bucket=bucket,
+                Key=key,
+                UploadId=upload_id,
+                MultipartUpload={
+                    "Parts": [
+                        {"PartNumber": 1, "ETag": existing_part["CopyPartResult"]["ETag"]},
+                        {"PartNumber": 2, "ETag": new_part["ETag"]},
+                    ]
+                },
+            )
+        except Exception:
+            self.aws_client.abort_multipart_upload(Bucket=bucket, Key=key, UploadId=upload_id)
+            raise
+
+    def _try_append_by_part_copy(self, bucket: str, key: str, content: bytes) -> bool:
+        try:
+            self._append_by_part_copy(bucket, key, content)
+            return True
+        except Exception as e:
+            logger.warning("object_storage.append_by_part_copy_failed", bucket=bucket, file_name=key, error=e)
+            capture_exception(e)
+            return False
+
+    def append(self, bucket: str, key: str, content: bytes, *, separator: bytes) -> bool:
+        try:
+            existing = self._get_object_or_none(bucket, key)
+            if existing is not None and existing["ContentLength"] >= MULTIPART_MIN_PART_BYTES:
+                existing["Body"].close()
+                if self._try_append_by_part_copy(bucket, key, separator + content):
+                    return False
+                existing = self._get_object_or_none(bucket, key)
+            existing_content = existing["Body"].read() if existing is not None else b""
+            body = b"".join((existing_content, separator, content)) if existing_content else content
+            self.aws_client.put_object(Bucket=bucket, Key=key, Body=body)
+            return not existing_content
+        except Exception as e:
+            logger.exception("object_storage.append_failed", bucket=bucket, file_name=key, error=e)
+            capture_exception(e)
+            raise ObjectStorageError("append failed") from e
+
     def write_stream(self, bucket: str, key: str, fileobj: IO[bytes], extras: dict | None = None) -> None:
         """
         Stream an upload straight from a binary file-like object. Peak memory is
@@ -543,6 +613,12 @@ def write(file_name: str, content: Union[str, bytes], extras: dict | None = None
         key=file_name,
         content=content,
         extras=extras,
+    )
+
+
+def append(file_name: str, content: bytes, *, separator: bytes, bucket: str | None = None) -> bool:
+    return object_storage_client().append(
+        bucket=bucket or settings.OBJECT_STORAGE_BUCKET, key=file_name, content=content, separator=separator
     )
 
 

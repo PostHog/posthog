@@ -21,18 +21,22 @@ from posthog.settings import (
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
 from posthog.storage.object_storage import (
+    MULTIPART_MIN_PART_BYTES,
     ObjectStorage,
     ObjectStorageError,
     UnavailableStorage,
+    append,
     copy_objects,
     get_presigned_post,
     get_presigned_put,
     get_presigned_url,
+    head_object,
     health_check,
     is_usable_endpoint,
     list_objects,
     object_storage_client,
     read,
+    read_bytes,
     write,
 )
 
@@ -75,6 +79,29 @@ class TestStorage(APIBaseTest):
             file_name = f"{TEST_BUCKET}/test_write_and_read_works_with_known_content/{name}"
             write(file_name, b"my content")
             assert read(file_name) == "my content"
+
+    @parameterized.expand(
+        [
+            ("missing", None, False),
+            ("small", b'{"n": 0}', False),
+            ("large", b"x" * MULTIPART_MIN_PART_BYTES, True),
+        ]
+    )
+    def test_append_keeps_existing_content(
+        self, _name: str, existing: bytes | None, expected_assembled_in_storage: bool
+    ) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            file_name = f"{TEST_BUCKET}/test_append_keeps_existing_content/{uuid.uuid4()}"
+            if existing is not None:
+                write(file_name, existing)
+
+            created = append(file_name, b'{"n": 1}', separator=b"\n")
+
+            assert created == (existing is None)
+            assert read_bytes(file_name) == (existing + b"\n" if existing else b"") + b'{"n": 1}'
+            head = head_object(file_name)
+            assert head is not None
+            assert head["ETag"].endswith('-2"') == expected_assembled_in_storage
 
     def test_can_generate_presigned_url_for_existing_file(self) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True):
@@ -259,6 +286,27 @@ class TestStorage(APIBaseTest):
 
         with self.assertRaises(ObjectStorageError):
             storage.read_bytes("test-bucket", "test-key")
+
+    def test_append_rewrites_the_object_when_part_copy_fails(self) -> None:
+        existing_content = b"x" * MULTIPART_MIN_PART_BYTES
+        closed_stream = {"ContentLength": len(existing_content), "Body": MagicMock(read=MagicMock(return_value=b""))}
+        reread_stream = {
+            "ContentLength": len(existing_content),
+            "Body": MagicMock(read=MagicMock(return_value=existing_content)),
+        }
+        mock_client = MagicMock()
+        mock_client.get_object.side_effect = [closed_stream, reread_stream]
+        error_response = {"Error": {"Code": "NotImplemented", "Message": "UploadPartCopy is not supported"}}
+        mock_client.upload_part_copy.side_effect = ClientError(error_response, "UploadPartCopy")  # type: ignore[arg-type]
+        storage = ObjectStorage(mock_client)
+
+        created = storage.append("test-bucket", "test-key", b"new", separator=b"\n")
+
+        assert not created
+        mock_client.abort_multipart_upload.assert_called_once()
+        mock_client.put_object.assert_called_once_with(
+            Bucket="test-bucket", Key="test-key", Body=existing_content + b"\nnew"
+        )
 
     def test_delete_objects_batches_keys_and_returns_failures(self) -> None:
         mock_client = MagicMock()
