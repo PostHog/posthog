@@ -12,7 +12,9 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { twoFactorLogic } from './twoFactorLogic'
 
 export function TwoFactorSetup({ onSuccess }: { onSuccess: () => void }): JSX.Element | null {
-    const { startSetupLoading, startSetup, generalError, isTokenSubmitting } = useValues(twoFactorLogic({ onSuccess }))
+    const { startSetupLoading, startSetup, qrCodeVersion, generalError, isTokenSubmitting } = useValues(
+        twoFactorLogic({ onSuccess })
+    )
     if (startSetupLoading) {
         return null
     }
@@ -28,7 +30,7 @@ export function TwoFactorSetup({ onSuccess }: { onSuccess: () => void }): JSX.El
                 <div className="flex flex-col items-center">
                     <div className="bg-white p-4 rounded">
                         <img
-                            src="/account/two_factor/qrcode/"
+                            src={`/account/two_factor/qrcode/?v=${qrCodeVersion}`}
                             className="Setup2FA__image"
                             alt="QR code for two-factor authentication setup"
                         />

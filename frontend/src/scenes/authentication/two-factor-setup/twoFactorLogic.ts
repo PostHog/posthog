@@ -57,6 +57,7 @@ export interface twoFactorLogicValues {
     isTokenSubmitting: boolean
     isTokenValid: boolean
     isTwoFactorSetupModalOpen: boolean
+    qrCodeVersion: number
     setupCallState: {
         isOngoing: boolean
     }
@@ -355,6 +356,14 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
             {
                 setGeneralError: (_, error) => error,
                 clearGeneralError: () => null,
+            },
+        ],
+        // Each setup call mints a new secret, but a browser shows the QR image it already loaded for the same URL.
+        // The version gives each secret its own QR image URL.
+        qrCodeVersion: [
+            0,
+            {
+                openTwoFactorSetupModalSuccess: (state) => state + 1,
             },
         ],
         setupCallState: [

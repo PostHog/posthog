@@ -1,9 +1,10 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { twoFactorLogic } from './twoFactorLogic'
@@ -50,5 +51,29 @@ describe('TwoFactorSetup', () => {
         fireEvent.change(input, { target: { value: '12 34 56' } })
 
         await expectLogic(twoFactorLogic).toMatchValues({ token: { token: '123456' } })
+    })
+
+    it('points the QR code at a new image URL for each new secret', async () => {
+        let secretCount = 0
+        useMocks({
+            get: {
+                '/api/users/@me/two_factor_start_setup/': () => [
+                    200,
+                    { success: true, secret: `SECRET${++secretCount}` },
+                ],
+            },
+        })
+        renderSetup()
+        const qrCodeSources: string[] = []
+
+        for (const _ of [1, 2]) {
+            await expectLogic(twoFactorLogic, () => {
+                twoFactorLogic.actions.openTwoFactorSetupModal()
+            }).toDispatchActions(['openTwoFactorSetupModalSuccess'])
+            qrCodeSources.push(screen.getByAltText('QR code for two-factor authentication setup').getAttribute('src')!)
+            twoFactorLogic.actions.closeTwoFactorSetupModal()
+        }
+
+        expect(new Set(qrCodeSources).size).toBe(2)
     })
 })
