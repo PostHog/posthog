@@ -757,7 +757,9 @@ def _resolve_live_sandbox(state: dict[str, Any] | None) -> LiveSandboxLookup:
     sandbox_id = (state or {}).get("sandbox_id")
     if not sandbox_id:
         return LiveSandboxLookup()
-    from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id  # noqa: PLC0415 — keep the sandbox service off the import path
+    from products.tasks.backend.logic.services.sandbox import (
+        get_sandbox_class_for_sandbox_id,  # noqa: PLC0415 — keep the sandbox service off the import path
+    )
 
     try:
         sandbox = get_sandbox_class_for_sandbox_id(sandbox_id).get_by_id(sandbox_id)
