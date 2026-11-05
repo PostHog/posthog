@@ -15205,7 +15205,7 @@
         }
     },
     "view-create": {
-        "description": "Create a new data warehouse saved query (view). If a view with the same name already exists, it will be\nupdated instead (upsert behavior). The query must be valid HogQL. After creation, the view can be referenced\nby name in other HogQL queries.\n\nAlways set a specific `description`. Agents may use it to decide when to use this data and how to query it,\nso state what one row represents, what the view includes or leaves out, and when to use it. For example:\n\"One row per paid order, without test orders or refunds. Use it for revenue reports.\" Per-column descriptions\nare set via the saved-query column annotation tools.\n\nPut the HogQL in `query`:\n\n```json\n{ \"name\": \"example\", \"query\": { \"kind\": \"HogQLQuery\", \"query\": \"SELECT 1\" } }\n```",
+        "description": "Create a new data warehouse saved query (view). If a view with the same name already exists, it will be\nupdated instead (upsert behavior). The query must be valid HogQL. After creation, the view can be referenced\nby name in other HogQL queries.\n\nAlways set a specific `description`. Agents may use it to decide when to use this data and how to query it,\nso state what one row represents, what the view includes or leaves out, and when to use it. For example:\n\"One row per paid order, without test orders or refunds. Use it for revenue reports.\" Per-column\ndescriptions are set via the saved-query column annotation tools.\n\nPut the HogQL in `query`:\n\n```json\n{ \"name\": \"example\", \"query\": { \"kind\": \"HogQLQuery\", \"query\": \"SELECT 1\" } }\n```",
         "category": "Data warehouse",
         "feature": "data_warehouse",
         "summary": "Create saved query",
