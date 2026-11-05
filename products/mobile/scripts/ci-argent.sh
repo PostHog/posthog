@@ -77,6 +77,7 @@ for flow in demo-smoke views-smoke; do
     xcrun simctl terminate "$simulator" "$bundle_id" >/dev/null 2>&1 || true
     xcrun simctl uninstall "$simulator" "$bundle_id" >/dev/null 2>&1 || true
     xcrun simctl install "$simulator" "$binary"
+    xcrun simctl terminate "$simulator" com.apple.mobilecal >/dev/null 2>&1 || true
     echo "Running $flow"
     if ! argent e2e run "$flow" --platform ios --device "$simulator" --output "$artifact_dir" --json > "$artifact_dir/$flow.json"; then
         failed=1

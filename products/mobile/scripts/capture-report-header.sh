@@ -58,7 +58,7 @@ import sys
 root = Path(sys.argv[1])
 report = (root / 'report-header.yaml').read_text()
 suffix = report[report.index('    - await: { idle: true }'):]
-details = 'steps:\n    - tap: { id: report-read-full }\n    - await: { visible: { id: report-details-scroll } }\n' + suffix.replace('report-', 'details-')
+details = 'steps:\n    - tool: gesture-tap\n      args: { x: 0.3, y: 0.217 }\n' + suffix.replace('report-', 'details-')
 (root / 'details-header.yaml').write_text(details)
 (root / 'report-header.yaml').write_text(report + details.removeprefix('steps:\n'))
 PY
@@ -139,6 +139,7 @@ for phase in before after; do
         python3 scripts/capture-android-header.py "$phase_dir"
         continue
     fi
+    xcrun simctl terminate "$device" com.apple.mobilecal >/dev/null 2>&1 || true
     argent e2e run "$capture_dir/report-header.yaml" --platform "$platform" --device "$device" --output "$phase_dir" --json > "$phase_dir/report.json" || true
     python3 - "$phase_dir" <<'PY_COPY'
 from pathlib import Path
