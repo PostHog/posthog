@@ -15,9 +15,11 @@ from posthog.plugins.plugin_server_api import validate_messaging_preferences_tok
 from products.messaging.backend.facade.preferences import (
     ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
     EMAIL_TRACKING_PREFERENCE_ID,
+    EmailSendReference,
     PreferenceStatus,
     all_preference_statuses,
     category_ids as team_category_ids,
+    email_send_reference,
     get_or_create_recipient,
     marketing_categories,
     preference_status,
@@ -30,14 +32,16 @@ from products.workflows.backend.facade.enums import EmailTrackingConsentMode
 logger = structlog.get_logger(__name__)
 
 
-def report_workflows_email_unsubscribed(team_id: int, identifier: str, category_ids: list[str], source: str) -> None:
+def report_workflows_email_unsubscribed(
+    team_id: int, identifier: str, category_ids: list[str], source: str, send: EmailSendReference | None
+) -> None:
     """
     Emit $workflows_email_unsubscribed engagement events into the customer's project.
 
     Mirrors the plugin-server's $workflows_email_* engagement events (email-tracking.service.ts),
-    gated on the same capture_workflows_engagement_events team flag. The unsubscribe token only
-    carries team_id + identifier, so this event is email-level: distinct_id is the recipient's
-    email, and no workflow/action id is available. Best-effort — never fails the unsubscribe flow.
+    gated on the same capture_workflows_engagement_events team flag. distinct_id is the recipient's
+    email. A link from a workflow email names the workflow, step, run and version that sent it;
+    older links name none. Best-effort — never fails the unsubscribe flow.
     """
     try:
         team = Team.objects.get(id=team_id)
@@ -61,6 +65,7 @@ def report_workflows_email_unsubscribed(team_id: int, identifier: str, category_
             "$email": identifier,
             "category": category_id,
             "source": source,
+            **(send.event_properties() if send else {}),
         }
         try:
             result = capture_internal(
@@ -167,7 +172,13 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
         # Only a genuine transition emits, so token replays and scanner prefetches don't inflate events
         if not was_fully_opted_out:
             record_unsubscribe_metric(team_id, data, [ALL_MESSAGE_PREFERENCE_CATEGORY_ID])
-            report_workflows_email_unsubscribed(team_id, identifier, [ALL_MESSAGE_PREFERENCE_CATEGORY_ID], "one_click")
+            report_workflows_email_unsubscribed(
+                team_id,
+                identifier,
+                [ALL_MESSAGE_PREFERENCE_CATEGORY_ID],
+                "one_click",
+                email_send_reference(data),
+            )
 
         # A mail client's unsubscribe button gets an empty 200. The confirm form gets the success page.
         if request.POST.get("List-Unsubscribe") == "One-Click":
@@ -296,7 +307,9 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
         ]
         if newly_opted_out:
             record_unsubscribe_metric(team_id, data, newly_opted_out)
-            report_workflows_email_unsubscribed(team_id, identifier, newly_opted_out, "preferences_page")
+            report_workflows_email_unsubscribed(
+                team_id, identifier, newly_opted_out, "preferences_page", email_send_reference(data)
+            )
 
         new_tracking_consent = preferences_dict.get(EMAIL_TRACKING_PREFERENCE_ID)
         if new_tracking_consent is not None and new_tracking_consent != prior_preferences.get(
