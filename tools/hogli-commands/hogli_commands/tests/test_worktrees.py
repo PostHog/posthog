@@ -338,6 +338,8 @@ class TestCollectDepsItems:
                 "scratch/node_modules/left-pad/index.js": "",
                 "vendored/node_modules/shim/index.js": "",
                 "tools/.venv/pyvenv.cfg": "",
+                "libs/.venv/pyvenv.cfg": "",
+                "libs/.venv/src/editable-pkg/.git/HEAD": "",
                 ".flox/cache/venv/pyvenv.cfg": "",
                 ".flox/cache/go-build/README": "",
                 ".flox/cache/postgres/data/PG_VERSION": "16",

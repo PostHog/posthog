@@ -153,7 +153,7 @@ def _inside_git_work_tree(path: Path) -> bool:
 def _configured_target_dir(config: Path) -> Path | None:
     try:
         target_dir = tomllib.loads(config.read_text()).get("build", {}).get("target-dir")
-    except (OSError, tomllib.TOMLDecodeError, AttributeError):
+    except (OSError, ValueError, AttributeError):
         return None
     return Path(target_dir) if isinstance(target_dir, str) else None
 

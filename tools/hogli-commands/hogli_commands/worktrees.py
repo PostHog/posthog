@@ -32,6 +32,7 @@ import sys
 import time
 import fcntl
 import shutil
+import itertools
 import subprocess
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -95,7 +96,12 @@ def _worktree_roots(repo_root: Path) -> list[tuple[str, Path]]:
 
 
 def _claude_scratchpad_root() -> Path:
-    return Path("/tmp") / f"claude-{os.getuid()}"
+    root = Path("/tmp") / f"claude-{os.getuid()}"
+    # /tmp is shared, so a folder that another user created under this name is not this user's scratchpad.
+    try:
+        return root if root.stat().st_uid == os.getuid() else root / "not-owned-by-this-user"
+    except OSError:
+        return root
 
 
 # Claude Code's scratchpad worktrees sit at <root>/<encoded project>/<session id>/scratchpad/<worktree>.
@@ -381,7 +387,6 @@ def worktrees_clean(
     # A shared Cargo target belongs to no single worktree, so --source leaves it alone, but any repo can build into it, so --repo does not.
     if mode != "full" and selected_sources is None:
         _clean_shared_cargo_targets(cutoff, dry_run, yes)
-    _clean_leftover_worktree_dirs(_leftover_worktree_dirs(repo_root, selected_sources, cutoff), dry_run, yes)
     protected = _protected_paths(repo_root)
 
     registry = _registered_worktrees(repo_root)
@@ -395,6 +400,10 @@ def worktrees_clean(
     if busy is None:
         click.echo("Could not list running processes, so no worktree can be shown to be idle; aborting to stay safe.")
         return
+    leftovers = [
+        path for path in _leftover_worktree_dirs(repo_root, selected_sources, cutoff) if not _in_use(path, busy)
+    ]
+    _clean_leftover_worktree_dirs(leftovers, dry_run, yes)
     in_use: list[Path] = []
     candidates: list[Worktree] = []
     for source, path in _discover_candidate_worktrees(repo_root, registry, selected_sources, mode):
@@ -1343,7 +1352,12 @@ def _git(cwd: Path, args: Sequence[str], timeout: float = 30.0) -> subprocess.Co
     # A plain `git status` refreshes the index, and the index mtime is one of the worktree's activity signals.
     try:
         return subprocess.run(
-            ["git", "--no-optional-locks", *args], cwd=cwd, capture_output=True, text=True, timeout=timeout
+            ["git", "--no-optional-locks", *args],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            errors="surrogateescape",
+            timeout=timeout,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return None
@@ -1476,7 +1490,11 @@ def _git_approved_artifacts(worktree: Path, artifacts: list[_Artifact]) -> list[
         return []
     gitdir = _gitdir_for(worktree)
     if gitdir is None or not gitdir.is_dir():
-        return [artifact.path for artifact in artifacts if "deps" in artifact.kinds]
+        return [
+            artifact.path
+            for artifact in artifacts
+            if "deps" in artifact.kinds and not _holds_nested_repo(artifact.path)
+        ]
     status = _git(
         worktree, ["status", "--porcelain=v1", "-z", "--ignored=traditional", "--untracked-files=normal"], timeout=120.0
     )
@@ -1499,12 +1517,22 @@ def _git_approved_artifacts(worktree: Path, artifacts: list[_Artifact]) -> list[
     worktree_resolved = _resolve(worktree)
     approved: list[Path] = []
     for artifact in artifacts:
+        if _holds_nested_repo(artifact.path):
+            continue
         relative = artifact.path.relative_to(worktree_resolved).as_posix()
         if _is_or_is_under_any(relative, ignored) or (
             "deps" in artifact.kinds and _is_or_is_under_any(relative, untracked)
         ):
             approved.append(artifact.path)
     return approved
+
+
+def _holds_nested_repo(artifact: Path) -> bool:
+    """Whether a repo that git does not see from outside sits near the top of *artifact*, such as a pip editable install in .venv/src."""
+
+    return artifact.is_dir() and any(
+        True for pattern in ("*/.git", "*/*/.git", "*/*/*/.git") for _ in itertools.islice(artifact.glob(pattern), 1)
+    )
 
 
 def _is_or_is_under_any(relative_path: str, directories: set[str]) -> bool:
@@ -1573,9 +1601,8 @@ def _execute(
 
     The reclaimed figure is measured from actual filesystem free space before/after,
     so it reflects what was genuinely freed — hardlinked (pnpm store) and
-    copy-on-write-cloned (APFS) blocks that are shared elsewhere don't count,
-    unlike the du-based pre-delete estimate. Falls back to -1.0 if free space
-    couldn't be measured.
+    copy-on-write-cloned (APFS) blocks that are shared elsewhere don't count. Falls
+    back to -1.0 if free space couldn't be measured.
     """
 
     # Anchor on each target's parent (which survives the deletion) so disk_usage
@@ -1597,6 +1624,8 @@ def _execute(
             continue
         before_remove(wt)
         if mode != "full":
+            if not wt.artifact_items:
+                continue
             if _delete_paths(wt.artifact_items):
                 failed += 1
             else:
