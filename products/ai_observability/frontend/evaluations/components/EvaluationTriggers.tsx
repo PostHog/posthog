@@ -80,9 +80,7 @@ export function EvaluationTriggers({ conditions, onChange, unit }: EvaluationTri
                         <div className="flex items-start gap-2" data-attr="llma-evaluation-condition-set">
                             <div className="flex flex-wrap items-center gap-2 text-sm min-w-0 flex-1">
                                 {/* Fixed width, so the inputs of every set line up under each other. */}
-                                <span className="w-12 shrink-0 text-right text-secondary">
-                                    {index === 0 ? 'Run on' : 'or'}
-                                </span>
+                                <span className="w-12 shrink-0 text-secondary">{index === 0 ? 'Run on' : 'or'}</span>
                                 <LemonInput
                                     type="number"
                                     size="small"

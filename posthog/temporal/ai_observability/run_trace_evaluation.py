@@ -14,6 +14,7 @@ each execute activity fetches the trace itself and returns only the small verdic
 
 import json
 import asyncio
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
@@ -382,11 +383,12 @@ def _sample_recent_traces(
     date_to: datetime,
     *,
     user: "User | None" = None,
+    random_order: bool = False,
 ) -> list[TraceHogTestSample]:
-    """Pick the most recent distinct trace ids whose *triggering* generation matches the
-    evaluation's conditions — mirroring the online scheduler, which starts a trace-eval run
-    from the first matching `$ai_generation`. Historical previews use that event timestamp as
-    the closest available proxy for the workflow start time."""
+    """Pick the most recent (or, with `random_order`, random) distinct trace ids whose *triggering*
+    generation matches the evaluation's conditions — mirroring the online scheduler, which starts a
+    trace-eval run from the first matching `$ai_generation`. Historical previews use that event
+    timestamp as the closest available proxy for the workflow start time."""
     where_exprs: list[ast.Expr] = [
         ast.CompareOperation(
             op=ast.CompareOperationOp.In,
@@ -421,7 +423,11 @@ def _sample_recent_traces(
         select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "ai_events"]), alias="ai_events"),
         where=ast.Placeholder(expr=ast.Field(chain=["where_clause"])),
         group_by=[ast.Field(chain=["trace_id"])],
-        order_by=[ast.OrderExpr(expr=ast.Field(chain=["latest"]), order="DESC")],
+        order_by=[
+            ast.OrderExpr(
+                expr=ast.Call(name="rand", args=[]) if random_order else ast.Field(chain=["latest"]), order="DESC"
+            )
+        ],
         limit=ast.Constant(value=sample_count),
     )
     response = query_ai_events(
@@ -436,6 +442,43 @@ def _sample_recent_traces(
         TraceHogTestSample(trace_id=str(row[0]), trigger_timestamp=_coerce_trace_test_timestamp(row[1]))
         for row in (response.results or [])
     ]
+
+
+def sample_test_traces(
+    team: Team,
+    condition_filter: ast.Expr | None,
+    sample_count: int,
+    *,
+    window_seconds: int = TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
+    lookback_days: int = EVALUATION_TEST_LOOKBACK_DAYS,
+    user: "User | None" = None,
+    sample_ids: Sequence[str] | None = None,
+    random_order: bool = False,
+) -> list[TraceHogTestSample]:
+    """Traces an editor preview runs on: settled matches from the lookback, or exactly `sample_ids`.
+
+    Pinned traces skip the conditions and the settle cutoff, so a trace the user picked is tested even
+    if its window is still open.
+    """
+    now = datetime.now(UTC)
+    if sample_ids:
+        condition_filter = ast.CompareOperation(
+            op=ast.CompareOperationOp.In, left=ast.Field(chain=["trace_id"]), right=ast.Constant(value=list(sample_ids))
+        )
+        sample_count = len(sample_ids)
+        date_to = now
+    else:
+        # Only triggers whose full aggregation window has elapsed.
+        date_to = now - timedelta(seconds=window_seconds)
+    return _sample_recent_traces(
+        team,
+        condition_filter,
+        sample_count,
+        date_to - timedelta(days=lookback_days),
+        date_to,
+        user=user,
+        random_order=random_order,
+    )
 
 
 def _trace_io_preview(trace: LLMTrace) -> tuple[str, str]:
@@ -465,25 +508,23 @@ def run_hog_eval_over_recent_traces(
     output_type: str = "boolean",
     output_config: dict[str, Any] | None = None,
     user: "User | None" = None,
+    sample_ids: Sequence[str] | None = None,
 ) -> list[TraceHogTestResult]:
     """Sample recent traces matching the conditions and run trace-level Hog bytecode against each.
 
     Shared by the editor `test_hog` endpoint and Max's authoring tool so a trace-target eval is
     previewed the same way it runs online — whole trace, trace globals — instead of against a
-    single generation.
+    single generation. `sample_ids` tests exactly those traces instead of sampling.
     """
-    now = datetime.now(UTC)
     window = timedelta(seconds=window_seconds)
-    # Only sample triggers whose full aggregation window has elapsed.
-    sample_date_to = now - window
-    sample_date_from = sample_date_to - timedelta(days=lookback_days)
-    trace_samples = _sample_recent_traces(
+    trace_samples = sample_test_traces(
         team,
         condition_filter,
         sample_count,
-        sample_date_from,
-        sample_date_to,
+        window_seconds=window_seconds,
+        lookback_days=lookback_days,
         user=user,
+        sample_ids=sample_ids,
     )
 
     results: list[TraceHogTestResult] = []
@@ -668,6 +709,12 @@ def execute_trace_llm_judge_activity(inputs: ExecuteTraceEvaluationInputs) -> Ev
     Fetch and judge happen in one activity on purpose: returning the trace through the
     workflow would hit Temporal's ~2 MiB payload limit on large traces.
     """
+    return run_trace_llm_judge(inputs)
+
+
+def run_trace_llm_judge(inputs: ExecuteTraceEvaluationInputs) -> EvaluationActivityResult:
+    """The trace judge outside any activity wrapper, so the editor's test endpoint grades a trace
+    exactly the way a live run does."""
     evaluation = inputs.evaluation
 
     if evaluation["evaluation_type"] != "llm_judge":

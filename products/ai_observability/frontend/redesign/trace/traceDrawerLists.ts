@@ -8,6 +8,7 @@ export type TraceDrawerListId =
     | 'reviews'
     | 'review-queue'
     | 'evaluation-runs'
+    | 'evaluation-preview'
     | 'dataset-items'
     | 'offline-experiment'
     | 'cluster-traces'
@@ -62,6 +63,13 @@ export const TRACE_DRAWER_LISTS: Record<TraceDrawerListId, TraceDrawerListConfig
         backTo: 'evaluation',
         backLabel: 'Back to evaluation',
         detailTab: 'evals',
+        rowClick: true,
+    },
+    // Shares its path with evaluation runs: the preview shows while setting the evaluation up, the runs list after.
+    'evaluation-preview': {
+        pathMatcher: /^\/ai-evals\/evaluations\/(?!(?:templates|offline|scorers)$)[^/]+$/,
+        backTo: 'evaluation',
+        backLabel: 'Back to evaluation',
         rowClick: true,
     },
     'dataset-items': {

@@ -813,6 +813,7 @@ class TestRunHogEvalOverRecentTraces:
             FROZEN_NOW - timedelta(seconds=120, days=7),
             FROZEN_NOW - timedelta(seconds=120),
             user=user,
+            random_order=False,
         )
         for query_call in mock_query.call_args_list:
             assert query_call.kwargs["user"] is user

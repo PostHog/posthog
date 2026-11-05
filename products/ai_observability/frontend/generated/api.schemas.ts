@@ -3302,6 +3302,80 @@ export interface EvaluationsOverviewApi {
     passRateOverview: PassRateOverviewApi
 }
 
+export type EvaluationSampleTrafficRequestApiConditionsItem = { [key: string]: unknown }
+
+export interface TestHogTargetConfigApi {
+    /**
+     * Aggregation window for trace samples, in seconds.
+     * @minimum 10
+     * @maximum 7200
+     */
+    window_seconds?: number
+    /**
+     * For session samples: only sessions with no activity for this long are previewed, matching when a session evaluation would actually run.
+     * @minimum 10
+     * @maximum 86400
+     */
+    quiet_period_seconds?: number
+}
+
+/**
+ * What a preview samples from: the unsaved evaluation's conditions and target.
+ */
+export interface EvaluationSampleTrafficRequestApi {
+    /** Optional trigger conditions to filter which events are sampled. */
+    conditions?: EvaluationSampleTrafficRequestApiConditionsItem[]
+    /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces, and 'session' samples whole sessions that have gone quiet. Each target runs against the same globals it would run against online.
+     *
+     * * `generation` - Generation
+     * * `trace` - Trace
+     * * `session` - Session */
+    target?: EvaluationTargetEnumApi
+    /** Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200. */
+    target_config?: TestHogTargetConfigApi
+    /**
+     * How many units to return (1-10, default 5).
+     * @minimum 1
+     * @maximum 10
+     */
+    count?: number
+}
+
+export interface EvaluationSampleTrafficItemApi {
+    /** Generation event UUID, trace ID, or session ID, matching `target`. */
+    sample_id: string
+    /** Type of unit: generation, trace, or session.
+     *
+     * * `generation` - Generation
+     * * `trace` - Trace
+     * * `session` - Session */
+    sample_type: EvaluationTargetEnumApi
+    /**
+     * Trace to open for this unit. For a session, its most recent trace. Null when the unit has none.
+     * @nullable
+     */
+    trace_id: string | null
+    /** When the unit's latest generation happened. */
+    timestamp: string
+    /** First 200 characters of the last user message in the unit's latest generation. */
+    input_preview: string
+    /** First 200 characters of the last assistant message in the unit's latest generation. */
+    output_preview: string
+    /** Number of $ai_generation events in the unit. */
+    generation_count: number
+    /**
+     * Summed cost of the unit's generations in USD, or null when none reported a cost.
+     * @nullable
+     */
+    total_cost_usd: number | null
+}
+
+export interface EvaluationSampleTrafficResponseApi {
+    results: EvaluationSampleTrafficItemApi[]
+}
+
+export type TestHogRequestApiConditionsItem = { [key: string]: unknown }
+
 export type TestHogRequestApiOutputConfigOptionsItem = {
     /**
      * Stable category key.
@@ -3389,8 +3463,6 @@ export type TestHogRequestApiOutputConfig = {
     passing_rule?: TestHogRequestApiOutputConfigPassingRule
 }
 
-export type TestHogRequestApiConditionsItem = { [key: string]: unknown }
-
 /**
  * * `boolean` - Boolean (Pass/Fail)
  * * `numeric` - Numeric
@@ -3405,22 +3477,20 @@ export const HogEvaluationOutputTypeEnumApi = {
     Categorical: 'categorical',
 } as const
 
-export interface TestHogTargetConfigApi {
-    /**
-     * Aggregation window for trace samples, in seconds.
-     * @minimum 10
-     * @maximum 7200
-     */
-    window_seconds?: number
-    /**
-     * For session samples: only sessions with no activity for this long are previewed, matching when a session evaluation would actually run.
-     * @minimum 10
-     * @maximum 86400
-     */
-    quiet_period_seconds?: number
-}
-
+/**
+ * What a preview samples from: the unsaved evaluation's conditions and target.
+ */
 export interface TestHogRequestApi {
+    /** Optional trigger conditions to filter which events are sampled. */
+    conditions?: TestHogRequestApiConditionsItem[]
+    /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces, and 'session' samples whole sessions that have gone quiet. Each target runs against the same globals it would run against online.
+     *
+     * * `generation` - Generation
+     * * `trace` - Trace
+     * * `session` - Session */
+    target?: EvaluationTargetEnumApi
+    /** Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200. */
+    target_config?: TestHogTargetConfigApi
     /** Expected output: boolean, numeric, or categorical. Sentiment is not supported by Hog.
      *
      * * `boolean` - Boolean (Pass/Fail)
@@ -3442,16 +3512,12 @@ export interface TestHogRequestApi {
     sample_count?: number
     /** Whether the evaluation can return N/A for non-applicable generations. */
     allows_na?: boolean
-    /** Optional trigger conditions to filter which events are sampled. */
-    conditions?: TestHogRequestApiConditionsItem[]
-    /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces, and 'session' samples whole sessions that have gone quiet. Each target runs against the same globals it would run against online.
-     *
-     * * `generation` - Generation
-     * * `trace` - Trace
-     * * `session` - Session */
-    target?: EvaluationTargetEnumApi
-    /** Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200. */
-    target_config?: TestHogTargetConfigApi
+    /**
+     * Test exactly these units instead of sampling: generation event UUIDs, trace IDs, or session IDs, matching `target`. Up to 10, and only units from the last 7 days. Conditions and sampling are ignored for pinned units, and unknown IDs are skipped. A session target tests at most 3 sessions.
+     * @maxItems 10
+     * @items.maxLength 400
+     */
+    sample_ids?: string[]
 }
 
 export interface TestHogResultItemApi {
@@ -3508,6 +3574,179 @@ export interface TestHogResponseApi {
     results: TestHogResultItemApi[]
     /** Optional message, e.g. when no recent events were found. */
     message?: string
+}
+
+export type EvaluationTestOnSampleRequestApiConditionsItem = { [key: string]: unknown }
+
+/**
+ * Same as on an evaluation: {prompt, judge_method}.
+ */
+export type EvaluationTestOnSampleRequestApiEvaluationConfig =
+    | {
+          /**
+           * Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.
+           * @minLength 1
+           */
+          prompt: string
+          /**
+           * Judge method. Omit to keep the saved method; null restores automatic routing.
+           * @nullable
+           */
+          judge_method?: 'llm' | 'decision' | null
+          /** Set to false to judge text only. */
+          include_media?: boolean
+          /**
+           * How much the judge model reasons before it answers. Only Anthropic and OpenAI reasoning models with the 'llm' judge method support it. Omit to keep the saved level; null uses the model's default.
+           * @nullable
+           */
+          reasoning_level?: 'minimal' | 'low' | 'medium' | 'high' | null
+      }
+    | {
+          /**
+           * Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.
+           * @minLength 1
+           */
+          source: string
+      }
+    | {
+          /** Classify sentiment from user messages in the generation input. The classifier is trained on English, so labels are unreliable for other languages; use an 'llm_judge' evaluation for multilingual agents. */
+          source?: 'user_messages'
+      }
+
+export type EvaluationTestOnSampleRequestApiOutputConfigOptionsItem = {
+    /**
+     * Stable category key.
+     * @minLength 1
+     * @maxLength 128
+     * @pattern ^[a-z0-9]+(?:[_-][a-z0-9]+)*$
+     */
+    key: string
+    /**
+     * Category display label.
+     * @minLength 1
+     * @maxLength 256
+     */
+    label: string
+}
+
+/**
+ * Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.
+ */
+export type EvaluationTestOnSampleRequestApiOutputConfigSelectionMode =
+    (typeof EvaluationTestOnSampleRequestApiOutputConfigSelectionMode)[keyof typeof EvaluationTestOnSampleRequestApiOutputConfigSelectionMode]
+
+export const EvaluationTestOnSampleRequestApiOutputConfigSelectionMode = {
+    Single: 'single',
+    Multiple: 'multiple',
+} as const
+
+/**
+ * Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.
+ */
+export type EvaluationTestOnSampleRequestApiOutputConfigPassingRule =
+    | {
+          /** Pass at or above (gte), or at or below (lte), the threshold. */
+          operator: 'gte' | 'lte'
+          /** Finite passing threshold within any configured score bounds. */
+          threshold: number
+      }
+    | {
+          /** Passing category keys. With keys selected, results must be non-empty and contain only these keys. If no passing keys are selected, only an empty result passes. */
+          categories: string[]
+      }
+    | null
+
+/**
+ * Output settings, as on an evaluation: bounds, categories, allows_na, and passing rules.
+ */
+export type EvaluationTestOnSampleRequestApiOutputConfig = {
+    /** Whether the evaluation can return N/A for non-applicable generations. */
+    allows_na?: boolean
+    /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+    true_is_failure?: boolean
+    /**
+     * Boolean decision-model judges only. Minimum probability of true required for a true result, inclusive. Omit or set null to use 0.5. Applies to new runs; historical results are unchanged.
+     * @minimum 0
+     * @maximum 1
+     * @nullable
+     */
+    decision_threshold?: number | null
+    /**
+     * Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.
+     * @nullable
+     */
+    min?: number | null
+    /**
+     * Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.
+     * @nullable
+     */
+    max?: number | null
+    /**
+     * Optional positive input increment. Does not round evaluation results.
+     * @minimum 0
+     * @exclusiveMinimum true
+     * @nullable
+     */
+    step?: number | null
+    /**
+     * Categorical output options. Keys identify stored results; labels are displayed to users.
+     * @minItems 1
+     * @maxItems 100
+     */
+    options?: EvaluationTestOnSampleRequestApiOutputConfigOptionsItem[]
+    /** Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single. */
+    selection_mode?: EvaluationTestOnSampleRequestApiOutputConfigSelectionMode
+    /** Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule. */
+    passing_rule?: EvaluationTestOnSampleRequestApiOutputConfigPassingRule
+}
+
+/**
+ * * `llm_judge` - LLM as a judge
+ */
+export type TestOnSampleEvaluationTypeEnumApi =
+    (typeof TestOnSampleEvaluationTypeEnumApi)[keyof typeof TestOnSampleEvaluationTypeEnumApi]
+
+export const TestOnSampleEvaluationTypeEnumApi = {
+    LlmJudge: 'llm_judge',
+} as const
+
+/**
+ * What a preview samples from: the unsaved evaluation's conditions and target.
+ */
+export interface EvaluationTestOnSampleRequestApi {
+    /** Optional trigger conditions to filter which events are sampled. */
+    conditions?: EvaluationTestOnSampleRequestApiConditionsItem[]
+    /** What the evaluation runs against: 'generation' samples individual generations, 'trace' samples whole traces, and 'session' samples whole sessions that have gone quiet. Each target runs against the same globals it would run against online.
+     *
+     * * `generation` - Generation
+     * * `trace` - Trace
+     * * `session` - Session */
+    target?: EvaluationTargetEnumApi
+    /** Target-specific preview settings. For a trace target, set window_seconds between 10 and 7200. */
+    target_config?: TestHogTargetConfigApi
+    /** 'llm_judge' runs the judge, or the decision model, on your own provider key.
+     *
+     * * `llm_judge` - LLM as a judge */
+    evaluation_type: TestOnSampleEvaluationTypeEnumApi
+    /** Same as on an evaluation: {prompt, judge_method}. */
+    evaluation_config: EvaluationTestOnSampleRequestApiEvaluationConfig
+    /** Provider and model for an llm_judge, as on an evaluation. Required for llm_judge. */
+    model_configuration?: ModelConfigurationApi | null
+    /** Expected output: boolean, numeric, or categorical.
+     *
+     * * `boolean` - Boolean (Pass/Fail)
+     * * `numeric` - Numeric
+     * * `categorical` - Categorical
+     * * `sentiment` - Sentiment */
+    output_type?: OutputTypeEnumApi
+    /** Output settings, as on an evaluation: bounds, categories, allows_na, and passing rules. */
+    output_config?: EvaluationTestOnSampleRequestApiOutputConfig
+    /**
+     * Test exactly these units instead of sampling, up to 3: generation event UUIDs, trace IDs, or session IDs, matching `target`. Conditions are ignored for pinned units, and unknown IDs are skipped.
+     * @maxItems 3
+     * @items.maxLength 400
+     */
+    sample_ids?: string[]
 }
 
 export type ClusteringConfigApiEventFiltersItem = { [key: string]: unknown }

@@ -6,6 +6,7 @@ something back from here, the two would cycle. The settle phase and the emit act
 only the fetch-and-evaluate half is session-specific.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
@@ -460,6 +461,12 @@ def execute_session_llm_judge_activity(inputs: ExecuteSessionEvaluationInputs) -
     Fetch and judge happen in one activity on purpose: returning the session through the
     workflow would hit Temporal's ~2 MiB payload limit.
     """
+    return run_session_llm_judge(inputs)
+
+
+def run_session_llm_judge(inputs: ExecuteSessionEvaluationInputs) -> EvaluationActivityResult:
+    """The session judge outside any activity wrapper, so the editor's test endpoint grades a session
+    exactly the way a live run does."""
     evaluation = inputs.evaluation
 
     if evaluation["evaluation_type"] != "llm_judge":
@@ -603,7 +610,7 @@ WHERE event IN ('$ai_generation', '$ai_span', '$ai_embedding', '$ai_trace')
   )
 GROUP BY session_id
 HAVING last_seen <= {quiet_cutoff}
-ORDER BY last_seen DESC
+ORDER BY {order_key} DESC
 LIMIT {sample_count}
 """
 
@@ -617,6 +624,7 @@ def _sample_quiet_sessions(
     quiet_cutoff: datetime,
     *,
     user: "User | None" = None,
+    random_order: bool = False,
 ) -> list[str]:
     with tags_context(product=Product.LLM_ANALYTICS):
         response = query_ai_events(
@@ -626,6 +634,7 @@ def _sample_quiet_sessions(
                 "date_to": ast.Constant(value=date_to),
                 "quiet_cutoff": ast.Constant(value=quiet_cutoff),
                 "sample_count": ast.Constant(value=sample_count),
+                "order_key": ast.Call(name="rand", args=[]) if random_order else ast.Field(chain=["last_seen"]),
                 "condition_filter": condition_filter if condition_filter is not None else ast.Constant(value=True),
             },
             team=team,
@@ -634,6 +643,44 @@ def _sample_quiet_sessions(
             fall_back_to_events=True,
         )
     return [str(row[0]) for row in (response.results or [])]
+
+
+def sample_test_sessions(
+    team: Team,
+    condition_filter: ast.Expr | None,
+    sample_count: int,
+    *,
+    quiet_period_seconds: int,
+    lookback_days: int = EVALUATION_TEST_LOOKBACK_DAYS,
+    user: "User | None" = None,
+    sample_ids: Sequence[str] | None = None,
+    random_order: bool = False,
+) -> list[str]:
+    """Sessions an editor preview runs on: settled matches from the lookback, or exactly `sample_ids`.
+
+    Pinned sessions skip the conditions and the quiet period, so a session the user picked is tested
+    even while it is still active.
+    """
+    now = datetime.now(UTC)
+    quiet_cutoff = now - timedelta(seconds=quiet_period_seconds)
+    if sample_ids:
+        condition_filter = ast.CompareOperation(
+            op=ast.CompareOperationOp.In,
+            left=ast.Field(chain=["session_id"]),
+            right=ast.Constant(value=list(sample_ids)),
+        )
+        sample_count = len(sample_ids)
+        quiet_cutoff = now
+    return _sample_quiet_sessions(
+        team,
+        condition_filter,
+        sample_count,
+        now - timedelta(days=lookback_days),
+        now,
+        quiet_cutoff,
+        user=user,
+        random_order=random_order,
+    )
 
 
 def _session_io_preview(traces: list[LLMTrace]) -> tuple[str, str]:
@@ -664,6 +711,7 @@ def run_hog_eval_over_recent_sessions(
     output_type: str = "boolean",
     output_config: dict[str, Any] | None = None,
     user: "User | None" = None,
+    sample_ids: Sequence[str] | None = None,
 ) -> list[SessionHogTestResult]:
     """Sample sessions that have gone quiet and run session-level Hog bytecode against each.
 
@@ -673,9 +721,15 @@ def run_hog_eval_over_recent_sessions(
     the trace path's because a session fetch is a whole conversation rather than a single trace.
     """
     now = datetime.now(UTC)
-    quiet_cutoff = now - timedelta(seconds=quiet_period_seconds)
-    date_from = now - timedelta(days=lookback_days)
-    session_ids = _sample_quiet_sessions(team, condition_filter, sample_count, date_from, now, quiet_cutoff, user=user)
+    session_ids = sample_test_sessions(
+        team,
+        condition_filter,
+        sample_count,
+        quiet_period_seconds=quiet_period_seconds,
+        lookback_days=lookback_days,
+        user=user,
+        sample_ids=sample_ids,
+    )
 
     results: list[SessionHogTestResult] = []
     for session_id in session_ids:

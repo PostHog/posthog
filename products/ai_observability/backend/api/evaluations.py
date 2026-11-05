@@ -1,7 +1,7 @@
 import hashlib
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
 from django.core.cache import cache
@@ -21,8 +21,10 @@ from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from temporalio.exceptions import ApplicationError
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
 
 from posthog.api.fields import RepeatedOrCommaSeparatedListField
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -31,17 +33,35 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
 from posthog.hogql_queries.ai.ai_table_resolver import AIEventsUnavailableError, query_ai_events
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_properties
 from posthog.models.team import Team
 from posthog.permissions import AccessControlPermission, is_service_auth
+from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
+from posthog.temporal.ai_observability.evaluation_llm_judge import (
+    ExecuteLLMJudgeInputs,
+    TransientJudgeError,
+    _execute_llm_judge_activity as execute_generation_llm_judge,
+)
+from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.message_utils import last_message_text
 from posthog.temporal.ai_observability.model_resolution import active_key_fallback
-from posthog.temporal.ai_observability.run_evaluation import extract_event_io, run_hog_eval
-from posthog.temporal.ai_observability.run_session_evaluation import run_hog_eval_over_recent_sessions
-from posthog.temporal.ai_observability.run_trace_evaluation import run_hog_eval_over_recent_traces
+from posthog.temporal.ai_observability.run_evaluation import run_hog_eval
+from posthog.temporal.ai_observability.run_session_evaluation import (
+    ExecuteSessionEvaluationInputs,
+    run_hog_eval_over_recent_sessions,
+    run_session_llm_judge,
+    sample_test_sessions,
+)
+from posthog.temporal.ai_observability.run_trace_evaluation import (
+    ExecuteTraceEvaluationInputs,
+    run_hog_eval_over_recent_traces,
+    run_trace_llm_judge,
+    sample_test_traces,
+)
 
 from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
 from products.access_control.backend.facade.property_access import restriction_fingerprint
@@ -51,6 +71,7 @@ from products.access_control.backend.presentation.access_control import (
 )
 from products.ai_observability.backend.models.evaluation_outcomes import get_outcome_definition
 
+from ..backfill_candidates import ai_events_unit_key
 from ..evaluation_conditions import build_condition_filter
 from ..facade import (
     api as facade,
@@ -60,7 +81,7 @@ from ..facade.contracts import Contract
 from ..hog import compile_ai_observability_hog
 from ..llm import DEFAULT_MODEL_BY_PROVIDER, supports_reasoning_level
 from ..llm.decisions import is_decision_model
-from ..llm.errors import ProviderConnectionError
+from ..llm.errors import LLMError, ProviderConnectionError
 from ..llm.providers.openai import OpenAIConfig
 from ..llm.providers.openrouter import is_non_chat_model
 from ..models.evaluation_config import EvaluationConfig
@@ -1056,6 +1077,9 @@ class HogEvaluationOutputType(models.TextChoices):
 
 
 OVERVIEW_CACHE_SECONDS = 300
+MAX_PINNED_SAMPLE_IDS = 10
+# Each unit is a paid judge call on the customer's key, made while the request waits.
+MAX_TEST_ON_SAMPLE_UNITS = 3
 
 
 @extend_schema_field(OpenApiTypes.STR)
@@ -1120,7 +1144,36 @@ class EvaluationRunsQuerySerializer(EvaluationsOverviewPeriodSerializer):
     )
 
 
-class TestHogRequestSerializer(serializers.Serializer):
+class _EvaluationPreviewScopeSerializer(serializers.Serializer):
+    """What a preview samples from: the unsaved evaluation's conditions and target."""
+
+    conditions = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        default=list,
+        help_text="Optional trigger conditions to filter which events are sampled.",
+    )
+    target = serializers.ChoiceField(
+        choices=EvaluationTarget.choices,
+        required=False,
+        default=EvaluationTarget.GENERATION,
+        help_text=(
+            "What the evaluation runs against: 'generation' samples individual generations, "
+            "'trace' samples whole traces, and 'session' samples whole sessions that have gone "
+            "quiet. Each target runs against the same globals it would run against online."
+        ),
+    )
+    target_config = TestHogTargetConfigSerializer(
+        required=False,
+        default=dict,
+        help_text=(
+            "Target-specific preview settings. For a trace target, set window_seconds between "
+            f"{TRACE_EVAL_MIN_WINDOW_SECONDS} and {TRACE_EVAL_MAX_WINDOW_SECONDS}."
+        ),
+    )
+
+
+class TestHogRequestSerializer(_EvaluationPreviewScopeSerializer):
     output_type = serializers.ChoiceField(
         choices=HogEvaluationOutputType.choices,
         required=False,
@@ -1152,28 +1205,16 @@ class TestHogRequestSerializer(serializers.Serializer):
     allows_na = serializers.BooleanField(
         required=False, default=False, help_text="Whether the evaluation can return N/A for non-applicable generations."
     )
-    conditions = serializers.ListField(
-        child=serializers.DictField(),
+    sample_ids = serializers.ListField(
+        child=serializers.CharField(max_length=400),
         required=False,
-        default=list,
-        help_text="Optional trigger conditions to filter which events are sampled.",
-    )
-    target = serializers.ChoiceField(
-        choices=EvaluationTarget.choices,
-        required=False,
-        default=EvaluationTarget.GENERATION,
+        max_length=MAX_PINNED_SAMPLE_IDS,
         help_text=(
-            "What the evaluation runs against: 'generation' samples individual generations, "
-            "'trace' samples whole traces, and 'session' samples whole sessions that have gone "
-            "quiet. Each target runs against the same globals it would run against online."
-        ),
-    )
-    target_config = TestHogTargetConfigSerializer(
-        required=False,
-        default=dict,
-        help_text=(
-            "Target-specific preview settings. For a trace target, set window_seconds between "
-            f"{TRACE_EVAL_MIN_WINDOW_SECONDS} and {TRACE_EVAL_MAX_WINDOW_SECONDS}."
+            "Test exactly these units instead of sampling: generation event UUIDs, trace IDs, or session IDs, "
+            f"matching `target`. Up to {MAX_PINNED_SAMPLE_IDS}, and only units from the last "
+            f"{EVALUATION_TEST_LOOKBACK_DAYS} days. Conditions and sampling are ignored for pinned units, and "
+            "unknown IDs are skipped. A session target tests at most "
+            f"{SESSION_TEST_HOG_MAX_SAMPLES} sessions."
         ),
     )
 
@@ -1226,6 +1267,83 @@ class TestHogResponseSerializer(serializers.Serializer):
     )
 
 
+class EvaluationSampleTrafficRequestSerializer(_EvaluationPreviewScopeSerializer):
+    count = serializers.IntegerField(
+        required=False,
+        default=5,
+        min_value=1,
+        max_value=MAX_PINNED_SAMPLE_IDS,
+        help_text=f"How many units to return (1-{MAX_PINNED_SAMPLE_IDS}, default 5).",
+    )
+
+
+class EvaluationSampleTrafficItemSerializer(serializers.Serializer):
+    sample_id = serializers.CharField(help_text="Generation event UUID, trace ID, or session ID, matching `target`.")
+    sample_type = serializers.ChoiceField(
+        choices=EvaluationTarget.choices, help_text="Type of unit: generation, trace, or session."
+    )
+    trace_id = serializers.CharField(
+        allow_null=True,
+        help_text="Trace to open for this unit. For a session, its most recent trace. Null when the unit has none.",
+    )
+    timestamp = serializers.DateTimeField(help_text="When the unit's latest generation happened.")
+    input_preview = serializers.CharField(
+        help_text="First 200 characters of the last user message in the unit's latest generation."
+    )
+    output_preview = serializers.CharField(
+        help_text="First 200 characters of the last assistant message in the unit's latest generation."
+    )
+    generation_count = serializers.IntegerField(help_text="Number of $ai_generation events in the unit.")
+    total_cost_usd = serializers.FloatField(
+        allow_null=True, help_text="Summed cost of the unit's generations in USD, or null when none reported a cost."
+    )
+
+
+class EvaluationSampleTrafficResponseSerializer(serializers.Serializer):
+    results = EvaluationSampleTrafficItemSerializer(many=True)
+
+
+# Sentiment is not offered: its classifier ships only in the AI observability worker image, not the web image.
+class TestOnSampleEvaluationType(models.TextChoices):
+    LLM_JUDGE = EvaluationType.LLM_JUDGE.value, EvaluationType.LLM_JUDGE.label
+
+
+class EvaluationTestOnSampleRequestSerializer(_EvaluationPreviewScopeSerializer):
+    evaluation_type = serializers.ChoiceField(
+        choices=TestOnSampleEvaluationType.choices,
+        help_text="'llm_judge' runs the judge, or the decision model, on your own provider key.",
+    )
+    evaluation_config = _EvaluationConfigField(
+        help_text="Same as on an evaluation: {prompt, judge_method}.",
+    )
+    model_configuration = ModelConfigurationSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Provider and model for an llm_judge, as on an evaluation. Required for llm_judge.",
+    )
+    output_type = serializers.ChoiceField(
+        choices=OutputType.choices,
+        required=False,
+        default=OutputType.BOOLEAN,
+        help_text="Expected output: boolean, numeric, or categorical.",
+    )
+    output_config = _OutputConfigField(
+        required=False,
+        default=dict,
+        help_text="Output settings, as on an evaluation: bounds, categories, allows_na, and passing rules.",
+    )
+    sample_ids = serializers.ListField(
+        child=serializers.CharField(max_length=400),
+        required=False,
+        max_length=MAX_TEST_ON_SAMPLE_UNITS,
+        help_text=(
+            f"Test exactly these units instead of sampling, up to {MAX_TEST_ON_SAMPLE_UNITS}: generation event "
+            "UUIDs, trace IDs, or session IDs, matching `target`. Conditions are ignored for pinned units, and "
+            "unknown IDs are skipped."
+        ),
+    )
+
+
 def _hog_test_result_counts(
     results: Sequence[Mapping[str, object]], output_type: str, output_config: dict[str, object] | None
 ) -> dict[str, int]:
@@ -1274,6 +1392,7 @@ def _test_hog_over_sessions(
     quiet_period_seconds: int,
     output_type: str = "boolean",
     output_config: dict | None = None,
+    sample_ids: Sequence[str] | None = None,
 ) -> Response:
     """Session-target variant of `test_hog`: sample sessions that have gone quiet and run the code
     against session-level globals, so the editor preview matches how a session eval runs online."""
@@ -1289,6 +1408,7 @@ def _test_hog_over_sessions(
             output_type=output_type,
             output_config=output_config,
             quiet_period_seconds=quiet_period_seconds,
+            sample_ids=sample_ids,
         )
     except AIEventsUnavailableError:
         session_results = []
@@ -1352,6 +1472,7 @@ def _test_hog_over_traces(
     window_seconds: int,
     output_type: str = "boolean",
     output_config: dict | None = None,
+    sample_ids: Sequence[str] | None = None,
 ) -> Response:
     """Trace-target variant of the `test_hog` action: sample recent whole traces and run the code
     against trace-level globals, so the editor preview matches how a trace eval runs online."""
@@ -1367,6 +1488,7 @@ def _test_hog_over_traces(
             output_type=output_type,
             output_config=output_config,
             window_seconds=window_seconds,
+            sample_ids=sample_ids,
         )
     except AIEventsUnavailableError:
         trace_results = []
@@ -1458,6 +1580,258 @@ def create_evaluation(
         request=request,
     )
     return instance
+
+
+def _generation_lookback() -> ast.Expr:
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.Gt,
+        left=ast.Field(chain=["timestamp"]),
+        right=ast.ArithmeticOperation(
+            op=ast.ArithmeticOperationOp.Sub,
+            left=ast.Call(name="now", args=[]),
+            right=ast.Call(name="toIntervalDay", args=[ast.Constant(value=EVALUATION_TEST_LOOKBACK_DAYS)]),
+        ),
+    )
+
+
+def _is_generation() -> ast.Expr:
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.In,
+        left=ast.Field(chain=["event"]),
+        right=ast.Constant(value=["$ai_generation"]),
+    )
+
+
+def _fetch_generation_events(
+    *,
+    team: Team,
+    user: "User",
+    condition_filter: ast.Expr | None,
+    sample_count: int,
+    sample_ids: Sequence[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Recent `$ai_generation` events with their heavy columns merged back, newest first, or exactly
+    `sample_ids`. Raises `AIEventsUnavailableError` when `ai_events` has nothing to return."""
+    where_exprs: list[ast.Expr] = [_is_generation(), _generation_lookback()]
+    if sample_ids:
+        where_exprs.append(
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=ai_events_unit_key(EvaluationTarget.GENERATION.value),
+                right=ast.Constant(value=list(sample_ids)),
+            )
+        )
+        sample_count = len(sample_ids)
+    elif condition_filter is not None:
+        where_exprs.append(condition_filter)
+
+    query = ast.SelectQuery(
+        select=[
+            ast.Field(chain=["uuid"]),
+            ast.Field(chain=["event"]),
+            ast.Field(chain=["properties"]),
+            ast.Field(chain=["distinct_id"]),
+            ast.Field(chain=["timestamp"]),
+            *[ast.Field(chain=[column_name]) for column_name in HEAVY_COLUMN_NAMES],
+        ],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "ai_events"]), alias="ai_events"),
+        where=ast.Placeholder(expr=ast.Field(chain=["where_clause"])),
+        order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
+        limit=ast.Constant(value=sample_count),
+    )
+    tag_queries(product=Product.LLM_ANALYTICS, feature=Feature.QUERY)
+    response = query_ai_events(
+        query=query,
+        placeholders={"where_clause": ast.And(exprs=where_exprs)},
+        team=team,
+        user=user,
+        query_type="EvaluationTestHog",
+        fall_back_to_events=False,
+        limit_context=None,
+    )
+    events = []
+    for row in response.results or []:
+        heavy_values = row[5 : 5 + len(HEAVY_COLUMN_NAMES)]
+        events.append(
+            {
+                "uuid": str(row[0]),
+                "event": row[1],
+                "properties": merge_heavy_properties(row[2], dict(zip(HEAVY_COLUMN_NAMES, heavy_values, strict=True))),
+                "distinct_id": row[3] or "",
+                "timestamp": row[4],
+            }
+        )
+    return events
+
+
+def _generation_io_preview(event: Mapping[str, Any]) -> tuple[str, str]:
+    io = extract_event_io(event["event"], event["properties"])
+    return last_message_text(io.input_raw, "user")[:200], last_message_text(io.output_raw, "assistant")[:200]
+
+
+def _sample_unit_ids(
+    *,
+    team: Team,
+    user: "User",
+    target: str,
+    condition_filter: ast.Expr | None,
+    count: int,
+    target_config: Mapping[str, Any],
+    random_order: bool,
+) -> list[str]:
+    """Ids of settled units matching `condition_filter`, from the samplers the test previews use."""
+    if target == EvaluationTarget.SESSION.value:
+        return sample_test_sessions(
+            team,
+            condition_filter,
+            count,
+            quiet_period_seconds=target_config.get("quiet_period_seconds", SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS),
+            user=user,
+            random_order=random_order,
+        )
+    if target == EvaluationTarget.TRACE.value:
+        samples = sample_test_traces(
+            team,
+            condition_filter,
+            count,
+            window_seconds=target_config.get("window_seconds", TRACE_EVAL_DEFAULT_WINDOW_SECONDS),
+            user=user,
+            random_order=random_order,
+        )
+        return [sample.trace_id for sample in samples]
+
+    where_exprs: list[ast.Expr] = [_is_generation(), _generation_lookback()]
+    if condition_filter is not None:
+        where_exprs.append(condition_filter)
+    order_key: ast.Expr = ast.Call(name="rand", args=[]) if random_order else ast.Field(chain=["timestamp"])
+    query = ast.SelectQuery(
+        select=[ai_events_unit_key(EvaluationTarget.GENERATION.value)],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "ai_events"]), alias="ai_events"),
+        where=ast.Placeholder(expr=ast.Field(chain=["where_clause"])),
+        order_by=[ast.OrderExpr(expr=order_key, order="DESC")],
+        limit=ast.Constant(value=count),
+    )
+    response = query_ai_events(
+        query=query,
+        placeholders={"where_clause": ast.And(exprs=where_exprs)},
+        team=team,
+        user=user,
+        query_type="EvaluationSampleTrafficGenerations",
+        fall_back_to_events=False,
+        workload=Workload.ONLINE,
+    )
+    return [str(row[0]) for row in response.results or []]
+
+
+_UNIT_PREVIEW_SQL = f"""
+SELECT
+    {{unit_key}} AS unit_id,
+    argMax(trace_id, timestamp) AS latest_trace_id,
+    max(timestamp) AS latest,
+    count() AS generation_count,
+    sum(total_cost_usd) AS total_cost_usd,
+    {", ".join(f"argMax({column_name}, timestamp)" for column_name in HEAVY_COLUMN_NAMES)}
+FROM posthog.ai_events AS ai_events
+WHERE event = '$ai_generation'
+  AND {{unit_key}} IN {{unit_ids}}
+  AND timestamp > now() - toIntervalDay({EVALUATION_TEST_LOOKBACK_DAYS})
+GROUP BY unit_id
+ORDER BY latest DESC
+LIMIT {{limit}}
+"""
+
+
+def _unit_previews(*, team: Team, user: "User", target: str, unit_ids: Sequence[str]) -> list[dict[str, Any]]:
+    """One row per unit, newest first, previewed from its latest generation. Raises
+    `AIEventsUnavailableError` when none of the units are in `ai_events`."""
+    if not unit_ids:
+        return []
+    response = query_ai_events(
+        query=parse_select(_UNIT_PREVIEW_SQL),
+        placeholders={
+            "unit_key": ai_events_unit_key(target),
+            "unit_ids": ast.Constant(value=list(unit_ids)),
+            "limit": ast.Constant(value=len(unit_ids)),
+        },
+        team=team,
+        user=user,
+        query_type="EvaluationSampleTrafficPreview",
+        fall_back_to_events=False,
+        workload=Workload.ONLINE,
+        posthog_tables_only=True,
+    )
+    previews = []
+    for row in response.results or []:
+        unit_id, trace_id, latest, generation_count, total_cost = row[:5]
+        properties = merge_heavy_properties({}, dict(zip(HEAVY_COLUMN_NAMES, row[5:], strict=True)))
+        input_preview, output_preview = _generation_io_preview({"event": "$ai_generation", "properties": properties})
+        previews.append(
+            {
+                "sample_id": str(unit_id),
+                "sample_type": target,
+                "trace_id": trace_id or None,
+                "timestamp": latest,
+                "input_preview": input_preview,
+                "output_preview": output_preview,
+                "generation_count": int(generation_count),
+                "total_cost_usd": float(total_cost) if total_cost is not None else None,
+            }
+        )
+    return previews
+
+
+# The judge functions log the evaluation id; an unsaved evaluation has none.
+_UNSAVED_EVALUATION_ID = "unsaved"
+
+
+def _judge_unit(
+    evaluation: dict[str, Any], target: str, unit: Any, target_config: Mapping[str, Any]
+) -> EvaluationActivityResult:
+    """Run the function a live run uses on one sampled unit. Nothing is emitted or saved."""
+    if target == EvaluationTarget.SESSION.value:
+        return run_session_llm_judge(
+            ExecuteSessionEvaluationInputs(
+                evaluation=evaluation,
+                team_id=evaluation["team_id"],
+                session_id=unit,
+                window_start=datetime.now(UTC).isoformat(),
+            )
+        )
+    if target == EvaluationTarget.TRACE.value:
+        window = timedelta(seconds=target_config.get("window_seconds", TRACE_EVAL_DEFAULT_WINDOW_SECONDS))
+        return run_trace_llm_judge(
+            ExecuteTraceEvaluationInputs(
+                evaluation=evaluation,
+                team_id=evaluation["team_id"],
+                trace_id=unit.trace_id,
+                window_start=unit.trigger_timestamp.isoformat(),
+                window_end=(unit.trigger_timestamp + window).isoformat(),
+            )
+        )
+    return execute_generation_llm_judge(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=unit))
+
+
+def _test_on_sample_row(result: EvaluationActivityResult) -> dict[str, Any]:
+    if result.get("skipped"):
+        return {"result": None, "reasoning": None, "error": result["reasoning"]}
+    row: dict[str, Any] = {"result": result.get("verdict"), "reasoning": result["reasoning"] or None, "error": None}
+    if result["result_type"] == "sentiment":
+        row["score"] = result.get("sentiment_score")
+        label = result.get("sentiment_label")
+        row["categories"] = [label] if label else None
+    elif result["result_type"] == "numeric":
+        row["score"] = result.get("score")
+    elif result["result_type"] == "categorical":
+        row["categories"] = result.get("categories")
+    return row
+
+
+def _test_on_sample_error(error: Exception) -> str:
+    # These carry messages written for the user, such as a rejected key or an exhausted rate limit.
+    if isinstance(error, ApplicationError | LLMError | TransientJudgeError):
+        return str(error)
+    logger.exception("Evaluation test on sample failed", error_class=type(error).__name__)
+    return "The evaluation could not run on this sample. Try again."
 
 
 class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
@@ -1779,6 +2153,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         conditions = serializer.validated_data.get("conditions", [])
         target = serializer.validated_data["target"]
         target_config = serializer.validated_data["target_config"]
+        sample_ids = serializer.validated_data.get("sample_ids") or None
 
         try:
             bytecode = compile_ai_observability_hog(source, "destination")
@@ -1807,6 +2182,8 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 quiet_period_seconds=target_config.get(
                     "quiet_period_seconds", SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS
                 ),
+                # Each session is a whole conversation, so pinned sessions share the sampled cap.
+                sample_ids=sample_ids[:SESSION_TEST_HOG_MAX_SAMPLES] if sample_ids else None,
             )
 
         if target == EvaluationTarget.TRACE.value:
@@ -1821,61 +2198,21 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 output_config=output_config,
                 conditions=conditions,
                 window_seconds=target_config.get("window_seconds", TRACE_EVAL_DEFAULT_WINDOW_SECONDS),
+                sample_ids=sample_ids,
             )
 
-        where_exprs: list[ast.Expr] = [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.In,
-                left=ast.Field(chain=["event"]),
-                right=ast.Constant(value=["$ai_generation"]),
-            ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.Gt,
-                left=ast.Field(chain=["timestamp"]),
-                right=ast.ArithmeticOperation(
-                    op=ast.ArithmeticOperationOp.Sub,
-                    left=ast.Call(name="now", args=[]),
-                    right=ast.Call(
-                        name="toIntervalDay",
-                        args=[ast.Constant(value=EVALUATION_TEST_LOOKBACK_DAYS)],
-                    ),
-                ),
-            ),
-        ]
-        if condition_filter is not None:
-            where_exprs.append(condition_filter)
-
-        query = ast.SelectQuery(
-            select=[
-                ast.Field(chain=["uuid"]),
-                ast.Field(chain=["event"]),
-                ast.Field(chain=["properties"]),
-                ast.Field(chain=["distinct_id"]),
-                ast.Field(chain=["timestamp"]),
-                *[ast.Field(chain=[column_name]) for column_name in HEAVY_COLUMN_NAMES],
-            ],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "ai_events"]), alias="ai_events"),
-            where=ast.Placeholder(expr=ast.Field(chain=["where_clause"])),
-            order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")],
-            limit=ast.Constant(value=sample_count),
-        )
-
-        tag_queries(product=Product.LLM_ANALYTICS, feature=Feature.QUERY)
         try:
-            response = query_ai_events(
-                query=query,
-                placeholders={"where_clause": ast.And(exprs=where_exprs)},
+            events = _fetch_generation_events(
                 team=team,
                 user=cast("User", request.user),
-                query_type="EvaluationTestHog",
-                fall_back_to_events=False,
-                limit_context=None,
+                condition_filter=condition_filter,
+                sample_count=sample_count,
+                sample_ids=sample_ids,
             )
-            query_results = response.results or []
         except AIEventsUnavailableError:
-            query_results = []
+            events = []
 
-        if not query_results:
+        if not events:
             report_user_action(
                 request.user,
                 "llma evaluation hog code tested",
@@ -1902,37 +2239,17 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
             )
 
         results = []
-        for row in query_results:
-            event_uuid = str(row[0])
-            event_type = row[1]
-            timestamp = row[4]
-            heavy_values = row[5 : 5 + len(HEAVY_COLUMN_NAMES)]
-            heavy_columns = dict(zip(HEAVY_COLUMN_NAMES, heavy_values, strict=True))
-            properties = merge_heavy_properties(row[2], heavy_columns)
-            distinct_id = row[3]
-
-            event_data = {
-                "uuid": event_uuid,
-                "event": event_type,
-                "properties": properties,
-                "distinct_id": distinct_id or "",
-                "timestamp": timestamp,
-            }
-
+        for event_data in events:
             result = run_hog_eval(
                 bytecode, event_data, allows_na=allows_na, output_type=output_type, output_config=output_config
             )
-
-            io = extract_event_io(event_type, properties)
-            input_preview = last_message_text(io.input_raw, "user")[:200]
-            output_preview = last_message_text(io.output_raw, "assistant")[:200]
-
+            input_preview, output_preview = _generation_io_preview(event_data)
             results.append(
                 {
-                    "sample_id": event_uuid,
+                    "sample_id": event_data["uuid"],
                     "sample_type": EvaluationTarget.GENERATION.value,
-                    "event_uuid": event_uuid,
-                    "trace_id": properties.get("$ai_trace_id"),
+                    "event_uuid": event_data["uuid"],
+                    "trace_id": event_data["properties"].get("$ai_trace_id"),
                     "input_preview": input_preview,
                     "output_preview": output_preview,
                     "result": result.get("verdict"),
@@ -1959,4 +2276,206 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
             request=self.request,
         )
 
+        return Response({"results": results})
+
+    @extend_schema(
+        request=EvaluationSampleTrafficRequestSerializer,
+        responses={200: EvaluationSampleTrafficResponseSerializer},
+    )
+    @action(detail=False, methods=["post"], url_path="sample_traffic", required_scopes=["evaluation:read"])
+    def sample_traffic(self, request: Request, **kwargs) -> Response:
+        """Recent units an unsaved evaluation would run on: the latest and a random pick, newest first."""
+        if not self.user_access_control.check_access_level_for_resource("evaluation", "viewer"):
+            raise exceptions.PermissionDenied()
+
+        serializer = EvaluationSampleTrafficRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({"error": serializer.errors}, status=400)
+        data = serializer.validated_data
+        target, count = data["target"], data["count"]
+        team = Team.objects.get(id=self.team_id)
+        user = cast("User", request.user)
+        # With the unit key, each condition set also applies the scheduler's rollout bucket, so a unit
+        # outside the sampling percentage never shows up here.
+        condition_filter = build_condition_filter(data["conditions"], team, ai_events_unit_key(target))
+
+        def sample(sample_count: int, random_order: bool) -> list[str]:
+            return _sample_unit_ids(
+                team=team,
+                user=user,
+                target=target,
+                condition_filter=condition_filter,
+                count=sample_count,
+                target_config=data["target_config"],
+                random_order=random_order,
+            )
+
+        tag_queries(product=Product.LLM_ANALYTICS, feature=Feature.QUERY)
+        try:
+            latest = sample((count + 1) // 2, random_order=False)
+            # Ask for the full count so duplicates of the latest units still leave enough to fill it.
+            unit_ids = list(dict.fromkeys([*latest, *sample(count, random_order=True)]))[:count]
+            results = _unit_previews(team=team, user=user, target=target, unit_ids=unit_ids)
+        except AIEventsUnavailableError:
+            results = []
+        return Response({"results": results})
+
+    @extend_schema(request=EvaluationTestOnSampleRequestSerializer, responses={200: TestHogResponseSerializer})
+    @action(detail=False, methods=["post"], url_path="test_on_sample", required_scopes=["evaluation:read"])
+    def test_on_sample(self, request: Request, **kwargs) -> Response:
+        """Run an unsaved LLM judge or sentiment evaluation on a few samples. Saves nothing and emits no results."""
+        if not self.user_access_control.check_access_level_for_resource("evaluation", "viewer"):
+            raise exceptions.PermissionDenied()
+
+        serializer = EvaluationTestOnSampleRequestSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({"error": serializer.errors}, status=400)
+        data = serializer.validated_data
+        target, target_config = data["target"], data["target_config"]
+        evaluation_type, output_type = data["evaluation_type"], data["output_type"]
+
+        # The create path's validation, so a test accepts exactly what saving would.
+        evaluation_serializer = EvaluationSerializer(
+            data={
+                "name": "Unsaved evaluation",
+                "evaluation_type": evaluation_type,
+                "evaluation_config": data["evaluation_config"],
+                "output_type": output_type,
+                "output_config": data["output_config"],
+                "target": target,
+                "model_configuration": data.get("model_configuration"),
+            },
+            context=self.get_serializer_context(),
+        )
+        if not evaluation_serializer.is_valid():
+            return Response({"error": evaluation_serializer.errors}, status=400)
+        validated = evaluation_serializer.validated_data
+        model_configuration = validated.get("model_configuration")
+        evaluation: dict[str, Any] = {
+            "id": _UNSAVED_EVALUATION_ID,
+            "name": validated["name"],
+            "evaluation_type": evaluation_type,
+            "evaluation_config": validated["evaluation_config"],
+            "output_type": output_type,
+            "output_config": validated["output_config"],
+            "team_id": self.team_id,
+            # Resolution only ever runs on the team's own provider key; a keyless config is a per-row error.
+            "model_configuration": {
+                "provider": model_configuration["provider"],
+                "model": model_configuration["model"],
+                "provider_key_id": str(model_configuration["provider_key_id"])
+                if model_configuration.get("provider_key_id")
+                else None,
+            }
+            if model_configuration
+            else None,
+            "enabled": False,
+            "deleted": False,
+        }
+
+        team = Team.objects.get(id=self.team_id)
+        user = cast("User", request.user)
+        sample_ids = data.get("sample_ids") or None
+        condition_filter = build_condition_filter(data["conditions"], team)
+        tag_queries(product=Product.LLM_ANALYTICS, feature=Feature.QUERY)
+
+        units: list[Any]
+        try:
+            if target == EvaluationTarget.SESSION.value:
+                units = sample_test_sessions(
+                    team,
+                    condition_filter,
+                    MAX_TEST_ON_SAMPLE_UNITS,
+                    quiet_period_seconds=target_config.get(
+                        "quiet_period_seconds", SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS
+                    ),
+                    user=user,
+                    sample_ids=sample_ids,
+                )
+                unit_ids = list(units)
+            elif target == EvaluationTarget.TRACE.value:
+                units = sample_test_traces(
+                    team,
+                    condition_filter,
+                    MAX_TEST_ON_SAMPLE_UNITS,
+                    window_seconds=target_config.get("window_seconds", TRACE_EVAL_DEFAULT_WINDOW_SECONDS),
+                    user=user,
+                    sample_ids=sample_ids,
+                )
+                unit_ids = [unit.trace_id for unit in units]
+            else:
+                units = _fetch_generation_events(
+                    team=team,
+                    user=user,
+                    condition_filter=condition_filter,
+                    sample_count=MAX_TEST_ON_SAMPLE_UNITS,
+                    sample_ids=sample_ids,
+                )
+                unit_ids = [unit["uuid"] for unit in units]
+            previews = (
+                {}
+                if target == EvaluationTarget.GENERATION.value
+                else {
+                    preview["sample_id"]: preview
+                    for preview in _unit_previews(team=team, user=user, target=target, unit_ids=unit_ids)
+                }
+            )
+        except AIEventsUnavailableError:
+            units, unit_ids, previews = [], [], {}
+
+        # ponytail: sequential judge calls, up to three; run them concurrently if the wait gets long.
+        results = []
+        for unit, unit_id in zip(units, unit_ids):
+            try:
+                row = _test_on_sample_row(_judge_unit(evaluation, target, unit, target_config))
+            except Exception as error:
+                row = {"result": None, "reasoning": None, "error": _test_on_sample_error(error)}
+            if target == EvaluationTarget.GENERATION.value:
+                input_preview, output_preview = _generation_io_preview(unit)
+                trace_id = unit["properties"].get("$ai_trace_id")
+            else:
+                preview = previews.get(unit_id, {})
+                input_preview = preview.get("input_preview", "")
+                output_preview = preview.get("output_preview", "")
+                trace_id = unit_id if target == EvaluationTarget.TRACE.value else preview.get("trace_id")
+            results.append(
+                {
+                    "sample_id": unit_id,
+                    "sample_type": target,
+                    "event_uuid": unit_id if target == EvaluationTarget.GENERATION.value else None,
+                    "trace_id": trace_id,
+                    "input_preview": input_preview,
+                    "output_preview": output_preview,
+                    **row,
+                }
+            )
+
+        counts = (
+            _hog_test_result_counts(results, output_type, evaluation["output_config"])
+            if evaluation_type == EvaluationType.LLM_JUDGE.value
+            else {"error_count": sum(1 for result in results if result["error"])}
+        )
+        report_user_action(
+            request.user,
+            "llma evaluation tested on sample",
+            {
+                "evaluation_type": evaluation_type,
+                "output_type": output_type,
+                "target": target,
+                "sample_count": len(units),
+                "pinned": sample_ids is not None,
+                "condition_count": len(data["conditions"]),
+                **counts,
+            },
+            team=self.team,
+            request=self.request,
+        )
+
+        if not results:
+            return Response(
+                {
+                    "results": [],
+                    "message": f"Nothing to test on from the last {EVALUATION_TEST_LOOKBACK_DAYS} days.",
+                }
+            )
         return Response({"results": results})
