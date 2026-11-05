@@ -200,7 +200,7 @@ pub enum UrlLimit {
 }
 
 impl UrlLimit {
-    /// The outcome of the dropped block in the recorder's metrics.
+    /// Why the block has no full read, in the recorder's metrics and the block's index row.
     pub fn label(self) -> &'static str {
         match self {
             UrlLimit::AttributeItems => "too_many_attribute_items",

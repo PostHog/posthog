@@ -71,11 +71,11 @@ pub struct Inspected {
     /// Remote image URLs the block's DOM referenced, for the image fetcher.
     pub image_urls: Vec<String>,
     pub font_urls: Vec<String>,
-    /// Set when the inspector could not read the block in full, so that the block must not be stored.
+    /// Set when the inspector could not read the block in full, so that a URL in the unread part stays as it arrived.
     pub url_limit: Option<UrlLimit>,
     /// Where the writer changes the block's events, in event order.
     pub edits: Vec<EventEdits>,
-    /// The inspector read a slot that the writer could not find again, so the block must not be stored.
+    /// The inspector read a slot that the writer could not find again, so that slot stays as it arrived.
     pub unplaced: bool,
 }
 

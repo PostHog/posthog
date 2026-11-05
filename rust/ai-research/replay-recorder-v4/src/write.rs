@@ -65,8 +65,8 @@ pub struct WriterCounts {
     /// The bytes of the lines the writer gives the encoder, and the longest line.
     pub jsonl_bytes: u64,
     pub max_line_bytes: u64,
-    /// Why the block must not be stored, as the outcome of its drop: the inspector could not read some of it.
-    pub dropped: Option<&'static str>,
+    /// Why the inspector could not read some of the block, so a URL there can stay as it arrived.
+    pub unread: Option<&'static str>,
 }
 
 /// A block compressed once for all the attempts of its flush, with the images it moved out.
@@ -180,7 +180,7 @@ fn prepare_block(
     Ok((images, counts))
 }
 
-/// Why a block must not be stored: the inspector could not read some of it, so a URL there went unchecked.
+/// Why the inspector could not read some of a block, so a URL there went unchecked.
 fn unread(block: &Block) -> Option<&'static str> {
     if block.unplaced {
         return Some("unplaced_slot");
@@ -202,26 +202,15 @@ fn unread(block: &Block) -> Option<&'static str> {
     undecoded.then_some("undecoded_events")
 }
 
-/// Writes a block's lines to an output from `open`, or drops a block that the inspector could not read in full.
-/// A dropped block gets a new output, so that none of its lines are stored.
 pub fn write_block<W: Write>(
     block: &Block,
     team_key: &[u8; 32],
     key_month: &str,
-    mut open: impl FnMut() -> io::Result<W>,
+    open: impl FnOnce() -> io::Result<W>,
 ) -> io::Result<(W, Vec<Image>, WriterCounts)> {
-    if let Some(reason) = unread(block) {
-        let counts = WriterCounts {
-            dropped: Some(reason),
-            ..WriterCounts::default()
-        };
-        return Ok((open()?, Vec::new(), counts));
-    }
     let mut out = open()?;
-    let (images, counts) = prepare_block(block, team_key, key_month, &mut out)?;
-    if counts.dropped.is_some() {
-        return Ok((open()?, images, counts));
-    }
+    let (images, mut counts) = prepare_block(block, team_key, key_month, &mut out)?;
+    counts.unread = unread(block);
     Ok((out, images, counts))
 }
 
@@ -776,7 +765,7 @@ mod tests {
 
     fn stored(inspected: Block) -> String {
         let (lines, counts) = written(inspected);
-        if counts.dropped.is_some() {
+        if counts.unread.is_some() {
             return String::new();
         }
         lines
@@ -1080,7 +1069,7 @@ mod tests {
     }
 
     #[test]
-    fn drops_a_block_the_inspector_could_not_read_in_full() {
+    fn stores_a_block_the_inspector_could_not_read_in_full_and_names_why() {
         let deep_face = format!(
             "{}@font-face{{font-family:Deep;src:url(\"https://fonts.example.com/deep.woff2?token=secret\")}}{}",
             "@media all{".repeat(80),
@@ -1096,8 +1085,9 @@ mod tests {
             json!({"type": 2, "tagName": "div", "attributes": {"style": deep_value}, "childNodes": [], "id": 2}),
         ] {
             let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": [node]}}}]).to_string();
-            let (_, counts) = written(block_of("kept", &events));
-            assert_eq!(counts.dropped, Some("too_many_nested_blocks"));
+            let (lines, counts) = written(block_of("kept", &events));
+            assert_eq!(counts.unread, Some("too_many_nested_blocks"));
+            assert!(lines.contains("token=secret"), "{lines:.80}");
         }
         // posthog-js compresses these, so the message read does not see how deep they nest.
         let cv = |value: Value| -> String {
@@ -1118,7 +1108,7 @@ mod tests {
             json!({"type": 3, "timestamp": 1, "cv": "2024-10", "data": {"source": 8, "id": 3, "adds": cv(json!([{"rule": ".a{background:url(https://cdn.example.com/a.png?token=secret)}", "index": deep_index}]))}}),
         ] {
             let (_, counts) = written(block_of("kept", &json!([event]).to_string()));
-            assert_eq!(counts.dropped, Some("too_deep_json"), "{event:.80}");
+            assert_eq!(counts.unread, Some("too_deep_json"), "{event:.80}");
         }
         // cssparser reads a NUL in a string as U+FFFD, so the decoded URL is not in its token, only in the comment.
         let nul_url = "url(\"https://cdn.example.com/a.png?X-Amz-Signature=abc123#\u{0}\"/*https://cdn.example.com/a.png?X-Amz-Signature=abc123#\u{FFFD}*/)";
@@ -1137,15 +1127,16 @@ mod tests {
             let node = json!({"type": 2, "tagName": "div", "attributes": {"style": style}, "childNodes": [], "id": 2});
             let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": [node]}}}]).to_string();
             let (_, counts) = written(block_of("kept", &events));
-            assert_eq!(counts.dropped, Some("unplaced_slot"), "{style}");
+            assert_eq!(counts.unread, Some("unplaced_slot"), "{style}");
         }
-        // The block would store an event that the flush did not decode as it arrived, with its URLs unread.
+        // The block stores an event that the flush did not decode as it arrived, with its URLs unread.
         let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": []}}}]).to_string();
         for expansion in [Expansion::Skipped, Expansion::Failed] {
             let mut block = block_of("kept", &events);
             block.messages[0].events[0].expansion = Some(expansion);
-            let (_, counts) = written(block);
-            assert_eq!(counts.dropped, Some("undecoded_events"));
+            let (lines, counts) = written(block);
+            assert_eq!(counts.unread, Some("undecoded_events"));
+            assert_eq!(lines.lines().count(), 1);
         }
     }
 

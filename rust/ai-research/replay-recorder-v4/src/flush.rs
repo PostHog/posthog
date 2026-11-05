@@ -231,16 +231,6 @@ pub async fn write_flush(
             Err(error) => return Err(error.into()),
         }
     }
-    // Fail closed: a block that still holds a declined URL, a credential or a private host, is not stored.
-    done.retain(|(index, block)| {
-        let Some(outcome) = block.counts.dropped else {
-            return true;
-        };
-        let session = &blocks[*index].session;
-        tracing::warn!(team_id = session.team_id, session_id = %session.session_id, outcome, "a block is not stored");
-        counter!("ai_research_v4_recorder_dropped_blocks_total", "outcome" => outcome).increment(1);
-        false
-    });
     let (indices, mut sealed): (Vec<usize>, Vec<_>) = done.into_iter().unzip();
 
     // This attempt's own copy: a retry fills the writer's columns again from zero.
@@ -254,6 +244,14 @@ pub async fn write_flush(
         stats[index].url_fingerprints = std::mem::take(&mut block.url_fingerprints);
         stats[index].surfacing.visited_url_fingerprints =
             std::mem::take(&mut block.visited_url_fingerprints);
+        // A reader must see the reason: the block can hold a declined URL, a credential or a private host.
+        if let Some(outcome) = block.counts.unread {
+            let session = &blocks[index].session;
+            tracing::warn!(team_id = session.team_id, session_id = %session.session_id, outcome, "a block is stored without a full read");
+            counter!("ai_research_v4_recorder_unread_blocks_total", "outcome" => outcome)
+                .increment(1);
+            stats[index].unread_reason = Some(outcome.to_owned());
+        }
     }
     // Before the index is written: building the jobs counts each block's image URLs into its stats. A dropped block's
     // images are not stored, so the fetcher does not fetch them.
