@@ -156,7 +156,10 @@ def _check_membership_type(session: Session, request: CheckRequest) -> bool:
     if resource.project_id is None:
         raise ValueError(f"A {resource.type} check needs `id`, or `project_id` for a check on the type.")
     principal = _principal(session, request.subject)
-    if principal is None:
+    # The rules give every principal the type's default level, so only a project member gets it.
+    if not isinstance(principal, User) or not _check_project(
+        session, principal, resource.project_id, Action.VIEW, _Level.MEMBER
+    ):
         return False
     access = _access(session, principal, resource.project_id)
     return access is not None and access.check_access_level_for_resource(_scope(resource.type), required_level=level)
