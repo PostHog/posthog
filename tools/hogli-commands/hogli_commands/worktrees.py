@@ -69,6 +69,7 @@ from .devbox.config import (
     read_worktree_id,
     saved_worktree_box_cleanup,
 )
+from .disk_usage import NO_USAGE, DiskUsage, measure_disk_usage
 from .doctor import _format_size
 
 WORKTREE_SOURCES = ("claude", "claude-scratchpad", "codex", "posthog-code", "phw")
@@ -179,10 +180,6 @@ _WALK_SKIP = frozenset({".git", ".venv", "venv"})
 
 _INTERVAL_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
 
-# du can hang on a stale network mount; bound it so one bad path can't stall the
-# whole sizing pool.
-_DU_TIMEOUT_SECONDS = 120.0
-
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class _ReapResult:
@@ -201,9 +198,8 @@ class Worktree:
     locked: bool
     branch: str
     last_activity: float
-    size: float = 0.0
+    usage: DiskUsage = NO_USAGE
     artifact_items: list[Path] = field(default_factory=list)
-    artifact_sizes: dict[str, float] = field(default_factory=dict)
     dirty: bool = False
     unpushed: int = 0
     detached: bool = False
@@ -482,15 +478,18 @@ def worktrees_clean(
     for wt in sorted(stale, key=lambda w: w.last_activity):
         markers = _listing_markers(wt, mode)
         click.echo(
-            f"  {_format_size(wt.size):>10}  {_ago(wt.last_activity):>12} ago  {markers}  {_display_path(wt.path)}"
+            f"  {_format_size(wt.usage.freeable_bytes):>10}  {_ago(wt.last_activity):>12} ago  {markers}  {_display_path(wt.path)}"
         )
 
-    total = sum(wt.size for wt in stale)
+    total = sum((wt.usage for wt in stale), NO_USAGE)
     action = "fully remove" if mode == "full" else f"strip {_describe_artifact_kinds(mode)} from"
-    click.echo(
-        f"\nWould {action} {len(stale)} worktree(s); estimated up to ~{_format_size(total)} "
-        "(cloned/hardlinked deps free less — the actual reclaimed total is measured after deletion)."
-    )
+    click.echo(f"\nWould {action} {len(stale)} worktree(s), which frees about {_format_size(total.freeable_bytes)}.")
+    shared_bytes = total.allocated_bytes - total.freeable_bytes
+    if shared_bytes > 0:
+        click.echo(
+            f"Another {_format_size(shared_bytes)} in them shares its blocks with copies elsewhere, "
+            "such as the pnpm or uv store, so deleting it frees nothing."
+        )
 
     registered_boxes = _match_worktree_boxes(stale, load_worktree_boxes()) if mode == "full" else []
     boxes = registered_boxes if box_action else []
@@ -1063,9 +1062,9 @@ def _newest_mtime(paths: Sequence[Path]) -> float:
 def _clean_leftover_worktree_dirs(leftovers: list[Path], dry_run: bool, yes: bool) -> None:
     if not leftovers:
         return
-    size = sum(_du_sizes(leftovers).values())
+    size = measure_disk_usage(leftovers).freeable_bytes
     click.echo(
-        f"{len(leftovers)} folder(s) of removed worktrees hold only flox caches ({_format_size(size)}), "
+        f"{len(leftovers)} folder(s) of removed worktrees hold only flox caches ({_format_size(size)} to free), "
         "because Go's read-only module cache stopped their removal:"
     )
     for leftover in leftovers[:5]:
@@ -1364,18 +1363,17 @@ def _listing_markers(wt: Worktree, mode: str) -> str:
 
 
 def _populate_sizes(worktrees: list[Worktree], mode: str, cutoff: float, repo_common: Path | None) -> None:
-    """Fill in .size, and the artifact items and sizes outside full mode, using a thread pool."""
+    """Fill in .usage, and the artifact items outside full mode, using a thread pool."""
 
     def work(wt: Worktree) -> None:
         if mode == "full":
-            wt.artifact_sizes = _du_sizes([wt.path])
+            wt.usage = measure_disk_usage([wt.path])
         else:
             artifacts = _git_approved_artifacts(
                 wt.path, _collect_artifacts(wt.path, _artifact_kinds(mode)), repo_common
             )
             wt.artifact_items = [item for item in artifacts if not _cargo_built_since(item, cutoff)]
-            wt.artifact_sizes = _du_sizes(wt.artifact_items)
-        wt.size = sum(wt.artifact_sizes.values())
+            wt.usage = measure_disk_usage(wt.artifact_items)
 
     if not worktrees:
         return
@@ -1540,7 +1538,7 @@ def _clean_shared_cargo_targets(cutoff: float, dry_run: bool, yes: bool) -> None
 
 def _clean_shared_cargo_target(shared: SharedCargoTarget, cutoff: float, dry_run: bool, yes: bool) -> None:
     target = shared.path
-    size = sum(_du_sizes([target]).values())
+    size = measure_disk_usage([target]).freeable_bytes
     click.echo(
         f"Shared Cargo target {_display_path(target)}: {_format_size(size)}, "
         f"last build {_ago(last_cargo_build_epoch(target))} ago. {shared.reason}"
@@ -1557,42 +1555,6 @@ def _clean_shared_cargo_target(shared: SharedCargoTarget, cutoff: float, dry_run
     if _delete_paths([target]) == 0:
         click.echo(f"✓ Deleted {_display_path(target)}.")
     click.echo()
-
-
-def _du_sizes(paths: Sequence[Path]) -> dict[str, float]:
-    """On-disk size in bytes per path via a single `du -sk`.
-
-    Keyed by the string path passed to `du` (which echoes it back). Parses
-    whatever du printed regardless of exit code, so one unreadable path doesn't
-    zero the whole batch.
-    """
-
-    existing = [str(p) for p in paths if p.exists()]
-    if not existing:
-        return {}
-    try:
-        result = subprocess.run(
-            ["du", "-sk", *existing],
-            capture_output=True,
-            text=True,
-            timeout=_DU_TIMEOUT_SECONDS,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        return {}
-
-    sizes: dict[str, float] = {}
-    for line in result.stdout.splitlines():
-        if not line.strip():
-            continue
-        parts = line.split("\t", 1)
-        if len(parts) < 2:
-            parts = line.split(None, 1)
-        if len(parts) < 2:
-            continue
-        size_kb, path_str = parts[0].strip(), parts[1].strip()
-        if size_kb.isdigit():
-            sizes[path_str] = int(size_kb) * 1024.0
-    return sizes
 
 
 def _execute(

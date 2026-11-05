@@ -30,7 +30,6 @@ from hogli_commands.worktrees import (
     _collect_artifacts,
     _compute_git_state,
     _discover_root_worktrees,
-    _du_sizes,
     _execute,
     _git_approved_artifacts,
     _in_use,
@@ -906,23 +905,3 @@ class TestExecute:
 
         assert (reap.removed, reap.failed) == (1, 0)
         assert not worktree.exists()
-
-
-class TestDuSizes:
-    def test_parses_per_path_and_skips_garbage(self, tmp_path, monkeypatch) -> None:
-        a = tmp_path / "a"
-        b = tmp_path / "b"
-        a.mkdir()
-        b.mkdir()
-
-        stdout = f"4\t{a}\n\nnot-a-number\t/whatever\n8\t{b}\n"
-        monkeypatch.setattr(
-            "hogli_commands.worktrees.subprocess.run",
-            lambda *a, **k: subprocess.CompletedProcess(args=[], returncode=1, stdout=stdout, stderr=""),
-        )
-
-        sizes = _du_sizes([a, b])
-        assert sizes == {str(a): 4 * 1024.0, str(b): 8 * 1024.0}
-
-    def test_no_existing_paths_returns_empty(self, tmp_path) -> None:
-        assert _du_sizes([tmp_path / "missing"]) == {}
