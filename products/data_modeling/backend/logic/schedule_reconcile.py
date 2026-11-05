@@ -486,9 +486,7 @@ def reconcile_dag_schedules(dag: DAG, *, graph: FrequencyGraph | None = None) ->
         logger.exception("Freshness schedule reconcile failed after a write", dag_id=str(dag.id), team_id=team.pk)
         capture_exception(error)
     logger.warning("Freshness schedule reconcile needs another run", dag_id=str(dag.id), team_id=team.pk)
-    # Callers that retry already do so for failed deletes, and a second chain would run beside theirs.
-    if not failed_deletes:
-        schedule_dag_schedule_reconcile(str(dag.id), team.pk)
+    schedule_dag_schedule_reconcile(str(dag.id), team.pk)
     return failed_deletes
 
 

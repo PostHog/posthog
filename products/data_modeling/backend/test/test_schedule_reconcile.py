@@ -847,18 +847,21 @@ class TestMaybeReconcileDag(BaseTest):
 
     @parameterized.expand(
         [
-            ("graph_read_fails", {"side_effect": RuntimeError("database down")}),
-            ("floor_unreadable", {"return_value": mock.Mock(plan_floor_evaluated=False)}),
+            ("graph_read_fails", {"side_effect": RuntimeError("database down")}, False),
+            ("floor_unreadable", {"return_value": mock.Mock(plan_floor_evaluated=False)}, False),
+            ("graph_read_fails_after_a_failed_delete", {"side_effect": RuntimeError("database down")}, True),
         ]
     )
-    def test_reconcile_queues_a_retry_when_it_cannot_confirm_its_write(self, _name, second_read):
+    def test_reconcile_queues_a_retry_when_it_cannot_confirm_its_write(self, _name, second_read, stale_tier):
         dag = self._dag_with_target()
         first_read = build_frequency_graph(dag)
+        listing = [tier_schedule_id(str(dag.id), H1)] if stale_tier else []
 
         with (
             mock.patch(f"{RECONCILE}.build_frequency_graph", **second_read) as read_graph,
-            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=self._temporal_listing([]))),
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=self._temporal_listing(listing))),
             mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock(side_effect=RuntimeError("temporal down"))),
             mock.patch(f"{RECONCILE}.capture_exception"),
             mock.patch(f"{RECONCILE_TASKS}.reconcile_dag_schedules_with_retry.delay") as queue_retry,
             self.captureOnCommitCallbacks(execute=True),
