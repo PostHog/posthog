@@ -295,6 +295,11 @@ def build_sending_histories(
     return {team_id: _history_from_daily(team_id, days) for team_id, days in daily_by_team.items()}
 
 
+def team_own_sends_since(team_id: int, after: datetime) -> int:
+    days = _fetch_daily_metrics(after=after, before=None, team_ids=[team_id], feature=Feature.QUERY).get(team_id, {})
+    return sum(counts.get(SENT_METRIC, 0) for counts in days.values())
+
+
 @frozen
 class SendingHistoryWindows:
     """Per-team sending histories over the promotion window and the shorter demotion window."""
@@ -332,6 +337,7 @@ def _fetch_daily_metrics(
     before: Optional[datetime],
     team_ids: Optional[list[int]],
     workload: Workload = Workload.DEFAULT,
+    feature: Feature = Feature.ENRICHMENT,
 ) -> dict[int, dict[str, dict[str, int]]]:
     auto_pause_metrics = [name for name in settings.WORKFLOWS_EMAIL_TIER_AUTO_PAUSE_METRIC_NAMES if name]
     other_metrics = list(dict.fromkeys([HARD_BOUNCE_METRIC, COMPLAINT_METRIC, *auto_pause_metrics]))
@@ -378,8 +384,9 @@ def _fetch_daily_metrics(
     # Tag the query so it is attributable in query-cost analysis and does not trip the untagged-query
     # guard in local dev. Celery adds only task identity, not a product or feature. This derives tier
     # state in the background, so it is enrichment, not a customer-facing query. One context here
-    # covers the daily sweep, the admin recompute, and the backfill command.
-    with tags_context(product=Product.WORKFLOWS, feature=Feature.ENRICHMENT):
+    # covers the daily sweep, the admin recompute, and the backfill command. The sending allowance
+    # reads the same counts for a page, so it passes QUERY.
+    with tags_context(product=Product.WORKFLOWS, feature=feature):
         rows = sync_execute(query, params, workload=workload)
 
     daily: dict[int, dict[str, dict[str, int]]] = {}
@@ -401,11 +408,6 @@ def _history_from_daily(team_id: int, days: dict[str, dict[str, int]]) -> TeamSe
         auto_paused=any(counts.get(metric, 0) > 0 for counts in days.values() for metric in auto_pause_metrics),
         daily_sends={day: sends for day, counts in days.items() if (sends := counts.get(SENT_METRIC, 0)) > 0},
     )
-
-
-def own_sends(counts: dict[str, int]) -> int:
-    """Sends from the team's own senders."""
-    return max(0, counts.get(SENT_METRIC, 0) - counts.get(SANDBOX_SENT_METRIC, 0))
 
 
 def _empty_history(team_id: int) -> TeamSendingHistory:
