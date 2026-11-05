@@ -418,7 +418,6 @@ class CodeBasedVerifier:
     def create_and_send_code_based_verification(
         self, request: HttpRequest, user: User, *, is_resend: bool = False
     ) -> bool:
-        """Raises EmailRecipientUndeliverableError when the address cannot receive the code."""
         from posthog.tasks import email
 
         if not self.should_send_code_based_verification(user).should_send:
@@ -444,9 +443,13 @@ class CodeBasedVerifier:
             )
             return True
         except EmailRecipientUndeliverableError:
+            # Workflows refuses a suppressed address at send time, where the Customer.io path checked the
+            # suppression list before sending. Both outcomes skip the code, so the caller logs the user in
+            # with the password alone instead of waiting for a code that never arrives.
             LOGIN_CODE_VERIFICATION_COUNTER.labels(result="undeliverable").inc()
-            mfa_logger.info("Code-based verification email refused as undeliverable", user_id=user.pk)
-            raise
+            mfa_logger.info("Code-based verification bypassed because the email was refused", user_id=user.pk)
+            self._capture_suppression_bypass_event(user, ESPSuppressionReason.SUPPRESSED, False)
+            return False
         except Exception as e:
             LOGIN_CODE_VERIFICATION_COUNTER.labels(result="send_failed").inc()
             mfa_logger.exception(

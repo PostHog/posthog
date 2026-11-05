@@ -81,13 +81,6 @@ function precheckFallback(email: string): PrecheckResponseType {
     }
 }
 
-function resendFailureMessage(code: string | undefined, detail: string | undefined): string {
-    if (detail) {
-        return detail
-    }
-    return code === 'too_soon' ? 'Please wait before requesting another email' : 'Failed to resend email'
-}
-
 export interface LoginForm {
     email: string
     password: string
@@ -394,7 +387,7 @@ export const loginLogic = kea<loginLogicType>([
             },
         ],
     }),
-    loaders(({ actions, values, cache }) => ({
+    loaders(({ values, cache }) => ({
         precheckResponse: [
             { status: 'pending' } as PrecheckResponseType,
             {
@@ -463,10 +456,10 @@ export const loginLogic = kea<loginLogicType>([
                         return response
                     } catch (e) {
                         const { code, detail } = e as Record<string, any>
-                        if (code === 'login_code_email_undeliverable') {
-                            actions.setGeneralError(code, detail)
+                        if (code === 'too_soon') {
+                            lemonToast.error(detail || 'Please wait before requesting another email')
                         } else {
-                            lemonToast.error(resendFailureMessage(code, detail))
+                            lemonToast.error(detail || 'Failed to resend email')
                         }
                         return null
                     }
