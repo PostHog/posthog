@@ -170,15 +170,14 @@ class EmailAttachmentsUnavailableError extends Error {
     }
 }
 
+// A send never fails because its files cannot be read. It waits until they can, and fails as
+// attachments_missing only once the janitor deletes the files after EMAIL_ATTACHMENTS_MAX_AGE_MS.
+export const EMAIL_ATTACHMENT_LOAD_MAX_RETRY_DELAY_MS = 15 * 60 * 1000
+
 function pickAttachmentLoadRetryDelayMs(tries: number): number {
-    return Math.min(1_000 * tries + Math.floor(Math.random() * 1_000), 60_000)
+    const delayMs = Math.min(1_000 * 2 ** (tries - 1), EMAIL_ATTACHMENT_LOAD_MAX_RETRY_DELAY_MS)
+    return delayMs + Math.floor(Math.random() * delayMs * 0.1)
 }
-
-export const EMAIL_ATTACHMENTS_UNAVAILABLE = 'attachments_unavailable'
-
-// About 7.5 minutes of retries before pacing waits, which outlasts a database failover. A longer error
-// while jobs still dequeue from the same database belongs to this job.
-export const EMAIL_ATTACHMENT_LOAD_MAX_TRIES = 30
 
 class UnverifiedEmailDomainError extends Error {
     constructor() {
@@ -830,7 +829,6 @@ export class EmailService {
             success = true
             result.emailSendResult = { status: 'accepted' }
         } catch (error) {
-            const attachmentLoadTries = (invocation.queueMetadata?.attachmentLoadTries ?? 0) + 1
             if (error instanceof SESThrottleError) {
                 // Treat as a transient delivery delay — reschedule rather than fail
                 // the job. Our local bucket is the primary throttle; this path
@@ -841,39 +839,28 @@ export class EmailService {
                 result.invocation.queueMetadata = invocation.queueMetadata
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: error.retryAfterMs })
                 addLog('warn', `SES rate-limited (${error.errorCode}); rescheduling email in ${error.retryAfterMs}ms`)
-            } else if (
-                error instanceof EmailAttachmentsUnavailableError &&
-                attachmentLoadTries < EMAIL_ATTACHMENT_LOAD_MAX_TRIES
-            ) {
-                const retryDelayMs = pickAttachmentLoadRetryDelayMs(attachmentLoadTries)
+            } else if (error instanceof EmailAttachmentsUnavailableError) {
+                const tries = (invocation.queueMetadata?.attachmentLoadTries ?? 0) + 1
+                const retryDelayMs = pickAttachmentLoadRetryDelayMs(tries)
                 rescheduled = true
                 result.finished = false
                 result.invocation.queueParameters = params
-                result.invocation.queueMetadata = { ...invocation.queueMetadata, attachmentLoadTries }
+                result.invocation.queueMetadata = { ...invocation.queueMetadata, attachmentLoadTries: tries }
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryDelayMs })
-                addLog('warn', `${error.message}; rescheduling email in ${retryDelayMs}ms`)
+                emailAttachmentOutcomesTotal.inc({ outcome: 'unavailable' }, params.attachments?.length ?? 0)
+                addLog('warn', `${error.message}, so it waits and tries again in ${Math.round(retryDelayMs / 1000)}s.`)
                 logger.warn('⚠️', 'Failed to load email attachment rows', {
                     job_id: invocation.id,
-                    tries: attachmentLoadTries,
+                    tries,
                     error: error.cause instanceof Error ? error.cause.message : String(error.cause),
                 })
             } else {
-                let message: string = error.message
                 if (error instanceof EmailAttachmentsMissingError) {
                     failureReason = EMAIL_ATTACHMENTS_MISSING
-                } else if (error instanceof EmailAttachmentsUnavailableError) {
-                    failureReason = EMAIL_ATTACHMENTS_UNAVAILABLE
-                    emailAttachmentOutcomesTotal.inc({ outcome: 'unavailable' }, params.attachments?.length ?? 0)
-                    message = `${EMAIL_ATTACHMENTS_UNAVAILABLE}: the attachment files of this email could not be loaded after ${attachmentLoadTries} tries, so it was not sent.`
-                    logger.error('⚠️', 'Gave up loading email attachment rows', {
-                        job_id: invocation.id,
-                        tries: attachmentLoadTries,
-                        error: error.cause instanceof Error ? error.cause.message : String(error.cause),
-                    })
                 }
-                addLog('error', message)
-                result.error = message
-                result.emailSendResult = { status: 'failed', reason: message }
+                addLog('error', error.message)
+                result.error = error.message
+                result.emailSendResult = { status: 'failed', reason: error.message }
                 result.finished = true
                 if (error instanceof UnverifiedEmailDomainError && isRealWorkflowSend(invocation, isTest)) {
                     void this.workflowsActivationReporter.report(invocation.teamId, 'workflows send failed', {

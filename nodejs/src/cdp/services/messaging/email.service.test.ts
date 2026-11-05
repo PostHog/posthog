@@ -34,7 +34,7 @@ import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailStatusService } from './email-status.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
 import {
-    EMAIL_ATTACHMENT_LOAD_MAX_TRIES,
+    EMAIL_ATTACHMENT_LOAD_MAX_RETRY_DELAY_MS,
     EmailService,
     formatMailbox,
     parseAddressList,
@@ -1507,22 +1507,15 @@ describe('EmailService', () => {
             })
 
             it.each([
+                ['reschedules the first try about a second later', 0, 1_000],
                 [
-                    'reschedules the send while tries are left',
-                    EMAIL_ATTACHMENT_LOAD_MAX_TRIES - 2,
-                    {
-                        finished: false,
-                        invocation: { queueMetadata: { attachmentLoadTries: EMAIL_ATTACHMENT_LOAD_MAX_TRIES - 1 } },
-                    },
-                ],
-                [
-                    'fails the send as attachments_unavailable on the last try',
-                    EMAIL_ATTACHMENT_LOAD_MAX_TRIES - 1,
-                    { finished: true, error: expect.stringMatching(/^attachments_unavailable: /) },
+                    'still reschedules the 501st try, about 15 minutes later',
+                    500,
+                    EMAIL_ATTACHMENT_LOAD_MAX_RETRY_DELAY_MS,
                 ],
             ])(
                 'spends one pacing token and no team cap token when the attachment store fails to answer, and %s',
-                async (_name, priorTries, expected) => {
+                async (_name, priorTries, baseDelayMs) => {
                     const claimOrReserve = jest.fn().mockResolvedValue({ granted: 1, retryAfterMs: null })
                     service['workflowEmailRateLimiter'] = { claimOrReserve } as unknown as RateLimiterService
                     invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 120, period: 'minute' } }
@@ -1546,7 +1539,14 @@ describe('EmailService', () => {
 
                     const result = await service.executeSendEmail(invocation)
 
-                    expect(result).toMatchObject(expected)
+                    expect(result).toMatchObject({
+                        finished: false,
+                        invocation: { queueMetadata: { attachmentLoadTries: priorTries + 1 } },
+                    })
+                    expect(result.error).toBeUndefined()
+                    const delayMs = result.invocation.queueScheduledAt!.toMillis() - Date.now()
+                    expect(delayMs).toBeGreaterThan(baseDelayMs - 1_000)
+                    expect(delayMs).toBeLessThanOrEqual(baseDelayMs * 1.1)
                     expect(sendEmailSpy).not.toHaveBeenCalled()
                     expect(claimOrReserve).toHaveBeenCalledTimes(1)
                     expect(teamCap.claimAllOrNothingPair).not.toHaveBeenCalled()

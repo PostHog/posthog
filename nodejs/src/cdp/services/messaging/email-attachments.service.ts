@@ -14,7 +14,7 @@ export type EmailAttachmentOutcome = 'stored' | 'loaded' | 'missing' | 'unavaila
 
 export const emailAttachmentOutcomesTotal = new Counter({
     name: 'cdp_email_attachment_outcomes_total',
-    help: 'Transactional email attachment files by outcome: stored by the API, loaded by the email worker, missing when the worker found no matching rows and failed the send, unavailable when the worker could not read the rows on any try and failed the send, deleted after a terminal send outcome, and swept by the janitor because no send outcome deleted them.',
+    help: 'Transactional email attachment files by outcome: stored by the API, loaded by the email worker, missing when the worker found no matching rows and failed the send, unavailable when the worker could not read the rows and rescheduled the send, deleted after a terminal send outcome, and swept by the janitor because no send outcome deleted them.',
     labelNames: ['outcome'],
 })
 
