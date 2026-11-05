@@ -8,3 +8,5 @@ from products.warehouse_sources.sources.sdk import config
 class SemrushSourceConfig(config.Config):
     api_key: str
     project_id: str
+    domain: str | None = None
+    database: str | None = None
