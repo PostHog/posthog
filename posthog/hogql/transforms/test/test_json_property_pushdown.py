@@ -46,8 +46,8 @@ class TestJSONPropertyPushdown(BaseTest):
             context,
             dialect="clickhouse",
         )
-        self.assertIn("(events.properties,", printed)
-        self.assertIn("(events.person_properties,", printed)
+        self.assertIn("JSONExtractRaw(events.properties,", printed)
+        self.assertIn("JSONExtractRaw(events.person_properties,", printed)
 
     def test_whole_properties_access_still_aggregates_blob(self):
         printed = self._print("SELECT key, properties FROM groups")
