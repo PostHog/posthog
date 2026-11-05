@@ -47,7 +47,9 @@ class DescopeResumeConfig:
 
 
 def base_url(region: str) -> str:
-    return DESCOPE_REGION_BASE_URLS.get(region, DESCOPE_REGION_BASE_URLS[DEFAULT_REGION])
+    if region not in DESCOPE_REGION_BASE_URLS:
+        raise ValueError("Select a supported Descope region: US or EU.")
+    return DESCOPE_REGION_BASE_URLS[region]
 
 
 def bearer_token(project_id: str, management_key: str) -> str:

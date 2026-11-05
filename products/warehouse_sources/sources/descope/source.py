@@ -59,6 +59,10 @@ class DescopeSource(ResumableSource[DescopeSourceConfig, DescopeResumeConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.DESCOPE
 
+    @property
+    def connection_host_fields(self) -> list[str]:
+        return ["region"]
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url: https://api.descope.com": "Descope authentication failed. Please check your Project ID, Management Key and Region.",
