@@ -10,7 +10,6 @@ export const MAX_PAGES = 20
 
 export interface Page<T> {
     results: T[]
-    // DRF's limit/offset and page-number paginators count the whole list. A cursor paginator doesn't.
     count?: number
     next?: URL
 }
@@ -27,8 +26,7 @@ export async function getPage<S extends z.ZodType>(api: PostHogApi, path: string
     }
 }
 
-// False when it stops at MAX_PAGES before `visit` returns true or the list ends. A `next` link keeps
-// only its path and query, so PostHogApi refuses one that points at another host.
+// False when it stops at MAX_PAGES first. Keeping only a link's path lets PostHogApi refuse another host.
 async function eachPage<S extends z.ZodType>(
     api: PostHogApi,
     path: string,
@@ -115,6 +113,6 @@ export const parseLimit = (raw: string, failure: ParseFailure): number => parseO
 export const parseOffset = (raw: string, failure: ParseFailure): number => parseOrThrow(OffsetSchema, raw, failure)
 
 export function nextOffset(page: Page<unknown>): number | null {
-    const offset = page.next?.searchParams.get('offset')
-    return offset ? Number(offset) : null
+    const offset = Number(page.next?.searchParams.get('offset') ?? Number.NaN)
+    return Number.isSafeInteger(offset) ? offset : null
 }

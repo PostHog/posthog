@@ -1,16 +1,19 @@
 import { z } from 'zod'
 
 import { ApiError, type PostHogApi } from '@/posthog/api'
-import { findNamed, getPage, listTooLong, readAll, type Page } from '@/posthog/pagination'
+import { findNamed, getPage, listTooLong, MAX_LIMIT, readAll, type Page } from '@/posthog/pagination'
 
 import { Endpoint, InsightVariable } from './model'
+
+// Lookups can read many pages, so they ask for the largest page PostHog sends.
+const ENDPOINT_PAGES = `endpoints/?limit=${MAX_LIMIT}`
 
 export function listEndpoints(api: PostHogApi, limit: number, offset: number): Promise<Page<Endpoint>> {
     return getPage(api, `endpoints/?limit=${limit}${offset > 0 ? `&offset=${offset}` : ''}`, Endpoint)
 }
 
 export function readAllEndpoints(api: PostHogApi): Promise<Endpoint[]> {
-    return readAll(api, 'endpoints/', Endpoint, listTooLong('endpoints', 'Pull the endpoints you need by name.'))
+    return readAll(api, ENDPOINT_PAGES, Endpoint, listTooLong('endpoints', 'Pull the endpoints you need by name.'))
 }
 
 export function getEndpoint(api: PostHogApi, name: string): Promise<Endpoint> {
@@ -20,7 +23,7 @@ export function getEndpoint(api: PostHogApi, name: string): Promise<Endpoint> {
 // Reads the list until it has every name. In a project too large for that, it looks up each name
 // it hasn't found yet, so the cost grows with the names instead of the project.
 export async function findEndpoints(api: PostHogApi, names: readonly string[]): Promise<Map<string, Endpoint>> {
-    const { found, complete } = await findNamed(api, 'endpoints/', Endpoint, names, (endpoint) => endpoint.name)
+    const { found, complete } = await findNamed(api, ENDPOINT_PAGES, Endpoint, names, (endpoint) => endpoint.name)
     if (!complete) {
         for (const name of names.filter((name) => !found.has(name))) {
             try {
