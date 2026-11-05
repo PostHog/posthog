@@ -313,6 +313,9 @@ export interface billingLogicValues {
     openInvoices: OpenInvoices | null
     openInvoicesLoading: boolean
     platformAddons: BillingProductV2AddonType[]
+    productAnalyticsFreePlan: BillingPlanType | null
+    productAnalyticsPaidPlan: BillingPlanType | null
+    productAnalyticsPlans: BillingPlanType[]
     productSpecificAlert: BillingAlertConfig | null
     products: BillingProductV2Type[]
     productsLoading: boolean
@@ -676,7 +679,10 @@ export interface billingLogicMeta {
         hasSupportAddonPlan: (billing: BillingType | null) => boolean
         platformAddons: (billing: BillingType | null) => BillingProductV2AddonType[]
         currentPlatformAddon: (billing: BillingType | null) => BillingProductV2AddonType | null
-        hasGrandfatheredEventsRetention: (billing: BillingType | null) => boolean
+        productAnalyticsPlans: (billing: BillingType | null) => BillingPlanType[]
+        productAnalyticsFreePlan: (productAnalyticsPlans: BillingPlanType[]) => BillingPlanType | null
+        productAnalyticsPaidPlan: (productAnalyticsPlans: BillingPlanType[]) => BillingPlanType | null
+        hasGrandfatheredEventsRetention: (productAnalyticsPlans: BillingPlanType[]) => boolean
         unusedPlatformAddonAmount: (
             currentPlatformAddon: BillingProductV2AddonType | null,
             timeRemainingInSeconds: number,
@@ -1260,14 +1266,29 @@ export const billingLogic = kea<billingLogicType>([
                 return platformProduct?.addons?.find((addon: BillingProductV2AddonType) => !!addon.subscribed) || null
             },
         ],
-        hasGrandfatheredEventsRetention: [
+        productAnalyticsPlans: [
             (s) => [s.billing],
-            (billing: BillingType | null): boolean =>
-                !!billing?.products
-                    ?.find((product) => product.type === ProductKey.PRODUCT_ANALYTICS)
-                    ?.plans?.some(
-                        (plan) => plan.current_plan && plan.plan_key === GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY
-                    ),
+            (billing: BillingType | null): BillingPlanType[] =>
+                billing?.products?.find((product) => product.type === ProductKey.PRODUCT_ANALYTICS)?.plans ?? [],
+        ],
+        productAnalyticsFreePlan: [
+            (s) => [s.productAnalyticsPlans],
+            (productAnalyticsPlans: BillingPlanType[]): BillingPlanType | null =>
+                productAnalyticsPlans.find((plan) => !!plan.free_allocation && !plan.tiers) ?? null,
+        ],
+        productAnalyticsPaidPlan: [
+            (s) => [s.productAnalyticsPlans],
+            (productAnalyticsPlans: BillingPlanType[]): BillingPlanType | null =>
+                productAnalyticsPlans.find(
+                    (plan) => !!plan.tiers && plan.plan_key !== GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY
+                ) ?? null,
+        ],
+        hasGrandfatheredEventsRetention: [
+            (s) => [s.productAnalyticsPlans],
+            (productAnalyticsPlans: BillingPlanType[]): boolean =>
+                productAnalyticsPlans.some(
+                    (plan) => !!plan.current_plan && plan.plan_key === GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY
+                ),
         ],
         unusedPlatformAddonAmount: [
             (s) => [s.currentPlatformAddon, s.timeRemainingInSeconds, s.timeTotalInSeconds],

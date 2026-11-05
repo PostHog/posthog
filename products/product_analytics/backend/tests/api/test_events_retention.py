@@ -319,19 +319,41 @@ class TestEventsRetentionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("project_admin", "project_admin", "project", 3, status.HTTP_403_FORBIDDEN),
-            ("project_admin", "project_admin", "organization", 3, status.HTTP_403_FORBIDDEN),
-            ("period_before_any_date", "organization_admin", "project", 100000, status.HTTP_400_BAD_REQUEST),
-            ("period_before_any_date", "organization_admin", "organization", 100000, status.HTTP_400_BAD_REQUEST),
+            ("project_admin", "project_admin", "project", "deletion_count", 3, status.HTTP_403_FORBIDDEN),
+            ("project_admin", "project_admin", "organization", "deletion_count", 3, status.HTTP_403_FORBIDDEN),
+            (
+                "project_admin",
+                "project_admin",
+                "organization",
+                "downgrade_deletion_count",
+                3,
+                status.HTTP_403_FORBIDDEN,
+            ),
+            (
+                "period_before_any_date",
+                "organization_admin",
+                "project",
+                "deletion_count",
+                100000,
+                status.HTTP_400_BAD_REQUEST,
+            ),
+            (
+                "period_before_any_date",
+                "organization_admin",
+                "organization",
+                "deletion_count",
+                100000,
+                status.HTTP_400_BAD_REQUEST,
+            ),
         ]
     )
     def test_rejects_a_deletion_count(
-        self, _name: str, level: str, scope: str, months: int, expected_status: int
+        self, _name: str, level: str, scope: str, count: str, months: int, expected_status: int
     ) -> None:
         self._set_membership(level)
         url = self.url() if scope == "project" else self.organization_url()
 
-        response = self.client.get(f"{url}deletion_count/", {"retention_months": months})
+        response = self.client.get(f"{url}{count}/", {"retention_months": months})
 
         assert response.status_code == expected_status
 
@@ -541,15 +563,44 @@ class TestEventsRetentionDeletionCountAPI(ClickhouseTestMixin, APIBaseTest):
         assert project.json() == {"retention_months": 3, "events_deleted": 1}
         assert organization.json() == {"retention_months": 3, "events_deleted": 3}
 
+    @time_machine.travel("2026-11-05T12:00:00Z", tick=False)
+    def test_counts_the_events_a_downgrade_deletes(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        shorter_period_team = Team.objects.create(organization=self.organization, name="Shorter period")
+        TeamEventsRetentionConfig.objects.create(team=shorter_period_team, events_retention_months=12)
+        longer_period_team = Team.objects.create(organization=self.organization, name="Longer period")
+        TeamEventsRetentionConfig.objects.create(team=longer_period_team, events_retention_months=24)
+        for team, timestamp in [
+            (self.team, "2026-02-28T23:59:59Z"),
+            (self.team, "2026-03-01T00:00:00Z"),
+            (shorter_period_team, "2026-01-01T00:00:00Z"),
+            (longer_period_team, "2026-01-01T00:00:00Z"),
+        ]:
+            _create_event(team=team, event="$pageview", distinct_id="user", timestamp=timestamp)
+
+        url = f"/api/organizations/{self.organization.id}/events_retention_setting/downgrade_deletion_count/"
+        with override_settings(EVENTS_DATA_RETENTION_ENFORCED=False):
+            not_deleting = self.client.get(url, {"retention_months": 12})
+        with override_settings(EVENTS_DATA_RETENTION_ENFORCED=True):
+            deleting = self.client.get(url, {"retention_months": 12})
+
+        assert not_deleting.json() == {"retention_months": 12, "events_deleted": 0}
+        assert deleting.json() == {"retention_months": 12, "events_deleted": 2}
+
     @parameterized.expand(
         [
-            ("project", ["project:read"], status.HTTP_403_FORBIDDEN),
-            ("project", ["project:read", "query:read"], status.HTTP_200_OK),
-            ("organization", ["organization:read"], status.HTTP_403_FORBIDDEN),
-            ("organization", ["organization:read", "query:read"], status.HTTP_200_OK),
+            ("project", "deletion_count", ["project:read"], status.HTTP_403_FORBIDDEN),
+            ("project", "deletion_count", ["project:read", "query:read"], status.HTTP_200_OK),
+            ("organization", "deletion_count", ["organization:read"], status.HTTP_403_FORBIDDEN),
+            ("organization", "deletion_count", ["organization:read", "query:read"], status.HTTP_200_OK),
+            ("organization", "downgrade_deletion_count", ["organization:read"], status.HTTP_403_FORBIDDEN),
+            ("organization", "downgrade_deletion_count", ["organization:read", "query:read"], status.HTTP_200_OK),
         ]
     )
-    def test_tokens_need_query_access_to_count(self, scope: str, scopes: list[str], expected_status: int) -> None:
+    def test_tokens_need_query_access_to_count(
+        self, scope: str, count: str, scopes: list[str], expected_status: int
+    ) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         self.client.logout()
@@ -560,6 +611,6 @@ class TestEventsRetentionDeletionCountAPI(ClickhouseTestMixin, APIBaseTest):
             else f"/api/organizations/{self.organization.id}/events_retention_setting/"
         )
 
-        response = self.client.get(f"{url}deletion_count/", {"retention_months": 3})
+        response = self.client.get(f"{url}{count}/", {"retention_months": 3})
 
         assert response.status_code == expected_status

@@ -11,9 +11,11 @@ import { BillingInvoiceItemRow, BillingProductV2AddonType } from '~/types'
 import { AddonFeatureLossNotice } from './AddonFeatureLossNotice'
 import { billingProductLogic } from './billingProductLogic'
 import { GrandfatheredEventsRetentionNotice } from './GrandfatheredEventsRetentionNotice'
+import { longestEventsRetentionMonths } from './longestEventsRetentionMonths'
 
 export function ConfirmDowngradeModal({ product }: { product: BillingProductV2AddonType }): JSX.Element | null {
-    const { currentPlatformAddon, unusedPlatformAddonAmount, switchPlanLoading, billing } = useValues(billingLogic)
+    const { currentPlatformAddon, unusedPlatformAddonAmount, switchPlanLoading, billing, productAnalyticsPaidPlan } =
+        useValues(billingLogic)
     const { currentAndUpgradePlans, confirmDowngradeModalOpen, proratedAmount } = useValues(
         billingProductLogic({ product })
     )
@@ -106,7 +108,10 @@ export function ConfirmDowngradeModal({ product }: { product: BillingProductV2Ad
                 </p>
 
                 <AddonFeatureLossNotice product={currentPlatformAddon} targetProduct={product} />
-                <GrandfatheredEventsRetentionNotice className="mt-2" />
+                <GrandfatheredEventsRetentionNotice
+                    retentionMonths={longestEventsRetentionMonths([targetPlan, productAnalyticsPaidPlan])}
+                    className="mt-2"
+                />
 
                 <LemonTable dataSource={rows} columns={columns} className="mt-4" uppercaseHeader={false} />
 

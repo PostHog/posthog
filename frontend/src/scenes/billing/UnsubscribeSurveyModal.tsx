@@ -36,6 +36,7 @@ import {
     randomizeReasons,
 } from './billingProductLogic'
 import { GrandfatheredEventsRetentionNotice } from './GrandfatheredEventsRetentionNotice'
+import { longestEventsRetentionMonths } from './longestEventsRetentionMonths'
 
 const HedgehogHeart = pngHoggie(heartPng)
 
@@ -59,7 +60,8 @@ export const UnsubscribeSurveyModal = ({
         triggerMoreHedgehogs,
     } = useActions(billingProductLogic({ product }))
     const { deactivateProduct, resetUnsubscribeError } = useActions(billingLogic)
-    const { unsubscribeError, billingLoading, billing, isExternallyBilled } = useValues(billingLogic)
+    const { unsubscribeError, billingLoading, billing, isExternallyBilled, productAnalyticsFreePlan } =
+        useValues(billingLogic)
     const { openSupportForm } = useActions(supportLogic)
     const [randomizedReasons] = useState(() =>
         inStorybook() || inStorybookTestRunner() ? UNSUBSCRIBE_REASONS : randomizeReasons(UNSUBSCRIBE_REASONS)
@@ -220,7 +222,11 @@ export const UnsubscribeSurveyModal = ({
                         )}
 
                         {isPlatformAndSupportAddon(product) && <AddonFeatureLossNotice product={product} />}
-                        {endsProductAnalyticsPlan && <GrandfatheredEventsRetentionNotice />}
+                        {endsProductAnalyticsPlan && (
+                            <GrandfatheredEventsRetentionNotice
+                                retentionMonths={longestEventsRetentionMonths([productAnalyticsFreePlan])}
+                            />
+                        )}
 
                         <LemonLabel>
                             {billing?.subscription_level === 'paid'

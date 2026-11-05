@@ -56,6 +56,7 @@ import type {
     InsightsViewedCreateParams,
     OrganizationEventsRetentionApi,
     OrganizationEventsRetentionDeletionCountParams,
+    OrganizationEventsRetentionDowngradeDeletionCountParams,
     PaginatedColumnConfigurationListApi,
     PaginatedElementListApi,
     PaginatedInsightListApi,
@@ -155,6 +156,43 @@ export const organizationEventsRetentionDeletionCount = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getOrganizationEventsRetentionDowngradeDeletionCountUrl = (
+    organizationId: string,
+    params: OrganizationEventsRetentionDowngradeDeletionCountParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/events_retention_setting/downgrade_deletion_count/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/events_retention_setting/downgrade_deletion_count/`
+}
+
+/**
+ * Counts the events that the deletion pass after a plan downgrade deletes if the organization's events retention drops to retention_months. Sums the projects where that pass deletes and whose period is longer than retention_months. Organization admins only.
+ * @summary Count the events a downgrade to a shorter period would delete
+ */
+export const organizationEventsRetentionDowngradeDeletionCount = async (
+    organizationId: string,
+    params: OrganizationEventsRetentionDowngradeDeletionCountParams,
+    options?: RequestInit
+): Promise<EventsDeletedApi> => {
+    return apiMutator<EventsDeletedApi>(
+        getOrganizationEventsRetentionDowngradeDeletionCountUrl(organizationId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getColumnConfigurationsListUrl = (projectId: string, params?: ColumnConfigurationsListParams) => {

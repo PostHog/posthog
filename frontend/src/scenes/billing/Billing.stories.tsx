@@ -321,6 +321,10 @@ export const BillingUnsubscribeModalWithGrandfatheredEventsRetention: Story = {
         useStorybookMocks({
             get: {
                 '/api/billing/': billingJsonWithGrandfatheredEventsRetention,
+                '/api/organizations/:organization_id/events_retention_setting/downgrade_deletion_count/': {
+                    retention_months: 12,
+                    events_deleted: 1234567,
+                },
             },
         })
 

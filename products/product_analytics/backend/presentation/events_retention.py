@@ -18,6 +18,7 @@ from posthog.permissions import OrganizationAdminReadPermissions, OrganizationAd
 
 from products.product_analytics.backend.facade.contracts import OrganizationEventsRetention
 from products.product_analytics.backend.facade.events_retention import (
+    organization_downgrade_events_deleted,
     organization_events_deleted,
     organization_events_retention,
     project_events_deleted,
@@ -151,8 +152,8 @@ class EventsDeletedSerializer(serializers.Serializer):
     events_deleted = serializers.IntegerField(
         read_only=True,
         help_text=(
-            "How many queryable events the next monthly cleanup deletes with this period. The count can be up to a "
-            "day old."
+            "How many queryable events are older than the cutoff for this period. The endpoint says which "
+            "deletion sets the cutoff. The count can be up to a day old."
         ),
     )
 
@@ -352,4 +353,33 @@ class OrganizationEventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSe
         months = request.validated_query_data["retention_months"]
         return _events_deleted_response(
             months, organization_events_deleted(self.organization, months, concurrency_slots=query_concurrency_slots)
+        )
+
+    @validated_request(
+        query_serializer=EventsDeletedQuerySerializer,
+        operation_id="organization_events_retention_downgrade_deletion_count",
+        summary="Count the events a downgrade to a shorter period would delete",
+        description=(
+            "Counts the events that the deletion pass after a plan downgrade deletes if the organization's events "
+            "retention drops to retention_months. Sums the projects where that pass deletes and whose period is "
+            "longer than retention_months. Organization admins only."
+        ),
+        responses={
+            200: OpenApiResponse(response=EventsDeletedSerializer, description="The count."),
+            403: OpenApiResponse(description="The user isn't an organization admin."),
+            504: OpenApiResponse(description="The count took too long."),
+        },
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="downgrade_deletion_count",
+        required_scopes=["organization:read", "query:read"],
+        permission_classes=[OrganizationAdminReadPermissions],
+    )
+    def downgrade_deletion_count(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        months = request.validated_query_data["retention_months"]
+        return _events_deleted_response(
+            months,
+            organization_downgrade_events_deleted(self.organization, months, concurrency_slots=query_concurrency_slots),
         )
