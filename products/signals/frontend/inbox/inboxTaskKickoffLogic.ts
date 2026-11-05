@@ -771,7 +771,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
         ],
     }),
 
-    listeners(({ actions, cache, values }) => ({
+    listeners(({ actions, cache, values, selectors }) => ({
         openReportCheckMetricSuggestion: ({ report, check }) => {
             actions.openReportDiscussion(
                 report,
@@ -883,7 +883,10 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 actions.releaseReportDiscussionWarm()
             }
         },
-        openReportTask: ({ taskId, runId, streamKey }) => {
+        openReportTask: ({ report, taskId, runId, streamKey }, _, __, previousState) => {
+            if (selectors.reportChatContext(previousState)?.report.id !== report.id) {
+                actions.clearReportDiscussionDraft()
+            }
             if (values.reportWarmLease && values.reportWarmLease.runId !== runId) {
                 actions.releaseReportDiscussionWarm()
             }
