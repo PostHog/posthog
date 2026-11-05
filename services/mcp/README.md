@@ -308,7 +308,7 @@ Optional, task-specific guidance is served through the same tool:
 - `learn <source>:<skill> <path> -s "<up to 8 keywords>"` searches within one Markdown file.
 - `learn <source>:<skill> <path> --lines <start>:<end>` reads an inclusive line range.
 
-Built-in guides are available to every cli-mode client except the plugin and PostHog Code consumers. Skill discovery is independently available to the same clients when the `mcp-exec-skills` feature flag is enabled. If the flag is missing, disabled, or cannot be evaluated, skill commands are omitted from the schema and rejected at runtime.
+Built-in guides are available to every cli-mode client except the PostHog Code consumer. Skill discovery is independently available to the same clients when the `mcp-exec-skills` feature flag is enabled. If the flag is missing, disabled, or cannot be evaluated, skill commands are omitted from the schema and rejected at runtime.
 When skill discovery is enabled, the inline prompt tells every non-plugin cli client, including Claude web and desktop, to search with `learn -s "<task keywords>"` before non-trivial PostHog work, load matches by exact qualified name, and follow the loaded `SKILL.md` before choosing tools. Trivial lookups and unrelated conversation skip this workflow.
 Skill use is advisory: a product `call` is never rejected for skipping `learn`, so every client behaves the same whether or not it holds an MCP session id.
 
@@ -342,8 +342,6 @@ Project full-text search is bounded to 10 skills, two short snippets per skill, 
 Individual `learn` responses stay below 44,000 characters; large references return a heading outline for follow-up search or line reads.
 The fixed command syntax stays in the tool schema, while skill names and bodies are loaded only when requested.
 `consumer=plugin` and `consumer=posthog-code` get no skill commands from `learn`, because both surfaces already supply their own bundled skill context, regardless of the feature flag. `consumer=plugin` still gets the built-in guides and the compact command reference; `consumer=posthog-code` keeps the full reference without `learn`.
-
-Other clients keep the full inline command reference.
 
 ### Tool filtering
 
