@@ -624,6 +624,8 @@ async def _apply_reconciliation(
         try:
             await a_delete_schedule(temporal, schedule_id=schedule_id)
         except Exception as error:
+            if isinstance(error, RPCError) and error.status == RPCStatusCode.NOT_FOUND:
+                continue
             logger.exception("Failed to delete stale schedule", schedule_id=schedule_id, dag_id=dag_id)
             capture_exception(error)
             failed_deletes.append(schedule_id)
@@ -642,6 +644,7 @@ async def _withdraw_unscheduled_nodes(
     """Remove nodes outside `scheduled` from the DAG's tier schedules, keeping every schedule's cadence.
 
     A whole-DAG legacy schedule stays, because it has no node list to narrow and deleting it stops every node.
+    A tier that another reconcile deleted after the listing needs no change, so the loop moves on to the next one.
     """
     temporal = await async_connect()
     search_attributes = dag_schedule_search_attributes(team_id=team_id, organization_id=organization_id, dag_id=dag_id)
@@ -649,16 +652,20 @@ async def _withdraw_unscheduled_nodes(
         if tier.node_ids is None or tier.interval_seconds is None:
             continue
         kept = tier.node_ids & scheduled
-        if not kept:
-            await a_delete_schedule(temporal, schedule_id=tier.schedule_id)
-        elif kept != tier.node_ids:
-            cohort = Tier(interval=timedelta(seconds=tier.interval_seconds), anchor_minutes=tier.anchor_minutes)
-            await a_update_schedule(
-                temporal,
-                id=tier.schedule_id,
-                schedule=_build_tier_schedule(dag_id, team_id, team_timezone, cohort, kept),
-                search_attributes=search_attributes,
-            )
+        try:
+            if not kept:
+                await a_delete_schedule(temporal, schedule_id=tier.schedule_id)
+            elif kept != tier.node_ids:
+                cohort = Tier(interval=timedelta(seconds=tier.interval_seconds), anchor_minutes=tier.anchor_minutes)
+                await a_update_schedule(
+                    temporal,
+                    id=tier.schedule_id,
+                    schedule=_build_tier_schedule(dag_id, team_id, team_timezone, cohort, kept),
+                    search_attributes=search_attributes,
+                )
+        except RPCError as error:
+            if error.status != RPCStatusCode.NOT_FOUND:
+                raise
 
 
 async def _list_execute_dag_schedule_ids(temporal: Client, dag_id: str) -> set[str]:

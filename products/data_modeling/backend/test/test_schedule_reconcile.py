@@ -657,29 +657,68 @@ class TestMaybeReconcileDag(BaseTest):
 
         self.assertCountEqual([call.args[0] for call in reconcile.call_args_list], [first, second])
 
-    def test_organization_reconcile_raises_when_a_stale_schedule_cannot_be_deleted(self):
+    def _reconcile_organization_with_stale_tier(self, delete_error):
         dag = self._dag_with_target()
         stale_id = tier_schedule_id(str(dag.id), H1)
 
-        async def fake_list_schedules(*_args, **_kwargs):
-            async def gen():
-                yield _listing(stale_id)
-
-            return gen()
-
-        temporal = mock.Mock()
-        temporal.list_schedules = fake_list_schedules
-
         with (
             mock.patch(f"{RECONCILE}.list_existing_schedule_ids", return_value={stale_id}),
-            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
+            mock.patch(
+                f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=self._temporal_listing([stale_id]))
+            ),
             mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
-            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock(side_effect=RuntimeError("temporal down"))),
-            self.assertRaises(OrganizationReconcileError),
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock(side_effect=delete_error)),
         ):
-            reconcile_organization_dags(str(self.organization.id))
+            try:
+                reconcile_organization_dags(str(self.organization.id))
+            finally:
+                create.assert_called_once()
 
-        create.assert_called_once()
+    def test_organization_reconcile_raises_when_a_stale_schedule_cannot_be_deleted(self):
+        with self.assertRaises(OrganizationReconcileError):
+            self._reconcile_organization_with_stale_tier(RuntimeError("temporal down"))
+
+    def test_organization_reconcile_treats_a_stale_schedule_that_is_already_gone_as_deleted(self):
+        self._reconcile_organization_with_stale_tier(RPCError("gone", RPCStatusCode.NOT_FOUND, b""))
+
+    @parameterized.expand([("describe",), ("delete",), ("update",)])
+    def test_unreadable_plan_floor_moves_past_a_tier_already_gone(self, gone_on):
+        dag = self._dag_with_target()
+        endpoint = Node.objects.get(dag=dag, type=NodeType.ENDPOINT)
+        cleared = _saved_query_node(self.team, dag, "cleared", NodeType.MAT_VIEW)
+        gone_tier = tier_schedule_id(str(dag.id), DAY)
+        kept_tier = tier_schedule_id(str(dag.id), H6, 30)
+        gone_nodes = [str(endpoint.id), str(cleared.id)] if gone_on == "update" else [str(cleared.id)]
+        temporal = self._temporal_with_tier(gone_tier, gone_nodes, kept_tier, [str(endpoint.id), str(cleared.id)])
+        not_found = RPCError("gone", RPCStatusCode.NOT_FOUND, b"")
+
+        def delete(_temporal, schedule_id):
+            if gone_on == "delete" and schedule_id == gone_tier:
+                raise not_found
+
+        def update(_temporal, **kwargs):
+            if gone_on == "update" and kwargs["id"] == gone_tier:
+                raise not_found
+
+        if gone_on == "describe":
+            handle_for = temporal.get_schedule_handle
+            temporal.get_schedule_handle = lambda schedule_id: (
+                mock.Mock(describe=mock.AsyncMock(side_effect=not_found))
+                if schedule_id == gone_tier
+                else handle_for(schedule_id)
+            )
+
+        with (
+            mock.patch(FLAG_RESULT, side_effect=RuntimeError("flags down")),
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
+            mock.patch(f"{RECONCILE}.a_update_schedule", new=mock.AsyncMock(side_effect=update)) as update_schedule,
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock(side_effect=delete)),
+            self.assertRaises(PlanFloorUnavailableError),
+        ):
+            reconcile_dag_schedules(dag)
+
+        self.assertEqual(update_schedule.call_args.kwargs["id"], kept_tier)
+        self.assertEqual(update_schedule.call_args.kwargs["schedule"].action.args[0]["node_ids"], [str(endpoint.id)])
 
     def test_unreadable_plan_floor_leaves_a_legacy_whole_dag_schedule_running(self):
         dag = DAG.objects.create(team=self.team, name="legacy")
