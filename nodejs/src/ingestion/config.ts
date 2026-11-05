@@ -147,8 +147,6 @@ export type IngestionConsumerConfig = {
     INGESTION_API_GRPC_SESSION_IDLE_TIMEOUT_MS: number
     INGESTION_API_GRPC_READ_MAX_BYTES: number
     INGESTION_API_GRPC_DRAIN_TIMEOUT_MS: number
-    // A pipeline await cannot be cancelled, so a sub-batch in flight longer than
-    // this fails the server and the process restarts. `0` disables the check.
     INGESTION_API_GRPC_STUCK_BATCH_TIMEOUT_MS: number
 
     // Person batch writing config

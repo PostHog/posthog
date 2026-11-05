@@ -447,7 +447,6 @@ describe('WorkerIngestServer', () => {
             driver.complete({ streamId: driver.feeds[0].streamId, seq: 1, accepted: 1 })
             await until(() => collected.acks.length === 1)
 
-            // Absence check: the stream stays open, settled, for several deadlines.
             await new Promise((resolve) => setTimeout(resolve, 400))
             expect(onFatal).not.toHaveBeenCalled()
 
