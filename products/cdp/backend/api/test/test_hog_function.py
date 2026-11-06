@@ -1795,6 +1795,17 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "secret_reentry_required",
             ),
             (
+                "secret_connection_moved_shows_the_integration_refusal",
+                lambda ids: {
+                    "hog": SLACK_SENDER_HOG.replace("slack_workspace", "conn"),
+                    "inputs_schema": [{"key": "conn", "type": "integration", "integration": "slack", "secret": True}],
+                    "encrypted_inputs": {"conn": {"value": ids["slack"]}},
+                },
+                lambda ids: {"hog": CONNECTION_LEAKING_HOG},
+                "inputs__conn",
+                "integration_origin_refused",
+            ),
+            (
                 "connection_of_another_kind_than_the_code_sends_to",
                 lambda ids: {
                     "hog": SLACK_SENDER_HOG.replace("slack_workspace", "conn"),
