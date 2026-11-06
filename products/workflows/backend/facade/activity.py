@@ -6,10 +6,12 @@ from products.workflows.backend.services.hog_flow_activity import (
     log_workflow_schedule_activity,
     resume_workflow_email_sending,
 )
+from products.workflows.backend.services.workflow_test_runs import log_workflow_test_run
 
 __all__ = [
     "bulk_delete_archived_workflows",
     "log_workflow_activity",
     "log_workflow_schedule_activity",
+    "log_workflow_test_run",
     "resume_workflow_email_sending",
 ]
