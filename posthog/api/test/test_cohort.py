@@ -136,7 +136,7 @@ _FLAG_CALLED_MULTIPLE_TIMES_ZERO_CRITERION = {
 }
 _HIDDEN_EVENT_REFUSAL = "its data is moving"
 _FLAG_CALL_TYPE_REFUSAL = "can use this event"
-_FLAG_CALL_WINDOW_REFUSAL = "88 days or less"
+_FLAG_CALL_WINDOW_REFUSAL = "90 days or less"
 _FLAG_CALL_KEY_REFUSAL = '"Feature flag" equals'
 _FLAG_CALL_COMPILE_REFUSAL = "can't calculate this criterion"
 _FLAG_CALL_FILTER_REFUSAL = "instead of a SQL expression"
@@ -8938,8 +8938,8 @@ class TestAddPersonsToStaticCohortRequestSerializer(SimpleTestCase):
 class TestFlagCallCriterionShapeProblem(SimpleTestCase):
     @parameterized.expand(
         [
-            ("last_88_days", {"time_value": 88, "time_interval": "day"}, False),
-            ("last_89_days", {"time_value": 89, "time_interval": "day"}, True),
+            ("last_90_days", {"time_value": 90, "time_interval": "day"}, False),
+            ("last_91_days", {"time_value": 91, "time_interval": "day"}, True),
             ("relative_12_weeks", {"explicit_datetime": "-12w"}, False),
             ("relative_13_weeks", {"explicit_datetime": "-13w"}, True),
             ("relative_2_months", {"explicit_datetime": "-2m"}, False),
