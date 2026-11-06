@@ -12,7 +12,6 @@ import { todayHighlightsLogic } from './todayHighlightsLogic'
 import { TodayHomeComposer } from './TodayHomeComposer'
 import { reportIdFromPath, todayLogic } from './todayLogic'
 import { TodayNewsButton } from './TodayNewsButton'
-import { TodayNewsDialog } from './TodayNewsDialog'
 import { TodayPulse } from './TodayPulse'
 import { TodayPulseEditor } from './TodayPulseEditor'
 import { TodayRecents } from './TodayRecents'
@@ -132,23 +131,18 @@ export function TodayHomePage(): JSX.Element {
                 </div>
                 {todayNews ? <TodayHomeComposer /> : null}
             </section>
-            {todayNews ? <TodayNewsDialog /> : null}
             <div className="TodayHome__body">
                 {pulsePending ? (
                     <TodayPulseSkeleton />
                 ) : highlights && pulseSlots?.length > 0 ? (
-                    todayNews ? (
-                        <div className="TodayHome__pulse">
-                            <TodayPulse metrics={pulseTiles} slots={pulseSlots} />
-                            {pulsePinsLoaded ? (
-                                <div className="TodayHome__pulseEdit">
-                                    <TodayPulseEditor />
-                                </div>
-                            ) : null}
-                        </div>
-                    ) : (
+                    <div className="TodayHome__pulse">
                         <TodayPulse metrics={pulseTiles} slots={pulseSlots} />
-                    )
+                        {todayNews && pulsePinsLoaded ? (
+                            <div className="TodayHome__pulseEdit">
+                                <TodayPulseEditor />
+                            </div>
+                        ) : null}
+                    </div>
                 ) : highlights?.status === 'ready' ? (
                     <Text size="sm" variant="muted" render={<p />} className="m-0">
                         Key numbers show here when you or your team open a few trend insights.

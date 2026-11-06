@@ -40,6 +40,7 @@ def find_firing_alerts(context: HighlightContext) -> HighlightFindings:
 
 
 NEWS_ALERT_LIMIT = 10
+STILL_FIRING = "Alerts still firing from before today"
 SHARED_ALERT_SUBSCRIBERS = 2
 
 
@@ -51,7 +52,7 @@ def _news_fact(alert: ProjectFiringAlert, context: NewsContext) -> NewsFact:
         importance=0.85,
         magnitude=1.0,
         breadth=1.0 if alert.subscriber_count >= SHARED_ALERT_SUBSCRIBERS else 0.7,
-        at=alert.last_notified_at or context.end,
+        at=alert.firing_since or alert.last_notified_at or context.end,
         tone=NewsTone.RISK,
         resource="insight",
         scopes=("alert:read", "insight:read"),
@@ -61,10 +62,32 @@ def _news_fact(alert: ProjectFiringAlert, context: NewsContext) -> NewsFact:
     )
 
 
+def _still_firing_fact(alerts: list[ProjectFiringAlert], context: NewsContext) -> NewsFact:
+    return NewsFact(
+        key="alerts:still_firing",
+        kind="alerts_still_firing",
+        title=STILL_FIRING,
+        importance=0.3,
+        magnitude=1.0,
+        breadth=1.0,
+        at=context.end,
+        tone=NewsTone.RISK,
+        resource="insight",
+        scopes=("alert:read", "insight:read"),
+        numbers={"alerts": len(alerts)},
+        url="/alerts",
+    )
+
+
 def find_firing_alert_news(context: NewsContext) -> tuple[NewsFact, ...]:
     if not context.shared("alert") or not context.shared("insight"):
         return ()
     alerts = list_firing_alerts_for_project(
         team_id=context.team.id, withheld_insight_ids=context.withheld("insight"), limit=NEWS_ALERT_LIMIT
     )
-    return tuple(_news_fact(alert, context) for alert in alerts)
+    started = [alert for alert in alerts if alert.firing_since is None or alert.firing_since >= context.start]
+    ongoing = [alert for alert in alerts if alert not in started]
+    facts = [_news_fact(alert, context) for alert in started]
+    if ongoing:
+        facts.append(_still_firing_fact(ongoing, context))
+    return tuple(facts)

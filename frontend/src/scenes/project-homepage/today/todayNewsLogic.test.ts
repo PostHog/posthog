@@ -54,6 +54,16 @@ describe('todayNewsLogic', () => {
         expect(logic.values.hasUnreadNews).toBe(false)
     })
 
+    it('hides the news when the project gets no edition, for example when AI data processing is off', async () => {
+        responses = [{ status: 'skipped', skip_reason: 'ai_not_approved', edition: null }]
+        const logic = todayNewsLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadNewsSuccess'])
+        expect(logic.values.edition).toBeNull()
+        expect(logic.values.hasUnreadNews).toBe(false)
+    })
+
     it('dives into a story by closing the news, attaching the story and prefilling the composer', async () => {
         const logic = todayNewsLogic()
         logic.mount()

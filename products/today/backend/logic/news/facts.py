@@ -20,9 +20,9 @@ from products.access_control.backend.facade.api import (
     object_ids_restricted_from_any_member,
 )
 from products.annotations.backend.facade.api import list_changes
-from products.annotations.backend.facade.change_feed import Change, ChangeKind, ChangeWindow, KindVisibility
+from products.annotations.backend.facade.change_feed import Change, ChangeFeed, ChangeKind, ChangeWindow, KindVisibility
 
-from ...facade.contracts import HighlightSource, NewsFact
+from ...facade.contracts import HighlightSource, NewsContext, NewsFact
 from ...facade.enums import NewsTone
 from ..highlight_registry import source_product
 
@@ -49,6 +49,10 @@ KIND_RESOURCES: dict[ChangeKind, str] = {
     ChangeKind.EXPERIMENT: "experiment",
     ChangeKind.RELEASE: "error_tracking",
     ChangeKind.ANNOTATION: "annotation",
+}
+AUTOMATED_FACTS: dict[ChangeKind, tuple[str, str]] = {
+    ChangeKind.RELEASE: ("releases", "Releases"),
+    ChangeKind.ANNOTATION: ("automated_annotations", "Annotations added automatically"),
 }
 KIND_PRODUCTS: dict[ChangeKind, str] = {
     ChangeKind.FEATURE_FLAG: "feature_flags",
@@ -138,8 +142,6 @@ def _change_rule(kind: ChangeKind, changes: Sequence[Change]) -> _ChangeRule | N
         if "filters" in fields:
             return _ChangeRule(kind="flag_rollout_changed", importance=0.5, magnitude=0.8, url=url)
         return None
-    if kind == ChangeKind.RELEASE:
-        return _ChangeRule(kind="release", importance=0.3, magnitude=1.0, url=None)
     return _ChangeRule(kind="annotation", importance=0.3, magnitude=1.0, url=None)
 
 
@@ -149,51 +151,79 @@ def _change_fact(kind: ChangeKind, changes: Sequence[Change]) -> NewsFact | None
         return None
     latest = max(changes, key=lambda change: change.timestamp)
     people = {change.actor_name for change in changes if change.actor_name}
-    project_wide = kind in (ChangeKind.RELEASE, ChangeKind.ANNOTATION)
-    numbers: dict[str, float | int | str] = {"changes": len(changes), "people": len(people)}
-    if latest.service:
-        numbers["service"] = clean(latest.service)
     return NewsFact(
         key=f"{kind.value}:{latest.item_id}",
         kind=rule.kind,
         title=clean(latest.name) or kind.label,
         importance=rule.importance,
         magnitude=rule.magnitude,
-        breadth=1.0 if project_wide or len(people) >= 2 else UNSHARED_BREADTH,
+        breadth=1.0 if kind == ChangeKind.ANNOTATION or len(people) >= 2 else UNSHARED_BREADTH,
         at=latest.timestamp,
         tone=NewsTone.NEUTRAL,
         resource=KIND_RESOURCES[kind],
         scopes=(f"{KIND_RESOURCES[kind]}:read",),
-        object_id=None if kind == ChangeKind.RELEASE else latest.item_id,
-        numbers=numbers,
+        object_id=latest.item_id,
+        numbers={"changes": len(changes), "people": len(people)},
         url=rule.url,
         product=KIND_PRODUCTS[kind],
     )
 
 
-def change_feed_facts(context: NewsCollectionContext) -> tuple[NewsFact, ...]:
-    visibility: dict[ChangeKind, KindVisibility] = {}
+def _automated_fact(kind: ChangeKind, changes: Sequence[Change], has_more: bool) -> NewsFact:
+    services = {clean(change.service) for change in changes if change.service}
+    numbers: dict[str, float | int | str] = {"count": f"{len(changes)}+" if has_more else len(changes)}
+    if services:
+        numbers["services"] = len(services)
+    return NewsFact(
+        key=f"{kind.value}:automated",
+        kind=AUTOMATED_FACTS[kind][0],
+        title=AUTOMATED_FACTS[kind][1],
+        importance=0.3,
+        magnitude=1.0,
+        breadth=1.0,
+        at=max(change.timestamp for change in changes),
+        tone=NewsTone.NEUTRAL,
+        resource=KIND_RESOURCES[kind],
+        scopes=(f"{KIND_RESOURCES[kind]}:read",),
+        numbers=numbers,
+        product=KIND_PRODUCTS[kind],
+    )
+
+
+def _automated(kind: ChangeKind, change: Change) -> bool:
+    return kind == ChangeKind.RELEASE or (kind == ChangeKind.ANNOTATION and not change.actor_name)
+
+
+def _kind_facts(kind: ChangeKind, feed: ChangeFeed) -> list[NewsFact]:
+    automated = [change for change in feed.results if _automated(kind, change)]
+    grouped: dict[str, list[Change]] = defaultdict(list)
+    for change in feed.results:
+        if not _automated(kind, change):
+            grouped[change.item_id].append(change)
+    facts = [fact for fact in (_change_fact(kind, changes) for changes in grouped.values()) if fact is not None]
+    if automated:
+        facts.append(_automated_fact(kind, automated, feed.has_more))
+    return facts
+
+
+def change_feed_facts(context: NewsContext) -> tuple[NewsFact, ...]:
+    facts: list[NewsFact] = []
     for kind, resource in KIND_RESOURCES.items():
         if not context.shared(resource):
             continue
-        visibility[kind] = (
+        visibility = (
             KindVisibility() if kind == ChangeKind.RELEASE else KindVisibility(blocked_ids=context.withheld(resource))
         )
-    if not visibility:
-        return ()
-    feed = list_changes(
-        team_id=context.team.id,
-        organization_id=context.team.organization_id,
-        user_is_staff=False,
-        window=ChangeWindow(start=context.start, end=context.end),
-        visibility=visibility,
-        limit=CHANGE_FEED_LIMIT,
-    )
-    grouped: dict[tuple[ChangeKind, str], list[Change]] = defaultdict(list)
-    for change in feed.results:
-        grouped[(change.kind, change.item_id)].append(change)
-    facts = (_change_fact(kind, changes) for (kind, _), changes in grouped.items())
-    return tuple(fact for fact in facts if fact is not None)
+        feed = list_changes(
+            team_id=context.team.id,
+            organization_id=context.team.organization_id,
+            user_is_staff=False,
+            window=ChangeWindow(start=context.start, end=context.end),
+            visibility={kind: visibility},
+            limit=CHANGE_FEED_LIMIT,
+        )
+        facts += _kind_facts(kind, feed)
+    return tuple(facts)
 
 
 def score(fact: NewsFact, end: datetime) -> float:

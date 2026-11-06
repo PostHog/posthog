@@ -1,14 +1,19 @@
 import uuid
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
+from types import SimpleNamespace
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.schema_enums import AlertState
+
 from products.alerts.backend import today_highlights
 from products.alerts.backend.facade.contracts import FiringAlert
 from products.alerts.backend.facade.today_highlights import HIGHLIGHT_SOURCES
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.product_analytics.backend.facade.models import Insight
 from products.today.backend.facade.testing import highlight_context
 
 
@@ -57,3 +62,37 @@ class TestAlerts(BaseTest):
             registered.find(highlight_context(team=self.team, user=self.user, today=date(2026, 10, 13), scopes=scopes))
 
         self.assertEqual(listed.call_args.kwargs["include_metrics_insights"], include)
+
+    def test_only_alerts_that_started_firing_today_are_news(self) -> None:
+        end = datetime.now(UTC)
+        for name, checks in (
+            ("Started today", [(AlertState.NOT_FIRING, 5), (AlertState.FIRING, 3)]),
+            ("Firing all week", [(AlertState.FIRING, 72), (AlertState.FIRING, 3)]),
+        ):
+            alert = AlertConfiguration.objects.create(
+                team=self.team,
+                insight=Insight.objects.create(team=self.team, name=name),
+                name=name,
+                state=AlertState.FIRING,
+            )
+            AlertConfiguration.objects.filter(id=alert.id).update(created_at=end - timedelta(days=7))
+            for state, hours_ago in checks:
+                check = AlertCheck.objects.create(alert_configuration=alert, state=state)
+                AlertCheck.objects.filter(id=check.id).update(created_at=end - timedelta(hours=hours_ago))
+        context = SimpleNamespace(
+            team=self.team,
+            start=end - timedelta(days=1),
+            end=end,
+            shared=lambda _resource: True,
+            withheld=lambda _resource: frozenset(),
+        )
+
+        facts = today_highlights.find_firing_alert_news(context)
+
+        self.assertEqual(
+            [(fact.kind, fact.title, fact.numbers.get("alerts")) for fact in facts],
+            [
+                ("alert_firing", "Started today", None),
+                ("alerts_still_firing", "Alerts still firing from before today", 1),
+            ],
+        )

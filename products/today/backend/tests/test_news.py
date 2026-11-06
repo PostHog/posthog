@@ -16,9 +16,14 @@ from rest_framework import status
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog
 
+from products.annotations.backend.facade.change_feed import Change, ChangeFeed, ChangeKind
 from products.today.backend.facade.contracts import NewsFact
 from products.today.backend.facade.enums import NewsTone
-from products.today.backend.logic.news import editions, writer
+from products.today.backend.logic.news import (
+    editions,
+    facts as news_facts,
+    writer,
+)
 from products.today.backend.logic.news.facts import ScoredFact, enough
 from products.today.backend.models import TodayHighlights, TodayNewsEdition
 from products.today.backend.temporal.inputs import GenerateNewsInputs
@@ -148,6 +153,51 @@ class TestNewsRules(SimpleTestCase):
         assert shown is not None
         assert (shown.lead.id, shown.lead.metric_value, shown.lead.series) == ("metric:shown", "3", [4.0, 5.0])
         assert (shown.stories, shown.briefs) == ([], ["One moved."])
+
+    def test_deploys_are_one_counted_fact_and_do_not_push_out_flag_changes(self) -> None:
+        def change(kind: ChangeKind, item_id: str, actor: str | None, fields: list[str]) -> Change:
+            return Change(
+                kind=kind,
+                timestamp=NOW,
+                item_id=item_id,
+                name=f"{kind.value} {item_id}",
+                activity="updated",
+                changed_fields=fields,
+                service="web" if kind == ChangeKind.RELEASE else None,
+                actor_name=actor,
+            )
+
+        feeds = {
+            ChangeKind.FEATURE_FLAG: ChangeFeed(
+                results=[change(ChangeKind.FEATURE_FLAG, "7", "Ana", ["active"])], has_more=False
+            ),
+            ChangeKind.EXPERIMENT: ChangeFeed(results=[], has_more=False),
+            ChangeKind.RELEASE: ChangeFeed(
+                results=[change(ChangeKind.RELEASE, str(i), None, []) for i in range(3)], has_more=False
+            ),
+            ChangeKind.ANNOTATION: ChangeFeed(
+                results=[change(ChangeKind.ANNOTATION, str(i), None, []) for i in range(4)]
+                + [change(ChangeKind.ANNOTATION, "99", "Ana", [])],
+                has_more=True,
+            ),
+        }
+        context = SimpleNamespace(
+            team=SimpleNamespace(id=1, organization_id=None),
+            start=NOW - timedelta(days=1),
+            end=NOW,
+            shared=lambda _resource: True,
+            withheld=lambda _resource: frozenset(),
+        )
+
+        with patch.object(news_facts, "list_changes", side_effect=lambda **kw: feeds[next(iter(kw["visibility"]))]):
+            found = news_facts.change_feed_facts(context)
+
+        assert sorted((fact.key, fact.kind, fact.numbers.get("count")) for fact in found) == [
+            ("annotation:99", "annotation", None),
+            ("annotation:automated", "automated_annotations", "4+"),
+            ("feature_flag:7", "flag_switched", None),
+            ("release:automated", "releases", 3),
+        ]
 
 
 @time_machine.travel(NOW, tick=False)

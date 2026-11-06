@@ -152,6 +152,7 @@ class ProjectFiringAlert:
     insight_short_id: str
     subscriber_count: int
     last_notified_at: datetime | None
+    firing_since: datetime | None = None
 
 
 @frozen
