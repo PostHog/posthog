@@ -436,7 +436,7 @@ class UserGitHubIntegration(GitHubIntegrationBase):
 
         names, total_count = listing
         repositories: list[str] | None
-        if total_count == 0:
+        if total_count == 0 or (total_count <= MAX_SCOPED_TOKEN_REPOSITORIES and not names):
             raise NoAccessibleRepositories("The GitHub user cannot access any repository in this installation.")
         if total_count > MAX_SCOPED_TOKEN_REPOSITORIES:
             token = self._installation_token_if_user_sees_every_repository(total_count)

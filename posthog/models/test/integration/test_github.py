@@ -3448,12 +3448,13 @@ class TestUserGitHubIntegrationScopedAccessToken(BaseTest):
         assert mock_github_request.call_args.kwargs["headers"] == {"Authorization": "Bearer USER_TOKEN"}
         mock_oauth_post.assert_not_called()
 
+    @parameterized.expand([("zero_total", 0), ("total_without_names", 3)])
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
     @patch("posthog.models.user_integration.github_request")
     def test_a_user_without_repositories_gets_no_token(
-        self, mock_github_request: MagicMock, mock_client_request: MagicMock
+        self, _name: str, total_count: int, mock_github_request: MagicMock, mock_client_request: MagicMock
     ) -> None:
-        mock_github_request.return_value = self._user_repositories([])
+        mock_github_request.return_value = self._user_repositories([], total_count=total_count)
         self.integration.repository_cache = [{"id": 1, "name": "old-repo", "full_name": "acme/old-repo"}]
         self.integration.repository_cache_updated_at = timezone.now() - timedelta(days=1)
         self.integration.save()
