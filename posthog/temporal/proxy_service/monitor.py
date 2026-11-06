@@ -76,7 +76,7 @@ CLOUDFLARE_IPS_TIMEOUT_S = 3.0
 # Each check must outlast the network calls it makes, or Temporal kills it first and the run
 # reports an opaque timeout instead of the problem the check found. Worst cases:
 #   check_dns                 two lookups plus the Cloudflare address list = 13s
-#   check_proxy_is_live       the POST plus the socket connect and TLS handshake = 10s
+#   check_proxy_is_live       two POSTs plus the socket connect and TLS handshake = 15s
 #   check_certificate_status  one Cloudflare API call, or one call to the legacy provisioner = 8s
 CHECK_START_TO_CLOSE = dt.timedelta(seconds=30)
 
@@ -362,6 +362,27 @@ def _probe_proxy(proxy_record: ProxyRecord) -> CheckActivityOutput:
             )
 
         response.raise_for_status()
+
+        # Mobile SDK majors (posthog-ios 4, posthog-android 4, posthog-flutter 6) send every event to
+        # /i/v1/analytics/events with no fallback, so a proxy that forwards /i/v0 but not /i/v1 drops
+        # all of their data. The probe carries no Authorization header, so capture rejects it with its
+        # own 4xx before ingesting anything; only a 404, 3xx or 5xx means the route doesn't reach it.
+        v1_response = requests.post(
+            f"{probe_base}/i/v1/analytics/events",
+            headers={"Content-Type": "application/json"},
+            data="{}",
+            timeout=PROXY_LIVE_CHECK_TIMEOUT_S,
+            allow_redirects=False,
+        )
+        v1_status = v1_response.status_code
+        reached_capture = 200 <= v1_status < 300 or (400 <= v1_status < 500 and v1_status != 404)
+        if not reached_capture:
+            return CheckActivityOutput(
+                errors=[
+                    f"Proxy does not forward /i/v1/analytics/events (got {v1_status}); mobile SDKs send events there"
+                ],
+                warnings=[],
+            )
 
         # fetch the cert info to see how far away the expiry is - if less than 2 weeks we have a problem.
         # create_connection carries PROXY_LIVE_CHECK_TIMEOUT_S into the connect and the TLS handshake so
