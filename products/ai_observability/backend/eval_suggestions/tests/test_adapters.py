@@ -118,12 +118,3 @@ class TestAdaptedChecks:
     )
     def test_verdict(self, _name: str, check: adapters.AdaptedCheck, events: list, expected: bool | None) -> None:
         assert _verdict(check, events) is expected
-
-    def test_cost_check_uses_the_team_limit(self) -> None:
-        check = adapters.cost_latency(max_cost_usd=0.5, max_latency_seconds=30)
-        expensive = _trace([_answer("x")])
-        bytecode = adapters.compile_check(check)
-        globals_dict = build_trace_hog_globals(
-            expensive.model_copy(update={"totalCost": 0.9}), "trace-1", bytecode=bytecode
-        )
-        assert execute_hog_eval_bytecode(bytecode, globals_dict, allows_na=True)["verdict"] is False

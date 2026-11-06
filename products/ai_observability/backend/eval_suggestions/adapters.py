@@ -16,7 +16,6 @@ UNRECOVERED_ERRORS = "unrecovered_errors"
 REPEATED_TOOL_CALLS = "repeated_tool_calls"
 REFUSALS = "refusals"
 SENSITIVE_DATA = "sensitive_data"
-COST_LATENCY = "cost_latency"
 
 # Error messages that mean "paused" or "stopped on purpose" in common agent frameworks.
 DEFAULT_IGNORED_ERROR_PREFIXES: tuple[str, ...] = (
@@ -275,31 +274,6 @@ return true"""
         source=source,
         template_key=SENSITIVE_DATA,
         severity=0.9,
-    )
-
-
-def cost_latency(max_cost_usd: float, max_latency_seconds: float) -> AdaptedCheck:
-    """Only for a limit the team set. A threshold derived from the team's own traffic, such as its
-    p95, fails a fixed share of traces by construction and measures nothing."""
-    source = f"""// Fail a trace that costs more than ${max_cost_usd} or takes longer than {max_latency_seconds}s.
-let max_cost := {max_cost_usd}
-let max_latency := {max_latency_seconds}
-if (target.total_cost_usd != null and target.total_cost_usd > max_cost) {{
-    print(concat('Cost $', toString(target.total_cost_usd), ' exceeds $', toString(max_cost)))
-    return false
-}}
-if (target.total_latency_seconds != null and target.total_latency_seconds > max_latency) {{
-    print(concat('Latency ', toString(target.total_latency_seconds), 's exceeds ', toString(max_latency), 's'))
-    return false
-}}
-return true"""
-    return AdaptedCheck(
-        key=COST_LATENCY,
-        name="Cost & latency over your limit",
-        description="Finds traces over the cost or latency limit you set",
-        source=source,
-        template_key=COST_LATENCY,
-        severity=0.5,
     )
 
 
