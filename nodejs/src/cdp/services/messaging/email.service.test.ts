@@ -454,13 +454,19 @@ describe('EmailService', () => {
             it.each([
                 ['the switch is off', false, false, {}],
                 ['the switch is off', true, false, {}],
+                ['the switch is off for a broadcast', false, false, {}],
                 ['the tenant is empty', false, true, { tenantName: '' }],
                 ['the configuration set is blank', true, true, { configurationSetName: '   ' }],
                 ['the From address is empty', false, true, { fromAddress: '' }],
             ] as const)(
                 'skips when the sandbox sender is switched off because %s (isTest=%s)',
-                async (_reason, isTest, enabled, routeSettings: Partial<SandboxEmailSenderConfig>) => {
+                async (reason, isTest, enabled, routeSettings: Partial<SandboxEmailSenderConfig>) => {
                     service = createSandboxService(enabled, hub.postgres, routeSettings)
+                    if (reason === 'the switch is off for a broadcast') {
+                        Object.assign(invocation, {
+                            hogFlow: { id: invocation.functionId, team_id: team.id, trigger: { type: 'batch' } },
+                        })
+                    }
 
                     const result = await service.executeSendEmail(invocation, isTest)
 
