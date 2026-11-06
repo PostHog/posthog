@@ -3,7 +3,7 @@ import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { IngestionOutputMessage } from '~/common/outputs/types'
 import { parseJSON } from '~/common/utils/json-parse'
 import { ConsoleLogLevel } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
-import { InternalLogsProducer } from '~/logs/internal-logs-producer'
+import { InternalLogEntry, InternalLogsProducer } from '~/logs/internal-logs-producer'
 import { ClickHouseTimestamp } from '~/types'
 
 import { SessionBatchMetrics } from './metrics'
@@ -189,10 +189,11 @@ describe('SessionConsoleLogStore', () => {
         { name: 'a working producer', throws: false },
         { name: 'a producer that throws', throws: true },
     ])(
-        'sends console logs to the internal logs producer and still writes log_entries with $name',
+        'sends console logs of accepted teams to the internal logs producer and still writes log_entries with $name',
         async ({ throws }) => {
             const producer = {
-                enqueue: jest.fn(() => {
+                accepts: jest.fn((teamId: number) => teamId === 2),
+                enqueue: jest.fn((_source: string, _entries: InternalLogEntry[]) => {
                     if (throws) {
                         throw new Error('producer bug')
                     }
@@ -205,6 +206,16 @@ describe('SessionConsoleLogStore', () => {
             })
 
             await store.storeSessionConsoleLogs([
+                {
+                    team_id: 1,
+                    message: 'Another team',
+                    level: ConsoleLogLevel.Info,
+                    log_source: 'session_replay',
+                    log_source_id: 'session456',
+                    instance_id: null,
+                    timestamp: makeTimestamp('2025-01-01 10:00:00.000'),
+                    batch_id: 'batch123',
+                },
                 {
                     team_id: 2,
                     message: 'Test warning message',
@@ -219,7 +230,7 @@ describe('SessionConsoleLogStore', () => {
             await store.flush()
 
             expect(producer.enqueue).toHaveBeenCalledTimes(1)
-            const [source, entries] = producer.enqueue.mock.calls[0] as unknown as [string, any[]]
+            const [source, entries] = producer.enqueue.mock.calls[0]
             expect(source).toBe('session_replay')
             expect(entries).toMatchObject([
                 {
@@ -232,6 +243,7 @@ describe('SessionConsoleLogStore', () => {
             ])
             expect(entries[0].timestamp.toMillis()).toBe(Date.UTC(2025, 0, 1, 10, 0, 1, 500))
             expect(getQueuedMessages(mockOutputs, 0).map(parseMessageValue)).toMatchObject([
+                { team_id: 1, message: 'Another team' },
                 { team_id: 2, message: 'Test warning message' },
             ])
         }

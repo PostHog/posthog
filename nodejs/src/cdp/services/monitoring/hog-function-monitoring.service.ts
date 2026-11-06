@@ -7,7 +7,12 @@ import { safeClickhouseString } from '~/common/utils/db/utils'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import type { TeamManager } from '~/common/utils/team-manager'
-import { InternalLogsProducer, InternalLogsProducerConfig } from '~/logs/internal-logs-producer'
+import {
+    INTERNAL_LOGS_DRAIN_TIMEOUT_MS,
+    InternalLogsProducer,
+    InternalLogsProducerConfig,
+    parseInternalLogsSources,
+} from '~/logs/internal-logs-producer'
 
 import type { CdpConfig } from '../../config'
 import {
@@ -72,20 +77,8 @@ export const isHogFlowResult = (
     return 'hogFlow' in result.invocation
 }
 
-// Bounded so that shutdown still fits inside the pod's termination grace period.
-const INTERNAL_LOGS_DRAIN_TIMEOUT_MS = 10_000
-
 // A switch token of its own, so ingestion turns on apart from the CDP workers that `hog_function` covers.
 const HOG_FUNCTION_TRANSFORMATIONS_SWITCH = 'hog_function_transformations'
-
-export function parseInternalLogsSources(value: string): Set<string> {
-    return new Set(
-        value
-            .split(',')
-            .map((source) => source.trim())
-            .filter(Boolean)
-    )
-}
 
 export type TransformationsMonitoringConfig = Pick<CdpConfig, 'CDP_INTERNAL_LOGS_SOURCES'> & InternalLogsProducerConfig
 

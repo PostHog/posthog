@@ -45,6 +45,19 @@ type Request = Batch & { bytes: number }
 
 type AttemptResult = { outcome: 'sent' | 'rejected' | 'unknown_team' | 'retry'; detail: string }
 
+// Bounded so that shutdown still fits inside the pod's termination grace period.
+export const INTERNAL_LOGS_DRAIN_TIMEOUT_MS = 10_000
+
+/** Reads a comma-separated switch such as `CDP_INTERNAL_LOGS_SOURCES` into its source tokens. */
+export function parseInternalLogsSources(value: string): Set<string> {
+    return new Set(
+        value
+            .split(',')
+            .map((source) => source.trim())
+            .filter(Boolean)
+    )
+}
+
 const RETRY_BASE_DELAY_MS = 100
 const RETRY_MAX_DELAY_MS = 5_000
 const DRAIN_POLL_MS = 50
@@ -94,6 +107,11 @@ export class InternalLogsProducer {
             config.LOGS_INTERNAL_PRODUCER_URL.length > 0 &&
             config.LOGS_INTERNAL_INGESTION_SIGNING_KEYS.trim().length > 0
         this.isTeamEnabled = buildIntegerMatcher(config.LOGS_INTERNAL_PRODUCER_TEAMS, true)
+    }
+
+    /** False when `enqueue` would drop every record of this team, so a caller can skip building them. */
+    accepts(teamId: number): boolean {
+        return this.enabled && this.isTeamEnabled(teamId)
     }
 
     /** Counts the records `enqueue` would send, as `loop_guard`, so logs kept out of a loop show on the dashboard. */

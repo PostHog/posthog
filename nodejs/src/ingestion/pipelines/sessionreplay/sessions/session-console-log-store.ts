@@ -69,10 +69,12 @@ export class SessionConsoleLogStore {
         logger.debug(`syncing ${this.pendingMessages.length} console log messages`)
 
         // Only starts the sends, and the catch makes sure a producer bug can never stop the log_entries write below.
-        if (this.internalLogsProducer) {
+        const producer = this.internalLogsProducer
+        if (producer) {
             try {
-                this.internalLogsProducer.enqueue('session_replay', this.pendingMessages.map(toInternalLogEntry))
-                this.internalLogsProducer.flush()
+                const entries = this.pendingMessages.filter((log) => producer.accepts(log.team_id))
+                producer.enqueue('session_replay', entries.map(toInternalLogEntry))
+                producer.flush()
             } catch (error) {
                 captureException(error)
             }
