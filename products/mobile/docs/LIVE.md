@@ -6,7 +6,7 @@ It reads the web's HogQL polling transport, not the event stream, so it needs no
 The route is `/views/live?from={entry}` (`app/views/live.tsx`), a pushed screen with the usual Back and More chrome.
 More has "Pin to navigation" (or "Unpin from navigation") and "Open on web", which opens `/web/live`.
 Live opens from the Browse row (`views-browse-live`), from the Live chip on Web analytics (`from=web_analytics`), and as a pinned tab (`app/(tabs)/live/`, `/live`), which can also be the start page.
-`LiveScreen({ from, chrome })` draws both: on the tab (`chrome="tab"`) the tabs header draws the title and the status line, the content starts with the dot and the Pause pill, and the tabs menu has Unpin and Open on web.
+`LiveScreen({ from, chrome })` draws both: on the tab (`chrome="tab"`) the tabs header draws the title alone, the content starts with one row (the dot, the status line, the Pause pill), and the tabs menu has Unpin and Open on web.
 Deep link: `posthog://views/live` opens the pushed screen.
 Live needs `query:read`, so it reuses the Views access check (`useFeatureAccess('views')`) and `ViewsReauthState`.
 

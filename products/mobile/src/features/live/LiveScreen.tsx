@@ -1,6 +1,6 @@
 import { useFocusEffect } from 'expo-router'
 import { type ReactElement, useCallback, useState } from 'react'
-import { Linking, RefreshControl, ScrollView, Text, View } from 'react-native'
+import { Linking, RefreshControl, ScrollView, type StyleProp, Text, type TextStyle, View } from 'react-native'
 
 import type { ProjectScope } from '@/api/reports'
 import { changeNavPin } from '@/features/tabs/navPinActions'
@@ -237,7 +237,8 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
 
     return (
         <View style={styles.fill}>
-            {tab ? <LiveTabStatus status={feed.status} updatedAt={feed.updatedAt} /> : null}
+            {/* The status line sits in the content's first row, so the shared header shows the title alone. */}
+            {tab ? <TabHeaderPublisher tab="live" status={null} /> : null}
             <ScrollView
                 contentContainerStyle={[styles.content, { paddingTop: contentTop, paddingBottom: contentBottom }]}
                 onScroll={scrollTitle.onScroll}
@@ -270,7 +271,7 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
 }
 
 interface LiveTitleProps {
-    /** On a tab the shared tabs header draws the title and the status line, so only the dot and Pause stay. */
+    /** On a tab the shared tabs header draws the title, so one row holds the dot, the status line and Pause. */
     tab: boolean
     status: LiveStatus
     updatedAt: number | null
@@ -298,7 +299,15 @@ function LiveTitle({ tab, status, updatedAt, paused, onPause, onResume, onTitleL
     if (tab) {
         return (
             <View style={[styles.titleBlock, styles.titleRow, styles.tabTitleRow]}>
-                <LiveDot on={status === 'live'} />
+                <View style={styles.tabStatus}>
+                    <LiveDot on={status === 'live'} />
+                    <LiveStatusLine
+                        status={status}
+                        updatedAt={updatedAt}
+                        numberOfLines={1}
+                        style={styles.tabStatusText}
+                    />
+                </View>
                 {pauseButton}
             </View>
         )
@@ -322,18 +331,25 @@ function LiveTitle({ tab, status, updatedAt, paused, onPause, onResume, onTitleL
     )
 }
 
-/** The status line in the shared tabs header. Its own component, so the one-second clock re-renders only it. */
-function LiveTabStatus({ status, updatedAt }: { status: LiveStatus; updatedAt: number | null }): ReactElement {
-    const now = useNow(1000).getTime()
-    return <TabHeaderPublisher tab="live" status={statusText(status, updatedAt, now)} />
+interface LiveStatusLineProps {
+    status: LiveStatus
+    updatedAt: number | null
+    /** The tab's row truncates the line beside the Pause pill. */
+    numberOfLines?: number
+    style?: StyleProp<TextStyle>
 }
 
 /** Its own component, so the one-second clock re-renders only this line. */
-function LiveStatusLine({ status, updatedAt }: { status: LiveStatus; updatedAt: number | null }): ReactElement {
+function LiveStatusLine({ status, updatedAt, numberOfLines, style }: LiveStatusLineProps): ReactElement {
     const styles = useStyles()
     const now = useNow(1000).getTime()
     return (
-        <Text style={styles.status} accessibilityLiveRegion="polite" testID="live-status">
+        <Text
+            style={[styles.status, style]}
+            numberOfLines={numberOfLines}
+            accessibilityLiveRegion="polite"
+            testID="live-status"
+        >
             {statusText(status, updatedAt, now)}
         </Text>
     )
@@ -382,6 +398,15 @@ const useStyles = createStyles(({ colors }) => ({
     },
     tabTitleRow: {
         marginTop: 0,
+    },
+    tabStatus: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        flexShrink: 1,
+    },
+    tabStatusText: {
+        flexShrink: 1,
     },
     titleText: {
         flexDirection: 'row',
