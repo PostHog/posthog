@@ -1,0 +1,498 @@
+{
+  "us": {
+    "subaccounts": [
+      {
+        "id": "sub-acme",
+        "name": "Acme subaccount",
+        "status": "open",
+        "created_at": "Wed, 06 Nov 2024 19:48:29 GMT",
+        "updated_at": "Wed, 28 May 2025 20:03:05 GMT"
+      }
+    ],
+    "domains": [
+      {
+        "name": "mg.example.com",
+        "id": "1",
+        "state": "active",
+        "type": "custom",
+        "web_prefix": "email",
+        "created_at": "Mon, 02 Jan 2006 15:04:05 MST",
+        "is_disabled": false
+      },
+      {
+        "name": "news.example.com",
+        "id": "2",
+        "state": "unverified",
+        "type": "custom",
+        "web_prefix": "email",
+        "created_at": "Mon, 02 Jan 2006 15:04:05 MST",
+        "is_disabled": false
+      },
+      {
+        "name": "sandbox123.mailgun.example.com",
+        "id": "3",
+        "state": "active",
+        "type": "sandbox",
+        "web_prefix": "email",
+        "created_at": "Mon, 02 Jan 2006 15:04:05 MST",
+        "is_disabled": false
+      },
+      {
+        "name": "acme.example.com",
+        "id": "4",
+        "state": "active",
+        "type": "custom",
+        "subaccount_id": "sub-acme",
+        "web_prefix": "email",
+        "created_at": "Mon, 02 Jan 2006 15:04:05 MST",
+        "is_disabled": false
+      }
+    ],
+    "domain_details": {
+      "mg.example.com": {
+        "sending_dns_records": [
+          {
+            "is_active": true,
+            "cached": [],
+            "name": "mg.example.com",
+            "record_type": "TXT",
+            "valid": "valid",
+            "value": "v=spf1 include:mailgun.org ~all"
+          },
+          {
+            "is_active": true,
+            "cached": [],
+            "name": "mx._domainkey.mg.example.com",
+            "record_type": "TXT",
+            "valid": "valid",
+            "value": "k=rsa; p=FAKE"
+          },
+          {
+            "is_active": true,
+            "cached": [],
+            "name": "email.mg.example.com",
+            "record_type": "CNAME",
+            "valid": "valid",
+            "value": "mailgun.org"
+          }
+        ],
+        "receiving_dns_records": [
+          {
+            "is_active": true,
+            "cached": [],
+            "priority": "10",
+            "record_type": "MX",
+            "valid": "valid",
+            "value": "mxa.mailgun.org"
+          }
+        ]
+      },
+      "news.example.com": {
+        "sending_dns_records": [
+          {
+            "is_active": false,
+            "cached": [],
+            "name": "feedback.news.example.com",
+            "record_type": "MX",
+            "valid": "unknown",
+            "value": "mxa.mailgun.org"
+          }
+        ],
+        "receiving_dns_records": []
+      }
+    },
+    "tracking": {
+      "news.example.com": {
+        "open": {
+          "active": true
+        },
+        "click": {
+          "active": true
+        },
+        "unsubscribe": {
+          "active": true,
+          "html_footer": "<a href=\"%unsubscribe_url%\">Leave</a>",
+          "text_footer": "Leave: %unsubscribe_url%"
+        },
+        "web_scheme": "https"
+      },
+      "mg.example.com": {
+        "open": {
+          "active": false
+        },
+        "click": {
+          "active": false
+        },
+        "unsubscribe": {
+          "active": false,
+          "html_footer": "off",
+          "text_footer": "off"
+        },
+        "web_scheme": "https"
+      }
+    },
+    "bounces": {
+      "mg.example.com": [
+        {
+          "address": "Gone.Person@example.com",
+          "code": "550",
+          "error": "No such mailbox",
+          "created_at": "Thu, 11 Dec 2025 01:49:40 UTC"
+        },
+        {
+          "address": "both@example.com",
+          "code": "550",
+          "error": "User unknown",
+          "created_at": "Thu, 11 Dec 2025 01:50:00 UTC"
+        },
+        {
+          "address": "not-an-address",
+          "code": "550",
+          "error": "Malformed",
+          "created_at": "Thu, 11 Dec 2025 01:50:00 UTC"
+        }
+      ],
+      "news.example.com": [
+        {
+          "address": "gone.person@example.com",
+          "code": "550",
+          "error": "No such mailbox",
+          "created_at": "Fri, 12 Dec 2025 01:49:40 UTC"
+        },
+        {
+          "address": "josé@example.com",
+          "code": "551",
+          "error": "Boîte inconnue 📭",
+          "created_at": "Fri, 12 Dec 2025 01:49:40 UTC"
+        }
+      ],
+      "acme.example.com": [
+        {
+          "address": "sub-bounce@example.com",
+          "code": "550",
+          "error": "No such mailbox",
+          "created_at": "Fri, 12 Dec 2025 01:49:40 UTC"
+        }
+      ]
+    },
+    "complaints": {
+      "mg.example.com": [
+        {
+          "address": "both@example.com",
+          "created_at": "Thu, 11 Dec 2025 02:00:00 UTC"
+        },
+        {
+          "address": "angry@example.com",
+          "created_at": "Thu, 11 Dec 2025 02:00:00 UTC"
+        }
+      ]
+    },
+    "unsubscribes": {
+      "mg.example.com": [
+        {
+          "address": "Everything@Example.com",
+          "tags": [
+            "*"
+          ],
+          "created_at": "Thu, 11 Dec 2025 01:49:40 UTC"
+        },
+        {
+          "address": "tagged@example.com",
+          "tags": [
+            "newsletter",
+            "promo 🎁"
+          ],
+          "created_at": "Thu, 11 Dec 2025 01:49:40 UTC"
+        },
+        {
+          "address": "no-tags@example.com",
+          "tags": [],
+          "created_at": "Thu, 11 Dec 2025 01:49:40 UTC"
+        }
+      ],
+      "news.example.com": [
+        {
+          "address": "tagged@example.com",
+          "tags": [
+            "digest"
+          ],
+          "created_at": "Thu, 11 Dec 2025 01:49:40 UTC"
+        }
+      ]
+    },
+    "whitelists": {
+      "mg.example.com": [
+        {
+          "type": "address",
+          "value": "both@example.com",
+          "createdAt": "Thu, 11 Dec 2025 01:49:40 UTC",
+          "reason": "QA inbox"
+        },
+        {
+          "type": "domain",
+          "value": "qa.example.com",
+          "createdAt": "Thu, 11 Dec 2025 01:49:40 UTC",
+          "reason": "Our test servers"
+        }
+      ]
+    },
+    "lists": {
+      "": [
+        {
+          "address": "devs@mg.example.com",
+          "name": "Developers",
+          "description": "Dev updates",
+          "access_level": "readonly",
+          "reply_preference": "sender",
+          "created_at": "Tue, 06 Mar 2012 05:44:45 GMT",
+          "members_count": 3
+        },
+        {
+          "address": "empty@mg.example.com",
+          "name": "",
+          "description": "",
+          "access_level": "everyone",
+          "reply_preference": "list",
+          "created_at": "Tue, 06 Mar 2012 05:44:45 GMT",
+          "members_count": 0
+        }
+      ],
+      "sub-acme": [
+        {
+          "address": "acme@acme.example.com",
+          "name": "Acme ñews",
+          "description": "",
+          "access_level": "readonly",
+          "reply_preference": "sender",
+          "created_at": "Tue, 06 Mar 2012 05:44:45 GMT",
+          "members_count": 1
+        }
+      ]
+    },
+    "members": {
+      "devs@mg.example.com": [
+        {
+          "address": "stays@example.com",
+          "name": "Stays",
+          "vars": {
+            "age": 26
+          },
+          "subscribed": true
+        },
+        {
+          "address": "Left@example.com",
+          "name": "Left",
+          "vars": "{\"age\": 31}",
+          "subscribed": false
+        },
+        {
+          "address": "left-too@example.com",
+          "name": "",
+          "vars": {},
+          "subscribed": false
+        }
+      ],
+      "acme@acme.example.com": [
+        {
+          "address": "sub-left@example.com",
+          "name": "",
+          "vars": {},
+          "subscribed": false
+        }
+      ]
+    },
+    "account_templates": {
+      "": [
+        {
+          "name": "welcome",
+          "description": "Welcome email",
+          "createdAt": "Sat, 12 Nov 2022 06:38:00 UTC",
+          "id": "aaaaaaaa-0000-4000-8000-000000000001",
+          "versions": [
+            {
+              "tag": "v2",
+              "engine": "handlebars",
+              "active": true,
+              "comment": "Current",
+              "createdAt": "Sat, 12 Nov 2022 06:38:00 UTC",
+              "id": "aaaaaaaa-0000-4000-8000-000000000011",
+              "mjml": "",
+              "headers": {
+                "From": "Team <team@mg.example.com>",
+                "Reply-To": "help@mg.example.com",
+                "Subject": "Welcome {{name}}"
+              },
+              "template": "<h1>Hello {{name}}</h1>{{#if vip}}<p>VIP</p>{{else}}<p>Regular</p>{{/if}}<a href=\"%unsubscribe_url%\">Leave</a><p>%recipient.city%</p>"
+            },
+            {
+              "tag": "v1",
+              "engine": "handlebars",
+              "active": false,
+              "comment": "Old",
+              "createdAt": "Sat, 12 Nov 2021 06:38:00 UTC",
+              "id": "aaaaaaaa-0000-4000-8000-000000000012",
+              "mjml": "",
+              "headers": {
+                "Subject": "Old welcome"
+              },
+              "template": "<h1>Old hello</h1>"
+            }
+          ]
+        },
+        {
+          "name": "empty.template",
+          "description": "Created with no content",
+          "createdAt": "Sat, 12 Nov 2022 06:38:00 UTC",
+          "id": "aaaaaaaa-0000-4000-8000-000000000002",
+          "versions": []
+        }
+      ]
+    },
+    "domain_templates": {
+      "mg.example.com": [
+        {
+          "name": "welcome",
+          "description": "Same name as the account template, different content",
+          "createdAt": "Sat, 12 Nov 2022 06:38:00 UTC",
+          "id": "bbbbbbbb-0000-4000-8000-000000000001",
+          "domain": "mg.example.com",
+          "versions": [
+            {
+              "tag": "initial",
+              "engine": "go",
+              "active": true,
+              "comment": "",
+              "createdAt": "Sat, 12 Nov 2022 06:38:00 UTC",
+              "id": "bbbbbbbb-0000-4000-8000-000000000011",
+              "mjml": "",
+              "headers": {
+                "Subject": "Go {{.Name}}"
+              },
+              "template": "<p>Hi {{.Name}}</p>{{range .Items}}<li>{{.}}</li>{{end}}"
+            }
+          ]
+        },
+        {
+          "name": "reçu 🧾 mensuel",
+          "description": "Unicode name",
+          "createdAt": "Sat, 12 Nov 2022 06:38:00 UTC",
+          "id": "bbbbbbbb-0000-4000-8000-000000000002",
+          "domain": "mg.example.com",
+          "versions": [
+            {
+              "tag": "initial",
+              "engine": "",
+              "active": true,
+              "comment": "",
+              "createdAt": "Sat, 12 Nov 2022 06:38:00 UTC",
+              "id": "bbbbbbbb-0000-4000-8000-000000000021",
+              "mjml": "<mjml></mjml>",
+              "headers": {
+                "From": "Facturation <billing@mg.example.com>",
+                "Subject": "Votre reçu"
+              },
+              "template": "<p>Merci {{name}} 🎉 {{lookup a b}}</p><a href=\"%tag_unsubscribe_url%\">x</a>"
+            }
+          ]
+        },
+        {
+          "name": "comprehensive.test",
+          "description": "Mailgun's complete example",
+          "createdAt": "Sat, 12 Nov 2022 06:38:00 UTC",
+          "id": "bbbbbbbb-0000-4000-8000-000000000003",
+          "domain": "mg.example.com",
+          "versions": [
+            {
+              "tag": "initial",
+              "engine": "handlebars",
+              "active": true,
+              "comment": "",
+              "createdAt": "Sat, 12 Nov 2022 06:38:00 UTC",
+              "id": "bbbbbbbb-0000-4000-8000-000000000031",
+              "mjml": "",
+              "headers": {
+                "From": "Order System <orders@mg.example.com>",
+                "Subject": "Your Order Confirmation"
+              },
+              "template": "<!DOCTYPE html>\n<html>\n<body>\n  <h1>Order Confirmation</h1>\n\n  {{#with customer}}\n  <p>Hello {{firstName}} {{lastName}},</p>\n  <p>Email: {{email}}</p>\n  {{/with}}\n\n  {{#equal accountType \"premium\"}}\n  <div class=\"premium\">\n    <p>🎉 Premium Member Perk: You have earned 2x points on this order!</p>\n  </div>\n  {{/equal}}\n\n  {{#equal accountType \"basic\"}}\n  <p>Upgrade to Premium for exclusive benefits and rewards!</p>\n  {{/equal}}\n\n  {{#unless paymentReceived}}\n  <div class=\"warning\">\n    <p>⚠️ WARNING: Payment pending. Your order will ship once payment is confirmed.</p>\n  </div>\n  {{/unless}}\n\n  {{#if paymentReceived}}\n  <p>✓ Payment confirmed! Your order is being processed.</p>\n  {{/if}}\n\n  <h2>Order Items:</h2>\n  <ul>\n  {{#each items}}\n    <li>{{this.name}} - Quantity: {{this.quantity}} - ${{this.price}}</li>\n  {{/each}}\n  </ul>\n\n  {{#if spanish}}\n  <p>Gracias por su compra!</p>\n  {{else if french}}\n  <p>Merci pour votre achat!</p>\n  {{else}}\n  <p>Thank you for your purchase!</p>\n  {{/if}}\n\n</body>\n</html>"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "eu": {
+    "subaccounts": [],
+    "domains": [
+      {
+        "name": "eu.example.com",
+        "id": "9",
+        "state": "active",
+        "type": "custom",
+        "web_prefix": "email",
+        "created_at": "Mon, 02 Jan 2006 15:04:05 MST",
+        "is_disabled": false
+      }
+    ],
+    "domain_details": {
+      "eu.example.com": {
+        "sending_dns_records": [],
+        "receiving_dns_records": []
+      }
+    },
+    "tracking": {},
+    "bounces": {
+      "eu.example.com": [
+        {
+          "address": "eu-bounce@example.com",
+          "code": "550",
+          "error": "No such mailbox",
+          "created_at": "Fri, 12 Dec 2025 01:49:40 UTC"
+        }
+      ]
+    },
+    "complaints": {},
+    "unsubscribes": {
+      "eu.example.com": [
+        {
+          "address": "eu-unsub@example.com",
+          "tags": [
+            "*"
+          ],
+          "created_at": "Fri, 12 Dec 2025 01:49:40 UTC"
+        }
+      ]
+    },
+    "whitelists": {},
+    "lists": {
+      "": []
+    },
+    "members": {},
+    "account_templates": {
+      "": [
+        {
+          "name": "welcome",
+          "description": "Regions keep their own account templates",
+          "createdAt": "Sat, 12 Nov 2022 06:38:00 UTC",
+          "id": "cccccccc-0000-4000-8000-000000000001",
+          "versions": [
+            {
+              "tag": "initial",
+              "engine": "handlebars",
+              "active": true,
+              "comment": "",
+              "createdAt": "Sat, 12 Nov 2022 06:38:00 UTC",
+              "id": "cccccccc-0000-4000-8000-000000000011",
+              "mjml": "",
+              "headers": {
+                "Subject": "Willkommen"
+              },
+              "template": "<p>Hallo {{name}}</p>"
+            }
+          ]
+        }
+      ]
+    },
+    "domain_templates": {}
+  }
+}

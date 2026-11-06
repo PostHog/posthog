@@ -11739,7 +11739,7 @@
         }
     },
     "provider-imports-create": {
-        "description": "Start a background import from another email tool, such as Resend, into the active project. Before the first call, tell the user the project's name and id and ask whether the data belongs there. Ask the user to create the API key themselves and treat it as a secret: never repeat it or write it to a file. Pass the step keys from provider-imports-providers. Returns at once with the run. Poll provider-imports-get until `status` is `completed` or `failed`. A second start while a run is active returns 409. Importing again adds what's new and leaves anything changed or deleted in PostHog as it is. Never creates people, and imported drafts never send on their own.",
+        "description": "Start a background import from another email tool, such as Resend or Mailgun, into the active project. Before the first call, tell the user the project's name and id and ask whether the data belongs there. Ask the user to create the API key themselves and treat it as a secret: never repeat it or write it to a file. Pass the step keys from provider-imports-providers, and any `settings` it lists: ask the user for a setting whose `default` is null, such as Mailgun's region, and don't guess it, because PostHog sends the key to that region. Returns at once with the run. Poll provider-imports-get until `status` is `completed` or `failed`. A second start while a run is active returns 409. Importing again adds what's new and leaves anything changed or deleted in PostHog as it is. Never creates people, and imported drafts never send on their own.",
         "category": "Messaging",
         "feature": "messaging",
         "summary": "Start an import from another email tool",
@@ -11787,7 +11787,7 @@
         "feature_flag": "workflows-resend-import"
     },
     "provider-imports-providers": {
-        "description": "List the email tools this project can import from, what each one can bring over (`steps`, with the keys to pass to provider-imports-create), what stays behind (`not_imported`), and what the person does afterward (`next_steps`). `retains_credentials: false` means PostHog deletes the API key when the run ends, so every import needs it again. Load the migrating-from-email-providers skill before you start a move.",
+        "description": "List the email tools this project can import from, what each one can bring over (`steps`, with the keys to pass to provider-imports-create), what stays behind (`not_imported`), and what the person does afterward (`next_steps`), and any choices to make first (`settings`). `retains_credentials: false` means PostHog deletes the API key when the run ends, so every import needs it again. Load the migrating-from-email-providers skill before you start a move.",
         "category": "Messaging",
         "feature": "messaging",
         "summary": "List email tools PostHog can import from",

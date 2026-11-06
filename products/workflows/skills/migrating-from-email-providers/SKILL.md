@@ -1,13 +1,13 @@
 ---
 name: migrating-from-email-providers
-description: 'Move a team from an email API provider such as Resend to PostHog: import the suppression list, unsubscribes, topics, templates and automations with the provider-imports tools, then walk through DNS, template review and the cutover. Use when asked to migrate, move, switch, copy or import from Resend to PostHog, or to bring suppressions, unsubscribes or email templates from another provider. For Customer.io automations use migrating-from-customer-io.'
+description: 'Move a team from an email API provider such as Resend or Mailgun to PostHog: import the suppression list, unsubscribes, topics, mailing lists, templates and automations with the provider-imports tools, then walk through DNS, template review and the cutover. Use when asked to migrate, move, switch, copy or import from Resend or Mailgun to PostHog, or to bring suppressions, unsubscribes or email templates from another provider. For Customer.io automations use migrating-from-customer-io.'
 ---
 
 # Moving from another email provider
 
 PostHog copies a team's data in one background import. The team then sets up DNS, reviews what the import flagged, and moves its sending one email at a time.
 
-Call `provider-imports-providers` first. It lists the tools this project can import from, the steps of each, and the next steps to read out at the end. If Resend isn't listed, the import isn't turned on for this project, so stop and say so.
+Call `provider-imports-providers` first. It lists the tools this project can import from, the steps of each, and the next steps to read out at the end. If the tool isn't listed, the import isn't turned on for this project, so stop and say so.
 
 ## What moves
 
@@ -46,3 +46,30 @@ An address someone removed from the suppression list, a person opted back in, an
 4. **Automations.** Each draft notes which events the app has to send to PostHog as well. Use the `building-workflows` skill to test and enable. Turn the automation off in Resend at the same moment, or people get both emails. Never enable a draft without the user's sign-off.
 5. **Volume.** Mailbox providers slow down a sudden jump, so move high volume over several days. Check the project's allowance with `workflows-reputation-get` first, because new projects start with a low limit on marketing email.
 6. **Clean up.** Once nothing sends through Resend, the user removes its DNS records and deletes the key.
+
+## Mailgun
+
+Follow the same steps, with these differences.
+
+**Region.** Ask which region the domains are in: `us`, `eu` or `both`, passed as `settings: {"region": "..."}`. Mailgun keeps data in each region apart, and PostHog only sends the key to the region chosen. If the domains step warns that a region has no domains, the user picked the wrong one.
+
+**Key.** An account API key, created in Mailgun under Account settings, API keys. A domain sending key can't read anything. On a plan with key roles, use Support: it's the smallest role that can read suppressions, though Mailgun lets it make changes too. An Analyst key can't read bounces, complaints or unsubscribes, so the start is refused unless those steps are left out.
+
+**Versions.** The active version imports by default. Pass `template_versions: "all"` only if the app names a version when it sends.
+
+| Mailgun                   | In PostHog                                    | What the team does                               |
+| ------------------------- | --------------------------------------------- | ------------------------------------------------ |
+| Bounces, every domain     | Suppression list, blocks all email            | Reads the summary                                |
+| Complaints, every domain  | Suppression list, blocks marketing email only | Knows these people still get transactional email |
+| Unsubscribes for all mail | Opted out of all marketing email              | Nothing                                          |
+| Unsubscribes for a tag    | Opted out of a new category named after it    | Puts the matching templates in that category     |
+| Allowlists                | A list only                                   | Removes test addresses meant to bounce           |
+| Mailing lists             | A category, and opt-outs for who left         | Builds the audience from its own data            |
+| Templates                 | Library templates in Liquid                   | Fixes the notes, passes variables, sends a test  |
+| Domains and DNS records   | A list only                                   | Adds each domain and publishes new records       |
+
+Mailgun's API documents no automations, so nothing becomes a workflow. Routes, webhooks, tracking settings, send history and stats stay behind, and Mailjet is a separate product.
+
+Mailgun scopes suppressions by domain and PostHog by project. An address blocked on one Mailgun domain is blocked for the whole project here. Say this plainly if the team sends unrelated brands from one account.
+
+**Template keys.** An account template keeps its name as the key, with any character a key can't hold replaced and a short hash added. In the EU region it starts with `eu-`. A domain template starts with its domain, such as `mg-example-com-welcome`. Read the key from the template when changing the app's code. Pass the values Mailgun took from `t:variables` and `recipient-variables` as `variables`.

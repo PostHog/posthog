@@ -357,14 +357,21 @@ export interface WebhookUrlApi {
 }
 
 /**
+ * The settings the run started with, by setting key.
+ */
+export type ProviderImportRunApiSettings = { [key: string]: string }
+
+/**
  * * `customerio` - Customer.io
  * * `resend` - Resend
+ * * `mailgun` - Mailgun
  */
 export type ImportProviderKeyEnumApi = (typeof ImportProviderKeyEnumApi)[keyof typeof ImportProviderKeyEnumApi]
 
 export const ImportProviderKeyEnumApi = {
     Customerio: 'customerio',
     Resend: 'resend',
+    Mailgun: 'mailgun',
 } as const
 
 /**
@@ -479,7 +486,8 @@ export interface ProviderImportRunApi {
     /** The provider the run imports from.
      *
      * * `customerio` - Customer.io
-     * * `resend` - Resend */
+     * * `resend` - Resend
+     * * `mailgun` - Mailgun */
     provider: ImportProviderKeyEnumApi
     /** `queued` until the first step starts, `running`, then `completed` when every step completed or `failed` when any step failed.
      *
@@ -502,13 +510,21 @@ export interface ProviderImportRunApi {
      * @nullable
      */
     finished_at: string | null
+    /** The settings the run started with, by setting key. */
+    settings: ProviderImportRunApiSettings
 }
+
+/**
+ * Values for the provider's `settings`, by setting key, from the `providers` endpoint. A setting with a null `default` is required, such as Mailgun's `region`.
+ */
+export type StartProviderImportApiSettings = { [key: string]: string }
 
 export interface StartProviderImportApi {
     /** The provider to import from.
      *
      * * `customerio` - Customer.io
-     * * `resend` - Resend */
+     * * `resend` - Resend
+     * * `mailgun` - Mailgun */
     provider: ImportProviderKeyEnumApi
     /**
      * Keys of the steps to run, from the `providers` endpoint. They run in the provider's order, whatever order you send.
@@ -517,10 +533,12 @@ export interface StartProviderImportApi {
      */
     steps: string[]
     /**
-     * The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key: PostHog deletes it when the run ends, so send it every time.
+     * The provider's API key. For Customer.io, an App API key: leave it out to reuse the stored key. For Resend, a full access key, and for Mailgun, an account key that can read suppressions: PostHog deletes these when the run ends, so send one every time.
      * @maxLength 512
      */
     api_key?: string
+    /** Values for the provider's `settings`, by setting key, from the `providers` endpoint. A setting with a null `default` is required, such as Mailgun's `region`. */
+    settings?: StartProviderImportApiSettings
 }
 
 export interface ImportStepOptionApi {
@@ -532,11 +550,35 @@ export interface ImportStepOptionApi {
     description: string
 }
 
+export interface ImportSettingChoiceApi {
+    /** Value to send for this setting when starting an import. */
+    value: string
+    /** Display name of the choice. */
+    label: string
+}
+
+export interface ImportSettingOptionApi {
+    /** Setting key to use in `settings` when starting an import, such as `region`. */
+    key: string
+    /** Display name of the setting. */
+    label: string
+    /** What the setting changes, and how to choose. */
+    help: string
+    /** The values the setting accepts. */
+    choices: ImportSettingChoiceApi[]
+    /**
+     * The value used when the request leaves this setting out. Null means it's required.
+     * @nullable
+     */
+    default: string | null
+}
+
 export interface ImportProviderOptionApi {
     /** Provider key to send when starting an import.
      *
      * * `customerio` - Customer.io
-     * * `resend` - Resend */
+     * * `resend` - Resend
+     * * `mailgun` - Mailgun */
     key: ImportProviderKeyEnumApi
     /** Display name of the provider. */
     label: string
@@ -557,6 +599,8 @@ export interface ImportProviderOptionApi {
     not_imported: string
     /** What the person does once the import has finished, in order. */
     next_steps: string[]
+    /** Choices to make before starting an import, such as Mailgun's region. Often empty. */
+    settings: ImportSettingOptionApi[]
 }
 
 /**

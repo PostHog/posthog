@@ -1,0 +1,701 @@
+[
+  {
+    "name": "docs complete example",
+    "engine": "handlebars",
+    "template": "<!DOCTYPE html>\n<html>\n<body>\n  <h1>Order Confirmation</h1>\n\n  {{#with customer}}\n  <p>Hello {{firstName}} {{lastName}},</p>\n  <p>Email: {{email}}</p>\n  {{/with}}\n\n  {{#equal accountType \"premium\"}}\n  <div class=\"premium\">\n    <p>🎉 Premium Member Perk: You have earned 2x points on this order!</p>\n  </div>\n  {{/equal}}\n\n  {{#equal accountType \"basic\"}}\n  <p>Upgrade to Premium for exclusive benefits and rewards!</p>\n  {{/equal}}\n\n  {{#unless paymentReceived}}\n  <div class=\"warning\">\n    <p>⚠️ WARNING: Payment pending. Your order will ship once payment is confirmed.</p>\n  </div>\n  {{/unless}}\n\n  {{#if paymentReceived}}\n  <p>✓ Payment confirmed! Your order is being processed.</p>\n  {{/if}}\n\n  <h2>Order Items:</h2>\n  <ul>\n  {{#each items}}\n    <li>{{this.name}} - Quantity: {{this.quantity}} - ${{this.price}}</li>\n  {{/each}}\n  </ul>\n\n  {{#if spanish}}\n  <p>Gracias por su compra!</p>\n  {{else if french}}\n  <p>Merci pour votre achat!</p>\n  {{else}}\n  <p>Thank you for your purchase!</p>\n  {{/if}}\n\n</body>\n</html>",
+    "variables": {
+      "customer": {
+        "firstName": "Maria",
+        "lastName": "Garcia",
+        "email": "maria@example.com"
+      },
+      "accountType": "premium",
+      "paymentReceived": true,
+      "items": [
+        {
+          "name": "Wireless Headphones",
+          "quantity": 1,
+          "price": "79.99"
+        },
+        {
+          "name": "Phone Case",
+          "quantity": 2,
+          "price": "24.99"
+        }
+      ],
+      "spanish": false,
+      "french": false
+    },
+    "liquid": "<!DOCTYPE html>\n<html>\n<body>\n  <h1>Order Confirmation</h1>\n\n{% if variables.customer and variables.customer != empty and variables.customer != 0 %}  <p>Hello {{ variables.customer.firstName }} {{ variables.customer.lastName }},</p>\n  <p>Email: {{ variables.customer.email }}</p>\n{% endif %}\n{% assign compared1 = variables.accountType | append: \"\" %}{% if compared1 == \"premium\" %}  <div class=\"premium\">\n    <p>🎉 Premium Member Perk: You have earned 2x points on this order!</p>\n  </div>\n{% endif %}\n{% assign compared2 = variables.accountType | append: \"\" %}{% if compared2 == \"basic\" %}  <p>Upgrade to Premium for exclusive benefits and rewards!</p>\n{% endif %}\n{% unless variables.paymentReceived and variables.paymentReceived != empty and variables.paymentReceived != 0 %}  <div class=\"warning\">\n    <p>⚠️ WARNING: Payment pending. Your order will ship once payment is confirmed.</p>\n  </div>\n{% endunless %}\n{% if variables.paymentReceived and variables.paymentReceived != empty and variables.paymentReceived != 0 %}  <p>✓ Payment confirmed! Your order is being processed.</p>\n{% endif %}\n  <h2>Order Items:</h2>\n  <ul>\n{% for item1 in variables.items %}    <li>{{ item1.name }} - Quantity: {{ item1.quantity }} - ${{ item1.price }}</li>\n{% endfor %}  </ul>\n\n{% if variables.spanish and variables.spanish != empty and variables.spanish != 0 %}  <p>Gracias por su compra!</p>\n{% elsif variables.french and variables.french != empty and variables.french != 0 %}  <p>Merci pour votre achat!</p>\n{% else %}  <p>Thank you for your purchase!</p>\n{% endif %}\n</body>\n</html>",
+    "expected": "<!DOCTYPE html>\n<html>\n<body>\n  <h1>Order Confirmation</h1>\n\n  <p>Hello Maria Garcia,</p>\n  <p>Email: maria@example.com</p>\n\n  <div class=\"premium\">\n    <p>🎉 Premium Member Perk: You have earned 2x points on this order!</p>\n  </div>\n\n\n\n  <p>✓ Payment confirmed! Your order is being processed.</p>\n\n  <h2>Order Items:</h2>\n  <ul>\n    <li>Wireless Headphones - Quantity: 1 - $79.99</li>\n    <li>Phone Case - Quantity: 2 - $24.99</li>\n  </ul>\n\n  <p>Thank you for your purchase!</p>\n  \n</body>\n</html>",
+    "collapse_whitespace": true
+  },
+  {
+    "name": "docs complete example, unpaid basic french",
+    "engine": "handlebars",
+    "template": "<!DOCTYPE html>\n<html>\n<body>\n  <h1>Order Confirmation</h1>\n\n  {{#with customer}}\n  <p>Hello {{firstName}} {{lastName}},</p>\n  <p>Email: {{email}}</p>\n  {{/with}}\n\n  {{#equal accountType \"premium\"}}\n  <div class=\"premium\">\n    <p>🎉 Premium Member Perk: You have earned 2x points on this order!</p>\n  </div>\n  {{/equal}}\n\n  {{#equal accountType \"basic\"}}\n  <p>Upgrade to Premium for exclusive benefits and rewards!</p>\n  {{/equal}}\n\n  {{#unless paymentReceived}}\n  <div class=\"warning\">\n    <p>⚠️ WARNING: Payment pending. Your order will ship once payment is confirmed.</p>\n  </div>\n  {{/unless}}\n\n  {{#if paymentReceived}}\n  <p>✓ Payment confirmed! Your order is being processed.</p>\n  {{/if}}\n\n  <h2>Order Items:</h2>\n  <ul>\n  {{#each items}}\n    <li>{{this.name}} - Quantity: {{this.quantity}} - ${{this.price}}</li>\n  {{/each}}\n  </ul>\n\n  {{#if spanish}}\n  <p>Gracias por su compra!</p>\n  {{else if french}}\n  <p>Merci pour votre achat!</p>\n  {{else}}\n  <p>Thank you for your purchase!</p>\n  {{/if}}\n\n</body>\n</html>",
+    "variables": {
+      "customer": {
+        "firstName": "Maria",
+        "lastName": "Garcia",
+        "email": "maria@example.com"
+      },
+      "accountType": "basic",
+      "paymentReceived": false,
+      "items": [],
+      "spanish": false,
+      "french": true
+    },
+    "liquid": "<!DOCTYPE html>\n<html>\n<body>\n  <h1>Order Confirmation</h1>\n\n{% if variables.customer and variables.customer != empty and variables.customer != 0 %}  <p>Hello {{ variables.customer.firstName }} {{ variables.customer.lastName }},</p>\n  <p>Email: {{ variables.customer.email }}</p>\n{% endif %}\n{% assign compared1 = variables.accountType | append: \"\" %}{% if compared1 == \"premium\" %}  <div class=\"premium\">\n    <p>🎉 Premium Member Perk: You have earned 2x points on this order!</p>\n  </div>\n{% endif %}\n{% assign compared2 = variables.accountType | append: \"\" %}{% if compared2 == \"basic\" %}  <p>Upgrade to Premium for exclusive benefits and rewards!</p>\n{% endif %}\n{% unless variables.paymentReceived and variables.paymentReceived != empty and variables.paymentReceived != 0 %}  <div class=\"warning\">\n    <p>⚠️ WARNING: Payment pending. Your order will ship once payment is confirmed.</p>\n  </div>\n{% endunless %}\n{% if variables.paymentReceived and variables.paymentReceived != empty and variables.paymentReceived != 0 %}  <p>✓ Payment confirmed! Your order is being processed.</p>\n{% endif %}\n  <h2>Order Items:</h2>\n  <ul>\n{% for item1 in variables.items %}    <li>{{ item1.name }} - Quantity: {{ item1.quantity }} - ${{ item1.price }}</li>\n{% endfor %}  </ul>\n\n{% if variables.spanish and variables.spanish != empty and variables.spanish != 0 %}  <p>Gracias por su compra!</p>\n{% elsif variables.french and variables.french != empty and variables.french != 0 %}  <p>Merci pour votre achat!</p>\n{% else %}  <p>Thank you for your purchase!</p>\n{% endif %}\n</body>\n</html>",
+    "expected": "<!DOCTYPE html>\n<html>\n<body>\n  <h1>Order Confirmation</h1>\n\n  <p>Hello Maria Garcia,</p>\n  <p>Email: maria@example.com</p>\n\n\n  <p>Upgrade to Premium for exclusive benefits and rewards!</p>\n\n  <div class=\"warning\">\n    <p>⚠️ WARNING: Payment pending. Your order will ship once payment is confirmed.</p>\n  </div>\n\n\n  <h2>Order Items:</h2>\n  <ul>\n  </ul>\n\n  <p>Merci pour votre achat!</p>\n\n</body>\n</html>",
+    "collapse_whitespace": true
+  },
+  {
+    "name": "docs if chain: spanish",
+    "engine": "handlebars",
+    "template": "{{#if english}}\n<p>This text is in the English language.</p>\n{{else if spanish}}\n<p>Este texto está en idioma español.</p>\n{{else if french}}\n<p>Ce texte est en langue française.</p>\n{{/if}}\n",
+    "variables": {
+      "spanish": true
+    },
+    "liquid": "{% if variables.english and variables.english != empty and variables.english != 0 %}<p>This text is in the English language.</p>\n{% elsif variables.spanish and variables.spanish != empty and variables.spanish != 0 %}<p>Este texto está en idioma español.</p>\n{% elsif variables.french and variables.french != empty and variables.french != 0 %}<p>Ce texte est en langue française.</p>\n{% endif %}",
+    "expected": "<p>Este texto está en idioma español.</p>\n"
+  },
+  {
+    "name": "docs if chain: none match",
+    "engine": "handlebars",
+    "template": "{{#if english}}\n<p>This text is in the English language.</p>\n{{else if spanish}}\n<p>Este texto está en idioma español.</p>\n{{else if french}}\n<p>Ce texte est en langue française.</p>\n{{/if}}\n",
+    "variables": {},
+    "liquid": "{% if variables.english and variables.english != empty and variables.english != 0 %}<p>This text is in the English language.</p>\n{% elsif variables.spanish and variables.spanish != empty and variables.spanish != 0 %}<p>Este texto está en idioma español.</p>\n{% elsif variables.french and variables.french != empty and variables.french != 0 %}<p>Ce texte est en langue française.</p>\n{% endif %}",
+    "expected": ""
+  },
+  {
+    "name": "docs unless",
+    "engine": "handlebars",
+    "template": "{{#unless paid}}\n<h3>WARNING</h3>\n{{/unless}}\n",
+    "variables": {
+      "paid": false
+    },
+    "liquid": "{% unless variables.paid and variables.paid != empty and variables.paid != 0 %}<h3>WARNING</h3>\n{% endunless %}",
+    "expected": "<h3>WARNING</h3>\n"
+  },
+  {
+    "name": "docs unless when paid",
+    "engine": "handlebars",
+    "template": "{{#unless paid}}\n<h3>WARNING</h3>\n{{/unless}}\nend",
+    "variables": {
+      "paid": true
+    },
+    "liquid": "{% unless variables.paid and variables.paid != empty and variables.paid != 0 %}<h3>WARNING</h3>\n{% endunless %}end",
+    "expected": "end"
+  },
+  {
+    "name": "docs each",
+    "engine": "handlebars",
+    "template": "{{#each user.services}}\n<li>You scheduled {{this.service}} on {{this.date}}</li>\n{{/each}}\n",
+    "variables": {
+      "user": {
+        "services": [
+          {
+            "date": "07/30/2019",
+            "service": "deliverability consultation"
+          },
+          {
+            "date": "08/05/2019",
+            "service": "sales consultation"
+          }
+        ]
+      }
+    },
+    "liquid": "{% for item1 in variables.user.services %}<li>You scheduled {{ item1.service }} on {{ item1.date }}</li>\n{% endfor %}",
+    "expected": "<li>You scheduled deliverability consultation on 07/30/2019</li>\n<li>You scheduled sales consultation on 08/05/2019</li>\n"
+  },
+  {
+    "name": "docs with",
+    "engine": "handlebars",
+    "template": "<div class=\"entry\">\n  <h1>{{title}}</h1>\n\n  {{#with author}}\n  <h2>By {{firstName}} {{lastName}}</h2>\n  <p>Email: {{email}}</p>\n  {{/with}}\n</div>\n",
+    "variables": {
+      "title": "My first post!",
+      "author": {
+        "firstName": "Jean",
+        "lastName": "Valjean",
+        "email": "jean@example.com"
+      }
+    },
+    "liquid": "<div class=\"entry\">\n  <h1>{{ variables.title }}</h1>\n\n{% if variables.author and variables.author != empty and variables.author != 0 %}  <h2>By {{ variables.author.firstName }} {{ variables.author.lastName }}</h2>\n  <p>Email: {{ variables.author.email }}</p>\n{% endif %}</div>\n",
+    "expected": "<div class=\"entry\">\n  <h1>My first post!</h1>\n\n  <h2>By Jean Valjean</h2>\n  <p>Email: jean@example.com</p>\n</div>\n"
+  },
+  {
+    "name": "docs equal: pro",
+    "engine": "handlebars",
+    "template": "{{#equal subscription \"free\"}}\n<p>Upgrade</p>\n{{/equal}}\n{{#equal subscription \"pro\"}}\n<p>Thanks Pro</p>\n{{/equal}}\n",
+    "variables": {
+      "subscription": "pro"
+    },
+    "liquid": "{% assign compared1 = variables.subscription | append: \"\" %}{% if compared1 == \"free\" %}<p>Upgrade</p>\n{% endif %}{% assign compared2 = variables.subscription | append: \"\" %}{% if compared2 == \"pro\" %}<p>Thanks Pro</p>\n{% endif %}",
+    "expected": "<p>Thanks Pro</p>\n"
+  },
+  {
+    "name": "docs equal compares as strings: number and text",
+    "engine": "handlebars",
+    "template": "{{#equal count \"5\"}}a{{/equal}}{{#equal text 5}}b{{/equal}}",
+    "variables": {
+      "count": 5,
+      "text": "5"
+    },
+    "liquid": "{% assign compared1 = variables.count | append: \"\" %}{% if compared1 == \"5\" %}a{% endif %}{% assign compared2 = variables.text | append: \"\" %}{% if compared2 == \"5\" %}b{% endif %}",
+    "expected": "ab"
+  },
+  {
+    "name": "if with empty string is false",
+    "engine": "handlebars",
+    "template": "{{#if x}}yes{{else}}no{{/if}}{{#unless x}}!{{/unless}}",
+    "variables": {
+      "x": ""
+    },
+    "liquid": "{% if variables.x and variables.x != empty and variables.x != 0 %}yes{% else %}no{% endif %}{% unless variables.x and variables.x != empty and variables.x != 0 %}!{% endunless %}",
+    "expected": "no!"
+  },
+  {
+    "name": "if with zero is false",
+    "engine": "handlebars",
+    "template": "{{#if x}}yes{{else}}no{{/if}}{{#unless x}}!{{/unless}}",
+    "variables": {
+      "x": 0
+    },
+    "liquid": "{% if variables.x and variables.x != empty and variables.x != 0 %}yes{% else %}no{% endif %}{% unless variables.x and variables.x != empty and variables.x != 0 %}!{% endunless %}",
+    "expected": "no!"
+  },
+  {
+    "name": "if with empty list is false",
+    "engine": "handlebars",
+    "template": "{{#if x}}yes{{else}}no{{/if}}{{#unless x}}!{{/unless}}",
+    "variables": {
+      "x": []
+    },
+    "liquid": "{% if variables.x and variables.x != empty and variables.x != 0 %}yes{% else %}no{% endif %}{% unless variables.x and variables.x != empty and variables.x != 0 %}!{% endunless %}",
+    "expected": "no!"
+  },
+  {
+    "name": "if with null is false",
+    "engine": "handlebars",
+    "template": "{{#if x}}yes{{else}}no{{/if}}{{#unless x}}!{{/unless}}",
+    "variables": {
+      "x": null
+    },
+    "liquid": "{% if variables.x and variables.x != empty and variables.x != 0 %}yes{% else %}no{% endif %}{% unless variables.x and variables.x != empty and variables.x != 0 %}!{% endunless %}",
+    "expected": "no!"
+  },
+  {
+    "name": "if with false is false",
+    "engine": "handlebars",
+    "template": "{{#if x}}yes{{else}}no{{/if}}{{#unless x}}!{{/unless}}",
+    "variables": {
+      "x": false
+    },
+    "liquid": "{% if variables.x and variables.x != empty and variables.x != 0 %}yes{% else %}no{% endif %}{% unless variables.x and variables.x != empty and variables.x != 0 %}!{% endunless %}",
+    "expected": "no!"
+  },
+  {
+    "name": "if with a missing value is false",
+    "engine": "handlebars",
+    "template": "{{#if x}}yes{{else}}no{{/if}}",
+    "variables": {},
+    "liquid": "{% if variables.x and variables.x != empty and variables.x != 0 %}yes{% else %}no{% endif %}",
+    "expected": "no"
+  },
+  {
+    "name": "if with text zero is true",
+    "engine": "handlebars",
+    "template": "{{#if x}}yes{{else}}no{{/if}}",
+    "variables": {
+      "x": "0"
+    },
+    "liquid": "{% if variables.x and variables.x != empty and variables.x != 0 %}yes{% else %}no{% endif %}",
+    "expected": "yes"
+  },
+  {
+    "name": "if with one is true",
+    "engine": "handlebars",
+    "template": "{{#if x}}yes{{else}}no{{/if}}",
+    "variables": {
+      "x": 1
+    },
+    "liquid": "{% if variables.x and variables.x != empty and variables.x != 0 %}yes{% else %}no{% endif %}",
+    "expected": "yes"
+  },
+  {
+    "name": "if with list is true",
+    "engine": "handlebars",
+    "template": "{{#if x}}yes{{else}}no{{/if}}",
+    "variables": {
+      "x": [
+        "a"
+      ]
+    },
+    "liquid": "{% if variables.x and variables.x != empty and variables.x != 0 %}yes{% else %}no{% endif %}",
+    "expected": "yes"
+  },
+  {
+    "name": "if with object is true",
+    "engine": "handlebars",
+    "template": "{{#if x}}yes{{else}}no{{/if}}",
+    "variables": {
+      "x": {
+        "a": 1
+      }
+    },
+    "liquid": "{% if variables.x and variables.x != empty and variables.x != 0 %}yes{% else %}no{% endif %}",
+    "expected": "yes"
+  },
+  {
+    "name": "if with a space is true",
+    "engine": "handlebars",
+    "template": "{{#if x}}yes{{else}}no{{/if}}",
+    "variables": {
+      "x": " "
+    },
+    "liquid": "{% if variables.x and variables.x != empty and variables.x != 0 %}yes{% else %}no{% endif %}",
+    "expected": "yes"
+  },
+  {
+    "name": "double braces escape, triple braces don't",
+    "engine": "handlebars",
+    "template": "<p>{{x}}|{{{x}}}|{{&x}}</p>",
+    "variables": {
+      "x": "<b>\"Tom\" & 'Jerry'</b>"
+    },
+    "liquid": "<p>{{ variables.x }}|{{ variables.x | raw }}|{{ variables.x | raw }}</p>",
+    "expected": "<p>&lt;b&gt;&quot;Tom&quot; &amp; &#x27;Jerry&#x27;&lt;/b&gt;|<b>\"Tom\" & 'Jerry'</b>|<b>\"Tom\" & 'Jerry'</b></p>"
+  },
+  {
+    "name": "missing values print nothing",
+    "engine": "handlebars",
+    "template": "[{{x}}][{{{x}}}][{{a.b.c}}]",
+    "variables": {},
+    "liquid": "[{{ variables.x }}][{{ variables.x | raw }}][{{ variables.a.b.c }}]",
+    "expected": "[][][]"
+  },
+  {
+    "name": "values print like Handlebars",
+    "engine": "handlebars",
+    "template": "{{n}} {{f}} {{t}} {{z}} {{no}}",
+    "variables": {
+      "n": 5,
+      "f": 1.5,
+      "t": true,
+      "z": 0,
+      "no": false
+    },
+    "liquid": "{{ variables.n }} {{ variables.f }} {{ variables.t }} {{ variables.z }} {{ variables.no }}",
+    "expected": "5 1.5 true 0 false"
+  },
+  {
+    "name": "unicode and emoji",
+    "engine": "handlebars",
+    "template": "Grüße {{naïve}} 你好 {{name}} 🎉",
+    "variables": {
+      "naïve": "é",
+      "name": "世界🌍"
+    },
+    "liquid": "Grüße {{ variables.naïve }} 你好 {{ variables.name }} 🎉",
+    "expected": "Grüße é 你好 世界🌍 🎉"
+  },
+  {
+    "name": "nested each with parent paths",
+    "engine": "handlebars",
+    "template": "{{#each groups}}<h2>{{name}} of {{../title}}</h2>{{#each members}}<i>{{@index}}:{{this}}:{{../name}}:{{../../title}}:{{@root.title}}</i>{{/each}}{{/each}}",
+    "variables": {
+      "title": "T",
+      "groups": [
+        {
+          "name": "A",
+          "members": [
+            "x",
+            "y"
+          ]
+        },
+        {
+          "name": "B",
+          "members": []
+        }
+      ]
+    },
+    "liquid": "{% for item1 in variables.groups %}<h2>{{ item1.name }} of {{ variables.title }}</h2>{% for item2 in item1.members %}<i>{{ forloop.index0 }}:{{ item2 }}:{{ item1.name }}:{{ variables.title }}:{{ variables.title }}</i>{% endfor %}{% endfor %}",
+    "expected": "<h2>A of T</h2><i>0:x:A:T:T</i><i>1:y:A:T:T</i><h2>B of T</h2>"
+  },
+  {
+    "name": "each index first last",
+    "engine": "handlebars",
+    "template": "{{#each xs}}{{@index}}{{#if @first}}F{{/if}}{{#if @last}}L{{/if}},{{/each}}",
+    "variables": {
+      "xs": [
+        "a",
+        "b",
+        "c"
+      ]
+    },
+    "liquid": "{% for item1 in variables.xs %}{{ forloop.index0 }}{% if forloop.first and forloop.first != empty and forloop.first != 0 %}F{% endif %}{% if forloop.last and forloop.last != empty and forloop.last != 0 %}L{% endif %},{% endfor %}",
+    "expected": "0F,1,2L,"
+  },
+  {
+    "name": "each else on empty",
+    "engine": "handlebars",
+    "template": "{{#each xs}}{{this}}{{else}}none {{title}}{{/each}}",
+    "variables": {
+      "xs": [],
+      "title": "t"
+    },
+    "liquid": "{% for item1 in variables.xs %}{{ item1 }}{% else %}none {{ variables.title }}{% endfor %}",
+    "expected": "none t"
+  },
+  {
+    "name": "each over an object with keys",
+    "engine": "handlebars",
+    "template": "{{#each o}}{{@key}}={{this}};{{/each}}",
+    "variables": {
+      "o": {
+        "a": 1,
+        "b": "two"
+      }
+    },
+    "liquid": "{% for item1 in variables.o %}{{ item1[0] }}={{ item1[1] }};{% endfor %}",
+    "expected": "a=1;b=two;"
+  },
+  {
+    "name": "with else",
+    "engine": "handlebars",
+    "template": "{{#with u}}{{n}}{{else}}nobody{{/with}}|{{#with v}}{{n}}{{else}}nobody {{t}}{{/with}}",
+    "variables": {
+      "u": {
+        "n": "x"
+      },
+      "t": "y"
+    },
+    "liquid": "{% if variables.u and variables.u != empty and variables.u != 0 %}{{ variables.u.n }}{% else %}nobody{% endif %}|{% if variables.v and variables.v != empty and variables.v != 0 %}{{ variables.v.n }}{% else %}nobody {{ variables.t }}{% endif %}",
+    "expected": "x|nobody y"
+  },
+  {
+    "name": "nested with and parent",
+    "engine": "handlebars",
+    "template": "{{#with a}}{{#with b}}{{c}}{{../d}}{{../../e}}{{/with}}{{/with}}",
+    "variables": {
+      "a": {
+        "b": {
+          "c": "C"
+        },
+        "d": "D"
+      },
+      "e": "E"
+    },
+    "liquid": "{% if variables.a and variables.a != empty and variables.a != 0 %}{% if variables.a.b and variables.a.b != empty and variables.a.b != 0 %}{{ variables.a.b.c }}{{ variables.a.d }}{{ variables.e }}{% endif %}{% endif %}",
+    "expected": "CDE"
+  },
+  {
+    "name": "unless with else if",
+    "engine": "handlebars",
+    "template": "{{#unless a}}1{{else if b}}2{{else}}3{{/unless}}",
+    "variables": {
+      "a": true,
+      "b": true
+    },
+    "liquid": "{% unless variables.a and variables.a != empty and variables.a != 0 %}1{% elsif variables.b and variables.b != empty and variables.b != 0 %}2{% else %}3{% endunless %}",
+    "expected": "2"
+  },
+  {
+    "name": "equal with two paths and else",
+    "engine": "handlebars",
+    "template": "{{#equal a b}}same{{else}}diff{{/equal}}",
+    "variables": {
+      "a": 1,
+      "b": "1"
+    },
+    "liquid": "{% assign compared1 = variables.a | append: \"\" %}{% assign compared2 = variables.b | append: \"\" %}{% if compared1 == compared2 %}same{% else %}diff{% endif %}",
+    "expected": "same"
+  },
+  {
+    "name": "this paths and legacy slash",
+    "engine": "handlebars",
+    "template": "{{#with u}}{{this.n}} {{./n}} {{u2/x}}{{/with}}",
+    "variables": {
+      "u": {
+        "n": "N",
+        "u2": {
+          "x": "X"
+        }
+      }
+    },
+    "liquid": "{% if variables.u and variables.u != empty and variables.u != 0 %}{{ variables.u.n }} {{ variables.u.n }} {{ variables.u.u2.x }}{% endif %}",
+    "expected": "N N X"
+  },
+  {
+    "name": "bracket names",
+    "engine": "handlebars",
+    "template": "{{[first name]}} {{a.[0].b}} {{list.[1]}}",
+    "variables": {
+      "first name": "F",
+      "a": [
+        {
+          "b": "B"
+        }
+      ],
+      "list": [
+        "p",
+        "q"
+      ]
+    },
+    "liquid": "{{ variables[\"first name\"] }} {{ variables.a[0].b }} {{ variables.list[1] }}",
+    "expected": "F B q"
+  },
+  {
+    "name": "comments disappear",
+    "engine": "handlebars",
+    "template": "a{{! hidden }}b{{!-- hidden }} too --}}c",
+    "variables": {},
+    "liquid": "abc",
+    "expected": "abc"
+  },
+  {
+    "name": "standalone blocks leave no blank lines",
+    "engine": "handlebars",
+    "template": "<ul>\n  {{#each xs}}\n    {{#if this}}\n  <li>{{this}}</li>\n    {{/if}}\n  {{/each}}\n</ul>\n",
+    "variables": {
+      "xs": [
+        "a",
+        0,
+        "b"
+      ]
+    },
+    "liquid": "<ul>\n{% for item1 in variables.xs %}{% if item1 and item1 != empty and item1 != 0 %}  <li>{{ item1 }}</li>\n{% endif %}{% endfor %}</ul>\n",
+    "expected": "<ul>\n  <li>a</li>\n  <li>b</li>\n</ul>\n"
+  },
+  {
+    "name": "whitespace control",
+    "engine": "handlebars",
+    "template": "a   {{~x~}}   b {{~#if x~}}  c  {{~/if~}}  d",
+    "variables": {
+      "x": "X"
+    },
+    "liquid": "a{{ variables.x }}b{% if variables.x and variables.x != empty and variables.x != 0 %}c{% endif %}d",
+    "expected": "aXbcd"
+  },
+  {
+    "name": "liquid syntax in source stays literal",
+    "engine": "handlebars",
+    "template": "{% if x %}y{% endif %} 100% off {{ x }} {%",
+    "variables": {
+      "x": "X"
+    },
+    "liquid": "{{ \"{%\" }} if x %}y{{ \"{%\" }} endif %} 100% off {{ variables.x }} {{ \"{%\" }}",
+    "expected": "{% if x %}y{% endif %} 100% off X {%"
+  },
+  {
+    "name": "escaped mustache",
+    "engine": "handlebars",
+    "template": "\\{{x}} {{x}}",
+    "variables": {
+      "x": "X"
+    },
+    "liquid": "{% raw %}{{x}}{% endraw %} {{ variables.x }}",
+    "expected": "{{x}} X"
+  },
+  {
+    "name": "hyphen and underscore names",
+    "engine": "handlebars",
+    "template": "{{user-name}} {{user_name}}",
+    "variables": {
+      "user-name": "a",
+      "user_name": "b"
+    },
+    "liquid": "{{ variables.user-name }} {{ variables.user_name }}",
+    "expected": "a b"
+  },
+  {
+    "name": "go variables and paths",
+    "engine": "go",
+    "template": "<p>{{.Name}} {{.User.Email}} {{.Missing}}</p>",
+    "variables": {
+      "Name": "N & <b>",
+      "User": {
+        "Email": "e@example.com"
+      }
+    },
+    "liquid": "<p>{{ variables.Name }} {{ variables.User.Email }} {{ variables.Missing }}</p>",
+    "expected": "<p>N &amp; &lt;b&gt; e@example.com </p>"
+  },
+  {
+    "name": "go if chain",
+    "engine": "go",
+    "template": "{{if .A}}a{{else if .B}}b{{else}}c{{end}}",
+    "variables": {
+      "B": true
+    },
+    "liquid": "{% if variables.A and variables.A != empty and variables.A != 0 %}a{% elsif variables.B and variables.B != empty and variables.B != 0 %}b{% else %}c{% endif %}",
+    "expected": "b"
+  },
+  {
+    "name": "go if with empty string is false",
+    "engine": "go",
+    "template": "{{if .X}}yes{{else}}no{{end}}",
+    "variables": {
+      "X": ""
+    },
+    "liquid": "{% if variables.X and variables.X != empty and variables.X != 0 %}yes{% else %}no{% endif %}",
+    "expected": "no"
+  },
+  {
+    "name": "go if with zero is false",
+    "engine": "go",
+    "template": "{{if .X}}yes{{else}}no{{end}}",
+    "variables": {
+      "X": 0
+    },
+    "liquid": "{% if variables.X and variables.X != empty and variables.X != 0 %}yes{% else %}no{% endif %}",
+    "expected": "no"
+  },
+  {
+    "name": "go if with empty list is false",
+    "engine": "go",
+    "template": "{{if .X}}yes{{else}}no{{end}}",
+    "variables": {
+      "X": []
+    },
+    "liquid": "{% if variables.X and variables.X != empty and variables.X != 0 %}yes{% else %}no{% endif %}",
+    "expected": "no"
+  },
+  {
+    "name": "go if with false is false",
+    "engine": "go",
+    "template": "{{if .X}}yes{{else}}no{{end}}",
+    "variables": {
+      "X": false
+    },
+    "liquid": "{% if variables.X and variables.X != empty and variables.X != 0 %}yes{% else %}no{% endif %}",
+    "expected": "no"
+  },
+  {
+    "name": "go if with text zero is true",
+    "engine": "go",
+    "template": "{{if .X}}yes{{else}}no{{end}}",
+    "variables": {
+      "X": "0"
+    },
+    "liquid": "{% if variables.X and variables.X != empty and variables.X != 0 %}yes{% else %}no{% endif %}",
+    "expected": "yes"
+  },
+  {
+    "name": "go range",
+    "engine": "go",
+    "template": "{{range .Items}}<li>{{.Name}}:{{$.Title}}</li>{{else}}none{{end}}",
+    "variables": {
+      "Items": [
+        {
+          "Name": "a"
+        },
+        {
+          "Name": "b"
+        }
+      ],
+      "Title": "T"
+    },
+    "liquid": "{% for item1 in variables.Items %}<li>{{ item1.Name }}:{{ variables.Title }}</li>{% else %}none{% endfor %}",
+    "expected": "<li>a:T</li><li>b:T</li>"
+  },
+  {
+    "name": "go range empty",
+    "engine": "go",
+    "template": "{{range .Items}}<li>{{.Name}}</li>{{else}}none{{end}}",
+    "variables": {
+      "Items": []
+    },
+    "liquid": "{% for item1 in variables.Items %}<li>{{ item1.Name }}</li>{% else %}none{% endfor %}",
+    "expected": "none"
+  },
+  {
+    "name": "go range with index and element",
+    "engine": "go",
+    "template": "{{range $i, $e := .Items}}{{$i}}={{$e.Name}},{{end}}",
+    "variables": {
+      "Items": [
+        {
+          "Name": "a"
+        },
+        {
+          "Name": "b"
+        }
+      ]
+    },
+    "liquid": "{% for item1 in variables.Items %}{{ forloop.index0 }}={{ item1.Name }},{% endfor %}",
+    "expected": "0=a,1=b,"
+  },
+  {
+    "name": "go range element only",
+    "engine": "go",
+    "template": "{{range $e := .Items}}{{$e}},{{end}}",
+    "variables": {
+      "Items": [
+        "a",
+        "b"
+      ]
+    },
+    "liquid": "{% for item1 in variables.Items %}{{ item1 }},{% endfor %}",
+    "expected": "a,b,"
+  },
+  {
+    "name": "go range dot",
+    "engine": "go",
+    "template": "{{range .Items}}{{.}},{{end}}",
+    "variables": {
+      "Items": [
+        "a",
+        "b"
+      ]
+    },
+    "liquid": "{% for item1 in variables.Items %}{{ item1 }},{% endfor %}",
+    "expected": "a,b,"
+  },
+  {
+    "name": "go with",
+    "engine": "go",
+    "template": "{{with .U}}{{.E}}{{else}}nobody{{end}}|{{with .V}}{{.E}}{{else}}nobody{{end}}",
+    "variables": {
+      "U": {
+        "E": "x"
+      },
+      "V": {}
+    },
+    "liquid": "{% if variables.U and variables.U != empty and variables.U != 0 %}{{ variables.U.E }}{% else %}nobody{% endif %}|{% if variables.V and variables.V != empty and variables.V != 0 %}{{ variables.V.E }}{% else %}nobody{% endif %}",
+    "expected": "x|nobody"
+  },
+  {
+    "name": "go not eq ne and",
+    "engine": "go",
+    "template": "{{if not .Z}}1{{end}}{{if eq .K \"v\"}}2{{end}}{{if ne .K \"w\"}}3{{end}}{{if and .K .Y}}4{{end}}{{if and .K .Z}}5{{end}}",
+    "variables": {
+      "K": "v",
+      "Y": 1,
+      "Z": ""
+    },
+    "liquid": "{% if variables.Z == nil or variables.Z == false or variables.Z == empty or variables.Z == 0 %}1{% endif %}{% if variables.K == \"v\" %}2{% endif %}{% if variables.K != \"w\" %}3{% endif %}{% if variables.K and variables.K != empty and variables.K != 0 and variables.Y and variables.Y != empty and variables.Y != 0 %}4{% endif %}{% if variables.K and variables.K != empty and variables.K != 0 and variables.Z and variables.Z != empty and variables.Z != 0 %}5{% endif %}",
+    "expected": "1234"
+  },
+  {
+    "name": "go trim and comments",
+    "engine": "go",
+    "template": "a  {{- .X -}}  b {{/* hidden */}}c",
+    "variables": {
+      "X": "X"
+    },
+    "liquid": "a{{ variables.X }}b c",
+    "expected": "aXb c"
+  },
+  {
+    "name": "go unicode",
+    "engine": "go",
+    "template": "{{.Grüße}} 🎉",
+    "variables": {
+      "Grüße": "你好"
+    },
+    "liquid": "{{ variables.Grüße }} 🎉",
+    "expected": "你好 🎉"
+  }
+]
