@@ -613,11 +613,13 @@ describe('EmailService', () => {
             )
 
             it('never spends the team sending budget on a sandbox send', async () => {
-                const claimAllOrNothingPair = jest
+                const claimAllOrNothing = jest
                     .fn()
-                    .mockResolvedValue({ granted: false, deniedIndex: 0, retryAfterMs: 60_000, reserved: false })
+                    .mockResolvedValue({ granted: false, retryAfterMs: 60_000, reserved: false })
+                const claimUpTo = jest.fn().mockResolvedValue(0)
                 service = createSandboxService(true, hub.postgres, {}, {
-                    claimAllOrNothingPair,
+                    claimAllOrNothing,
+                    claimUpTo,
                 } as unknown as RateLimiterService)
 
                 const result = await service.executeSendEmail(invocation)
@@ -625,7 +627,8 @@ describe('EmailService', () => {
                 expect(result.error).toBeUndefined()
                 expect(result.finished).toBe(true)
                 expect(sendEmailSpy).toHaveBeenCalledTimes(1)
-                expect(claimAllOrNothingPair).not.toHaveBeenCalled()
+                expect(claimAllOrNothing).not.toHaveBeenCalled()
+                expect(claimUpTo).not.toHaveBeenCalled()
             })
 
             it('fails the send when the template cannot keep its identification footer', async () => {
