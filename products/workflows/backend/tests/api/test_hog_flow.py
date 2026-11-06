@@ -3616,7 +3616,9 @@ class TestHogFlowAPI(APIBaseTest):
         with patch(
             "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
         ) as mock_invoke:
-            mock_invoke.return_value = MagicMock(status_code=500, json=lambda: {"error": "Worker failed"})
+            mock_invoke.return_value = MagicMock(
+                status_code=500, json=lambda: {"error": "Worker failed", "request_origins": ["https://slack.com"]}
+            )
             self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/invocations/", data, format="json")
         assert mock_invoke.call_count == 1
 
@@ -3638,6 +3640,7 @@ class TestHogFlowAPI(APIBaseTest):
             if saved
             else ["channel", "slack_workspace", "text"],
             "integration_ids": [workspace.id],
+            "request_origins": ["https://slack.com"],
         }
         assert "sent-by-the-test" not in json.dumps(detail)
         assert "stored-secret" not in json.dumps(detail)

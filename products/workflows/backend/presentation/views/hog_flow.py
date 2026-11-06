@@ -153,6 +153,7 @@ from products.workflows.backend.facade.activity import (
     log_workflow_activity,
     log_workflow_schedule_activity,
     log_workflow_test_run,
+    record_workflow_test_run_origins,
     resume_workflow_email_sending,
 )
 from products.workflows.backend.facade.api import (
@@ -6643,12 +6644,13 @@ class HogFlowViewSet(
                 draft["actions"] = rehydrate_flow_secrets(draft["actions"], draft_secrets)
             payload["configuration"] = draft
 
+        test_run_row = None
         if not payload.get("mock_async_functions", True):
             configuration = payload.get("configuration") or {}
             # The worker runs `{...stored, ...configuration}`, so a field the request omits runs as stored.
             actions = configuration["actions"] if "actions" in configuration else (hog_flow.actions if hog_flow else [])
             self._require_replay_vision_caller_access(request, actions)
-            log_workflow_test_run(
+            test_run_row = log_workflow_test_run(
                 actor=self._activity_actor(),
                 workflow_id=hog_flow.id if hog_flow else None,
                 name=configuration.get("name") or (hog_flow.name if hog_flow else None),
@@ -6662,6 +6664,7 @@ class HogFlowViewSet(
             hog_flow_id=str(hog_flow.id) if hog_flow else "new",
             payload=payload,
         )
+        record_workflow_test_run_origins(test_run_row, res)
 
         if res.status_code != 200:
             return Response({"status": "error", "message": res.json()["error"]}, status=res.status_code)

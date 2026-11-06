@@ -41,8 +41,12 @@ from posthog.helpers.trigram_search import (
     drop_similar_when_exact_exists,
 )
 from posthog.models import Team, User
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.plugins.plugin_server_api import create_hog_invocation_test, rerun_hog_invocations
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity, update_activity_context
+from posthog.plugins.plugin_server_api import (
+    create_hog_invocation_test,
+    invocation_test_request_origins,
+    rerun_hog_invocations,
+)
 from posthog.scopes import APIScopeObject
 
 from products.batch_exports.backend.facade import api as batch_exports_api
@@ -1450,10 +1454,11 @@ class HogFunctionViewSet(
         configuration.pop("team")
 
         mock_async_functions = serializer.validated_data["mock_async_functions"]
+        test_run_row = None
         if sends_real_requests(configuration, mock_async_functions=mock_async_functions):
             # The row is written before the worker call, so a test that then fails is still recorded.
             # Without `strict`, production drops a failed write and the test still sends real requests.
-            log_activity(
+            test_run_row = log_activity(
                 strict=True,
                 organization_id=self.organization.id,
                 team_id=self.team_id,
@@ -1476,6 +1481,8 @@ class HogFunctionViewSet(
             hog_function_id=str(hog_function.id) if hog_function else "new",
             payload=serializer.validated_data,
         )
+        if test_run_row is not None and (request_origins := invocation_test_request_origins(res)) is not None:
+            update_activity_context(test_run_row, request_origins=request_origins)
 
         if res.status_code != 200:
             # The worker's own message is the only description of the failure. Dropping it leaves the

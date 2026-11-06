@@ -1,16 +1,25 @@
 """The activity log record of a workflow test step that sends real requests.
 
 A test with `mock_async_functions` off runs one step with real side effects and the credentials of the
-integrations its inputs name. The record keeps who ran which step with which integrations, and never an
-input value: values can hold secrets.
+integrations its inputs name. The record keeps who ran which step with which integrations and where its
+requests went, and never an input value: values can hold secrets.
 """
 
 from collections.abc import Iterable
 from typing import Any, Optional
 from uuid import UUID
 
+import requests
+
 from posthog.dataclasses import frozen
-from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, log_activity
+from posthog.models.activity_logging.activity_log import (
+    ActivityContextBase,
+    ActivityLog,
+    Detail,
+    log_activity,
+    update_activity_context,
+)
+from posthog.plugins.plugin_server_api import invocation_test_request_origins
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.workflows.backend.facade.contracts import WorkflowActor
@@ -27,6 +36,7 @@ class WorkflowTestRunContext(ActivityContextBase):
     template_id: Optional[str]
     input_keys: list[str]
     integration_ids: list[int]
+    request_origins: Optional[list[str]] = None
 
 
 def _integration_ids_in_value(value: Any) -> Iterable[int]:
@@ -106,9 +116,9 @@ def log_workflow_test_run(
     actions: Any,
     current_action_id: Optional[str],
     encrypted_inputs: Any = None,
-) -> None:
+) -> Optional[ActivityLog]:
     # Without `strict`, production drops a failed write and the test still sends real requests.
-    log_activity(
+    return log_activity(
         strict=True,
         organization_id=actor.organization_id,
         team_id=actor.team_id,
@@ -119,3 +129,8 @@ def log_workflow_test_run(
         activity="tested",
         detail=Detail(name=name, context=workflow_test_run_context(actions, current_action_id, encrypted_inputs)),
     )
+
+
+def record_workflow_test_run_origins(row: Optional[ActivityLog], response: requests.Response) -> None:
+    if row is not None and (request_origins := invocation_test_request_origins(response)) is not None:
+        update_activity_context(row, request_origins=request_origins)

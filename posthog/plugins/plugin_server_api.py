@@ -105,6 +105,18 @@ def create_hog_flow_invocation_test(team_id: int, hog_flow_id: str, payload: dic
     )
 
 
+def invocation_test_request_origins(response: requests.Response) -> Optional[list[str]]:
+    """The origins a test invocation sent real requests to, or None when the worker did not report them."""
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    origins = body.get("request_origins") if isinstance(body, dict) else None
+    if isinstance(origins, list) and all(isinstance(origin, str) for origin in origins):
+        return origins
+    return None
+
+
 def create_hog_flow_scheduled_invocation(
     team_id: int, hog_flow_id: str, variables: dict[str, object]
 ) -> requests.Response:

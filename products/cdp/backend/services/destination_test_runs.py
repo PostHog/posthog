@@ -39,6 +39,7 @@ class HogFunctionTestRunContext(ActivityContextBase):
     input_references: dict[str, list[str]]
     mapping_input_references: dict[str, list[str]]
     hog: Optional[str]
+    request_origins: Optional[list[str]] = None
 
 
 def _integration_ids_in_value(value: Any) -> Iterable[int]:
