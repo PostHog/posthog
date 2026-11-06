@@ -27,6 +27,7 @@ import { createInvocationResult } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
 import { mergeSecretHeaders, resolveSecretHeaders } from '../utils/secret-headers'
+import { SecretOriginGuard, parseSecretOriginCheckMode } from '../utils/secret-origins'
 import { resolveStandardWebhooksKey, signStandardWebhooksRequest } from '../utils/standard-webhooks'
 import { HogExecutorExecuteOptions, HogExecutorPreviousResult, HogExecutorService } from './hog-executor.service'
 import { HogInputsService } from './hog-inputs.service'
@@ -55,6 +56,8 @@ export interface HogExecutorAsyncConfig {
     fetchBackoffMaxMs: number
     siteUrl: string
     internalApiBaseUrl: string
+    secretOriginCheckMode?: string
+    secretOriginCheckEnforceTeams?: string
 }
 
 /**
@@ -96,7 +99,14 @@ export class HogExecutorAsyncService {
         public readonly hogExecutor: HogExecutorService,
         private config: HogExecutorAsyncConfig,
         private deps: HogExecutorAsyncDependencies
-    ) {}
+    ) {
+        this.secretOriginGuard = new SecretOriginGuard(
+            parseSecretOriginCheckMode(config.secretOriginCheckMode),
+            config.secretOriginCheckEnforceTeams
+        )
+    }
+
+    private readonly secretOriginGuard: SecretOriginGuard
 
     @instrumented('hog-executor.executeWithAsyncFunctions')
     async executeWithAsyncFunctions(
@@ -511,6 +521,18 @@ export class HogExecutorAsyncService {
 
         if (!['GET', 'HEAD'].includes(method) && params.body) {
             fetchParams.body = params.body
+        }
+
+        const refusal = this.secretOriginGuard.check(invocation.hogFunction, {
+            url: params.url,
+            headers: signedHeaders,
+            body: fetchParams.body as string | undefined,
+            params,
+        })
+        if (refusal) {
+            return failSigning(
+                `Refused to send the request to ${refusal.origin} because it contains the secret input ${refusal.inputKey}, which can only be sent to the addresses saved with it. To send it to ${refusal.origin}, enter the secret again in this destination and save.`
+            )
         }
 
         const { fetchError, fetchResponse, fetchDuration } = await cdpTrackedFetch({
