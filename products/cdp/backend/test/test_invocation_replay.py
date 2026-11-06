@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import urlencode
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -16,6 +17,7 @@ from requests.exceptions import (
 from urllib3 import HTTPConnectionPool
 from urllib3.exceptions import MaxRetryError, NewConnectionError
 
+from posthog.admin.console.tools import OperationForm
 from posthog.clickhouse.client.execute import sync_execute
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -25,6 +27,7 @@ from products.cdp.backend.services.invocation_replay import (
     ReplayOverlapError,
     _Failure,
     _plan_function,
+    can_release_replay,
     claim_replay,
     execute_replay,
     get_replay_state,
@@ -324,6 +327,7 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
         assert sent == [[_invocation_id("a1")], [_invocation_id("a2")]]
         state = get_replay_state(plan.fingerprint) or {}
         assert (state["status"], state["failed_requests"], len(state["results"])) == ("done", 0, 2)
+        assert not can_release_replay(plan.fingerprint)
 
     def test_a_plan_can_be_claimed_once(self) -> None:
         function = _function(self.team, "template-google-ads")
@@ -446,87 +450,96 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
         assert rerun.call_count == 1
 
 
-class TestReplayAdmin(ClickhouseTestMixin, APIBaseTest):
+class TestReplayConsoleTool(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.user.is_staff = True
         self.user.save()
         self.function = _function(self.team, "template-google-ads")
         _insert(self.function, [_row("a1", "failed"), _row("a2", "failed", 5), _recovered()])
-        self.form = {
+        self.filters = {
             "window_start": "2026-10-22 11:30:00",
             "window_end": "2026-10-22 14:00:00",
             "error_message_contains": "401",
             "latest_per_person_template_ids": "template-hubspot",
-            "require_success_since_window": "True",
-            "skip_already_rerun": "True",
-            "skip_failing_before_window": "True",
+            "require_success_since_window": "on",
+            "skip_already_rerun": "on",
+            "skip_failing_before_window": "on",
         }
-        self.url = "/admin/cdp/hogfunction/replay-failed-invocations/"
-        self.admin_client = Client()
-        self.admin_client.force_login(self.user)
+        self.url = "/admin/console/tools/replay-failed-runs/"
+        self.send_url = f"{self.url}?{urlencode(self.filters)}"
+        self.staff_client = Client()
+        self.staff_client.force_login(self.user)
 
     def tearDown(self) -> None:
         cache.clear()
         super().tearDown()
 
+    def _details(self) -> Any:
+        return self.staff_client.get(f"{self.send_url}&step=details")
+
     def _fingerprint(self) -> str:
-        return self.admin_client.post(self.url, {**self.form, "action": "details"}).context["plan"].fingerprint
+        blocks = self._details().context["page"].blocks
+        return next(block for block in blocks if isinstance(block, OperationForm)).initial["fingerprint"]
+
+    def _send(self, fingerprint: str, confirm: str = "2") -> Any:
+        return self.staff_client.post(
+            self.send_url,
+            {"operation": "send", "fingerprint": fingerprint, "confirm_count": confirm, "reason": "Outage INC-1"},
+        )
 
     @parameterized.expand(
         [
-            ("stale_fingerprint", "0000000000000000", "2"),
-            ("wrong_confirmation_count", None, "3"),
+            ("stale_fingerprint", "0000000000000000", "2", 302),
+            ("wrong_confirmation_count", None, "3", 400),
         ]
     )
-    @patch("products.cdp.backend.admin.hog_function_admin.run_invocation_replay")
+    @patch("products.cdp.backend.tasks.invocation_replay.run_invocation_replay")
     def test_send_refuses_without_a_matching_review(
-        self, _name: str, fingerprint: str | None, confirm: str, task: MagicMock
+        self, _name: str, fingerprint: str | None, confirm: str, status: int, task: MagicMock
     ) -> None:
-        response = self.admin_client.post(
-            self.url,
-            {
-                **self.form,
-                "action": "execute",
-                "fingerprint": fingerprint or self._fingerprint(),
-                "confirm_count": confirm,
-            },
-        )
+        response = self._send(fingerprint or self._fingerprint(), confirm)
 
-        assert response.status_code == 200
-        assert response.context["step"] == "details"
+        assert response.status_code == status
         task.delay.assert_not_called()
 
-    @patch("products.cdp.backend.admin.hog_function_admin.run_invocation_replay")
+    def test_a_person_who_previews_needs_no_csrf_token_and_nothing_is_sent(self) -> None:
+        with patch("products.cdp.backend.tasks.invocation_replay.run_invocation_replay") as task:
+            preview = Client(enforce_csrf_checks=True)
+            preview.force_login(self.user)
+            response = preview.get(self.send_url)
+
+        assert response.status_code == 200
+        assert "Nothing has been sent yet" in response.content.decode()
+        task.delay.assert_not_called()
+
+    @patch("products.cdp.backend.tasks.invocation_replay.run_invocation_replay")
     def test_send_dispatches_the_reviewed_plan_once(self, task: MagicMock) -> None:
         fingerprint = self._fingerprint()
-        send = {**self.form, "action": "execute", "fingerprint": fingerprint, "confirm_count": "2"}
 
-        first = self.admin_client.post(self.url, send)
-        second = self.admin_client.post(self.url, send)
+        first = self._send(fingerprint)
+        second = self._send(fingerprint)
 
         assert first.status_code == second.status_code == 302
-        assert first["Location"].endswith(f"/replay-failed-invocations/{fingerprint}/")
+        assert first["Location"] == f"{self.url}?plan={fingerprint}"
         task.delay.assert_called_once()
         assert task.delay.call_args.args[1] == fingerprint
-        status = self.admin_client.get(first["Location"])
-        assert status.context["state"]["status"] == "queued"
+        assert "Queued" in self.staff_client.get(first["Location"]).content.decode()
 
-    @patch("products.cdp.backend.admin.hog_function_admin.run_invocation_replay")
+    @patch("products.cdp.backend.tasks.invocation_replay.run_invocation_replay")
     def test_a_send_whose_task_may_have_been_queued_stays_blocked_until_released(self, task: MagicMock) -> None:
         task.delay.side_effect = [ConnectionError("broker down"), None]
         fingerprint = self._fingerprint()
-        send = {**self.form, "action": "execute", "fingerprint": fingerprint, "confirm_count": "2"}
 
-        first = self.admin_client.post(self.url, send)
-        status = self.admin_client.get(first["Location"])
-        assert (status.context["state"]["status"], status.context["can_release"]) == ("failed", True)
+        first = self._send(fingerprint)
+        assert get_replay_state(fingerprint)["status"] == "failed"
+        assert "Allow resending this plan" in self.staff_client.get(first["Location"]).content.decode()
 
-        self.admin_client.post(self.url, send)
+        self._send(fingerprint)
         assert task.delay.call_count == 1
 
-        self.admin_client.post(first["Location"], {"action": "release"})
-        self.admin_client.post(self.url, send)
+        self.staff_client.post(first["Location"], {"operation": "allow-resend", "reason": "Checked the destinations"})
+        self._send(fingerprint)
         assert task.delay.call_count == 2
 
     @patch("products.cdp.backend.services.invocation_replay.rerun_hog_invocations")
@@ -535,10 +548,13 @@ class TestReplayAdmin(ClickhouseTestMixin, APIBaseTest):
         plan = plan_replay(_criteria())
         assert claim_replay(plan, actor="first")
         execute_replay(plan, actor="first")
-        status_url = f"{self.url}{plan.fingerprint}/"
+        status_url = f"{self.url}?plan={plan.fingerprint}"
         assert not claim_replay(plan, actor="second")
-        assert self.admin_client.get(status_url).context["can_release"]
 
-        self.admin_client.post(status_url, {"action": "release"})
+        missing_reason = self.staff_client.post(status_url, {"operation": "allow-resend", "reason": ""})
+        assert missing_reason.status_code == 400
+        assert not claim_replay(plan, actor="second")
+
+        self.staff_client.post(status_url, {"operation": "allow-resend", "reason": "Checked the destinations"})
 
         assert claim_replay(plan, actor="second")

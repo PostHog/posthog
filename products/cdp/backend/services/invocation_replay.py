@@ -677,7 +677,7 @@ def is_replay_claimed(fingerprint: str) -> bool:
 
 
 def can_release_replay(fingerprint: str) -> bool:
-    """True when the plan is claimed and no sender still works on it.
+    """True when the plan is claimed, no sender still works on it, and something may not have gone out.
 
     A sender records progress at least once per request timeout, so a queued or
     running replay without an update for longer than STALLED_AFTER lost its worker.
@@ -685,8 +685,11 @@ def can_release_replay(fingerprint: str) -> bool:
     state = get_replay_state(fingerprint)
     if state is None or not is_replay_claimed(fingerprint):
         return False
-    if state["status"] in ("done", "failed"):
+    if state["status"] == "failed":
         return True
+    # When every request succeeded, a resend would only send the same runs twice.
+    if state["status"] == "done":
+        return bool(state.get("failed_requests"))
     updated_at = datetime.fromisoformat(state.get("updated_at") or datetime.now(UTC).isoformat())
     return datetime.now(UTC) - updated_at > STALLED_AFTER
 

@@ -5,7 +5,7 @@ with --fingerprint set to the value the preview printed. The command computes
 the plan again before it sends, and refuses when the fingerprint no longer
 matches, so it never sends a set of invocations that nobody previewed.
 
-The same flow is available in Django admin, on the hog function list page.
+The same flow is available in PostHog Admin, under Incidents.
 """
 
 from datetime import UTC, datetime
