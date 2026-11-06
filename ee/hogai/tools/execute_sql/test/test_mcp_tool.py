@@ -70,7 +70,7 @@ class TestExecuteSQLMCPOutputLimits(SimpleTestCase):
             self.assertLessEqual(len(result.content) / 4, self.DEFAULT_TOKEN_BUDGET)
             self.assertIn("[SQL result preview: Showing ", result.content)
         else:
-            self.assertTrue(all(row[2] in result.content for row in rows))
+            self.assertTrue(all(str(row[2]) in result.content for row in rows))
 
 
 class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
