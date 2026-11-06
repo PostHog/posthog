@@ -61,8 +61,14 @@ _EMITTING_CALLS = frozenset(
         "sendPushNotification",
     }
 )
+# Standard library calls that call their lambda argument with elements of their other arguments. Other
+# callees, such as `arrayReduce` with its accumulator or code the template defines, can call a lambda with
+# any value.
+_ELEMENT_CALLBACK_CALLS = frozenset({"arrayMap", "arrayFilter", "arrayExists", "arrayCount"})
 # Names the analysis gives a meaning to. Code that declares one of them replaces that meaning at runtime.
-_INTERPRETED_NAMES = frozenset({"inputs", "fetch", "concat", "coalesce", "ifNull", "if"}) | _EMITTING_CALLS
+_INTERPRETED_NAMES = (
+    frozenset({"inputs", "fetch", "concat", "coalesce", "ifNull", "if"}) | _EMITTING_CALLS | _ELEMENT_CALLBACK_CALLS
+)
 _FRESH_CONTAINERS = (ast.Dict, ast.Array, ast.Tuple)
 
 
@@ -196,6 +202,9 @@ class _Analysis:
         self.thrown: list[ast.Expr] = []
         self.field_heads: set[str] = set()
         self.lambda_feeds: dict[int, list[ast.Expr]] = {}
+        # Lambdas a declaration binds to a name, and the parameters of each with that name.
+        self.lambda_names: dict[int, str] = {}
+        self.named_lambda_args: list[tuple[str, str]] = []
 
         self.definitions: dict[str, list[dict]] = {}
         for input_set in input_sets:
@@ -207,6 +216,7 @@ class _Analysis:
             self._input(key, set())
 
         self._collect(parse_program(hog), None)
+        self.fed_names += [(arg, self._call_arguments(name)) for arg, name in self.named_lambda_args]
         bound_elsewhere = {name for name, _ in self.fed_names}
         bound_elsewhere |= {param for params in self.functions.values() for param in params}
         variables = {name for name, _ in self.assignments} | bound_elsewhere
@@ -223,6 +233,17 @@ class _Analysis:
             or (self.reads_all_inputs and self.shared_assignments)
         ):
             raise _CannotAnalyze
+
+    def _call_arguments(self, lambda_name: str) -> list[ast.Expr] | None:
+        """Every argument of every call to a name that only declarations of lambdas bind, or None when the
+        lambda can be reached another way. A name used as a value can hand the lambda to code that calls
+        it with any argument."""
+        params = {param for params in self.functions.values() for param in params}
+        bound_otherwise = {name for name, _ in self.fed_names} | {arg for arg, _ in self.named_lambda_args} | params
+        lambdas_only = all(isinstance(expr, ast.Lambda) for name, expr in self.assignments if name == lambda_name)
+        if not lambdas_only or lambda_name in self.field_heads | bound_otherwise | set(self.functions):
+            return None
+        return [arg for call in self.calls if call.name == lambda_name for arg in call.args]
 
     def _fresh_container_names(self) -> set[str]:
         """Names only ever assigned a new dict, array or tuple. No other name reaches that object, so
@@ -277,6 +298,8 @@ class _Analysis:
     def _collect(self, node: ast.AST, function: str | None) -> None:
         if isinstance(node, ast.VariableDeclaration) and node.expr is not None:
             self.assignments.append((node.name, node.expr))
+            if isinstance(node.expr, ast.Lambda):
+                self.lambda_names[id(node.expr)] = node.name
         elif isinstance(node, ast.VariableAssignment):
             base, depth = _assignment_base(node.left)
             if depth == 0:
@@ -288,6 +311,9 @@ class _Analysis:
                 raise _CannotAnalyze
             self.functions[node.name] = node.params
             function = node.name
+        elif isinstance(node, ast.Lambda) and id(node) in self.lambda_names:
+            self.named_lambda_args += [(name, self.lambda_names[id(node)]) for name in node.args]
+            function = None
         elif isinstance(node, ast.Lambda):
             self.fed_names += [(name, self.lambda_feeds.get(id(node))) for name in node.args]
             function = None
@@ -301,7 +327,7 @@ class _Analysis:
             self.thrown.append(node.expr)
         elif isinstance(node, ast.Call):
             self.calls.append(node)
-            for arg in node.args:
+            for arg in node.args if node.name in _ELEMENT_CALLBACK_CALLS else []:
                 if isinstance(arg, ast.Lambda):
                     self.lambda_feeds[id(arg)] = [other for other in node.args if other is not arg]
         elif isinstance(node, ast.ArrayAccess) and isinstance(node.array, ast.Field) and node.array.chain == ["inputs"]:

