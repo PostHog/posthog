@@ -25,6 +25,7 @@ from products.signals.backend.facade.api import set_signal_source_types_enabled
 from products.signals.backend.facade.source_configs import (
     AlertFilterOutcome,
     AlertNamePatterns,
+    enabled_issue_filters,
     evaluate_alert_filter,
     get_analytics_alert_name_patterns,
     get_analytics_alert_scope,
@@ -1015,6 +1016,33 @@ class TestGetAnalyticsAlertNamePatterns(BaseTest):
             side_effect=RuntimeError("flag service down"),
         ):
             assert get_analytics_alert_name_patterns(team_id=self.team.id) == AlertNamePatterns(invalid=True)
+
+
+class TestEnabledIssueFilters(BaseTest):
+    FILTERS = {"properties": [{"key": "severity", "value": ["high"], "operator": "exact", "type": "event"}]}
+
+    @parameterized.expand(
+        [
+            ("enabled_row_with_filter", "issue_created", True, {"issue_filters": FILTERS}, FILTERS),
+            ("disabled_row", "issue_created", False, {"issue_filters": FILTERS}, None),
+            ("other_source_type", "issue_spiking", True, {"issue_filters": FILTERS}, None),
+            ("no_filter_key", "issue_created", True, {}, None),
+            ("malformed_filter_returned_as_stored", "issue_created", True, {"issue_filters": "nope"}, "nope"),
+        ]
+    )
+    def test_reads_only_the_enabled_row_for_the_source_type(self, _name, stored_type, enabled, config, expected):
+        SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product="error_tracking",
+            source_type=stored_type,
+            enabled=enabled,
+            config=config,
+        )
+
+        assert (
+            enabled_issue_filters(team_id=self.team.id, source_product="error_tracking", source_type="issue_created")
+            == expected
+        )
 
 
 class TestEvaluateAlertFilter(SimpleTestCase):
