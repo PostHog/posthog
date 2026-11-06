@@ -1,7 +1,7 @@
 import { Placeholder } from '@tiptap/extension-placeholder'
 import { Extensions } from '@tiptap/react'
 
-import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
+import { TextContent } from 'lib/components/Cards/TextCard/TextContent'
 import { RichMarkdownEditor } from 'lib/components/MarkdownEditor/rich/RichMarkdownEditor'
 
 import { TEXT_CARD_MARKDOWN_EXTENSIONS, textCardConverter } from './textCardMarkdown'

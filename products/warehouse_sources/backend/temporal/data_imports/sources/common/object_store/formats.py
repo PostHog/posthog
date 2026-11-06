@@ -338,6 +338,15 @@ def iter_parquet_tables(
             yield parquet_file.schema_arrow.empty_table()
     except pa.ArrowInvalid as e:
         raise ObjectStorageError(f"{FILE_PARSE_ERROR} '{file_path}' as Parquet: {e}") from e
+    except OSError as e:
+        # pyarrow's own Parquet decoder raises a bare OSError (pyarrow.ArrowIOError is an alias for
+        # it) for a corrupt or malformed file, e.g. a data page whose block structure fails its
+        # internal validation. A failure reading the underlying stream keeps its own specific
+        # OSError subclass (ConnectionError, TimeoutError, ...) instead, so only the exact base
+        # type means the file itself is bad rather than a transient read.
+        if type(e) is not OSError:
+            raise
+        raise ObjectStorageError(f"{FILE_PARSE_ERROR} '{file_path}' as Parquet: {e}") from e
 
 
 def with_file_columns(table: pa.Table, stored: StoredObject, first_row_number: int = 0) -> pa.Table:
@@ -394,7 +403,12 @@ def iter_file_tables(
         else:
             tables = iter_parquet_tables(stream, stored.path)
     else:
-        binary = cast(IO[bytes], gzip.GzipFile(fileobj=stream)) if is_compressed(stored.path) else stream
+        # fsspec files take no size in `readline`, so the bounded line reads need a standard buffered reader.
+        binary = (
+            cast(IO[bytes], gzip.GzipFile(fileobj=stream))
+            if is_compressed(stored.path)
+            else cast(IO[bytes], io.BufferedReader(_PrefixedStream(b"", stream)))
+        )
         if file_format == "csv":
             delimiter = csv_options.delimiter or ("\t" if stored.path.lower().endswith(TSV_SUFFIXES) else ",")
             tables = iter_csv_tables(binary, csv_options, delimiter, stored.path, logger)

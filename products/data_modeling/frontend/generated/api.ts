@@ -268,14 +268,11 @@ export const getDataModelingNodesMaterializeCreateUrl = (projectId: string, id: 
 export const dataModelingNodesMaterializeCreate = async (
     projectId: string,
     id: string,
-    nodeApi: NonReadonly<NodeApi>,
     options?: RequestInit
-): Promise<NodeApi> => {
-    return apiMutator<NodeApi>(getDataModelingNodesMaterializeCreateUrl(projectId, id), {
+): Promise<void> => {
+    return apiMutator<void>(getDataModelingNodesMaterializeCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(nodeApi),
     })
 }
 

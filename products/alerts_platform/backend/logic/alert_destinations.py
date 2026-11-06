@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Collection, Sequence
 from typing import Final, cast
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from django.db import transaction
@@ -173,6 +174,31 @@ def _validate(destination: NewAlertDestination) -> None:
     refusal = refused_destination(destination.data)
     if refusal is not None:
         raise AlertDestinationValidationError(refusal, field="config")
+
+
+def redact_destination_data(data: AlertDestinationData) -> AlertDestinationData:
+    """Drop the parts of a destination's configuration that are a credential."""
+    redacted = cast(AlertDestinationData, {key: value for key, value in data.items() if key != "webhook_headers"})
+    if (webhook_url := data.get("webhook_url")) is not None:
+        redacted["webhook_url"] = _redact_url(webhook_url)
+    if (routing_key := data.get("pagerduty_routing_key")) is not None:
+        # Keep the tail a person needs to tell two integration keys apart.
+        redacted["pagerduty_routing_key"] = f"••••{routing_key[-4:]}"
+    return redacted
+
+
+def _redact_url(value: str) -> str:
+    """Keep only the parts a person needs to tell two destinations apart. The path,
+    query and userinfo carry the channel secret for every webhook-style provider."""
+    try:
+        parsed = urlsplit(value)
+        scheme, hostname, port = parsed.scheme, parsed.hostname, parsed.port
+    except ValueError:
+        return "<redacted>"
+    if not scheme or not hostname:
+        return "<redacted>"
+    authority = f"{hostname}:{port}" if port is not None else hostname
+    return f"{scheme}://{authority}"
 
 
 def _stored(row: AlertDestination) -> StoredAlertDestination:
