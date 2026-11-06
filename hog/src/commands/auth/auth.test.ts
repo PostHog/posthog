@@ -867,10 +867,39 @@ describe('hog auth login', () => {
             }),
         })
 
-        expect(result.error()).toMatchObject({ code: 'scopes_not_granted' })
+        expect(result.error()).toMatchObject({
+            code: 'scopes_not_granted',
+            hint: expect.stringContaining(`\`hog auth add --host ${EU} insight:write\``),
+        })
         expect(result.keychain[EU]).toBe(OAUTH_LOGIN.keychain[EU])
         const revoke = result.requests.find((request) => request.url.endsWith('/oauth/revoke/'))
         expect((revoke?.body as { token?: string } | undefined)?.token).toBe(STEPPED_UP_REFRESH)
+    })
+
+    test.each([
+        ['rejected', 'access_denied', 'login_rejected'],
+        ['expired', 'expired_token', 'login_expired'],
+    ])('add --wait %s tells an agent the command that asks for the same scopes again', async (_name, error, code) => {
+        const result = await runHog(['auth', 'add', '--wait'], {
+            env: { CLAUDECODE: '1' },
+            files: {
+                ...OAUTH_LOGIN.files,
+                [ADD_PENDING_FILE]: JSON.stringify({
+                    ...(readJson(PENDING) as object),
+                    scopes: ['openid', 'insight:read', 'insight:write', 'dashboard:write'],
+                    requiredScopes: ['insight:write', 'dashboard:write'],
+                }),
+            },
+            keychain: OAUTH_LOGIN.keychain,
+            respond: deviceFlow(0, { status: 400, body: { error } }),
+        })
+
+        expect(result.error()).toMatchObject({
+            code,
+            hint: expect.stringContaining(`\`hog auth add --host ${EU} insight:write dashboard:write\``),
+        })
+        expect(result.keychain[EU]).toBe(OAUTH_LOGIN.keychain[EU])
+        expect(result.files[ADD_PENDING_FILE]).toBeUndefined()
     })
 
     test.each([
@@ -942,9 +971,10 @@ describe('hog auth login', () => {
               ? { status: 200, body: ROWS }
               : { status: 403, body: { detail: 'missing scope' }, headers: { 'WWW-Authenticate': CHALLENGE } }
 
-    test('an agent gets the step-up command for the scopes a request lacks, without a prompt', async () => {
+    test('an agent at a terminal gets the step-up command for the scopes a request lacks, without a prompt', async () => {
         const result = await runHog(['query', 'run', 'select 1'], {
             env: { CLAUDECODE: '1' },
+            stdoutIsTTY: true,
             ...OAUTH_LOGIN,
             respond: challengedQuery,
         })

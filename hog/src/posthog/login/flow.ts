@@ -10,6 +10,7 @@ import { pollDeviceLogin, PendingLoginSchema, startDeviceLogin, type PendingLogi
 import type { Host } from '@/posthog/host'
 import type { ProjectId } from '@/posthog/ids'
 import { withLoginLock, type OAuthLogin } from '@/posthog/oauth'
+import { stepUpCommand } from '@/posthog/scope-challenge'
 import { loginFor, readSettings } from '@/posthog/settings'
 
 import { readLogin, writeLogin } from './stored'
@@ -46,6 +47,9 @@ export function loginWait(runtime: Runtime, command = LOGIN_COMMAND): ApprovalWa
         command,
         noun: 'login',
         pending: PendingLoginSchema,
+        // `hog auth add` with no scopes is a usage error, so starting over has to name them.
+        restart: (pending) =>
+            pending.requiredScopes.length > 0 ? stepUpCommand(pending.requiredScopes, pending.host) : command,
         poll: (pending, timeoutMs) => pollDeviceLogin(runtime, pending, timeoutMs, command),
     }
 }

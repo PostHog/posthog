@@ -9,6 +9,7 @@ import { parseOrThrow } from '@/core/schema'
 import { hostKey, HostSchema, hostUrl, type Host } from './host'
 import { ProjectIdSchema } from './ids'
 import { HOG_CLIENT_ID, OAuthErrorBody, OAuthLogin, oauthPost, TokenResponse } from './oauth'
+import { stepUpCommand } from './scope-challenge'
 import { OAuthRefreshTokenSchema } from './tokens'
 
 const DEVICE_CODE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code'
@@ -200,8 +201,7 @@ export async function startDeviceLogin(
 async function refuseWithoutRequiredScopes(
     runtime: Runtime,
     login: OAuthLogin,
-    requiredScopes: readonly string[],
-    command: string
+    requiredScopes: readonly string[]
 ): Promise<void> {
     if (requiredScopes.length === 0) {
         return
@@ -214,8 +214,8 @@ async function refuseWithoutRequiredScopes(
     await login.logout(runtime)
     throw new HogError(
         'scopes_not_granted',
-        `The approved login doesn't have ${missing.join(', ')}, so hog kept your current login.`,
-        `Run \`${command} ${missing.join(' ')}\` and keep these scopes when you approve it.`
+        `The approval didn't include ${missing.join(', ')}, so hog kept your current login.`,
+        `Run \`${stepUpCommand(missing, login.host)}\` and keep these scopes when you approve it.`
     )
 }
 
@@ -248,7 +248,7 @@ export async function pollDeviceLogin(
         })
         const [projectId] = body.scoped_teams
         const login = OAuthLogin.fromTokens(runtime, body, { host: pending.host, projectId, scopes: pending.scopes })
-        await refuseWithoutRequiredScopes(runtime, login, pending.requiredScopes, command)
+        await refuseWithoutRequiredScopes(runtime, login, pending.requiredScopes)
         return { state: 'approved', value: login }
     }
     const body = OAuthErrorBody.safeParse(response.json).data

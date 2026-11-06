@@ -33,15 +33,19 @@ export async function finishStepUp(ctx: Context, approved: OAuthLogin): Promise<
     }
 }
 
-function keyCantStepUp(scopes: readonly string[]): HogError {
+// hog adds scopes by asking for a new browser approval, which only works for `hog auth login`. A personal
+// API key's scopes are set in PostHog, so hog can't change them.
+function personalKeyCantGainScopes(scopes: readonly string[]): HogError {
     return new HogError(
         'step_up_unavailable',
-        'hog can only add scopes to a login. A personal API key keeps the scopes it has in PostHog.',
-        `${addToKeyHint(scopes)} Or run \`hog auth login\` to log in with the browser instead.`
+        "You're using a personal API key, and hog can't add scopes to it. You choose a key's scopes in PostHog.",
+        `${addToKeyHint(scopes)} Or run \`hog auth login\` to log in with the browser, and hog can then add scopes for you.`
     )
 }
 
-// Resolves to false when nobody can answer, the credentials can't add scopes, or the person says no.
+// Agents, scripts, CI and `-o json` have no prompts, so this returns false without asking or waiting,
+// and the caller fails with `step_up_required`, which names the scopes and the `hog auth add` command.
+// It also returns false for a personal API key, or when the person says no.
 export async function promptStepUp(ctx: Context, scopes: readonly string[]): Promise<boolean> {
     const prompts = ctx.prompts
     if (!prompts || !canStepUp(await ctx.credentials())) {
@@ -81,7 +85,7 @@ async function loginScopes(
 export async function stepUp(ctx: Context, wanted: readonly string[]): Promise<StepUpResult> {
     const login = await loginScopes(ctx, await ctx.credentials(), wanted)
     if (!login) {
-        throw keyCantStepUp(wanted)
+        throw personalKeyCantGainScopes(wanted)
     }
     const { key, held, missing: added } = login
     if (added.length === 0) {

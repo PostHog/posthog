@@ -39,8 +39,8 @@ export class KeySession {
         if (latest.loginKey !== this.key.loginKey) {
             throw new HogError(
                 'login_changed',
-                'Your login now works in another project, so hog stopped instead of sending the rest of the command there.',
-                'Run the command again to use the new login.'
+                "You're now logged in to another project, so hog stopped instead of sending the rest of the command there.",
+                'Run the command again to use that project.'
             )
         }
         this.key = latest
