@@ -1,31 +1,25 @@
 import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
 
 import { IconCopy, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
-    LemonCheckbox,
     LemonCollapse,
     LemonInput,
-    LemonModal,
     LemonSegmentedButton,
     LemonTag,
     Link,
     Spinner,
 } from '@posthog/lemon-ui'
 
-import { AccessDenied } from 'lib/components/AccessDenied'
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { organizationLogic } from 'scenes/organizationLogic'
 
-import type { ProviderImportRunApi } from 'products/messaging/frontend/generated/api.schemas'
+import type { ImportProviderOptionApi } from 'products/messaging/frontend/generated/api.schemas'
 
 import { CSVImportProgress, customerIOImportLogic } from './customerIOImportLogic'
-import { CustomerIOImportRunProgress } from './CustomerIOImportRunProgress'
+import { ProviderImportPanel } from './ProviderImportPanel'
 
 function StepBadge({ status }: { status: 'completed' | 'failed' | false }): JSX.Element | null {
     if (status === 'completed') {
@@ -35,63 +29,6 @@ function StepBadge({ status }: { status: 'completed' | 'failed' | false }): JSX.
         return <LemonTag type="warning">Failed</LemonTag>
     }
     return null
-}
-
-function ImportStepPicker(): JSX.Element {
-    const { importProviders, importProvidersLoading, importStepOptions, deselectedImportSteps } =
-        useValues(customerIOImportLogic)
-    const { toggleImportStep, loadImportProviders } = useActions(customerIOImportLogic)
-
-    if (importProviders === null && importProvidersLoading) {
-        return <Spinner />
-    }
-    if (importProviders === null) {
-        return (
-            <LemonBanner type="error" action={{ children: 'Try again', onClick: loadImportProviders }}>
-                Couldn't load what you can import.
-            </LemonBanner>
-        )
-    }
-
-    return (
-        <div className="space-y-2">
-            <label className="LemonLabel">What to import</label>
-            {importStepOptions.map((step) => (
-                <div key={step.key}>
-                    <LemonCheckbox
-                        checked={!deselectedImportSteps.includes(step.key)}
-                        onChange={() => toggleImportStep(step.key)}
-                        label={step.label}
-                        data-attr={`customerio-import-step-${step.key}`}
-                    />
-                    <div className="text-xs text-secondary ml-6">{step.description}</div>
-                </div>
-            ))}
-        </div>
-    )
-}
-
-function LatestImportRunResult({ run }: { run: ProviderImportRunApi }): JSX.Element {
-    return (
-        <div className="space-y-3">
-            {run.status === 'completed' ? (
-                <LemonBanner type="success">
-                    <span className="font-semibold">Import finished</span>
-                </LemonBanner>
-            ) : (
-                <LemonBanner type="error">
-                    Some steps failed. Run the import again to retry them. Data that already imported isn't duplicated.
-                </LemonBanner>
-            )}
-            <CustomerIOImportRunProgress run={run} />
-            {run.finished_at && (
-                <div className="flex items-center justify-between text-sm">
-                    <span>Finished</span>
-                    <TZLabel time={run.finished_at} />
-                </div>
-            )}
-        </div>
-    )
 }
 
 function LegacyImportResult(): JSX.Element | null {
@@ -129,118 +66,32 @@ function LegacyImportResult(): JSX.Element | null {
     )
 }
 
-function Step1Content(): JSX.Element {
-    const {
-        importForm,
-        importError,
-        syncConfig,
-        isRemovingAppConfig,
-        importRuns,
-        importRunsLoading,
-        latestImportRun,
-        isImportRunActive,
-        selectedImportSteps,
-        startedImportRunLoading,
-    } = useValues(customerIOImportLogic)
-    const { submitImportForm, startImport, removeAppConfig } = useActions(customerIOImportLogic)
-
-    const hasStoredKey = syncConfig?.app_integration_id != null
-    const noStepsReason = selectedImportSteps.length === 0 ? 'Select at least one thing to import' : undefined
-
-    if (importRuns === null && importRunsLoading) {
-        return (
-            <div className="flex justify-center py-8">
-                <Spinner className="text-3xl" />
-            </div>
-        )
-    }
-
-    if (latestImportRun && isImportRunActive) {
-        return (
-            <div className="space-y-4">
-                <LemonBanner type="info">
-                    The import runs in the background. You can close this window and come back to check on it.
-                </LemonBanner>
-                <CustomerIOImportRunProgress run={latestImportRun} />
-            </div>
-        )
-    }
+function StoredKeyField(): JSX.Element {
+    const { isRemovingAppConfig } = useValues(customerIOImportLogic)
+    const { removeAppConfig } = useActions(customerIOImportLogic)
 
     return (
-        <div className="space-y-4">
-            {latestImportRun ? <LatestImportRunResult run={latestImportRun} /> : <LegacyImportResult />}
-
-            <ImportStepPicker />
-
-            {hasStoredKey ? (
-                <>
-                    <div className="space-y-2">
-                        <label className="LemonLabel">Customer.io App API Key</label>
-                        <LemonInput
-                            value="••••••••••••••••"
-                            disabledReason="Can't be changed"
-                            suffix={
-                                <LemonButton
-                                    size="xsmall"
-                                    type="tertiary"
-                                    status="danger"
-                                    tooltip="Remove stored API key"
-                                    onClick={removeAppConfig}
-                                    loading={isRemovingAppConfig}
-                                    icon={<IconTrash className="text-danger" />}
-                                />
-                            }
+        <>
+            <div className="space-y-2">
+                <label className="LemonLabel">Customer.io App API Key</label>
+                <LemonInput
+                    value="••••••••••••••••"
+                    disabledReason="Can't be changed"
+                    suffix={
+                        <LemonButton
+                            size="xsmall"
+                            type="tertiary"
+                            status="danger"
+                            tooltip="Remove stored API key"
+                            onClick={removeAppConfig}
+                            loading={isRemovingAppConfig}
+                            icon={<IconTrash className="text-danger" />}
                         />
-                    </div>
-                    <p className="text-sm text-muted">Safe to rerun, existing categories and users will be updated.</p>
-                </>
-            ) : (
-                <Form logic={customerIOImportLogic} formKey="importForm" enableFormOnSubmit>
-                    <LemonField name="app_api_key" label="Customer.io App API Key">
-                        <LemonInput
-                            placeholder="Enter your App API key"
-                            type="password"
-                            data-attr="customerio-api-key"
-                            autoComplete="off"
-                        />
-                    </LemonField>
-                    <div className="text-xs text-muted-alt mt-2">
-                        You can generate an App API key in Customer.io under Settings → Account Settings → API
-                        Credentials.
-                    </div>
-                </Form>
-            )}
-
-            {importError && (
-                <LemonBanner type="error" className="text-sm">
-                    {importError}
-                </LemonBanner>
-            )}
-
-            <div className="flex justify-end">
-                {hasStoredKey ? (
-                    <LemonButton
-                        type="primary"
-                        onClick={() => startImport({ apiKey: null })}
-                        loading={startedImportRunLoading}
-                        disabledReason={noStepsReason}
-                        data-attr="customerio-import-run-again"
-                    >
-                        {latestImportRun ? 'Run again' : 'Start import'}
-                    </LemonButton>
-                ) : (
-                    <LemonButton
-                        type="primary"
-                        onClick={submitImportForm}
-                        loading={startedImportRunLoading}
-                        disabledReason={!importForm.app_api_key ? 'Enter your API key' : noStepsReason}
-                        data-attr="customerio-import-start"
-                    >
-                        Start import
-                    </LemonButton>
-                )}
+                    }
+                />
             </div>
-        </div>
+            <p className="text-sm text-muted">Safe to rerun, existing categories and users will be updated.</p>
+        </>
     )
 }
 
@@ -622,85 +473,85 @@ function Step4Content(): JSX.Element {
     )
 }
 
-export function CustomerIOImportModal(): JSX.Element {
-    const { isImportModalOpen, stepCompletion, syncConfigLoading } = useValues(customerIOImportLogic)
-    const { closeImportModal } = useActions(customerIOImportLogic)
-    const { isAdminOrOwner } = useValues(organizationLogic)
+export function CustomerIOImportSteps({ provider }: { provider: ImportProviderOptionApi }): JSX.Element {
+    const { stepCompletion, syncConfigLoading, syncConfig, latestImportRun } = useValues(customerIOImportLogic)
+
+    if (syncConfigLoading) {
+        return (
+            <div className="flex justify-center py-8">
+                <Spinner className="text-3xl" />
+            </div>
+        )
+    }
 
     return (
-        <LemonModal
-            title="Customer.io integration"
-            description="Import categories, unsubscribed users and suppressed addresses from Customer.io."
-            isOpen={isImportModalOpen}
-            onClose={closeImportModal}
-            width={640}
-        >
-            {isAdminOrOwner === false ? (
-                <AccessDenied object="Customer.io integration" inline />
-            ) : syncConfigLoading ? (
-                <div className="flex justify-center py-8">
-                    <Spinner className="text-3xl" />
-                </div>
-            ) : (
-                <div className="space-y-4">
-                    <LemonBanner type="info">
-                        <span>
-                            Check our{' '}
-                            <Link to="https://posthog.com/docs/workflows/import-customerio-optouts" target="_blank">
-                                Customer.io import guide
-                            </Link>{' '}
-                            for detailed instructions.
-                        </span>
-                    </LemonBanner>
-                    <LemonCollapse
-                        defaultActiveKey={(['step1', 'step2', 'step3', 'step4'] as const).find(
-                            (s) => !stepCompletion[s]
-                        )}
-                        panels={[
-                            {
-                                key: 'step1',
-                                header: (
-                                    <div className="flex items-center justify-between w-full">
-                                        <span>1. Import categories, opt-outs & suppressions</span>
-                                        <StepBadge status={stepCompletion.step1} />
-                                    </div>
-                                ),
-                                content: <Step1Content />,
-                            },
-                            {
-                                key: 'step2',
-                                header: (
-                                    <div className="flex items-center justify-between w-full">
-                                        <span>2. Upload opt-out preferences CSV</span>
-                                        <StepBadge status={stepCompletion.step2} />
-                                    </div>
-                                ),
-                                content: <Step2Content />,
-                            },
-                            {
-                                key: 'step3',
-                                header: (
-                                    <div className="flex items-center justify-between w-full">
-                                        <span>3. Inbound webhook sync</span>
-                                        <StepBadge status={stepCompletion.step3} />
-                                    </div>
-                                ),
-                                content: <Step3Content />,
-                            },
-                            {
-                                key: 'step4',
-                                header: (
-                                    <div className="flex items-center justify-between w-full">
-                                        <span>4. Outbound sync to Customer.io</span>
-                                        <StepBadge status={stepCompletion.step4} />
-                                    </div>
-                                ),
-                                content: <Step4Content />,
-                            },
-                        ]}
-                    />
-                </div>
-            )}
-        </LemonModal>
+        <div className="space-y-4">
+            <LemonBanner type="info">
+                <span>
+                    Check our{' '}
+                    <Link to="https://posthog.com/docs/workflows/import-customerio-optouts" target="_blank">
+                        Customer.io import guide
+                    </Link>{' '}
+                    for detailed instructions.
+                </span>
+            </LemonBanner>
+            <LemonCollapse
+                defaultActiveKey={
+                    // A failed run has to stay in view, because its error says which steps to retry.
+                    latestImportRun?.status === 'failed'
+                        ? 'step1'
+                        : (['step1', 'step2', 'step3', 'step4'] as const).find((s) => !stepCompletion[s])
+                }
+                panels={[
+                    {
+                        key: 'step1',
+                        header: (
+                            <div className="flex items-center justify-between w-full">
+                                <span>1. Import categories, opt-outs & suppressions</span>
+                                <StepBadge status={stepCompletion.step1} />
+                            </div>
+                        ),
+                        content: (
+                            <ProviderImportPanel
+                                provider={provider}
+                                storedKeyField={syncConfig?.app_integration_id != null ? <StoredKeyField /> : null}
+                                beforeForm={latestImportRun ? null : <LegacyImportResult />}
+                                apiKeyPlaceholder="Enter your App API key"
+                            />
+                        ),
+                    },
+                    {
+                        key: 'step2',
+                        header: (
+                            <div className="flex items-center justify-between w-full">
+                                <span>2. Upload opt-out preferences CSV</span>
+                                <StepBadge status={stepCompletion.step2} />
+                            </div>
+                        ),
+                        content: <Step2Content />,
+                    },
+                    {
+                        key: 'step3',
+                        header: (
+                            <div className="flex items-center justify-between w-full">
+                                <span>3. Inbound webhook sync</span>
+                                <StepBadge status={stepCompletion.step3} />
+                            </div>
+                        ),
+                        content: <Step3Content />,
+                    },
+                    {
+                        key: 'step4',
+                        header: (
+                            <div className="flex items-center justify-between w-full">
+                                <span>4. Outbound sync to Customer.io</span>
+                                <StepBadge status={stepCompletion.step4} />
+                            </div>
+                        ),
+                        content: <Step4Content />,
+                    },
+                ]}
+            />
+        </div>
     )
 }
