@@ -123304,6 +123304,7 @@ export namespace Schemas {
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
      * * `OrganizationDomain` - OrganizationDomain
+     * * `OrganizationIPRestrictions` - OrganizationIPRestrictions
      * * `IdentityProviderConfig` - IdentityProviderConfig
      * * `OrganizationMembership` - OrganizationMembership
      * * `Role` - Role
@@ -123426,6 +123427,7 @@ export namespace Schemas {
       LegalDocument: 'LegalDocument',
       Organization: 'Organization',
       OrganizationDomain: 'OrganizationDomain',
+      OrganizationIPRestrictions: 'OrganizationIPRestrictions',
       IdentityProviderConfig: 'IdentityProviderConfig',
       OrganizationMembership: 'OrganizationMembership',
       Role: 'Role',
@@ -123534,6 +123536,7 @@ export namespace Schemas {
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
      * * `OrganizationDomain` - OrganizationDomain
+     * * `OrganizationIPRestrictions` - OrganizationIPRestrictions
      * * `IdentityProviderConfig` - IdentityProviderConfig
      * * `OrganizationMembership` - OrganizationMembership
      * * `Role` - Role
@@ -123644,6 +123647,7 @@ export namespace Schemas {
       LegalDocument: 'LegalDocument',
       Organization: 'Organization',
       OrganizationDomain: 'OrganizationDomain',
+      OrganizationIPRestrictions: 'OrganizationIPRestrictions',
       IdentityProviderConfig: 'IdentityProviderConfig',
       OrganizationMembership: 'OrganizationMembership',
       Role: 'Role',
