@@ -16,6 +16,7 @@ type CachedRead = { paused: Promise<boolean>; expiresAt: number }
 export class SandboxSenderStateService {
     private lookup: BoundedPrimaryLookup
     private cached: CachedRead | undefined
+    private lastGood: CachedRead | undefined
     private reloads = 0
 
     constructor(
@@ -32,6 +33,7 @@ export class SandboxSenderStateService {
             if (tenantName === this.tenantName) {
                 this.reloads++
                 this.cached = undefined
+                this.lastGood = undefined
             }
         })
     }
@@ -49,20 +51,28 @@ export class SandboxSenderStateService {
     }
 
     private currentRead(fresh: boolean, giveUpAt: number): Promise<boolean> {
-        const previous = this.cached
-        if (!fresh && previous && Date.now() < previous.expiresAt) {
-            return previous.paused
+        if (!fresh && this.cached && Date.now() < this.cached.expiresAt) {
+            return this.cached.paused
         }
+        const reloads = this.reloads
         const read: CachedRead = {
             paused: this.readWithRetry(giveUpAt),
             expiresAt: Date.now() + REFRESH_AGE_MS + Math.random() * REFRESH_JITTER_MS,
         }
         this.cached = read
-        read.paused.catch(() => {
-            if (this.cached === read) {
-                this.cached = previous && Date.now() < previous.expiresAt ? previous : undefined
+        read.paused.then(
+            () => {
+                if (reloads === this.reloads) {
+                    this.lastGood = read
+                }
+            },
+            () => {
+                if (this.cached === read) {
+                    const lastGood = this.lastGood
+                    this.cached = lastGood && Date.now() < lastGood.expiresAt ? lastGood : undefined
+                }
             }
-        })
+        )
         return read.paused
     }
 

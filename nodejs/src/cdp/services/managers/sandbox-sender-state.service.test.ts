@@ -89,25 +89,75 @@ describe('SandboxSenderStateService', () => {
         }
     })
 
-    it('keeps the cached state when a fresh read fails', async () => {
-        const outcomes: unknown[] = [row(false), new Error('relation does not exist')]
-        const query = jest.fn((_tx: unknown, sql: string) => {
-            if (!isLookup(sql)) {
-                return Promise.resolve({ rows: [] })
-            }
-            const outcome = outcomes.shift()
-            return outcome instanceof Error ? Promise.reject(outcome) : Promise.resolve(outcome)
-        })
+    const heldLookups = (): {
+        service: SandboxSenderStateService
+        lookups: () => number
+        settleNext: (outcome: unknown) => Promise<void>
+    } => {
+        const held: { resolve: (value: unknown) => void; reject: (error: unknown) => void }[] = []
+        const query = jest.fn((_tx: unknown, sql: string) =>
+            isLookup(sql)
+                ? new Promise((resolve, reject) => held.push({ resolve, reject }))
+                : Promise.resolve({ rows: [] })
+        )
         const service = new SandboxSenderStateService(
             { connect: () => Promise.resolve(idleClient()), query } as unknown as PostgresRouter,
             'sandbox-tenant',
             pubSub
         )
+        const settleNext = async (outcome: unknown): Promise<void> => {
+            for (let tick = 0; held.length === 0; tick++) {
+                if (tick > 100) {
+                    throw new Error('No sandbox sender state lookup started')
+                }
+                await new Promise((resolve) => setImmediate(resolve))
+            }
+            const lookup = held.shift()!
+            if (outcome instanceof Error) {
+                lookup.reject(outcome)
+            } else {
+                lookup.resolve(outcome)
+            }
+        }
+        return { service, lookups: () => query.mock.calls.filter(([, sql]) => isLookup(sql)).length, settleNext }
+    }
+    const failure = (): Error => new Error('relation does not exist')
 
+    it('keeps the last good state when fresh reads fail, also when they overlap', async () => {
+        const { service, lookups, settleNext } = heldLookups()
+
+        const first = service.isPaused()
+        await settleNext(row(false))
+        await expect(first).resolves.toBe(false)
+
+        const fresh = service.isPaused({ fresh: true })
+        await settleNext(failure())
+        await expect(fresh).rejects.toThrow('relation does not exist')
         await expect(service.isPaused()).resolves.toBe(false)
-        await expect(service.isPaused({ fresh: true })).rejects.toThrow('relation does not exist')
+
+        const earlierFresh = service.isPaused({ fresh: true })
+        const laterFresh = service.isPaused({ fresh: true })
+        await settleNext(failure())
+        await settleNext(failure())
+        await expect(earlierFresh).rejects.toThrow('relation does not exist')
+        await expect(laterFresh).rejects.toThrow('relation does not exist')
         await expect(service.isPaused()).resolves.toBe(false)
-        expect(query.mock.calls.filter(([, sql]) => isLookup(sql))).toHaveLength(2)
+        expect(lookups()).toBe(4)
+    })
+
+    it('reads again when a cached read and an overlapping fresh read both fail', async () => {
+        const { service, settleNext } = heldLookups()
+
+        const cached = service.isPaused()
+        const fresh = service.isPaused({ fresh: true })
+        await settleNext(failure())
+        await settleNext(failure())
+        await expect(cached).rejects.toThrow('relation does not exist')
+        await expect(fresh).rejects.toThrow('relation does not exist')
+
+        const next = service.isPaused()
+        await settleNext(row(true))
+        await expect(next).resolves.toBe(true)
     })
 
     it('reads again after a reload message and after a fresh read, also for checks that wait while the message arrives', async () => {
