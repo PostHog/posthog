@@ -45,13 +45,25 @@ function repeated(count: number, verb: string): string | null {
     return count > 1 ? `${verb} ${count} times` : null
 }
 
+function clickedStep(email: TransactionalEmailLogDetailApi, previousAt: string | null): DeliveryStep {
+    const clicked = firstOf(email.timeline, 'clicked')
+    const clickStep = step(
+        'clicked',
+        'Clicked',
+        clicked,
+        previousAt,
+        repeated(countOf(email.timeline, 'clicked'), 'Clicked')
+    )
+    // A send from before an email was marked sensitive can still have a recorded click.
+    return email.sensitive && !clicked ? { ...clickStep, state: 'untracked' } : clickStep
+}
+
 /** The steps an email went through, ending where it stopped. */
 export function buildDeliverySteps(email: TransactionalEmailLogDetailApi): DeliveryStep[] {
     const { timeline } = email
     const sent = firstOf(timeline, 'sent')
     const delivered = firstOf(timeline, 'delivered')
     const opened = firstOf(timeline, 'opened')
-    const clicked = firstOf(timeline, 'clicked')
     // A rerun can fail and then bounce, so the last step reads from the row behind the final status.
     const failure = firstOf(timeline, email.status)
     const queuedAt = firstOf(timeline, 'queued')?.at ?? email.created_at
@@ -92,20 +104,12 @@ export function buildDeliverySteps(email: TransactionalEmailLogDetailApi): Deliv
             stopped('complained', delivered?.at ?? sent?.at ?? null, 'The recipient reported this email as spam'),
         ]
     }
-    const clickedStep = step(
-        'clicked',
-        'Clicked',
-        clicked,
-        opened?.at ?? delivered?.at ?? null,
-        repeated(countOf(timeline, 'clicked'), 'Clicked')
-    )
     return [
         ...lead,
         sentStep,
         deliveredStep,
         step('opened', 'Opened', opened, delivered?.at ?? null, repeated(countOf(timeline, 'opened'), 'Opened')),
-        // A send from before an email was marked sensitive can still have a recorded click.
-        email.sensitive && !clicked ? { ...clickedStep, state: 'untracked' } : clickedStep,
+        clickedStep(email, opened?.at ?? delivered?.at ?? null),
     ]
 }
 
