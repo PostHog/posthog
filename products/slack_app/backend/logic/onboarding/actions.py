@@ -11,6 +11,8 @@ SKIP_ACTION_ID = "slack_onboarding:skip"
 CONTINUE_ACTION_ID = "slack_onboarding:continue"
 AI_CONSENT_ACTION_ID = "slack_onboarding:ai_consent"
 INBOX_JOIN_ACTION_ID = "slack_onboarding:inbox_join"
+# The mode is a suffix for the same reason as the reply modes.
+CHANNEL_WELCOME_ACTION_ID = "slack_onboarding:channel_welcome"
 SOURCES_ACTION_ID = "slack_onboarding:sources"
 SOURCES_BLOCK_PREFIX = "slack_onboarding_sources"
 ONBOARDING_ACTION_PREFIX = "slack_onboarding:"
