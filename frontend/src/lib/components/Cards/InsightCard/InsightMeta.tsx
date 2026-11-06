@@ -5,6 +5,8 @@ import React, { useMemo, useState } from 'react'
 import { IconChevronRight, IconClock, IconPulse, IconThumbsDown, IconThumbsUp, IconWarning } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { AddToHomeButton } from 'lib/components/AddToHome/AddToHomeButton'
+import { isHomePinnable } from 'lib/components/AddToHome/homePinsLogic'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { CardMetaRefreshButton } from 'lib/components/Cards/CardMetaRefreshButton'
 import { CompactInfoPopover } from 'lib/components/Cards/InsightCard/CompactInfoPopover'
@@ -622,6 +624,9 @@ function InsightMetaBody({
                             >
                                 Duplicate
                             </LemonButton>
+                        )}
+                        {featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] && isHomePinnable(insight) && (
+                            <AddToHomeButton insight={insight} />
                         )}
                         {showDashboardAlertsMenuItem && insight.id ? (
                             <LemonButton
