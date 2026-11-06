@@ -1821,22 +1821,56 @@ describe('Hog Executor', () => {
                 return metric.values.find((v) => v.labels.outcome === outcome && v.labels.mode === mode)?.value ?? 0
             }
 
+            const readTotal = async (): Promise<number> =>
+                (await secretOriginCheckCounter.get()).values.reduce((sum, v) => sum + v.value, 0)
+
+            type Carry = 'body' | 'secret_headers' | 'aws_sigv4' | 'standard_webhooks' | 'unnamed_secret_dictionary'
+
             const secretInvocation = async (
                 url: string,
                 allowedOrigins: unknown,
-                carry: 'body' | 'secret_headers' = 'body',
+                carry: Carry = 'body',
                 secret: string = SECRET
             ): Promise<CyclotronJobInvocationHogFunction> => {
-                const invocation = await createFetchInvocation({
-                    url,
-                    method: 'POST',
-                    body: carry === 'body' ? JSON.stringify({ key: secret }) : '{}',
-                    ...(carry === 'secret_headers' ? { secret_headers_input: 'api_key' } : {}),
-                })
-                const value = carry === 'body' ? secret : { Authorization: `Bearer ${secret}` }
-                invocation.hogFunction.encrypted_inputs = {
-                    api_key: allowedOrigins === undefined ? { value } : { value, allowed_origins: allowedOrigins },
-                } as any
+                const bind = (value: unknown): Record<string, unknown> =>
+                    allowedOrigins === undefined ? { value } : { value, allowed_origins: allowedOrigins }
+                const byCarry: Record<
+                    Carry,
+                    { params: Partial<CyclotronInvocationQueueParametersFetchType>; inputs: Record<string, unknown> }
+                > = {
+                    body: { params: { body: JSON.stringify({ key: secret }) }, inputs: { api_key: secret } },
+                    secret_headers: {
+                        params: { secret_headers_input: 'api_key' },
+                        inputs: { api_key: { Authorization: `Bearer ${secret}` } },
+                    },
+                    aws_sigv4: {
+                        params: {
+                            aws_sigv4: {
+                                service: 'kinesis',
+                                region: 'us-east-1',
+                                access_key_id_input: 'aws_access_key_id',
+                                secret_access_key_input: 'aws_secret_access_key',
+                            },
+                        },
+                        inputs: {
+                            aws_access_key_id: 'AKIDEXAMPLE',
+                            aws_secret_access_key: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY',
+                        },
+                    },
+                    standard_webhooks: {
+                        params: { standard_webhooks: { secret_input: 'signing_secret', webhook_id: 'msg_1' } },
+                        inputs: { signing_secret: 'whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw' },
+                    },
+                    unnamed_secret_dictionary: {
+                        params: { headers: { 'Content-Type': 'application/json' } },
+                        inputs: { api_key: { 'Content-Type': 'application/json', Authorization: secret } },
+                    },
+                }
+                const { params, inputs } = byCarry[carry]
+                const invocation = await createFetchInvocation({ url, method: 'POST', body: '{}', ...params })
+                invocation.hogFunction.encrypted_inputs = Object.fromEntries(
+                    Object.entries(inputs).map(([key, value]) => [key, bind(value)])
+                ) as any
                 return invocation
             }
 
@@ -1856,12 +1890,6 @@ describe('Hog Executor', () => {
                     outcome: 'mismatch',
                 },
                 { case: 'an unbound secret', allowed: '*', carry: 'body', outcome: 'unbound' },
-                {
-                    case: 'a secret saved before binding',
-                    allowed: undefined,
-                    carry: 'body',
-                    outcome: 'unbound_missing',
-                },
             ] as const)('observe: sends and counts $case', async ({ allowed, carry, outcome }) => {
                 const invocation = await secretInvocation(
                     `${baseUrl}/`,
@@ -1878,6 +1906,46 @@ describe('Hog Executor', () => {
             })
 
             it.each([
+                { case: 'the check is off', config: { secretOriginCheckMode: 'off' }, allowed: [], attempts: 0 },
+                { case: 'a retry', config: {}, allowed: [], attempts: 1 },
+                { case: 'secrets saved before binding', config: {}, allowed: undefined, attempts: 0 },
+            ])('sends and counts nothing when $case', async ({ config, allowed, attempts }) => {
+                const invocation = await secretInvocation(`${baseUrl}/`, allowed)
+                invocation.state.attempts = attempts
+                const before = await readTotal()
+
+                const result = await createExecutor(hub.encryptedFields, {
+                    secretOriginCheckEnforceTeams: '*',
+                    ...config,
+                }).executeFetch(invocation)
+
+                expect(mockRequest).toHaveBeenCalledTimes(1)
+                expect(result.error).toBeUndefined()
+                expect(await readTotal()).toBe(before)
+            })
+
+            it.each([
+                { case: 'a team outside the enforce list', mode: 'enforce', teams: '999999', warned: false },
+                { case: 'an unknown mode', mode: 'enforcing', teams: '*', warned: true },
+            ])('sends and counts under observe for $case', async ({ mode, teams, warned }) => {
+                const invocation = await secretInvocation(`${baseUrl}/`, ['https://elsewhere.example'])
+                const before = await readCount('mismatch', 'observe')
+                const warn = jest.spyOn(logger, 'warn')
+
+                const result = await createExecutor(hub.encryptedFields, {
+                    secretOriginCheckMode: mode,
+                    secretOriginCheckEnforceTeams: teams,
+                }).executeFetch(invocation)
+
+                expect(mockRequest).toHaveBeenCalledTimes(1)
+                expect(result.error).toBeUndefined()
+                expect(await readCount('mismatch', 'observe')).toBe(before + 1)
+                expect(warn.mock.calls.some(([, message]) => String(message).includes('Unknown secret origin'))).toBe(
+                    warned
+                )
+            })
+
+            it.each([
                 {
                     case: 'a mismatched body secret',
                     allowed: ['https://elsewhere.example'],
@@ -1889,6 +1957,24 @@ describe('Hog Executor', () => {
                     allowed: ['https://elsewhere.example'],
                     carry: 'secret_headers',
                     sent: false,
+                },
+                {
+                    case: 'mismatched AWS credentials',
+                    allowed: ['https://elsewhere.example'],
+                    carry: 'aws_sigv4',
+                    sent: false,
+                },
+                {
+                    case: 'a mismatched webhook signing secret',
+                    allowed: ['https://elsewhere.example'],
+                    carry: 'standard_webhooks',
+                    sent: false,
+                },
+                {
+                    case: 'a header that only matches a value of an unnamed secret dictionary',
+                    allowed: ['https://elsewhere.example'],
+                    carry: 'unnamed_secret_dictionary',
+                    sent: true,
                 },
                 { case: 'a secret saved before binding', allowed: undefined, carry: 'body', sent: true },
                 {
@@ -1946,6 +2032,17 @@ describe('Hog Executor', () => {
                 ['a null entry', { api_key: null }],
                 ['a non-text value', { api_key: { value: 12345, allowed_origins: [] } }],
                 ['a non-list allowed_origins', { api_key: { value: SECRET, allowed_origins: { bad: true } } }],
+                [
+                    'an entry the check cannot read',
+                    {
+                        api_key: {
+                            allowed_origins: [],
+                            get value(): string {
+                                throw new Error('unreadable')
+                            },
+                        },
+                    },
+                ],
             ])('enforce: sends when encrypted_inputs holds %s', async (_name, encryptedInputs) => {
                 const invocation = await secretInvocation(`${baseUrl}/`, undefined)
                 invocation.hogFunction.encrypted_inputs = encryptedInputs as any
