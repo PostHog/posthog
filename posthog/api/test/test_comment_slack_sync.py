@@ -1,4 +1,5 @@
 from datetime import timedelta
+from uuid import UUID
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -14,19 +15,26 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.api.comments import _slack_thread_url
 from posthog.helpers.slack_thread_mirror import _discussion_card_blocks
+from posthog.models import Team
 from posthog.models.comment import Comment, CommentSlackThread
+from posthog.models.comment.comment import OBSERVATION_COMMENT_SCOPES
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal
 from posthog.tasks.comment_slack_sync import (
     BACKFILL_BATCH_SIZE,
     BACKFILL_RESCHEDULE_COUNTDOWN_SECONDS,
+    LINKED_THREAD_IMPORT_MESSAGE_LIMIT,
     SLACK_SYNCED_TS_KEY,
+    _save_slack_reply_once,
     backfill_comment_slack_thread,
+    import_linked_slack_thread,
     ingest_slack_discussion_reply,
     mirror_comment_reply_to_slack,
 )
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.canvas.backend.facade import testing as canvas_testing
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Channel, Status
@@ -728,6 +736,674 @@ class TestSlackThreadSerialization(APIBaseTest):
             res = self.client.get(f"/api/projects/{self.team.id}/comments/{self.parent.id}/")
         assert res.status_code == status.HTTP_200_OK
         assert res.json()["slack_thread"] is None
+
+
+ROOT_TS = "1767225636.295669"
+REPLY_TS = "1767225999.000100"
+CHANNEL = "C0123ABCDEF"
+ROOT_LINK = f"https://posthog.slack.com/archives/{CHANNEL}/p1767225636295669"
+REPLY_LINK = f"https://posthog.slack.com/archives/{CHANNEL}/p1767225999000100"
+ROOT_MESSAGE = {"ts": ROOT_TS, "user": "U1", "text": "has anyone seen exports stall like this?"}
+
+
+def _thread_page(*messages: dict) -> dict:
+    return {"messages": list(messages), "has_more": False}
+
+
+def _slack_error(code: str) -> SlackApiError:
+    return SlackApiError(code, MagicMock(get=lambda key, default=None: code if key == "error" else default))
+
+
+class TestLinkSlackThread(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T123",
+            config={"authed_user": {"id": "u"}},
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="link-session",
+            distinct_id="link-user",
+            status=Status.OPEN,
+        )
+        self.slack_profile = {
+            "name": "Ada",
+            "email": self.user.email,
+            "avatar": "https://avatars.slack-edu.com/ada_72.png",
+            "team_id": "T123",
+        }
+
+    def _link(self, url: str = ROOT_LINK, **overrides):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/comments/link_slack_thread/",
+            {
+                "scope": "Ticket",
+                "item_id": str(self.ticket.id),
+                "integration_id": self.integration.id,
+                "url": url,
+                **overrides,
+            },
+            format="json",
+        )
+
+    def _mock_slack(self, mock_slack, *pages) -> MagicMock:
+        slack = mock_slack.return_value
+        slack.integration = self.integration
+        slack.get_member_by_email.return_value = {"id": "U9", "team_id": "T123"}
+        client = slack.client
+        client.conversations_info.return_value = {
+            "channel": {"id": CHANNEL, "name": "support-escalations", "is_channel": True, "is_private": False}
+        }
+        client.conversations_replies.side_effect = list(pages)
+        return client
+
+    @parameterized.expand(
+        [
+            ("root_link", ROOT_LINK, [_thread_page(ROOT_MESSAGE)]),
+            (
+                "reply_link_naming_its_thread",
+                f"{REPLY_LINK}?thread_ts={ROOT_TS}&cid={CHANNEL}",
+                [_thread_page(ROOT_MESSAGE)],
+            ),
+            (
+                "reply_link_without_its_thread",
+                REPLY_LINK,
+                [
+                    _thread_page({"ts": REPLY_TS, "thread_ts": ROOT_TS, "user": "U2", "text": "yup"}),
+                    _thread_page(ROOT_MESSAGE),
+                ],
+            ),
+        ]
+    )
+    @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.delay")
+    @patch("posthog.api.comments.resolve_slack_user")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_links_the_thread_the_message_is_in(self, _name, url, pages, mock_slack, _flag, mock_profile, mock_import):
+        mock_profile.return_value = self.slack_profile
+        client = self._mock_slack(mock_slack, *pages)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            res = self._link(url)
+
+        assert res.status_code == status.HTTP_201_CREATED, res.json()
+        body = res.json()
+        assert body["content"] == ROOT_MESSAGE["text"]
+        assert body["created_by"]["id"] == self.user.id
+        assert body["item_context"]["slack_author_name"] == "Ada"
+        # Placed where the conversation started in Slack, not when it was linked.
+        assert Comment.objects.get(id=body["id"]).created_at.isoformat() == "2026-01-01T00:00:36.295669+00:00"
+        assert body["slack_thread"] == {
+            "channel_id": CHANNEL,
+            "channel_name": "support-escalations",
+            "url": f"https://app.slack.com/archives/{CHANNEL}/p1767225636295669",
+        }
+        assert body["item_context"]["slack_import_state"] == "pending"
+        mirror = CommentSlackThread.objects.for_team(self.team.id).get()
+        assert (str(mirror.source_comment_id), mirror.slack_thread_ts) == (body["id"], ROOT_TS)
+        mock_import.assert_called_once_with(comment_slack_thread_id=str(mirror.id))
+        client.chat_postMessage.assert_not_called()
+
+    @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.delay")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_credits_a_thread_an_app_started_to_that_app(self, mock_slack, _flag, _import):
+        alert = {"ts": ROOT_TS, "bot_id": "B1", "bot_profile": {"name": "incident.io"}, "text": "INC-123 opened"}
+        self._mock_slack(mock_slack, _thread_page(alert))
+
+        res = self._link()
+
+        assert res.status_code == status.HTTP_201_CREATED, res.json()
+        assert res.json()["created_by"] is None
+        assert res.json()["item_context"]["slack_author_name"] == "incident.io"
+
+    @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.delay")
+    @patch("posthog.api.comments.resolve_slack_user")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_refuses_a_thread_that_already_syncs_anywhere_on_the_workspace(
+        self, mock_slack, _flag, mock_profile, _import
+    ):
+        # Inbound replies reach only one mirror, so a second link would silently get none.
+        mock_profile.return_value = self.slack_profile
+        self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE))
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        other_integration = Integration.objects.create(
+            team=other_team, kind="slack", integration_id="T123", sensitive_config={"access_token": "t"}
+        )
+        other_root = Comment.objects.create(team=other_team, scope="Insight", item_id="1", content="root")
+        CommentSlackThread.objects.for_team(other_team.id).create(
+            team=other_team,
+            scope="Insight",
+            item_id="1",
+            source_comment=other_root,
+            integration=other_integration,
+            slack_channel_id=CHANNEL,
+            slack_thread_ts=ROOT_TS,
+            slack_team_id="T123",
+        )
+
+        res = self._link()
+
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert "already syncs" in str(res.json())
+        assert not Comment.objects.filter(team=self.team, scope="Ticket").exists()
+
+    @parameterized.expand(
+        [
+            ("not_a_slack_link", "https://example.com/archives/C1/p1767225636295669", None, "Copy link"),
+            ("bot_not_in_channel", ROOT_LINK, "not_in_channel", "isn't in that channel"),
+            ("message_deleted", ROOT_LINK, "thread_not_found", "Couldn't find that Slack message"),
+        ]
+    )
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_explains_a_link_it_cannot_follow(self, _name, url, slack_error, expected, mock_slack, _flag):
+        client = self._mock_slack(mock_slack)
+        if slack_error:
+            client.conversations_replies.side_effect = _slack_error(slack_error)
+
+        res = self._link(url)
+
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert expected in str(res.json())
+        assert not CommentSlackThread.objects.for_team(self.team.id).exists()
+        assert not Comment.objects.filter(team=self.team, scope="Ticket").exists()
+
+    # Replies on the discussion are posted back into the linked thread, so a channel anyone outside
+    # the workspace can read would receive internal discussion.
+    @parameterized.expand(
+        [
+            ("slack_connect", {"is_ext_shared": True, "is_shared": True}),
+            ("pending_slack_connect_invite", {"is_pending_ext_shared": True}),
+            ("shared_across_an_enterprise_org", {"is_org_shared": True}),
+            ("payload_that_does_not_say_it_is_a_channel", {"is_channel": False}),
+            ("direct_message", {"is_channel": False, "is_im": True}),
+        ]
+    )
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_refuses_a_channel_that_is_not_internal(self, _name, flags, mock_slack, _flag):
+        client = self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE))
+        client.conversations_info.return_value["channel"].update(flags)
+
+        res = self._link()
+
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Only threads in internal Slack channels can be linked" in str(res.json())
+        client.conversations_replies.assert_not_called()
+        assert not CommentSlackThread.objects.for_team(self.team.id).exists()
+
+    # Linking it would post internal discussion replies to the customer. A ticket in another project of
+    # the org and a deleted one still own their thread.
+    @parameterized.expand([("this_project",), ("another_project_in_the_org",), ("deleted_ticket",)])
+    @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.delay")
+    @patch("posthog.api.comments.resolve_slack_user")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_refuses_the_thread_a_support_ticket_talks_to_its_customer_in(
+        self, case, mock_slack, _flag, mock_profile, _import
+    ):
+        mock_profile.return_value = self.slack_profile
+        self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE))
+        owner = (
+            Team.objects.create(organization=self.organization, name="Support project")
+            if case == "another_project_in_the_org"
+            else self.team
+        )
+        ticket = Ticket.objects.create_with_number(
+            team=owner,
+            channel_source=Channel.SLACK,
+            slack_channel_id=CHANNEL,
+            slack_thread_ts=ROOT_TS,
+            status=Status.OPEN,
+        )
+        if case == "deleted_ticket":
+            Ticket.all_objects.filter(id=ticket.id).update(deleted_at=timezone.now())
+
+        res = self._link()
+
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert "support ticket's conversation with the customer" in str(res.json())
+        assert not CommentSlackThread.objects.for_team(self.team.id).exists()
+
+    @patch("posthog.api.comments.slack_thread_has_agent_task", return_value=True)
+    @patch("posthog.api.comments.resolve_slack_user")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_refuses_a_thread_the_agent_is_working_in(self, mock_slack, _flag, mock_profile, mock_agent):
+        # The agent receives the thread's replies, so the discussion would never get one.
+        mock_profile.return_value = self.slack_profile
+        self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE))
+
+        res = self._link()
+
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert "agent is working in that thread" in str(res.json())
+        mock_agent.assert_called_once_with(slack_workspace_id="T123", channel=CHANNEL, thread_ts=ROOT_TS)
+        assert not CommentSlackThread.objects.for_team(self.team.id).exists()
+
+    # Linking reads the thread with the bot's access, so only someone who could read it in Slack may link it.
+    # Who counts as a full member is SlackIntegration.get_member_by_email's call (test_integration.py).
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_refuses_someone_who_is_not_a_full_member_of_the_workspace(self, mock_slack, _flag):
+        client = self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE))
+        mock_slack.return_value.get_member_by_email.return_value = None
+
+        res = self._link()
+
+        assert res.status_code == status.HTTP_403_FORBIDDEN
+        assert "Only full members of the connected Slack workspace" in str(res.json())
+        mock_slack.return_value.get_member_by_email.assert_called_once_with(self.user.email)
+        client.conversations_replies.assert_not_called()
+
+    @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.delay")
+    @patch("posthog.api.comments.resolve_slack_user")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_a_thread_can_be_linked_again_once_its_discussion_is_deleted(
+        self, mock_slack, _flag, mock_profile, _import
+    ):
+        # A deleted discussion keeps its mirror, as a sent one does, so linking the thread again frees it.
+        mock_profile.return_value = self.slack_profile
+        self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE), _thread_page(ROOT_MESSAGE))
+        first = self._link()
+        assert first.status_code == status.HTTP_201_CREATED, first.json()
+        Comment.objects.filter(id=first.json()["id"]).update(deleted=True)
+
+        second = self._link()
+
+        assert second.status_code == status.HTTP_201_CREATED, second.json()
+        assert CommentSlackThread.objects.for_team(self.team.id).get().source_comment_id == UUID(second.json()["id"])
+
+    @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.delay")
+    @patch("posthog.api.comments.resolve_slack_user")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_unlinking_removes_the_discussion_and_frees_the_thread(self, mock_slack, _flag, mock_profile, _import):
+        # The way back from a thread linked to the wrong ticket. The opening comment is credited to the
+        # Slack author, so the person who linked it couldn't delete it themselves.
+        mock_profile.return_value = {**self.slack_profile, "email": "ada@example.com"}
+        self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE), _thread_page(ROOT_MESSAGE))
+        root_id = self._link().json()["id"]
+        reply = Comment.objects.create(
+            team=self.team,
+            scope="Ticket",
+            item_id=str(self.ticket.id),
+            source_comment_id=root_id,
+            content="Thanks, taking a look",
+            item_context={"from_slack": True, "slack_message_ts": REPLY_TS},
+        )
+
+        res = self.client.post(f"/api/projects/{self.team.id}/comments/{root_id}/unlink_slack_thread/")
+
+        assert res.status_code == status.HTTP_204_NO_CONTENT
+        assert set(Comment.objects.filter(id__in=[root_id, reply.id]).values_list("deleted", flat=True)) == {True}
+        assert not CommentSlackThread.objects.for_team(self.team.id).exists()
+        assert self._link().status_code == status.HTTP_201_CREATED
+
+    # The bot can be in private channels the person who connected the workspace isn't in. Linking reads
+    # the history with the bot's access, so the requester must be able to read it in Slack too.
+    @parameterized.expand([("member_of_the_channel", True), ("not_in_the_channel", False)])
+    @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.delay")
+    @patch("posthog.api.comments.resolve_slack_user")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_links_a_private_channel_thread_only_for_someone_in_it(
+        self, _name, in_channel, mock_slack, _flag, mock_profile, _import
+    ):
+        mock_profile.return_value = self.slack_profile
+        Integration.objects.filter(id=self.integration.id).update(created_by=self.user)
+        client = self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE))
+        self.integration.refresh_from_db()
+        client.conversations_info.return_value["channel"].update({"is_private": True, "is_group": True})
+        mock_slack.return_value.is_channel_member.return_value = in_channel
+
+        res = self._link()
+
+        assert res.status_code == (status.HTTP_201_CREATED if in_channel else status.HTTP_403_FORBIDDEN), res.json()
+        mock_slack.return_value.is_channel_member.assert_called_once_with(CHANNEL, "U9")
+        assert CommentSlackThread.objects.for_team(self.team.id).exists() == in_channel
+        if not in_channel:
+            assert "aren't in that private channel" in str(res.json())
+            client.conversations_replies.assert_not_called()
+
+    @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.delay")
+    @patch("posthog.api.comments.resolve_slack_user")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_editing_the_opening_comment_keeps_what_marks_it_linked(self, mock_slack, _flag, mock_profile, _import):
+        # from_slack is what marks a discussion as linked and so unlinkable, and the import state is the
+        # server's to set, so an edit that replaces item_context keeps both.
+        mock_profile.return_value = self.slack_profile
+        self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE))
+        root_id = self._link().json()["id"]
+
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/comments/{root_id}/",
+            {"content": "edited", "item_context": {}},
+            format="json",
+        )
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        context = Comment.objects.get(id=root_id).item_context or {}
+        assert (context.get("from_slack"), context.get("slack_import_state")) == (True, "pending")
+
+    @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.delay")
+    @patch("posthog.api.comments.resolve_slack_user")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_unlinking_needs_the_same_slack_membership_as_linking(self, mock_slack, _flag, mock_profile, _import):
+        mock_profile.return_value = self.slack_profile
+        self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE))
+        root_id = self._link().json()["id"]
+        mock_slack.return_value.get_member_by_email.return_value = None
+
+        res = self.client.post(f"/api/projects/{self.team.id}/comments/{root_id}/unlink_slack_thread/")
+
+        assert res.status_code == status.HTTP_403_FORBIDDEN
+        assert CommentSlackThread.objects.for_team(self.team.id).exists()
+
+    # Agents call these through the MCP server with OAuth tokens, and a custom action the scope check
+    # doesn't know resolves to no scope, which refuses every scoped token.
+    @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.delay")
+    @patch("posthog.api.comments.resolve_slack_user")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_a_token_with_comment_write_can_link_and_unlink(self, mock_slack, _flag, mock_profile, _import):
+        mock_profile.return_value = self.slack_profile
+        self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE))
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="agent", user=self.user, secure_value=hash_key_value(value), scopes=["comment:write"]
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {value}")
+
+        linked = self._link(scope="Insight", item_id="42")
+        assert linked.status_code == status.HTTP_201_CREATED, linked.json()
+        unlinked = self.client.post(f"/api/projects/{self.team.id}/comments/{linked.json()['id']}/unlink_slack_thread/")
+        assert unlinked.status_code == status.HTTP_204_NO_CONTENT
+
+    # Scouts write to tickets through the reply endpoint only, which the serializer enforces. Other
+    # discussions are open to them as before.
+    @parameterized.expand(
+        [
+            ("ticket", {}, status.HTTP_403_FORBIDDEN, status.HTTP_403_FORBIDDEN),
+            ("insight", {"scope": "Insight", "item_id": "42"}, status.HTTP_204_NO_CONTENT, status.HTTP_201_CREATED),
+        ]
+    )
+    @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.delay")
+    @patch("posthog.api.comments.resolve_slack_user")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_a_scout_can_link_and_unlink_only_outside_tickets(
+        self, _name, target, unlink_status, link_status, mock_slack, _flag, mock_profile, _import
+    ):
+        mock_profile.return_value = self.slack_profile
+        self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE), _thread_page(ROOT_MESSAGE))
+        root_id = self._link(**target).json()["id"]
+
+        with patch("posthog.api.comments.is_scout_sandbox_request", return_value=True):
+            unlinked = self.client.post(f"/api/projects/{self.team.id}/comments/{root_id}/unlink_slack_thread/")
+            linked = self._link(**target)
+
+        assert (unlinked.status_code, linked.status_code) == (unlink_status, link_status)
+
+    # A ticket viewer can read its discussions but not add to them, and linking adds one. Unlinking deletes one.
+    @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.delay")
+    @patch("posthog.api.comments.resolve_slack_user")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_linking_and_unlinking_a_ticket_thread_needs_editor_access(self, mock_slack, _flag, mock_profile, _import):
+        mock_profile.return_value = self.slack_profile
+        self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE), _thread_page(ROOT_MESSAGE))
+        root_id = self._link().json()["id"]
+        self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "ticket-viewer@example.com", "password")
+        AccessControl.objects.create(
+            resource="ticket",
+            resource_id=str(self.ticket.id),
+            organization_member=member.organization_memberships.get(organization=self.organization),
+            team=self.team,
+            access_level="viewer",
+        )
+        self.client.force_login(member)
+        unlink_url = f"/api/projects/{self.team.id}/comments/{root_id}/unlink_slack_thread/"
+
+        assert self._link().status_code == status.HTTP_403_FORBIDDEN
+        assert self.client.post(unlink_url).status_code == status.HTTP_403_FORBIDDEN
+        assert CommentSlackThread.objects.for_team(self.team.id).exists()
+
+        AccessControl.objects.filter(resource_id=str(self.ticket.id)).update(access_level="editor")
+        assert self.client.post(unlink_url).status_code == status.HTTP_204_NO_CONTENT
+
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    def test_unlinking_refuses_a_discussion_that_was_sent_to_slack(self, _flag):
+        # A sent discussion was written in PostHog, so it isn't a copy that's safe to remove.
+        root = Comment.objects.create(
+            team=self.team, scope="Ticket", item_id=str(self.ticket.id), content="opener", created_by=self.user
+        )
+        CommentSlackThread.objects.for_team(self.team.id).create(
+            team=self.team,
+            scope="Ticket",
+            item_id=str(self.ticket.id),
+            source_comment=root,
+            integration=self.integration,
+            slack_channel_id=CHANNEL,
+            slack_thread_ts=ROOT_TS,
+            slack_team_id="T123",
+        )
+
+        res = self.client.post(f"/api/projects/{self.team.id}/comments/{root.id}/unlink_slack_thread/")
+
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert CommentSlackThread.objects.for_team(self.team.id).exists()
+        root.refresh_from_db()
+        assert not root.deleted
+
+    @parameterized.expand(
+        [
+            ("email_thread", {"scope": "EmailThread"}, True, status.HTTP_403_FORBIDDEN),
+            ("customer_thread", {"scope": "conversations_ticket"}, True, status.HTTP_400_BAD_REQUEST),
+            # A task comment needs its task in item_context, which a Slack message can't supply.
+            ("task_comment", {"scope": "task"}, True, status.HTTP_400_BAD_REQUEST),
+            # Replay Vision notes have their own access check, which a Slack channel can't apply.
+            ("observation_note", {"scope": next(iter(OBSERVATION_COMMENT_SCOPES))}, True, status.HTTP_400_BAD_REQUEST),
+            ("unknown_ticket", {"item_id": "00000000-0000-0000-0000-000000000000"}, True, status.HTTP_400_BAD_REQUEST),
+            ("feature_off", {}, False, status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_refuses_targets_the_caller_cannot_link_to(self, _name, overrides, flag_on, expected, mock_slack):
+        self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE))
+
+        with patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=flag_on):
+            res = self._link(**overrides)
+
+        assert res.status_code == expected, res.json()
+        mock_slack.return_value.client.conversations_replies.assert_not_called()
+        assert not CommentSlackThread.objects.for_team(self.team.id).exists()
+
+
+class TestImportLinkedSlackThread(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.integration = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T123", sensitive_config={"access_token": "t"}
+        )
+        self.root = Comment.objects.create(
+            team=self.team,
+            scope="Ticket",
+            item_id="t-1",
+            content="root",
+            item_context={"from_slack": True, "slack_import_state": "pending"},
+        )
+        self.mirror = CommentSlackThread.objects.for_team(self.team.id).create(
+            team=self.team,
+            scope="Ticket",
+            item_id="t-1",
+            source_comment=self.root,
+            integration=self.integration,
+            slack_channel_id=CHANNEL,
+            slack_thread_ts=ROOT_TS,
+            slack_team_id="T123",
+        )
+
+    def _root_context(self) -> dict:
+        self.root.refresh_from_db()
+        return self.root.item_context or {}
+
+    @patch("posthog.tasks.comment_slack_sync.mirror_comment_reply_to_slack.delay")
+    @patch("posthog.tasks.comment_slack_sync.resolve_slack_user")
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_imports_what_people_said_at_their_slack_times_once(self, mock_slack, mock_profile, mock_mirror_out):
+        mock_profile.side_effect = lambda _client, user_id, workspace: {
+            "name": {"U1": "Ada", "U2": "Grace"}[user_id],
+            "email": None,
+            "avatar": None,
+            "team_id": "T999",
+        }
+        client = mock_slack.return_value.client
+        client.chat_postMessage.return_value = {"ts": "1767225900.000001"}
+        client.conversations_replies.return_value = _thread_page(
+            ROOT_MESSAGE,
+            {"ts": "1767225700.000001", "user": "U2", "text": "Thanks, taking a look"},
+            {"ts": "1767225701.000001", "bot_id": "B1", "text": "PostHog bot echo"},
+            {"ts": "1767225702.000001", "user": "U3", "subtype": "channel_join", "text": "joined"},
+            {"ts": "1767225800.000001", "user": "U1", "text": "", "files": [{"name": "trace.png"}]},
+        )
+
+        import_linked_slack_thread(str(self.mirror.id))
+        # A page that runs again saves nothing twice.
+        import_linked_slack_thread(str(self.mirror.id), cursor="page")
+
+        replies = list(Comment.objects.filter(source_comment=self.root).order_by("created_at"))
+        assert [(r.item_context["slack_author_name"], r.content) for r in replies] == [
+            ("Grace", "Thanks, taking a look"),
+            ("Ada", "📎 trace.png"),
+        ]
+        assert [r.created_at.isoformat() for r in replies] == [
+            "2026-01-01T00:01:40.000001+00:00",
+            "2026-01-01T00:03:20.000001+00:00",
+        ]
+        mock_mirror_out.assert_not_called()
+        # The thread is told it's linked once its first page is in.
+        client.chat_postMessage.assert_called_once()
+        assert client.chat_postMessage.call_args.kwargs["thread_ts"] == ROOT_TS
+        assert self._root_context()["slack_import_state"] == "done"
+
+    @parameterized.expand(
+        [
+            # More history and room under the cap: the next page runs as its own task.
+            ("more_pages", 0, "next-page", True, "pending"),
+            # The cap is reached with history left: the root says the import was cut short.
+            ("cap_reached", LINKED_THREAD_IMPORT_MESSAGE_LIMIT - 1, "next-page", False, "truncated"),
+            ("last_page", 0, None, False, "done"),
+        ]
+    )
+    @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.delay")
+    @patch("posthog.tasks.comment_slack_sync.resolve_slack_user")
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_pages_through_the_history_up_to_the_cap(
+        self, _name, seen, next_cursor, reschedules, state, mock_slack, mock_profile, mock_next_page
+    ):
+        mock_profile.return_value = {"name": "Grace", "email": None, "avatar": None, "team_id": "T999"}
+        page = _thread_page({"ts": "1767225700.000001", "user": "U2", "text": "Yup"})
+        if next_cursor:
+            page = {**page, "has_more": True, "response_metadata": {"next_cursor": next_cursor}}
+        mock_slack.return_value.client.conversations_replies.return_value = page
+
+        import_linked_slack_thread(str(self.mirror.id), cursor="this-page", seen=seen)
+
+        assert mock_next_page.called == reschedules
+        if reschedules:
+            assert mock_next_page.call_args.kwargs["cursor"] == next_cursor
+        assert self._root_context()["slack_import_state"] == state
+
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_a_rate_limit_retries_after_slacks_retry_after(self, mock_slack):
+        rate_limited = MagicMock()
+        rate_limited.get.side_effect = lambda key, default=None: {"error": "ratelimited"}.get(key, default)
+        rate_limited.headers = {"Retry-After": "20"}
+        mock_slack.return_value.client.conversations_replies.side_effect = SlackApiError("ratelimited", rate_limited)
+
+        with self.assertRaises(Retry) as raised:
+            import_linked_slack_thread.apply(args=(str(self.mirror.id),))
+
+        assert raised.exception.when == 20
+
+    # A root left at "pending" would tell readers the history is still on its way.
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_a_failing_page_retries_then_says_the_import_failed(self, mock_slack):
+        client = mock_slack.return_value.client
+        client.conversations_replies.side_effect = ConnectionError("Slack is down")
+
+        with self.assertRaises(Retry):
+            import_linked_slack_thread.apply(args=(str(self.mirror.id),))
+        assert self._root_context()["slack_import_state"] == "pending"
+
+        # A retried run doesn't tell the thread anything yet, so the notice can't go out twice.
+        client.chat_postMessage.assert_not_called()
+
+        import_linked_slack_thread.apply(args=(str(self.mirror.id),), retries=import_linked_slack_thread.max_retries)
+        assert self._root_context()["slack_import_state"] == "failed"
+        # The link stands, so its replies keep reaching the thread, and the thread is told why.
+        client.chat_postMessage.assert_called_once()
+
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_an_import_with_sync_switched_off_says_so_on_the_root(self, mock_slack):
+        with patch("posthog.tasks.comment_slack_sync.posthoganalytics.feature_enabled", return_value=False):
+            import_linked_slack_thread(str(self.mirror.id))
+
+        assert self._root_context()["slack_import_state"] == "failed"
+        mock_slack.return_value.client.conversations_replies.assert_not_called()
+
+    @patch("posthog.tasks.comment_slack_sync.resolve_slack_user")
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_a_thread_unlinked_while_it_imports_gets_no_replies_and_no_notice(self, mock_slack, mock_profile):
+        # Unlinking deletes the discussion, so a reply saved after it would hang off nothing anyone sees, and
+        # a notice would tell Slack the thread is linked when it no longer is.
+        def unlink_while_reading(*_args, **_kwargs):
+            CommentSlackThread.objects.unscoped().filter(id=self.mirror.id).delete()
+            return {"name": "Grace", "email": None, "avatar": None, "team_id": "T999"}
+
+        mock_profile.side_effect = unlink_while_reading
+        mock_slack.return_value.client.conversations_replies.return_value = _thread_page(
+            ROOT_MESSAGE, {"ts": "1767225700.000001", "user": "U2", "text": "Yup"}
+        )
+
+        import_linked_slack_thread(str(self.mirror.id))
+
+        assert not Comment.objects.filter(source_comment=self.root).exists()
+        mock_slack.return_value.client.chat_postMessage.assert_not_called()
+
+    def test_a_slack_message_both_paths_reach_is_saved_once(self):
+        # The live ingest and the history import each check before saving, and both can pass that check
+        # together. The comment table has no unique key on the Slack ts, so the save checks again itself.
+        def save() -> Comment | None:
+            return _save_slack_reply_once(
+                self.mirror,
+                self.team,
+                content="Yup",
+                rich_content=None,
+                posthog_user=None,
+                author_context={"from_slack": True, "slack_author_name": "Grace"},
+                message_ts="1767225700.000001",
+            )
+
+        first = save()
+        second = save()
+
+        assert first is not None and second is None
+        assert Comment.objects.filter(source_comment=self.root).count() == 1
 
 
 class TestIngestSlackDiscussionReply(APIBaseTest):

@@ -477,6 +477,31 @@ class TestSlackIntegration:
 
         assert slack.get_user_by_id("U123") is None
 
+    # Linking a Slack thread reads it with the bot's access, so only someone who could read every
+    # public channel in Slack themselves counts.
+    @parameterized.expand(
+        [
+            ("workspace_member", {"user": {"id": "U1", "team_id": "T_HOME"}}, True),
+            ("guest", {"user": {"id": "U2", "team_id": "T_HOME", "is_restricted": True}}, False),
+            ("single_channel_guest", {"user": {"id": "U3", "team_id": "T_HOME", "is_ultra_restricted": True}}, False),
+            ("other_workspace", {"user": {"id": "U4", "team_id": "T_OTHER"}}, False),
+            ("no_one_with_that_email", SlackApiError("lookup failed", {"error": "users_not_found"}), False),
+        ]
+    )
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_get_member_by_email_finds_only_full_members(self, _name, lookup, expected_found, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        if isinstance(lookup, Exception):
+            mock_client.users_lookupByEmail.side_effect = lookup
+        else:
+            mock_client.users_lookupByEmail.return_value = lookup
+        self.integration.integration_id = "T_HOME"
+
+        member = SlackIntegration(self.integration).get_member_by_email("member@example.com")
+
+        assert (member is not None) is expected_found
+
     @patch("posthog.models.integration.slack.WebClient")
     def test_list_channels_without_access(self, mock_webclient_class):
         mock_client = MagicMock()

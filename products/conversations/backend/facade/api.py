@@ -298,6 +298,18 @@ def sync_google_account_email_backfill_batch(
     return GoogleAccountEmailBackfillBatch(next_page_token=next_page_token, fetched=fetched)
 
 
+def slack_thread_is_ticket_thread(*, organization_id: str, slack_channel_id: str, slack_thread_ts: str) -> bool:
+    """Whether a support ticket in this organization owns this Slack thread, a deleted one included.
+
+    Callers that post internal content into a thread use this to keep it away from the customer the
+    ticket talks to.
+    """
+    team_ids = Team.objects.filter(organization_id=organization_id).values("id")
+    return Ticket.all_objects.filter(
+        team_id__in=team_ids, slack_channel_id=slack_channel_id, slack_thread_ts=slack_thread_ts
+    ).exists()
+
+
 def list_support_bot_channels(team_id: int, *, members_only: bool = False) -> list[SupportChannel]:
     """Slack channels the SupportHog bot can see for this team, sorted by name.
 

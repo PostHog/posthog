@@ -165,8 +165,10 @@ class SlackIntegration:
         """
         return sorted(self._list_channels_by_type("public_channel"), key=lambda x: x["name"])
 
-    def _is_channel_member(self, channel_id: str, authed_user: str | None) -> bool:
-        """Slack caps conversations.members at 1000 ids per call whatever limit is asked for, so a
+    def is_channel_member(self, channel_id: str, authed_user: str | None) -> bool:
+        """Whether a Slack user is in a channel. Raises SlackMembershipUnknown when the scan can't finish.
+
+        Slack caps conversations.members at 1000 ids per call whatever limit is asked for, so a
         member past the first page needs the cursor followed rather than a bigger limit."""
         cursor = None
         requests = 0
@@ -203,7 +205,7 @@ class SlackIntegration:
 
             membership_unknown = False
             try:
-                is_member = self._is_channel_member(channel_id, authed_user)
+                is_member = self.is_channel_member(channel_id, authed_user)
             except SlackMembershipUnknown:
                 # The scan could not finish, so membership is unproven rather than disproven. Return
                 # the channel: the picker shows it and flags that the app may not be in it, which is
@@ -297,6 +299,19 @@ class SlackIntegration:
             self._record_truncation("users", collected=fetched, requests=requests)
 
         return users
+
+    def get_member_by_email(self, email: str) -> dict | None:
+        """The full member of this workspace with this email, or None. Guests, bots and people from
+        other workspaces are None, as in get_user_by_id."""
+        try:
+            member = self.client.users_lookupByEmail(email=email)["user"]
+        except SlackApiError as e:
+            if e.response["error"] == "users_not_found":
+                return None
+            raise
+        if not self._belongs_to_workspace(member):
+            return None
+        return member if self._is_dmable_user(member) else None
 
     def get_user_by_id(self, user_id: str) -> dict | None:
         try:
