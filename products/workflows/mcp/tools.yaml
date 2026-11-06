@@ -145,7 +145,10 @@ tools:
             then fill them in one workflows-patch-graph call: that tool checks the whole draft, so a patch that leaves
             another required setting blank is rejected. Or tell them to finish it in the editor. A field that says there
             is no verified sender means the project cannot send email yet: tell the user to add and verify a sending
-            domain under Workflows > Channels first, instead of asking for an address. Never guess credentials or URLs.
+            domain under Workflows > Channels first, instead of asking for an address. A field that names the sandbox
+            sender means the project can send through it: offer the sandbox sender from integrations-list
+            (kind=email, config.provider='sandbox'), and say it sends only to verified members of the organization.
+            Never guess credentials or URLs.
             With status 'failed', call once more with retry true, then offer another suggestion.
         exclude_params:
             - save_draft

@@ -50,6 +50,7 @@ from products.workflows.backend.services.existing_email_tools import (
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
 from products.workflows.backend.services.owned_workflow_health import list_owned_workflow_health
 from products.workflows.backend.services.sandbox_sender import (
+    SANDBOX_SENDER_PROVISIONED_EVENT,
     ensure_sandbox_email_sender,
     sandbox_email_sender_for_reads,
 )
@@ -65,6 +66,7 @@ from products.workflows.backend.utils.email_sending_tiers import (
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
 __all__ = [
+    "SANDBOX_SENDER_PROVISIONED_EVENT",
     "WorkflowAccessDenied",
     "WorkflowArchived",
     "WorkflowNotFound",

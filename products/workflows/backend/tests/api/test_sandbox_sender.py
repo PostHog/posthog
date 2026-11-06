@@ -97,7 +97,9 @@ class TestSandboxSenderAPI(APIBaseTest):
     def test_listing_integrations_provisions_the_sandbox_sender_once(
         self, _name: str, query: str, flag_enabled: bool, provisions: bool
     ) -> None:
-        self.flag_enabled.return_value = flag_enabled
+        self.flag_enabled.side_effect = lambda *_args, only_evaluate_locally=False, **_kwargs: (
+            flag_enabled and only_evaluate_locally
+        )
 
         responses = [self.client.get(f"/api/projects/{self.team.id}/integrations/{query}") for _ in range(2)]
 

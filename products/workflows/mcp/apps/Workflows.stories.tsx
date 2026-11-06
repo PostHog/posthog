@@ -125,6 +125,17 @@ export const DataSuggestions: Story = {
     name: 'Data suggestions',
 }
 
+export const DataSuggestionsSandboxSenderOnly: Story = {
+    render: () => (
+        <WorkflowDataSuggestionsView
+            data={{ ...suggestionsData, email_sender_ready: true, sandbox_sender_only: true }}
+            builds={{}}
+            onCreate={() => {}}
+        />
+    ),
+    name: 'Data suggestions with only the sandbox sender',
+}
+
 export const DataSuggestionsBuilt: Story = {
     render: () => (
         <WorkflowDataSuggestionsView
@@ -252,5 +263,11 @@ export const SetupStatusDone: Story = {
                 next_open_step: null,
             }}
         />
+    ),
+}
+
+export const SetupStatusSandboxSenderOnly: Story = {
+    render: () => (
+        <WorkflowSetupStatusView data={{ ...newProjectSetup, ready_to_send_email: true, sandbox_sender_only: true }} />
     ),
 }

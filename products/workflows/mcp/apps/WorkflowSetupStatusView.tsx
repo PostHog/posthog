@@ -14,6 +14,7 @@ export interface WorkflowSetupStep {
 export interface WorkflowSetupStatusData {
     steps: WorkflowSetupStep[]
     ready_to_send_email: boolean
+    sandbox_sender_only?: boolean
     email_sending_paused?: boolean
     next_open_step: string | null
 }
@@ -40,12 +41,20 @@ export function WorkflowSetupStatusView({ data, openLink }: WorkflowSetupStatusV
                         </div>
                         <Badge variant={data.ready_to_send_email ? 'success' : 'warning'}>
                             {data.ready_to_send_email
-                                ? 'Ready to send email'
+                                ? data.sandbox_sender_only
+                                    ? 'Ready to send to your organization'
+                                    : 'Ready to send email'
                                 : data.email_sending_paused
                                   ? 'Email sending is paused'
                                   : 'Email cannot send yet'}
                         </Badge>
                     </div>
+                    {data.ready_to_send_email && data.sandbox_sender_only ? (
+                        <p className="m-0 text-sm text-muted-foreground">
+                            Email sends from the sandbox sender, only to verified members of your organization. Verify a
+                            sending domain to email anyone else.
+                        </p>
+                    ) : null}
                     <ol className="m-0 flex list-none flex-col gap-3 p-0">
                         {data.steps.map((step) => (
                             <li key={step.key} className="flex items-start gap-3">

@@ -293,7 +293,11 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def _suggestions_response(self, result: DataSuggestionsResult) -> Response:
         # Read on every call rather than cached with the cards, so it changes as soon as a domain verifies.
         own_sender_ready = email_sender_ready(team=self.team)
-        sandbox_sender_only = not own_sender_ready and sandbox_email_sender_for_reads(self.team) is not None
+        sandbox_sender_only = (
+            not own_sender_ready
+            and sandbox_email_sender_for_reads(self.team, reader=self.request.user, source="data_suggestions")
+            is not None
+        )
         context = {
             "email_sender_ready": own_sender_ready or sandbox_sender_only,
             "sandbox_sender_only": sandbox_sender_only,

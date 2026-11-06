@@ -47,6 +47,7 @@ from products.workflows.backend.services.data_suggestions.planner import (
 from products.workflows.backend.services.data_suggestions.service import (
     FAILURE_CACHE_TTL_SECONDS,
     NO_SENDER_FIELD,
+    SANDBOX_SENDER_FIELD,
     _build_key,
     _build_lock_key,
     _cache_key,
@@ -184,9 +185,18 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert body["status"] == "ready"
         assert [(s["trigger_event"], s["weekly_count"]) for s in body["suggestions"]] == [("trial_started", 3)]
         assert body["email_sender_ready"] is False
-        with override_settings(**SANDBOX_SETTINGS), patch("posthoganalytics.feature_enabled", return_value=True):
+        with (
+            override_settings(**SANDBOX_SETTINGS),
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch("posthoganalytics.capture") as capture,
+        ):
             sandbox_only = self._list()
         assert (sandbox_only["email_sender_ready"], sandbox_only["sandbox_sender_only"]) == (True, True)
+        assert [
+            c.kwargs["properties"]["source"]
+            for c in capture.call_args_list
+            if c.kwargs.get("event") == "workflows sandbox sender provisioned"
+        ] == ["data_suggestions"]
         Integration.objects.create(team=self.team, kind="email", config={"email": "hi@example.com", "verified": True})
         cached = self._list()
         assert cached["suggestions"] == body["suggestions"]
@@ -932,24 +942,33 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         notify = next(action["id"] for action in draft.actions if action["type"] == "function")
         assert notify in {item["step_id"] for item in saved.json()["missing_inputs"]}
 
+    @parameterized.expand(
+        [
+            ("no sender", False, NO_SENDER_FIELD),
+            ("only the sandbox sender", True, SANDBOX_SENDER_FIELD),
+        ]
+    )
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")
     def test_a_worker_saves_a_built_draft_outside_any_request(
-        self, suggest_ideas: MagicMock, plan_steps: MagicMock
+        self, _name: str, sandbox_flag_on: bool, sender_field: str, suggest_ideas: MagicMock, plan_steps: MagicMock
     ) -> None:
         suggest_ideas.return_value = [_idea("trial_started")]
         plan_steps.return_value = PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")])
-        suggestion_id = self._list()["suggestions"][0]["id"]
-        caller = build_caller(EventSource.API.value, save=True, user_id=self.user.id)
-        cache.set(_build_lock_key(self.team.id, suggestion_id, caller), "token", 60)
+        with (
+            override_settings(**SANDBOX_SETTINGS),
+            patch("posthoganalytics.feature_enabled", return_value=sandbox_flag_on),
+        ):
+            suggestion_id = self._list()["suggestions"][0]["id"]
+            caller = build_caller(EventSource.API.value, save=True, user_id=self.user.id)
+            cache.set(_build_lock_key(self.team.id, suggestion_id, caller), "token", 60)
 
-        build_data_suggestion(self.team.id, self.user.id, suggestion_id, "token", EventSource.API.value, True)
+            build_data_suggestion(self.team.id, self.user.id, suggestion_id, "token", EventSource.API.value, True)
 
         built = cache.get(_build_key(self.team.id, suggestion_id, caller))
         assert built["status"] == "ready"
         assert HogFlow.objects.filter(team=self.team, id=built["workflow_id"], status="draft").exists()
-        # The project has no sender, so the agent learns it must add one before it can fill the field.
-        assert [item["field"] for item in built["missing_inputs"]] == [NO_SENDER_FIELD]
+        assert [item["field"] for item in built["missing_inputs"]] == [sender_field]
 
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")

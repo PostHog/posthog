@@ -75,7 +75,11 @@ class TestWorkflowSetupStatusAPI(APIBaseTest):
         if own_sender:
             self._add_email_channel(verified=True)
 
-        with override_settings(**SANDBOX_SETTINGS), patch("posthoganalytics.feature_enabled", return_value=flag_on):
+        with (
+            override_settings(**SANDBOX_SETTINGS),
+            patch("posthoganalytics.feature_enabled", return_value=flag_on),
+            patch("posthoganalytics.capture") as capture,
+        ):
             body = self._status()
 
         assert (body["ready_to_send_email"], body["sandbox_sender_only"]) == (expected_ready, expected_sandbox_only)
@@ -83,6 +87,11 @@ class TestWorkflowSetupStatusAPI(APIBaseTest):
         assert Integration.objects.filter(team=self.team, integration_id=SANDBOX_EMAIL_INTEGRATION_ID).exists() is (
             expected_sandbox_only
         )
+        assert [
+            c.kwargs["properties"]["source"]
+            for c in capture.call_args_list
+            if c.kwargs.get("event") == "workflows sandbox sender provisioned"
+        ] == (["setup_status"] if expected_sandbox_only else [])
 
     def test_an_unverified_domain_cannot_send(self) -> None:
         self._add_email_channel(verified=False)

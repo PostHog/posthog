@@ -3,7 +3,7 @@ import re
 import json
 import time
 from collections.abc import Callable
-from typing import Any, Literal, NoReturn, cast
+from typing import Any, NoReturn, cast
 from urllib.parse import urlencode
 from uuid import uuid4
 
@@ -163,6 +163,7 @@ from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CO
 from products.tasks.backend.facade.api import get_in_progress_runs_for_github_integration
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
 from products.workflows.backend.facade.api import (
+    SANDBOX_SENDER_PROVISIONED_EVENT,
     SandboxSenderUnavailable,
     ensure_sandbox_email_sender,
     lookup_existing_email_tools,
@@ -2944,18 +2945,6 @@ class IntegrationViewSet(
             ).data
         )
 
-    def _report_sandbox_sender_provisioned(
-        self, request: Request, source: Literal["endpoint", "integrations_list"]
-    ) -> None:
-        if isinstance(request.user, User):
-            report_user_action(
-                request.user,
-                "workflows sandbox sender provisioned",
-                {"source": source},
-                team=self.team,
-                request=request,
-            )
-
     @extend_schema(
         request=None,
         responses={200: IntegrationSerializer, 404: OpenApiResponse(description="No sandbox sender for this project.")},
@@ -2967,7 +2956,13 @@ class IntegrationViewSet(
         except SandboxSenderUnavailable:
             raise NotFound("The sandbox sender is not available for this project.")
         if sandbox_sender.created:
-            self._report_sandbox_sender_provisioned(request, "endpoint")
+            report_user_action(
+                cast(User, request.user),
+                SANDBOX_SENDER_PROVISIONED_EVENT,
+                {"source": "endpoint"},
+                team=self.team,
+                request=request,
+            )
         integration = self.get_queryset().get(id=sandbox_sender.integration_id)
         return Response(IntegrationSerializer(integration, context=self.get_serializer_context()).data)
 
@@ -3185,18 +3180,14 @@ class IntegrationViewSet(
     # Defined last: a method named `list` shadows the builtin for the annotations of every method
     # declared after it in this class body.
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if request.query_params.get("kind") in (None, "", "email"):
+            sandbox_email_sender_for_reads(self.team, reader=request.user, source="integrations_list")
         # A GitHub row connected while GitHub was flaky may still carry the numeric installation id
         # as its account name. Healing here (throttled inside ensure_account_name) fixes the display
         # everywhere the row is listed, including surfaces that never open the repository picker.
         # Inlined from ListModelMixin so the heal runs over the page being returned rather than the
         # whole queryset — each heal can spend a GitHub round trip, so rows nobody asked for mustn't
         # pay for one.
-        # Every client that offers email senders reads this list, so a flagged project gets its sandbox sender here,
-        # without a visit to Channels or a setup call.
-        if request.query_params.get("kind") in (None, "", "email"):
-            sandbox_sender = sandbox_email_sender_for_reads(self.team)
-            if sandbox_sender is not None and sandbox_sender.created:
-                self._report_sandbox_sender_provisioned(request, "integrations_list")
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
         instances = page if page is not None else list(queryset)
