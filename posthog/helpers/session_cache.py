@@ -48,10 +48,6 @@ class SessionCache:
 
         return self.session.get(key, default)
 
-    def get_unexpired(self, key: str) -> Any:
-        """Retrieve the value from the cache only, because the session copy ignores the timeout."""
-        return cache.get(self._get_cache_key(key))
-
     def delete(self, key: str) -> None:
         cache_key = self._get_cache_key(key)
         cache.delete(cache_key)

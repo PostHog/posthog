@@ -1614,13 +1614,12 @@ class UserViewSet(
 
     @action(methods=["GET"], detail=True)
     def two_factor_start_setup(self, request, **kwargs):
-        # Concurrent requests can overwrite session saves, breaking the 2FA setup flow, but cache is atomic
-        session_cache = SessionCache(request.session)
-
-        # Reuse an unexpired pending secret, because the user can already have it in an authenticator app.
-        key = session_cache.get_unexpired("django_two_factor-hex") or random_hex(20)
+        key = random_hex(20)
         rawkey = unhexlify(key.encode("ascii"))
         b32key = b32encode(rawkey).decode("utf-8")
+
+        # Concurrent requests can overwrite session saves, breaking the 2FA setup flow, but cache is atomic
+        session_cache = SessionCache(request.session)
 
         # Store for 10 minutes (same as django-two-factor-auth setup flow)
         session_cache.set("django_two_factor-hex", key, timeout=600, store_in_session=True)
