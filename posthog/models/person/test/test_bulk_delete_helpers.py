@@ -43,6 +43,9 @@ def _sample(name: str, **labels: str) -> float:
     return REGISTRY.get_sample_value(name, labels) or 0.0
 
 
+RECEIVED_EMAIL_QUEUE = "products.workflows.backend.facade.received_emails.queue_received_email_deletion_for_persons"
+
+
 def _no_publish():
     # Keeps the Kafka produce out of the test; the fake personhog client still tombstones and acks.
     return patch("posthog.models.person.util.publish_person_tombstone", return_value=[])
@@ -267,6 +270,24 @@ class DeletePersonsProfileTests(BaseTest):
         assert result.failures == []
         assert list(get_active_fake().tombstone_queue) == [(self.team.pk, str(p.uuid))]
         assert _sample("posthog_person_tombstone_acks_total", outcome="ack_failed") == failed_before + 1
+
+    def test_received_email_deletion_is_queued_with_the_persons_id_and_email(self):
+        person = create_person(team=self.team, distinct_ids=["a"], properties={"email": "Dana@x.example"})
+        no_email = create_person(team=self.team, distinct_ids=["b"], properties={})
+        with _no_publish(), patch(RECEIVED_EMAIL_QUEUE) as queue:
+            result = delete_persons_profile(self.team.pk, [person, no_email], actor=self.user)
+        assert result.deleted_count == 2
+        queue.assert_called_once_with(self.team.pk, [str(person.uuid), str(no_email.uuid)], ["dana@x.example"])
+
+    def test_a_failed_received_email_queue_keeps_the_person_for_the_retry(self):
+        person = create_person(team=self.team, distinct_ids=["a"], properties={"email": "dana@x.example"})
+        with _no_publish(), patch(RECEIVED_EMAIL_QUEUE, side_effect=RuntimeError("broker down")):
+            result = delete_persons_profile(self.team.pk, [person], actor=self.user)
+        assert result.deleted_count == 0
+        assert [(f.step, f.person_uuid) for f in result.failures] == [
+            (PersonDeletionStep.QUEUE_RECEIVED_EMAIL_DELETION, person.uuid)
+        ]
+        assert result.retryable_errors == [person.uuid]
 
     def test_reports_a_failed_activity_log_write_per_person_and_keeps_the_deletion(self):
         p1 = create_person(team=self.team, distinct_ids=["a"], properties={})

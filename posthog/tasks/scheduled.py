@@ -169,6 +169,7 @@ from products.workflows.backend.facade.tasks import (
     poll_ses_reputation_findings,
     recompute_workflows_email_sending_tiers,
     reconcile_ses_tenant_states,
+    sweep_inbound_email_domains_task,
     sweep_workflow_email_deliverability,
 )
 
@@ -379,6 +380,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="20"),
         delete_expired_received_emails_task.s(),
         name="expire received email",
+    )
+
+    # A run checks a bounded batch of receiving domains, oldest check first.
+    sender.add_periodic_task(
+        crontab(hour="*", minute="35"),
+        sweep_inbound_email_domains_task.s(),
+        name="check receiving domains",
     )
 
     # Workflow email trust tiers - daily at 7:15 AM UTC, after the tenant reconciliation above.

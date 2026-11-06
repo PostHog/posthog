@@ -1202,11 +1202,6 @@
             "label": "Email body included",
             "type": "Boolean"
         },
-        "$email_cc_addresses": {
-            "description": "The addresses in the Cc header of a received email.",
-            "label": "Email cc addresses",
-            "type": "String"
-        },
         "$email_content_url": {
             "description": "The API path that returns the body, headers and attachments of a received email.",
             "label": "Email content URL",
@@ -1263,7 +1258,7 @@
             "type": "String"
         },
         "$email_original_message_id": {
-            "description": "The transactional email that a received email answers. Empty when none was matched.",
+            "description": "The transactional email that a received email answers. Empty when none was matched. It comes from headers the sender controls, so it's a hint about the thread and not proof.",
             "label": "Email original message ID",
             "type": "String"
         },
@@ -1305,11 +1300,6 @@
         "$email_spf": {
             "description": "What the SPF check on a received email found: `pass`, `fail`, `gray` or `processing_failed`.",
             "label": "Email SPF result",
-            "type": "String"
-        },
-        "$email_subject": {
-            "description": "The subject line of a received email.",
-            "label": "Email subject",
             "type": "String"
         },
         "$email_to_addresses": {
@@ -5294,11 +5284,6 @@
             "label": "Email body included",
             "type": "Boolean"
         },
-        "$email_cc_addresses": {
-            "description": "The addresses in the Cc header of a received email.",
-            "label": "Email cc addresses",
-            "type": "String"
-        },
         "$email_content_url": {
             "description": "The API path that returns the body, headers and attachments of a received email.",
             "label": "Email content URL",
@@ -5355,7 +5340,7 @@
             "type": "String"
         },
         "$email_original_message_id": {
-            "description": "The transactional email that a received email answers. Empty when none was matched.",
+            "description": "The transactional email that a received email answers. Empty when none was matched. It comes from headers the sender controls, so it's a hint about the thread and not proof.",
             "label": "Email original message ID",
             "type": "String"
         },
@@ -5397,11 +5382,6 @@
         "$email_spf": {
             "description": "What the SPF check on a received email found: `pass`, `fail`, `gray` or `processing_failed`.",
             "label": "Email SPF result",
-            "type": "String"
-        },
-        "$email_subject": {
-            "description": "The subject line of a received email.",
-            "label": "Email subject",
             "type": "String"
         },
         "$email_to_addresses": {

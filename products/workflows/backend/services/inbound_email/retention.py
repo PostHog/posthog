@@ -1,7 +1,8 @@
-"""Received mail lives for 30 days, and leaves with its team."""
+"""Received mail lives for 30 days, and leaves with its team or the person who wrote it."""
 
 from datetime import timedelta
 
+from django.db.models import Q
 from django.utils import timezone
 
 import structlog
@@ -45,3 +46,18 @@ def delete_received_emails_for_teams(team_ids: list[int]) -> None:
     for team_id in with_mail:
         storage.delete_prefix(storage.team_prefix(team_id))
         ReceivedEmail.objects.for_team(team_id).all().delete()
+
+
+def delete_received_emails_for_persons(team_id: int, person_ids: list[str], addresses: list[str]) -> int:
+    """Remove mail linked to these persons or sent from these addresses, linked or not, since an unverified From stays."""
+    lowered = [address.lower() for address in addresses]
+    matching = Q(person_id__in=person_ids) | Q(from_address__in=lowered)
+    deleted = 0
+    # The team may already be gone by the time this runs, and then so is its mail.
+    rows = ReceivedEmail.objects.unscoped().filter(matching, team_id=team_id)
+    for email_id in list(rows.values_list("id", flat=True)):
+        # Objects first, for the same reason as above.
+        storage.delete_prefix(storage.email_prefix(team_id, email_id))
+        ReceivedEmail.objects.for_team(team_id).filter(pk=email_id).delete()
+        deleted += 1
+    return deleted

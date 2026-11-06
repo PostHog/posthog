@@ -3,9 +3,11 @@
 import re
 import email
 import base64
-import email.policy
+from collections.abc import Iterable
 from email.message import EmailMessage, Message
+from email.policy import EmailPolicy
 from email.utils import getaddresses, parseaddr
+from typing import Any
 
 from posthog.dataclasses import frozen
 
@@ -22,6 +24,14 @@ MAX_MESSAGE_ID_CHARS = 512
 MAX_FILENAME_CHARS = 255
 MAX_INLINE_IMAGE_BYTES = 512 * 1024
 MAX_INLINE_IMAGES_BYTES = 5 * 1024 * 1024
+# The standard library's header parser and MIME walker get far slower and larger than the input they are given, so a
+# message outside these limits is kept unparsed. Ordinary mail stays well inside them.
+MAX_HEADER_BLOCK_BYTES = 64 * 1024
+MAX_PARSED_HEADER_CHARS = 32 * 1024
+MAX_PARSED_HEADER_CHARS_PER_MESSAGE = 2 * 1024 * 1024
+MAX_BOUNDARY_LINES = 2_000
+MAX_BOUNDARY_DECLARATIONS = 50
+MAX_LINE_BREAKS = 2_000_000
 
 # An SVG can carry script, so only formats a browser treats as pure pixels are inlined.
 INLINE_IMAGE_TYPES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"})
@@ -42,9 +52,14 @@ RECIPIENT_TRACE_HEADERS = frozenset(
     }
 )
 
+VISIBLE_RECIPIENT_HEADERS = frozenset({"to", "cc"})
+
 MAX_REFERENCES = 50
 _MESSAGE_ID = re.compile(r"<[^<>\s]{1,500}>")
 _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+_END_OF_HEADERS = re.compile(rb"\r?\n\r?\n")
+_BOUNDARY_DECLARATION = re.compile(rb"boundary\*?\d*\*?\s*=", re.IGNORECASE)
+_FOLD = re.compile(r"\r?\n[ \t]+")
 _FILENAME_UNSAFE = re.compile(r'[\x00-\x1f\x7f/\\:*?"<>|]')
 _CID_REFERENCE = re.compile(r"""cid:([^"'\s>)]+)""", re.IGNORECASE)
 
@@ -65,6 +80,34 @@ _QUOTE_SEPARATOR = re.compile(r"-{2,}\s*(Original Message|Forwarded message)\s*-
 _OUTLOOK_FROM = re.compile(r"From:\s.+")
 _OUTLOOK_SENT = re.compile(r"(Sent|Date):\s.+")
 _QUOTED_LINE = re.compile(r"^\s*>")
+# Parsers disagree about routes, comments, groups and encoded words, so a From with any of them proves nothing.
+_ADDR_SPEC = r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?"
+_STRICT_FROM = re.compile(
+    rf"""\s*(?:(?P<bare>{_ADDR_SPEC})|(?:"(?:[^"\\]|\\.)*"|[^"<>@,;:()\\]*)\s*<(?P<angled>{_ADDR_SPEC})>)\s*"""
+)
+_ANGLED_ADDRESS = re.compile(r"<([^<>]*)>\s*$")
+
+
+class MessageTooComplex(Exception):
+    """Not a ValueError, so the handlers that forgive one bad header let this end the whole parse."""
+
+
+class _HeaderBudget:
+    def __init__(self) -> None:
+        self.chars_left = MAX_PARSED_HEADER_CHARS_PER_MESSAGE
+
+
+class _BoundedPolicy(EmailPolicy):
+    """All header parsing passes through here, including the headers of MIME parts and attached messages."""
+
+    budget: _HeaderBudget | None = None
+
+    def header_fetch_parse(self, name: str, value: str) -> Any:
+        if self.budget is not None:
+            self.budget.chars_left -= len(value)
+            if len(value) > MAX_PARSED_HEADER_CHARS or self.budget.chars_left < 0:
+                raise MessageTooComplex(f"{name} header")
+        return super().header_fetch_parse(name, value)
 
 
 @frozen
@@ -117,10 +160,14 @@ class ParsedEmail:
     attachments: tuple[ParsedAttachment, ...]
     attachments_dropped: int
     auto_submitted: bool
+    # Empty unless the message has exactly one From header holding exactly one plainly written address.
+    verifiable_from_address: str
 
 
 def parse_email(raw: bytes) -> ParsedEmail:
-    message = email.message_from_bytes(raw, policy=email.policy.default)
+    _check_parse_limits(raw)
+    # refold_source="none" serializes an attached message without parsing its headers again.
+    message = email.message_from_bytes(raw, policy=_BoundedPolicy(refold_source="none", budget=_HeaderBudget()))  # type: ignore[call-overload]
     sender = _single_address(_header(message, "from"))
     parts = _walk_parts(message)
     text, text_truncated = _bounded(parts.text)
@@ -131,7 +178,7 @@ def parse_email(raw: bytes) -> ParsedEmail:
         subject=_clean(_header(message, "subject"))[:MAX_SUBJECT_CHARS],
         message_id=_clean(_unparsed_header(message, "message-id"))[:MAX_MESSAGE_ID_CHARS],
         in_reply_to=_clean(_unparsed_header(message, "in-reply-to"))[:MAX_MESSAGE_ID_CHARS],
-        references=_message_ids(_unparsed_header(message, "references")),
+        references=_message_ids(_encodable(_unparsed_header(message, "references"))),
         to_addresses=_addresses(_header(message, "to")),
         cc_addresses=_addresses(_header(message, "cc")),
         reply_to_addresses=_addresses(_header(message, "reply-to")),
@@ -143,7 +190,23 @@ def parse_email(raw: bytes) -> ParsedEmail:
         attachments=tuple(parts.attachments),
         attachments_dropped=parts.dropped,
         auto_submitted=is_auto_submitted(message),
+        verifiable_from_address=_verifiable_from(message),
     )
+
+
+def strict_address(value: str) -> str:
+    """The lowercased address when `value` is plainly one address, optionally with a display name. Otherwise empty."""
+    match = _STRICT_FROM.fullmatch(_FOLD.sub(" ", value))
+    return (match.group("bare") or match.group("angled")).lower() if match else ""
+
+
+def address_from_receipt(values: Any) -> str:
+    """The sender SES read from the message. Its From list holds decoded display names, so only the address is strict."""
+    if not isinstance(values, list) or len(values) != 1:
+        return ""
+    value = str(values[0])[: MAX_ADDRESS_CHARS * 2]
+    angled = _ANGLED_ADDRESS.search(value)
+    return strict_address(angled.group(1) if angled else value)
 
 
 def is_auto_submitted(message: Message) -> bool:
@@ -169,21 +232,24 @@ def is_system_sender(envelope_from: str) -> bool:
     return not address or address.partition("@")[0] in SYSTEM_SENDER_LOCAL_PARTS
 
 
-def scrub_recipient_trace_headers(raw: bytes) -> bytes:
-    """Remove the headers that could name another team's envelope recipients from one team's copy of a message."""
-    separator = re.search(rb"\r?\n\r?\n", raw)
+def scrub_recipient_trace_headers(raw: bytes, named_elsewhere: Iterable[str] = ()) -> bytes:
+    """Remove the headers that could name another team's envelope recipients from one team's copy of a message.
+
+    A name list can't cover every header a mail server may add, so any header naming such a recipient goes too. To and
+    Cc stay, because the sender already showed those addresses to everyone who gets the message.
+    """
+    separator = _END_OF_HEADERS.search(raw)
     header_block, rest = (raw[: separator.start()], raw[separator.start() :]) if separator else (raw, b"")
+    elsewhere = tuple(address.lower().encode("utf-8", errors="replace") for address in named_elsewhere)
     kept: list[bytes] = []
-    dropping = False
-    for line in header_block.splitlines(keepends=True):
-        if line[:1] in (b" ", b"\t"):
-            if not dropping:
-                kept.append(line)
+    for field in _header_fields(header_block):
+        name = field.partition(b":")[0].strip().lower().decode("ascii", errors="replace")
+        if name in RECIPIENT_TRACE_HEADERS or name.startswith("x-ses-"):
             continue
-        name = line.partition(b":")[0].strip().lower().decode("ascii", errors="replace")
-        dropping = name in RECIPIENT_TRACE_HEADERS or name.startswith("x-ses-")
-        if not dropping:
-            kept.append(line)
+        unfolded = field.replace(b"\r", b"").replace(b"\n", b"").lower()
+        if name not in VISIBLE_RECIPIENT_HEADERS and any(address in unfolded for address in elsewhere):
+            continue
+        kept.append(field)
     return b"".join(kept) + rest
 
 
@@ -216,6 +282,34 @@ def _starts_quote(line: str, next_line: str) -> bool:
         return True
     wrapped = f"{current} {following}"
     return any(pattern.fullmatch(current) or pattern.fullmatch(wrapped) for pattern in _QUOTE_ATTRIBUTIONS)
+
+
+def _check_parse_limits(raw: bytes) -> None:
+    separator = _END_OF_HEADERS.search(raw, 0, MAX_HEADER_BLOCK_BYTES + 4)
+    if separator is None and len(raw) > MAX_HEADER_BLOCK_BYTES:
+        raise MessageTooComplex("header block")
+    # The parser treats a bare CR as a line break too, and checks every line against every enclosing boundary.
+    if raw.count(b"\n") + raw.count(b"\r") > MAX_LINE_BREAKS:
+        raise MessageTooComplex("line count")
+    if raw.count(b"\n--") + raw.count(b"\r--") > MAX_BOUNDARY_LINES:
+        raise MessageTooComplex("boundary lines")
+    if len(_BOUNDARY_DECLARATION.findall(raw)) > MAX_BOUNDARY_DECLARATIONS:
+        raise MessageTooComplex("boundary declarations")
+
+
+def _header_fields(header_block: bytes) -> list[bytes]:
+    fields: list[bytes] = []
+    for line in header_block.splitlines(keepends=True):
+        if fields and line[:1] in (b" ", b"\t"):
+            fields[-1] += line
+        else:
+            fields.append(line)
+    return fields
+
+
+def _verifiable_from(message: Message) -> str:
+    values = [str(value) for key, value in message.raw_items() if key.lower() == "from"]
+    return strict_address(values[0]) if len(values) == 1 else ""
 
 
 def _walk_parts(message: Message) -> _Parts:
@@ -318,7 +412,7 @@ def _safe_filename(part: Message, index: int) -> str:
         name = part.get_filename() or ""
     except (ValueError, LookupError, IndexError, AttributeError):
         name = ""
-    name = _FILENAME_UNSAFE.sub("_", name).strip(" .")
+    name = _FILENAME_UNSAFE.sub("_", _encodable(name)).strip(" .")
     return name[-MAX_FILENAME_CHARS:] or f"attachment-{index + 1}"
 
 
@@ -375,8 +469,13 @@ def _bounded(value: str) -> tuple[str, bool]:
 
 
 def _clean(value: str) -> str:
-    return _CONTROL_CHARS.sub("", value).replace("\r", " ").replace("\n", " ").strip()
+    return _CONTROL_CHARS.sub("", _encodable(value)).replace("\r", " ").replace("\n", " ").strip()
 
 
 def _clean_body(value: str) -> str:
-    return value.replace("\x00", "")
+    return _encodable(value).replace("\x00", "")
+
+
+def _encodable(value: str) -> str:
+    """Raw 8-bit header bytes reach Python as lone surrogates, which Postgres and object storage can't encode."""
+    return value.encode("utf-8", errors="replace").decode("utf-8")

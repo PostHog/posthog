@@ -688,16 +688,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The addresses in the To header of a received email.",
             "type": "String",
         },
-        "$email_cc_addresses": {
-            "label": "Email cc addresses",
-            "description": "The addresses in the Cc header of a received email.",
-            "type": "String",
-        },
-        "$email_subject": {
-            "label": "Email subject",
-            "description": "The subject line of a received email.",
-            "type": "String",
-        },
         "$email_message_id": {
             "label": "Email message ID",
             "description": "The ID of a transactional email or a received email in the email log and its API.",
@@ -760,7 +750,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$email_original_message_id": {
             "label": "Email original message ID",
-            "description": "The transactional email that a received email answers. Empty when none was matched.",
+            "description": (
+                "The transactional email that a received email answers. Empty when none was matched. "
+                "It comes from headers the sender controls, so it's a hint about the thread and not proof."
+            ),
             "type": "String",
         },
         "$email_original_workflow_id": {

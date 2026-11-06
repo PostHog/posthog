@@ -31,14 +31,23 @@ from products.workflows.backend.facade.enums import (
 )
 from products.workflows.backend.models import InboundEmailDomain, ReceivedEmail
 from products.workflows.backend.services.inbound_email import storage
-from products.workflows.backend.services.inbound_email.domains import check_domain_mx, domains_for_recipients
+from products.workflows.backend.services.inbound_email.domains import (
+    check_domain_mx,
+    domains_for_recipients,
+    has_verified_parent,
+    may_activate_on_arrival,
+    retire_domain,
+)
 from products.workflows.backend.services.inbound_email.matching import find_original_send, find_person_by_email
 from products.workflows.backend.services.inbound_email.parsing import (
     MAX_ADDRESS_CHARS,
+    MAX_ADDRESSES,
     MAX_MESSAGE_ID_CHARS,
+    MAX_PARSED_HEADER_CHARS,
     MAX_RAW_BYTES,
     MAX_SUBJECT_CHARS,
     ParsedEmail,
+    address_from_receipt,
     is_system_sender,
     parse_email,
     scrub_recipient_trace_headers,
@@ -56,6 +65,10 @@ EMAIL_RECEIVED_EVENT = "$email_received"
 EVENT_SOURCE = "workflows_inbound_email"
 RECEIVED_EMAIL_NAMESPACE = uuid.UUID("9b6a4f31-7f5c-4a2e-8d10-3c1e5f7a9b24")
 TEAM_DAILY_LIMIT = 10_000
+TEAM_DAILY_BYTES = 5 * 1024 * 1024 * 1024
+# Spam and mail with no proven sender count on their own, so a stranger's junk can't use up the cap on proven mail.
+UNTRUSTED_DAILY_LIMIT = 1_000
+UNTRUSTED_DAILY_BYTES = 256 * 1024 * 1024
 SENDER_HOURLY_LIMIT = 60
 FAIL = "FAIL"
 PASS = "PASS"
@@ -158,18 +171,24 @@ def process_notification(payload: Mapping[str, Any]) -> None:
             failures.append(_logged_failure(notification, route, error))
 
     if new_routes:
-        # A team over its limit, or a redelivery, must not cost a download of up to 40 MB.
+        # A team over its limit, a redelivery, or mail filtered on the receipt alone must not cost a download of up to
+        # 40 MB.
         size = _object_size(notification)
         if size is None:
             raise IntakeObjectMissing(notification.ses_message_id)
-        raw = (
-            None
-            if size > MAX_RAW_BYTES
-            else object_storage.read_bytes(notification.object_key, bucket=storage.bucket())
-        )
+        admitted: list[tuple[_Route, str | None]] = []
         for route in new_routes:
             try:
-                _deliver_to_team(notification, route, raw, size)
+                reason = _filter_reason_from_receipt(notification, route.domain.team_id)
+                if reason is not None or not _over_byte_budget(notification, route, size):
+                    admitted.append((route, reason))
+            except Exception as error:
+                failures.append(_logged_failure(notification, route, error))
+        wants_content = any(reason is None for _, reason in admitted) and size <= MAX_RAW_BYTES
+        raw = object_storage.read_bytes(notification.object_key, bucket=storage.bucket()) if wants_content else None
+        for route, reason in admitted:
+            try:
+                _deliver_to_team(notification, route, raw, size, reason)
             except Exception as error:
                 # One team's failure must not cost the other team its mail; the retry skips what was delivered.
                 failures.append(_logged_failure(notification, route, error))
@@ -182,12 +201,13 @@ def received_email_id(team_id: int, ses_message_id: str) -> uuid.UUID:
     return uuid.uuid5(RECEIVED_EMAIL_NAMESPACE, f"{team_id}:{ses_message_id}")
 
 
-def is_sender_verified(*, dmarc: str, spf: str, envelope_from: str, from_address: str) -> bool:
+def is_sender_verified(*, dmarc: str, spf: str, envelope_from: str, from_address: str, receipt_from: str) -> bool:
     """DMARC proves the From domain. With no DMARC policy, SPF counts only when it covers that same domain.
 
-    SES's DKIM verdict doesn't say which domain signed, so it can't vouch for the From on its own.
+    SES's DKIM verdict doesn't say which domain signed, so it can't vouch for the From on its own. The verdicts speak
+    about the From that SES read, so they say nothing about an address in a different domain.
     """
-    if not from_address:
+    if not from_address or _domain_of(from_address) != _domain_of(receipt_from):
         return False
     if dmarc == PASS:
         return True
@@ -204,13 +224,51 @@ def _needs_delivery(notification: InboundNotification, route: _Route) -> bool:
     if existing is not None:
         _capture_if_owed(existing)
         return False
-    if _over_daily_limit(team_id):
-        InboundEmailDomain.objects.for_team(team_id).filter(pk=route.domain.pk).update(
-            daily_limit_reached_at=timezone.now()
-        )
-        INBOUND_EMAIL_OUTCOMES.labels(outcome="team_daily_limit").inc()
+    if _over_daily_limit(team_id, _is_trusted(notification)):
+        _record_limit_reached(route, "team_daily_limit")
         return False
     return True
+
+
+def _is_trusted(notification: InboundNotification) -> bool:
+    """Decided from the receipt alone, because this runs before the message is downloaded."""
+    if notification.spam == FAIL:
+        return False
+    receipt_from = address_from_receipt(notification.common_headers.get("from"))
+    return is_sender_verified(
+        dmarc=notification.dmarc,
+        spf=notification.spf,
+        envelope_from=notification.envelope_from,
+        from_address=receipt_from,
+        receipt_from=receipt_from,
+    )
+
+
+def _record_limit_reached(route: _Route, outcome: str) -> None:
+    team_id = route.domain.team_id
+    InboundEmailDomain.objects.for_team(team_id).filter(pk=route.domain.pk).update(
+        daily_limit_reached_at=timezone.now()
+    )
+    INBOUND_EMAIL_OUTCOMES.labels(outcome=outcome).inc()
+
+
+def _over_byte_budget(notification: InboundNotification, route: _Route, size: int) -> bool:
+    if size > MAX_RAW_BYTES:
+        return False
+    if _spend_daily_bytes(route.domain.team_id, _is_trusted(notification), size):
+        return False
+    _record_limit_reached(route, "team_daily_bytes")
+    return True
+
+
+def _filter_reason_from_receipt(notification: InboundNotification, team_id: int) -> str | None:
+    """Filters that need nothing from the message, so its content is never written."""
+    if notification.spam == FAIL:
+        return FilterReason.SPAM
+    if is_system_sender(notification.envelope_from):
+        return None
+    sender = address_from_receipt(notification.common_headers.get("from")) or notification.envelope_from
+    return FilterReason.RATE_LIMITED if _over_sender_limit(team_id, sender) else None
 
 
 def _logged_failure(notification: InboundNotification, route: _Route, error: Exception) -> Exception:
@@ -223,14 +281,20 @@ def _logged_failure(notification: InboundNotification, route: _Route, error: Exc
     return error
 
 
-def _deliver_to_team(notification: InboundNotification, route: _Route, raw: bytes | None, size: int) -> None:
+def _deliver_to_team(
+    notification: InboundNotification, route: _Route, raw: bytes | None, size: int, receipt_filter: str | None
+) -> None:
     team_id = route.domain.team_id
     email_id = received_email_id(team_id, notification.ses_message_id)
-    named_elsewhere = set(notification.recipients) - set(route.recipients)
-    team_raw = scrub_recipient_trace_headers(raw) if raw is not None and named_elsewhere else raw
-    parsed, content_status = _parse(team_raw)
-    if team_raw is not None:
-        storage.write_message(team_id, email_id, team_raw, parsed)
+    if receipt_filter:
+        parsed: ParsedEmail | None = None
+        content_status: str = ContentStatus.NOT_STORED
+    else:
+        named_elsewhere = set(notification.recipients) - set(route.recipients)
+        team_raw = scrub_recipient_trace_headers(raw, named_elsewhere) if raw is not None and named_elsewhere else raw
+        parsed, content_status = _parse(team_raw)
+        if team_raw is not None:
+            storage.write_message(team_id, email_id, team_raw, parsed)
 
     fields = _row_fields(notification, route, parsed)
     if verified_sender := fields["sender_verified"] and fields["from_address"]:
@@ -243,7 +307,7 @@ def _deliver_to_team(notification: InboundNotification, route: _Route, raw: byte
             fields["original_message_id"] = send.message_id
             fields["original_workflow_id"] = send.workflow_id
             fields["match_method"] = send.method
-    filter_reason = _filter_reason(notification, parsed, fields["from_address"], team_id)
+    filter_reason = receipt_filter or _filter_reason_from_content(notification, parsed)
     try:
         with transaction.atomic():
             email, created = ReceivedEmail.objects.for_team(team_id).get_or_create(
@@ -301,8 +365,6 @@ def _event_properties(email: ReceivedEmail) -> dict[str, Any]:
         "$email_recipient": recipients[0] if recipients else "",
         "$email_recipients": recipients,
         "$email_to_addresses": email.to_addresses,
-        "$email_cc_addresses": email.cc_addresses,
-        "$email_subject": email.subject,
         # Named like the send events' property, so a delivery webhook reads one ID the API accepts on either kind.
         "$email_message_id": str(email.id),
         "$email_internet_message_id": email.message_id,
@@ -327,9 +389,18 @@ def _event_properties(email: ReceivedEmail) -> dict[str, Any]:
 def _routes(notification: InboundNotification) -> list[_Route]:
     candidates = domains_for_recipients(notification.recipients)
     # Several teams may hold a pending row for one name, so an active row always wins it.
-    active: dict[str, InboundEmailDomain] = {d.domain: d for d in candidates if d.status == DomainStatus.ACTIVE}
+    active: dict[str, InboundEmailDomain] = {}
+    for domain in candidates:
+        if domain.status != DomainStatus.ACTIVE:
+            continue
+        if has_verified_parent(domain):
+            active[domain.domain] = domain
+        else:
+            retire_domain(domain)
     for domain in candidates:
         if domain.domain not in active and domain.status == DomainStatus.PENDING:
+            if not may_activate_on_arrival(domain, candidates):
+                continue
             # Arriving mail doesn't prove the MX, since anyone can name a domain at the SES endpoint, so check it.
             # This also means a customer who added the record and left doesn't lose their first mail.
             state = check_domain_mx(domain).state
@@ -389,7 +460,8 @@ def _row_fields(notification: InboundNotification, route: _Route, parsed: Parsed
         }
     else:
         identity = _identity_from_common_headers(notification.common_headers)
-    from_address = identity["from_address"]
+    # Mail with no parsed message has no count of its From headers, so it stays unverified.
+    verifiable_from = parsed.verifiable_from_address if parsed is not None else ""
     return {
         **identity,
         "envelope_from": notification.envelope_from,
@@ -403,7 +475,8 @@ def _row_fields(notification: InboundNotification, route: _Route, parsed: Parsed
             dmarc=notification.dmarc,
             spf=notification.spf,
             envelope_from=notification.envelope_from,
-            from_address=from_address,
+            from_address=verifiable_from if verifiable_from == identity["from_address"] else "",
+            receipt_from=address_from_receipt(notification.common_headers.get("from")),
         ),
     }
 
@@ -412,19 +485,25 @@ def _identity_from_common_headers(headers: Mapping[str, Any]) -> dict[str, Any]:
     """A message we can't parse still gets a list row, from the headers SES already read."""
     from email.utils import getaddresses  # noqa: PLC0415 - only this rare path needs it
 
-    def addresses(key: str) -> list[str]:
+    def header_values(key: str) -> list[str]:
         values = headers.get(key)
-        strings = [str(value) for value in values] if isinstance(values, list) else []
-        return [address.lower()[:MAX_ADDRESS_CHARS] for _, address in getaddresses(strings) if address]
+        strings = (
+            [str(value)[:MAX_PARSED_HEADER_CHARS] for value in values[:MAX_ADDRESSES]]
+            if isinstance(values, list)
+            else []
+        )
+        return [_storable(value) for value in strings]
 
-    from_values = headers.get("from")
-    senders = getaddresses([str(value) for value in from_values]) if isinstance(from_values, list) else []
+    def addresses(key: str) -> list[str]:
+        return [address.lower()[:MAX_ADDRESS_CHARS] for _, address in getaddresses(header_values(key)) if address]
+
+    senders = getaddresses(header_values("from"))
     name, address = senders[0] if senders else ("", "")
     return {
         "from_address": address.lower()[:MAX_ADDRESS_CHARS],
         "from_name": name[:MAX_ADDRESS_CHARS],
-        "subject": str(headers.get("subject", "") or "").replace("\x00", "")[:MAX_SUBJECT_CHARS],
-        "message_id": str(headers.get("messageId", "") or "").replace("\x00", "")[:MAX_MESSAGE_ID_CHARS],
+        "subject": _storable(str(headers.get("subject", "") or ""))[:MAX_SUBJECT_CHARS],
+        "message_id": _storable(str(headers.get("messageId", "") or ""))[:MAX_MESSAGE_ID_CHARS],
         "in_reply_to": "",
         "to_addresses": addresses("to"),
         "cc_addresses": addresses("cc"),
@@ -433,21 +512,31 @@ def _identity_from_common_headers(headers: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _filter_reason(
-    notification: InboundNotification, parsed: ParsedEmail | None, from_address: str, team_id: int
-) -> str | None:
-    if notification.spam == FAIL:
-        return FilterReason.SPAM
+def _filter_reason_from_content(notification: InboundNotification, parsed: ParsedEmail | None) -> str | None:
     if (parsed is not None and parsed.auto_submitted) or is_system_sender(notification.envelope_from):
         return FilterReason.AUTO_REPLY
-    if _over_sender_limit(team_id, from_address or notification.envelope_from):
-        return FilterReason.RATE_LIMITED
     return None
 
 
-def _over_daily_limit(team_id: int) -> bool:
+def _over_daily_limit(team_id: int, trusted: bool) -> bool:
     day = timezone.now().strftime("%Y%m%d")
-    return _count_in_window(f"workflows:inbound_email:team:{team_id}:{day}", timedelta(days=2)) > TEAM_DAILY_LIMIT
+    bucket = "team" if trusted else "untrusted"
+    limit = TEAM_DAILY_LIMIT if trusted else UNTRUSTED_DAILY_LIMIT
+    return _count_in_window(f"workflows:inbound_email:{bucket}:{team_id}:{day}", timedelta(days=2)) > limit
+
+
+def _spend_daily_bytes(team_id: int, trusted: bool, size: int) -> bool:
+    """False when the size doesn't fit today's budget. One large message then doesn't lock out small ones."""
+    day = timezone.now().strftime("%Y%m%d")
+    key = f"workflows:inbound_email:{'team' if trusted else 'untrusted'}_bytes:{team_id}:{day}"
+    client = get_client()
+    spent = int(client.incrby(key, size))
+    if spent == size:
+        client.expire(key, int(timedelta(days=2).total_seconds()))
+    if spent > (TEAM_DAILY_BYTES if trusted else UNTRUSTED_DAILY_BYTES):
+        client.decrby(key, size)
+        return False
+    return True
 
 
 def _over_sender_limit(team_id: int, sender: str) -> bool:
@@ -473,6 +562,10 @@ def _verdict(receipt: Mapping[str, Any], key: str) -> str:
 def _parse_timestamp(value: Any) -> datetime:
     parsed = parse_datetime(value) if isinstance(value, str) else None
     return parsed if parsed is not None and parsed.tzinfo is not None else datetime.now(UTC)
+
+
+def _storable(value: str) -> str:
+    return value.encode("utf-8", errors="replace").decode("utf-8").replace("\x00", "")
 
 
 def _domain_of(address: str) -> str:
