@@ -13,7 +13,7 @@ from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES, model_to_resource
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
@@ -175,7 +175,7 @@ class TestHogFlowAccessControl(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand([("trigger",), ("conversion",)])
     def test_action_reference_needs_viewer_access_unless_already_used(self, placement: str):
-        action = Action.objects.create(
+        action = create_action(
             team=self.team, name="restricted", steps_json=[{"event": "$pageview"}], created_by=self.user
         )
         self._create_access_control(self.editor_user, access_level="editor")
