@@ -1,15 +1,13 @@
 import { IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
-
-import { cn } from 'lib/utils/css-classes'
+import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
 
 import { MAX_CATEGORICAL_OPTIONS } from '../constants'
 import type { EvaluationOutputConfig } from '../types'
 import { categoryKey } from './categoryKey'
 
 /**
- * The categories of an evaluation. A new category's key follows its label. With grading on, the categories marked as a
- * pass are the passing rule; with it off, runs get a category and no pass or fail.
+ * The categories of an evaluation. A new category's key follows its label, and renaming or removing a category keeps
+ * the passing rule pointing at the same categories.
  */
 export function EvaluationCategoryEditor({
     config,
@@ -26,7 +24,6 @@ export function EvaluationCategoryEditor({
 }): JSX.Element {
     const options = config.options ?? []
     const passing = config.passing_rule && 'categories' in config.passing_rule ? config.passing_rule.categories : []
-    const named = options.filter((option) => option.key)
     const grades = !!config.passing_rule
     const withPassing = (keys: string[]): EvaluationOutputConfig['passing_rule'] =>
         grades ? { categories: keys } : null
@@ -99,62 +96,6 @@ export function EvaluationCategoryEditor({
                     Add category
                 </LemonButton>
             </div>
-            {named.length > 0 && (
-                <div className="flex flex-col gap-2 pt-2">
-                    <LemonSwitch
-                        label="Grade runs as pass or fail"
-                        checked={grades}
-                        onChange={(on) => onChange({ passing_rule: on ? { categories: passing } : null })}
-                        data-attr="llma-evaluation-create-category-grading"
-                    />
-                    {grades ? (
-                        <div className="flex flex-col gap-1">
-                            <span className="text-sm font-semibold">Which ones count as a pass?</span>
-                            <div className="flex flex-wrap gap-1">
-                                {named.map((option, index) => {
-                                    const passes = passing.includes(option.key)
-                                    return (
-                                        <button
-                                            key={`${index}-${option.key}`}
-                                            type="button"
-                                            aria-pressed={passes}
-                                            className={cn(
-                                                'rounded border px-2 py-1 text-sm cursor-pointer transition-colors',
-                                                passes
-                                                    ? 'bg-success-highlight border-success text-success font-semibold'
-                                                    : 'bg-surface-primary hover:bg-fill-highlight-100'
-                                            )}
-                                            onClick={() =>
-                                                onChange({
-                                                    passing_rule: withPassing(
-                                                        passes
-                                                            ? passing.filter((value) => value !== option.key)
-                                                            : [...passing, option.key]
-                                                    ),
-                                                })
-                                            }
-                                            data-attr="llma-evaluation-create-category-pass"
-                                        >
-                                            {option.label}
-                                        </button>
-                                    )
-                                })}
-                            </div>
-                            <span className="text-xs text-secondary">
-                                {passing.length > 0
-                                    ? 'Runs with any other category fail. Pass rates and reports use this.'
-                                    : config.selection_mode === 'multiple'
-                                      ? 'With none picked, only runs with no category pass.'
-                                      : 'Pick at least one category that counts as a pass.'}
-                            </span>
-                        </div>
-                    ) : (
-                        <span className="text-xs text-secondary">
-                            Runs only get a category, with no pass rate or reports.
-                        </span>
-                    )}
-                </div>
-            )}
         </div>
     )
 }

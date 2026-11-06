@@ -16,8 +16,8 @@ from posthog.models.user_integration import UserIntegration
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.task_profiles import CLEANUP
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.tasks.backend.facade import api as tasks_facade
 
 
 class TestExperimentCleanupPr(APIBaseTest):
@@ -59,7 +59,7 @@ class TestExperimentCleanupPr(APIBaseTest):
     )
     @patch("products.experiments.backend.experiment_service.report_user_action")
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
-    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    @patch("products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration")
     def test_cleanup_pr_fires_only_when_opted_in(
         self,
         _name,
@@ -90,7 +90,7 @@ class TestExperimentCleanupPr(APIBaseTest):
         if expect_task_created:
             mock_create_task.assert_called_once()
             kwargs = mock_create_task.call_args.kwargs
-            self.assertEqual(kwargs["origin_product"], tasks_facade.TaskOriginProduct.EXPERIMENTS)
+            self.assertEqual(kwargs["profile"], CLEANUP)
             self.assertEqual(kwargs["repository"], "posthog/posthog")
             self.assertTrue(kwargs["create_pr"])
             self.assertEqual(experiment.flag_cleanup_task_id, task_id)
@@ -173,7 +173,7 @@ class TestExperimentCleanupPr(APIBaseTest):
     )
     @patch("products.experiments.backend.experiment_service.report_user_action")
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
-    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    @patch("products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration")
     def test_cleanup_repository_resolution(
         self,
         _name,
@@ -216,7 +216,7 @@ class TestExperimentCleanupPr(APIBaseTest):
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
-    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    @patch("products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration")
     def test_repository_picked_at_end_time_targets_the_task(
         self,
         mock_resolve_github,
@@ -246,7 +246,7 @@ class TestExperimentCleanupPr(APIBaseTest):
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
-    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    @patch("products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration")
     def test_repository_outside_the_installation_skips_and_is_not_persisted(
         self,
         mock_resolve_github,
@@ -280,7 +280,7 @@ class TestExperimentCleanupPr(APIBaseTest):
     )
     @patch("products.experiments.backend.experiment_service.report_user_action")
     @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
-    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    @patch("products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration")
     def test_set_repository_as_team_default(
         self,
         _name,
@@ -324,7 +324,7 @@ class TestExperimentCleanupPr(APIBaseTest):
         "products.experiments.backend.experiment_service.tasks_facade.create_and_run_task",
         side_effect=Exception("sandbox unavailable"),
     )
-    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    @patch("products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration")
     def test_team_default_not_saved_when_task_creation_fails(
         self,
         mock_resolve_github,
@@ -381,7 +381,7 @@ class TestExperimentsConfigFlagCleanupRepository(APIBaseTest):
             ("empty_string_clears", "", 200, None),
         ]
     )
-    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    @patch("products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration")
     def test_flag_cleanup_repository_validation(
         self, _name, submitted, expected_status, expected_stored, mock_resolve_github
     ):

@@ -19,6 +19,10 @@ from products.warehouse_sources.sources.sdk import (
 from products.warehouse_sources.sources.segment.settings import (
     DELIVERY_METRICS_MAX_LOOKBACK_DAYS,
     DELIVERY_METRICS_WINDOW_DAYS,
+    DELIVERY_OVERVIEW_DESTINATION_STAGES,
+    DELIVERY_OVERVIEW_SOURCE_STAGES,
+    METRICS_SERIES_MAX_LOOKBACK_DAYS,
+    METRICS_SERIES_WINDOW_DAYS,
     REGION_BASE_URLS,
     SEGMENT_ENDPOINTS,
     SegmentEndpointConfig,
@@ -76,7 +80,8 @@ def _build_url(base_url: str, path: str, cursor: str | None) -> str:
     params = [f"pagination[count]={PAGE_SIZE}"]
     if cursor:
         params.append(f"pagination[cursor]={quote(cursor, safe='')}")
-    return f"{base_url}{path}?{'&'.join(params)}"
+    separator = "&" if "?" in path else "?"
+    return f"{base_url}{path}{separator}{'&'.join(params)}"
 
 
 @retry_with_deadline(
@@ -223,7 +228,12 @@ class _MetricsWindow:
     end: str
 
 
-def _delivery_metrics_window(now: datetime, resumed_end: str | None) -> _MetricsWindow:
+def _metrics_window(
+    now: datetime,
+    resumed_end: str | None,
+    window_days: int = DELIVERY_METRICS_WINDOW_DAYS,
+    max_lookback_days: int = DELIVERY_METRICS_MAX_LOOKBACK_DAYS,
+) -> _MetricsWindow:
     """Whole UTC days, so every sync reports the same span and today's partial day is left out.
 
     A resumed run keeps the window of its first attempt while Segment still accepts that start time.
@@ -232,11 +242,9 @@ def _delivery_metrics_window(now: datetime, resumed_end: str | None) -> _Metrics
     end = now.replace(hour=0, minute=0, second=0, microsecond=0)
     if resumed_end is not None:
         resumed = datetime.strptime(resumed_end, _TIME_FORMAT).replace(tzinfo=UTC)
-        if now - (resumed - timedelta(days=DELIVERY_METRICS_WINDOW_DAYS)) < timedelta(
-            days=DELIVERY_METRICS_MAX_LOOKBACK_DAYS
-        ):
+        if now - (resumed - timedelta(days=window_days)) < timedelta(days=max_lookback_days):
             end = resumed
-    start = end - timedelta(days=DELIVERY_METRICS_WINDOW_DAYS)
+    start = end - timedelta(days=window_days)
     return _MetricsWindow(start=start.strftime(_TIME_FORMAT), end=end.strftime(_TIME_FORMAT))
 
 
@@ -273,6 +281,79 @@ def _delivery_metrics_parents(
                     "windowStart": window.start,
                     "windowEnd": window.end,
                 },
+            )
+        )
+    return parents
+
+
+def _event_volume_parents(config: SegmentEndpointConfig, window: _MetricsWindow) -> list[_Parent]:
+    query = urlencode({"granularity": "DAY", "startTime": window.start, "endTime": window.end, "groupBy": "source"})
+    return [_Parent(id="workspace", path=f"{config.path}?{query}", row_fields={})]
+
+
+def _usage_periods(now: datetime) -> list[str]:
+    """The first days of the current and the previous usage month."""
+    current = now.astimezone(UTC).date().replace(day=1)
+    previous = (current - timedelta(days=1)).replace(day=1)
+    return [previous.isoformat(), current.isoformat()]
+
+
+def _mtu_usage_parents(config: SegmentEndpointConfig, now: datetime) -> list[_Parent]:
+    return [
+        _Parent(id=period, path=f"{config.path}?{urlencode({'period': period})}", row_fields={})
+        for period in _usage_periods(now)
+    ]
+
+
+def _warehouse_sync_parents(warehouses: list[dict[str, Any]], config: SegmentEndpointConfig) -> list[_Parent]:
+    return [
+        _Parent(
+            id=warehouse["id"],
+            path=config.path.format(warehouse_id=quote(warehouse["id"], safe="")),
+            row_fields={"warehouseId": warehouse["id"]},
+        )
+        for warehouse in warehouses
+        if warehouse.get("id")
+    ]
+
+
+def _delivery_overview_parents(
+    sources: list[dict[str, Any]],
+    destinations: list[dict[str, Any]],
+    reverse_etl_models: list[dict[str, Any]],
+    config: SegmentEndpointConfig,
+    window: _MetricsWindow,
+) -> list[_Parent]:
+    """Each source reports the source-side stages, and each destination the destination-side stages.
+
+    Delivery Overview does not cover Reverse ETL, so the sources of Reverse ETL models and their
+    destinations are left out."""
+    reverse_etl_source_ids = {model["sourceId"] for model in reverse_etl_models if model.get("sourceId")}
+    pairs: list[tuple[str, str, str]] = [
+        (stage, source["id"], "")
+        for source in sources
+        if source.get("id") and source["id"] not in reverse_etl_source_ids
+        for stage in DELIVERY_OVERVIEW_SOURCE_STAGES
+    ]
+    pairs.extend(
+        (stage, destination["sourceId"], destination["id"])
+        for destination in destinations
+        if destination.get("id")
+        and destination.get("sourceId")
+        and destination["sourceId"] not in reverse_etl_source_ids
+        for stage in DELIVERY_OVERVIEW_DESTINATION_STAGES
+    )
+
+    parents: list[_Parent] = []
+    for stage, source_id, destination_id in pairs:
+        params = {"sourceId": source_id, "granularity": "DAY", "startTime": window.start, "endTime": window.end}
+        if destination_id:
+            params["destinationConfigId"] = destination_id
+        parents.append(
+            _Parent(
+                id=f"{source_id}/{destination_id}/{stage}",
+                path=f"{config.path.format(stage=stage)}?{urlencode(params)}",
+                row_fields={"stage": stage, "sourceId": source_id, "destinationId": destination_id},
             )
         )
     return parents
@@ -357,6 +438,43 @@ def _shape_delivery_metric_rows(parent: _Parent, data: dict[str, Any]) -> list[d
     ]
 
 
+def _shape_event_volume_rows(parent: _Parent, data: dict[str, Any]) -> list[dict[str, Any]]:
+    payload = data.get("data")
+    series_list = payload.get("result") if isinstance(payload, dict) else None
+    rows: list[dict[str, Any]] = []
+    for entry in series_list or []:
+        if not isinstance(entry, dict):
+            continue
+        source = entry.get("source")
+        if not isinstance(source, dict):
+            source = {}
+        rows.extend(
+            {
+                "sourceId": source.get("id"),
+                "sourceName": source.get("name"),
+                "sourceSlug": source.get("slug"),
+                **point,
+                **parent.row_fields,
+            }
+            for point in entry.get("series") or []
+            if isinstance(point, dict)
+        )
+    return rows
+
+
+def _shape_delivery_overview_rows(parent: _Parent, data: dict[str, Any]) -> list[dict[str, Any]]:
+    # With no groupBy, the dataset holds one series for the whole stage.
+    payload = data.get("data")
+    dataset = payload.get("dataset") if isinstance(payload, dict) else None
+    return [
+        {**point, **parent.row_fields}
+        for entry in dataset or []
+        if isinstance(entry, dict)
+        for point in entry.get("series") or []
+        if isinstance(point, dict)
+    ]
+
+
 def _fan_out(
     session: requests.Session,
     base_url: str,
@@ -430,10 +548,38 @@ def get_fanout_rows(
         parents = _tracking_plan_parents(list_parents("/tracking-plans"), config)
         build_url, shape = _build_url, _shape_rule_rows
     elif config.fanout == "delivery_metrics":
-        window = _delivery_metrics_window(datetime.now(UTC), resume.window_end if resume else None)
+        window = _metrics_window(datetime.now(UTC), resume.window_end if resume else None)
         window_end = window.end
         parents = _delivery_metrics_parents(list_parents("/destinations"), config, window)
         build_url, shape = _build_plain_url, _shape_delivery_metric_rows
+    elif config.fanout == "event_volume":
+        window = _metrics_window(
+            datetime.now(UTC),
+            resume.window_end if resume else None,
+            METRICS_SERIES_WINDOW_DAYS,
+            METRICS_SERIES_MAX_LOOKBACK_DAYS,
+        )
+        window_end = window.end
+        parents = _event_volume_parents(config, window)
+        build_url, shape = _build_url, _shape_event_volume_rows
+    elif config.fanout == "mtu_usage":
+        parents = _mtu_usage_parents(config, datetime.now(UTC))
+        build_url, shape = _build_url, _shape_list_rows
+    elif config.fanout == "warehouse_syncs":
+        parents = _warehouse_sync_parents(list_parents("/warehouses"), config)
+        build_url, shape = _build_url, _shape_list_rows
+    elif config.fanout == "delivery_overview":
+        window = _metrics_window(
+            datetime.now(UTC),
+            resume.window_end if resume else None,
+            METRICS_SERIES_WINDOW_DAYS,
+            METRICS_SERIES_MAX_LOOKBACK_DAYS,
+        )
+        window_end = window.end
+        parents = _delivery_overview_parents(
+            list_parents("/sources"), list_parents("/destinations"), list_parents("/reverse-etl-models"), config, window
+        )
+        build_url, shape = _build_url, _shape_delivery_overview_rows
     elif config.fanout == "reverse_etl_syncs":
         parents = _reverse_etl_parents(session, base_url, headers, logger, resumable_source_manager, config)
         build_url, shape = _build_sync_status_url, _shape_list_rows

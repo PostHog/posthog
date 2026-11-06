@@ -726,19 +726,36 @@ class TestLogsAlertAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("capped", False, status.HTTP_400_BAD_REQUEST, MAX_ALERTS_PER_TEAM),
-            ("uncapped", True, status.HTTP_201_CREATED, MAX_ALERTS_PER_TEAM + 1),
+            ("capped", False, "logs_rows", status.HTTP_400_BAD_REQUEST, 0),
+            ("uncapped", True, "logs_rows", status.HTTP_201_CREATED, 1),
+            ("capped_by_alerts_only_on_the_platform", False, "platform_only", status.HTTP_400_BAD_REQUEST, 0),
+            ("not_capped_by_copies_of_deleted_alerts", False, "copies_of_deleted_rows", status.HTTP_201_CREATED, 1),
         ]
     )
-    def test_per_team_limit(self, _name, uncapped, expected_status, expected_count):
+    def test_per_team_limit(
+        self, _name: str, uncapped: bool, existing: str, expected_status: int, created: int
+    ) -> None:
         for i in range(MAX_ALERTS_PER_TEAM):
-            LogsAlertConfiguration.objects.create(
-                team=self.team,
-                name=f"Alert {i}",
-                threshold_count=1,
-                created_by=self.user,
-                filters={"severityLevels": ["error"]},
-            )
+            if existing != "logs_rows":
+                with team_scope(self.team.id):
+                    platform_testing.create_configuration(
+                        team_id=self.team.id,
+                        name=f"Alert {i}",
+                        source_kind="logs",
+                        source_config={},
+                        check_interval_minutes=5,
+                        owner="platform" if existing == "platform_only" else "source",
+                        legacy_configuration_id=uuid4() if existing == "copies_of_deleted_rows" else None,
+                    )
+            else:
+                LogsAlertConfiguration.objects.create(
+                    team=self.team,
+                    name=f"Alert {i}",
+                    threshold_count=1,
+                    created_by=self.user,
+                    filters={"severityLevels": ["error"]},
+                )
+        logs_rows_before = LogsAlertConfiguration.objects.filter(team=self.team).count()
 
         patched_ids = frozenset({self.team.id}) if uncapped else frozenset()
         with patch("products.logs.backend.alert_creation.UNCAPPED_ALERT_TEAM_IDS", patched_ids):
@@ -748,7 +765,7 @@ class TestLogsAlertAPI(APIBaseTest):
                 format="json",
             )
         assert response.status_code == expected_status
-        assert LogsAlertConfiguration.objects.filter(team=self.team).count() == expected_count
+        assert LogsAlertConfiguration.objects.filter(team=self.team).count() == logs_rows_before + created
 
     # --- Read-only fields ---
 
