@@ -973,8 +973,16 @@ async fn a_span_tens_of_megabytes_large_is_accepted() {
     assert_eq!(sink.get_events().await.len(), 1);
 }
 
+#[rstest::rstest]
+#[case::kept_attribute_is_refused("service.description", 400, 0, 1)]
+#[case::dropped_attribute_is_not_counted("process.command_line", 200, 60, 0)]
 #[tokio::test]
-async fn a_large_resource_repeated_across_ai_spans_is_refused_before_expansion() {
+async fn resource_copies_are_bounded_by_the_attributes_the_fan_out_keeps(
+    #[case] key: &str,
+    #[case] expected_status: u16,
+    #[case] expected_events: usize,
+    #[case] expected_warnings: usize,
+) {
     let sink = CapturingSink::new();
     let (client, emitter) = make_test_client_collecting_warnings(&sink);
     let mut request = make_single_span_request();
@@ -985,7 +993,7 @@ async fn a_large_resource_repeated_across_ai_spans_is_refused_before_expansion()
         .expect("the request carries a resource")
         .attributes
         .push(make_kv(
-            "service.description",
+            key,
             any_value::Value::StringValue("x".repeat(1_000_000)),
         ));
     let span = resource_spans.scope_spans[0].spans[0].clone();
@@ -998,11 +1006,13 @@ async fn a_large_resource_repeated_across_ai_spans_is_refused_before_expansion()
 
     let status = send_request_with_client(&client, &request).await;
 
-    assert_eq!(status, 400);
-    assert!(sink.get_events().await.is_empty());
+    assert_eq!(status, expected_status);
+    assert_eq!(sink.get_events().await.len(), expected_events);
     let emitted = emitter.emitted();
-    assert_eq!(emitted.len(), 1);
-    assert_eq!(emitted[0].warning, WarningType::InvalidAiPayload);
+    assert_eq!(emitted.len(), expected_warnings);
+    assert!(emitted
+        .iter()
+        .all(|w| w.warning == WarningType::InvalidAiPayload));
 }
 
 #[tokio::test]

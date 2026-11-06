@@ -78,20 +78,21 @@ pub(super) fn attributes_to_map(attrs: &[KeyValue]) -> Map<String, Value> {
 /// pass through since they don't match these prefixes.
 const NOISY_RESOURCE_PREFIXES: &[&str] = &["host.", "process.", "os.", "telemetry."];
 
+fn retained_resource_value(kv: &KeyValue) -> Option<&any_value::Value> {
+    if NOISY_RESOURCE_PREFIXES
+        .iter()
+        .any(|prefix| kv.key.starts_with(prefix))
+    {
+        return None;
+    }
+    kv.value.as_ref().and_then(|v| v.value.as_ref())
+}
+
 fn filter_resource_attributes(attrs: &[KeyValue]) -> Map<String, Value> {
     attrs
         .iter()
         .filter_map(|kv| {
-            if NOISY_RESOURCE_PREFIXES
-                .iter()
-                .any(|prefix| kv.key.starts_with(prefix))
-            {
-                return None;
-            }
-            kv.value
-                .as_ref()
-                .and_then(|v| v.value.as_ref())
-                .map(|v| (kv.key.clone(), any_value_to_json(v)))
+            retained_resource_value(kv).map(|v| (kv.key.clone(), any_value_to_json(v)))
         })
         .collect()
 }
@@ -121,7 +122,14 @@ pub fn resource_copy_bytes(request: &ExportTraceServiceRequest) -> usize {
         .resource_spans
         .iter()
         .map(|rs| {
-            let resource_bytes = rs.resource.as_ref().map_or(0, Message::encoded_len);
+            let resource_bytes: usize = rs.resource.as_ref().map_or(0, |resource| {
+                resource
+                    .attributes
+                    .iter()
+                    .filter(|kv| retained_resource_value(kv).is_some())
+                    .map(Message::encoded_len)
+                    .sum()
+            });
             let ai_spans = rs
                 .scope_spans
                 .iter()
