@@ -1134,6 +1134,20 @@ class ImportedEmail:
     reply_to: str = ""
     # What to review about the email.
     notes: tuple[str, ...] = ()
+    # Variables the tool fills from the contact by itself, when a step doesn't set them.
+    contact_variables: tuple[str, ...] = ()
+
+
+@frozen
+class ImportedStepEmail:
+    """What one automation step changes about the email it sends, already converted to Liquid."""
+
+    subject: str = ""
+    contact_variables: tuple[str, ...] = ()
+    from_email: str = ""
+    from_name: str = ""
+    sender_integration_id: int | None = None
+    notes: tuple[str, ...] = ()
 
 
 @frozen

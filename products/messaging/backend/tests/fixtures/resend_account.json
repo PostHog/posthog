@@ -494,5 +494,13 @@
         }
       ]
     }
+  ],
+  "segments": [
+    {
+      "object": "segment",
+      "id": "seg-1",
+      "name": "Pro customers",
+      "created_at": "2026-10-06 23:47:56.678+00"
+    }
   ]
 }
