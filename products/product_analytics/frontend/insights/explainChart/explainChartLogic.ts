@@ -40,7 +40,6 @@ import {
     toolStreamEventsLogic,
 } from 'products/posthog_ai/frontend/api/logics'
 import { insightsExplanationsRetrieve } from 'products/product_analytics/frontend/generated/api'
-import type { ChartExplanationAuthorApi } from 'products/product_analytics/frontend/generated/api.schemas'
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 import type { ExplainChartData } from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
@@ -80,7 +79,6 @@ export interface explainChartLogicValues {
     investigationStreamKey: string | null
     linkedExplanationId: string | null
     story: ExplainChartData | null
-    storyAuthor: StoryAuthor | null
     storyAvailable: boolean
     storyOutdated: boolean
     storyQuery: Node | null
@@ -165,9 +163,6 @@ export interface explainChartLogicActions {
     }
     setLinkedExplanationId: (explanationId: string | null) => {
         explanationId: string | null
-    }
-    setStoryAuthor: (author: StoryAuthor) => {
-        author: StoryAuthor
     }
     showStory: () => {
         value: true
@@ -277,7 +272,6 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
         }),
         setLinkedExplanationId: (explanationId: string | null) => ({ explanationId }),
         loadLinkedExplanation: true,
-        setStoryAuthor: (author: StoryAuthor) => ({ author }),
         showStory: true,
         hideStory: true,
         forgetStory: true,
@@ -327,14 +321,6 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
             null as string | null,
             {
                 setLinkedExplanationId: (_, { explanationId }) => explanationId,
-            },
-        ],
-        storyAuthor: [
-            null as StoryAuthor | null,
-            {
-                setStoryAuthor: (_, { author }) => author,
-                receiveStory: () => null,
-                forgetStory: () => null,
             },
         ],
         followUpContext: [
@@ -470,7 +456,6 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
                     explainedQuery(values.savedInsight.query, explanation.data.query),
                     'link'
                 )
-                actions.setStoryAuthor({ createdBy: explanation.created_by ?? null, createdAt: explanation.created_at })
             } catch {
                 if (cache.disposables.isDisposed) {
                     return
@@ -610,8 +595,3 @@ function dataDiffers(a: Node | null | undefined, b: Node | null | undefined): bo
 }
 
 type StorySource = 'agent' | 'link'
-
-export interface StoryAuthor {
-    createdBy: ChartExplanationAuthorApi | null
-    createdAt: string
-}
