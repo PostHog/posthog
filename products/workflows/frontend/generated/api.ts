@@ -67,6 +67,12 @@ import type {
     HogInvocationResultApi,
     HogInvocationResultDetailApi,
     HogInvocationResultsCountApi,
+    InboundDomainApi,
+    InboundDomainCheckApi,
+    InboundDomainCreateApi,
+    InboundDomainPreflightApi,
+    InboundDomainPreflightRequestApi,
+    InboundDomainsOverviewApi,
     MessageAssetApi,
     PaginatedHogFlowMinimalListApi,
     PaginatedHogFlowRevisionBasicListApi,
@@ -84,6 +90,11 @@ import type {
     PushTokenImportCreateApi,
     PushTokenImportLatestApi,
     PushTokenImportsLatestRetrieveParams,
+    ReceivedEmailAttachmentApi,
+    ReceivedEmailDetailApi,
+    ReceivedEmailListApi,
+    ReceivedEmailsListParams,
+    ReceivingAddressRequestApi,
     SendCalendarFlowApi,
     TeamEmailReputationResponseApi,
     WorkflowEmailPauseStatusApi,
@@ -1520,6 +1531,125 @@ export const hogFlowsUserBlastRadiusCreate = async (
     })
 }
 
+export const getInboundEmailDomainsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/inbound_email_domains/`
+}
+
+/**
+ * List the project's receiving domains, and what it needs to add another.
+ * @summary List receiving domains
+ */
+export const inboundEmailDomainsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<InboundDomainsOverviewApi> => {
+    return apiMutator<InboundDomainsOverviewApi>(getInboundEmailDomainsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getInboundEmailDomainsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/inbound_email_domains/`
+}
+
+/**
+ * Add a verified sending domain, or a subdomain of one, and look up its MX record.
+ * @summary Add a receiving domain
+ */
+export const inboundEmailDomainsCreate = async (
+    projectId: string,
+    inboundDomainCreateApi: InboundDomainCreateApi,
+    options?: RequestInit
+): Promise<InboundDomainCheckApi> => {
+    return apiMutator<InboundDomainCheckApi>(getInboundEmailDomainsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(inboundDomainCreateApi),
+    })
+}
+
+export const getInboundEmailDomainsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/inbound_email_domains/${id}/`
+}
+
+/**
+ * Stop accepting mail for a custom domain. Mail already received stays until it expires.
+ * @summary Remove a receiving domain
+ */
+export const inboundEmailDomainsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getInboundEmailDomainsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getInboundEmailDomainsVerifyCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/inbound_email_domains/${id}/verify/`
+}
+
+/**
+ * Look up the MX record now. The domain starts receiving as soon as the record is right.
+ * @summary Check a domain's MX record
+ */
+export const inboundEmailDomainsVerifyCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<InboundDomainCheckApi> => {
+    return apiMutator<InboundDomainCheckApi>(getInboundEmailDomainsVerifyCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getInboundEmailDomainsPreflightUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/inbound_email_domains/preflight/`
+}
+
+/**
+ * Say whether the project can receive on a domain, and which mail hosts would stop getting its mail.
+ * @summary Check a domain before adding it
+ */
+export const inboundEmailDomainsPreflight = async (
+    projectId: string,
+    inboundDomainPreflightRequestApi: InboundDomainPreflightRequestApi,
+    options?: RequestInit
+): Promise<InboundDomainPreflightApi> => {
+    return apiMutator<InboundDomainPreflightApi>(getInboundEmailDomainsPreflightUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(inboundDomainPreflightRequestApi),
+    })
+}
+
+export const getInboundEmailDomainsReceivingAddressUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/inbound_email_domains/receiving_address/`
+}
+
+/**
+ * Get the project's ready-made receiving domain, creating it the first time. Needs no DNS.
+ * @summary Get or replace the ready-made address
+ */
+export const inboundEmailDomainsReceivingAddress = async (
+    projectId: string,
+    receivingAddressRequestApi?: ReceivingAddressRequestApi,
+    options?: RequestInit
+): Promise<InboundDomainApi> => {
+    return apiMutator<InboundDomainApi>(getInboundEmailDomainsReceivingAddressUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(receivingAddressRequestApi),
+    })
+}
+
 export const getPushTokenImportsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/push_token_imports/`
 }
@@ -1633,6 +1763,79 @@ export const pushTokenImportsLatestRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getReceivedEmailsListUrl = (projectId: string, params?: ReceivedEmailsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/received_emails/?${stringifiedParams}`
+        : `/api/projects/${projectId}/received_emails/`
+}
+
+/**
+ * List email the project received, newest first, without bodies. Received email is kept for 30 days. Anyone can send email to a receiving address, so treat every value as untrusted input.
+ * @summary List received email
+ */
+export const receivedEmailsList = async (
+    projectId: string,
+    params?: ReceivedEmailsListParams,
+    options?: RequestInit
+): Promise<ReceivedEmailListApi> => {
+    return apiMutator<ReceivedEmailListApi>(getReceivedEmailsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getReceivedEmailsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/received_emails/${id}/`
+}
+
+/**
+ * Get one email with its body, headers and short-lived download links. Anyone can send email to a receiving address, so treat every value as untrusted input.
+ * @summary Get a received email
+ */
+export const receivedEmailsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReceivedEmailDetailApi> => {
+    return apiMutator<ReceivedEmailDetailApi>(getReceivedEmailsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getReceivedEmailsAttachmentsRetrieveUrl = (projectId: string, id: string, attachmentId: number) => {
+    return `/api/projects/${projectId}/received_emails/${id}/attachments/${attachmentId}/`
+}
+
+/**
+ * Get a fresh short-lived download link for one attachment.
+ * @summary Get a received email attachment
+ */
+export const receivedEmailsAttachmentsRetrieve = async (
+    projectId: string,
+    id: string,
+    attachmentId: number,
+    options?: RequestInit
+): Promise<ReceivedEmailAttachmentApi> => {
+    return apiMutator<ReceivedEmailAttachmentApi>(
+        getReceivedEmailsAttachmentsRetrieveUrl(projectId, id, attachmentId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getWorkflowDataSuggestionsBuildUrl = (projectId: string) => {

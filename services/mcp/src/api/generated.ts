@@ -58277,6 +58277,165 @@ export namespace Schemas {
     }
 
     /**
+     * * `generated` - Generated
+     * * `custom` - Custom
+     */
+    export type InboundEmailDomainKindEnum = typeof InboundEmailDomainKindEnum[keyof typeof InboundEmailDomainKindEnum];
+
+
+    export const InboundEmailDomainKindEnum = {
+      Generated: 'generated',
+      Custom: 'custom',
+    } as const;
+
+    /**
+     * * `pending` - Pending
+     * * `active` - Active
+     */
+    export type InboundEmailDomainStatusEnum = typeof InboundEmailDomainStatusEnum[keyof typeof InboundEmailDomainStatusEnum];
+
+
+    export const InboundEmailDomainStatusEnum = {
+      Pending: 'pending',
+      Active: 'active',
+    } as const;
+
+    export interface InboundDomain {
+      /** The domain's ID. */
+      id: string;
+      /** Mail to any address at this domain reaches this project. */
+      domain: string;
+      /** `generated` is a ready-made address on a PostHog domain. `custom` is the project's own domain.
+       *
+       * * `generated` - Generated
+       * * `custom` - Custom */
+      kind: InboundEmailDomainKindEnum;
+      /** `pending` waits for its MX record. Mail is only accepted once `active`.
+       *
+       * * `pending` - Pending
+       * * `active` - Active */
+      status: InboundEmailDomainStatusEnum;
+      /**
+         * When the MX record was last looked up.
+         * @nullable
+         */
+      mx_checked_at: string | null;
+      /**
+         * When the domain started receiving.
+         * @nullable
+         */
+      activated_at: string | null;
+      /**
+         * When mail to the project last went over the daily limit and was dropped.
+         * @nullable
+         */
+      daily_limit_reached_at: string | null;
+      /** When the domain was added. */
+      created_at: string;
+    }
+
+    /**
+     * * `active` - Active
+     * * `missing` - No MX record
+     * * `conflict` - Another MX record takes the mail
+     * * `taken` - Another project holds the domain
+     * * `lookup_failed` - DNS did not answer
+     */
+    export type InboundDomainCheckStateEnum = typeof InboundDomainCheckStateEnum[keyof typeof InboundDomainCheckStateEnum];
+
+
+    export const InboundDomainCheckStateEnum = {
+      Active: 'active',
+      Missing: 'missing',
+      Conflict: 'conflict',
+      Taken: 'taken',
+      LookupFailed: 'lookup_failed',
+    } as const;
+
+    export interface InboundDomainCheck {
+      /** The domain after the check. */
+      domain: InboundDomain;
+      /** The result of looking up the MX record.
+       *
+       * * `active` - Active
+       * * `missing` - No MX record
+       * * `conflict` - Another MX record takes the mail
+       * * `taken` - Another project holds the domain
+       * * `lookup_failed` - DNS did not answer */
+      state: InboundDomainCheckStateEnum;
+      /** The MX records found, as `priority host`. */
+      found: string[];
+    }
+
+    export interface InboundDomainCreate {
+      /**
+         * The domain to receive on, such as `inbound.example.com`.
+         * @maxLength 253
+         */
+      domain: string;
+      /** Required when the domain has mail hosts or is a whole domain, because receiving moves all its mail to PostHog. */
+      confirm_move_mail?: boolean;
+    }
+
+    export interface InboundDomainPreflight {
+      /** The domain as it would be stored. */
+      domain: string;
+      /** Whether the project can receive on this domain. */
+      eligible: boolean;
+      /** Why not, in words to show a person. Empty when eligible. */
+      reason: string;
+      /** The verified sending domain that proves ownership. */
+      verified_parent: string;
+      /** True when this is the verified domain itself, not a subdomain. */
+      whole_domain: boolean;
+      /** Mail hosts the domain already points at. Mail would move away from them. */
+      existing_mx: string[];
+      /** True when an MX record already points at PostHog. */
+      points_here: boolean;
+      /** False when DNS did not answer, so `existing_mx` is unknown. */
+      dns_answered: boolean;
+    }
+
+    export interface InboundDomainPreflightRequest {
+      /**
+         * The domain to check, such as `inbound.example.com`.
+         * @maxLength 253
+         */
+      domain: string;
+    }
+
+    export interface InboundDomainsOverview {
+      /** The project's receiving domains. */
+      results: InboundDomain[];
+      /** Whether this instance offers ready-made addresses. */
+      generated_addresses_available: boolean;
+      /** Domains the project proved it owns, which can receive mail. */
+      verified_sending_domains: string[];
+      /** The host an MX record has to point at. */
+      mx_host: string;
+      /** The priority to give the MX record. */
+      mx_priority: number;
+      /** The subdomain suggested for receiving. */
+      default_subdomain: string;
+      /** How many days received email is kept. */
+      retention_days: number;
+    }
+
+    /**
+     * * `available` - Available
+     * * `too_large` - Too large
+     * * `parse_failed` - Parse failed
+     */
+    export type InboundEmailContentStatusEnum = typeof InboundEmailContentStatusEnum[keyof typeof InboundEmailContentStatusEnum];
+
+
+    export const InboundEmailContentStatusEnum = {
+      Available: 'available',
+      TooLarge: 'too_large',
+      ParseFailed: 'parse_failed',
+    } as const;
+
+    /**
      * * `github_optional` - GitHub optional
      */
     export type InboxActivationModeEnum = typeof InboxActivationModeEnum[keyof typeof InboxActivationModeEnum];
@@ -98978,6 +99137,271 @@ export namespace Schemas {
       color: string;
     }
 
+    /**
+     * * `spam` - Spam
+     * * `auto_reply` - Auto-reply
+     * * `rate_limited` - Rate limited
+     */
+    export type ReceivedEmailFilterReasonEnum = typeof ReceivedEmailFilterReasonEnum[keyof typeof ReceivedEmailFilterReasonEnum];
+
+
+    export const ReceivedEmailFilterReasonEnum = {
+      Spam: 'spam',
+      AutoReply: 'auto_reply',
+      RateLimited: 'rate_limited',
+    } as const;
+
+    export const ReceivedEmailFilterReason = {...ReceivedEmailFilterReasonEnum,...BlankEnum,} as const
+    /**
+     * * `received` - Received
+     * * `filtered` - Filtered
+     */
+    export type ReceivedEmailStatusEnum = typeof ReceivedEmailStatusEnum[keyof typeof ReceivedEmailStatusEnum];
+
+
+    export const ReceivedEmailStatusEnum = {
+      Received: 'received',
+      Filtered: 'filtered',
+    } as const;
+
+    export interface ReceivedEmailPerson {
+      /** The person's ID. */
+      id: string;
+      /** A distinct ID of the person. */
+      distinct_id: string;
+    }
+
+    /**
+     * * `in_reply_to` - In-Reply-To header
+     * * `references` - References header
+     */
+    export type ReceivedEmailMatchMethodEnum = typeof ReceivedEmailMatchMethodEnum[keyof typeof ReceivedEmailMatchMethodEnum];
+
+
+    export const ReceivedEmailMatchMethodEnum = {
+      InReplyTo: 'in_reply_to',
+      References: 'references',
+    } as const;
+
+    export interface ReceivedEmailOriginalSend {
+      /** The `message_id` the transactional email log knows the send by. */
+      message_id: string;
+      /**
+         * The workflow behind the transactional email.
+         * @nullable
+         */
+      workflow_id: string | null;
+      /** Which header of this email named the send.
+       *
+       * * `in_reply_to` - In-Reply-To header
+       * * `references` - References header */
+      match_method: ReceivedEmailMatchMethodEnum;
+    }
+
+    export interface ReceivedEmail {
+      /** The received email's ID. `$email_received_id` on the event holds the same. */
+      id: string;
+      /** The address in the From header. `sender_verified` says if it's real. */
+      from_address: string;
+      /** The display name in the From header. The sender chooses it freely. */
+      from_name: string;
+      /** The subject line. */
+      subject: string;
+      /** The addresses in the To header. */
+      to: string[];
+      /** The addresses in the Cc header. */
+      cc: string[];
+      /** The addresses of this project that the mail was delivered to. Use this to route, because a Bcc or a forward doesn't appear in the To header. */
+      envelope_recipients: string[];
+      /** The Message-ID header. Empty when the sender set none. */
+      message_id: string;
+      /** When the mail arrived. */
+      received_at: string;
+      /** `filtered` email was kept but fired no event.
+       *
+       * * `received` - Received
+       * * `filtered` - Filtered */
+      status: ReceivedEmailStatusEnum;
+      /** Why it was filtered. Empty otherwise.
+       *
+       * * `spam` - Spam
+       * * `auto_reply` - Auto-reply
+       * * `rate_limited` - Rate limited */
+      filter_reason: typeof ReceivedEmailFilterReason[keyof typeof ReceivedEmailFilterReason];
+      /** `too_large` keeps no body or raw message. `parse_failed` keeps only the raw message.
+       *
+       * * `available` - Available
+       * * `too_large` - Too large
+       * * `parse_failed` - Parse failed */
+      content_status: InboundEmailContentStatusEnum;
+      /** True when the mail server checks prove the From domain. When false, the From may be forged. */
+      sender_verified: boolean;
+      /** True when a machine wrote this, such as an out-of-office. */
+      auto_submitted: boolean;
+      /** How many attachments the email has. */
+      attachment_count: number;
+      /** The size of the raw message. */
+      size_bytes: number;
+      /** What the spam scan found: `pass`, `fail`, `gray` or `processing_failed`. Mail that fails is kept as filtered and fires no event. */
+      spam_verdict: string;
+      /** The person who sent this. Only set when `sender_verified` is true, so a forged From never matches. */
+      person: ReceivedEmailPerson | null;
+      /** The transactional email this answers. Null when none was matched. */
+      original_send: ReceivedEmailOriginalSend | null;
+    }
+
+    export interface ReceivedEmailAttachment {
+      /** The attachment's ID within this email. */
+      id: number;
+      /** The file name the sender gave. Never use it as a path. */
+      filename: string;
+      /** The content type the sender declared. */
+      content_type: string;
+      /** The size in bytes. */
+      size: number;
+      /** The Content-ID that HTML can reference. Empty when there is none. */
+      content_id: string;
+      /** True when the email shows it in the body rather than attaching it. */
+      inline: boolean;
+      /**
+         * A short-lived link that downloads the file.
+         * @nullable
+         */
+      download_url: string | null;
+      /** When `download_url` stops working. */
+      expires_at: string;
+    }
+
+    export interface ReceivedEmailAuthentication {
+      /** `pass`, `fail`, `gray` or `processing_failed`. */
+      spf: string;
+      /** `pass`, `fail`, `gray` or `processing_failed`. */
+      dkim: string;
+      /** `pass`, `fail`, `gray` or `processing_failed`. */
+      dmarc: string;
+    }
+
+    export const ReceivedEmailDetailFilterReason = {...ReceivedEmailFilterReasonEnum,...BlankEnum,} as const
+    export interface ReceivedEmailVerdicts {
+      /** `pass`, `fail`, `gray` or `processing_failed`. */
+      spam: string;
+      /** `pass`, `gray` or `processing_failed`. A virus is never kept. */
+      virus: string;
+    }
+
+    export interface ReceivedEmailHeader {
+      /** The header name. */
+      name: string;
+      /** The header value. The sender can write any header, including trace ones. */
+      value: string;
+    }
+
+    export interface ReceivedEmailRaw {
+      /**
+         * A short-lived link to the raw MIME message.
+         * @nullable
+         */
+      download_url: string | null;
+      /** When `download_url` stops working. */
+      expires_at: string;
+    }
+
+    export interface ReceivedEmailDetail {
+      /** The received email's ID. `$email_received_id` on the event holds the same. */
+      id: string;
+      /** The address in the From header. `sender_verified` says if it's real. */
+      from_address: string;
+      /** The display name in the From header. The sender chooses it freely. */
+      from_name: string;
+      /** The subject line. */
+      subject: string;
+      /** The addresses in the To header. */
+      to: string[];
+      /** The addresses in the Cc header. */
+      cc: string[];
+      /** The addresses of this project that the mail was delivered to. Use this to route, because a Bcc or a forward doesn't appear in the To header. */
+      envelope_recipients: string[];
+      /** The Message-ID header. Empty when the sender set none. */
+      message_id: string;
+      /** When the mail arrived. */
+      received_at: string;
+      /** `filtered` email was kept but fired no event.
+       *
+       * * `received` - Received
+       * * `filtered` - Filtered */
+      status: ReceivedEmailStatusEnum;
+      /** Why it was filtered. Empty otherwise.
+       *
+       * * `spam` - Spam
+       * * `auto_reply` - Auto-reply
+       * * `rate_limited` - Rate limited */
+      filter_reason: typeof ReceivedEmailDetailFilterReason[keyof typeof ReceivedEmailDetailFilterReason];
+      /** `too_large` keeps no body or raw message. `parse_failed` keeps only the raw message.
+       *
+       * * `available` - Available
+       * * `too_large` - Too large
+       * * `parse_failed` - Parse failed */
+      content_status: InboundEmailContentStatusEnum;
+      /** True when the mail server checks prove the From domain. When false, the From may be forged. */
+      sender_verified: boolean;
+      /** True when a machine wrote this, such as an out-of-office. */
+      auto_submitted: boolean;
+      /** How many attachments the email has. */
+      attachment_count: number;
+      /** The size of the raw message. */
+      size_bytes: number;
+      /** What the spam scan found: `pass`, `fail`, `gray` or `processing_failed`. Mail that fails is kept as filtered and fires no event. */
+      spam_verdict: string;
+      /** The person who sent this. Only set when `sender_verified` is true, so a forged From never matches. */
+      person: ReceivedEmailPerson | null;
+      /** The transactional email this answers. Null when none was matched. */
+      original_send: ReceivedEmailOriginalSend | null;
+      /** The return path. Empty for a bounce or an auto-reply. */
+      envelope_from: string;
+      /** The addresses in the Reply-To header. */
+      reply_to: string[];
+      /** The In-Reply-To header. Empty when it's not a reply. */
+      in_reply_to: string;
+      /** What the receiving mail server checked. */
+      authentication: ReceivedEmailAuthentication;
+      /** What the receiving mail server scanned for. */
+      verdicts: ReceivedEmailVerdicts;
+      /** The plain text body. */
+      text: string;
+      /** The text with quoted earlier messages removed, on a best-effort basis. The whole text when no quote was found. */
+      reply_text: string;
+      /** The HTML body as sent. Render it only in a sandbox. */
+      html: string;
+      /** True when the body was too long to keep in full. */
+      body_truncated: boolean;
+      /** The message headers, in order. */
+      headers: ReceivedEmailHeader[];
+      /** The attachments, with short-lived links. */
+      attachments: ReceivedEmailAttachment[];
+      /** Attachments left out because the email had too many. */
+      attachments_dropped: number;
+      /** The raw message. `raw.eml` for a mail client or a parser. */
+      raw: ReceivedEmailRaw;
+      /** This email's API path. */
+      content_url: string;
+    }
+
+    export interface ReceivedEmailList {
+      /** Received email, newest first. */
+      results: ReceivedEmail[];
+      /** Whether another page follows. */
+      has_more: boolean;
+      /** Filtered email in the same date range and search. Only counted when `status` is set. */
+      filtered_count: number;
+      /** Whether the project still holds any email, whatever the date range and search. */
+      has_any_email: boolean;
+    }
+
+    export interface ReceivingAddressRequest {
+      /** Replace the address. Mail to the old one stops being accepted. */
+      rotate?: boolean;
+    }
+
     export interface RecomputeResult {
       run: Run;
       counts_changed: boolean;
@@ -133607,6 +134031,48 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type ReceivedEmailsListParams = {
+    /**
+     * Only email received at or after this time. Defaults to 7 days ago. Received email is kept for 30 days.
+     */
+    date_from?: string;
+    /**
+     * Only email received before this time.
+     */
+    date_to?: string;
+    /**
+     * Page size.
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number;
+    /**
+     * Emails to skip.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Part of the sender, subject or recipient, or an exact `message_id`.
+     */
+    search?: string;
+    /**
+     * `received` fired an event. `filtered` was kept but fired none, such as spam and auto-replies. Leave out for both.
+     *
+     * * `received` - Received
+     * * `filtered` - Filtered
+     * @minLength 1
+     */
+    status?: ReceivedEmailsListStatus;
+    };
+
+    export type ReceivedEmailsListStatus = typeof ReceivedEmailsListStatus[keyof typeof ReceivedEmailsListStatus];
+
+
+    export const ReceivedEmailsListStatus = {
+      Received: 'received',
+      Filtered: 'filtered',
+    } as const;
 
     export type ReviewHogRepositoryOverviewRetrieveParams = {
     /**

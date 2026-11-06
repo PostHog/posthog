@@ -3394,6 +3394,53 @@ export const HogFlowsUserBlastRadiusCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Add a verified sending domain, or a subdomain of one, and look up its MX record.
+ * @summary Add a receiving domain
+ */
+export const inboundEmailDomainsCreateBodyDomainMax = 253
+
+export const inboundEmailDomainsCreateBodyConfirmMoveMailDefault = false
+
+export const InboundEmailDomainsCreateBody = /* @__PURE__ */ zod.object({
+    domain: zod
+        .string()
+        .max(inboundEmailDomainsCreateBodyDomainMax)
+        .describe('The domain to receive on, such as `inbound.example.com`.'),
+    confirm_move_mail: zod
+        .boolean()
+        .default(inboundEmailDomainsCreateBodyConfirmMoveMailDefault)
+        .describe(
+            'Required when the domain has mail hosts or is a whole domain, because receiving moves all its mail to PostHog.'
+        ),
+})
+
+/**
+ * Say whether the project can receive on a domain, and which mail hosts would stop getting its mail.
+ * @summary Check a domain before adding it
+ */
+export const inboundEmailDomainsPreflightBodyDomainMax = 253
+
+export const InboundEmailDomainsPreflightBody = /* @__PURE__ */ zod.object({
+    domain: zod
+        .string()
+        .max(inboundEmailDomainsPreflightBodyDomainMax)
+        .describe('The domain to check, such as `inbound.example.com`.'),
+})
+
+/**
+ * Get the project's ready-made receiving domain, creating it the first time. Needs no DNS.
+ * @summary Get or replace the ready-made address
+ */
+export const inboundEmailDomainsReceivingAddressBodyRotateDefault = false
+
+export const InboundEmailDomainsReceivingAddressBody = /* @__PURE__ */ zod.object({
+    rotate: zod
+        .boolean()
+        .default(inboundEmailDomainsReceivingAddressBodyRotateDefault)
+        .describe('Replace the address. Mail to the old one stops being accepted.'),
+})
+
+/**
  * Reads the file and imports its devices into the push channel in the background. Poll the import to follow its progress.
  * @summary Import a CSV file of push device tokens
  */

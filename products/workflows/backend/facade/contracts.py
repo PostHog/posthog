@@ -21,8 +21,12 @@ from products.workflows.backend.facade.enums import (
     HogFlowScheduleStatus,
     HogFlowTemplateExitCondition,
     HogFlowTemplateScope,
+    InboundEmailContentStatus,
+    InboundEmailDomainKind,
+    InboundEmailDomainStatus,
     PushTokenImportRowFailureReason,
     PushTokenImportStatus,
+    ReceivedEmailStatus,
     SetupStepKey,
     WorkflowImportNoteLevel,
     WorkflowProposalStatus,
@@ -1212,6 +1216,115 @@ class PushTokenImportRecord:
     error: str
     created_at: datetime
     finished_at: datetime | None
+
+
+@frozen
+class ReceivedEmailSummary:
+    id: UUID
+    from_address: str
+    from_name: str
+    subject: str
+    to: tuple[str, ...]
+    cc: tuple[str, ...]
+    envelope_recipients: tuple[str, ...]
+    message_id: str
+    received_at: datetime
+    status: ReceivedEmailStatus
+    filter_reason: str
+    content_status: InboundEmailContentStatus
+    sender_verified: bool
+    auto_submitted: bool
+    attachment_count: int
+    size_bytes: int
+    spam: str
+    person_id: UUID | None
+    person_distinct_id: str
+    original_message_id: UUID | None
+    original_workflow_id: UUID | None
+    match_method: str
+
+
+@frozen
+class ReceivedEmailAttachment:
+    id: int
+    filename: str
+    content_type: str
+    size: int
+    content_id: str
+    inline: bool
+    download_url: str | None
+    expires_at: datetime
+
+
+@frozen
+class ReceivedEmailDetail:
+    summary: ReceivedEmailSummary
+    envelope_from: str
+    reply_to: tuple[str, ...]
+    in_reply_to: str
+    spf: str
+    dkim: str
+    dmarc: str
+    virus: str
+    text: str
+    html: str
+    reply_text: str
+    body_truncated: bool
+    headers: tuple[tuple[str, str], ...]
+    attachments: tuple[ReceivedEmailAttachment, ...]
+    attachments_dropped: int
+    raw_download_url: str | None
+    raw_expires_at: datetime
+
+
+@frozen
+class ReceivedEmailPage:
+    results: tuple[ReceivedEmailSummary, ...]
+    has_more: bool
+    filtered_count: int
+    has_any_email: bool
+
+
+@frozen
+class InboundDomain:
+    id: UUID
+    domain: str
+    kind: InboundEmailDomainKind
+    status: InboundEmailDomainStatus
+    mx_checked_at: datetime | None
+    activated_at: datetime | None
+    daily_limit_reached_at: datetime | None
+    created_at: datetime
+
+
+@frozen
+class InboundDomainsOverview:
+    domains: tuple[InboundDomain, ...]
+    generated_addresses_available: bool
+    verified_sending_domains: tuple[str, ...]
+    mx_host: str
+    mx_priority: int
+    default_subdomain: str
+    retention_days: int
+
+
+@frozen
+class InboundDomainCheck:
+    domain: InboundDomain
+    state: str
+    found: tuple[str, ...]
+
+
+@frozen
+class DomainPreflightResult:
+    domain: str
+    eligible: bool
+    reason: str
+    verified_parent: str
+    whole_domain: bool
+    existing_mx: tuple[str, ...]
+    points_here: bool
+    dns_answered: bool
 
 
 class InboundDomainError(Exception):

@@ -77,6 +77,51 @@ const broadcastsCreate = (): ToolBase<ReturnType<typeof BroadcastsCreateSchema>,
     },
 })
 
+const ReceivedEmailsGetSchema = () => {
+    const ReceivedEmailsRetrieveParams = orvalSchemas.ReceivedEmailsRetrieveParams()
+    return ReceivedEmailsRetrieveParams.omit({ project_id: true })
+}
+
+const receivedEmailsGet = (): ToolBase<ReturnType<typeof ReceivedEmailsGetSchema>, Schemas.ReceivedEmailDetail> => ({
+    name: 'received-emails-get',
+    schema: ReceivedEmailsGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ReceivedEmailsGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ReceivedEmailDetail>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/received_emails/${encodeURIComponent(String(params.id))}/`,
+        })
+        const filtered = omitResponseFields(result, ['html']) as typeof result
+        return filtered
+    },
+})
+
+const ReceivedEmailsListSchema = () => {
+    const ReceivedEmailsListQueryParams = orvalSchemas.ReceivedEmailsListQueryParams()
+    return ReceivedEmailsListQueryParams
+}
+
+const receivedEmailsList = (): ToolBase<ReturnType<typeof ReceivedEmailsListSchema>, Schemas.ReceivedEmailList> => ({
+    name: 'received-emails-list',
+    schema: ReceivedEmailsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ReceivedEmailsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ReceivedEmailList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/received_emails/`,
+            query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
+                limit: params.limit,
+                offset: params.offset,
+                search: params.search,
+                status: params.status,
+            },
+        })
+        return result
+    },
+})
+
 const WorkflowsConvertToBroadcastSchema = () => {
     const HogFlowsConvertToBroadcastParams = orvalSchemas.HogFlowsConvertToBroadcastParams()
     return HogFlowsConvertToBroadcastParams.omit({ project_id: true })
@@ -1162,6 +1207,8 @@ const workflowsVersionStats = (): ToolBase<
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'broadcasts-create': broadcastsCreate,
+    'received-emails-get': receivedEmailsGet,
+    'received-emails-list': receivedEmailsList,
     'workflows-convert-to-broadcast': workflowsConvertToBroadcast,
     'workflows-create': workflowsCreate,
     'workflows-data-suggestions-create': workflowsDataSuggestionsCreate,
