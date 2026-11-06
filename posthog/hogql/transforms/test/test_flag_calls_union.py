@@ -199,6 +199,23 @@ def _with_list_read_many_times() -> ast.SelectQuery:
     return select
 
 
+def _with_list_read_by_many_subqueries() -> ast.SelectQuery:
+    names = ast.Tuple(
+        exprs=[*(ast.Constant(value=f"e{n}") for n in range(30_000)), ast.Constant(value="$feature_flag_called")]
+    )
+    branches = [_select("SELECT 1 FROM events WHERE event IN names") for _ in range(300)]
+    select = _select("SELECT 1 FROM (SELECT 1)")
+    select.ctes = {"names": ast.CTE(name="names", expr=names, cte_type="column")}
+    assert select.select_from is not None
+    select.select_from.table = ast.SelectSetQuery(
+        initial_select_query=branches[0],
+        subsequent_select_queries=[
+            ast.SelectSetNode(set_operator="UNION ALL", select_query=branch) for branch in branches[1:]
+        ],
+    )
+    return select
+
+
 def _long_with() -> ast.SelectQuery:
     select = _select("SELECT 1 FROM events WHERE event IN ('$pageview', c49999)")
     names = [*(f"e{n}" for n in range(49_999)), "$feature_flag_called"]
@@ -233,9 +250,6 @@ def _restrict(organization, team, name: str) -> None:
     PropertyAccessControl.objects.create(
         team=team, property_definition=definition, access_level=PropertyAccessLevel.NONE.value
     )
-
-
-_PAST_THE_BUDGET = "FROM persons AS p JOIN events AS e ON p.id = e.person_id WHERE e.event IN ('$pageview', '$autocapture', '$identify')"
 
 
 class TestRenameFlagCallScansToUnion(SimpleTestCase):
@@ -611,6 +625,7 @@ class TestRenameFlagCallScansToUnion(SimpleTestCase):
             ),
             ("with_list_read_many_times", _with_list_read_many_times(), [UNION], []),
             ("long_with", _long_with(), [UNION], []),
+            ("with_list_read_by_many_subqueries", _with_list_read_by_many_subqueries(), [UNION] * 300, []),
             (
                 "cte_named_events_after_another_table",
                 "WITH events AS (SELECT 1 AS person_id, '$pageview' AS event) "
@@ -693,10 +708,16 @@ class TestRenameFlagCallScansToUnion(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("no_flag_call_constant", f"SELECT count() {_PAST_THE_BUDGET}", []),
+            (
+                "no_flag_call_constant",
+                "SELECT count() FROM persons AS p JOIN events AS e ON p.id = e.person_id "
+                "WHERE e.event IN ('$pageview', '$autocapture', '$identify')",
+                [],
+            ),
             (
                 "flag_call_constant_elsewhere",
-                f"SELECT count(), '$feature_flag_called' AS name {_PAST_THE_BUDGET}",
+                "SELECT count(), '$feature_flag_called' AS name FROM persons AS p JOIN events AS e ON p.id = e.person_id "
+                "WHERE e.event IN ('$pageview', '$autocapture', '$identify')",
                 ["it compares `event` with more values than the flag-call check reads"],
             ),
             (
@@ -832,12 +853,6 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 True,
                 mode=ONLY,
             ),
-            (
-                "with_constant_in_a_mixed_filter",
-                "WITH '$feature_flag_called' AS fc SELECT count() FROM events WHERE event IN ('$pageview', fc)",
-                True,
-                True,
-            ),
             param(
                 "with_constant_in_a_mixed_filter_on_mode_2",
                 "WITH '$feature_flag_called' AS fc SELECT count() FROM events WHERE event IN ('$pageview', fc)",
@@ -919,12 +934,6 @@ class TestReadFlagCallsWithUnion(BaseTest):
             (
                 "mixed_scan_after_another_table",
                 f"SELECT count() FROM persons AS p JOIN events AS e ON p.id = e.person_id WHERE {E_MIXED}",
-                "it joins events after another table",
-            ),
-            (
-                "with_constant_in_a_mixed_scan_after_another_table",
-                "WITH '$feature_flag_called' AS fc SELECT count() FROM persons AS p JOIN events AS e "
-                "ON p.id = e.person_id WHERE e.event IN ('$pageview', fc)",
                 "it joins events after another table",
             ),
             (

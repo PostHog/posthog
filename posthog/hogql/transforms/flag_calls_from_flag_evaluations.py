@@ -157,7 +157,7 @@ def can_read_flag_evaluations(
     `resolve_flag_calls_from_flag_evaluations` checks the rest after resolution: every name in the swapped query
     binds as it did before, and every field that starts with `posthog.events` reads the scan.
     """
-    scan = EventsScan.of(node, lambda: flag_key_compares_as_string, frozenset(node.ctes or ()), database)
+    scan = EventsScan.of(node, lambda: flag_key_compares_as_string, node.ctes or {}, database)
     return scan is not None and _qualifies(
         scan, node, filter_conjuncts(node), now, timezone, only_in_flag_evaluations=only_in_flag_evaluations
     )

@@ -11,7 +11,8 @@ scan, so the rules decide which scans pay for a second table, and which shapes t
 
 import math
 from collections import ChainMap
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from functools import cache, cached_property, partial
 from math import floor
 from typing import TYPE_CHECKING, cast
@@ -61,6 +62,7 @@ from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
     filter_conjuncts,
     flag_calls_only_in_flag_evaluations_error,
     flag_key_predicate,
+    names_flag_called_event,
     point_scan_at,
     ratio_sample_fraction,
     select_aliases,
@@ -68,7 +70,7 @@ from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
 )
 from posthog.hogql.transforms.order_by_pushdown import unwrap_alias
 from posthog.hogql.type_system import parse_sql_runtime_type
-from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
+from posthog.hogql.visitor import CloningVisitor
 
 from posthog.dataclasses import frozen
 from posthog.property_columns import TableColumn
@@ -649,28 +651,53 @@ class _Aliases(CloningVisitor):
     visit_select_query = visit_select_set_query = visit_lambda = _keep
 
 
+@frozen
+class _WithValue:
+    value: ast.Expr
+    # How many values a comparison with `value` reads, and the `$feature_flag_called` constants among them.
+    count: int
+    literals: list[ast.Constant]
+
+
 class _WithValues:
-    """The value that each column CTE, `WITH <expr> AS name`, gives a read of its name, cached by CTE."""
+    """The value that each column CTE, `WITH <expr> AS name`, gives a read of its name, cached by CTE.
+
+    A CTE is in scope in every subquery under its WITH, so the finder of each scan reads the cached count and literals
+    of a CTE's list instead of its items."""
 
     def __init__(self) -> None:
-        self._values: dict[int, ast.Expr] = {}
-        self._has_flag_called_constant: dict[int, bool] = {}
-
-    def has_flag_called_constant(self, cte: ast.CTE) -> bool:
-        found = self._has_flag_called_constant.get(id(cte))
-        if found is None:
-            found = self._has_flag_called_constant[id(cte)] = _has_flag_called_constant(cte.expr)
-        return found
+        self._by_cte: dict[int, _WithValue] = {}
+        self._by_value: dict[int, _WithValue] = {}
+        # Whether a column CTE in scope can name `$feature_flag_called`. The renamer sets it for each SELECT from the
+        # SELECT's own WITH, so a CTE body also counts the later CTEs of its WITH.
+        self.in_scope_name_flag_calls = False
 
     def of(self, cte: ast.CTE) -> ast.Expr:
-        value = self._values.get(id(cte))
-        if value is None:
+        return self._entry(cte).value
+
+    def read(self, value: ast.Expr) -> _WithValue | None:
+        """The cached reading of `value` when `of` returned it, or None for any other expression."""
+        return self._by_value.get(id(value))
+
+    def any_name_flag_calls(self, ctes: Mapping[str, ast.CTE]) -> bool:
+        return any(cte.cte_type == "column" and bool(self._entry(cte).literals) for cte in ctes.values())
+
+    def _entry(self, cte: ast.CTE) -> _WithValue:
+        entry = self._by_cte.get(id(cte))
+        if entry is None:
             value = unwrap_alias(cte.expr)
-            items = value.exprs if isinstance(value, (ast.Tuple, ast.Array)) else [value]
-            if any(isinstance(unwrap_alias(item), ast.Field) for item in items):
+            items = [
+                unwrap_alias(item) for item in (value.exprs if isinstance(value, (ast.Tuple, ast.Array)) else [value])
+            ]
+            if any(isinstance(item, ast.Field) for item in items):
                 value = _MAY_NAME_FLAG_CALLS
-            self._values[id(cte)] = value
-        return value
+                items = [value]
+            # No item is a name, so a read of an item does not depend on the scope that reads it.
+            literals = [item for item in items if isinstance(item, ast.Constant) and item.value == FLAG_CALLED_EVENT]
+            entry = self._by_cte[id(cte)] = self._by_value[id(value)] = _WithValue(
+                value=value, count=len(items), literals=literals
+            )
+        return entry
 
 
 class _ScanReadCopier(CloningVisitor):
@@ -853,14 +880,7 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
         # `$feature_flag_called` constant cannot compare `event` with one, so only a query with one counts. A column CTE
         # in scope can hold that constant outside the query.
         return bool(self.literals) or (
-            self.values_left < 0
-            and (
-                _has_flag_called_constant(self.root)
-                or any(
-                    cte.cte_type == "column" and self.with_values.has_flag_called_constant(cte)
-                    for cte in self.ctes.values()
-                )
-            )
+            self.values_left < 0 and (names_flag_called_event(self.root) or self.with_values.in_scope_name_flag_calls)
         )
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
@@ -922,6 +942,12 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
         # An alias of a list can appear many times in one comparison, so each list is read once.
         read_lists: set[int] = set()
         for value in map(self._resolve, values or []):
+            if (with_value := self.with_values.read(value)) is not None:
+                self.values_left -= with_value.count
+                if self.values_left < 0:
+                    return
+                self.literals.extend(with_value.literals)
+                continue
             if isinstance(value, (ast.Tuple, ast.Array)):
                 if id(value) in read_lists:
                     continue
@@ -933,21 +959,6 @@ class _FlagCallComparisonFinder(SyntaxVisitor):
                 named = self._resolve(item)
                 if isinstance(named, ast.Constant) and named.value == FLAG_CALLED_EVENT:
                     self.literals.append(named)
-
-
-def _has_flag_called_constant(node: ast.AST) -> bool:
-    finder = _FlagCalledConstantFinder()
-    finder.visit(node)
-    return finder.found
-
-
-class _FlagCalledConstantFinder(TraversingVisitor):
-    def __init__(self) -> None:
-        super().__init__()
-        self.found = False
-
-    def visit_constant(self, node: ast.Constant) -> None:
-        self.found = self.found or node.value == FLAG_CALLED_EVENT
 
 
 class _UnionRenamer(ScanVisitor):
@@ -966,6 +977,25 @@ class _UnionRenamer(ScanVisitor):
         self.refusals: list[UnionRefusal] = []
         self.with_values = _WithValues()
         self.literal_spans: set[tuple[int, int]] = set()
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        initial = node.initial_select_query
+        with self._with_scope(initial.ctes if isinstance(initial, ast.SelectQuery) else None):
+            super().visit_select_set_query(node)
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        with self._with_scope(node.ctes):
+            super().visit_select_query(node)
+
+    @contextmanager
+    def _with_scope(self, ctes: Mapping[str, ast.CTE] | None) -> Iterator[None]:
+        outer = self.with_values.in_scope_name_flag_calls
+        if ctes:
+            self.with_values.in_scope_name_flag_calls = outer or self.with_values.any_name_flag_calls(ctes)
+        try:
+            yield
+        finally:
+            self.with_values.in_scope_name_flag_calls = outer
 
     def visit_scan_query(self, node: ast.SelectQuery) -> None:
         aliases = _Aliases(node)
