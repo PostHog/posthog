@@ -1,7 +1,8 @@
 import { Message } from 'node-rdkafka'
 import pLimit from 'p-limit'
 
-import { logger } from '~/common/utils/logger'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import {
     MlDecodedMessage,
     MlKafkaTransport,

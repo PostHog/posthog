@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
-import { OverflowOutput } from '~/common/outputs'
+import { OverflowOutput } from '@posthog/node-common/outputs/index'
+
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
 import { ChunkPipelineBuilder, PipelineBuilder, StartPipelineBuilder } from '~/ingestion/framework/builders'
 import { TopHogRegistry, createTopHogWrapper, sum, timer } from '~/ingestion/framework/extensions/tophog'

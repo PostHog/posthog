@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
-import { ReadOnlyGroupTypeManager } from '~/common/groups/readonly-group-type-manager'
-import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
+import { ReadOnlyGroupTypeManager } from '@posthog/node-common/groups/readonly-group-type-manager'
+import { HogTransformer } from '@posthog/node-common/hog-transformations/hog-transformer.interface'
 import {
     AppMetricsOutput,
     DlqOutput,
@@ -10,13 +10,14 @@ import {
     IngestionWarningsOutput,
     OverflowOutput,
     TophogOutput,
-} from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
-import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
-import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { TeamManager } from '~/common/utils/team-manager'
+} from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { PersonReadRepository } from '@posthog/node-common/persons/repositories/person-repository'
+import { UsageRecordBatch } from '@posthog/node-common/usage-ingestion/usage-record-batch'
+import { EventIngestionRestrictionManager } from '@posthog/node-common/utils/event-ingestion-restrictions/index'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+import { TeamManager } from '@posthog/node-common/utils/team-manager'
+
 import { newCommonIngestionPipeline } from '~/ingestion/common/common-ingestion-pipeline'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { EventFilterManager } from '~/ingestion/common/event-filters'

@@ -1,8 +1,9 @@
+import { createTeam, createTestTeamFixture, getTeam } from '@posthog/node-common/testing/sql'
+import { INVALID_TEAM_ID_KEYS } from '@posthog/node-common/testing/team'
+import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
-import { UUIDT } from '~/common/utils/utils'
-import { createTeam, createTestTeamFixture, getTeam } from '~/tests/helpers/sql'
-import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 import { Hub, Team } from '~/types'
 
 import { RecipientGetArgs, RecipientsManagerService } from './recipients-manager.service'

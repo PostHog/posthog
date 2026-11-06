@@ -1,7 +1,8 @@
 import { Message } from 'node-rdkafka'
 
-import { OVERFLOW_OUTPUT } from '~/common/outputs'
-import { logger } from '~/common/utils/logger'
+import { OVERFLOW_OUTPUT } from '@posthog/node-common/outputs/index'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { createMockPipeline } from '~/tests/helpers/mock-pipeline'
 
 import { ChunkPipelineUnwrapper } from './chunk-pipeline-unwrapper'
@@ -10,7 +11,7 @@ import { DefaultContext, createContext, createNewChunkPipeline, createOkContext 
 import { dlq, drop, ok, redirect } from './results'
 
 // Mock the logger
-jest.mock('~/common/utils/logger', () => ({
+jest.mock('@posthog/node-common/utils/logger', () => ({
     logger: {
         warn: jest.fn(),
     },

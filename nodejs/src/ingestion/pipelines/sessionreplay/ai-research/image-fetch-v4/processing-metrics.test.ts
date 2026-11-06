@@ -1,6 +1,6 @@
 import { register } from 'prom-client'
 
-import { ConcurrencyController } from '~/common/utils/concurrencyController'
+import { ConcurrencyController } from '@posthog/node-common/utils/concurrencyController'
 
 import { ImageFetchProcessingMetrics } from './processing-metrics'
 

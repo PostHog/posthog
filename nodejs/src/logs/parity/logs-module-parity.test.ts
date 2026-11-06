@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 
-import { parseJSON } from '~/common/utils/json-parse'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import { decodeLogAttributeValue, encodeLogAttributeValue } from '../attribute-value'
 import { InternalLogsVerifier, signInternalLogs } from '../internal-logs'

@@ -1,13 +1,14 @@
-import '~/tests/helpers/mocks/date.mock'
+import '@posthog/node-common/testing/mocks/date.mock'
+
+import { waitForExpect } from '@posthog/node-common/testing/expectations'
+import { forSnapshot } from '@posthog/node-common/testing/snapshots'
+import { createTeam, createTestTeamFixture } from '@posthog/node-common/testing/sql'
+import { INVALID_TEAM_ID_KEYS } from '@posthog/node-common/testing/team'
+import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
-import { waitForExpect } from '~/tests/helpers/expectations'
-import { forSnapshot } from '~/tests/helpers/snapshots'
-import { createTeam, createTestTeamFixture } from '~/tests/helpers/sql'
-import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 import { Hub } from '~/types'
 
 import { hideHogFlowsFromReplica, insertHogFlow } from '../../_tests/fixtures-hogflows'

@@ -1,4 +1,4 @@
-import { PostgresRouter } from '~/common/utils/db/postgres'
+import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
 
 import { TeamService } from './team-service'
 

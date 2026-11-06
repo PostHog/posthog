@@ -1,7 +1,8 @@
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+
 import { Component } from '~/ingestion/common/scopes'
 
-export { PromiseScheduler } from '~/common/utils/promise-scheduler'
+export { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
 
 /**
  * Wraps an internally-owned `PromiseScheduler` as a scope entry. Start is

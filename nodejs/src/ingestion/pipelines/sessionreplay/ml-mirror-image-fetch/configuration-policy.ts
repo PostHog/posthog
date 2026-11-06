@@ -1,8 +1,8 @@
 import type { ParsedRobots, RobotsParseHandler } from '@trybyte/robotstxt-parser'
 import { Token, parseDictionary } from 'structured-headers'
 
-import { parseJSON } from '~/common/utils/json-parse'
-import { fetchStreamed } from '~/common/utils/request'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { fetchStreamed } from '@posthog/node-common/utils/request'
 
 import { ConfigurationCacheItem, ConfigurationFile, HttpCacheMetadata, configurationCacheKey } from './crawl-history'
 import { ImageFetchRequestMetrics } from './metrics'

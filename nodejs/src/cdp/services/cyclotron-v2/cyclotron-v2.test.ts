@@ -2,7 +2,7 @@ import { Pool } from 'pg'
 import { register } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
-import { parseJSON } from '~/common/utils/json-parse'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import {
     HOGFLOW_BATCH_RESOLVE_QUEUE,

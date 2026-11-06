@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 import { register } from 'prom-client'
 
-import { DependencyUnavailableError } from '~/common/utils/db/error'
+import { DependencyUnavailableError } from '@posthog/node-common/utils/db/error'
 
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'

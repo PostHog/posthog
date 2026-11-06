@@ -1,8 +1,9 @@
 import { Counter, Histogram } from 'prom-client'
 
-import { InternalFetchService } from '~/common/services/internal-fetch'
-import { parseJSON } from '~/common/utils/json-parse'
-import { logger, serializeError } from '~/common/utils/logger'
+import { InternalFetchService } from '@posthog/node-common/services/internal-fetch'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger, serializeError } from '@posthog/node-common/utils/logger'
+
 import { Team } from '~/types'
 
 import { HogFunctionFilters } from '../../types'

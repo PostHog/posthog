@@ -2,10 +2,12 @@ import { DateTime } from 'luxon'
 import express from 'ultimate-express'
 import { z } from 'zod'
 
-import { ModifiedRequest } from '~/common/api/router'
-import type { RedisV2 } from '~/common/redis/redis-v2'
-import { logger } from '~/common/utils/logger'
-import { UUID, UUIDT, delay } from '~/common/utils/utils'
+import { ModifiedRequest } from '@posthog/node-common/api/router'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import type { RedisV2 } from '@posthog/node-common/redis/redis-v2'
+import { logger } from '@posthog/node-common/utils/logger'
+import { UUID, UUIDT, delay } from '@posthog/node-common/utils/utils'
+
 import { LogRecord } from '~/logs/log-record-avro'
 import {
     DEFAULT_LOG_TRANSFORMATION_TIMEOUT_MS,
@@ -13,7 +15,6 @@ import {
     executeLogTransformation,
     resolveLogTransformationInputs,
 } from '~/logs/transformations/hog-log-exec'
-import { PluginEvent } from '~/plugin-scaffold'
 
 import {
     HealthCheckResult,

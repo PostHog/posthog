@@ -1,4 +1,5 @@
-import { KAFKA_AI_RESEARCH_V4_INDEX } from '~/common/config/kafka-topics'
+import { KAFKA_AI_RESEARCH_V4_INDEX } from '@posthog/node-common/config/kafka-topics'
+
 import { buildAiResearchV4ServerConfig } from '~/ingestion/pipelines/sessionreplay/ai-research/config'
 
 import { buildV4SinkConsumerConfig } from './ai-research-v4-parquet-sink-server'

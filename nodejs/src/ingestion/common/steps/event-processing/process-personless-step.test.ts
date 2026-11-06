@@ -1,21 +1,30 @@
-import { mockProducer } from '~/tests/helpers/mocks/producer.mock'
+import { mockProducer } from '@posthog/node-common/testing/mocks/producer.mock'
 
 import { DateTime } from 'luxon'
 
-import { KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_MERGE_EVENTS } from '~/common/config/kafka-topics'
-import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
-import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT, PERSON_MERGE_EVENTS_OUTPUT } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
-import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
-import { UUIDT } from '~/common/utils/utils'
+import {
+    KAFKA_PERSON,
+    KAFKA_PERSON_DISTINCT_ID,
+    KAFKA_PERSON_MERGE_EVENTS,
+} from '@posthog/node-common/config/kafka-topics'
+import { INGESTION_WARNINGS_OUTPUT } from '@posthog/node-common/outputs/index'
+import {
+    PERSONS_OUTPUT,
+    PERSON_DISTINCT_IDS_OUTPUT,
+    PERSON_MERGE_EVENTS_OUTPUT,
+} from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '@posthog/node-common/outputs/single-ingestion-output'
+import { PostgresPersonRepository } from '@posthog/node-common/persons/repositories/postgres-person-repository'
+import { PluginEvent, Properties } from '@posthog/node-common/plugin-scaffold'
+import { createTestEventHeaders } from '@posthog/node-common/testing/event-headers'
+import { createOrganization, createTeam, getTeam } from '@posthog/node-common/testing/sql'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { BatchBoundPersonsStore } from '~/ingestion/common/persons/persons-store-for-batch'
 import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
-import { PluginEvent, Properties } from '~/plugin-scaffold'
-import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
-import { createOrganization, createTeam, getTeam } from '~/tests/helpers/sql'
 import { EventHeaders, InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
 
 import { createNormalizeEventStep } from './normalize-event-step'

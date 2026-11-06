@@ -1,4 +1,4 @@
-import { PluginEvent } from '~/plugin-scaffold'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
 
 import { finiteNumberOrUndefined, numericProperty } from './cost-utils'
 import { createAIEvent } from './test-helpers'

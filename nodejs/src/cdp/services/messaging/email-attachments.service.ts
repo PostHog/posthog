@@ -1,10 +1,11 @@
 import { createHash } from 'crypto'
 import { Counter, Histogram } from 'prom-client'
 
+import { logger } from '@posthog/node-common/utils/logger'
+import { captureException } from '@posthog/node-common/utils/posthog'
+
 import { EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
 import { LazyPool } from '~/cdp/utils/lazy-pool'
-import { logger } from '~/common/utils/logger'
-import { captureException } from '~/common/utils/posthog'
 
 import type { DecodedAttachment } from '../hogflows/transactional-email'
 

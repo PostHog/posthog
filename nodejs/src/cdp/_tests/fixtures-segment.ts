@@ -1,4 +1,4 @@
-import { UUIDT } from '~/common/utils/utils'
+import { UUIDT } from '@posthog/node-common/utils/utils'
 
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../types'
 import { SAMPLE_GLOBALS, createHogFunction } from './fixtures'

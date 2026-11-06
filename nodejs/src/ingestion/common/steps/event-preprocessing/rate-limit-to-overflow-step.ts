@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
-import { OVERFLOW_OUTPUT, OverflowOutput } from '~/common/outputs'
+import { OVERFLOW_OUTPUT, OverflowOutput } from '@posthog/node-common/outputs/index'
+
 import {
     OverflowEventGroup,
     OverflowRedirectService,

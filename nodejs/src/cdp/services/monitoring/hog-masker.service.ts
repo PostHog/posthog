@@ -1,6 +1,6 @@
 import { createHash } from 'crypto'
 
-import { RedisClientPipeline, RedisV2 } from '~/common/redis/redis-v2'
+import { RedisClientPipeline, RedisV2 } from '@posthog/node-common/redis/redis-v2'
 
 import {
     CyclotronJobInvocation,

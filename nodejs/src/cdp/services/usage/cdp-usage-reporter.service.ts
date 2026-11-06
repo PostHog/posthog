@@ -1,6 +1,7 @@
-import { UsageIngestionClient } from '~/common/usage-ingestion/client'
-import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
-import { logger } from '~/common/utils/logger'
+import { UsageIngestionClient } from '@posthog/node-common/usage-ingestion/client'
+import { UsageRecordBatch } from '@posthog/node-common/usage-ingestion/usage-record-batch'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { ValueMatcher } from '~/types'
 
 const DEFAULT_FLUSH_INTERVAL_MS = 10_000

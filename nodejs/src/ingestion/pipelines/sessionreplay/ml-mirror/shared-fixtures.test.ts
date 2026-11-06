@@ -2,8 +2,9 @@ import fs from 'fs'
 import path from 'path'
 import { gzipSync, zstdDecompressSync } from 'zlib'
 
-import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import {
     hashImageBytes,
     imageRef,

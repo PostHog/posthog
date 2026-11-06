@@ -2,7 +2,6 @@ import { isEqual } from 'lodash'
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 
-import { buildIntegerMatcher } from '~/common/config/config'
 import {
     observeLatencyByVersion,
     personCacheOperationsCounter,
@@ -21,15 +20,15 @@ import {
     personResolveKeysPerCallHistogram,
     personWriteMethodAttemptCounter,
     totalPersonUpdateLatencyPerBatchHistogram,
-} from '~/common/persons/metrics'
-import { isFilteredPersonUpdateProperty } from '~/common/persons/person-property-utils'
+} from '@posthog/node-common/persons/metrics'
+import { isFilteredPersonUpdateProperty } from '@posthog/node-common/persons/person-property-utils'
 import {
     MergePersonUpdate,
     PendingPersonChanges,
     PersonUpdate,
     fromInternalPerson,
     toInternalPerson,
-} from '~/common/persons/person-update-batch'
+} from '@posthog/node-common/persons/person-update-batch'
 import {
     InternalPersonWithDistinctId,
     LifecycleMarkPerson,
@@ -37,17 +36,19 @@ import {
     PersonMessage,
     PersonPropertiesSizeViolationError,
     PersonRepository,
-} from '~/common/persons/repositories/person-repository'
-import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
-import { withTracingSpan } from '~/common/tracing/tracing-utils'
-import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
-import { MessageSizeTooLarge } from '~/common/utils/db/error'
-import { logger } from '~/common/utils/logger'
-import { NoRowsUpdatedError } from '~/common/utils/utils'
+} from '@posthog/node-common/persons/repositories/person-repository'
+import { PersonRepositoryTransaction } from '@posthog/node-common/persons/repositories/person-repository-transaction'
+import { Properties } from '@posthog/node-common/plugin-scaffold'
+import { withTracingSpan } from '@posthog/node-common/tracing/tracing-utils'
+import { CreatePersonResult, MoveDistinctIdsResult } from '@posthog/node-common/utils/db/db'
+import { MessageSizeTooLarge } from '@posthog/node-common/utils/db/error'
+import { logger } from '@posthog/node-common/utils/logger'
+import { NoRowsUpdatedError } from '@posthog/node-common/utils/utils'
+
+import { buildIntegerMatcher } from '~/common/config/config'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { BatchWritingStore, BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
 import { PersonBatchWritingDbWriteMode } from '~/ingestion/config'
-import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
 
 import { BatchWritingPersonsCache, hasLanes, retireCarried, takeRow } from './batch-writing-persons-cache'

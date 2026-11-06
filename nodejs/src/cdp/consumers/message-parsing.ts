@@ -1,8 +1,8 @@
 import { Message } from 'node-rdkafka'
 
-import { EVENT_NAME_HEADER, TEAM_ID_HEADER } from '~/common/kafka/headers'
-import { logger } from '~/common/utils/logger'
-import { isValidTeamId } from '~/common/utils/team-manager'
+import { EVENT_NAME_HEADER, TEAM_ID_HEADER } from '@posthog/node-common/kafka/headers'
+import { logger } from '@posthog/node-common/utils/logger'
+import { isValidTeamId } from '@posthog/node-common/utils/team-manager'
 
 import { Team } from '../../types'
 import { HogFunctionInvocationGlobals } from '../types'

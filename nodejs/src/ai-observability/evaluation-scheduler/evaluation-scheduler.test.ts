@@ -1,12 +1,13 @@
 import { Message } from 'node-rdkafka'
 
+import { logger } from '@posthog/node-common/utils/logger'
+
 import {
     createAiGenerationEvent,
     createEvaluation,
     createEvaluationCondition,
     createTagger,
 } from '~/ai-observability/_tests/fixtures'
-import { logger } from '~/common/utils/logger'
 
 import {
     EvaluationMatcher,

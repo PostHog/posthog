@@ -1,8 +1,9 @@
 import { Message } from 'node-rdkafka'
 import { parse as parseUuid, v5 as uuidv5 } from 'uuid'
 
-import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
-import { parseTeamsList } from '~/common/utils/env-utils'
+import { UsageRecordBatch } from '@posthog/node-common/usage-ingestion/usage-record-batch'
+import { parseTeamsList } from '@posthog/node-common/utils/env-utils'
+
 import { createEvent } from '~/ingestion/common/steps/event-processing/create-event'
 import { EventUsageRecord } from '~/ingestion/common/steps/usage-records-steps'
 import { ok } from '~/ingestion/framework/results'

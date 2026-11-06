@@ -1,7 +1,7 @@
 import { Counter } from 'prom-client'
 
-import { logger } from '~/common/utils/logger'
-import { internalFetch } from '~/common/utils/request'
+import { logger } from '@posthog/node-common/utils/logger'
+import { internalFetch } from '@posthog/node-common/utils/request'
 
 export const logsMetricRulesExportFailedCounter = new Counter({
     name: 'logs_metrics_rules_export_failed_total',

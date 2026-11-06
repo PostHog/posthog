@@ -2,7 +2,10 @@ import { Message } from 'node-rdkafka'
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
 
-import { parseJSON } from '~/common/utils/json-parse'
+import { Clickhouse } from '@posthog/node-common/testing/clickhouse'
+import { waitForExpect } from '@posthog/node-common/testing/expectations'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+
 import { KafkaProducerRegistryComponent } from '~/ingestion/common/outputs/producer-registry'
 import {
     getDefaultKafkaDownstreamProducerEnvConfig,
@@ -15,8 +18,6 @@ import {
     ClientWarningsSharedScope,
     createClientWarningsConsumer,
 } from '~/ingestion/pipelines/clientwarnings/consumer'
-import { Clickhouse } from '~/tests/helpers/clickhouse'
-import { waitForExpect } from '~/tests/helpers/expectations'
 import {
     EventBuilder,
     IngesterLike,
@@ -34,8 +35,8 @@ type CapturedBatchHandler = (messages: Message[]) => Promise<{ backgroundTask?: 
 // is allowed to reference it.
 let mockCapturedHandler: CapturedBatchHandler | undefined
 
-jest.mock('~/common/kafka/consumer', () => {
-    const actual = jest.requireActual('~/common/kafka/consumer')
+jest.mock('@posthog/node-common/kafka/consumer/index', () => {
+    const actual = jest.requireActual('@posthog/node-common/kafka/consumer/index')
     const { HealthCheckResultOk } = jest.requireActual('~/types')
     return {
         ...actual,
@@ -51,7 +52,7 @@ jest.mock('~/common/kafka/consumer', () => {
     }
 })
 
-jest.mock('~/common/utils/logger')
+jest.mock('@posthog/node-common/utils/logger')
 
 function constComponent<T extends object>(value: T): Component<T> {
     return { start: () => Promise.resolve({ value, stop: () => Promise.resolve() }) }

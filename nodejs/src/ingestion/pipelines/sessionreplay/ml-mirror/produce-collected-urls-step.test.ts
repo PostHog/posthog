@@ -1,5 +1,6 @@
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { parseJSON } from '~/common/utils/json-parse'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+
 import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 import { PipelineResultType } from '~/ingestion/framework/results'
 import type { CrawlHistoryStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/crawl-history'

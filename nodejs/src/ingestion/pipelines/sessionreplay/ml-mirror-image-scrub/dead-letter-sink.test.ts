@@ -1,4 +1,4 @@
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
 
 import { KafkaDeadLetterSink } from './dead-letter-sink'
 

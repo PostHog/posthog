@@ -1,21 +1,22 @@
-import { MockKafkaProducerWrapper } from '~/tests/helpers/mocks/producer.mock'
-import { mockFetch } from '~/tests/helpers/mocks/request.mock'
+import { MockKafkaProducerWrapper } from '@posthog/node-common/testing/mocks/producer.mock'
+import { mockFetch } from '@posthog/node-common/testing/mocks/request.mock'
 
-import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
+import { KafkaProducerObserver } from '@posthog/node-common/testing/mocks/producer.spy'
 
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 
-import { KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
-import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { KAFKA_HOG_INVOCATION_RESULTS } from '@posthog/node-common/config/kafka-topics'
+import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
+import { PersonReadRepository } from '@posthog/node-common/persons/repositories/person-repository'
+import { Clickhouse } from '@posthog/node-common/testing/clickhouse'
+import { waitForExpect } from '@posthog/node-common/testing/expectations'
+import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '@posthog/node-common/testing/kafka'
+import { getFirstTeam, resetTestDatabase } from '@posthog/node-common/testing/sql'
+
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
-import { Clickhouse } from '~/tests/helpers/clickhouse'
-import { waitForExpect } from '~/tests/helpers/expectations'
 import { waitForHogInvocationResultsMvReady } from '~/tests/helpers/hog-invocation-results'
-import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
@@ -38,7 +39,7 @@ import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { RerunJobManager } from './rerun-job.manager'
 import { RERUN_QUEUE_NAME } from './rerun-job.types'
 
-const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer').KafkaProducerWrapper
+const ActualKafkaProducerWrapper = jest.requireActual('@posthog/node-common/kafka/producer').KafkaProducerWrapper
 
 const NODE_DB_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
 

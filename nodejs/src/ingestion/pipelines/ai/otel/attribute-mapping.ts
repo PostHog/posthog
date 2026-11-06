@@ -1,11 +1,12 @@
-import { parseJSON } from '~/common/utils/json-parse'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+
 import {
     aiOtelGroupsCounter,
     aiOtelOlderSpecEventsCounter,
     aiOtelSystemInstructionsCounter,
     aiOtelUnknownPartTypeCounter,
 } from '~/ingestion/pipelines/ai/metrics'
-import { PluginEvent } from '~/plugin-scaffold'
 
 import { usableStopReason } from './middleware/stop-reason'
 

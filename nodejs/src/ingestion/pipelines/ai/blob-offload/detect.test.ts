@@ -1,6 +1,6 @@
 import { createHash } from 'crypto'
 
-import { parseJSON } from '~/common/utils/json-parse'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import { extractBlobs } from './detect'
 import { parseBlobPointer } from './pointer'

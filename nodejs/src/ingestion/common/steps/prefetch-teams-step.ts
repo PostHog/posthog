@@ -1,4 +1,5 @@
-import { TeamManager } from '~/common/utils/team-manager'
+import { TeamManager } from '@posthog/node-common/utils/team-manager'
+
 import { createPrefetchStep } from '~/ingestion/common/steps/create-prefetch-step'
 import { EventHeaders } from '~/types'
 

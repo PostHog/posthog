@@ -1,4 +1,5 @@
-import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
+import { EventSchemaEnforcementManager } from '@posthog/node-common/utils/event-schema-enforcement-manager'
+
 import { createPrefetchStep } from '~/ingestion/common/steps/create-prefetch-step'
 import { Team } from '~/types'
 

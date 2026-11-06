@@ -3,7 +3,8 @@ import { ParquetReader } from '@dsnp/parquetjs'
 import { Message } from 'node-rdkafka'
 import { register } from 'prom-client'
 
-import { parseJSON } from '~/common/utils/json-parse'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+
 import {
     CAPTURE_TIMESTAMP_HEADER,
     CaptureWatermark,

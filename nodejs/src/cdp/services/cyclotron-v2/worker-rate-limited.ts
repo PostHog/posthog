@@ -1,4 +1,4 @@
-import { logger } from '~/common/utils/logger'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import { CyclotronV2BatchLimit, CyclotronV2WorkerConfig } from './types'
 import { CyclotronV2DequeuedJob } from './types'

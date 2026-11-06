@@ -2,9 +2,10 @@ import { get } from 'lodash'
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
+import { logger } from '@posthog/node-common/utils/logger'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
 import { HogFlow, HogFlowAction, isRowScopedTrigger } from '~/cdp/schema/hogflow'
-import { logger } from '~/common/utils/logger'
-import { UUIDT } from '~/common/utils/utils'
 
 import {
     ConversionWatcherRow,

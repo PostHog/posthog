@@ -2,7 +2,8 @@ import { DeleteObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client
 import { ParquetReader } from '@dsnp/parquetjs'
 import sodium from 'libsodium-wrappers'
 
-import { parseJSON } from '~/common/utils/json-parse'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+
 import { MlDataKey } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/crypto'
 import { decryptEnvelopeFrame } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/envelope-testing'
 

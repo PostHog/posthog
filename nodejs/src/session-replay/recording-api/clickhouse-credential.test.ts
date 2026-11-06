@@ -3,8 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { register } from 'prom-client'
 
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { overrideConfigWithEnv } from '~/common/config/config'
-import { logger } from '~/common/utils/logger'
 import { getDefaultSessionRecordingApiConfig } from '~/ingestion/pipelines/sessionreplay/config'
 
 import { ClickHouseCredential } from './clickhouse-credential'

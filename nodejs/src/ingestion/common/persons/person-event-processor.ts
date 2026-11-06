@@ -1,7 +1,8 @@
-import { ASYNC_OUTPUT, AsyncOutput } from '~/common/outputs'
-import { logger } from '~/common/utils/logger'
+import { ASYNC_OUTPUT, AsyncOutput } from '@posthog/node-common/outputs/index'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { PipelineResult, dlq, ok, redirect } from '~/ingestion/framework/results'
-import { PluginEvent } from '~/plugin-scaffold'
 import { InternalPerson, Person } from '~/types'
 
 import { PersonContext } from './person-context'

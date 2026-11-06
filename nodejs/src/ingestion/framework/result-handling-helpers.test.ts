@@ -1,20 +1,21 @@
 import { Message } from 'node-rdkafka'
 
-import { DLQ_OUTPUT } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { logger } from '~/common/utils/logger'
-import { captureException } from '~/common/utils/posthog'
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { DLQ_OUTPUT } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
+import { logger } from '@posthog/node-common/utils/logger'
+import { captureException } from '@posthog/node-common/utils/posthog'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+
 import {
     logDroppedMessage,
     produceMessageToDLQ,
     redirectMessageToOutput,
 } from '~/ingestion/framework/result-handling-helpers'
-import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 
 // Mock all dependencies
-jest.mock('~/common/utils/logger')
-jest.mock('~/common/utils/posthog')
+jest.mock('@posthog/node-common/utils/logger')
+jest.mock('@posthog/node-common/utils/posthog')
 
 const mockLogger = logger as jest.Mocked<typeof logger>
 const mockCaptureException = captureException as jest.MockedFunction<typeof captureException>

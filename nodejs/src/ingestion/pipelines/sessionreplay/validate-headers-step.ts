@@ -1,4 +1,5 @@
-import { normalizeSessionId } from '~/common/utils/utils'
+import { normalizeSessionId } from '@posthog/node-common/utils/utils'
+
 import { dlq, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { EventHeaders } from '~/types'

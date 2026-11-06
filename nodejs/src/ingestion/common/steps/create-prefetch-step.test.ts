@@ -1,4 +1,5 @@
-import { logger } from '~/common/utils/logger'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { createPrefetchStep } from '~/ingestion/common/steps/create-prefetch-step'
 import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
 

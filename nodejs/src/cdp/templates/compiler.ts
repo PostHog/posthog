@@ -4,8 +4,8 @@ import { mkdir, readFile, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import path from 'path'
 
-import { parseJSON } from '~/common/utils/json-parse'
-import { UUIDT } from '~/common/utils/utils'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { UUIDT } from '@posthog/node-common/utils/utils'
 
 import { HogBytecode } from '../types'
 import { Semaphore } from '../utils/sempahore'

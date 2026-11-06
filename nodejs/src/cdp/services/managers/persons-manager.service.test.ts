@@ -2,8 +2,8 @@ import { create } from '@bufbuild/protobuf'
 import { Code, ConnectError, createRouterTransport } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
-import { PersonHogService } from '~/common/generated/personhog/personhog/service/v1/service_pb'
-import { TeamDistinctIdSchema } from '~/common/generated/personhog/personhog/types/v1/common_pb'
+import { PersonHogService } from '@posthog/node-common/generated/personhog/personhog/service/v1/service_pb'
+import { TeamDistinctIdSchema } from '@posthog/node-common/generated/personhog/personhog/types/v1/common_pb'
 import {
     GetDistinctIdsForPersonsResponseSchema,
     PersonDistinctIdsSchema,
@@ -11,14 +11,14 @@ import {
     PersonWithTeamDistinctIdSchema,
     PersonsByDistinctIdsResponseSchema,
     PersonsResponseSchema,
-} from '~/common/generated/personhog/personhog/types/v1/person_pb'
-import { PersonHogClient } from '~/common/personhog/client'
-import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
-import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
+} from '@posthog/node-common/generated/personhog/personhog/types/v1/person_pb'
+import { PersonHogClient } from '@posthog/node-common/personhog/client'
+import { PersonHogPersonReadRepository } from '@posthog/node-common/personhog/personhog-person-read-repository'
+import { INVALID_TEAM_ID_KEYS } from '@posthog/node-common/testing/team'
 
 import { PersonsManagerService } from './persons-manager.service'
 
-jest.mock('~/common/utils/logger')
+jest.mock('@posthog/node-common/utils/logger')
 
 const textEncoder = new TextEncoder()
 

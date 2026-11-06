@@ -1,6 +1,6 @@
 import { createHash } from 'crypto'
 
-import { logger } from '~/common/utils/logger'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import { KNOWN_BOT_IP_LIST, KNOWN_BOT_UA_LIST } from './bots/bots'
 

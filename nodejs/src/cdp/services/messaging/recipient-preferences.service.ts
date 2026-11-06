@@ -1,7 +1,8 @@
+import { RedisV2 } from '@posthog/node-common/redis/redis-v2'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { acceptedSendEmailFields } from '~/cdp/services/hogflows/transactional-email'
-import { RedisV2 } from '~/common/redis/redis-v2'
-import { logger } from '~/common/utils/logger'
 
 import { CyclotronJobInvocationHogFunction, MessageOptOutRecord } from '../../types'
 import { NATIVE_PUSH_TEMPLATE_ID, pushRecipientOtherThanRunPerson } from '../../utils/push-subscription-utils'

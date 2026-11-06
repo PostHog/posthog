@@ -1,7 +1,8 @@
 import { deepEqual as equal } from 'fast-equals'
 import { DateTime } from 'luxon'
 
-import { Properties } from '~/plugin-scaffold'
+import { Properties } from '@posthog/node-common/plugin-scaffold'
+
 import { Group, GroupTypeIndex, TeamId } from '~/types'
 
 export interface GroupUpdate {

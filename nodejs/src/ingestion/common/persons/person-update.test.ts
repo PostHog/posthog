@@ -1,9 +1,13 @@
 import { DateTime } from 'luxon'
 
-import { personProfileIgnoredPropertiesCounter, personProfileUpdateOutcomeCounter } from '~/common/persons/metrics'
-import { FILTERED_PERSON_UPDATE_PROPERTIES } from '~/common/persons/person-property-utils'
-import { PluginEvent } from '~/plugin-scaffold'
-import { Properties } from '~/plugin-scaffold'
+import {
+    personProfileIgnoredPropertiesCounter,
+    personProfileUpdateOutcomeCounter,
+} from '@posthog/node-common/persons/metrics'
+import { FILTERED_PERSON_UPDATE_PROPERTIES } from '@posthog/node-common/persons/person-property-utils'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { Properties } from '@posthog/node-common/plugin-scaffold'
+
 import { InternalPerson } from '~/types'
 
 import {
@@ -20,7 +24,7 @@ import {
 const computeEventPropertyUpdates = (event: PluginEvent, personProperties: Properties, updateAllProperties = false) =>
     refineEventOps(extractEventOps(event, updateAllProperties), personProperties, updateAllProperties)
 
-jest.mock('~/common/persons/metrics', () => ({
+jest.mock('@posthog/node-common/persons/metrics', () => ({
     personProfileUpdateOutcomeCounter: {
         labels: jest.fn().mockReturnValue({
             inc: jest.fn(),

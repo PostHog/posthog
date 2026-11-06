@@ -10,22 +10,23 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
+import { ClickhouseGroupRepository } from '@posthog/node-common/groups/repositories/clickhouse-group-repository'
+import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
+import { waitForExpect } from '@posthog/node-common/testing/expectations'
+import { createUserTeamAndOrganization, fetchPostgresPersons, uniqueTestId } from '@posthog/node-common/testing/sql'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
 import { createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
-import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
-import { UUIDT } from '~/common/utils/utils'
 import { IngestionConsumer } from '~/ingestion/ingestion-consumer'
-import { waitForExpect } from '~/tests/helpers/expectations'
 import {
     IngestionTestInfra,
     createIngestionTestInfra,
     ensureIngestionE2EInfraReady,
 } from '~/tests/helpers/ingestion-e2e'
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
-import { createUserTeamAndOrganization, fetchPostgresPersons, uniqueTestId } from '~/tests/helpers/sql'
 import { FlagEvaluationsMode, PipelineEvent, PluginsServerConfig, ProjectId, Team } from '~/types'
 
-jest.mock('~/common/utils/token-bucket', () => {
+jest.mock('@posthog/node-common/utils/token-bucket', () => {
     const mockConsume = jest.fn().mockReturnValue(true)
     return {
         IngestionWarningLimiter: {
@@ -34,7 +35,7 @@ jest.mock('~/common/utils/token-bucket', () => {
     }
 })
 
-jest.mock('~/common/utils/logger')
+jest.mock('@posthog/node-common/utils/logger')
 
 const waitForKafkaMessages = async (kafkaProducer: KafkaProducerWrapper) => {
     await kafkaProducer.flush()

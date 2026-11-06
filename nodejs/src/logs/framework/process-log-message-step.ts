@@ -1,8 +1,9 @@
-import { parseKafkaHeaders } from '~/common/kafka/consumer'
-import { recordPiiReplacements } from '~/common/metrics/otel-metrics'
-import { instrumentFn } from '~/common/tracing/tracing-utils'
-import { DependencyUnavailableError } from '~/common/utils/db/error'
-import { logger } from '~/common/utils/logger'
+import { parseKafkaHeaders } from '@posthog/node-common/kafka/consumer/index'
+import { recordPiiReplacements } from '@posthog/node-common/metrics/otel-metrics'
+import { instrumentFn } from '@posthog/node-common/tracing/tracing-utils'
+import { DependencyUnavailableError } from '@posthog/node-common/utils/db/error'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 

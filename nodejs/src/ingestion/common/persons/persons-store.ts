@@ -1,10 +1,11 @@
 import { DateTime } from 'luxon'
 
-import { PersonMessage } from '~/common/persons/person-message'
-import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
-import { CreatePersonResult } from '~/common/utils/db/db'
+import { PersonMessage } from '@posthog/node-common/persons/person-message'
+import { PersonRepositoryTransaction } from '@posthog/node-common/persons/repositories/person-repository-transaction'
+import { Properties } from '@posthog/node-common/plugin-scaffold'
+import { CreatePersonResult } from '@posthog/node-common/utils/db/db'
+
 import { BatchWritingStore } from '~/ingestion/common/stores/batch-writing-store'
-import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt } from '~/types'
 
 import { MergeMode } from './person-merge-types'

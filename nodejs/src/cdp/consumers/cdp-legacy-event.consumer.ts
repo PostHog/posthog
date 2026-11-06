@@ -1,14 +1,14 @@
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
-import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
-import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
-import { PostgresUse } from '~/common/utils/db/postgres'
-import { parseJSON } from '~/common/utils/json-parse'
-import { DEFAULT_LOADER_RETRY, LazyLoader } from '~/common/utils/lazy-loader'
-import { logger } from '~/common/utils/logger'
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { validTeamIds } from '~/common/utils/team-manager'
+import { KafkaConsumerInterface, createKafkaConsumer } from '@posthog/node-common/kafka/consumer/index'
+import { instrumentFn, instrumented } from '@posthog/node-common/tracing/tracing-utils'
+import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { DEFAULT_LOADER_RETRY, LazyLoader } from '@posthog/node-common/utils/lazy-loader'
+import { logger } from '@posthog/node-common/utils/logger'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+import { validTeamIds } from '@posthog/node-common/utils/team-manager'
 
 import {
     HealthCheckResult,

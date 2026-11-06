@@ -1,5 +1,5 @@
+import { processCost } from '~/ingestion/pipelines/ai/costs'
 import { findCostFromModel } from '~/ingestion/pipelines/ai/costs/cost-model-matching'
-import { processCost } from '~/ingestion/pipelines/ai/costs/index'
 import { createAIEvent } from '~/ingestion/pipelines/ai/costs/test-helpers'
 
 import { manualCosts } from './manual-providers'

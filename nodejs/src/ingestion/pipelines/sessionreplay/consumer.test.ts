@@ -1,10 +1,11 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { ingestionLagGauge, ingestionLagHistogram } from '~/common/metrics'
-import { UsageIngestionClient } from '~/common/usage-ingestion/client'
-import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
-import { PostgresRouter } from '~/common/utils/db/postgres'
+import { ingestionLagGauge, ingestionLagHistogram } from '@posthog/node-common/metrics'
+import { UsageIngestionClient } from '@posthog/node-common/usage-ingestion/client'
+import { UsageRecordBatch } from '@posthog/node-common/usage-ingestion/usage-record-batch'
+import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
+
 import {
     SessionReplayBatchProgress,
     SessionReplayPipeline,
@@ -29,7 +30,7 @@ import { BatchCommitter, StagedBatchRunner } from './staged-batch'
 
 const mockKafkaConsumerConfigs: Record<string, unknown>[] = []
 
-jest.mock('~/common/kafka/consumer/consumer-v2', () => {
+jest.mock('@posthog/node-common/kafka/consumer/consumer-v2', () => {
     class FakeKafkaConsumerV2 {
         constructor(config: Record<string, unknown>) {
             mockKafkaConsumerConfigs.push(config)

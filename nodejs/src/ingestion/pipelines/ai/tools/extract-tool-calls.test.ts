@@ -1,4 +1,4 @@
-import { PluginEvent } from '~/plugin-scaffold'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
 
 import { MAX_TOOLS_PER_EVENT, extractToolCallNames, sanitizeToolName } from './extract-tool-calls'
 import { MAX_OUTPUT_CHOICES_LENGTH, processAiToolCallExtraction } from './index'

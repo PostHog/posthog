@@ -1,9 +1,10 @@
 // NOTE: Keep these as ~ imports as we can validate the build output this way
-import { PluginServerMode } from '~/common/config'
+import { PluginServerMode } from '@posthog/node-common/config'
+import { initMetrics } from '@posthog/node-common/metrics/otel-metrics'
+import { initSuperProperties } from '@posthog/node-common/utils/posthog'
+
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
-import { initMetrics } from '~/common/metrics/otel-metrics'
 import { initTracing } from '~/common/tracing/otel'
-import { initSuperProperties } from '~/common/utils/posthog'
 import { getDefaultIngestionConsumerConfig } from '~/ingestion/config'
 import { PluginServer } from '~/server'
 import {

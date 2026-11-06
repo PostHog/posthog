@@ -2,8 +2,7 @@ import { Message } from 'node-rdkafka'
 import pLimit from 'p-limit'
 
 import type { UrlJob } from '@posthog/ai-research-v4-native'
-
-import { logger } from '~/common/utils/logger'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import {
     FetchCandidate,

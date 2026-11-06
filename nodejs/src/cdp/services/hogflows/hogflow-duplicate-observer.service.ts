@@ -1,8 +1,9 @@
 import { Counter } from 'prom-client'
 
+import { RedisClient, RedisV2 } from '@posthog/node-common/redis/redis-v2'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { HogFlowAction } from '~/cdp/schema/hogflow'
-import { RedisClient, RedisV2 } from '~/common/redis/redis-v2'
-import { logger } from '~/common/utils/logger'
 
 import { CyclotronJobInvocationHogFlow } from '../../types'
 import { dualRead } from '../../utils/dual-store'

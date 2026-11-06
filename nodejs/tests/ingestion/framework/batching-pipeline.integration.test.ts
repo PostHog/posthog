@@ -1,8 +1,10 @@
 import { Message } from 'node-rdkafka'
 
-import { DlqOutput, IngestionWarningsOutput } from '~/common/outputs'
-import { parseJSON } from '~/common/utils/json-parse'
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { DlqOutput, IngestionWarningsOutput } from '@posthog/node-common/outputs/index'
+import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
 import { FlushResult, PersonsStore } from '~/ingestion/common/persons/persons-store'
 import {
@@ -21,7 +23,6 @@ import { createOkContext } from '~/ingestion/framework/helpers'
 import { OkResultWithContext } from '~/ingestion/framework/pipeline.interface'
 import { PipelineResult, drop, ok } from '~/ingestion/framework/results'
 import { PERSONS_OUTPUT } from '~/ingestion/pipelines/analytics/outputs'
-import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 
 /**
  * Integration tests for BatchingPipeline + groupBy + sequential group processing,
@@ -282,7 +283,14 @@ class Harness {
     public scheduler = new PromiseScheduler()
     /** Accepted batches in batchId order: which events went into which batch. */
     public submissions: { batchId: number; specs: EventSpec[] }[] = []
-    public pipeline: BatchingPipeline<In, ProcessedEvent, Ctx, StoreBatchContext, Ctx & BatchingContext, never>
+    public pipeline: BatchingPipeline<
+        In,
+        ProcessedEvent,
+        Ctx,
+        StoreBatchContext,
+        Ctx & BatchingContext,
+        'persons' | 'ingestion_warnings'
+    >
 
     private gates = new Map<string, Deferred>()
     private nextOffset = 0
@@ -353,7 +361,14 @@ class Harness {
         // filterMap(teamAware(...)).handleIngestionWarnings(...), so new batches
         // are only admitted into the grouping stage when filterMap's
         // sub-pipeline drains.
-        this.pipeline = newBatchingPipeline<In, ProcessedEvent, Ctx, StoreBatchContext, Ctx>(
+        this.pipeline = newBatchingPipeline<
+            In,
+            ProcessedEvent,
+            Ctx,
+            StoreBatchContext,
+            Ctx,
+            'persons' | 'ingestion_warnings'
+        >(
             (before) => before.pipe(bindStoresBeforeBatchStep),
             (batch) =>
                 batch

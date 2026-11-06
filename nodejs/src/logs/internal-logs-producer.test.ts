@@ -1,13 +1,13 @@
 import { DateTime } from 'luxon'
 import { register } from 'prom-client'
 
-import { parseJSON } from '~/common/utils/json-parse'
-import { internalFetch } from '~/common/utils/request'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { internalFetch } from '@posthog/node-common/utils/request'
 
 import { InternalLogsVerifier } from './internal-logs'
 import { InternalLogEntry, InternalLogsProducer, InternalLogsProducerConfig } from './internal-logs-producer'
 
-jest.mock('~/common/utils/request', () => ({ internalFetch: jest.fn() }))
+jest.mock('@posthog/node-common/utils/request', () => ({ internalFetch: jest.fn() }))
 
 const KEY = 'internal-logs-test-key'
 const URL = 'http://capture-logs.test/i/v1/logs'

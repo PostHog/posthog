@@ -1,5 +1,6 @@
-import { MAX_GROUP_TYPE_LENGTH } from '~/common/groups/group-type-manager'
-import { asPostgresParameterText } from '~/common/utils/db/utils'
+import { MAX_GROUP_TYPE_LENGTH } from '@posthog/node-common/groups/group-type-manager'
+import { asPostgresParameterText } from '@posthog/node-common/utils/db/utils'
+
 import { drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PipelineEvent } from '~/types'

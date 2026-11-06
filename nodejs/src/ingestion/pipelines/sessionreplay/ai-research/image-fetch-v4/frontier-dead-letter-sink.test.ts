@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
 
 import { MAX_RECORD_BYTES } from './collected-urls-record'
 import { KafkaFrontierDeadLetterSink } from './frontier-dead-letter-sink'

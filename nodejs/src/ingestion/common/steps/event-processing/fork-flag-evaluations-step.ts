@@ -6,11 +6,12 @@ import {
     IngestionWarningsOutput,
     REALTIME_ONLY_EVENTS_OUTPUT,
     RealtimeOnlyEventsOutput,
-} from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { IngestionOutputMessage } from '~/common/outputs/types'
-import { MessageSizeTooLarge } from '~/common/utils/db/error'
-import { logger } from '~/common/utils/logger'
+} from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { IngestionOutputMessage } from '@posthog/node-common/outputs/types'
+import { MessageSizeTooLarge } from '@posthog/node-common/utils/db/error'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { mapProcessedEventToFlagEvaluationRow } from '~/ingestion/common/flag-evaluations/flag-evaluation-row'
 import { FlagEvaluationsService } from '~/ingestion/common/flag-evaluations/flag-evaluations-service'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'

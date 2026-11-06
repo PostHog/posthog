@@ -1,4 +1,4 @@
-import { logger } from '~/common/utils/logger'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import { CallerSet } from './caller-set'
 import { Component } from './component'

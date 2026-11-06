@@ -1,7 +1,8 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
 import { ok } from '~/ingestion/framework/results'
 import { SessionReplayBatchProgress } from '~/ingestion/pipelines/sessionreplay'

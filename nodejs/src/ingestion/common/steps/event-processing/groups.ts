@@ -1,7 +1,8 @@
 import { DateTime } from 'luxon'
 
-import { GroupTypeManager } from '~/common/groups/group-type-manager'
-import { Properties } from '~/plugin-scaffold'
+import { GroupTypeManager } from '@posthog/node-common/groups/group-type-manager'
+import { Properties } from '@posthog/node-common/plugin-scaffold'
+
 import { GroupTypeToColumnIndex, ProjectId, TeamId } from '~/types'
 
 export function enrichPropertiesWithGroupTypes(

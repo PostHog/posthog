@@ -1,9 +1,10 @@
 import { createHash } from 'crypto'
 import { Redis } from 'ioredis'
 
-import { timeoutGuard } from '~/common/utils/db/utils'
-import { parseTeamsList } from '~/common/utils/env-utils'
-import { logger } from '~/common/utils/logger'
+import { timeoutGuard } from '@posthog/node-common/utils/db/utils'
+import { parseTeamsList } from '@posthog/node-common/utils/env-utils'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { buildTeamGate } from '~/ingestion/common/team-gate'
 import { IngestionConsumerConfig, IngestionLane, REALTIME_INGESTION_LANES } from '~/ingestion/config'
 import { RedisPool, ValueMatcher } from '~/types'

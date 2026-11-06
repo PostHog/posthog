@@ -1,9 +1,10 @@
+import { decideProcessPerson, isDistinctIdUnmergeable } from '@posthog/node-common/persons/person-utils'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+
 import { buildIntegerMatcher } from '~/common/config/config'
-import { decideProcessPerson, isDistinctIdUnmergeable } from '~/common/persons/person-utils'
 import type { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
 import type { ProcessingStep } from '~/ingestion/framework/steps'
-import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, InternalPerson, Team } from '~/types'
 
 /** One planned merge: an anon distinct_id to fold into the group's target distinct_id. */

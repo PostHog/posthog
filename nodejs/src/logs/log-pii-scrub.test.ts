@@ -1,6 +1,6 @@
 import RE2 from 're2'
 
-import { parseJSON } from '~/common/utils/json-parse'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import {
     PII_REDACTED,

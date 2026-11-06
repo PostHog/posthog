@@ -1,5 +1,5 @@
-import { InternalCaptureEvent, InternalCaptureService } from '~/common/services/internal-capture'
-import { TeamManager } from '~/common/utils/team-manager'
+import { InternalCaptureEvent, InternalCaptureService } from '@posthog/node-common/services/internal-capture'
+import { TeamManager } from '@posthog/node-common/utils/team-manager'
 
 import { Team } from '../../../types'
 import { CyclotronJobInvocationResult, HogFunctionCapturedEvent } from '../../types'

@@ -1,6 +1,7 @@
 import { Counter } from 'prom-client'
 
-import { QuotaResource } from '../../common/services/quota-limiting.service'
+import { QuotaResource } from '@posthog/node-common/services/quota-limiting.service'
+
 import { HogFunctionMonitoringService } from '../services/monitoring/hog-function-monitoring.service'
 import { CyclotronJobInvocationHogFunction } from '../types'
 

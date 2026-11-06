@@ -1,6 +1,7 @@
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { logger } from '~/common/utils/logger'
-import { castTimestampOrNow } from '~/common/utils/utils'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { logger } from '@posthog/node-common/utils/logger'
+import { castTimestampOrNow } from '@posthog/node-common/utils/utils'
+
 import { FeatureEndResult } from '~/ingestion/pipelines/sessionreplay/sessions/session-feature-recorder'
 import { SESSION_FEATURES_OUTPUT, SessionFeaturesOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { TimestampFormat } from '~/types'

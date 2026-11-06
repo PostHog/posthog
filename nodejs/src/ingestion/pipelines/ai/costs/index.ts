@@ -1,7 +1,8 @@
 import bigDecimal from 'js-big-decimal'
 
+import { PluginEvent, Properties } from '@posthog/node-common/plugin-scaffold'
+
 import { aiCostLookupCounter, aiCostTotalOutcomeCounter } from '~/ingestion/pipelines/ai/metrics'
-import { PluginEvent, Properties } from '~/plugin-scaffold'
 
 import {
     CostModelResult,

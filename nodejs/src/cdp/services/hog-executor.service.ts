@@ -2,9 +2,8 @@ import { DateTime } from 'luxon'
 import { Histogram } from 'prom-client'
 
 import { ExecResult, convertHogToJS } from '@posthog/hogvm'
-
-import { instrumented } from '~/common/tracing/tracing-utils'
-import { logger } from '~/common/utils/logger'
+import { instrumented } from '@posthog/node-common/tracing/tracing-utils'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import type {
     CyclotronJobInvocationHogFunction,

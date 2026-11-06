@@ -1,4 +1,4 @@
-import { Properties } from '~/plugin-scaffold'
+import { Properties } from '@posthog/node-common/plugin-scaffold'
 
 import { CostModelSource, findCostFromModel, getNewModelName, requireSpecialCost } from './cost-model-matching'
 

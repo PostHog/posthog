@@ -44,7 +44,8 @@
  * carry side effects, it logs a warning - a signal that a `handleSideEffects()`
  * stage is missing from the pipeline.
  */
-import { logger } from '~/common/utils/logger'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
 import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { ChunkPipelineUnwrapper } from '~/ingestion/framework/chunk-pipeline-unwrapper'

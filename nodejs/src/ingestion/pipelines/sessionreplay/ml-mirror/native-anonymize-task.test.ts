@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { setFlagsFromString } from 'node:v8'
 import { runInNewContext } from 'node:vm'
 
-import { logger } from '~/common/utils/logger'
+import { logger } from '@posthog/node-common/utils/logger'
 
 let rustAddon: typeof import('@posthog/replay-anonymizer') | null = null
 try {

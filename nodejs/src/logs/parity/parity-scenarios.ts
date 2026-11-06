@@ -2,7 +2,7 @@ import avro from 'avsc'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 
-import { parseJSON } from '~/common/utils/json-parse'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import { getDefaultLogsIngestionConsumerConfig, getDefaultTracesIngestionConsumerConfig } from '../config'
 import { INTERNAL_LOGS_HEADER, signInternalLogs } from '../internal-logs'

@@ -1,14 +1,18 @@
 import { isEqual } from 'lodash'
 import { DateTime } from 'luxon'
 
-import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
-import { PersonDistinctIdsOutput, PersonMergeEventsOutput, PersonsOutput } from '~/common/outputs'
-import { FILTERED_PERSON_UPDATE_PROPERTIES } from '~/common/persons/person-property-utils'
-import { MergePersonUpdate, PersonUpdate, toInternalPerson } from '~/common/persons/person-update-batch'
-import { InternalPersonWithDistinctId, PersonRepository } from '~/common/persons/repositories/person-repository'
-import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
-import { NoRowsUpdatedError } from '~/common/utils/utils'
-import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
+import { INGESTION_WARNINGS_OUTPUT } from '@posthog/node-common/outputs/index'
+import { PersonDistinctIdsOutput, PersonMergeEventsOutput, PersonsOutput } from '@posthog/node-common/outputs/index'
+import { FILTERED_PERSON_UPDATE_PROPERTIES } from '@posthog/node-common/persons/person-property-utils'
+import { MergePersonUpdate, PersonUpdate, toInternalPerson } from '@posthog/node-common/persons/person-update-batch'
+import {
+    InternalPersonWithDistinctId,
+    PersonRepository,
+} from '@posthog/node-common/persons/repositories/person-repository'
+import { PersonRepositoryTransaction } from '@posthog/node-common/persons/repositories/person-repository-transaction'
+import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
+import { NoRowsUpdatedError } from '@posthog/node-common/utils/utils'
+
 import { InternalPerson } from '~/types'
 
 import { BatchWritingPersonsStore } from './batch-writing-person-store'
@@ -18,7 +22,7 @@ jest.mock('~/ingestion/common/ingestion-warnings', () => ({
     emitIngestionWarning: jest.fn().mockResolvedValue(undefined),
 }))
 
-jest.mock('~/common/persons/metrics', () => ({
+jest.mock('@posthog/node-common/persons/metrics', () => ({
     observeLatencyByVersion: jest.fn(),
     personCacheOperationsCounter: { inc: jest.fn() },
     personCacheSizeHistogram: { observe: jest.fn() },

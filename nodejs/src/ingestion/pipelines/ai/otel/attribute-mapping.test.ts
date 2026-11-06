@@ -1,7 +1,8 @@
-import { parseJSON } from '~/common/utils/json-parse'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+
 import { aiOtelUnknownPartTypeCounter } from '~/ingestion/pipelines/ai/metrics'
 import { extractToolCallNames } from '~/ingestion/pipelines/ai/tools/extract-tool-calls'
-import { PluginEvent } from '~/plugin-scaffold'
 
 import { mapOtelAttributes } from './attribute-mapping'
 import { convertOtelEvent } from './index'

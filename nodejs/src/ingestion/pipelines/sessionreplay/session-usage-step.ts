@@ -1,4 +1,5 @@
-import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
+import { UsageRecordBatch } from '@posthog/node-common/usage-ingestion/usage-record-batch'
+
 import {
     SESSION_TRACKER_MOBILE_BILLED_TTL_SECONDS,
     SESSION_TRACKER_REDIS_TTL_SECONDS,

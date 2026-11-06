@@ -1,4 +1,5 @@
-import { QuotaLimiting } from '../../common/services/quota-limiting.service'
+import { QuotaLimiting } from '@posthog/node-common/services/quota-limiting.service'
+
 import { CyclotronJobInvocationHogFunction, HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { buildHogFunctionInvocations } from '../utils/invocation-utils'
 import { HogFunctionInvocationPipeline } from './hog-function-invocation-pipeline.service'
@@ -15,7 +16,7 @@ jest.mock('../utils/invocation-utils', () => ({
 }))
 
 // Mock the rate limiter to give us deterministic control
-jest.mock('../../common/services/keyed-rate-limiter.service', () => ({
+jest.mock('@posthog/node-common/services/keyed-rate-limiter.service', () => ({
     KeyedRateLimiterService: jest.fn().mockImplementation(() => ({
         rateLimitGrouped: jest.fn(),
     })),

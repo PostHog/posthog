@@ -1,8 +1,12 @@
 import { Counter, Histogram, metrics as metricsApi } from '@opentelemetry/api'
 import { MeterProvider } from '@opentelemetry/sdk-metrics'
 
-import { createCounterWithExemplars, createHistogramWithExemplars, swallowing } from '~/common/metrics/instruments'
-import { createOtlpMeterProvider } from '~/common/metrics/otlp-provider'
+import {
+    createCounterWithExemplars,
+    createHistogramWithExemplars,
+    swallowing,
+} from '@posthog/node-common/metrics/instruments'
+import { createOtlpMeterProvider } from '@posthog/node-common/metrics/otlp-provider'
 
 /**
  * OTLP-pushed twins of the rasterizer's headline prom metrics. The prom side keeps feeding

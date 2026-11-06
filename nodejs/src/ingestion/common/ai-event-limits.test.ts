@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs'
 import path from 'path'
 
-import { parseJSON } from '~/common/utils/json-parse'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import { AI_INCLUDED_BYTES_PER_EVENT, AI_MAX_EVENT_BYTES_CEILING, AI_MEDIA_OFFLOAD_MIN_BYTES } from './ai-event-limits'
 

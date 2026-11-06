@@ -1,22 +1,24 @@
-import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
-import { initializePrometheusLabels } from '~/common/api/router'
-import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
+import { initializePrometheusLabels } from '@posthog/node-common/api/router'
+import { CommonConfig } from '@posthog/node-common/config'
 import {
     createCookielessRedisConnectionConfig,
     createIngestionRedisConnectionConfig,
-} from '~/common/config/redis-pools'
-import { HogTransformerComponent } from '~/common/hog-transformations/hog-transformer-component'
-import { IngestionOutputsComponent } from '~/common/outputs/ingestion-outputs'
-import { PersonHogConfig } from '~/common/personhog'
-import { UsageIngestionConfig } from '~/common/usage-ingestion'
-import { ServerCommands } from '~/common/utils/commands'
-import { PostgresRouter, PostgresRouterComponent } from '~/common/utils/db/postgres'
-import { RedisPoolComponent } from '~/common/utils/db/redis'
-import { GeoIPService } from '~/common/utils/geoip'
-import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
-import { logger } from '~/common/utils/logger'
-import { PubSub } from '~/common/utils/pubsub'
-import { TeamManagerComponent } from '~/common/utils/team-manager'
+} from '@posthog/node-common/config/redis-pools'
+import { HogTransformerComponent } from '@posthog/node-common/hog-transformations/hog-transformer-component'
+import { IngestionOutputsComponent } from '@posthog/node-common/outputs/ingestion-outputs'
+import { PersonHogConfig } from '@posthog/node-common/personhog/index'
+import { UsageIngestionConfig } from '@posthog/node-common/usage-ingestion/index'
+import { ServerCommands } from '@posthog/node-common/utils/commands'
+import { PostgresRouter, PostgresRouterComponent } from '@posthog/node-common/utils/db/postgres'
+import { RedisPoolComponent } from '@posthog/node-common/utils/db/redis'
+import { GeoIPService } from '@posthog/node-common/utils/geoip'
+import { DEFAULT_LOADER_RETRY } from '@posthog/node-common/utils/lazy-loader'
+import { logger } from '@posthog/node-common/utils/logger'
+import { PubSub } from '@posthog/node-common/utils/pubsub'
+import { TeamManagerComponent } from '@posthog/node-common/utils/team-manager'
+
+import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { CookielessManagerComponent, CookielessServerConfig } from '~/ingestion/common/cookieless/cookieless-manager'
 import { ingestionConsumerService } from '~/ingestion/common/ingestion-consumer'
 import { KafkaProducerRegistryComponent } from '~/ingestion/common/outputs/producer-registry'
@@ -42,7 +44,6 @@ import {
     createHogTransformerService,
 } from '../cdp/hog-transformations/hog-transformer.service'
 import { EncryptedFields } from '../cdp/utils/encryption-utils'
-import { CommonConfig } from '../common/config'
 import {
     DatabaseConnectionConfig,
     IngestionConsumerConfig,

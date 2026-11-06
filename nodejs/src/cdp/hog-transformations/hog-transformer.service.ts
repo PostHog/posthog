@@ -1,14 +1,18 @@
 import { Counter, Gauge } from 'prom-client'
 
-import { HogTransformationResult, HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { instrumentFn } from '~/common/tracing/tracing-utils'
-import { PostgresRouter } from '~/common/utils/db/postgres'
-import { GeoIPService, GeoIp } from '~/common/utils/geoip'
-import { logger } from '~/common/utils/logger'
-import { PubSub } from '~/common/utils/pubsub'
-import type { TeamManager } from '~/common/utils/team-manager'
-import { PluginEvent, Properties } from '~/plugin-scaffold'
+import type { CommonConfig } from '@posthog/node-common/config'
+import {
+    HogTransformationResult,
+    HogTransformer,
+} from '@posthog/node-common/hog-transformations/hog-transformer.interface'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { PluginEvent, Properties } from '@posthog/node-common/plugin-scaffold'
+import { instrumentFn } from '@posthog/node-common/tracing/tracing-utils'
+import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
+import { GeoIPService, GeoIp } from '@posthog/node-common/utils/geoip'
+import { logger } from '@posthog/node-common/utils/logger'
+import { PubSub } from '@posthog/node-common/utils/pubsub'
+import type { TeamManager } from '@posthog/node-common/utils/team-manager'
 
 import {
     CyclotronJobInvocationResult,
@@ -17,7 +21,6 @@ import {
     HogFunctionType,
 } from '../../cdp/types'
 import { isLegacyPluginHogFunction } from '../../cdp/utils'
-import type { CommonConfig } from '../../common/config'
 import { HogExecutorService } from '../services/hog-executor.service'
 import { HogInputsService } from '../services/hog-inputs.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'

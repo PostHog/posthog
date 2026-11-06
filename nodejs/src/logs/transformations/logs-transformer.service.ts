@@ -1,13 +1,14 @@
 import { DateTime } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
 
+import { yieldEventLoopIfNeeded } from '@posthog/node-common/utils/event-loop-yield'
+import { logger } from '@posthog/node-common/utils/logger'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
 import { HogFunctionManagerService } from '~/cdp/services/managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from '~/cdp/services/monitoring/hog-function-monitoring.service'
 import { HogFunctionType, LogEntry } from '~/cdp/types'
 import { sanitizeLogMessage } from '~/cdp/utils'
-import { yieldEventLoopIfNeeded } from '~/common/utils/event-loop-yield'
-import { logger } from '~/common/utils/logger'
-import { UUIDT } from '~/common/utils/utils'
 
 import { decodeLogAttributeValue, encodeLogAttributeValue } from '../attribute-value'
 import type { LogRecord } from '../log-record-avro'

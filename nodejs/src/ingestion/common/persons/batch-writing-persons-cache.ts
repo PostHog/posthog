@@ -1,7 +1,8 @@
 import { isEqual } from 'lodash'
 import { DateTime } from 'luxon'
 
-import { PersonUpdate } from '~/common/persons/person-update-batch'
+import { PersonUpdate } from '@posthog/node-common/persons/person-update-batch'
+
 import { BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
 import { InternalPerson } from '~/types'
 

@@ -1,31 +1,48 @@
 // Serial: changes shared ClickHouse merge state and writes shared Kafka topics.
-import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
+import { KafkaProducerObserver } from '@posthog/node-common/testing/mocks/producer.spy'
 
 import { DateTime } from 'luxon'
 
-import { defaultConfig } from '~/common/config/config'
 import {
     KAFKA_INGESTION_WARNINGS,
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
     KAFKA_PERSON_MERGE_EVENTS,
-} from '~/common/config/kafka-topics'
-import { murmur2Partition } from '~/common/kafka/murmur2'
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
-import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
-import { ASYNC_OUTPUT, PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT, PERSON_MERGE_EVENTS_OUTPUT } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
-import { PersonMessage } from '~/common/persons/person-message'
-import { fromInternalPerson } from '~/common/persons/person-update-batch'
-import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
-import { fetchDistinctIdValues } from '~/common/persons/repositories/test-helpers'
-import { DependencyUnavailableError } from '~/common/utils/db/error'
+} from '@posthog/node-common/config/kafka-topics'
+import { murmur2Partition } from '@posthog/node-common/kafka/murmur2'
+import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
+import { INGESTION_WARNINGS_OUTPUT } from '@posthog/node-common/outputs/index'
+import {
+    ASYNC_OUTPUT,
+    PERSONS_OUTPUT,
+    PERSON_DISTINCT_IDS_OUTPUT,
+    PERSON_MERGE_EVENTS_OUTPUT,
+} from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '@posthog/node-common/outputs/single-ingestion-output'
+import { PersonMessage } from '@posthog/node-common/persons/person-message'
+import { fromInternalPerson } from '@posthog/node-common/persons/person-update-batch'
+import { PostgresPersonRepository } from '@posthog/node-common/persons/repositories/postgres-person-repository'
+import { fetchDistinctIdValues } from '@posthog/node-common/persons/repositories/test-helpers'
+import { PluginEvent, Properties } from '@posthog/node-common/plugin-scaffold'
+import { Clickhouse } from '@posthog/node-common/testing/clickhouse'
+import { ensureKafkaTopics } from '@posthog/node-common/testing/kafka'
+import {
+    createOrganization,
+    createTeam,
+    fetchPostgresDistinctIdsForPerson,
+    fetchPostgresPersons,
+    getTeam,
+    insertRow,
+} from '@posthog/node-common/testing/sql'
+import { DependencyUnavailableError } from '@posthog/node-common/utils/db/error'
+import { PostgresRouter, PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { defaultRetryConfig } from '@posthog/node-common/utils/retries'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
+import { defaultConfig } from '~/common/config/config'
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
-import { parseJSON } from '~/common/utils/json-parse'
-import { defaultRetryConfig } from '~/common/utils/retries'
-import { UUIDT } from '~/common/utils/utils'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { PersonOutputs } from '~/ingestion/common/persons/person-context'
 import { PersonContext } from '~/ingestion/common/persons/person-context'
@@ -41,9 +58,6 @@ import { PersonPropertyService } from '~/ingestion/common/persons/person-propert
 import { uuidFromDistinctId } from '~/ingestion/common/persons/person-uuid'
 import { BatchBoundPersonsStore, PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
 import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/framework/results'
-import { PluginEvent, Properties } from '~/plugin-scaffold'
-import { Clickhouse } from '~/tests/helpers/clickhouse'
-import { ensureKafkaTopics } from '~/tests/helpers/kafka'
 import {
     ClickHousePerson,
     ClickHousePersonDistinctId2,
@@ -53,15 +67,6 @@ import {
     PropertiesLastUpdatedAt,
     Team,
 } from '~/types'
-
-import {
-    createOrganization,
-    createTeam,
-    fetchPostgresDistinctIdsForPerson,
-    fetchPostgresPersons,
-    getTeam,
-    insertRow,
-} from '../helpers/sql'
 
 jest.setTimeout(30000)
 

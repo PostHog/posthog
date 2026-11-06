@@ -1,10 +1,9 @@
 import crypto from 'crypto'
 
 import { DEFAULT_TIMEOUT_MS, ExecOptions, ExecResult, exec } from '@posthog/hogvm'
-
-import { instrumentFn } from '~/common/tracing/tracing-utils'
-import { yieldEventLoopIfNeeded } from '~/common/utils/event-loop-yield'
-import { createTrackedRE2 } from '~/common/utils/tracked-re2'
+import { instrumentFn } from '@posthog/node-common/tracing/tracing-utils'
+import { yieldEventLoopIfNeeded } from '@posthog/node-common/utils/event-loop-yield'
+import { createTrackedRE2 } from '@posthog/node-common/utils/tracked-re2'
 
 import { Semaphore } from './sempahore'
 

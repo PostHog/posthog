@@ -1,4 +1,5 @@
-import { logger, serializeError } from '~/common/utils/logger'
+import { logger, serializeError } from '@posthog/node-common/utils/logger'
+
 import { SessionBatchMetrics } from '~/ingestion/pipelines/sessionreplay/sessions/metrics'
 import {
     deserializeSessionKey,

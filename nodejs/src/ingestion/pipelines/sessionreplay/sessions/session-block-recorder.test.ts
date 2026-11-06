@@ -2,7 +2,8 @@ import { DateTime } from 'luxon'
 import { brotliDecompressSync } from 'node:zlib'
 import snappy from 'snappy'
 
-import { parseJSON } from '~/common/utils/json-parse'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { RRWebEventType } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
 

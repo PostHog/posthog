@@ -1,3 +1,5 @@
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { BlobStore, EnsureStoredOutcome } from '~/ingestion/pipelines/ai/blob-offload/blob-store'
@@ -12,7 +14,6 @@ import {
     aiBlobOffloadEventBytesSaved,
     aiBlobOffloadEventsCounter,
 } from '~/ingestion/pipelines/ai/metrics'
-import { PluginEvent } from '~/plugin-scaffold'
 import { Team, ValueMatcher } from '~/types'
 
 export interface OffloadAiBlobsConfig {

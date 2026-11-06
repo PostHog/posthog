@@ -1,6 +1,6 @@
 import { register } from 'prom-client'
 
-import { logger } from '~/common/utils/logger'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import { InternalLogsVerifier, signInternalLogs } from './internal-logs'
 

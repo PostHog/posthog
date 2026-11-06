@@ -1,5 +1,5 @@
-import { murmur2Partition } from '~/common/kafka/murmur2'
-import { logger } from '~/common/utils/logger'
+import { murmur2Partition } from '@posthog/node-common/kafka/murmur2'
+import { logger } from '@posthog/node-common/utils/logger'
 
 /**
  * Wire shape of a committed `P_old -> P_new` person merge event.

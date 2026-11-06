@@ -1,7 +1,8 @@
-import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
+import { createTestTeamFixture, insertRow } from '@posthog/node-common/testing/sql'
+import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
 
-import { createTestTeamFixture, insertRow } from '../../../tests/helpers/sql'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+
 import { Hub, PropertyOperator, RawAction } from '../../types'
 import { ActionManager } from './action-manager'
 

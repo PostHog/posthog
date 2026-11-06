@@ -1,6 +1,6 @@
 import { Attributes, Counter, metrics as metricsApi } from '@opentelemetry/api'
 
-import { createCounterWithExemplars, swallowing } from '~/common/metrics/instruments'
+import { createCounterWithExemplars, swallowing } from '@posthog/node-common/metrics/instruments'
 
 /**
  * OTLP-pushed per-team ingestion counters, landing in the PostHog metrics product

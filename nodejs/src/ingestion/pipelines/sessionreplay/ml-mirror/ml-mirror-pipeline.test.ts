@@ -1,12 +1,14 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
-import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
+import { EventIngestionRestrictionManager } from '@posthog/node-common/utils/event-ingestion-restrictions/index'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger } from '@posthog/node-common/utils/logger'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
 import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 import { ok } from '~/ingestion/framework/results'
@@ -23,7 +25,6 @@ import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/te
 import { createMockKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { buildMlMirrorStagedRunner, runMlMirrorBatch } from '~/tests/helpers/ml-mirror-staged-batch'
-import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 
 import { MlMirrorStagedBatchRunner } from './staged-batch-runner'
 

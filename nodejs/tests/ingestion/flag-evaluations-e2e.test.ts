@@ -3,18 +3,23 @@
 // table — which no unit test can: a topic-key typo, a row column ClickHouse can't
 // parse (silently eaten by kafka_skip_broken_messages), or a broken MV projection
 // all produce "row queued but never lands".
-import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
+import { KafkaProducerObserver } from '@posthog/node-common/testing/mocks/producer.spy'
+
+import {
+    KAFKA_CLICKHOUSE_FLAG_EVALUATIONS,
+    KAFKA_REALTIME_ONLY_EVENTS_JSON,
+} from '@posthog/node-common/config/kafka-topics'
+import { ClickhouseGroupRepository } from '@posthog/node-common/groups/repositories/clickhouse-group-repository'
+import { Clickhouse } from '@posthog/node-common/testing/clickhouse'
+import { waitForExpect } from '@posthog/node-common/testing/expectations'
+import { fetchPostgresPersons } from '@posthog/node-common/testing/sql'
+import { parseRawClickHouseEvent } from '@posthog/node-common/utils/event'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import { createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
-import { KAFKA_CLICKHOUSE_FLAG_EVALUATIONS, KAFKA_REALTIME_ONLY_EVENTS_JSON } from '~/common/config/kafka-topics'
-import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
-import { parseRawClickHouseEvent } from '~/common/utils/event'
-import { parseJSON } from '~/common/utils/json-parse'
 import { createFlagEvaluationsService } from '~/ingestion/common/flag-evaluations/flag-evaluations-service'
 import { getDefaultIngestionConsumerConfig, getDefaultIngestionOutputsConfig } from '~/ingestion/config'
 import { IngestionConsumer } from '~/ingestion/ingestion-consumer'
-import { Clickhouse } from '~/tests/helpers/clickhouse'
-import { waitForExpect } from '~/tests/helpers/expectations'
 import {
     EventBuilder,
     createKafkaMessages,
@@ -25,10 +30,9 @@ import {
     waitForKafkaMessages,
 } from '~/tests/helpers/ingestion-e2e'
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
-import { fetchPostgresPersons } from '~/tests/helpers/sql'
 import { FlagEvaluationsMode } from '~/types'
 
-jest.mock('~/common/utils/logger')
+jest.mock('@posthog/node-common/utils/logger')
 
 describe('Flag evaluations shadow-routing E2E', () => {
     const testWithTeamIngester = createTestWithTeamIngester({}, (infra, kafkaProducer) => {

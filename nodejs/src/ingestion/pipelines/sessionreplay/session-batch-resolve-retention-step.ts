@@ -1,4 +1,5 @@
-import { logger } from '~/common/utils/logger'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
 import { drop, ok } from '~/ingestion/framework/results'
 import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'

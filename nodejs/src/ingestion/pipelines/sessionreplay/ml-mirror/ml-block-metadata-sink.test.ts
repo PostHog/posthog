@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+
 import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 import {
     SessionBlockMetadata,

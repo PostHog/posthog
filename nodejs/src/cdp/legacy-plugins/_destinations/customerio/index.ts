@@ -1,5 +1,5 @@
-import type { FetchResponse } from '~/common/utils/request'
-import { ProcessedPluginEvent, RetryError } from '~/plugin-scaffold'
+import { ProcessedPluginEvent, RetryError } from '@posthog/node-common/plugin-scaffold'
+import type { FetchResponse } from '@posthog/node-common/utils/request'
 
 import { LegacyDestinationPluginMeta } from '../../types'
 

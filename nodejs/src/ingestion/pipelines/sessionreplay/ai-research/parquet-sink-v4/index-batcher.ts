@@ -5,8 +5,9 @@
  */
 import { Message, TopicPartition, TopicPartitionOffset } from 'node-rdkafka'
 
-import { findOffsetsToCommit } from '~/common/kafka/consumer/consumer-v1'
-import { logger } from '~/common/utils/logger'
+import { findOffsetsToCommit } from '@posthog/node-common/kafka/consumer/consumer-v1'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { OffsetStore } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 
 import { V4Index, V4IndexRow } from './index-columns'

@@ -1,13 +1,14 @@
 import { DateTime, Duration } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
 
+import { instrumentFn } from '@posthog/node-common/tracing/tracing-utils'
+
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 import {
     buildWorkflowStepDispatchKey,
     workflowStepDispatchKeyFromInvocation,
 } from '~/cdp/utils/workflow-step-dispatch-key'
 import { capWorkflowStepResult } from '~/cdp/utils/workflow-step-result'
-import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import {
     CyclotronJobInvocationHogFlow,

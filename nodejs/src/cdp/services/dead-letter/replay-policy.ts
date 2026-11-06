@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { parseJSON } from '~/common/utils/json-parse'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import type { RawClickHouseEvent } from '../../../types'
 import type { InvocationBuildFailure } from '../../types'

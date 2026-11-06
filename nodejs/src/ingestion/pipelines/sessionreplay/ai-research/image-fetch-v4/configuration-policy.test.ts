@@ -1,6 +1,6 @@
 import { register } from 'prom-client'
 
-import { StreamedResponse, fetchStreamed } from '~/common/utils/request'
+import { StreamedResponse, fetchStreamed } from '@posthog/node-common/utils/request'
 
 import {
     ConfigurationFetchResult,
@@ -13,8 +13,8 @@ import {
 } from './configuration-policy'
 import { ConfigurationCacheItem, ConfigurationFile, configurationCacheKey } from './crawl-history'
 
-jest.mock('~/common/utils/request', () => ({
-    ...jest.requireActual('~/common/utils/request'),
+jest.mock('@posthog/node-common/utils/request', () => ({
+    ...jest.requireActual('@posthog/node-common/utils/request'),
     fetchStreamed: jest.fn(),
 }))
 

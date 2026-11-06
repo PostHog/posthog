@@ -1,6 +1,6 @@
 import { request } from 'node:http'
 
-import { logger } from '~/common/utils/logger'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import { ImageScrubConsumerMetrics } from './metrics'
 

@@ -1,10 +1,10 @@
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
-import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
-import type { RdKafkaConsumerConfig } from '~/common/kafka/consumer/consumer-v1'
-import { instrumentFn } from '~/common/tracing/tracing-utils'
-import { logger } from '~/common/utils/logger'
+import type { RdKafkaConsumerConfig } from '@posthog/node-common/kafka/consumer/consumer-v1'
+import { KafkaConsumerInterface, createKafkaConsumer } from '@posthog/node-common/kafka/consumer/index'
+import { instrumentFn } from '@posthog/node-common/tracing/tracing-utils'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
 import type { InvocationFailureSink } from '../services/dead-letter/cdp-dead-letter.service'

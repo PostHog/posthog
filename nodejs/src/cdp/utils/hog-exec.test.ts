@@ -1,4 +1,4 @@
-import { configureEventLoopYield, getEventLoopYieldThresholdMs } from '~/common/utils/event-loop-yield'
+import { configureEventLoopYield, getEventLoopYieldThresholdMs } from '@posthog/node-common/utils/event-loop-yield'
 
 import { compileHog } from '../templates/compiler'
 import { execHog } from './hog-exec'

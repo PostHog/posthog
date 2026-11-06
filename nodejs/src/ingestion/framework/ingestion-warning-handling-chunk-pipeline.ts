@@ -1,5 +1,6 @@
-import { IngestionWarningsOutput } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { IngestionWarningsOutput } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 
 import { TeamIdContext } from './builders/chunk-pipeline-builders'

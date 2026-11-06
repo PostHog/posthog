@@ -1,16 +1,17 @@
-import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+import { mockProducer, mockProducerObserver } from '@posthog/node-common/testing/mocks/producer.mock'
 
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
-import { parseJSON } from '~/common/utils/json-parse'
-import { UUIDT } from '~/common/utils/utils'
+import { HogTransformer } from '@posthog/node-common/hog-transformations/hog-transformer.interface'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '@posthog/node-common/outputs/single-ingestion-output'
+import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
 import { Component, newScope } from '~/ingestion/common/scopes'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
-import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { PipelineEvent, Team } from '~/types'
 
 import { ErrorTrackingLaneConfig, createErrorTrackingConsumer } from './consumer'
@@ -23,8 +24,8 @@ type BatchHandler = (messages: Message[]) => Promise<{ backgroundTask?: Promise<
 // The common consumer connects its own Kafka consumer; capture the batch handler it
 // registers so tests can drive batches without a broker.
 let mockBatchHandler: BatchHandler | undefined
-jest.mock('~/common/kafka/consumer', () => ({
-    ...jest.requireActual('~/common/kafka/consumer'),
+jest.mock('@posthog/node-common/kafka/consumer/index', () => ({
+    ...jest.requireActual('@posthog/node-common/kafka/consumer/index'),
     createKafkaConsumer: jest.fn(() => ({
         connect: jest.fn((handler: BatchHandler) => {
             mockBatchHandler = handler
@@ -37,12 +38,12 @@ jest.mock('~/common/kafka/consumer', () => ({
 
 // The lane owns its personhog client and reads persons/groups through it; there is no
 // personhog server in tests, so stand in for the client and the read repositories.
-jest.mock('~/common/personhog/personhog-client-component', () => ({
+jest.mock('@posthog/node-common/personhog/personhog-client-component', () => ({
     PersonHogClientComponent: jest.fn().mockImplementation(() => ({
         start: () => Promise.resolve({ value: {}, stop: () => Promise.resolve() }),
     })),
 }))
-jest.mock('~/common/personhog/personhog-person-read-repository', () => ({
+jest.mock('@posthog/node-common/personhog/personhog-person-read-repository', () => ({
     PersonHogPersonReadRepository: jest.fn().mockImplementation(() => ({
         fetchPerson: jest.fn().mockResolvedValue(undefined),
         fetchPersonsByDistinctIds: jest.fn().mockResolvedValue([]),
@@ -50,7 +51,7 @@ jest.mock('~/common/personhog/personhog-person-read-repository', () => ({
         fetchDistinctIdsForPersons: jest.fn().mockResolvedValue({}),
     })),
 }))
-jest.mock('~/common/personhog/personhog-group-read-repository', () => ({
+jest.mock('@posthog/node-common/personhog/personhog-group-read-repository', () => ({
     PersonHogGroupReadRepository: jest.fn().mockImplementation(() => ({
         fetchGroupsByKeys: jest.fn().mockResolvedValue([]),
         fetchGroupTypesByTeamIds: jest.fn().mockResolvedValue({}),
@@ -58,25 +59,25 @@ jest.mock('~/common/personhog/personhog-group-read-repository', () => ({
     })),
 }))
 
-jest.mock('~/common/utils/posthog', () => {
-    const original = jest.requireActual('~/common/utils/posthog')
+jest.mock('@posthog/node-common/utils/posthog', () => {
+    const original = jest.requireActual('@posthog/node-common/utils/posthog')
     return {
         ...original,
         captureException: jest.fn(),
     }
 })
 
-jest.mock('~/common/utils/token-bucket', () => {
+jest.mock('@posthog/node-common/utils/token-bucket', () => {
     const mockConsume = jest.fn().mockReturnValue(true)
     return {
-        ...jest.requireActual('~/common/utils/token-bucket'),
+        ...jest.requireActual('@posthog/node-common/utils/token-bucket'),
         IngestionWarningLimiter: {
             consume: mockConsume,
         },
     }
 })
 
-jest.mock('~/common/utils/logger', () => ({
+jest.mock('@posthog/node-common/utils/logger', () => ({
     logger: {
         debug: jest.fn(),
         info: jest.fn(),

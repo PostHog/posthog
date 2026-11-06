@@ -1,5 +1,5 @@
-import { instrumentFn, isTracingActive } from '~/common/tracing/tracing-utils'
-import { logger } from '~/common/utils/logger'
+import { instrumentFn, isTracingActive } from '@posthog/node-common/tracing/tracing-utils'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import { pipelineStepDurationHistogram, recordBudgetCheckpoint } from './metrics'
 import { OkResultWithContext, Pipeline, PipelineResultWithContext } from './pipeline.interface'

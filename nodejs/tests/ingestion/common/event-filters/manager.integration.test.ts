@@ -1,12 +1,13 @@
 import { v4 } from 'uuid'
 
+import { createOrganization, createTeam, insertRow } from '@posthog/node-common/testing/sql'
+import { PostgresRouter, PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { IngestionPipeline } from '@posthog/node-common/utils/event-ingestion-restrictions/index'
+
 import { defaultConfig } from '~/common/config/config'
-import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
-import { IngestionPipeline } from '~/common/utils/event-ingestion-restrictions'
 import { evaluateFilterTree } from '~/ingestion/common/event-filters/evaluate'
 import { EventFilterManager, EventFilterManagerComponent } from '~/ingestion/common/event-filters/manager'
 import { and, cond, not, or } from '~/ingestion/common/event-filters/test-helpers'
-import { createOrganization, createTeam, insertRow } from '~/tests/helpers/sql'
 
 async function insertFilter(
     postgres: PostgresRouter,

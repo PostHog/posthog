@@ -1,9 +1,9 @@
 import { trace } from '@opentelemetry/api'
 import { Counter } from 'prom-client'
 
-import { instrumentFn } from '~/common/tracing/tracing-utils'
-import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
-import { logger } from '~/common/utils/logger'
+import { instrumentFn } from '@posthog/node-common/tracing/tracing-utils'
+import { PostgresRouter, PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import {
     MAX_ENABLED_RETENTION_RULES,

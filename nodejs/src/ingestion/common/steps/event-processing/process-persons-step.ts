@@ -1,6 +1,8 @@
 import { DateTime } from 'luxon'
 
-import { AsyncOutput } from '~/common/outputs'
+import { AsyncOutput } from '@posthog/node-common/outputs/index'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+
 import { PersonContext, PersonOutputs } from '~/ingestion/common/persons/person-context'
 import { PersonEventProcessor } from '~/ingestion/common/persons/person-event-processor'
 import type { MergeFoldDecision } from '~/ingestion/common/persons/person-merge-fold'
@@ -10,7 +12,6 @@ import { PersonPropertyService } from '~/ingestion/common/persons/person-propert
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
 import { PipelineResult, isOkResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { PluginEvent } from '~/plugin-scaffold'
 import { Person, Team } from '~/types'
 
 import { EventPipelineRunnerOptions } from './event-pipeline-options'

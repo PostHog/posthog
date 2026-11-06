@@ -1,4 +1,4 @@
-import { GeoIPService } from '~/common/utils/geoip'
+import { GeoIPService } from '@posthog/node-common/utils/geoip'
 
 import shippedSources from '../../../tests/fixtures/geoip-template-sources.json'
 import { createHogFunction } from '../_tests/fixtures'

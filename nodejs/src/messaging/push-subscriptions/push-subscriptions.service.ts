@@ -1,9 +1,10 @@
 import { createHmac } from 'crypto'
 import { LRUCache } from 'lru-cache'
 
+import { PostgresRouter, PostgresUse } from '@posthog/node-common/utils/db/postgres'
+
 import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { DEVICE_SUBSCRIPTION_PREFIX, deviceSubscriptionKey } from '~/cdp/utils/push-subscription-utils'
-import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 
 import { verifyPushIdentityToken } from './identity-token'
 import { ProjectTokenLookup } from './project-token-lookup'

@@ -10,8 +10,9 @@ import { S3Client } from '@aws-sdk/client-s3'
 import { Message } from 'node-rdkafka'
 import { register } from 'prom-client'
 
-import { parseJSON } from '~/common/utils/json-parse'
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+
 import { ok } from '~/ingestion/framework/results'
 import { MlBatchHandle } from '~/ingestion/pipelines/sessionreplay/ml-mirror/batch-handle'
 import { BlockMetadataBatcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror/block-metadata-batcher'

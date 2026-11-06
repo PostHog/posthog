@@ -1,11 +1,12 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { parseKafkaHeaders } from '~/common/kafka/consumer'
-import { retryOnDependencyUnavailableError } from '~/common/kafka/error-handling'
-import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
-import { QuotaResource } from '~/common/services/quota-limiting.service'
-import { logger } from '~/common/utils/logger'
+import { parseKafkaHeaders } from '@posthog/node-common/kafka/consumer/index'
+import { retryOnDependencyUnavailableError } from '@posthog/node-common/kafka/error-handling'
+import { AppMetricsAggregator } from '@posthog/node-common/services/app-metrics-aggregator'
+import { QuotaResource } from '@posthog/node-common/services/quota-limiting.service'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import type { LogsSettings } from '~/types'
 
 import { recordLogMessageDlq } from '../ingestion-otel-metrics'

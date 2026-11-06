@@ -1,7 +1,8 @@
 // Serial: resets the shared test database and starts a server with shared Kafka/ClickHouse dependencies.
-import { PluginServerMode } from '../src/common/config'
+import { PluginServerMode } from '@posthog/node-common/config'
+import { resetTestDatabase } from '@posthog/node-common/testing/sql'
+
 import { IngestionSessionReplayServer } from '../src/servers/ingestion-session-replay-server'
-import { resetTestDatabase } from './helpers/sql'
 
 jest.setTimeout(20000) // 20 sec timeout - longer indicates an issue
 

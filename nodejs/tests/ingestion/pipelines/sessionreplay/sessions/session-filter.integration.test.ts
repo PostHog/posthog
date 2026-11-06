@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid'
 
-import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
+import { createRedisPoolFromConfig } from '@posthog/node-common/utils/db/redis'
+
 import { SessionFilter, SessionFilterConfig } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
 import { SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 

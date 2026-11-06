@@ -1,7 +1,11 @@
-import { OVERFLOW_OUTPUT } from '~/common/outputs'
-import { EventIngestionRestrictionManager, Restriction } from '~/common/utils/event-ingestion-restrictions'
+import { OVERFLOW_OUTPUT } from '@posthog/node-common/outputs/index'
+import { createTestEventHeaders } from '@posthog/node-common/testing/event-headers'
+import {
+    EventIngestionRestrictionManager,
+    Restriction,
+} from '@posthog/node-common/utils/event-ingestion-restrictions/index'
+
 import { dlq, drop, ok, redirect } from '~/ingestion/framework/results'
-import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { EventHeaders } from '~/types'
 
 import {

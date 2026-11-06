@@ -1,6 +1,7 @@
 import fs from 'fs'
 
-import { parseJSON } from '~/common/utils/json-parse'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+
 import { CAPTURE_PRODUCED_WARNING_TYPES, INGESTION_WARNING_TYPES } from '~/ingestion/common/ingestion-warning-types'
 import {
     RUST_GENERATED_JSON_PATH,

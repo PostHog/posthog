@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { logger } from '~/common/utils/logger'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import { INDEX_HEADER, WRITE_DAY_HEADER, parseIndexMessage } from './index-message'
 

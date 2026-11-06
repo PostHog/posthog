@@ -1,5 +1,6 @@
+import { PluginEvent, Properties } from '@posthog/node-common/plugin-scaffold'
+
 import { aiCostModalityExtractionCounter } from '~/ingestion/pipelines/ai/metrics'
-import { PluginEvent, Properties } from '~/plugin-scaffold'
 
 export interface EventWithProperties extends PluginEvent {
     properties: Properties

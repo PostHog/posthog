@@ -2,18 +2,18 @@
 import { DateTime } from 'luxon'
 
 import { Group, GroupTypeIndex, ProjectId, TeamId } from '~/types'
-import { parseJSON } from '~/common/utils/json-parse'
-import { RaceConditionError } from '~/common/utils/utils'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { RaceConditionError } from '@posthog/node-common/utils/utils'
 
 import { BatchWritingGroupStore } from './batch-writing-group-store'
 import { groupCacheOperationsCounter } from './metrics'
-import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
-import { GroupCreateResult, GroupRepository } from '~/common/groups/repositories/group-repository.interface'
-import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
-import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { ClickhouseGroupRepository } from '@posthog/node-common/groups/repositories/clickhouse-group-repository'
+import { GroupCreateResult, GroupRepository } from '@posthog/node-common/groups/repositories/group-repository.interface'
+import { PostgresGroupRepository } from '@posthog/node-common/groups/repositories/postgres-group-repository'
+import { PostgresRouter, PostgresUse } from '@posthog/node-common/utils/db/postgres'
 
-import { GroupsOutput } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { GroupsOutput } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 
 // Mock the DB class
 

@@ -1,7 +1,8 @@
 import { pick } from 'lodash'
 import { DateTime } from 'luxon'
 
-import { parseJSON } from '~/common/utils/json-parse'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+
 import { serializeEvent } from '~/ingestion/common/steps/event-processing/emit-event-step'
 import { ISOTimestamp, ProcessedEvent, ProjectId } from '~/types'
 

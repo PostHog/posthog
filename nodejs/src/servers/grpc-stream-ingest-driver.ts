@@ -1,4 +1,5 @@
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+
 import { CompletedSubBatch, MessageCoordinates, StreamIngestDriver, SubBatchBudget } from '~/ingestion/api/grpc-server'
 import { deserializeKafkaMessage } from '~/ingestion/api/kafka-message-converter'
 import { SerializedKafkaMessage } from '~/ingestion/api/types'

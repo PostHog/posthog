@@ -1,10 +1,11 @@
 import { Message } from 'node-rdkafka'
 import { URL } from 'url'
 
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { isDistinctIdIllegal } from '~/common/persons/person-utils'
-import { logger } from '~/common/utils/logger'
-import { castTimestampOrNow } from '~/common/utils/utils'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { isDistinctIdIllegal } from '@posthog/node-common/persons/person-utils'
+import { logger } from '@posthog/node-common/utils/logger'
+import { castTimestampOrNow } from '@posthog/node-common/utils/utils'
+
 import { EmitEventStepOutput, IngestedEventInfo } from '~/ingestion/common/steps/event-processing/emit-event-step'
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { PipelineResult, drop, isOkResult, ok } from '~/ingestion/framework/results'

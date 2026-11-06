@@ -1,4 +1,5 @@
-import { isCloud } from '~/common/utils/env-utils'
+import { isCloud } from '@posthog/node-common/utils/env-utils'
+
 import { KeyStore, RecordingDecryptor, RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
 
 import { CleartextRecordingDecryptor } from './cleartext-decryptor'

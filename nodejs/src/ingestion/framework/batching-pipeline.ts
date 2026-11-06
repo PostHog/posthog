@@ -1,6 +1,6 @@
 import pLimit from 'p-limit'
 
-import { DetachedSpan, runInContext, startDetachedSpan } from '~/common/tracing/tracing-utils'
+import { DetachedSpan, runInContext, startDetachedSpan } from '@posthog/node-common/tracing/tracing-utils'
 
 import { BatchBudget } from './batch-budget'
 import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'

@@ -1,9 +1,9 @@
 import { chunk } from 'lodash'
 import { Gauge, Histogram } from 'prom-client'
 
-import { instrumentFn } from '~/common/tracing/tracing-utils'
-import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
+import { instrumentFn } from '@posthog/node-common/tracing/tracing-utils'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '../../../types'
 import { CdpConfig } from '../../config'

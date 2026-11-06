@@ -2,18 +2,19 @@ import { isEqual } from 'lodash'
 import { DateTime } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
 
-import { PERSON_MERGE_EVENTS_OUTPUT } from '~/common/outputs'
-import { personMergeFailureCounter } from '~/common/persons/metrics'
-import { PersonMessage } from '~/common/persons/person-message'
-import { MergePersonUpdate, PendingPersonChanges } from '~/common/persons/person-update-batch'
-import { isDistinctIdUnmergeable } from '~/common/persons/person-utils'
+import { PERSON_MERGE_EVENTS_OUTPUT } from '@posthog/node-common/outputs/index'
+import { personMergeFailureCounter } from '@posthog/node-common/persons/metrics'
+import { PersonMessage } from '@posthog/node-common/persons/person-message'
+import { MergePersonUpdate, PendingPersonChanges } from '@posthog/node-common/persons/person-update-batch'
+import { isDistinctIdUnmergeable } from '@posthog/node-common/persons/person-utils'
 import {
     PersonClaimedByLifecycleOpError,
     PersonTombstoneBlockedError,
-} from '~/common/persons/repositories/person-repository'
-import { logger } from '~/common/utils/logger'
-import { promiseRetry } from '~/common/utils/retries'
-import { Properties } from '~/plugin-scaffold'
+} from '@posthog/node-common/persons/repositories/person-repository'
+import { Properties } from '@posthog/node-common/plugin-scaffold'
+import { logger } from '@posthog/node-common/utils/logger'
+import { promiseRetry } from '@posthog/node-common/utils/retries'
+
 import { InternalPerson, ValueMatcher } from '~/types'
 
 import type { BatchWritingPersonsStore } from './batch-writing-person-store'

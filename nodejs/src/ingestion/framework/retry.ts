@@ -1,6 +1,6 @@
-import { logger } from '~/common/utils/logger'
-import { captureException } from '~/common/utils/posthog'
-import { RetrySchedule, retryIfRetriable } from '~/common/utils/retries'
+import { logger } from '@posthog/node-common/utils/logger'
+import { captureException } from '@posthog/node-common/utils/posthog'
+import { RetrySchedule, retryIfRetriable } from '@posthog/node-common/utils/retries'
 
 import { ChunkProcessingStep } from './base-chunk-pipeline'
 import { pipelineRetryAttemptsHistogram } from './metrics'

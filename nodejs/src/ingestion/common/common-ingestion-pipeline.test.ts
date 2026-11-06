@@ -1,27 +1,28 @@
 import { Message } from 'node-rdkafka'
 
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
-import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
-import { parseJSON } from '~/common/utils/json-parse'
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { TeamManager } from '~/common/utils/team-manager'
-import { UUIDT } from '~/common/utils/utils'
+import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
+import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '@posthog/node-common/outputs/single-ingestion-output'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { getMetricValues, resetMetrics } from '@posthog/node-common/testing/metrics'
+import { createTestTeam } from '@posthog/node-common/testing/team'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+import { TeamManager } from '@posthog/node-common/utils/team-manager'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
 import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
 import { TopHogRegistry, countResult } from '~/ingestion/framework/extensions/tophog'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { PipelineResult, dlq, drop, isDropResult, isOkResult, ok, redirect } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { PluginEvent } from '~/plugin-scaffold'
-import { getMetricValues, resetMetrics } from '~/tests/helpers/metrics'
-import { createTestTeam } from '~/tests/helpers/team'
 import { RecordedTopHogMetric, createRecordingTopHog } from '~/tests/helpers/tophog'
 import { EventHeaders, IncomingEvent, Team } from '~/types'
 
 import { CommonIngestionPipelineConfig, newCommonIngestionPipeline } from './common-ingestion-pipeline'
 
-jest.mock('~/common/utils/logger', () => ({
+jest.mock('@posthog/node-common/utils/logger', () => ({
     logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }))
 

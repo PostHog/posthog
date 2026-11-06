@@ -2,7 +2,7 @@
 import { DecryptCommand, KMSClient } from '@aws-sdk/client-kms'
 import { createHmac } from 'crypto'
 
-import { logger } from '~/common/utils/logger'
+import { logger } from '@posthog/node-common/utils/logger'
 
 export interface PseudonymKeyConfig {
     AI_RESEARCH_REPLAY_PSEUDONYM_SECRET: string

@@ -1,14 +1,15 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { createTestEventHeaders } from '@posthog/node-common/testing/event-headers'
+import { createTestMessage } from '@posthog/node-common/testing/kafka-message'
+import { createTestPerson } from '@posthog/node-common/testing/person'
+import { createTestPluginEvent } from '@posthog/node-common/testing/plugin-event'
+import { createTestTeam } from '@posthog/node-common/testing/team'
+
 import { parseEventTimestamp } from '~/ingestion/common/timestamps'
 import { PipelineResultType } from '~/ingestion/framework/results'
-import { PluginEvent } from '~/plugin-scaffold'
-import { createTestEventHeaders } from '~/tests/helpers/event-headers'
-import { createTestMessage } from '~/tests/helpers/kafka-message'
-import { createTestPerson } from '~/tests/helpers/person'
-import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
-import { createTestTeam } from '~/tests/helpers/team'
 import { EventHeaders, Person, Team } from '~/types'
 
 import { createPrepareEventStep } from './prepare-event-step'

@@ -1,8 +1,8 @@
-import { logger } from '~/common/utils/logger'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import { configureValkeyReads, dualRead, dualWrite, parseValkeyReadFeatures, readSourceFor } from './dual-store'
 
-jest.mock('~/common/utils/logger', () => ({ logger: { warn: jest.fn(), info: jest.fn() } }))
+jest.mock('@posthog/node-common/utils/logger', () => ({ logger: { warn: jest.fn(), info: jest.fn() } }))
 
 describe('dual-store', () => {
     beforeEach(() => {

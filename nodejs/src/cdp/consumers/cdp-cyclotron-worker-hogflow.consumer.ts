@@ -1,9 +1,10 @@
 import { DateTime } from 'luxon'
 
+import { instrumented } from '@posthog/node-common/tracing/tracing-utils'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { hasPushActions } from '~/cdp/services/hogflows/hogflow-utils'
-import { instrumented } from '~/common/tracing/tracing-utils'
-import { logger } from '~/common/utils/logger'
 import { PluginsServerConfig } from '~/types'
 
 import { isRowScopedTrigger } from '../schema/hogflow'

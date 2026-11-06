@@ -1,4 +1,4 @@
-import type { AllowedConfigKey } from '~/common/outputs/kafka-producer-config'
+import type { AllowedConfigKey } from '@posthog/node-common/outputs/kafka-producer-config'
 
 // Producer names
 //

@@ -1,10 +1,10 @@
-import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
-import { RedisV2 } from '~/common/redis/redis-v2'
-import { QuotaLimiting } from '~/common/services/quota-limiting.service'
-import { GeoIPService } from '~/common/utils/geoip'
-import { logger } from '~/common/utils/logger'
+import type { CommonConfig } from '@posthog/node-common/config'
+import { GroupReadRepository } from '@posthog/node-common/groups/repositories/group-repository.interface'
+import { RedisV2 } from '@posthog/node-common/redis/redis-v2'
+import { QuotaLimiting } from '@posthog/node-common/services/quota-limiting.service'
+import { GeoIPService } from '@posthog/node-common/utils/geoip'
+import { logger } from '@posthog/node-common/utils/logger'
 
-import type { CommonConfig } from '../../common/config'
 import { HealthCheckResult, PluginServerService, Team, TeamId } from '../../types'
 import {
     CdpCoreServicesConfig,

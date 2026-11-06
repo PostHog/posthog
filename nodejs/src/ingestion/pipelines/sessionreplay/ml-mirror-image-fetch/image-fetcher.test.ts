@@ -1,11 +1,16 @@
-import { ResolutionError, SecureRequestError, StreamedResponse, fetchStreamed } from '~/common/utils/request'
+import {
+    ResolutionError,
+    SecureRequestError,
+    StreamedResponse,
+    fetchStreamed,
+} from '@posthog/node-common/utils/request'
 
 import { HttpImageFetcher, ImageFetchOptions, RedirectPolicy } from './image-fetcher'
 import { ImageFetchRequestMetrics } from './metrics'
 import { WebBotAuthRequestSigner } from './web-bot-auth'
 
-jest.mock('~/common/utils/request', () => ({
-    ...jest.requireActual('~/common/utils/request'),
+jest.mock('@posthog/node-common/utils/request', () => ({
+    ...jest.requireActual('@posthog/node-common/utils/request'),
     fetchStreamed: jest.fn(),
 }))
 

@@ -2,13 +2,14 @@ import Redis from 'ioredis'
 import { register } from 'prom-client'
 import { setTimeout as delay } from 'timers/promises'
 
+import { RedisV2, createRedisV2PoolFromConfig } from '@posthog/node-common/redis/redis-v2'
+import { waitForExpect } from '@posthog/node-common/testing/expectations'
+import * as redisDb from '@posthog/node-common/utils/db/redis'
+import { createRedisClient } from '@posthog/node-common/utils/db/redis'
+import { logger } from '@posthog/node-common/utils/logger'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
 import { defaultConfig } from '~/common/config/config'
-import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
-import * as redisDb from '~/common/utils/db/redis'
-import { createRedisClient } from '~/common/utils/db/redis'
-import { logger } from '~/common/utils/logger'
-import { UUIDT } from '~/common/utils/utils'
-import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { IdempotencyKeys, createIdempotencyValkeyPool } from './idempotency-keys'
 

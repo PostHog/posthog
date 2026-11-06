@@ -13,11 +13,11 @@ import { template as setVariableTemplate } from '~/cdp/templates/_destinations/p
 import { compileHog } from '~/cdp/templates/compiler'
 import { convertToHogFunctionFilterGlobal } from '~/cdp/utils/hog-function-filtering'
 import { createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
-import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
-import { FetchResponse, fetch, internalFetch } from '~/common/utils/request'
-import { createTestTeamFixture, uniqueTestId } from '~/tests/helpers/sql'
+import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger } from '@posthog/node-common/utils/logger'
+import { FetchResponse, fetch, internalFetch } from '@posthog/node-common/utils/request'
+import { createTestTeamFixture, uniqueTestId } from '@posthog/node-common/testing/sql'
 
 import { Hub, Team } from '../../../types'
 import { CyclotronJobInvocationHogFlow } from '../../types'
@@ -42,8 +42,8 @@ import { HogFlowFunctionsService } from './hogflow-functions.service'
 import { QueuedSend } from './transactional-email'
 
 // Mock before importing fetch
-jest.mock('~/common/utils/request', () => {
-    const original = jest.requireActual('~/common/utils/request')
+jest.mock('@posthog/node-common/utils/request', () => {
+    const original = jest.requireActual('@posthog/node-common/utils/request')
     return {
         ...original,
         internalFetch: jest.fn(),

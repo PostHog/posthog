@@ -1,4 +1,5 @@
-import { parseJSON } from '~/common/utils/json-parse'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+
 import type { LogRecord } from '~/logs/log-record-avro'
 import {
     LogTransformationOutcome,

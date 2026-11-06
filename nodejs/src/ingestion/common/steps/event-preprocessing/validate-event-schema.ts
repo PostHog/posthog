@@ -1,4 +1,5 @@
-import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
+import { EventSchemaEnforcementManager } from '@posthog/node-common/utils/event-schema-enforcement-manager'
+
 import { drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { EventSchemaEnforcement, PipelineEvent, Team } from '~/types'

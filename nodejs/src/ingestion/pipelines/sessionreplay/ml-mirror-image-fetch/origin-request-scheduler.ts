@@ -1,5 +1,5 @@
-import { ConcurrencyController } from '~/common/utils/concurrencyController'
-import { delay } from '~/common/utils/utils'
+import { ConcurrencyController } from '@posthog/node-common/utils/concurrencyController'
+import { delay } from '@posthog/node-common/utils/utils'
 
 import type { ImageFetchBlockReason } from './block-reason'
 import { ConfigurationRequestScheduler } from './configuration-policy'

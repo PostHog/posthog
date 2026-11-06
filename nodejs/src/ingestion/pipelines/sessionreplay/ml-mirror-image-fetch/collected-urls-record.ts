@@ -1,6 +1,6 @@
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 import type { UrlPolicyDecline } from '@posthog/replay-anonymizer'
 
-import { parseJSON } from '~/common/utils/json-parse'
 import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
 
 import { ImageFetchBlockReason, isImageFetchBlockReason } from './block-reason'

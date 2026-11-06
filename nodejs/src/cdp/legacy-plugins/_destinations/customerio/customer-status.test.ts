@@ -1,5 +1,5 @@
-import { parseJSON } from '~/common/utils/json-parse'
-import { ProcessedPluginEvent } from '~/plugin-scaffold'
+import { ProcessedPluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import { onEvent, setupPlugin } from './index'
 

@@ -1,5 +1,6 @@
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+
 import { CyclotronJobInvocationResult } from '~/cdp/types'
-import { parseJSON } from '~/common/utils/json-parse'
 
 import { TemplateTester } from '../../test/test-helpers'
 import { template } from './pagerduty.template'

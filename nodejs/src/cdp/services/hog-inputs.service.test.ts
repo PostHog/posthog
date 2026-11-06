@@ -1,10 +1,11 @@
-import '~/tests/helpers/mocks/date.mock'
+import '@posthog/node-common/testing/mocks/date.mock'
 
 import { DateTime } from 'luxon'
 import { inspect } from 'util'
 
+import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
+
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { createHogExecutionGlobals, createHogFunction, insertIntegration } from '../_tests/fixtures'

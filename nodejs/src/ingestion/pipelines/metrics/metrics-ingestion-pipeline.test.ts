@@ -1,14 +1,14 @@
 import { Message } from 'node-rdkafka'
 
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
-import { APP_METRICS_OUTPUT, DLQ_OUTPUT } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
-import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
-import { MessageSizeTooLarge } from '~/common/utils/db/error'
-import { parseJSON } from '~/common/utils/json-parse'
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { createTestTeam } from '~/tests/helpers/team'
+import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
+import { APP_METRICS_OUTPUT, DLQ_OUTPUT } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '@posthog/node-common/outputs/single-ingestion-output'
+import { createTestTeam } from '@posthog/node-common/testing/team'
+import { UsageRecordBatch } from '@posthog/node-common/usage-ingestion/usage-record-batch'
+import { MessageSizeTooLarge } from '@posthog/node-common/utils/db/error'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
 
 import {
     MetricsIngestionPipelineConfig,
@@ -18,7 +18,7 @@ import {
 import { emitMetricsUsage } from './metrics-usage-steps'
 import { DEFAULT_METRICS_RETENTION_DAYS, METRICS_OUTPUT } from './outputs/outputs'
 
-jest.mock('~/common/utils/logger', () => ({
+jest.mock('@posthog/node-common/utils/logger', () => ({
     logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }))
 

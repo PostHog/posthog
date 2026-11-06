@@ -1,8 +1,9 @@
-import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
+import { HogTransformer } from '@posthog/node-common/hog-transformations/hog-transformer.interface'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { PluginEvent } from '~/plugin-scaffold'
 import { Team } from '~/types'
 
 export interface HogTransformEventInput {

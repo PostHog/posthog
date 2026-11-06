@@ -1,5 +1,5 @@
-import { FetchOptions, FetchResponse } from '~/common/utils/request'
-import { PluginEvent, ProcessedPluginEvent } from '~/plugin-scaffold'
+import { PluginEvent, ProcessedPluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { FetchOptions, FetchResponse } from '@posthog/node-common/utils/request'
 
 import { CyclotronPerson, HogFunctionTemplate } from '../types'
 

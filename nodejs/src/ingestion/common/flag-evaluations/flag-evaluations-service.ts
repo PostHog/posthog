@@ -1,5 +1,6 @@
-import { parseTeamsList } from '~/common/utils/env-utils'
-import { logger } from '~/common/utils/logger'
+import { parseTeamsList } from '@posthog/node-common/utils/env-utils'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { buildTeamGate } from '~/ingestion/common/team-gate'
 import { IngestionConsumerConfig, IngestionOutputsConfig } from '~/ingestion/config'
 import { FlagEvaluationsMode, Team, ValueMatcher } from '~/types'

@@ -1,9 +1,9 @@
 import Redis from 'ioredis'
 
-import { defineLuaTokenBucketV2 } from '~/common/redis/redis-token-bucket-v2.lua'
-import { defineLuaTokenBucketV3 } from '~/common/redis/redis-token-bucket-v3.lua'
-import { RedisClient, RedisClientPipeline, RedisV2 } from '~/common/redis/redis-v2'
-import { TeamManager } from '~/common/utils/team-manager'
+import { defineLuaTokenBucketV2 } from '@posthog/node-common/redis/redis-token-bucket-v2.lua'
+import { defineLuaTokenBucketV3 } from '@posthog/node-common/redis/redis-token-bucket-v3.lua'
+import { RedisClient, RedisClientPipeline, RedisV2 } from '@posthog/node-common/redis/redis-v2'
+import { TeamManager } from '@posthog/node-common/utils/team-manager'
 
 import { createExampleInvocation } from '../../_tests/fixtures'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../../types'

@@ -1,6 +1,6 @@
-import { parseJSON } from '~/common/utils/json-parse'
-import { createTrackedRE2 } from '~/common/utils/tracked-re2'
-import { Meta, PluginAttachment, PluginEvent } from '~/plugin-scaffold'
+import { Meta, PluginAttachment, PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { createTrackedRE2 } from '@posthog/node-common/utils/tracked-re2'
 
 import { LegacyTransformationPluginMeta } from '../../types'
 

@@ -1,19 +1,24 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { ReadOnlyGroupTypeManager } from '~/common/groups/readonly-group-type-manager'
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
-import { TophogOutput } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
-import { COOKIELESS_SENTINEL_VALUE } from '~/common/persons/person-utils'
-import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
-import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
-import { EventIngestionRestrictionManager, RestrictionType } from '~/common/utils/event-ingestion-restrictions'
-import { parseJSON } from '~/common/utils/json-parse'
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { TeamManager } from '~/common/utils/team-manager'
-import { UUIDT } from '~/common/utils/utils'
+import { ReadOnlyGroupTypeManager } from '@posthog/node-common/groups/readonly-group-type-manager'
+import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
+import { TophogOutput } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '@posthog/node-common/outputs/single-ingestion-output'
+import { COOKIELESS_SENTINEL_VALUE } from '@posthog/node-common/persons/person-utils'
+import { PersonReadRepository } from '@posthog/node-common/persons/repositories/person-repository'
+import { createTestTeam } from '@posthog/node-common/testing/team'
+import { UsageRecordBatch } from '@posthog/node-common/usage-ingestion/usage-record-batch'
+import {
+    EventIngestionRestrictionManager,
+    RestrictionType,
+} from '@posthog/node-common/utils/event-ingestion-restrictions/index'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+import { TeamManager } from '@posthog/node-common/utils/team-manager'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { EventFilterManager } from '~/ingestion/common/event-filters'
 import { cond } from '~/ingestion/common/event-filters/test-helpers'
@@ -22,7 +27,6 @@ import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { ok } from '~/ingestion/framework/results'
 import { TopHog } from '~/ingestion/framework/tophog'
-import { createTestTeam } from '~/tests/helpers/team'
 import { InternalPerson } from '~/types'
 
 import { CymbalClient } from './cymbal/client'
@@ -47,13 +51,13 @@ async function runErrorTrackingPipeline(pipeline: ErrorTrackingPipeline, message
 }
 
 // Skip retry sleeps so tests run instantly
-jest.mock('~/common/utils/utils', () => ({
-    ...jest.requireActual('~/common/utils/utils'),
+jest.mock('@posthog/node-common/utils/utils', () => ({
+    ...jest.requireActual('@posthog/node-common/utils/utils'),
     sleep: jest.fn().mockResolvedValue(undefined),
 }))
 
 // Suppress logger output during tests
-jest.mock('~/common/utils/logger', () => ({
+jest.mock('@posthog/node-common/utils/logger', () => ({
     logger: {
         debug: jest.fn(),
         info: jest.fn(),

@@ -1,5 +1,5 @@
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { parseJSON } from '~/common/utils/json-parse'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import { WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT, WarehouseSourceWebhooksOutput } from '../../outputs/outputs'
 import { CyclotronJobInvocationResult, WarehouseWebhookPayload } from '../../types'

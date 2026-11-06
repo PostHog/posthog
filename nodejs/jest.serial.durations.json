@@ -6,7 +6,6 @@
     "src/cdp/services/cohort-membership/sweeper.service.serial.test.ts": 1,
     "src/cdp/services/hogflows/realtime-cohort-audience.service.serial.test.ts": 0,
     "src/cdp/workflows-e2e.serial.test.ts": 96,
-    "src/common/kafka/consumer/consumer-v2.rebalance.integration.serial.test.ts": 28,
     "src/ingestion/ingestion-consumer.serial.test.ts": 16,
     "src/logs/logs-ingestion-thread-relief.serial.test.ts": 2,
     "src/logs/transformations/benchmarks/hogvm-log-bench.serial.test.ts": 1,

@@ -1,4 +1,4 @@
-import { initializePrometheusLabels } from '~/common/api/router'
+import { initializePrometheusLabels } from '@posthog/node-common/api/router'
 
 import { CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 import { IngestionSessionReplayMlMirrorServerConfig, buildMlMirrorServerConfig } from './ml-mirror-server-config'

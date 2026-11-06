@@ -1,18 +1,19 @@
 import { DateTime } from 'luxon'
 
-import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
-import { PersonDistinctIdsOutput, PersonMergeEventsOutput, PersonsOutput } from '~/common/outputs'
+import { INGESTION_WARNINGS_OUTPUT } from '@posthog/node-common/outputs/index'
+import { PersonDistinctIdsOutput, PersonMergeEventsOutput, PersonsOutput } from '@posthog/node-common/outputs/index'
 import {
     personProfileBatchIgnoredPropertiesCounter,
     personProfileBatchUpdateOutcomeCounter,
     personPropertyKeyUpdateCounter,
-} from '~/common/persons/metrics'
-import { fromInternalPerson, toInternalPerson } from '~/common/persons/person-update-batch'
-import { PersonPropertiesSizeViolationError } from '~/common/persons/repositories/person-repository'
-import { DependencyUnavailableError, MessageSizeTooLarge } from '~/common/utils/db/error'
-import { PostgresRouter } from '~/common/utils/db/postgres'
+} from '@posthog/node-common/persons/metrics'
+import { fromInternalPerson, toInternalPerson } from '@posthog/node-common/persons/person-update-batch'
+import { PersonPropertiesSizeViolationError } from '@posthog/node-common/persons/repositories/person-repository'
+import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
+import { DependencyUnavailableError, MessageSizeTooLarge } from '@posthog/node-common/utils/db/error'
+import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
+
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
-import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { InternalPerson, TeamId } from '~/types'
 
 import { BatchWritingPersonsStore } from './batch-writing-person-store'
@@ -25,7 +26,7 @@ jest.mock('~/ingestion/common/ingestion-warnings', () => ({
 }))
 
 // Mock metrics
-jest.mock('~/common/persons/metrics', () => ({
+jest.mock('@posthog/node-common/persons/metrics', () => ({
     observeLatencyByVersion: jest.fn(),
     personCacheOperationsCounter: { inc: jest.fn() },
     personCacheSizeHistogram: { observe: jest.fn() },

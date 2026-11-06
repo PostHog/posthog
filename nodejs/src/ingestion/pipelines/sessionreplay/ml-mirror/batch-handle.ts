@@ -1,7 +1,8 @@
 import { Message } from 'node-rdkafka'
 import pLimit from 'p-limit'
 
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+
 import { PipelineResult, PipelineResultType, ok } from '~/ingestion/framework/results'
 import { SessionBatchContext } from '~/ingestion/pipelines/sessionreplay/session-batch-context'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'

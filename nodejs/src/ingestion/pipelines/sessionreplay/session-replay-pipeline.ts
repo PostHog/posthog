@@ -1,9 +1,10 @@
 import { Message } from 'node-rdkafka'
 
-import { DlqOutput, IngestionWarningsOutput, OverflowOutput } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { DlqOutput, IngestionWarningsOutput, OverflowOutput } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { EventIngestionRestrictionManager } from '@posthog/node-common/utils/event-ingestion-restrictions/index'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+
 import { IngestionOverflowMode } from '~/ingestion/config'
 import { BatchingContext, BatchingPipeline } from '~/ingestion/framework/batching-pipeline'
 import { newBatchingPipeline } from '~/ingestion/framework/builders'

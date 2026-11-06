@@ -1,12 +1,16 @@
 import { DateTime } from 'luxon'
 
-import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
-import { PersonDistinctIdsOutput, PersonMergeEventsOutput, PersonsOutput } from '~/common/outputs'
-import { FILTERED_PERSON_UPDATE_PROPERTIES } from '~/common/persons/person-property-utils'
-import { PersonUpdate } from '~/common/persons/person-update-batch'
-import { PersonPropertiesSizeViolationError, PersonRepository } from '~/common/persons/repositories/person-repository'
-import { NoRowsUpdatedError, UUIDT } from '~/common/utils/utils'
-import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
+import { INGESTION_WARNINGS_OUTPUT } from '@posthog/node-common/outputs/index'
+import { PersonDistinctIdsOutput, PersonMergeEventsOutput, PersonsOutput } from '@posthog/node-common/outputs/index'
+import { FILTERED_PERSON_UPDATE_PROPERTIES } from '@posthog/node-common/persons/person-property-utils'
+import { PersonUpdate } from '@posthog/node-common/persons/person-update-batch'
+import {
+    PersonPropertiesSizeViolationError,
+    PersonRepository,
+} from '@posthog/node-common/persons/repositories/person-repository'
+import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
+import { NoRowsUpdatedError, UUIDT } from '@posthog/node-common/utils/utils'
+
 import { InternalPerson } from '~/types'
 
 import { BatchWritingPersonsStore } from './batch-writing-person-store'

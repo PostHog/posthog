@@ -1,19 +1,19 @@
 import { Message } from 'node-rdkafka'
 
-import { KafkaConsumerV2 } from '~/common/kafka/consumer/consumer-v2'
-import { UsageIngestionClient } from '~/common/usage-ingestion/client'
-import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
-import { DependencyUnavailableError, MessageSizeTooLarge } from '~/common/utils/db/error'
-import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
-import { createTestTeam } from '~/tests/helpers/team'
+import { KafkaConsumerV2 } from '@posthog/node-common/kafka/consumer/consumer-v2'
+import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
+import { createTestTeam } from '@posthog/node-common/testing/team'
+import { UsageIngestionClient } from '@posthog/node-common/usage-ingestion/client'
+import { UsageRecordBatch } from '@posthog/node-common/usage-ingestion/usage-record-batch'
+import { DependencyUnavailableError, MessageSizeTooLarge } from '@posthog/node-common/utils/db/error'
 
 import { getDefaultMetricsIngestionConsumerConfig } from './config'
 import { MetricsPipelineConsumer, MetricsPipelineConsumerDeps } from './metrics-pipeline-consumer'
 
-jest.mock('~/common/utils/logger', () => ({
+jest.mock('@posthog/node-common/utils/logger', () => ({
     logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }))
-jest.mock('~/common/kafka/consumer/consumer-v2', () => ({
+jest.mock('@posthog/node-common/kafka/consumer/consumer-v2', () => ({
     KafkaConsumerV2: jest.fn().mockImplementation(() => ({
         connect: jest.fn().mockResolvedValue(undefined),
         disconnect: jest.fn().mockResolvedValue(undefined),

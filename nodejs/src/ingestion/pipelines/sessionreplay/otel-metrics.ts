@@ -1,6 +1,10 @@
 import { Attributes, Counter, Histogram, metrics as metricsApi } from '@opentelemetry/api'
 
-import { createCounterWithExemplars, createHistogramWithExemplars, swallowing } from '~/common/metrics/instruments'
+import {
+    createCounterWithExemplars,
+    createHistogramWithExemplars,
+    swallowing,
+} from '@posthog/node-common/metrics/instruments'
 
 /**
  * OTLP-pushed twins of the core session replay ingestion prom counters. The prom side keeps

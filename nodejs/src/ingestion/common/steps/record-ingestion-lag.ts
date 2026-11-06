@@ -1,4 +1,5 @@
-import { ingestionLagGauge, ingestionLagHistogram } from '~/common/metrics'
+import { ingestionLagGauge, ingestionLagHistogram } from '@posthog/node-common/metrics'
+
 import { IngestedEventInfo } from '~/ingestion/common/steps/event-processing/emit-event-step'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'

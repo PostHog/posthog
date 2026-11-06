@@ -7,16 +7,17 @@ import {
     KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1M,
     KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_10M,
     KAFKA_SESSION_REPLAY_IMAGE_SCRUB,
-} from '~/common/config/kafka-topics'
+} from '@posthog/node-common/config/kafka-topics'
 import {
     EachBatch,
     KafkaConsumerV2,
     KafkaConsumerV2Config,
     RdKafkaConsumerOverrides,
-} from '~/common/kafka/consumer/consumer-v2'
-import { KafkaProducer } from '~/common/kafka/producer'
-import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
-import { logger } from '~/common/utils/logger'
+} from '@posthog/node-common/kafka/consumer/consumer-v2'
+import { KafkaProducer } from '@posthog/node-common/kafka/producer'
+import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { TopHog } from '~/ingestion/framework/tophog/tophog'
 import { SessionReplayProducerName } from '~/ingestion/pipelines/sessionreplay/config'
 import {

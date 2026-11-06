@@ -1,4 +1,5 @@
-import { parseJSON } from '~/common/utils/json-parse'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+
 import { SessionBatchMetrics } from '~/ingestion/pipelines/sessionreplay/sessions/metrics'
 import { KeyStore, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 

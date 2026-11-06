@@ -2,8 +2,9 @@ import { DateTime } from 'luxon'
 import { Message, MessageHeader } from 'node-rdkafka'
 import { gunzipSync } from 'zlib'
 
-import { parseJSON } from '~/common/utils/json-parse'
-import { normalizeSessionId } from '~/common/utils/utils'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { normalizeSessionId } from '@posthog/node-common/utils/utils'
+
 import { dlq, drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import {

@@ -1,11 +1,12 @@
-import { logger } from '~/common/utils/logger'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { IngestionWarningType } from '~/ingestion/common/ingestion-warnings'
 import { invalidTimestampCounter } from '~/ingestion/common/metrics'
 import { parseEventTimestamp } from '~/ingestion/common/timestamps'
 import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { PipelineResult, drop, ok } from '~/ingestion/framework/results'
-import { PluginEvent } from '~/plugin-scaffold'
 import { ISOTimestamp, Team } from '~/types'
 
 import { CymbalClient } from './cymbal/client'

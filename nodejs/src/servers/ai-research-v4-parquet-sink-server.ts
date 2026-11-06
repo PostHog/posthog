@@ -1,6 +1,7 @@
-import { KAFKA_AI_RESEARCH_V4_INDEX } from '~/common/config/kafka-topics'
-import { KafkaConsumer, KafkaConsumerConfig } from '~/common/kafka/consumer/consumer-v1'
-import { logger } from '~/common/utils/logger'
+import { KAFKA_AI_RESEARCH_V4_INDEX } from '@posthog/node-common/config/kafka-topics'
+import { KafkaConsumer, KafkaConsumerConfig } from '@posthog/node-common/kafka/consumer/consumer-v1'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { AiResearchV4ServerConfig } from '~/ingestion/pipelines/sessionreplay/ai-research/config'
 import { IndexBatcher } from '~/ingestion/pipelines/sessionreplay/ai-research/parquet-sink-v4/index-batcher'
 import { indexCapturedData } from '~/ingestion/pipelines/sessionreplay/ai-research/parquet-sink-v4/index-message'

@@ -1,13 +1,14 @@
 import { DateTime } from 'luxon'
 
-import { KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
-import { Clickhouse } from '~/tests/helpers/clickhouse'
-import { waitForExpect } from '~/tests/helpers/expectations'
+import { KAFKA_HOG_INVOCATION_RESULTS } from '@posthog/node-common/config/kafka-topics'
+import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
+import { Clickhouse } from '@posthog/node-common/testing/clickhouse'
+import { waitForExpect } from '@posthog/node-common/testing/expectations'
 
 // `~/common/kafka/producer` is auto-mocked in these tests; use the real wrapper to push probe rows.
-const ActualKafkaProducerWrapper: typeof KafkaProducerWrapper =
-    jest.requireActual('~/common/kafka/producer').KafkaProducerWrapper
+const ActualKafkaProducerWrapper: typeof KafkaProducerWrapper = jest.requireActual(
+    '@posthog/node-common/kafka/producer'
+).KafkaProducerWrapper
 
 /**
  * Probe hog_invocation_results until a row lands, proving the ClickHouse Kafka engine's consumer has

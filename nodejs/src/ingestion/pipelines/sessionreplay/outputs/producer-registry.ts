@@ -1,4 +1,5 @@
-import { KafkaProducerRegistryBuilder } from '~/common/outputs/kafka-producer-registry-builder'
+import { KafkaProducerRegistryBuilder } from '@posthog/node-common/outputs/kafka-producer-registry-builder'
+
 import {
     INGESTION_DOWNSTREAM_PRODUCER,
     INGESTION_DOWNSTREAM_PRODUCER_CONFIG_MAP,

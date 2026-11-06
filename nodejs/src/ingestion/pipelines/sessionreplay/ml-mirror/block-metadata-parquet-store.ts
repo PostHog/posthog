@@ -3,7 +3,8 @@ import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { ParquetSchema } from '@dsnp/parquetjs'
 import { randomUUID } from 'crypto'
 
-import { logger } from '~/common/utils/logger'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { parquetRecordsToBuffer } from '~/ingestion/pipelines/sessionreplay/shared/parquet'
 
 import { MlBlockMetadataRow } from './block-metadata-row'

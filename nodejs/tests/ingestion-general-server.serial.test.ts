@@ -1,15 +1,15 @@
 // Serial: resets the shared test database and starts a server with shared Kafka/ClickHouse dependencies.
+import { PluginServerMode } from '@posthog/node-common/config'
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CLICKHOUSE_HEATMAP_EVENTS,
     KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
     KAFKA_INGESTION_WARNINGS,
-} from '~/common/config/kafka-topics'
+} from '@posthog/node-common/config/kafka-topics'
+import { ensureKafkaTopics } from '@posthog/node-common/testing/kafka'
+import { resetTestDatabase } from '@posthog/node-common/testing/sql'
 
-import { PluginServerMode } from '../src/common/config'
 import { IngestionGeneralServer } from '../src/servers/ingestion-general-server'
-import { ensureKafkaTopics } from './helpers/kafka'
-import { resetTestDatabase } from './helpers/sql'
 
 jest.setTimeout(20000) // 20 sec timeout - longer indicates an issue
 

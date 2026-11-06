@@ -48,14 +48,15 @@
  * ignored and never sent to Kafka. Always ensure `handleIngestionWarnings()`
  * is called within a `teamAware()` block to process warnings.
  */
-import { IngestionWarningsOutput } from '~/common/outputs'
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { IngestionWarningsOutput } from '@posthog/node-common/outputs/index'
+import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
+import { createTestTeam } from '@posthog/node-common/testing/team'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+
 import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { PipelineResult, isOkResult, ok } from '~/ingestion/framework/results'
-import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
-import { createTestTeam } from '~/tests/helpers/team'
 import { Team } from '~/types'
 
 type ChunkProcessingStep<T, U> = (values: T[]) => Promise<PipelineResult<U>[]>

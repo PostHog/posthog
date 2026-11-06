@@ -15,8 +15,8 @@ import {
     KAFKA_PERSON_DISTINCT_ID,
     KAFKA_PERSON_MERGE_EVENTS,
     KAFKA_REALTIME_ONLY_EVENTS_JSON,
-} from '~/common/config/kafka-topics'
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
+} from '@posthog/node-common/config/kafka-topics'
+import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
 import {
     APP_METRICS_OUTPUT,
     DLQ_OUTPUT,
@@ -25,7 +25,7 @@ import {
     LOG_ENTRIES_OUTPUT,
     OVERFLOW_OUTPUT,
     TOPHOG_OUTPUT,
-} from '~/common/outputs'
+} from '@posthog/node-common/outputs/index'
 import {
     AI_EVENTS_OUTPUT,
     ASYNC_OUTPUT,
@@ -35,9 +35,10 @@ import {
     PERSON_DISTINCT_IDS_OUTPUT,
     PERSON_MERGE_EVENTS_OUTPUT,
     REALTIME_ONLY_EVENTS_OUTPUT,
-} from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
+} from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '@posthog/node-common/outputs/single-ingestion-output'
+
 import { HEATMAPS_OUTPUT } from '~/ingestion/pipelines/heatmaps/outputs'
 
 function testOutput(name: string, topic: string, producer: KafkaProducerWrapper): SingleIngestionOutput {

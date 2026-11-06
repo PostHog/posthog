@@ -1,7 +1,9 @@
 import { Message } from 'node-rdkafka'
 
-import { IngestionWarningsOutput } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { IngestionWarningsOutput } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+
 import {
     CAPTURE_PRODUCED_WARNING_TYPES,
     IngestionWarning,
@@ -10,7 +12,6 @@ import {
 } from '~/ingestion/common/ingestion-warnings'
 import { PipelineResult, dlq, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders } from '~/types'
 
 import { EmitEventStepOutput, IngestedEventInfo } from './emit-event-step'

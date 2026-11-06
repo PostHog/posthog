@@ -1,9 +1,10 @@
+import { PostgresRouter, PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { DEFAULT_LOADER_RETRY, LazyLoader } from '@posthog/node-common/utils/lazy-loader'
+import { logger } from '@posthog/node-common/utils/logger'
+import { PubSub } from '@posthog/node-common/utils/pubsub'
+
 import { IntegrationType } from '~/cdp/types'
 import { EncryptedFields } from '~/cdp/utils/encryption-utils'
-import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
-import { DEFAULT_LOADER_RETRY, LazyLoader } from '~/common/utils/lazy-loader'
-import { logger } from '~/common/utils/logger'
-import { PubSub } from '~/common/utils/pubsub'
 
 export class IntegrationManagerService {
     private lazyLoader: LazyLoader<IntegrationType>

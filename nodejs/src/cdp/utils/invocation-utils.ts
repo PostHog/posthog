@@ -2,7 +2,7 @@
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
-import { UUIDT } from '~/common/utils/utils'
+import { UUIDT } from '@posthog/node-common/utils/utils'
 
 import type { HogInputsService } from '../services/hog-inputs.service'
 import {

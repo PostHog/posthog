@@ -1,9 +1,9 @@
 import { URL } from 'url'
 
-import { parseJSON } from '~/common/utils/json-parse'
-import type { FetchResponse } from '~/common/utils/request'
-import { ProcessedPluginEvent } from '~/plugin-scaffold'
-import { Properties, RetryError } from '~/plugin-scaffold'
+import { ProcessedPluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { Properties, RetryError } from '@posthog/node-common/plugin-scaffold'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import type { FetchResponse } from '@posthog/node-common/utils/request'
 
 import { LegacyDestinationPluginMeta } from '../../types'
 

@@ -1,11 +1,12 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 
+import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { parseJSON } from '~/common/utils/json-parse'
-import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
-import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'

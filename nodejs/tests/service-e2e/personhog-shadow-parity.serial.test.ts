@@ -19,29 +19,31 @@ import {
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
     KAFKA_PERSON_MERGE_EVENTS,
-} from '~/common/config/kafka-topics'
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
+} from '@posthog/node-common/config/kafka-topics'
+import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
 import {
     INGESTION_WARNINGS_OUTPUT,
     PERSONS_OUTPUT,
     PERSON_DISTINCT_IDS_OUTPUT,
     PERSON_MERGE_EVENTS_OUTPUT,
-} from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
-import { PersonHogClient } from '~/common/personhog/client'
-import { createIdentityClients } from '~/common/personhog/identity-clients'
-import { PersonHogPersonWriteRepository } from '~/common/personhog/personhog-person-write-repository'
+} from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '@posthog/node-common/outputs/single-ingestion-output'
+import { PersonHogClient } from '@posthog/node-common/personhog/client'
+import { createIdentityClients } from '@posthog/node-common/personhog/identity-clients'
+import { PersonHogPersonWriteRepository } from '@posthog/node-common/personhog/personhog-person-write-repository'
 import {
     personhogStoreShadowComparedCounter,
     personhogStoreShadowCreateRetriesCounter,
     personhogStoreShadowDivergenceCounter,
     personhogStoreShadowErrorsCounter,
-} from '~/common/persons/metrics'
-import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
+} from '@posthog/node-common/persons/metrics'
+import { PostgresPersonRepository } from '@posthog/node-common/persons/repositories/postgres-person-repository'
+import { createOrganization, createTeam } from '@posthog/node-common/testing/sql'
+import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
-import { UUIDT } from '~/common/utils/utils'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { PersonOutputs } from '~/ingestion/common/persons/person-context'
 import { MergeMode, createDefaultSyncMergeMode } from '~/ingestion/common/persons/person-merge-types'
@@ -51,8 +53,6 @@ import { PersonhogPersonsStore } from '~/ingestion/common/persons/personhog-pers
 import { MergePersonsRequest, MergePersonsResult } from '~/ingestion/common/persons/persons-store'
 import { RoutingPersonsStore } from '~/ingestion/common/persons/routing-persons-store'
 import { Hub } from '~/types'
-
-import { createOrganization, createTeam } from '../helpers/sql'
 
 jest.setTimeout(60000)
 

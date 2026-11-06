@@ -5,10 +5,15 @@ import {
     KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H,
     KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1M,
     KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_10M,
-} from '~/common/config/kafka-topics'
-import { KafkaConsumer, KafkaConsumerConfig, findOffsetsToCommit } from '~/common/kafka/consumer/consumer-v1'
-import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
-import { logger } from '~/common/utils/logger'
+} from '@posthog/node-common/config/kafka-topics'
+import {
+    KafkaConsumer,
+    KafkaConsumerConfig,
+    findOffsetsToCommit,
+} from '@posthog/node-common/kafka/consumer/consumer-v1'
+import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { SessionReplayProducerName } from '~/ingestion/pipelines/sessionreplay/config'
 import { RetryDelayConsumer } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/retry-delay-consumer'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'

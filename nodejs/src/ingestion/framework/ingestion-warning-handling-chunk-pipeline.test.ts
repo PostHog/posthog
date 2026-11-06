@@ -1,9 +1,10 @@
 import { Message } from 'node-rdkafka'
 
-import { IngestionWarningsOutput } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { IngestionWarningsOutput } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
+
 import * as ingestionWarnings from '~/ingestion/common/ingestion-warnings'
-import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { FlagEvaluationsMode, Team } from '~/types'
 
 import { createContext, createNewChunkPipeline, createOkContext } from './helpers'

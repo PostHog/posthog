@@ -1,14 +1,15 @@
 import { Message } from 'node-rdkafka'
 
-import { AppMetricsOutput, DLQ_OUTPUT, DlqOutput } from '~/common/outputs'
-import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
-import { DependencyUnavailableError, MessageSizeTooLarge } from '~/common/utils/db/error'
-import { isDevEnv } from '~/common/utils/env-utils'
-import { logger } from '~/common/utils/logger'
+import { AppMetricsOutput, DLQ_OUTPUT, DlqOutput } from '@posthog/node-common/outputs/index'
+import { createTestMessage } from '@posthog/node-common/testing/kafka-message'
+import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
+import { createTestTeam } from '@posthog/node-common/testing/team'
+import { UsageRecordBatch } from '@posthog/node-common/usage-ingestion/usage-record-batch'
+import { DependencyUnavailableError, MessageSizeTooLarge } from '@posthog/node-common/utils/db/error'
+import { isDevEnv } from '@posthog/node-common/utils/env-utils'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { PipelineResult, isDlqResult, isDropResult, isOkResult } from '~/ingestion/framework/results'
-import { createTestMessage } from '~/tests/helpers/kafka-message'
-import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
-import { createTestTeam } from '~/tests/helpers/team'
 
 import { createDropQuotaLimitedStep } from './drop-quota-limited-step'
 import { recordMetricsIngested } from './ingestion-otel-metrics'
@@ -21,11 +22,11 @@ import { createProduceMetricsStep } from './produce-metrics-step'
 import { createRateLimitMetricsStep } from './rate-limit-metrics-step'
 import { createResolveMetricsTeamStep } from './resolve-metrics-team-step'
 
-jest.mock('~/common/utils/logger', () => ({
+jest.mock('@posthog/node-common/utils/logger', () => ({
     logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }))
-jest.mock('~/common/utils/env-utils', () => ({
-    ...jest.requireActual('~/common/utils/env-utils'),
+jest.mock('@posthog/node-common/utils/env-utils', () => ({
+    ...jest.requireActual('@posthog/node-common/utils/env-utils'),
     isDevEnv: jest.fn().mockReturnValue(false),
 }))
 jest.mock('./ingestion-otel-metrics', () => ({ recordMetricsIngested: jest.fn() }))

@@ -1,5 +1,5 @@
-import { captureException } from '~/common/utils/posthog'
-import { sleep } from '~/common/utils/utils'
+import { captureException } from '@posthog/node-common/utils/posthog'
+import { sleep } from '@posthog/node-common/utils/utils'
 
 import { ChunkProcessingStep } from './base-chunk-pipeline'
 import { newChunkPipelineBuilder, newPipelineBuilder } from './builders'
@@ -12,17 +12,17 @@ import { ProcessingStep } from './steps'
 
 jest.setTimeout(1000)
 
-jest.mock('~/common/utils/logger', () => ({
+jest.mock('@posthog/node-common/utils/logger', () => ({
     logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }))
 
-jest.mock('~/common/utils/posthog', () => ({
+jest.mock('@posthog/node-common/utils/posthog', () => ({
     captureException: jest.fn(),
 }))
 
 // Skip the retry backoff sleeps, and record what they would have been.
-jest.mock('~/common/utils/utils', () => ({
-    ...jest.requireActual('~/common/utils/utils'),
+jest.mock('@posthog/node-common/utils/utils', () => ({
+    ...jest.requireActual('@posthog/node-common/utils/utils'),
     sleep: jest.fn(() => Promise.resolve()),
 }))
 

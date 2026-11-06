@@ -1,7 +1,7 @@
 import { PubSub, Topic } from '@google-cloud/pubsub'
 
-import { ProcessedPluginEvent } from '~/plugin-scaffold'
-import { RetryError } from '~/plugin-scaffold'
+import { ProcessedPluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { RetryError } from '@posthog/node-common/plugin-scaffold'
 
 import { LegacyDestinationPluginMeta } from '../../types'
 

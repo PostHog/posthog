@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs'
 import { join } from 'path'
 
-import { parseJSON } from '~/common/utils/json-parse'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import { MAX_USER_AGENT_LENGTH, flattenProperties, parseUserAgent } from './transformation-functions'
 

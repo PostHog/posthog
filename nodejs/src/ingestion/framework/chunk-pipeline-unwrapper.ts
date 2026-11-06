@@ -1,4 +1,4 @@
-import { logger } from '~/common/utils/logger'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import { ChunkPipeline, OkResultWithContext } from './chunk-pipeline.interface'
 import { isOkResult } from './results'

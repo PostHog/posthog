@@ -1,5 +1,5 @@
+import { convertOtelEvent } from '~/ingestion/pipelines/ai/otel'
 import { mapOtelAttributes } from '~/ingestion/pipelines/ai/otel/attribute-mapping'
-import { convertOtelEvent } from '~/ingestion/pipelines/ai/otel/index'
 import { createEvent } from '~/ingestion/pipelines/ai/otel/test-helpers'
 
 jest.mock('~/ingestion/pipelines/ai/metrics', () => ({

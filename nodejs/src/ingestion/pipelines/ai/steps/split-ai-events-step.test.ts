@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
-import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT } from '~/common/outputs'
+import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT } from '@posthog/node-common/outputs/index'
+
 import { isOkResult } from '~/ingestion/framework/results'
 import { ISOTimestamp, ProcessedEvent, ProjectId } from '~/types'
 

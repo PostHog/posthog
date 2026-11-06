@@ -3,8 +3,8 @@ import {
     KAFKA_METRICS_CLICKHOUSE,
     KAFKA_METRICS_INGESTION,
     KAFKA_METRICS_INGESTION_DLQ,
-} from '~/common/config/kafka-topics'
-import { isProdEnv } from '~/common/utils/env-utils'
+} from '@posthog/node-common/config/kafka-topics'
+import { isProdEnv } from '@posthog/node-common/utils/env-utils'
 
 import { MetricsProducerName, WARPSTREAM_INGESTION_PRODUCER, WARPSTREAM_METRICS_PRODUCER } from './outputs/producers'
 

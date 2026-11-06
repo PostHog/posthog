@@ -1,4 +1,4 @@
-import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { instrumentFn } from '@posthog/node-common/tracing/tracing-utils'
 
 import { CyclotronJobInvocationResult } from '../types'
 import { CapturedEventsService } from './captured-events/captured-events.service'

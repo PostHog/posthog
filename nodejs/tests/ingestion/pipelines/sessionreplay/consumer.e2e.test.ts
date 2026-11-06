@@ -9,34 +9,38 @@ import { HighLevelProducer } from 'node-rdkafka'
 import snappy from 'snappy'
 import { v4 as uuidv4 } from 'uuid'
 
-import { defaultConfig, overrideWithEnv } from '~/common/config/config'
 import {
     KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
     KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
-} from '~/common/config/kafka-topics'
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
+} from '@posthog/node-common/config/kafka-topics'
+import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
 import {
     DLQ_OUTPUT,
     INGESTION_WARNINGS_OUTPUT,
     LOG_ENTRIES_OUTPUT,
     OVERFLOW_OUTPUT,
     TOPHOG_OUTPUT,
-} from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
-import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
-import { REDIS_KEY_PREFIX, RedisRestrictionType } from '~/common/utils/event-ingestion-restrictions/redis-schema'
-import { parseJSON } from '~/common/utils/json-parse'
+} from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '@posthog/node-common/outputs/single-ingestion-output'
+import { Clickhouse } from '@posthog/node-common/testing/clickhouse'
+import { waitForExpect } from '@posthog/node-common/testing/expectations'
+import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '@posthog/node-common/testing/kafka'
+import { forSnapshot } from '@posthog/node-common/testing/snapshots'
+import { createOrganization, createTeam, createTestTeamFixture } from '@posthog/node-common/testing/sql'
+import { PostgresRouter, PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import {
+    REDIS_KEY_PREFIX,
+    RedisRestrictionType,
+} from '@posthog/node-common/utils/event-ingestion-restrictions/redis-schema'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+
+import { defaultConfig, overrideWithEnv } from '~/common/config/config'
 import { SessionRecordingIngester } from '~/ingestion/pipelines/sessionreplay/consumer'
 import { MouseInteractions, RRWebEventSource, RRWebEventType } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
 import { REPLAY_EVENTS_OUTPUT, SESSION_FEATURES_OUTPUT } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
-import { Clickhouse } from '~/tests/helpers/clickhouse'
-import { waitForExpect } from '~/tests/helpers/expectations'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
-import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
-import { forSnapshot } from '~/tests/helpers/snapshots'
-import { createOrganization, createTeam, createTestTeamFixture } from '~/tests/helpers/sql'
 import { Team } from '~/types'
 
 // Test configuration - matches local dev environment (MinIO API on port 19000)

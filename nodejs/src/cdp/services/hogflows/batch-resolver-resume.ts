@@ -1,7 +1,7 @@
 import { Pool } from 'pg'
 import { Counter } from 'prom-client'
 
-import { logger } from '~/common/utils/logger'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import { HOGFLOW_BATCH_RESOLVE_QUEUE, deserializeResolverState, serializeResolverState } from './batch-resolver.types'
 

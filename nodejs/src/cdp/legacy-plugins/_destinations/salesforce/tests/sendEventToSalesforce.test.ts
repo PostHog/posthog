@@ -1,4 +1,4 @@
-import { ProcessedPluginEvent } from '~/plugin-scaffold'
+import { ProcessedPluginEvent } from '@posthog/node-common/plugin-scaffold'
 
 import { SalesforceMeta, SalesforcePluginConfig, sendEventToSalesforce } from '../index'
 

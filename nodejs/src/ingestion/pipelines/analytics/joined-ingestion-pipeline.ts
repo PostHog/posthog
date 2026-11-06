@@ -1,14 +1,21 @@
 import { Message } from 'node-rdkafka'
 
-import { GroupTypeManager } from '~/common/groups/group-type-manager'
-import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
-import { AppMetricsOutput, DlqOutput, GroupsOutput, IngestionWarningsOutput, OverflowOutput } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
-import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
-import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { TeamManager } from '~/common/utils/team-manager'
+import { GroupTypeManager } from '@posthog/node-common/groups/group-type-manager'
+import { HogTransformer } from '@posthog/node-common/hog-transformations/hog-transformer.interface'
+import {
+    AppMetricsOutput,
+    DlqOutput,
+    GroupsOutput,
+    IngestionWarningsOutput,
+    OverflowOutput,
+} from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { UsageRecordBatch } from '@posthog/node-common/usage-ingestion/usage-record-batch'
+import { EventIngestionRestrictionManager } from '@posthog/node-common/utils/event-ingestion-restrictions/index'
+import { EventSchemaEnforcementManager } from '@posthog/node-common/utils/event-schema-enforcement-manager'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+import { TeamManager } from '@posthog/node-common/utils/team-manager'
+
 import { newCommonIngestionPipeline } from '~/ingestion/common/common-ingestion-pipeline'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { EventFilterManager } from '~/ingestion/common/event-filters'

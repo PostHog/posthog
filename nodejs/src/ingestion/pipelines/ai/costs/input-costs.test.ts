@@ -1,5 +1,6 @@
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+
 import { aiCacheExclusiveFallbackCounter } from '~/ingestion/pipelines/ai/metrics'
-import { PluginEvent } from '~/plugin-scaffold'
 
 import { calculateInputCost, resolveCacheReportingExclusive } from './input-costs'
 import { ResolvedModelCost } from './providers/types'

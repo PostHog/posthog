@@ -1,4 +1,4 @@
-import { isProdEnv, stringToBoolean } from '~/common/utils/env-utils'
+import { isProdEnv, stringToBoolean } from '@posthog/node-common/utils/env-utils'
 
 import { createLogger } from './logger'
 

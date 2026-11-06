@@ -1,7 +1,8 @@
-import { BackgroundRefresher } from '~/common/utils/background-refresher'
-import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
-import { IngestionPipeline } from '~/common/utils/event-ingestion-restrictions'
-import { logger } from '~/common/utils/logger'
+import { BackgroundRefresher } from '@posthog/node-common/utils/background-refresher'
+import { PostgresRouter, PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { IngestionPipeline } from '@posthog/node-common/utils/event-ingestion-restrictions/index'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { Component } from '~/ingestion/common/scopes'
 
 import { treeHasConditions } from './evaluate'

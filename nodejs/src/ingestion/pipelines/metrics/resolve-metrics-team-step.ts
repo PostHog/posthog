@@ -1,6 +1,7 @@
-import { isDevEnv } from '~/common/utils/env-utils'
-import { logger } from '~/common/utils/logger'
-import { TeamManager } from '~/common/utils/team-manager'
+import { isDevEnv } from '@posthog/node-common/utils/env-utils'
+import { logger } from '@posthog/node-common/utils/logger'
+import { TeamManager } from '@posthog/node-common/utils/team-manager'
+
 import { dlq, drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 

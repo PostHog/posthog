@@ -1,11 +1,13 @@
 import { Message } from 'node-rdkafka'
 
-import { GroupTypeManager } from '~/common/groups/group-type-manager'
-import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
-import { IngestionWarningsOutput } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
-import { TeamManager } from '~/common/utils/team-manager'
+import { GroupTypeManager } from '@posthog/node-common/groups/group-type-manager'
+import { HogTransformer } from '@posthog/node-common/hog-transformations/hog-transformer.interface'
+import { IngestionWarningsOutput } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { UsageRecordBatch } from '@posthog/node-common/usage-ingestion/usage-record-batch'
+import { TeamManager } from '@posthog/node-common/utils/team-manager'
+
 import { FlagEvaluationsService } from '~/ingestion/common/flag-evaluations/flag-evaluations-service'
 import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
 import { WithMergeFoldDecision } from '~/ingestion/common/persons/person-merge-fold'
@@ -30,7 +32,6 @@ import { resolveAnalyticsUsageKey } from '~/ingestion/common/usage-records/billa
 import { PipelineBuilder, StartPipelineBuilder } from '~/ingestion/framework/builders/pipeline-builders'
 import { TopHogWrapper, sum, sumOk, sumResult, timer } from '~/ingestion/framework/extensions/tophog'
 import { isDropResult } from '~/ingestion/framework/results'
-import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, Team } from '~/types'
 
 import {

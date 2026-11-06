@@ -1,6 +1,7 @@
-import { LOG_ENTRIES_OUTPUT, LogEntriesOutput } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { logger } from '~/common/utils/logger'
+import { LOG_ENTRIES_OUTPUT, LogEntriesOutput } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { ConsoleLogLevel } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
 import { ClickHouseTimestamp } from '~/types'
 

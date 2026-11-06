@@ -1,7 +1,8 @@
 import fs from 'fs'
 import path from 'path'
 
-import { parseJSON } from '~/common/utils/json-parse'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+
 import { normalizeProviderKey } from '~/ingestion/pipelines/ai/costs/provider-matching'
 import { openRouterCostsByModel } from '~/ingestion/pipelines/ai/costs/providers'
 import type { ModelCost } from '~/ingestion/pipelines/ai/costs/providers/types'

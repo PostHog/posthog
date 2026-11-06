@@ -1,7 +1,8 @@
 import { LRUCache } from 'lru-cache'
 
-import { logger } from '~/common/utils/logger'
-import { Limiter } from '~/common/utils/token-bucket'
+import { logger } from '@posthog/node-common/utils/logger'
+import { Limiter } from '@posthog/node-common/utils/token-bucket'
+
 import { SESSION_FILTER_REDIS_TTL_SECONDS } from '~/ingestion/pipelines/sessionreplay/constants'
 import { SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 import { RedisPool } from '~/types'

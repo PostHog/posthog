@@ -1,8 +1,9 @@
 import avro from 'avsc'
 import { randomUUID } from 'crypto'
 
-import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
-import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { deleteKeysWithPrefix } from '@posthog/node-common/redis/_tests/redis'
+import { RedisV2, createRedisV2PoolFromConfig } from '@posthog/node-common/redis/redis-v2'
+
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { type LogRecord, decodeLogRecords, encodeLogRecords } from '~/logs/log-record-avro'
 import { runPipelineStages } from '~/logs/pipeline/log-processing-pipeline'

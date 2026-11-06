@@ -2,27 +2,36 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
-import { defaultConfig } from '~/common/config/config'
-import { KAFKA_INGESTION_WARNINGS } from '~/common/config/kafka-topics'
+import { KAFKA_INGESTION_WARNINGS } from '@posthog/node-common/config/kafka-topics'
 import {
     createCookielessRedisConnectionConfig,
     createIngestionRedisConnectionConfig,
-} from '~/common/config/redis-pools'
-import { GroupTypeManager } from '~/common/groups/group-type-manager'
-import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
-import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
-import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
-import { PersonRepository } from '~/common/persons/repositories/person-repository'
-import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
-import { PostgresRouter } from '~/common/utils/db/postgres'
-import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
-import { parseRawClickHouseEvent } from '~/common/utils/event'
-import { GeoIPService } from '~/common/utils/geoip'
-import { parseJSON } from '~/common/utils/json-parse'
-import { PubSub } from '~/common/utils/pubsub'
-import { TeamManager } from '~/common/utils/team-manager'
-import { UUIDT } from '~/common/utils/utils'
+} from '@posthog/node-common/config/redis-pools'
+import { GroupTypeManager } from '@posthog/node-common/groups/group-type-manager'
+import { GroupRepository } from '@posthog/node-common/groups/repositories/group-repository.interface'
+import { PostgresGroupRepository } from '@posthog/node-common/groups/repositories/postgres-group-repository'
+import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
+import {
+    buildGroupRepository,
+    buildPersonRepository,
+    createPersonHogClient,
+} from '@posthog/node-common/personhog/index'
+import { PersonRepository } from '@posthog/node-common/persons/repositories/person-repository'
+import { PostgresPersonRepository } from '@posthog/node-common/persons/repositories/postgres-person-repository'
+import { Clickhouse } from '@posthog/node-common/testing/clickhouse'
+import { waitForExpect } from '@posthog/node-common/testing/expectations'
+import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '@posthog/node-common/testing/kafka'
+import { createUserTeamAndOrganization, uniqueTestId } from '@posthog/node-common/testing/sql'
+import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
+import { createRedisPoolFromConfig } from '@posthog/node-common/utils/db/redis'
+import { parseRawClickHouseEvent } from '@posthog/node-common/utils/event'
+import { GeoIPService } from '@posthog/node-common/utils/geoip'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { PubSub } from '@posthog/node-common/utils/pubsub'
+import { TeamManager } from '@posthog/node-common/utils/team-manager'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
+import { defaultConfig } from '~/common/config/config'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import {
     IngestionConsumerConfig,
@@ -56,10 +65,6 @@ import {
     RedisPool,
     Team,
 } from '../../src/types'
-import { Clickhouse } from './clickhouse'
-import { waitForExpect } from './expectations'
-import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from './kafka'
-import { createUserTeamAndOrganization, uniqueTestId } from './sql'
 
 export const DEFAULT_TEAM: Team = {
     id: 2,

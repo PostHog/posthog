@@ -1,5 +1,6 @@
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+
 import { aiErrorNormalizationCounter } from '~/ingestion/pipelines/ai/metrics'
-import { PluginEvent } from '~/plugin-scaffold'
 
 import { normalizeError } from './normalize-error'
 

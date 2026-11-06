@@ -1,8 +1,9 @@
 import { Message } from 'node-rdkafka'
 
-import { parseKafkaHeaders } from '~/common/kafka/consumer/consumer-v1'
-import { KafkaProducer } from '~/common/kafka/producer'
-import { logger } from '~/common/utils/logger'
+import { parseKafkaHeaders } from '@posthog/node-common/kafka/consumer/consumer-v1'
+import { KafkaProducer } from '@posthog/node-common/kafka/producer'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { INGESTION_VERSION_HEADER } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/schema'
 import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 

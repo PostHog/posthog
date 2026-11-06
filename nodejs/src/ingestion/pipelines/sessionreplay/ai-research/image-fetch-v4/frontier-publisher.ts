@@ -1,6 +1,7 @@
-import { KafkaProducer } from '~/common/kafka/producer'
-import { ConcurrencyController } from '~/common/utils/concurrencyController'
-import { logger } from '~/common/utils/logger'
+import { KafkaProducer } from '@posthog/node-common/kafka/producer'
+import { ConcurrencyController } from '@posthog/node-common/utils/concurrencyController'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 
 import {

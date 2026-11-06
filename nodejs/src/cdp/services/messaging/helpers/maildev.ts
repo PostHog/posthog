@@ -1,8 +1,8 @@
 import nodemailer from 'nodemailer'
 
-import { isDevEnv, isTestEnv } from '~/common/utils/env-utils'
-import { fetch } from '~/common/utils/request'
-import { registerShutdownHandler } from '~/lifecycle'
+import { registerShutdownHandler } from '@posthog/node-common/lifecycle'
+import { isDevEnv, isTestEnv } from '@posthog/node-common/utils/env-utils'
+import { fetch } from '@posthog/node-common/utils/request'
 
 export const mailDevTransport =
     isDevEnv() || isTestEnv()

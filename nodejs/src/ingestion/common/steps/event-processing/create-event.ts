@@ -1,12 +1,13 @@
 import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
-import { MAX_GROUP_TYPES_PER_TEAM } from '~/common/groups/group-type-manager'
-import { elementsToString, extractElements } from '~/common/utils/elements-chain'
-import { logger } from '~/common/utils/logger'
-import { captureException } from '~/common/utils/posthog'
+import { MAX_GROUP_TYPES_PER_TEAM } from '@posthog/node-common/groups/group-type-manager'
+import { Properties } from '@posthog/node-common/plugin-scaffold'
+import { elementsToString, extractElements } from '@posthog/node-common/utils/elements-chain'
+import { logger } from '@posthog/node-common/utils/logger'
+import { captureException } from '@posthog/node-common/utils/posthog'
+
 import { uuidFromDistinctId } from '~/ingestion/common/persons/person-uuid'
-import { Properties } from '~/plugin-scaffold'
 import { Element, Person, PersonMode, PreIngestionEvent, ProcessedEvent } from '~/types'
 
 const elementsOrElementsChainCounter = new Counter({

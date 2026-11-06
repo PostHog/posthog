@@ -1,7 +1,8 @@
-import { GroupsOutput } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { MessageSizeTooLarge } from '~/common/utils/db/error'
-import { logger } from '~/common/utils/logger'
+import { GroupsOutput } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { MessageSizeTooLarge } from '@posthog/node-common/utils/db/error'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
 import { GroupFlushResult } from '~/ingestion/common/groups/group-store.interface'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'

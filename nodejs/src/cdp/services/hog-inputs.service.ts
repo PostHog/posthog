@@ -1,8 +1,8 @@
 import { HogVMErrorKind, HogVMException, convertHogToJS } from '@posthog/hogvm'
+import { ACCESS_TOKEN_PLACEHOLDER } from '@posthog/node-common/config/constants'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import { CyclotronInputType } from '~/cdp/schema/cyclotron'
-import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
-import { logger } from '~/common/utils/logger'
 
 import { HogFunctionInvocationGlobals, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { EncryptedFields } from '../utils/encryption-utils'

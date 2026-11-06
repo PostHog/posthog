@@ -31,18 +31,24 @@
  */
 import { Message } from 'node-rdkafka'
 
-import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput, OVERFLOW_OUTPUT } from '~/common/outputs'
-import { parseJSON } from '~/common/utils/json-parse'
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import {
+    DLQ_OUTPUT,
+    INGESTION_WARNINGS_OUTPUT,
+    IngestionWarningsOutput,
+    OVERFLOW_OUTPUT,
+} from '@posthog/node-common/outputs/index'
+import { createTestMessage } from '@posthog/node-common/testing/kafka-message'
+import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
+import { createTestTeam } from '@posthog/node-common/testing/team'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+
 import { newChunkPipelineBuilder, newPipelineBuilder } from '~/ingestion/framework/builders'
 import { PipelineBuilder, StartPipelineBuilder } from '~/ingestion/framework/builders/pipeline-builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import { dlq, isOkResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { createTestMessage } from '~/tests/helpers/kafka-message'
-import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
-import { createTestTeam } from '~/tests/helpers/team'
 import { Team } from '~/types'
 
 describe('Factory Functions', () => {

@@ -1,14 +1,18 @@
 import { DateTime } from 'luxon'
 
-import { personProfileIgnoredPropertiesCounter, personProfileUpdateOutcomeCounter } from '~/common/persons/metrics'
+import {
+    personProfileIgnoredPropertiesCounter,
+    personProfileUpdateOutcomeCounter,
+} from '@posthog/node-common/persons/metrics'
 import {
     eventToPersonProperties,
     initialEventToPersonProperties,
     isFilteredPersonUpdateProperty,
-} from '~/common/persons/person-property-utils'
-import { logger } from '~/common/utils/logger'
-import { cloneObject } from '~/common/utils/utils'
-import { PluginEvent, Properties } from '~/plugin-scaffold'
+} from '@posthog/node-common/persons/person-property-utils'
+import { PluginEvent, Properties } from '@posthog/node-common/plugin-scaffold'
+import { logger } from '@posthog/node-common/utils/logger'
+import { cloneObject } from '@posthog/node-common/utils/utils'
+
 import { InternalPerson } from '~/types'
 
 export interface PropertyUpdates {

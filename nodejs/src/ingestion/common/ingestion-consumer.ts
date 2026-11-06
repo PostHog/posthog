@@ -1,10 +1,11 @@
 import { Message } from 'node-rdkafka'
 import { Gauge } from 'prom-client'
 
-import { TophogOutput } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { instrumentFn } from '~/common/tracing/tracing-utils'
-import { logger } from '~/common/utils/logger'
+import { TophogOutput } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { instrumentFn } from '@posthog/node-common/tracing/tracing-utils'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { IngestionConsumerConfig } from '~/ingestion/config'
 import { BatchResult, FeedResult } from '~/ingestion/framework/batching-pipeline'
 import { createKafkaDebugContext, createOkContext } from '~/ingestion/framework/helpers'

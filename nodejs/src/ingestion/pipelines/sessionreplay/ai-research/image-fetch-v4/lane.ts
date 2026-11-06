@@ -3,7 +3,7 @@ import {
     KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_RETRY_1H,
     KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_RETRY_1M,
     KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_RETRY_10M,
-} from '~/common/config/kafka-topics'
+} from '@posthog/node-common/config/kafka-topics'
 
 /** The v4 lane has its own frontier, delay tiers and consumer groups, so its jobs never mix with the v3 lane's. */
 export const V4_IMAGE_FETCH_LANE = {

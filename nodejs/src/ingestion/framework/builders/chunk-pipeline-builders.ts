@@ -1,8 +1,9 @@
 import { Message } from 'node-rdkafka'
 
-import { IngestionWarningsOutput } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { IngestionWarningsOutput } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+
 import {
     BaseChunkPipeline,
     ChunkProcessingStep,
@@ -420,7 +421,7 @@ export class MessageAwareChunkPipelineBuilder<
 
     handleResults<RConfig extends string = never>(
         config: PipelineConfig<R | RConfig>
-    ): ResultHandledChunkPipelineBuilder<TInput, TOutput, CInput, COutput, R, D> {
+    ): ResultHandledChunkPipelineBuilder<TInput, TOutput, CInput, COutput, R | RConfig, D> {
         return new ResultHandledChunkPipelineBuilder(
             new ResultHandlingPipeline(this.pipeline, config),
             this.builderContext

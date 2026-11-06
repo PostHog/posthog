@@ -1,4 +1,4 @@
-import type { CommonConfig } from '~/common/config'
+import type { CommonConfig } from '@posthog/node-common/config'
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
@@ -14,9 +14,10 @@ import {
     KAFKA_LOG_ENTRIES,
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
-} from '~/common/config/kafka-topics'
-import type { PostgresRouterConfig } from '~/common/utils/db/postgres'
-import { isDevEnv, isProdEnv } from '~/common/utils/env-utils'
+} from '@posthog/node-common/config/kafka-topics'
+import type { PostgresRouterConfig } from '@posthog/node-common/utils/db/postgres'
+import { isDevEnv, isProdEnv } from '@posthog/node-common/utils/env-utils'
+
 import { AI_MEDIA_OFFLOAD_MIN_BYTES } from '~/ingestion/common/ai-event-limits'
 import {
     INGESTION_DOWNSTREAM_PRODUCER,

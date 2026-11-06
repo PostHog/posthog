@@ -1,6 +1,7 @@
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { createTestPluginEvent } from '@posthog/node-common/testing/plugin-event'
+
 import { PipelineResultType } from '~/ingestion/framework/results'
-import { PluginEvent } from '~/plugin-scaffold'
-import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
 
 import { createStripPersonUpdatePropertiesStep } from './strip-person-update-properties-step'
 

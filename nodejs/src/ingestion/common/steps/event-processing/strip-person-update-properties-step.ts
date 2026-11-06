@@ -1,6 +1,7 @@
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { PluginEvent } from '~/plugin-scaffold'
 
 export interface StripPersonUpdatePropertiesStepInput {
     normalizedEvent: PluginEvent

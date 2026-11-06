@@ -1,9 +1,10 @@
 import { Pool } from 'pg'
 import { Counter, Gauge } from 'prom-client'
 
+import { logger } from '@posthog/node-common/utils/logger'
+import { captureException } from '@posthog/node-common/utils/posthog'
+
 import { LazyPool } from '~/cdp/utils/lazy-pool'
-import { logger } from '~/common/utils/logger'
-import { captureException } from '~/common/utils/posthog'
 
 import { ConversionWatcherRow, CyclotronJobInvocationResult } from '../../types'
 

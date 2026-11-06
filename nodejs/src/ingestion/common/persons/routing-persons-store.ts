@@ -1,7 +1,7 @@
 import { ConnectError } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
-import { errorClassLabel } from '~/common/personhog/metrics'
+import { errorClassLabel } from '@posthog/node-common/personhog/metrics'
 import {
     personhogStoreShadowCompareFailedCounter,
     personhogStoreShadowComparedCounter,
@@ -12,14 +12,15 @@ import {
     personhogStoreShadowFoldRedriveCounter,
     personhogStoreShadowMergeRedriveCounter,
     personhogStoreShadowSkipsCounter,
-} from '~/common/persons/metrics'
-import { PersonMessage } from '~/common/persons/person-message'
-import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
-import { CreatePersonResult } from '~/common/utils/db/db'
-import { logger } from '~/common/utils/logger'
-import { promiseRetry, retryIfRetriable } from '~/common/utils/retries'
+} from '@posthog/node-common/persons/metrics'
+import { PersonMessage } from '@posthog/node-common/persons/person-message'
+import { PersonRepositoryTransaction } from '@posthog/node-common/persons/repositories/person-repository-transaction'
+import { Properties } from '@posthog/node-common/plugin-scaffold'
+import { CreatePersonResult } from '@posthog/node-common/utils/db/db'
+import { logger } from '@posthog/node-common/utils/logger'
+import { promiseRetry, retryIfRetriable } from '@posthog/node-common/utils/retries'
+
 import { BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
-import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt } from '~/types'
 
 import { PersonMergeCallFailedError, PersonMergeNotAppliedError, PersonMergeUnsettledError } from './person-merge-types'

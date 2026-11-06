@@ -4,13 +4,14 @@
  * Re-exports shared encryption types from session-replay/types.ts and adds
  * Recording API-specific types.
  */
-import { CommonConfig } from '~/common/config'
+import { CommonConfig } from '@posthog/node-common/config'
 import {
     KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
     KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
-} from '~/common/config/kafka-topics'
-import { isProdEnv } from '~/common/utils/env-utils'
-import { parseJSON } from '~/common/utils/json-parse'
+} from '@posthog/node-common/config/kafka-topics'
+import { isProdEnv } from '@posthog/node-common/utils/env-utils'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+
 import { SessionRecordingApiConfig, SessionRecordingConfig } from '~/ingestion/pipelines/sessionreplay/config'
 import {
     INGESTION_SESSIONREPLAY_PRODUCER,

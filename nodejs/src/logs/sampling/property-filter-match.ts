@@ -17,7 +17,7 @@
  */
 import type RE2 from 're2'
 
-import { createTrackedRE2 } from '~/common/utils/tracked-re2'
+import { createTrackedRE2 } from '@posthog/node-common/utils/tracked-re2'
 
 export type SupportedPropertyOperator =
     | 'exact'

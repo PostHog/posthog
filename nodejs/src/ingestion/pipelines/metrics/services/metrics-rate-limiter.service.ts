@@ -1,6 +1,7 @@
 import { Histogram } from 'prom-client'
 
-import { RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
+import { RedisV2, getRedisPipelineResults } from '@posthog/node-common/redis/redis-v2'
+
 import { MetricsIngestionConsumerConfig } from '~/ingestion/pipelines/metrics/config'
 import { MetricsIngestionMessage } from '~/ingestion/pipelines/metrics/types'
 

@@ -1,12 +1,12 @@
-import { logger } from '~/common/utils/logger'
-import { PluginEvent } from '~/plugin-scaffold'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import { CostModelSource } from './costs/cost-model-matching'
 import type { ModelCost, ModelCostRow } from './costs/providers/types'
 import { aiCostTotalOutcomeCounter } from './metrics'
 import { normalizeTraceProperties, processAiEvent } from './process-ai-event'
 
-jest.mock('~/common/utils/logger', () => ({
+jest.mock('@posthog/node-common/utils/logger', () => ({
     logger: {
         warn: jest.fn(),
     },

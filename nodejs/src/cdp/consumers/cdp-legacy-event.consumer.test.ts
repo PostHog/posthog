@@ -1,16 +1,17 @@
-import '~/tests/helpers/mocks/consumer.mock'
-import { mockFetch } from '~/tests/helpers/mocks/request.mock'
+import '@posthog/node-common/testing/mocks/consumer.mock'
+import { mockFetch } from '@posthog/node-common/testing/mocks/request.mock'
 
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { register } from 'prom-client'
 
+import { forSnapshot } from '@posthog/node-common/testing/snapshots'
+import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
+import { INVALID_TEAM_ID_KEYS } from '@posthog/node-common/testing/team'
+import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
+
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
-import { forSnapshot } from '~/tests/helpers/snapshots'
-import { createTestTeamFixture } from '~/tests/helpers/sql'
-import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 
 import { Hub, Team } from '../../types'
 import {

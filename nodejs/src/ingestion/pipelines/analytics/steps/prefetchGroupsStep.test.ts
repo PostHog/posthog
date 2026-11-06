@@ -1,4 +1,5 @@
-import { GroupTypeManager } from '~/common/groups/group-type-manager'
+import { GroupTypeManager } from '@posthog/node-common/groups/group-type-manager'
+
 import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
 import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
 import { prefetchGroupsStep } from '~/ingestion/pipelines/analytics/steps/prefetchGroupsStep'

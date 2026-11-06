@@ -1,4 +1,4 @@
-import { KafkaProducerRegistryBuilder } from '~/common/outputs/kafka-producer-registry-builder'
+import { KafkaProducerRegistryBuilder } from '@posthog/node-common/outputs/kafka-producer-registry-builder'
 
 import {
     WARPSTREAM_INGESTION_PRODUCER,

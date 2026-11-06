@@ -1,16 +1,17 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { IngestionWarningsOutput } from '~/common/outputs'
-import { EVENTS_OUTPUT, EventOutput } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { MessageSizeTooLarge } from '~/common/utils/db/error'
+import { IngestionWarningsOutput } from '@posthog/node-common/outputs/index'
+import { EVENTS_OUTPUT, EventOutput } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { createTestEventHeaders } from '@posthog/node-common/testing/event-headers'
+import { createTestMessage } from '@posthog/node-common/testing/kafka-message'
+import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
+import { MessageSizeTooLarge } from '@posthog/node-common/utils/db/error'
+
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { eventProcessedAndIngestedCounter } from '~/ingestion/common/metrics'
 import { isOkResult } from '~/ingestion/framework/results'
-import { createTestEventHeaders } from '~/tests/helpers/event-headers'
-import { createTestMessage } from '~/tests/helpers/kafka-message'
-import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { EventHeaders, ISOTimestamp, ProcessedEvent, ProjectId } from '~/types'
 
 import {

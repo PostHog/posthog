@@ -1,8 +1,10 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
+import { EventIngestionRestrictionManager } from '@posthog/node-common/utils/event-ingestion-restrictions/index'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+
 import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 import { ok } from '~/ingestion/framework/results'
 import { SessionReplayPipelineConfig } from '~/ingestion/pipelines/sessionreplay'
@@ -30,7 +32,6 @@ import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/te
 import { createMockKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
 import { BatchCommitter } from '~/ingestion/pipelines/sessionreplay/staged-batch'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
-import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 
 /** Test-only: the runner the ML mirror server builds, started on one pipeline config. The clock defaults to one hour after the 2026-09-15T12:00Z the test session IDs start at, so the 14-day session age filter keeps them. */
 export function buildMlMirrorStagedRunner(

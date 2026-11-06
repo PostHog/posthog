@@ -1,6 +1,7 @@
-import { TOPHOG_OUTPUT, TophogOutput } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { logger } from '~/common/utils/logger'
+import { TOPHOG_OUTPUT, TophogOutput } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { Component, Started } from '~/ingestion/common/scopes/component'
 
 import { AverageMetricTracker, MaxMetricTracker, SummingMetricTracker, Tracker } from './metric-tracker'

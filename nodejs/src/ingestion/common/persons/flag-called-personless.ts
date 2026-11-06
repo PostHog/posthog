@@ -1,11 +1,12 @@
-import { parseTeamsList } from '~/common/utils/env-utils'
-import { logger } from '~/common/utils/logger'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { parseTeamsList } from '@posthog/node-common/utils/env-utils'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { buildTeamGate } from '~/ingestion/common/team-gate'
 import {
     DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
     DEFAULT_FLAG_CALLED_PERSONLESS_EXCLUDED_TEAMS,
 } from '~/ingestion/config'
-import { PluginEvent } from '~/plugin-scaffold'
 import { ValueMatcher } from '~/types'
 
 export const FEATURE_FLAG_CALLED_EVENT = '$feature_flag_called'

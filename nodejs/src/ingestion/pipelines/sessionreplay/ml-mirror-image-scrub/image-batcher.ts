@@ -2,9 +2,10 @@ import { LibrdKafkaError, Message, TopicPartitionOffset } from 'node-rdkafka'
 import { setTimeout as waitForRetry } from 'node:timers/promises'
 import pLimit from 'p-limit'
 
-import { findOffsetsToCommit, parseKafkaHeaders } from '~/common/kafka/consumer/consumer-v1'
-import { ConcurrencyController } from '~/common/utils/concurrencyController'
-import { logger } from '~/common/utils/logger'
+import { findOffsetsToCommit, parseKafkaHeaders } from '@posthog/node-common/kafka/consumer/consumer-v1'
+import { ConcurrencyController } from '@posthog/node-common/utils/concurrencyController'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
 import {
     INGESTION_VERSION_HEADER,

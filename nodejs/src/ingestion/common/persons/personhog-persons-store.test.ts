@@ -1,10 +1,11 @@
 import { Code, ConnectError } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
-import { PersonHogPersonWriteRepository } from '~/common/personhog/personhog-person-write-repository'
-import { PersonhogFencedError, PersonhogPropertiesSizeError } from '~/common/personhog/persons'
-import { PersonClaimedByLifecycleOpError } from '~/common/persons/repositories/person-repository'
-import { NoRowsUpdatedError } from '~/common/utils/utils'
+import { PersonHogPersonWriteRepository } from '@posthog/node-common/personhog/personhog-person-write-repository'
+import { PersonhogFencedError, PersonhogPropertiesSizeError } from '@posthog/node-common/personhog/persons'
+import { PersonClaimedByLifecycleOpError } from '@posthog/node-common/persons/repositories/person-repository'
+import { NoRowsUpdatedError } from '@posthog/node-common/utils/utils'
+
 import { InternalPerson } from '~/types'
 
 import {

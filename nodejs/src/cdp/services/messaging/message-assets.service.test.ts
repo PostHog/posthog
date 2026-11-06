@@ -1,9 +1,10 @@
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+
 import {
     CyclotronInvocationQueueParametersEmailType,
     CyclotronInvocationQueueParametersSendPushNotificationType,
 } from '~/cdp/schema/cyclotron'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { parseJSON } from '~/common/utils/json-parse'
 
 import { createExampleInvocation } from '../../_tests/fixtures'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, MessageAssetRow } from '../../types'

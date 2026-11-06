@@ -1,12 +1,12 @@
 import { Assignment, Message } from 'node-rdkafka'
 import { Gauge, Histogram } from 'prom-client'
 
-import { CommonConfig } from '~/common/config'
-import { GroupTypeManager } from '~/common/groups/group-type-manager'
-import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
-import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
-import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
-import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
+import { CommonConfig } from '@posthog/node-common/config'
+import { GroupTypeManager } from '@posthog/node-common/groups/group-type-manager'
+import { ClickhouseGroupRepository } from '@posthog/node-common/groups/repositories/clickhouse-group-repository'
+import { GroupRepository } from '@posthog/node-common/groups/repositories/group-repository.interface'
+import { HogTransformer } from '@posthog/node-common/hog-transformations/hog-transformer.interface'
+import { KafkaConsumerInterface, createKafkaConsumer } from '@posthog/node-common/kafka/consumer/index'
 import {
     AppMetricsOutput,
     DlqOutput,
@@ -14,7 +14,7 @@ import {
     IngestionWarningsOutput,
     OverflowOutput,
     TophogOutput,
-} from '~/common/outputs'
+} from '@posthog/node-common/outputs/index'
 import {
     AsyncOutput,
     EventOutput,
@@ -23,21 +23,22 @@ import {
     PersonMergeEventsOutput,
     PersonsOutput,
     RealtimeOnlyEventsOutput,
-} from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { PersonRepository } from '~/common/persons/repositories/person-repository'
-import { instrumentFn } from '~/common/tracing/tracing-utils'
-import { UsageIngestionConfig, createEventUsageBatchFactory } from '~/common/usage-ingestion'
-import { PostgresRouter } from '~/common/utils/db/postgres'
+} from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { PersonRepository } from '@posthog/node-common/persons/repositories/person-repository'
+import { instrumentFn } from '@posthog/node-common/tracing/tracing-utils'
+import { UsageIngestionConfig, createEventUsageBatchFactory } from '@posthog/node-common/usage-ingestion/index'
+import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
 import {
     EventIngestionRestrictionManager,
     EventIngestionRestrictionManagerComponent,
-} from '~/common/utils/event-ingestion-restrictions'
-import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
-import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
-import { logger } from '~/common/utils/logger'
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { TeamManager } from '~/common/utils/team-manager'
+} from '@posthog/node-common/utils/event-ingestion-restrictions/index'
+import { EventSchemaEnforcementManager } from '@posthog/node-common/utils/event-schema-enforcement-manager'
+import { DEFAULT_LOADER_RETRY } from '@posthog/node-common/utils/lazy-loader'
+import { logger } from '@posthog/node-common/utils/logger'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+import { TeamManager } from '@posthog/node-common/utils/team-manager'
+
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'

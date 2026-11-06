@@ -1,4 +1,4 @@
-import '~/tests/helpers/mocks/request.mock'
+import '@posthog/node-common/testing/mocks/request.mock'
 
 import { cdpTrackedFetch, fetchErrorDetail, recordRequestOrigins } from './cdp-fetch'
 

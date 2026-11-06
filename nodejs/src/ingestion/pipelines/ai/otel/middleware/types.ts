@@ -1,4 +1,4 @@
-import { PluginEvent } from '~/plugin-scaffold'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
 
 export interface OtelLibraryMiddleware {
     /** Stable identifier used for metrics labels (e.g. 'pydantic-ai', 'vercel-ai'). */

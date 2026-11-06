@@ -1,6 +1,5 @@
 import type { UrlPolicyDecline } from '@posthog/ai-research-v4-native'
-
-import { parseJSON } from '~/common/utils/json-parse'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import { ImageFetchBlockReason, isImageFetchBlockReason } from './block-reason'
 import { parseV4UrlRef, tryCanonicalizeUrl } from './v4-native'

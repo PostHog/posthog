@@ -1,13 +1,15 @@
 import { DateTime } from 'luxon'
 
+import { ClickhouseGroupRepository } from '@posthog/node-common/groups/repositories/clickhouse-group-repository'
+import { fetchDistinctIds } from '@posthog/node-common/persons/repositories/test-helpers'
+import { Clickhouse } from '@posthog/node-common/testing/clickhouse'
+import { waitForExpect } from '@posthog/node-common/testing/expectations'
+import { createUserTeamAndOrganization, fetchPostgresPersons, uniqueTestId } from '@posthog/node-common/testing/sql'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
 import { createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
-import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
-import { fetchDistinctIds } from '~/common/persons/repositories/test-helpers'
-import { parseJSON } from '~/common/utils/json-parse'
-import { UUIDT } from '~/common/utils/utils'
 import { IngestionConsumer } from '~/ingestion/ingestion-consumer'
-import { Clickhouse } from '~/tests/helpers/clickhouse'
-import { waitForExpect } from '~/tests/helpers/expectations'
 import {
     EventBuilder,
     createKafkaMessages,
@@ -18,11 +20,10 @@ import {
     waitForKafkaMessages,
 } from '~/tests/helpers/ingestion-e2e'
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
-import { createUserTeamAndOrganization, fetchPostgresPersons, uniqueTestId } from '~/tests/helpers/sql'
 import { GroupTypeIndex, InternalPerson } from '~/types'
 
 // Mock the limiter so it always returns true
-jest.mock('~/common/utils/token-bucket', () => {
+jest.mock('@posthog/node-common/utils/token-bucket', () => {
     const mockConsume = jest.fn().mockReturnValue(true)
     return {
         IngestionWarningLimiter: {
@@ -31,7 +32,7 @@ jest.mock('~/common/utils/token-bucket', () => {
     }
 })
 
-jest.mock('~/common/utils/logger')
+jest.mock('@posthog/node-common/utils/logger')
 
 // Two diagonal arms rather than a full cross: one with every optimization off
 // and one with them all on, keeping CI cost flat while both modes stay fully

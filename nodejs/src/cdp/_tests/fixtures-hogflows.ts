@@ -1,7 +1,8 @@
+import { insertRow } from '@posthog/node-common/testing/sql'
+import { PostgresRouter, PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
 import { HogFlow } from '~/cdp/schema/hogflow'
-import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
-import { UUIDT } from '~/common/utils/utils'
-import { insertRow } from '~/tests/helpers/sql'
 
 import { CyclotronJobInvocationHogFlow, CyclotronPerson, HogFlowInvocationContext } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'

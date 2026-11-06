@@ -1,8 +1,8 @@
-import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
-import { sanitizeString } from '~/common/utils/db/utils'
-import { LazyLoader } from '~/common/utils/lazy-loader'
-import { logger } from '~/common/utils/logger'
-import { TeamManager } from '~/common/utils/team-manager'
+import { GroupReadRepository } from '@posthog/node-common/groups/repositories/group-repository.interface'
+import { sanitizeString } from '@posthog/node-common/utils/db/utils'
+import { LazyLoader } from '@posthog/node-common/utils/lazy-loader'
+import { logger } from '@posthog/node-common/utils/logger'
+import { TeamManager } from '@posthog/node-common/utils/team-manager'
 
 import { GroupTypeIndex, Team } from '../../../types'
 import { GroupType, HogFunctionInvocationGlobals } from '../../types'

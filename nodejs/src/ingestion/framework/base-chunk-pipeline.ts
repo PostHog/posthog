@@ -1,7 +1,7 @@
 import { Context } from '@opentelemetry/api'
 
-import { instrumentFn, startDetachedSpan } from '~/common/tracing/tracing-utils'
-import { logger } from '~/common/utils/logger'
+import { instrumentFn, startDetachedSpan } from '@posthog/node-common/tracing/tracing-utils'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import { ChunkPipeline, ChunkPipelineResultWithContext, OkResultWithContext } from './chunk-pipeline.interface'
 import { pipelineStepDurationHistogram, recordBudgetCheckpoint } from './metrics'

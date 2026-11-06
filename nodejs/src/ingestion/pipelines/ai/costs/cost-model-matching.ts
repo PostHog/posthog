@@ -1,5 +1,5 @@
-import { logger } from '~/common/utils/logger'
-import { Properties } from '~/plugin-scaffold'
+import { Properties } from '@posthog/node-common/plugin-scaffold'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import { resolveModelCostForProvider, resolveProviderAliases } from './provider-matching'
 import { manualCostsByModel, openRouterCostsByModel } from './providers'

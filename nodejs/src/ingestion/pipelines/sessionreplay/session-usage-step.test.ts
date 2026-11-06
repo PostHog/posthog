@@ -1,5 +1,6 @@
-import { UsageIngestionClient, UsageRecordInput } from '~/common/usage-ingestion/client'
-import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
+import { UsageIngestionClient, UsageRecordInput } from '@posthog/node-common/usage-ingestion/client'
+import { UsageRecordBatch } from '@posthog/node-common/usage-ingestion/usage-record-batch'
+
 import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
 import {
     SessionBlockMetadata,

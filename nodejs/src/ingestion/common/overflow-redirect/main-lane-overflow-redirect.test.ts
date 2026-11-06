@@ -1,4 +1,5 @@
-import { createTestEventHeaders } from '~/tests/helpers/event-headers'
+import { createTestEventHeaders } from '@posthog/node-common/testing/event-headers'
+
 import { HealthCheckResultOk } from '~/types'
 
 import { MainLaneOverflowRedirect, MainLaneOverflowRedirectConfig } from './main-lane-overflow-redirect'

@@ -1,4 +1,5 @@
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+
 import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 import { SessionMetadataSink } from '~/ingestion/pipelines/sessionreplay/shared/metadata/kafka-metadata-sink'
 import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'

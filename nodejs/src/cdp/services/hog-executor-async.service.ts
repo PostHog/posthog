@@ -1,10 +1,10 @@
 import { DateTime } from 'luxon'
 
-import { instrumented } from '~/common/tracing/tracing-utils'
-import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
-import { FetchOptions } from '~/common/utils/request'
-import { TeamManager } from '~/common/utils/team-manager'
+import { instrumented } from '@posthog/node-common/tracing/tracing-utils'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger } from '@posthog/node-common/utils/logger'
+import { FetchOptions } from '@posthog/node-common/utils/request'
+import { TeamManager } from '@posthog/node-common/utils/team-manager'
 
 import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from '../async-function-registry'
 import '../async-functions'

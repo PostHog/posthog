@@ -1,9 +1,9 @@
 import { Message } from 'node-rdkafka'
 
-import { parseKafkaHeaders } from '~/common/kafka/consumer/consumer-v1'
-import { KafkaProducer } from '~/common/kafka/producer'
-import { logger } from '~/common/utils/logger'
-import { delay } from '~/common/utils/utils'
+import { parseKafkaHeaders } from '@posthog/node-common/kafka/consumer/consumer-v1'
+import { KafkaProducer } from '@posthog/node-common/kafka/producer'
+import { logger } from '@posthog/node-common/utils/logger'
+import { delay } from '@posthog/node-common/utils/utils'
 
 import { RetryDelayMetrics } from './metrics'
 

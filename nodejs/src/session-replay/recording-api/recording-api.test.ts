@@ -3,9 +3,10 @@ import { Server } from 'http'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
+
 import { JWT, PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { PostgresRouter } from '~/common/utils/db/postgres'
 import { getBlockDecryptor, getBlockEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
 import { getKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore'
 import { ReplayEventsOutput, SessionFeaturesOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
@@ -48,7 +49,7 @@ jest.mock('~/ingestion/pipelines/sessionreplay/shared/crypto', () => ({
     getBlockEncryptor: jest.fn(),
 }))
 
-jest.mock('~/common/utils/db/redis', () => ({
+jest.mock('@posthog/node-common/utils/db/redis', () => ({
     createRedisPoolFromConfig: jest.fn().mockReturnValue({
         acquire: jest.fn(),
         release: jest.fn(),

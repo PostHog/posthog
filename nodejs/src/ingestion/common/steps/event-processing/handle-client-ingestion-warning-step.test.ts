@@ -1,13 +1,14 @@
 import { v4 } from 'uuid'
 
-import { INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { parseJSON } from '~/common/utils/json-parse'
+import { INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { createTestEventHeaders } from '@posthog/node-common/testing/event-headers'
+import { createTestMessage } from '@posthog/node-common/testing/kafka-message'
+import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
+import { createTestPluginEvent } from '@posthog/node-common/testing/plugin-event'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+
 import { PipelineResultType } from '~/ingestion/framework/results'
-import { createTestEventHeaders } from '~/tests/helpers/event-headers'
-import { createTestMessage } from '~/tests/helpers/kafka-message'
-import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
-import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
 
 import {
     HandleClientIngestionWarningStepInput,

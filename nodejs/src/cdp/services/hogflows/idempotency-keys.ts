@@ -2,10 +2,10 @@ import { createHash } from 'crypto'
 import { Counter, Histogram } from 'prom-client'
 import { setTimeout as delay } from 'timers/promises'
 
-import type { CommonConfig } from '~/common/config'
-import { RedisClient, RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
-import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
+import type { CommonConfig } from '@posthog/node-common/config'
+import { RedisClient, RedisV2, createRedisV2PoolFromConfig } from '@posthog/node-common/redis/redis-v2'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import type { CdpConfig } from '../../config'
 

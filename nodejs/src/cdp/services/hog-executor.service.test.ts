@@ -1,20 +1,20 @@
 // sort-imports-ignore
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
-import { FetchOptions } from '~/common/utils/request'
+import { FetchOptions } from '@posthog/node-common/utils/request'
 import { createHmac } from 'node:crypto'
 import { createServer } from 'http'
 import { DateTime } from 'luxon'
 import { AddressInfo } from 'net'
 
 import { CyclotronInvocationQueueParametersFetchType } from '~/cdp/schema/cyclotron'
-import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
-import { logger } from '~/common/utils/logger'
-import { createTestTeamFixture } from '~/tests/helpers/sql'
+import { ACCESS_TOKEN_PLACEHOLDER } from '@posthog/node-common/config/constants'
+import { logger } from '@posthog/node-common/utils/logger'
+import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
 
 import { HogExecutorAsyncService } from '../../../src/cdp/services/hog-executor-async.service'
 import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
-import { HogInputsService } from '../../../src/cdp/services/hog-inputs.service'
+import { HogInputsService } from './hog-inputs.service'
 import { RecipientsManagerService } from '../../../src/cdp/services/managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../../../src/cdp/services/managers/team-workflows-config.service'
 import { EmailService } from '../../../src/cdp/services/messaging/email.service'
@@ -27,8 +27,8 @@ import { RecipientTokensService } from '../../../src/cdp/services/messaging/reci
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { parseJSON } from '~/common/utils/json-parse'
-import { promisifyCallback } from '~/common/utils/utils'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { promisifyCallback } from '@posthog/node-common/utils/utils'
 import { compileHog } from '../templates/compiler'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import {
@@ -43,8 +43,8 @@ import { EXTEND_OBJECT_KEY } from './hog-inputs.service'
 import { SELF_LOOP_DEPTH_PROPERTY, selfLoopGuardCounter } from './self-loop-guard'
 
 // Mock before importing fetch
-jest.mock('~/common/utils/request', () => {
-    const original = jest.requireActual('~/common/utils/request')
+jest.mock('@posthog/node-common/utils/request', () => {
+    const original = jest.requireActual('@posthog/node-common/utils/request')
     return {
         ...original,
         fetch: jest.fn().mockImplementation((url, options) => {
@@ -53,7 +53,7 @@ jest.mock('~/common/utils/request', () => {
     }
 })
 
-import { fetch, SecureRequestError } from '~/common/utils/request'
+import { fetch, SecureRequestError } from '@posthog/node-common/utils/request'
 
 const cleanLogs = (logs: string[]): string[] => {
     // Replaces the function time with a fixed value to simplify testing
@@ -679,7 +679,7 @@ describe('Hog Executor', () => {
             )
 
         const TICKET_UUID = '0198a5c1-2f6e-7c3a-9b41-b6d21c0aa111'
-        const requestModule = require('~/common/utils/request')
+        const requestModule = require('@posthog/node-common/utils/request')
 
         const mockInternalResponse = (status: number, body: unknown) => ({
             status,
@@ -995,7 +995,7 @@ describe('Hog Executor', () => {
                 { inputs: {} }
             )
 
-        const requestModule = require('~/common/utils/request')
+        const requestModule = require('@posthog/node-common/utils/request')
 
         const mockInternalResponse = (status: number, body: unknown) => ({
             status,
@@ -2140,7 +2140,9 @@ describe('Hog Executor', () => {
 
         describe('with non_failure_status_codes', () => {
             beforeEach(() => {
-                const actualRequest = jest.requireActual('~/common/utils/request') as { fetch: typeof fetch }
+                const actualRequest = jest.requireActual('@posthog/node-common/utils/request') as {
+                    fetch: typeof fetch
+                }
                 jest.mocked(fetch).mockImplementation((url, options) => actualRequest.fetch(url, options))
             })
 

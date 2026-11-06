@@ -1,8 +1,9 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import { KMSClient } from '@aws-sdk/client-kms'
 
-import { isCloud } from '~/common/utils/env-utils'
-import { logger } from '~/common/utils/logger'
+import { isCloud } from '@posthog/node-common/utils/env-utils'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { KeyStore } from '~/ingestion/pipelines/sessionreplay/shared/types'
 
 import { CleartextKeyStore } from './cleartext-keystore'

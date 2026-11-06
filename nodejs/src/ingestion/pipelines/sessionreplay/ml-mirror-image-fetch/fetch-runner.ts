@@ -1,5 +1,5 @@
-import { ConcurrencyController } from '~/common/utils/concurrencyController'
-import { logger } from '~/common/utils/logger'
+import { ConcurrencyController } from '@posthog/node-common/utils/concurrencyController'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import type { ImageFetchBlockReason } from './block-reason'
 import { FetchCandidate, MAX_HOPS, RepublishReason } from './collected-urls-record'

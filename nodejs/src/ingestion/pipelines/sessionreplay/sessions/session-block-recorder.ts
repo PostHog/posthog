@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
-import { logger } from '~/common/utils/logger'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import {
     PRE_SERIALIZED_FLAG_ACTIVE,
     PRE_SERIALIZED_FLAG_CLICK,

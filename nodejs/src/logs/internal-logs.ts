@@ -1,7 +1,8 @@
 import { createHmac, timingSafeEqual } from 'crypto'
 import { Counter } from 'prom-client'
 
-import { buildIntegerMatcher } from '~/common/config/matchers'
+import { buildIntegerMatcher } from '@posthog/node-common/config/matchers'
+
 import type { ValueMatcher } from '~/types'
 
 export const INTERNAL_LOGS_HEADER = 'posthog-internal'

@@ -1,11 +1,12 @@
 import { Message } from 'node-rdkafka'
 
-import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
-import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
-import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
-import { QuotaResource } from '~/common/services/quota-limiting.service'
-import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
-import { logger } from '~/common/utils/logger'
+import { KafkaConsumerInterface, createKafkaConsumer } from '@posthog/node-common/kafka/consumer/index'
+import { RedisV2, createRedisV2PoolFromConfig } from '@posthog/node-common/redis/redis-v2'
+import { AppMetricsAggregator } from '@posthog/node-common/services/app-metrics-aggregator'
+import { QuotaResource } from '@posthog/node-common/services/quota-limiting.service'
+import { instrumentFn, instrumented } from '@posthog/node-common/tracing/tracing-utils'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import type { LogsSettings } from '~/types'
 import { HealthCheckResult, PluginServerService } from '~/types'
 

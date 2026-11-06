@@ -1,10 +1,11 @@
-import { logger } from '~/common/utils/logger'
-import { captureException } from '~/common/utils/posthog'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { logger } from '@posthog/node-common/utils/logger'
+import { captureException } from '@posthog/node-common/utils/posthog'
+
 import { isAiEventName } from '~/ingestion/common/ai-event-types'
 import { dlq, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { processAiEvent } from '~/ingestion/pipelines/ai/process-ai-event'
-import { PluginEvent } from '~/plugin-scaffold'
 
 type ProcessAiEventInput = {
     normalizedEvent: PluginEvent

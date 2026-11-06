@@ -6,8 +6,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import snappy from 'snappy'
 
-import { PostgresRouter } from '~/common/utils/db/postgres'
-import * as envUtils from '~/common/utils/env-utils'
+import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
+import * as envUtils from '@posthog/node-common/utils/env-utils'
+
 import { SodiumRecordingDecryptor, SodiumRecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'

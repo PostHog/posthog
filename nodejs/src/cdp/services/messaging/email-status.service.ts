@@ -1,8 +1,8 @@
 import { Counter } from 'prom-client'
 import { setTimeout as delay } from 'timers/promises'
 
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { logger } from '~/common/utils/logger'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import { EMAIL_STATUS_OUTPUT, EmailStatusOutput } from '../../outputs/outputs'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../../types'

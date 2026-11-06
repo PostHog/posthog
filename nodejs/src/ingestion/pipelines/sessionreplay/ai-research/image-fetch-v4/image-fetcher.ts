@@ -1,4 +1,9 @@
-import { InvalidRequestError, ResolutionError, SecureRequestError, fetchStreamed } from '~/common/utils/request'
+import {
+    InvalidRequestError,
+    ResolutionError,
+    SecureRequestError,
+    fetchStreamed,
+} from '@posthog/node-common/utils/request'
 
 import type { ImageFetchBlockReason } from './block-reason'
 import { OriginPolicyReason, ResponseOptOutReason, responseOptOutReason } from './configuration-policy'

@@ -1,6 +1,6 @@
 import { Message, MessageHeader } from 'node-rdkafka'
 
-import { logger } from '~/common/utils/logger'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import { BatchBudget } from './batch-budget'
 import { createContext, createKafkaDebugContext, createOkContext } from './helpers'
@@ -10,7 +10,7 @@ import { isOkResult, isTimeoutResult, ok } from './results'
 import { StartPipeline } from './start-pipeline'
 import { StepPipeline } from './step-pipeline'
 
-jest.mock('~/common/utils/logger', () => ({
+jest.mock('@posthog/node-common/utils/logger', () => ({
     logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }))
 

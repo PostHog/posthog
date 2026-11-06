@@ -1,12 +1,13 @@
 import { Code, ConnectError } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
-import { PersonClaimedByLifecycleOpError } from '~/common/persons/repositories/person-repository'
-import { parseJSON } from '~/common/utils/json-parse'
-import { defaultRetryConfig } from '~/common/utils/retries'
-import { IngestionWarningLimiter } from '~/common/utils/token-bucket'
+import { PersonClaimedByLifecycleOpError } from '@posthog/node-common/persons/repositories/person-repository'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { defaultRetryConfig } from '@posthog/node-common/utils/retries'
+import { IngestionWarningLimiter } from '@posthog/node-common/utils/token-bucket'
+
 import { ingestionWarningCounter } from '~/ingestion/common/ingestion-warnings'
-import { PluginEvent } from '~/plugin-scaffold'
 import { InternalPerson, Team } from '~/types'
 
 import { PersonContext } from './person-context'

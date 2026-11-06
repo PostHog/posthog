@@ -1,8 +1,9 @@
 import { Message } from 'node-rdkafka'
 
-import { DlqOutput } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { DlqOutput } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+
 import { ingestionPipelineResultCounter } from '~/ingestion/common/metrics'
 import {
     logDroppedMessage,

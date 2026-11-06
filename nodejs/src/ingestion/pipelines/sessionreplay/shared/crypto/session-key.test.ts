@@ -1,4 +1,4 @@
-import { parseJSON } from '~/common/utils/json-parse'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import { deserializeSessionKey, serializeSessionKey } from './session-key'
 

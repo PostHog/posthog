@@ -1,6 +1,7 @@
+import { createTestPluginEvent } from '@posthog/node-common/testing/plugin-event'
+import { createTestTeam } from '@posthog/node-common/testing/team'
+
 import { PipelineResultType, isDropResult, isOkResult } from '~/ingestion/framework/results'
-import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
-import { createTestTeam } from '~/tests/helpers/team'
 
 import { createCymbalProcessingStep } from './cymbal-processing-step'
 import { CymbalClient } from './cymbal/client'

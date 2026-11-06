@@ -1,8 +1,9 @@
-import { OVERFLOW_OUTPUT } from '~/common/outputs'
-import { COOKIELESS_SENTINEL_VALUE } from '~/common/persons/person-utils'
+import { OVERFLOW_OUTPUT } from '@posthog/node-common/outputs/index'
+import { COOKIELESS_SENTINEL_VALUE } from '@posthog/node-common/persons/person-utils'
+import { createTestEventHeaders } from '@posthog/node-common/testing/event-headers'
+
 import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
 import { PipelineResultType } from '~/ingestion/framework/results'
-import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 
 import { RateLimitToOverflowStepInput, createRateLimitToOverflowStep } from './rate-limit-to-overflow-step'
 

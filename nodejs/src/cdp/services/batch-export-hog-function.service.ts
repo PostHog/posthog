@@ -1,8 +1,8 @@
 import { z } from 'zod'
 
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { TeamManager } from '~/common/utils/team-manager'
-import { UUID, UUIDT } from '~/common/utils/utils'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+import { TeamManager } from '@posthog/node-common/utils/team-manager'
+import { UUID, UUIDT } from '@posthog/node-common/utils/utils'
 
 import { RawClickHouseEvent, Team } from '../../types'
 import {

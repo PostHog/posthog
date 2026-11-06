@@ -1,22 +1,28 @@
 import { Message } from 'node-rdkafka'
 
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
-import { APP_METRICS_OUTPUT, DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, TOPHOG_OUTPUT } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
-import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
-import { parseJSON } from '~/common/utils/json-parse'
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { TeamManager } from '~/common/utils/team-manager'
-import { UUIDT } from '~/common/utils/utils'
+import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
+import {
+    APP_METRICS_OUTPUT,
+    DLQ_OUTPUT,
+    INGESTION_WARNINGS_OUTPUT,
+    TOPHOG_OUTPUT,
+} from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '@posthog/node-common/outputs/single-ingestion-output'
+import { createTestTeam } from '@posthog/node-common/testing/team'
+import { EventIngestionRestrictionManager } from '@posthog/node-common/utils/event-ingestion-restrictions/index'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+import { TeamManager } from '@posthog/node-common/utils/team-manager'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
 import { EventFilterManager } from '~/ingestion/common/event-filters'
 import { createOkContext } from '~/ingestion/framework/helpers'
-import { createTestTeam } from '~/tests/helpers/team'
 import { createNoopTopHog } from '~/tests/helpers/tophog'
 
 import { ClientWarningsPipelineConfig, createClientWarningsPipeline } from './pipeline'
 
-jest.mock('~/common/utils/logger', () => ({
+jest.mock('@posthog/node-common/utils/logger', () => ({
     logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }))
 

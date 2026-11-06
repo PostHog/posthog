@@ -1,3 +1,4 @@
+import { ClickhouseConfig, getDefaultClickhouseConfig } from '@posthog/node-common/clickhouse-config'
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CDP_EVENTS_DLQ,
@@ -7,10 +8,9 @@ import {
     KAFKA_LOG_ENTRIES,
     KAFKA_MESSAGE_ASSETS,
     KAFKA_WAREHOUSE_SOURCE_WEBHOOKS,
-} from '~/common/config/kafka-topics'
-import { isDevEnv, isProdEnv, isTestEnv } from '~/common/utils/env-utils'
+} from '@posthog/node-common/config/kafka-topics'
+import { isDevEnv, isProdEnv, isTestEnv } from '@posthog/node-common/utils/env-utils'
 
-import { ClickhouseConfig, getDefaultClickhouseConfig } from '../common/clickhouse-config'
 import {
     CdpProducerName,
     WAREHOUSE_PRODUCER,

@@ -6,10 +6,10 @@
 import { Message } from 'node-rdkafka'
 import { compress, uncompress } from 'snappy'
 
-import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
-import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
+import { KafkaConsumerInterface, createKafkaConsumer } from '@posthog/node-common/kafka/consumer/index'
+import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import { HealthCheckResult, HealthCheckResultError } from '../../../types'
 import { CdpConfig } from '../../config'

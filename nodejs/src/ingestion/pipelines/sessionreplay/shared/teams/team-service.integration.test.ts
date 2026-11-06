@@ -1,7 +1,8 @@
+import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
+import { PostgresRouter, PostgresUse } from '@posthog/node-common/utils/db/postgres'
+
 import { defaultConfig } from '~/common/config/config'
-import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { ValidRetentionPeriods } from '~/ingestion/pipelines/sessionreplay/shared/constants'
-import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { TeamService } from './team-service'
 

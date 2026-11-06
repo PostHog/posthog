@@ -62,11 +62,12 @@
  */
 import { Message } from 'node-rdkafka'
 
+import { createTestMessage } from '@posthog/node-common/testing/kafka-message'
+
 import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { drop, isOkResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { createTestMessage } from '~/tests/helpers/kafka-message'
 
 describe('Fan-Out / Fan-In', () => {
     /**

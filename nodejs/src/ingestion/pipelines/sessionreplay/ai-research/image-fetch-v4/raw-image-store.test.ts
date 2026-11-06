@@ -1,7 +1,8 @@
 import { CopyObjectCommand, PutObjectCommand, S3ServiceException } from '@aws-sdk/client-s3'
 import { createDecipheriv } from 'node:crypto'
 
-import { parseJSON } from '~/common/utils/json-parse'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+
 import type { TeamMonthKey } from '~/ingestion/pipelines/sessionreplay/ai-research/v4-keys/team-month-keys'
 
 import type { FetchCandidate } from './collected-urls-record'

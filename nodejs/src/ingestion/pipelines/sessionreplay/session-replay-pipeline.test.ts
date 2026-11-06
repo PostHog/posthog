@@ -1,11 +1,13 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
-import { parseJSON } from '~/common/utils/json-parse'
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
+import { EventIngestionRestrictionManager } from '@posthog/node-common/utils/event-ingestion-restrictions/index'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
 import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 import { drop, ok, redirect } from '~/ingestion/framework/results'
@@ -20,7 +22,6 @@ import { SessionMap, SessionSet } from '~/ingestion/pipelines/sessionreplay/shar
 import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
 import { createMockKeyStore, createMockSessionKey } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
-import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 
 import { createSessionReplayPipeline, runSessionReplayPipeline } from './session-replay-pipeline'
 

@@ -1,12 +1,13 @@
+import { getMetricValues, resetMetrics } from '@posthog/node-common/testing/metrics'
+import { createTestPluginEvent } from '@posthog/node-common/testing/plugin-event'
+import { createTestTeam } from '@posthog/node-common/testing/team'
+
 import {
     FeatureFlagCalledDedupMode,
     FeatureFlagCalledDedupService,
     featureFlagCalledDedupKey,
 } from '~/ingestion/common/feature-flag-called-dedup/feature-flag-called-dedup-service'
 import { isDropResult, isOkResult } from '~/ingestion/framework/results'
-import { getMetricValues, resetMetrics } from '~/tests/helpers/metrics'
-import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
-import { createTestTeam } from '~/tests/helpers/team'
 
 import { DedupeFeatureFlagCalledStepInput, createDedupeFeatureFlagCalledStep } from './dedupe-feature-flag-called'
 

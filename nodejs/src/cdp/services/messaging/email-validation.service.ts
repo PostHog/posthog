@@ -3,9 +3,10 @@ import { Resolver } from 'node:dns/promises'
 import { domainToASCII } from 'node:url'
 import { Counter } from 'prom-client'
 
+import { RedisV2 } from '@posthog/node-common/redis/redis-v2'
+import { checkOobDomain } from '@posthog/node-common/utils/oob-domains'
+
 import { HogFlowAction } from '~/cdp/schema/hogflow'
-import { RedisV2 } from '~/common/redis/redis-v2'
-import { checkOobDomain } from '~/common/utils/oob-domains'
 
 import { CyclotronJobInvocationHogFunction } from '../../types'
 

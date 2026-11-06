@@ -1,7 +1,7 @@
 import { createHmac } from 'crypto'
 import { IncomingMessage } from 'http'
 
-import { GeoIp } from '~/common/utils/geoip'
+import { GeoIp } from '@posthog/node-common/utils/geoip'
 
 import { createRegionBlockCheck } from './region-block'
 

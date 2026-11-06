@@ -1,12 +1,13 @@
-import '../../../tests/helpers/mocks/consumer.mock'
 import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
-import '../../../tests/helpers/mocks/producer.mock'
+import '@posthog/node-common/testing/mocks/consumer.mock'
+import '@posthog/node-common/testing/mocks/producer.mock'
+
+import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
-import { createTestTeamFixture } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { HOG_FLOW_MASK_EXAMPLES } from '../_tests/examples'

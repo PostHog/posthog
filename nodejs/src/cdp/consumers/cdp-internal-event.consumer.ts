@@ -1,11 +1,11 @@
 import { Message } from 'node-rdkafka'
 
-import { KAFKA_CDP_INTERNAL_EVENTS } from '~/common/config/kafka-topics'
-import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
-import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
-import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
-import { captureException } from '~/common/utils/posthog'
+import { KAFKA_CDP_INTERNAL_EVENTS } from '@posthog/node-common/config/kafka-topics'
+import { KafkaConsumerInterface, createKafkaConsumer } from '@posthog/node-common/kafka/consumer/index'
+import { instrumentFn, instrumented } from '@posthog/node-common/tracing/tracing-utils'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger } from '@posthog/node-common/utils/logger'
+import { captureException } from '@posthog/node-common/utils/posthog'
 
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
 import { CdpInternalEventSchema } from '../schema'

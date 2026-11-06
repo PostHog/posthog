@@ -1,5 +1,5 @@
-import { BlackholeKafkaProducer } from '~/common/kafka/blackhole-producer'
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { BlackholeKafkaProducer } from '@posthog/node-common/kafka/blackhole-producer'
+import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
 
 import { buildIngestionProducerRegistry } from './producer-registry'
 import {
@@ -8,7 +8,7 @@ import {
     getDefaultKafkaUpstreamProducerEnvConfig,
 } from './producers'
 
-jest.mock('~/common/kafka/producer')
+jest.mock('@posthog/node-common/kafka/producer')
 
 describe('buildIngestionProducerRegistry', () => {
     const config = { ...getDefaultKafkaUpstreamProducerEnvConfig(), ...getDefaultKafkaDownstreamProducerEnvConfig() }

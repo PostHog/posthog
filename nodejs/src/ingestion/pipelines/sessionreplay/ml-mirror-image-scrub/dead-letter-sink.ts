@@ -1,4 +1,4 @@
-import { KafkaProducer } from '~/common/kafka/producer'
+import { KafkaProducer } from '@posthog/node-common/kafka/producer'
 
 import { DeadLetterSink } from './image-batcher'
 

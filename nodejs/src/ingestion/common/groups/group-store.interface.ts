@@ -1,8 +1,9 @@
 import { DateTime } from 'luxon'
 
-import { GroupClickhouseMessage } from '~/common/groups/repositories/clickhouse-group-repository'
+import { GroupClickhouseMessage } from '@posthog/node-common/groups/repositories/clickhouse-group-repository'
+import { Properties } from '@posthog/node-common/plugin-scaffold'
+
 import { BatchWritingStore } from '~/ingestion/common/stores/batch-writing-store'
-import { Properties } from '~/plugin-scaffold'
 import { GroupTypeIndex, ProjectId, TeamId } from '~/types'
 
 export interface CacheMetrics {

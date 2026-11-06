@@ -1,4 +1,4 @@
-import { mockProducer } from '~/tests/helpers/mocks/producer.mock'
+import { mockProducer } from '@posthog/node-common/testing/mocks/producer.mock'
 
 import { DateTime } from 'luxon'
 
@@ -7,19 +7,26 @@ import {
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
     KAFKA_PERSON_MERGE_EVENTS,
-} from '~/common/config/kafka-topics'
-import { TopicMessage } from '~/common/kafka/producer'
-import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
-import { ASYNC_OUTPUT } from '~/common/outputs'
-import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT, PERSON_MERGE_EVENTS_OUTPUT } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
-import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
-import { fetchDistinctIdValues, fetchDistinctIds } from '~/common/persons/repositories/test-helpers'
-import { PostgresUse } from '~/common/utils/db/postgres'
-import { normalizeEvent, normalizeProcessPerson } from '~/common/utils/event'
-import { parseJSON } from '~/common/utils/json-parse'
-import { UUIDT } from '~/common/utils/utils'
+} from '@posthog/node-common/config/kafka-topics'
+import { TopicMessage } from '@posthog/node-common/kafka/producer'
+import { INGESTION_WARNINGS_OUTPUT } from '@posthog/node-common/outputs/index'
+import { ASYNC_OUTPUT } from '@posthog/node-common/outputs/index'
+import {
+    PERSONS_OUTPUT,
+    PERSON_DISTINCT_IDS_OUTPUT,
+    PERSON_MERGE_EVENTS_OUTPUT,
+} from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '@posthog/node-common/outputs/single-ingestion-output'
+import { PostgresPersonRepository } from '@posthog/node-common/persons/repositories/postgres-person-repository'
+import { fetchDistinctIdValues, fetchDistinctIds } from '@posthog/node-common/persons/repositories/test-helpers'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { createOrganization, createTeam, fetchPostgresPersons, getTeam } from '@posthog/node-common/testing/sql'
+import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { normalizeEvent, normalizeProcessPerson } from '@posthog/node-common/utils/event'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { PersonOutputs } from '~/ingestion/common/persons/person-context'
 import { MergeFoldPlan } from '~/ingestion/common/persons/person-merge-fold'
@@ -32,9 +39,7 @@ import {
 } from '~/ingestion/common/steps/event-processing/process-persons-step'
 import { parseEventTimestamp } from '~/ingestion/common/timestamps'
 import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/framework/results'
-import { PluginEvent } from '~/plugin-scaffold'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
-import { createOrganization, createTeam, fetchPostgresPersons, getTeam } from '~/tests/helpers/sql'
 import { Person, Team } from '~/types'
 
 describe('createProcessPersonsStep', () => {

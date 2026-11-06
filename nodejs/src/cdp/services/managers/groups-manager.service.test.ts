@@ -1,5 +1,5 @@
-import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
-import { TeamManager } from '~/common/utils/team-manager'
+import { GroupReadRepository } from '@posthog/node-common/groups/repositories/group-repository.interface'
+import { TeamManager } from '@posthog/node-common/utils/team-manager'
 
 import { createHogExecutionGlobals } from '../../_tests/fixtures'
 import { GroupsManagerService } from './groups-manager.service'

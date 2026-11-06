@@ -1,8 +1,8 @@
 import { register } from 'prom-client'
 
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { parseJSON } from '~/common/utils/json-parse'
-import { UUIDT } from '~/common/utils/utils'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { UUIDT } from '@posthog/node-common/utils/utils'
 
 import { EmailStatusOutput } from '../../outputs/outputs'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult } from '../../types'

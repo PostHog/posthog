@@ -1,6 +1,6 @@
+import { KAFKA_SESSION_REPLAY_ML_BLOCK_METADATA } from '@posthog/node-common/config/kafka-topics'
 import * as anonymizer from '@posthog/replay-anonymizer'
 
-import { KAFKA_SESSION_REPLAY_ML_BLOCK_METADATA } from '~/common/config/kafka-topics'
 import { getDefaultSessionRecordingConfig } from '~/ingestion/pipelines/sessionreplay/config'
 
 import {

@@ -1,7 +1,7 @@
 import crypto from 'crypto'
 
-import { FetchResponse } from '~/common/utils/request'
-import { ProcessedPluginEvent, Properties, RetryError } from '~/plugin-scaffold'
+import { ProcessedPluginEvent, Properties, RetryError } from '@posthog/node-common/plugin-scaffold'
+import { FetchResponse } from '@posthog/node-common/utils/request'
 
 import { LegacyDestinationPluginMeta } from '../../types'
 

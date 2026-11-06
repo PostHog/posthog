@@ -1,6 +1,7 @@
-import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
-import { PostgresRouter } from '~/common/utils/db/postgres'
-import { TeamManagerComponent } from '~/common/utils/team-manager'
+import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
+import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
+import { TeamManagerComponent } from '@posthog/node-common/utils/team-manager'
+
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { ProducerName } from '~/ingestion/common/outputs/producers'
 import { newScope } from '~/ingestion/common/scopes'

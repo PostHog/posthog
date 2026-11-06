@@ -1,20 +1,21 @@
-import { MockKafkaProducerWrapper } from '~/tests/helpers/mocks/producer.mock'
-import { mockFetch } from '~/tests/helpers/mocks/request.mock'
+import { MockKafkaProducerWrapper } from '@posthog/node-common/testing/mocks/producer.mock'
+import { mockFetch } from '@posthog/node-common/testing/mocks/request.mock'
 
-import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
+import { KafkaProducerObserver } from '@posthog/node-common/testing/mocks/producer.spy'
 
 import { createHmac } from 'node:crypto'
 
-import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '~/common/config/kafka-topics'
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '@posthog/node-common/config/kafka-topics'
+import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
+import { waitForExpect } from '@posthog/node-common/testing/expectations'
+import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '@posthog/node-common/testing/kafka'
+import { forSnapshot } from '@posthog/node-common/testing/snapshots'
+import { getFirstTeam, resetTestDatabase } from '@posthog/node-common/testing/sql'
+import { logger } from '@posthog/node-common/utils/logger'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { logger } from '~/common/utils/logger'
-import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
-import { waitForExpect } from '~/tests/helpers/expectations'
-import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
-import { forSnapshot } from '~/tests/helpers/snapshots'
-import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { CdpCyclotronWorker } from '../../src/cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpDatawarehouseEventsConsumer } from '../../src/cdp/consumers/cdp-data-warehouse-events.consumer'
@@ -32,7 +33,7 @@ import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-post
 import { template as webhookTemplate } from './templates/_destinations/webhook/webhook.template'
 import { compileHog } from './templates/compiler'
 
-const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer').KafkaProducerWrapper
+const ActualKafkaProducerWrapper = jest.requireActual('@posthog/node-common/kafka/producer').KafkaProducerWrapper
 
 describe('CDP Consumer loop', () => {
     jest.setTimeout(20000)

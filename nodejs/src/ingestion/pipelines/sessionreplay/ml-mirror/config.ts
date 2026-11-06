@@ -1,6 +1,7 @@
+import { KAFKA_SESSION_REPLAY_IMAGE_SCRUB_DLQ } from '@posthog/node-common/config/kafka-topics'
+import { RedisConnectionConfig } from '@posthog/node-common/utils/db/redis'
+
 import { overrideConfigWithEnv } from '~/common/config/config'
-import { KAFKA_SESSION_REPLAY_IMAGE_SCRUB_DLQ } from '~/common/config/kafka-topics'
-import { RedisConnectionConfig } from '~/common/utils/db/redis'
 
 export type MlMirrorConfig = {
     AI_RESEARCH_REPLAY_KEY_TABLE: string

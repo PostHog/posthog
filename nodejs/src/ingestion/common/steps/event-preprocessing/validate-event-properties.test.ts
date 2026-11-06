@@ -1,11 +1,12 @@
+import { createTestPipelineEvent } from '@posthog/node-common/testing/pipeline-event'
+
 import { drop, ok } from '~/ingestion/framework/results'
-import { createTestPipelineEvent } from '~/tests/helpers/pipeline-event'
 import { PipelineEvent } from '~/types'
 
 import { createValidateEventPropertiesStep } from './validate-event-properties'
 
 // Mock the dependencies
-jest.mock('~/common/metrics', () => ({
+jest.mock('@posthog/node-common/metrics', () => ({
     eventDroppedCounter: {
         labels: jest.fn().mockReturnThis(),
         inc: jest.fn(),

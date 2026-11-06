@@ -1,6 +1,6 @@
 import { MessageHeader } from 'node-rdkafka'
 
-import { ingestionLagGauge, ingestionLagHistogram } from '~/common/metrics'
+import { ingestionLagGauge, ingestionLagHistogram } from '@posthog/node-common/metrics'
 
 import { LagReportableMessage, SessionReplayLagReporter } from './session-replay-lag-reporter'
 

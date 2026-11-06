@@ -1,8 +1,9 @@
 import { randomUUID } from 'crypto'
 
+import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
+import { PostgresRouter, PostgresUse } from '@posthog/node-common/utils/db/postgres'
+
 import { defaultConfig } from '~/common/config/config'
-import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
-import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { RecordingService } from './recording-service'
 import { KeyStore, RecordingDecryptor } from './types'

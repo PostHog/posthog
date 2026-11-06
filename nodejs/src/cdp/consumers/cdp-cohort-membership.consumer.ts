@@ -2,13 +2,16 @@ import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 import { z } from 'zod'
 
-import { KAFKA_COHORT_MEMBERSHIP_CHANGED, KAFKA_COHORT_RECONCILE_MARKERS } from '~/common/config/kafka-topics'
-import { getKafkaConfigFromEnv } from '~/common/kafka/config'
-import { KafkaConsumerInterface, START_AT_LATEST, createKafkaConsumer } from '~/common/kafka/consumer'
-import { instrumentFn } from '~/common/tracing/tracing-utils'
-import { PostgresUse, TransactionClient } from '~/common/utils/db/postgres'
-import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
+import {
+    KAFKA_COHORT_MEMBERSHIP_CHANGED,
+    KAFKA_COHORT_RECONCILE_MARKERS,
+} from '@posthog/node-common/config/kafka-topics'
+import { getKafkaConfigFromEnv } from '@posthog/node-common/kafka/config'
+import { KafkaConsumerInterface, START_AT_LATEST, createKafkaConsumer } from '@posthog/node-common/kafka/consumer/index'
+import { instrumentFn } from '@posthog/node-common/tracing/tracing-utils'
+import { PostgresUse, TransactionClient } from '@posthog/node-common/utils/db/postgres'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import { HealthCheckResult } from '../../types'
 import type { CdpConfig } from '../config'

@@ -4,8 +4,9 @@ import {
     LOG_ENTRIES_OUTPUT,
     OVERFLOW_OUTPUT,
     TOPHOG_OUTPUT,
-} from '~/common/outputs'
-import { IngestionOutputsBuilder } from '~/common/outputs/ingestion-outputs-builder'
+} from '@posthog/node-common/outputs/index'
+import { IngestionOutputsBuilder } from '@posthog/node-common/outputs/ingestion-outputs-builder'
+
 import {
     ML_BLOCK_METADATA_OUTPUT,
     ML_IMAGE_FETCH_OUTPUT,

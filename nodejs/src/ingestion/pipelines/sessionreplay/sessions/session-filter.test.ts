@@ -1,4 +1,5 @@
-import { Limiter } from '~/common/utils/token-bucket'
+import { Limiter } from '@posthog/node-common/utils/token-bucket'
+
 import { SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 import { RedisPool } from '~/types'
 
@@ -16,7 +17,7 @@ jest.mock('./metrics', () => ({
     },
 }))
 
-jest.mock('~/common/utils/token-bucket')
+jest.mock('@posthog/node-common/utils/token-bucket')
 
 const sessionSet = (...pairs: [number, string][]): SessionSet => {
     const set = new SessionSet()

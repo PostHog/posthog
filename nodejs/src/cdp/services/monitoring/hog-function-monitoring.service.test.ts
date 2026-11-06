@@ -1,10 +1,11 @@
 import { DateTime } from 'luxon'
 import { register } from 'prom-client'
 
-import { APP_METRICS_OUTPUT, LOG_ENTRIES_OUTPUT } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { parseJSON } from '~/common/utils/json-parse'
-import { internalFetch } from '~/common/utils/request'
+import { APP_METRICS_OUTPUT, LOG_ENTRIES_OUTPUT } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { internalFetch } from '@posthog/node-common/utils/request'
+
 import { InternalLogsProducer } from '~/logs/internal-logs-producer'
 
 import { LogEntry, MetricLogSource, MinimalAppMetric } from '../../types'
@@ -14,7 +15,7 @@ import {
     createTransformationsMonitoringService,
 } from './hog-function-monitoring.service'
 
-jest.mock('~/common/utils/request', () => ({ internalFetch: jest.fn() }))
+jest.mock('@posthog/node-common/utils/request', () => ({ internalFetch: jest.fn() }))
 
 describe('HogFunctionMonitoringService', () => {
     let service: HogFunctionMonitoringService

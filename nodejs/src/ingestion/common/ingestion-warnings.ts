@@ -1,12 +1,13 @@
 import { Counter } from 'prom-client'
 
-import { KAFKA_INGESTION_WARNINGS } from '~/common/config/kafka-topics'
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
-import { INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { logger } from '~/common/utils/logger'
-import { IngestionWarningLimiter } from '~/common/utils/token-bucket'
-import { castTimestampOrNow } from '~/common/utils/utils'
+import { KAFKA_INGESTION_WARNINGS } from '@posthog/node-common/config/kafka-topics'
+import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
+import { INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { logger } from '@posthog/node-common/utils/logger'
+import { IngestionWarningLimiter } from '@posthog/node-common/utils/token-bucket'
+import { castTimestampOrNow } from '@posthog/node-common/utils/utils'
+
 import {
     CAPTURE_PRODUCED_WARNING_TYPES,
     INGESTION_WARNING_TYPES,

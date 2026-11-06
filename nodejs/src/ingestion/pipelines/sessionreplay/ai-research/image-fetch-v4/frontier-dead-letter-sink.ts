@@ -1,8 +1,8 @@
 import { Message } from 'node-rdkafka'
 
-import { parseKafkaHeaders } from '~/common/kafka/consumer/consumer-v1'
-import { KafkaProducer } from '~/common/kafka/producer'
-import { parseJSON } from '~/common/utils/json-parse'
+import { parseKafkaHeaders } from '@posthog/node-common/kafka/consumer/consumer-v1'
+import { KafkaProducer } from '@posthog/node-common/kafka/producer'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import { MAX_RECORD_BYTES, UrlDropReason } from './collected-urls-record'
 

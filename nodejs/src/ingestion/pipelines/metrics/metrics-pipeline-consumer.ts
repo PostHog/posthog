@@ -1,13 +1,14 @@
 import { Message } from 'node-rdkafka'
 
-import { KafkaConsumerInterface } from '~/common/kafka/consumer'
-import { KafkaConsumerV2 } from '~/common/kafka/consumer/consumer-v2'
-import { QuotaLimiting } from '~/common/services/quota-limiting.service'
-import { instrumentFn } from '~/common/tracing/tracing-utils'
-import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
-import { logger } from '~/common/utils/logger'
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { TeamManager } from '~/common/utils/team-manager'
+import { KafkaConsumerV2 } from '@posthog/node-common/kafka/consumer/consumer-v2'
+import { KafkaConsumerInterface } from '@posthog/node-common/kafka/consumer/index'
+import { QuotaLimiting } from '@posthog/node-common/services/quota-limiting.service'
+import { instrumentFn } from '@posthog/node-common/tracing/tracing-utils'
+import { UsageRecordBatch } from '@posthog/node-common/usage-ingestion/usage-record-batch'
+import { logger } from '@posthog/node-common/utils/logger'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+import { TeamManager } from '@posthog/node-common/utils/team-manager'
+
 import { HealthCheckResult, PluginServerService } from '~/types'
 
 import { MetricsIngestionConsumerConfig } from './config'

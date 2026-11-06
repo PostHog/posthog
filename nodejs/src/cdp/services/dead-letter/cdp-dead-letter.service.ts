@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
-import { logger } from '~/common/utils/logger'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import type { CdpOutputs } from '../../cdp-services'
 import type { CdpEventsDlqOutput } from '../../outputs/outputs'

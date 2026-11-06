@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+
 import { BatchingContext, BatchingPipeline } from '~/ingestion/framework/batching-pipeline'
 import { ChunkPipelineResultWithContext } from '~/ingestion/framework/chunk-pipeline.interface'
 import { createBatch } from '~/ingestion/framework/helpers'

@@ -1,5 +1,6 @@
+import { createTestEventHeaders } from '@posthog/node-common/testing/event-headers'
+
 import { dlq, ok } from '~/ingestion/framework/results'
-import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 
 import { createAllowEventPrefixStep, createAllowEventsStep } from './allow-events'
 

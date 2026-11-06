@@ -1,7 +1,8 @@
-import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { PersonReadRepository } from '@posthog/node-common/persons/repositories/person-repository'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+
 import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
-import { PluginEvent } from '~/plugin-scaffold'
 import { Person, Team } from '~/types'
 
 export interface FetchPersonChunkStepInput {

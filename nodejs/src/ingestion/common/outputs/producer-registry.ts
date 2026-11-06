@@ -1,5 +1,5 @@
-import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
-import { KafkaProducerRegistryBuilder } from '~/common/outputs/kafka-producer-registry-builder'
+import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
+import { KafkaProducerRegistryBuilder } from '@posthog/node-common/outputs/kafka-producer-registry-builder'
 
 import {
     INGESTION_BLACKHOLE_PRODUCER,

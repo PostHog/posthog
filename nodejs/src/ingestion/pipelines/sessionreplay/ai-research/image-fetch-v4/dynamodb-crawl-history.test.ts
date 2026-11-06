@@ -1,7 +1,7 @@
 import { BatchGetItemCommand, BatchWriteItemCommand } from '@aws-sdk/client-dynamodb'
 
-import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import { ConfigurationCacheItem, CrawlHistoryItem, UrlCrawlHistoryItem } from './crawl-history'
 import { DynamoDBCrawlHistory, DynamoDBCrawlHistoryClient } from './dynamodb-crawl-history'

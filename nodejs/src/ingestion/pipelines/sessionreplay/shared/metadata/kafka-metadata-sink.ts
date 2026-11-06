@@ -1,4 +1,4 @@
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
 
 import { SessionBlockMetadata } from './session-block-metadata'
 

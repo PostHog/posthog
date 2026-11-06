@@ -1,7 +1,8 @@
 import { DateTime } from 'luxon'
 
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { parseJSON } from '~/common/utils/json-parse'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import { Hub } from '../../types'

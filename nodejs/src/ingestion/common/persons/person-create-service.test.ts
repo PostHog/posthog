@@ -1,7 +1,8 @@
 import { DateTime } from 'luxon'
 
-import { PersonPropertiesSizeViolationError } from '~/common/persons/repositories/person-repository'
-import { UUIDT } from '~/common/utils/utils'
+import { PersonPropertiesSizeViolationError } from '@posthog/node-common/persons/repositories/person-repository'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { InternalPerson } from '~/types'
 

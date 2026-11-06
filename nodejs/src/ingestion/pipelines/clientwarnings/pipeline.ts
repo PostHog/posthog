@@ -1,10 +1,11 @@
 import { Message } from 'node-rdkafka'
 
-import { AppMetricsOutput, DlqOutput, IngestionWarningsOutput, TophogOutput } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { TeamManager } from '~/common/utils/team-manager'
+import { AppMetricsOutput, DlqOutput, IngestionWarningsOutput, TophogOutput } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { EventIngestionRestrictionManager } from '@posthog/node-common/utils/event-ingestion-restrictions/index'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+import { TeamManager } from '@posthog/node-common/utils/team-manager'
+
 import { newCommonIngestionPipeline } from '~/ingestion/common/common-ingestion-pipeline'
 import { EventFilterManager } from '~/ingestion/common/event-filters'
 import { createAllowEventsStep } from '~/ingestion/common/steps/allow-events'

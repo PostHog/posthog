@@ -5,10 +5,11 @@ import {
     PersonDistinctIdsOutput,
     PersonMergeEventsOutput,
     PersonsOutput,
-} from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { PersonMessage } from '~/common/persons/person-message'
-import { PluginEvent, Properties } from '~/plugin-scaffold'
+} from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { PersonMessage } from '@posthog/node-common/persons/person-message'
+import { PluginEvent, Properties } from '@posthog/node-common/plugin-scaffold'
+
 import { Team } from '~/types'
 
 import type { MergeFoldPlan } from './person-merge-fold'

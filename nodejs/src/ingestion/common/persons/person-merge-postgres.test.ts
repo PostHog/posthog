@@ -1,8 +1,9 @@
 import { DateTime } from 'luxon'
 
+import { PERSON_DISTINCT_IDS_OUTPUT, PERSON_MERGE_EVENTS_OUTPUT } from '@posthog/node-common/outputs/index'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
 import { buildIntegerMatcher } from '~/common/config/config'
-import { PERSON_DISTINCT_IDS_OUTPUT, PERSON_MERGE_EVENTS_OUTPUT } from '~/common/outputs'
-import { UUIDT } from '~/common/utils/utils'
 import { InternalPerson } from '~/types'
 
 import { MergeMappingDebounce } from './merge-mapping-debounce'

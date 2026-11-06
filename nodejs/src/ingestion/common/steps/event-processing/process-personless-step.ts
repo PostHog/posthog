@@ -1,6 +1,8 @@
 import { DateTime } from 'luxon'
 
-import { normalizeProcessPerson } from '~/common/utils/event'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { normalizeProcessPerson } from '@posthog/node-common/utils/event'
+
 import {
     buildFlagCalledPersonlessMatcher,
     isFlagCalledPersonlessCandidate,
@@ -13,7 +15,6 @@ import {
 } from '~/ingestion/config'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { PluginEvent } from '~/plugin-scaffold'
 import { Person, Team } from '~/types'
 
 export type ProcessPersonlessInput = {

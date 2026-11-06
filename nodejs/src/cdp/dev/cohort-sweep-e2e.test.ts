@@ -1,11 +1,15 @@
-import { KAFKA_COHORT_MEMBERSHIP_CHANGED, KAFKA_COHORT_RECONCILE_MARKERS } from '~/common/config/kafka-topics'
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import {
+    KAFKA_COHORT_MEMBERSHIP_CHANGED,
+    KAFKA_COHORT_RECONCILE_MARKERS,
+} from '@posthog/node-common/config/kafka-topics'
+import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
+import { waitForExpect } from '@posthog/node-common/testing/expectations'
+import { resetBehavioralCohortsDatabase } from '@posthog/node-common/testing/sql'
+import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
-import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
-import { waitForExpect } from '~/tests/helpers/expectations'
-import { resetBehavioralCohortsDatabase } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
 
 import { CdpCohortMembershipConsumer } from '../consumers/cdp-cohort-membership.consumer'

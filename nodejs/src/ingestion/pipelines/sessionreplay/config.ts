@@ -1,4 +1,4 @@
-import { getDefaultClickhouseConfig } from '~/common/clickhouse-config'
+import { getDefaultClickhouseConfig } from '@posthog/node-common/clickhouse-config'
 import {
     KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
     KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
@@ -11,8 +11,9 @@ import {
     KAFKA_SESSION_REPLAY_IMAGE_FETCH,
     KAFKA_SESSION_REPLAY_IMAGE_SCRUB,
     KAFKA_SESSION_REPLAY_ML_BLOCK_METADATA,
-} from '~/common/config/kafka-topics'
-import { isDevEnv } from '~/common/utils/env-utils'
+} from '@posthog/node-common/config/kafka-topics'
+import { isDevEnv } from '@posthog/node-common/utils/env-utils'
+
 import { INGESTION_DOWNSTREAM_PRODUCER, type IngestionDownstreamProducer } from '~/ingestion/common/outputs/producers'
 import {
     INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER,

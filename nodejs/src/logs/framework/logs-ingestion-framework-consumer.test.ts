@@ -1,16 +1,21 @@
-import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+import { mockProducer, mockProducerObserver } from '@posthog/node-common/testing/mocks/producer.mock'
 
 import { DateTime } from 'luxon'
 import { CODES, Message } from 'node-rdkafka'
 
-import { KAFKA_APP_METRICS_2, KAFKA_LOGS_CLICKHOUSE, KAFKA_LOGS_INGESTION_DLQ } from '~/common/config/kafka-topics'
-import { APP_METRICS_OUTPUT, AppMetricsOutput } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
-import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
-import { DependencyUnavailableError } from '~/common/utils/db/error'
+import {
+    KAFKA_APP_METRICS_2,
+    KAFKA_LOGS_CLICKHOUSE,
+    KAFKA_LOGS_INGESTION_DLQ,
+} from '@posthog/node-common/config/kafka-topics'
+import { APP_METRICS_OUTPUT, AppMetricsOutput } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '@posthog/node-common/outputs/single-ingestion-output'
+import { createTeam, createTestTeamFixture, getTeam } from '@posthog/node-common/testing/sql'
+import { UsageRecordBatch } from '@posthog/node-common/usage-ingestion/usage-record-batch'
+import { DependencyUnavailableError } from '@posthog/node-common/utils/db/error'
+
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { createTeam, createTestTeamFixture, getTeam } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { getDefaultTracesIngestionConsumerConfig } from '../config'
@@ -29,8 +34,8 @@ const { err2str } = require('node-rdkafka/librdkafka') as { err2str: (code: numb
 
 jest.setTimeout(5000)
 
-jest.mock('~/common/utils/posthog', () => {
-    const original = jest.requireActual('~/common/utils/posthog')
+jest.mock('@posthog/node-common/utils/posthog', () => {
+    const original = jest.requireActual('@posthog/node-common/utils/posthog')
     return {
         ...original,
         captureException: jest.fn(),

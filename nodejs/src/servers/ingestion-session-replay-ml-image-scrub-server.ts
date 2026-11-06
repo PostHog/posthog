@@ -1,9 +1,10 @@
 import { S3Client } from '@aws-sdk/client-s3'
 import { Message } from 'node-rdkafka'
 
-import { KAFKA_SESSION_REPLAY_IMAGE_SCRUB } from '~/common/config/kafka-topics'
-import { KafkaConsumer, KafkaConsumerConfig } from '~/common/kafka/consumer/consumer-v1'
-import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { KAFKA_SESSION_REPLAY_IMAGE_SCRUB } from '@posthog/node-common/config/kafka-topics'
+import { KafkaConsumer, KafkaConsumerConfig } from '@posthog/node-common/kafka/consumer/consumer-v1'
+import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
+
 import { SessionReplayProducerName } from '~/ingestion/pipelines/sessionreplay/config'
 import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
 import { KafkaDeadLetterSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/dead-letter-sink'

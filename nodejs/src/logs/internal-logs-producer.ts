@@ -1,12 +1,13 @@
 import { DateTime } from 'luxon'
 import { Counter, Gauge } from 'prom-client'
 
-import { buildIntegerMatcher } from '~/common/config/matchers'
-import { logger } from '~/common/utils/logger'
-import { internalFetch } from '~/common/utils/request'
-import { sanitizeForUTF8 } from '~/common/utils/strings'
-import type { TeamManager } from '~/common/utils/team-manager'
-import { delay } from '~/common/utils/utils'
+import { buildIntegerMatcher } from '@posthog/node-common/config/matchers'
+import { logger } from '@posthog/node-common/utils/logger'
+import { internalFetch } from '@posthog/node-common/utils/request'
+import { sanitizeForUTF8 } from '@posthog/node-common/utils/strings'
+import type { TeamManager } from '@posthog/node-common/utils/team-manager'
+import { delay } from '@posthog/node-common/utils/utils'
+
 import type { ValueMatcher } from '~/types'
 
 import type { LogsIngestionConsumerConfig } from './config'

@@ -1,5 +1,6 @@
+import { createTestTeam } from '@posthog/node-common/testing/team'
+
 import { PipelineResultType } from '~/ingestion/framework/results'
-import { createTestTeam } from '~/tests/helpers/team'
 import { Team } from '~/types'
 
 import { createCheckHeatmapOptInStep } from './check-heatmap-opt-in-step'

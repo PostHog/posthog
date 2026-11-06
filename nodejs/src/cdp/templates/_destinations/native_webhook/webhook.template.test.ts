@@ -1,5 +1,5 @@
-import '~/tests/helpers/mocks/date.mock'
-import { mockFetch } from '~/tests/helpers/mocks/request.mock'
+import '@posthog/node-common/testing/mocks/date.mock'
+import { mockFetch } from '@posthog/node-common/testing/mocks/request.mock'
 
 import { NATIVE_HOG_FUNCTIONS_BY_ID } from '../../index'
 import { TemplateTester, generateTestData } from '../../test/test-helpers'

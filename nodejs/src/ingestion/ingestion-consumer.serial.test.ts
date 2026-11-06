@@ -1,30 +1,37 @@
 // Serial: resets shared Postgres and relies on the reset-created default team.
-import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
+import { mockProducer, mockProducerObserver } from '@posthog/node-common/testing/mocks/producer.mock'
 
-import { DecodedKafkaMessage } from '~/tests/helpers/mocks/producer.spy'
+import { DecodedKafkaMessage } from '@posthog/node-common/testing/mocks/producer.spy'
 
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
+
+import { ClickhouseGroupRepository } from '@posthog/node-common/groups/repositories/clickhouse-group-repository'
+import { COOKIELESS_SENTINEL_VALUE } from '@posthog/node-common/persons/person-utils'
+import { forSnapshot } from '@posthog/node-common/testing/snapshots'
+import {
+    createTeam,
+    fetchPostgresPersons,
+    getFirstTeam,
+    getTeam,
+    resetTestDatabase,
+} from '@posthog/node-common/testing/sql'
+import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger } from '@posthog/node-common/utils/logger'
+import { UUIDT } from '@posthog/node-common/utils/utils'
 
 import { insertHogFunction as _insertHogFunction } from '~/cdp/_tests/fixtures'
 import { createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
 import { template as geoipTemplate } from '~/cdp/templates/_transformations/geoip/geoip.template'
 import { compileHog } from '~/cdp/templates/compiler'
 import { HogFunctionType } from '~/cdp/types'
-import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
-import { COOKIELESS_SENTINEL_VALUE } from '~/common/persons/person-utils'
-import { PostgresUse } from '~/common/utils/db/postgres'
-import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
-import { UUIDT } from '~/common/utils/utils'
 import { COOKIELESS_MODE_FLAG_PROPERTY } from '~/ingestion/common/cookieless/cookieless-manager'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { createPrepareEventStep } from '~/ingestion/common/steps/event-processing/prepare-event-step'
 import { createProcessGroupsStep } from '~/ingestion/common/steps/event-processing/process-groups-step'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
-import { forSnapshot } from '~/tests/helpers/snapshots'
-import { createTeam, fetchPostgresPersons, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { CookielessServerHashMode, PipelineEvent, Team } from '~/types'
 
 import { IngestionConsumer, latestOffsetTimestampGauge } from './ingestion-consumer'
@@ -32,8 +39,8 @@ import { IngestionConsumer, latestOffsetTimestampGauge } from './ingestion-consu
 const DEFAULT_TEST_TIMEOUT = 5000
 jest.setTimeout(DEFAULT_TEST_TIMEOUT)
 
-jest.mock('~/common/utils/posthog', () => {
-    const original = jest.requireActual('~/common/utils/posthog')
+jest.mock('@posthog/node-common/utils/posthog', () => {
+    const original = jest.requireActual('@posthog/node-common/utils/posthog')
     return {
         ...original,
         captureException: jest.fn(),
@@ -51,10 +58,10 @@ jest.mock('~/ingestion/common/steps/event-processing/process-groups-step', () =>
 }))
 
 // Mock the IngestionWarningLimiter to always allow warnings (prevents rate limiting between tests)
-jest.mock('~/common/utils/token-bucket', () => {
+jest.mock('@posthog/node-common/utils/token-bucket', () => {
     const mockConsume = jest.fn().mockReturnValue(true)
     return {
-        ...jest.requireActual('~/common/utils/token-bucket'),
+        ...jest.requireActual('@posthog/node-common/utils/token-bucket'),
         IngestionWarningLimiter: {
             consume: mockConsume,
         },

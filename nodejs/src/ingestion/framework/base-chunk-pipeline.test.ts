@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
-import { logger } from '~/common/utils/logger'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { createMockPipeline } from '~/tests/helpers/mock-pipeline'
 
 import { BaseChunkPipeline } from './base-chunk-pipeline'
@@ -17,7 +18,7 @@ import { batchBudgetCheckpointCounter } from './metrics'
 import { getBudgetCheckpoints } from './metrics.test-utils'
 import { dlq, drop, isTimeoutResult, ok } from './results'
 
-jest.mock('~/common/utils/logger', () => ({
+jest.mock('@posthog/node-common/utils/logger', () => ({
     logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }))
 

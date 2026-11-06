@@ -1,7 +1,8 @@
 import { S3ServiceException } from '@aws-sdk/client-s3'
 import { createHash } from 'node:crypto'
 
-import { logger } from '~/common/utils/logger'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { RecordedTopHogMetric, createRecordingTopHog } from '~/tests/helpers/tophog'
 
 import { FetchCandidate, MAX_HOPS } from './collected-urls-record'

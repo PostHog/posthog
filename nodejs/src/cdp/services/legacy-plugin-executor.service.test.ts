@@ -1,11 +1,12 @@
-import { mockFetch } from '~/tests/helpers/mocks/request.mock'
+import { mockFetch } from '@posthog/node-common/testing/mocks/request.mock'
 
 import { DateTime } from 'luxon'
 
+import { forSnapshot } from '@posthog/node-common/testing/snapshots'
+import { createTestTeamFixture, uniqueTestId } from '@posthog/node-common/testing/sql'
+import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
+
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
-import { forSnapshot } from '~/tests/helpers/snapshots'
-import { createTestTeamFixture, uniqueTestId } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'

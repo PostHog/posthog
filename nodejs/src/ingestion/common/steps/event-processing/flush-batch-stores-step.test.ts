@@ -1,6 +1,12 @@
-import { GROUPS_OUTPUT, INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
-import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT, PERSON_MERGE_EVENTS_OUTPUT } from '~/common/outputs'
-import { MessageSizeTooLarge } from '~/common/utils/db/error'
+import { GROUPS_OUTPUT, INGESTION_WARNINGS_OUTPUT } from '@posthog/node-common/outputs/index'
+import {
+    PERSONS_OUTPUT,
+    PERSON_DISTINCT_IDS_OUTPUT,
+    PERSON_MERGE_EVENTS_OUTPUT,
+} from '@posthog/node-common/outputs/index'
+import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
+import { MessageSizeTooLarge } from '@posthog/node-common/utils/db/error'
+
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
 import { GroupFlushResult } from '~/ingestion/common/groups/group-store.interface'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
@@ -17,7 +23,6 @@ import {
 } from '~/ingestion/common/stores/metrics'
 import { AfterBatchInput } from '~/ingestion/framework/batching-pipeline'
 import { isOkResult, ok } from '~/ingestion/framework/results'
-import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 
 import {
     FlushBatchStoresOutputs,

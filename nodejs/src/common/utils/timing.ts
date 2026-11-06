@@ -1,4 +1,4 @@
-import { timeoutGuard } from './db/utils'
+import { timeoutGuard } from '@posthog/node-common/utils/db/utils'
 
 export async function asyncTimeoutGuard(
     options: {

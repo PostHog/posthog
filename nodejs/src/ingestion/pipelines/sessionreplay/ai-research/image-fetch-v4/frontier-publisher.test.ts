@@ -1,5 +1,6 @@
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
-import { parseJSON } from '~/common/utils/json-parse'
+import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+
 import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 
 import {

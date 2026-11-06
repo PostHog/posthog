@@ -1,4 +1,4 @@
-import { PluginEvent } from '~/plugin-scaffold'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
 
 export const createEvent = (event: string, properties: Record<string, unknown>): PluginEvent => ({
     event,

@@ -2,6 +2,21 @@ import { Message } from 'node-rdkafka'
 import { Pool } from 'pg'
 import { Counter, Gauge, Histogram } from 'prom-client'
 
+import {
+    KAFKA_CDP_INTERNAL_EVENTS,
+    KAFKA_COHORT_MEMBERSHIP_CHANGED,
+    KAFKA_EVENTS_JSON,
+    KAFKA_PERSON,
+    KAFKA_PERSON_DISTINCT_ID,
+} from '@posthog/node-common/config/kafka-topics'
+import { KafkaConsumerInterface, START_AT_LATEST, createKafkaConsumer } from '@posthog/node-common/kafka/consumer/index'
+import { instrumentFn, instrumented } from '@posthog/node-common/tracing/tracing-utils'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger } from '@posthog/node-common/utils/logger'
+import { captureException } from '@posthog/node-common/utils/posthog'
+import { isValidTeamId } from '@posthog/node-common/utils/team-manager'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 import {
     StepResume,
@@ -10,20 +25,6 @@ import {
     processStepResumes,
 } from '~/cdp/services/hogflows/step-resume.service'
 import { parseWorkflowStepDispatchKey } from '~/cdp/utils/workflow-step-dispatch-key'
-import {
-    KAFKA_CDP_INTERNAL_EVENTS,
-    KAFKA_COHORT_MEMBERSHIP_CHANGED,
-    KAFKA_EVENTS_JSON,
-    KAFKA_PERSON,
-    KAFKA_PERSON_DISTINCT_ID,
-} from '~/common/config/kafka-topics'
-import { KafkaConsumerInterface, START_AT_LATEST, createKafkaConsumer } from '~/common/kafka/consumer'
-import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
-import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
-import { captureException } from '~/common/utils/posthog'
-import { isValidTeamId } from '~/common/utils/team-manager'
-import { UUIDT } from '~/common/utils/utils'
 
 import {
     ClickHousePerson,

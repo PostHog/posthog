@@ -1,6 +1,6 @@
 import { Counter, Gauge, Histogram } from 'prom-client'
 
-import { ConcurrencyController } from '~/common/utils/concurrencyController'
+import { ConcurrencyController } from '@posthog/node-common/utils/concurrencyController'
 
 import type { ConfigurationFetchResult } from './configuration-policy'
 import type { ConfigurationFile } from './crawl-history'

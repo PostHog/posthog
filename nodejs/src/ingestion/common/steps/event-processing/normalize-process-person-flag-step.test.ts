@@ -1,10 +1,11 @@
 import { v4 } from 'uuid'
 
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { createTestEventHeaders } from '@posthog/node-common/testing/event-headers'
+import { createTestPluginEvent } from '@posthog/node-common/testing/plugin-event'
+import { createTestTeam } from '@posthog/node-common/testing/team'
+
 import { PipelineResultType } from '~/ingestion/framework/results'
-import { PluginEvent } from '~/plugin-scaffold'
-import { createTestEventHeaders } from '~/tests/helpers/event-headers'
-import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
-import { createTestTeam } from '~/tests/helpers/team'
 import { EventHeaders, Team } from '~/types'
 
 import { createNormalizeProcessPersonFlagStep } from './normalize-process-person-flag-step'

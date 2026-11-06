@@ -1,31 +1,37 @@
 import { Message } from 'node-rdkafka'
 
-import { ReadOnlyGroupTypeManager } from '~/common/groups/readonly-group-type-manager'
-import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
-import { APP_METRICS_OUTPUT, DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
-import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
-import { UsageIngestionClient, UsageRecordInput } from '~/common/usage-ingestion/client'
-import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
-import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
-import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
-import { parseJSON } from '~/common/utils/json-parse'
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { TeamManager } from '~/common/utils/team-manager'
-import { UUIDT } from '~/common/utils/utils'
+import { ReadOnlyGroupTypeManager } from '@posthog/node-common/groups/readonly-group-type-manager'
+import { HogTransformer } from '@posthog/node-common/hog-transformations/hog-transformer.interface'
+import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
+import {
+    APP_METRICS_OUTPUT,
+    DLQ_OUTPUT,
+    INGESTION_WARNINGS_OUTPUT,
+    OVERFLOW_OUTPUT,
+} from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '@posthog/node-common/outputs/single-ingestion-output'
+import { PersonReadRepository } from '@posthog/node-common/persons/repositories/person-repository'
+import { createTestTeam } from '@posthog/node-common/testing/team'
+import { UsageIngestionClient, UsageRecordInput } from '@posthog/node-common/usage-ingestion/client'
+import { UsageRecordBatch } from '@posthog/node-common/usage-ingestion/usage-record-batch'
+import { EventIngestionRestrictionManager } from '@posthog/node-common/utils/event-ingestion-restrictions/index'
+import { EventSchemaEnforcementManager } from '@posthog/node-common/utils/event-schema-enforcement-manager'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+import { TeamManager } from '@posthog/node-common/utils/team-manager'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { DisabledOverflowRedirect } from '~/ingestion/common/overflow-redirect/disabled-overflow-redirect'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { ok } from '~/ingestion/framework/results'
-import { createTestTeam } from '~/tests/helpers/team'
 import { createNoopTopHog } from '~/tests/helpers/tophog'
 
 import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT } from './outputs'
 import { AiIngestionPipelineConfig, createAiIngestionPipeline } from './pipeline'
 
-jest.mock('~/common/utils/logger', () => ({
+jest.mock('@posthog/node-common/utils/logger', () => ({
     logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }))
 

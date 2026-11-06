@@ -1,0 +1,122 @@
+{
+    "name": "@posthog/node-common",
+    "version": "0.0.0",
+    "description": "PostHog's shared Node service library: logger, Postgres, Redis, Kafka client and outputs, team lookup, personhog client, and the domain types.",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/PostHog/posthog.git",
+        "directory": "ingestion/node/packages/common"
+    },
+    "files": [
+        "dist"
+    ],
+    "main": "dist/index.js",
+    "exports": {
+        "./types": {
+            "types": "./dist/types.d.ts",
+            "default": "./dist/types.js"
+        },
+        "./config": {
+            "types": "./dist/config.d.ts",
+            "default": "./dist/config.js"
+        },
+        "./plugin-scaffold": {
+            "types": "./dist/plugin-scaffold.d.ts",
+            "default": "./dist/plugin-scaffold.js"
+        },
+        "./lifecycle": {
+            "types": "./dist/lifecycle.d.ts",
+            "default": "./dist/lifecycle.js"
+        },
+        "./metrics": {
+            "types": "./dist/metrics.d.ts",
+            "default": "./dist/metrics.js"
+        },
+        "./clickhouse-config": {
+            "types": "./dist/clickhouse-config.d.ts",
+            "default": "./dist/clickhouse-config.js"
+        },
+        "./*": {
+            "types": "./dist/*.d.ts",
+            "default": "./dist/*.js"
+        }
+    },
+    "scripts": {
+        "build": "rm -rf dist && tsc -p tsconfig.build.json && tsc-alias -p tsconfig.build.json",
+        "typescript:check": "tsc --noEmit -p .",
+        "test": "jest --runInBand --forceExit",
+        "prepublishOnly": "pnpm build",
+        "generate:personhog-proto": "cd ../../../proto && buf generate --template ../node/packages/common/buf.gen.personhog.yaml --path personhog/service --path personhog/identity --path personhog/lifecycle --path personhog/types . && cd ../node/packages/common && prettier --write src/generated/personhog",
+        "generate:ingestion-worker-proto": "cd ../../../proto && buf generate --template ../node/packages/common/buf.gen.ingestion-worker.yaml --path ingestion/worker . && cd ../node/packages/common && prettier --write src/generated/ingestion-worker",
+        "generate:usage-ingestion-proto": "cd ../../../proto && buf generate --template ../node/packages/common/buf.gen.usage-ingestion.yaml --path usage_ingestion . && cd ../node/packages/common && prettier --write src/generated/usage-ingestion",
+        "lint": "oxlint -c .oxlintrc.json .",
+        "lint:fix": "oxlint -c .oxlintrc.json . --fix",
+        "format": "prettier --write .",
+        "format:check": "prettier --check ."
+    },
+    "dependencies": {
+        "@bufbuild/protobuf": "2.11.0",
+        "@clickhouse/client": "1.12.0",
+        "@connectrpc/connect": "2.1.1",
+        "@connectrpc/connect-node": "2.1.1",
+        "@maxmind/geoip2-node": "3.5.0",
+        "@opentelemetry/api": "1.9.0",
+        "@opentelemetry/resources": "2.0.1",
+        "@opentelemetry/sdk-metrics": "2.7.1",
+        "@opentelemetry/semantic-conventions": "1.36.0",
+        "cors": "2.8.5",
+        "fastpriorityqueue": "0.7.5",
+        "generic-pool": "3.9.0",
+        "ioredis": "4.28.5",
+        "ipaddr.js": "2.2.0",
+        "lodash": "4.18.1",
+        "lru-cache": "11.0.2",
+        "luxon": "3.5.0",
+        "node-rdkafka": "v3.6.1",
+        "node-schedule": "2.1.1",
+        "pg": "8.10.0",
+        "pino": "8.11.0",
+        "pino-pretty": "9.4.0",
+        "posthog-node": "5.61.2",
+        "prom-client": "14.2.0",
+        "re2": "1.27.0",
+        "snappy": "7.2.2",
+        "ultimate-express": "2.0.9",
+        "undici": "8.10.1",
+        "zod": "4.3.6"
+    },
+    "devDependencies": {
+        "@bufbuild/protoc-gen-es": "^2.11.0",
+        "@opentelemetry/sdk-trace-node": "2.0.1",
+        "@trivago/prettier-plugin-sort-imports": "^5.2.2",
+        "@types/cors": "2.8.19",
+        "@types/ioredis": "4.28.10",
+        "@types/jest": "30.0.0",
+        "@types/lodash": "4.17.16",
+        "@types/long": "4.0.2",
+        "@types/luxon": "3.4.2",
+        "@types/node": "26.6.5",
+        "@types/node-schedule": "2.1.0",
+        "@types/pg": "8.6.6",
+        "@types/supertest": "6.0.2",
+        "eslint-plugin-no-only-tests": "^3.1.0",
+        "jest": "30.0.5",
+        "jest-junit": "16.0.0",
+        "node-fetch": "2.6.9",
+        "oxlint": "1.72.0",
+        "oxlint-plugin-eslint": "1.72.0",
+        "oxlint-tsgolint": "7.0.2001",
+        "prettier": "~3.6.2",
+        "supertest": "7.2.2",
+        "ts-jest": "29.4.9",
+        "ts-node": "10.9.1",
+        "tsc-alias": "1.8.16",
+        "tsconfig-paths": "4.2.0",
+        "tsx": "4.20.5",
+        "typescript": "6.0.3"
+    },
+    "engines": {
+        "node": ">=26 <27"
+    }
+}

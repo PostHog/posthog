@@ -1,8 +1,9 @@
 import bigDecimal from 'js-big-decimal'
 
-import { logger } from '~/common/utils/logger'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { aiCacheExclusiveFallbackCounter } from '~/ingestion/pipelines/ai/metrics'
-import { PluginEvent } from '~/plugin-scaffold'
 
 import { numericProperty, stringProperty } from './cost-utils'
 import { ResolvedModelCost } from './providers/types'

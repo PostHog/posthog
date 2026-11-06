@@ -5,7 +5,8 @@
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { TopicPartition, TopicPartitionOffset } from 'node-rdkafka'
 
-import { logger } from '~/common/utils/logger'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { CaptureWatermark, CapturedData } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 
 import { V4Index } from './index-columns'

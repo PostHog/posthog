@@ -1,11 +1,11 @@
 import { createHash } from 'crypto'
 import { Message } from 'node-rdkafka'
 
-import { MessageKey } from '~/common/kafka/producer'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { IngestionOutputMessage } from '~/common/outputs/types'
-import { DependencyUnavailableError } from '~/common/utils/db/error'
-import { parseJSON } from '~/common/utils/json-parse'
+import { MessageKey } from '@posthog/node-common/kafka/producer'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { IngestionOutputMessage } from '@posthog/node-common/outputs/types'
+import { DependencyUnavailableError } from '@posthog/node-common/utils/db/error'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import { LogsIngestionFrameworkConsumer } from '../framework/logs-ingestion-framework-consumer'
 import { TracesIngestionFrameworkConsumer } from '../framework/traces-ingestion-framework-consumer'

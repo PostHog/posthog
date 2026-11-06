@@ -1,4 +1,5 @@
-import { GROUPS_OUTPUT, PERSONS_OUTPUT } from '~/common/outputs'
+import { GROUPS_OUTPUT, PERSONS_OUTPUT } from '@posthog/node-common/outputs/index'
+
 import { GroupFlushResult } from '~/ingestion/common/groups/group-store.interface'
 
 import { IngestionApiServer } from './ingestion-api-server'

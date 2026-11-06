@@ -1,8 +1,8 @@
 import { Histogram } from 'prom-client'
 import { ReadableStream } from 'stream/web'
 
-import { parseJSON } from '~/common/utils/json-parse'
-import { FetchOptions, FetchResponse, Response } from '~/common/utils/request'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { FetchOptions, FetchResponse, Response } from '@posthog/node-common/utils/request'
 
 import { LegacyPluginLogger } from '../legacy-plugins/types'
 import { SEGMENT_DESTINATIONS_BY_ID } from '../segment/segment-templates'

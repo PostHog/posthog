@@ -1,11 +1,12 @@
-import { UUIDT } from '~/common/utils/utils'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
 import {
     parseDate,
     parseEventTimestamp,
     toStartOfDayInTimezone,
     toYearMonthDayInTimezone,
 } from '~/ingestion/common/timestamps'
-import { PluginEvent } from '~/plugin-scaffold'
 
 describe('parseDate()', () => {
     // Get local timezone offset for Oct 29, 2021 at midnight

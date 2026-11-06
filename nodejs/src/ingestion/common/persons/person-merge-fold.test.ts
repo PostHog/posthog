@@ -1,5 +1,6 @@
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+
 import { isOkResult } from '~/ingestion/framework/results'
-import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, Team } from '~/types'
 
 import {

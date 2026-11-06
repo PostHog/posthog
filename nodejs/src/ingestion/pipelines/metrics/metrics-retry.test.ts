@@ -1,4 +1,5 @@
-import { DependencyUnavailableError, MessageSizeTooLarge } from '~/common/utils/db/error'
+import { DependencyUnavailableError, MessageSizeTooLarge } from '@posthog/node-common/utils/db/error'
+
 import { pipelineRetryAttemptsHistogram } from '~/ingestion/framework/metrics'
 
 import { retryAfterFirstFailure } from './metrics-retry'

@@ -5,9 +5,10 @@ import { NodeSDK } from '@opentelemetry/sdk-node'
 import { ParentBasedSampler, TraceIdRatioBasedSampler } from '@opentelemetry/sdk-trace-node'
 import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } from '@opentelemetry/semantic-conventions'
 
+import { registerShutdownHandler } from '@posthog/node-common/lifecycle'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { defaultConfig } from '~/common/config/config'
-import { logger } from '~/common/utils/logger'
-import { registerShutdownHandler } from '~/lifecycle'
 
 import { CappedSiblingsExporter } from './config/capped-siblings-exporter'
 

@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
-import { Properties } from '~/plugin-scaffold'
+import { Properties } from '@posthog/node-common/plugin-scaffold'
+
 import { GroupTypeIndex, ProjectId, TeamId } from '~/types'
 
 import { BatchWritingGroupStore } from './batch-writing-group-store'

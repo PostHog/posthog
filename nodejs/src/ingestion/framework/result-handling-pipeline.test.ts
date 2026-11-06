@@ -1,15 +1,16 @@
 import { Message } from 'node-rdkafka'
 
-import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '~/common/outputs'
-import { OverflowOutput } from '~/common/outputs'
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '@posthog/node-common/outputs/index'
+import { OverflowOutput } from '@posthog/node-common/outputs/index'
+import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+
 import { ingestionPipelineResultCounter } from '~/ingestion/common/metrics'
 import {
     logDroppedMessage,
     produceMessageToDLQ,
     redirectMessageToOutput,
 } from '~/ingestion/framework/result-handling-helpers'
-import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { createMockPipeline } from '~/tests/helpers/mock-pipeline'
 
 import { createContext } from './helpers'

@@ -1,29 +1,29 @@
 import { DateTime } from 'luxon'
 
-import { KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '~/common/config/kafka-topics'
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
-import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
-import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
+import { KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '@posthog/node-common/config/kafka-topics'
+import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
+import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '@posthog/node-common/outputs/single-ingestion-output'
+import { PostgresPersonRepository } from '@posthog/node-common/persons/repositories/postgres-person-repository'
 import {
     createPersonUpdateFields,
     fetchDistinctIdValues,
     fetchDistinctIds,
     fetchPersons,
-} from '~/common/persons/repositories/test-helpers'
-import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
-import { parseJSON } from '~/common/utils/json-parse'
-import { UUIDT, castTimestampOrNow } from '~/common/utils/utils'
+} from '@posthog/node-common/persons/repositories/test-helpers'
+import { Clickhouse } from '@posthog/node-common/testing/clickhouse'
+import { waitForExpect } from '@posthog/node-common/testing/expectations'
+import { ensureKafkaTopics } from '@posthog/node-common/testing/kafka'
+import { createUserTeamAndOrganization, fetchPostgresPersons, uniqueTestId } from '@posthog/node-common/testing/sql'
+import { PostgresRouter, PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { UUIDT, castTimestampOrNow } from '@posthog/node-common/utils/utils'
+
 import { IngestionGeneralServer } from '~/servers/ingestion-general-server'
 import { PluginServerMode, PluginsServerConfig, PropertyUpdateOperation, TimestampFormat } from '~/types'
 
-import { Clickhouse } from '../helpers/clickhouse'
-import { waitForExpect } from '../helpers/expectations'
-import { ensureKafkaTopics } from '../helpers/kafka'
-import { createUserTeamAndOrganization, fetchPostgresPersons, uniqueTestId } from '../helpers/sql'
-
-jest.mock('~/common/utils/logger')
+jest.mock('@posthog/node-common/utils/logger')
 
 function createPersonOutputs(kafkaProducer: KafkaProducerWrapper) {
     return new IngestionOutputs({

@@ -1,6 +1,6 @@
 import { Message, MessageHeader } from 'node-rdkafka'
 
-import { ingestionLagGauge, ingestionLagHistogram } from '~/common/metrics'
+import { ingestionLagGauge, ingestionLagHistogram } from '@posthog/node-common/metrics'
 
 /** The message fields the reporter reads — a raw Kafka {@link Message} satisfies this structurally. */
 export type LagReportableMessage = Pick<Message, 'partition' | 'headers'>

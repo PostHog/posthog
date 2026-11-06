@@ -1,6 +1,7 @@
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import * as requestModule from '@posthog/node-common/utils/request'
+
 import { defaultConfig } from '~/common/config/config'
-import { parseJSON } from '~/common/utils/json-parse'
-import * as requestModule from '~/common/utils/request'
 
 import { createExampleInvocation } from '../_tests/fixtures'
 import { AsyncFunctionContext, getAsyncFunctionHandler } from '../async-function-registry'

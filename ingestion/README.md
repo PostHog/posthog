@@ -18,7 +18,8 @@ The directory exists so that a change outside it can never affect ingestion's te
 ```text
 ingestion/
   rust/      the cargo workspace: services, shared crates, Dockerfile
-  node/      the pnpm workspace: the ingestion package, with the AI research pipelines beside it
+  node/      the pnpm workspace: packages/common (@posthog/node-common, published) and packages/ingestion (the services,
+             with the AI research pipelines inside)
   proto/     the protos ingestion owns
   pinned/    copies of outside format files, each with a SOURCE.json
   ci/        compose stack, service configs, scripts and composite actions the workflows use

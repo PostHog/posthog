@@ -1,9 +1,10 @@
 import { randomUUID } from 'crypto'
 
+import { RedisV2, createRedisV2PoolFromConfig } from '@posthog/node-common/redis/redis-v2'
+import { delay } from '@posthog/node-common/utils/utils'
+
 import { HogFlow } from '~/cdp/schema/hogflow'
-import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { delay } from '~/common/utils/utils'
 import { Hub } from '~/types'
 
 import { HOG_FLOW_MASK_EXAMPLES, HOG_MASK_EXAMPLES } from '../../_tests/examples'

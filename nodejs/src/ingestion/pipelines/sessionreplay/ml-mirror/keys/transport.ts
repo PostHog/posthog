@@ -1,7 +1,8 @@
 import { Message } from 'node-rdkafka'
 
-import { parseKafkaHeaders } from '~/common/kafka/consumer/consumer-v1'
-import { parseJSON } from '~/common/utils/json-parse'
+import { parseKafkaHeaders } from '@posthog/node-common/kafka/consumer/consumer-v1'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+
 import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
 import { MlMirrorMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror/metrics'
 import {

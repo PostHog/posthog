@@ -4,14 +4,15 @@ import pLimit from 'p-limit'
 import {
     ClickhouseGroupRepository,
     GroupClickhouseMessage,
-} from '~/common/groups/repositories/clickhouse-group-repository'
-import { GroupRepositoryTransaction } from '~/common/groups/repositories/group-repository-transaction.interface'
-import { GroupCreateResult, GroupRepository } from '~/common/groups/repositories/group-repository.interface'
-import { logger } from '~/common/utils/logger'
-import { promiseRetry } from '~/common/utils/retries'
-import { RaceConditionError } from '~/common/utils/utils'
+} from '@posthog/node-common/groups/repositories/clickhouse-group-repository'
+import { GroupRepositoryTransaction } from '@posthog/node-common/groups/repositories/group-repository-transaction.interface'
+import { GroupCreateResult, GroupRepository } from '@posthog/node-common/groups/repositories/group-repository.interface'
+import { Properties } from '@posthog/node-common/plugin-scaffold'
+import { logger } from '@posthog/node-common/utils/logger'
+import { promiseRetry } from '@posthog/node-common/utils/retries'
+import { RaceConditionError } from '@posthog/node-common/utils/utils'
+
 import { BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
-import { Properties } from '~/plugin-scaffold'
 import { Group, GroupTypeIndex, TeamId } from '~/types'
 
 import { logMissingRow, logVersionMismatch } from './group-logging'

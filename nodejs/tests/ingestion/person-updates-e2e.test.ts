@@ -13,12 +13,13 @@
  */
 import { DateTime } from 'luxon'
 
+import { ClickhouseGroupRepository } from '@posthog/node-common/groups/repositories/clickhouse-group-repository'
+import { waitForExpect } from '@posthog/node-common/testing/expectations'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
 import { createHogTransformerService } from '~/cdp/hog-transformations/hog-transformer.service'
-import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
-import { UUIDT } from '~/common/utils/utils'
 import { PersonBatchWritingDbWriteMode } from '~/ingestion/config'
 import { IngestionConsumer } from '~/ingestion/ingestion-consumer'
-import { waitForExpect } from '~/tests/helpers/expectations'
 import {
     EventBuilder,
     createKafkaMessages,
@@ -28,7 +29,7 @@ import {
 } from '~/tests/helpers/ingestion-e2e'
 import { createTestIngestionOutputs, createTestMonitoringOutputs } from '~/tests/helpers/ingestion-outputs'
 
-jest.mock('~/common/utils/token-bucket', () => {
+jest.mock('@posthog/node-common/utils/token-bucket', () => {
     const mockConsume = jest.fn().mockReturnValue(true)
     return {
         IngestionWarningLimiter: {
@@ -37,7 +38,7 @@ jest.mock('~/common/utils/token-bucket', () => {
     }
 })
 
-jest.mock('~/common/utils/logger')
+jest.mock('@posthog/node-common/utils/logger')
 
 // All possible values for each flag
 const DB_WRITE_MODES: PersonBatchWritingDbWriteMode[] = ['NO_ASSERT', 'ASSERT_VERSION']

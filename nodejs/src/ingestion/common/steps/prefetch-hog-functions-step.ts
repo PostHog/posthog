@@ -1,4 +1,5 @@
-import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
+import { HogTransformer } from '@posthog/node-common/hog-transformations/hog-transformer.interface'
+
 import { createPrefetchStep } from '~/ingestion/common/steps/create-prefetch-step'
 import { Team } from '~/types'
 

@@ -1,8 +1,8 @@
 import { Histogram } from 'prom-client'
 
-import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
-import { FetchOptions, FetchResponse } from '~/common/utils/request'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger } from '@posthog/node-common/utils/logger'
+import { FetchOptions, FetchResponse } from '@posthog/node-common/utils/request'
 
 import { NATIVE_HOG_FUNCTIONS_BY_ID } from '../templates'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, Response } from '../types'

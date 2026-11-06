@@ -1,6 +1,7 @@
-import { APP_METRICS_OUTPUT, AppMetricsOutput } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { castTimestampOrNow } from '~/common/utils/utils'
+import { APP_METRICS_OUTPUT, AppMetricsOutput } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { castTimestampOrNow } from '@posthog/node-common/utils/utils'
+
 import { TimestampFormat } from '~/types'
 
 interface AggregatedMetric {

@@ -1,11 +1,12 @@
-import { sanitizeEventName } from '~/common/utils/db/utils'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { sanitizeEventName } from '@posthog/node-common/utils/db/utils'
+
 import { IngestionWarningType } from '~/ingestion/common/ingestion-warnings'
 import { invalidTimestampCounter } from '~/ingestion/common/metrics'
 import { parseEventTimestamp } from '~/ingestion/common/timestamps'
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, ISOTimestamp, PreIngestionEvent, Team } from '~/types'
 
 import { stripBloatProperties } from './strip-bloat-properties'

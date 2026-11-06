@@ -1,8 +1,9 @@
+import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
+import { DependencyUnavailableError } from '@posthog/node-common/utils/db/error'
+import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
+
 import { IntegrationType } from '~/cdp/types'
-import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
-import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
 
 import { insertIntegration } from '../../_tests/fixtures'

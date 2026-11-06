@@ -1,6 +1,7 @@
 import { Histogram } from 'prom-client'
 
-import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
+import { HogTransformer } from '@posthog/node-common/hog-transformations/hog-transformer.interface'
+
 import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 

@@ -1,6 +1,7 @@
 /** The primary session replay pipeline plus an AI-training opt-in filter and an anonymize step, split into the stages the staged batch runner overlaps. */
-import { OverflowOutput } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { OverflowOutput } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+
 import { BatchingContext, BatchingPipeline } from '~/ingestion/framework/batching-pipeline'
 import { newBatchingPipeline } from '~/ingestion/framework/builders'
 import { createTopHogWrapper, timer } from '~/ingestion/framework/extensions/tophog'

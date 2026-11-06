@@ -1,6 +1,5 @@
-import { buildIntegerMatcher } from '~/common/config/config'
-import { ReadOnlyGroupTypeManager } from '~/common/groups/readonly-group-type-manager'
-import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
+import { ReadOnlyGroupTypeManager } from '@posthog/node-common/groups/readonly-group-type-manager'
+import { HogTransformer } from '@posthog/node-common/hog-transformations/hog-transformer.interface'
 import {
     AiEventOutput,
     AppMetricsOutput,
@@ -9,19 +8,21 @@ import {
     IngestionWarningsOutput,
     OverflowOutput,
     TophogOutput,
-} from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
-import { PersonHogConfig } from '~/common/personhog'
-import { PersonHogClientComponent } from '~/common/personhog/personhog-client-component'
-import { PersonHogGroupReadRepository } from '~/common/personhog/personhog-group-read-repository'
-import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
-import { UsageIngestionConfig, createEventUsageBatchFactory } from '~/common/usage-ingestion'
-import { PostgresRouter } from '~/common/utils/db/postgres'
-import { EventIngestionRestrictionManagerComponent } from '~/common/utils/event-ingestion-restrictions'
-import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
-import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
-import { TeamManager } from '~/common/utils/team-manager'
+} from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
+import { PersonHogConfig } from '@posthog/node-common/personhog/index'
+import { PersonHogClientComponent } from '@posthog/node-common/personhog/personhog-client-component'
+import { PersonHogGroupReadRepository } from '@posthog/node-common/personhog/personhog-group-read-repository'
+import { PersonHogPersonReadRepository } from '@posthog/node-common/personhog/personhog-person-read-repository'
+import { UsageIngestionConfig, createEventUsageBatchFactory } from '@posthog/node-common/usage-ingestion/index'
+import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
+import { EventIngestionRestrictionManagerComponent } from '@posthog/node-common/utils/event-ingestion-restrictions/index'
+import { EventSchemaEnforcementManager } from '@posthog/node-common/utils/event-schema-enforcement-manager'
+import { DEFAULT_LOADER_RETRY } from '@posthog/node-common/utils/lazy-loader'
+import { TeamManager } from '@posthog/node-common/utils/team-manager'
+
+import { buildIntegerMatcher } from '~/common/config/config'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { EventFilterManagerComponent } from '~/ingestion/common/event-filters'
 import { CommonIngestionConsumerConfig, CommonIngestionConsumerScope } from '~/ingestion/common/ingestion-consumer'

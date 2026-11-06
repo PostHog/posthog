@@ -1,7 +1,8 @@
 import { DateTime } from 'luxon'
 
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+
 import { IngestionWarningType } from '~/ingestion/common/ingestion-warnings'
-import { PluginEvent } from '~/plugin-scaffold'
 
 type IngestionWarningCallback = (type: IngestionWarningType, details: Record<string, any>) => void
 

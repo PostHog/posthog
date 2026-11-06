@@ -1,6 +1,7 @@
-import { BackgroundRefresher } from '~/common/utils/background-refresher'
-import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
-import { logger } from '~/common/utils/logger'
+import { BackgroundRefresher } from '@posthog/node-common/utils/background-refresher'
+import { PostgresRouter, PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { RetentionPeriod, isValidRetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { Team, TeamId } from '~/types'
 

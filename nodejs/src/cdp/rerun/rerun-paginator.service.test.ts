@@ -1,18 +1,19 @@
-import { MockKafkaProducerWrapper } from '~/tests/helpers/mocks/producer.mock'
+import { MockKafkaProducerWrapper } from '@posthog/node-common/testing/mocks/producer.mock'
 
 import { ClickHouseClient } from '@clickhouse/client'
 import { DateTime } from 'luxon'
 
-import { KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { KAFKA_HOG_INVOCATION_RESULTS } from '@posthog/node-common/config/kafka-topics'
+import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
+import { Clickhouse } from '@posthog/node-common/testing/clickhouse'
+import { waitForExpect } from '@posthog/node-common/testing/expectations'
+import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '@posthog/node-common/testing/kafka'
+import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
-import { Clickhouse } from '~/tests/helpers/clickhouse'
-import { waitForExpect } from '~/tests/helpers/expectations'
 import { waitForHogInvocationResultsMvReady } from '~/tests/helpers/hog-invocation-results'
-import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
-import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../types'
 import { insertHogFunction as _insertHogFunction, createHogExecutionGlobals } from '../_tests/fixtures'
@@ -27,7 +28,7 @@ import { CyclotronJobInvocationHogFunction, HogFunctionInvocationGlobals, HogFun
 import { RERUN_MAX_CONSECUTIVE_PAGE_ERRORS, RERUN_PAGE_SIZE, RerunJobState } from './rerun-job.types'
 import { RerunPaginatorService } from './rerun-paginator.service'
 
-const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer').KafkaProducerWrapper
+const ActualKafkaProducerWrapper = jest.requireActual('@posthog/node-common/kafka/producer').KafkaProducerWrapper
 
 /**
  * Integration test for RerunPaginatorService.

@@ -1,4 +1,5 @@
-import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { RedisV2, createRedisV2PoolFromConfig } from '@posthog/node-common/redis/redis-v2'
+
 import { MetricsIngestionConsumerConfig } from '~/ingestion/pipelines/metrics/config'
 
 export type MetricsRedisConfig = Pick<

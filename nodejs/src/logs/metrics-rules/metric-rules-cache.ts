@@ -1,4 +1,4 @@
-import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '@posthog/node-common/utils/db/postgres'
 
 import { type CompiledMetricRule, type MetricRuleRow, compileMetricRules } from './compile-metric-rules'
 

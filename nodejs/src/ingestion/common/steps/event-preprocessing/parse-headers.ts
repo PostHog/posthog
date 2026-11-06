@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
-import { parseEventHeaders } from '~/common/kafka/consumer'
+import { parseEventHeaders } from '@posthog/node-common/kafka/consumer/index'
+
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { EventHeaders } from '~/types'

@@ -1,9 +1,10 @@
 import pLimit from 'p-limit'
 import { v7 as uuidv7 } from 'uuid'
 
-import { logger } from '~/common/utils/logger'
-import { captureException } from '~/common/utils/posthog'
-import { threadpoolConcurrency } from '~/common/utils/threadpool-concurrency'
+import { logger } from '@posthog/node-common/utils/logger'
+import { captureException } from '@posthog/node-common/utils/posthog'
+import { threadpoolConcurrency } from '@posthog/node-common/utils/threadpool-concurrency'
+
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import {

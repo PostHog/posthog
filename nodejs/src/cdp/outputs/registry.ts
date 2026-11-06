@@ -3,8 +3,8 @@ import {
     HOG_INVOCATION_RESULTS_OUTPUT,
     LOG_ENTRIES_OUTPUT,
     MESSAGE_ASSETS_OUTPUT,
-} from '~/common/outputs'
-import { IngestionOutputsBuilder } from '~/common/outputs/ingestion-outputs-builder'
+} from '@posthog/node-common/outputs/index'
+import { IngestionOutputsBuilder } from '@posthog/node-common/outputs/ingestion-outputs-builder'
 
 import { CDP_EVENTS_DLQ_OUTPUT, EMAIL_STATUS_OUTPUT, WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT } from './outputs'
 

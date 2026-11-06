@@ -2,9 +2,9 @@ import { DateTime } from 'luxon'
 import { Summary } from 'prom-client'
 import { gunzip, gzip } from 'zlib'
 
-import { parseJSON } from '~/common/utils/json-parse'
-import { sanitizeForUTF8 } from '~/common/utils/strings'
-import { UUIDT, castTimestampOrNow, clickHouseTimestampToDateTime } from '~/common/utils/utils'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { sanitizeForUTF8 } from '@posthog/node-common/utils/strings'
+import { UUIDT, castTimestampOrNow, clickHouseTimestampToDateTime } from '@posthog/node-common/utils/utils'
 
 import { ClickHouseTimestamp, ISOTimestamp, RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { CdpInternalEvent } from './schema'

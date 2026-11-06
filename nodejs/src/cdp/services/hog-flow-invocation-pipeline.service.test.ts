@@ -1,4 +1,5 @@
-import { QuotaLimiting } from '../../common/services/quota-limiting.service'
+import { QuotaLimiting } from '@posthog/node-common/services/quota-limiting.service'
+
 import { HogFunctionInvocationGlobals } from '../types'
 import { HogFlowInvocationPipeline } from './hog-flow-invocation-pipeline.service'
 import { HogFlowExecutorService } from './hogflows/hogflow-executor.service'
@@ -7,7 +8,7 @@ import { HogFunctionMonitoringService } from './monitoring/hog-function-monitori
 import { HogMaskerService } from './monitoring/hog-masker.service'
 import { HogWatcherService, HogWatcherState } from './monitoring/hog-watcher.service'
 
-jest.mock('../../common/services/keyed-rate-limiter.service', () => ({
+jest.mock('@posthog/node-common/services/keyed-rate-limiter.service', () => ({
     KeyedRateLimiterService: jest.fn().mockImplementation(() => ({
         rateLimitGrouped: jest.fn(),
     })),

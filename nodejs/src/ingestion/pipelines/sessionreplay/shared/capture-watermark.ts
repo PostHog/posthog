@@ -1,7 +1,7 @@
 import { Message, TopicPartition, TopicPartitionOffset } from 'node-rdkafka'
 import { Gauge } from 'prom-client'
 
-import { parseKafkaHeaders } from '~/common/kafka/consumer/consumer-v1'
+import { parseKafkaHeaders } from '@posthog/node-common/kafka/consumer/consumer-v1'
 
 /**
  * Every record on an ML replay topic carries the Kafka timestamp of the replay record that its data

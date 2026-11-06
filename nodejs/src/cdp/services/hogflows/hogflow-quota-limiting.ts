@@ -1,8 +1,9 @@
 import { Counter } from 'prom-client'
 
+import { QuotaLimiting } from '@posthog/node-common/services/quota-limiting.service'
+
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 
-import { QuotaLimiting } from '../../../common/services/quota-limiting.service'
 import { CyclotronJobInvocationHogFlow } from '../../types'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
 import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'

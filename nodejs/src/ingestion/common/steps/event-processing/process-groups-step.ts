@@ -1,15 +1,16 @@
 import { DateTime } from 'luxon'
 
-import { GroupTypeManager } from '~/common/groups/group-type-manager'
-import { asPostgresParameterText, sanitizeString } from '~/common/utils/db/utils'
-import { logger } from '~/common/utils/logger'
-import { captureException } from '~/common/utils/posthog'
-import { TeamManager } from '~/common/utils/team-manager'
+import { GroupTypeManager } from '@posthog/node-common/groups/group-type-manager'
+import { Properties } from '@posthog/node-common/plugin-scaffold'
+import { asPostgresParameterText, sanitizeString } from '@posthog/node-common/utils/db/utils'
+import { logger } from '@posthog/node-common/utils/logger'
+import { captureException } from '@posthog/node-common/utils/posthog'
+import { TeamManager } from '@posthog/node-common/utils/team-manager'
+
 import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { Properties } from '~/plugin-scaffold'
 import { PreIngestionEvent, ProjectId, Team, TeamId } from '~/types'
 
 import { EventPipelineRunnerOptions } from './event-pipeline-options'

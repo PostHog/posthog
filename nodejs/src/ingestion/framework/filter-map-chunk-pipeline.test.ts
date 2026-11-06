@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
-import { createTestMessage } from '~/tests/helpers/kafka-message'
+import { createTestMessage } from '@posthog/node-common/testing/kafka-message'
+
 import { createMockPipeline } from '~/tests/helpers/mock-pipeline'
 
 import { ChunkPipelineResultWithContext } from './chunk-pipeline.interface'

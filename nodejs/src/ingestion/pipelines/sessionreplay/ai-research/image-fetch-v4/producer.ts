@@ -1,7 +1,8 @@
-import { TOPHOG_OUTPUT, TophogOutput } from '~/common/outputs'
-import { IngestionOutputsBuilder } from '~/common/outputs/ingestion-outputs-builder'
-import type { AllowedConfigKey } from '~/common/outputs/kafka-producer-config'
-import { KafkaProducerRegistryBuilder } from '~/common/outputs/kafka-producer-registry-builder'
+import { TOPHOG_OUTPUT, TophogOutput } from '@posthog/node-common/outputs/index'
+import { IngestionOutputsBuilder } from '@posthog/node-common/outputs/ingestion-outputs-builder'
+import type { AllowedConfigKey } from '@posthog/node-common/outputs/kafka-producer-config'
+import { KafkaProducerRegistryBuilder } from '@posthog/node-common/outputs/kafka-producer-registry-builder'
+
 import {
     INGESTION_DOWNSTREAM_PRODUCER,
     INGESTION_DOWNSTREAM_PRODUCER_CONFIG_MAP,

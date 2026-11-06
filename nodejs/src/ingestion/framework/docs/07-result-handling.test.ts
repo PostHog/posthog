@@ -67,8 +67,11 @@
  */
 import { Message } from 'node-rdkafka'
 
-import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '~/common/outputs'
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '@posthog/node-common/outputs/index'
+import { createTestMessage } from '@posthog/node-common/testing/kafka-message'
+import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+
 import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import {
@@ -81,8 +84,6 @@ import {
     ok,
     redirect,
 } from '~/ingestion/framework/results'
-import { createTestMessage } from '~/tests/helpers/kafka-message'
-import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 
 type ChunkProcessingStep<T, U, R extends string = never> = (values: T[]) => Promise<PipelineResult<U, R>[]>
 

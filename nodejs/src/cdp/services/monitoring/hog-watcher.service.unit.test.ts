@@ -1,4 +1,4 @@
-import { RedisClientPipeline, RedisV2 } from '~/common/redis/redis-v2'
+import { RedisClientPipeline, RedisV2 } from '@posthog/node-common/redis/redis-v2'
 
 import { createExampleInvocation } from '../../_tests/fixtures'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../../types'

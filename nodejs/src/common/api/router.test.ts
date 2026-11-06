@@ -1,8 +1,9 @@
 import supertest from 'supertest'
 
-import { PluginServerMode } from '~/common/config'
+import { PluginServerMode } from '@posthog/node-common/config'
+import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '@posthog/node-common/testing/kafka'
+
 import { IngestionGeneralServer } from '~/servers/ingestion-general-server'
-import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 
 describe('router', () => {
     jest.retryTimes(3, { logErrorsBeforeRetry: true }) // Flakey due to reliance on kafka/clickhouse

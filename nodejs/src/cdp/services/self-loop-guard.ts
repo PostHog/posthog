@@ -1,6 +1,6 @@
 import { Counter } from 'prom-client'
 
-import { parseJSON } from '~/common/utils/json-parse'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import { Team } from '../../types'
 

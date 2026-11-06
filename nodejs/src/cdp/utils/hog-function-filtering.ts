@@ -2,12 +2,12 @@ import { DateTime } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
 
 import { ExecResult } from '@posthog/hogvm'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger } from '@posthog/node-common/utils/logger'
+import { createTrackedRE2 } from '@posthog/node-common/utils/tracked-re2'
+import { UUIDT, clickHouseTimestampToISO } from '@posthog/node-common/utils/utils'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
-import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
-import { createTrackedRE2 } from '~/common/utils/tracked-re2'
-import { UUIDT, clickHouseTimestampToISO } from '~/common/utils/utils'
 
 import { RawClickHouseEvent } from '../../types'
 import {

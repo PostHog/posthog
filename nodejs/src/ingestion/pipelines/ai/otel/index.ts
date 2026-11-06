@@ -1,5 +1,6 @@
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+
 import { aiOtelEventTypeCounter, aiOtelMiddlewareCounter } from '~/ingestion/pipelines/ai/metrics'
-import { PluginEvent } from '~/plugin-scaffold'
 
 import { mapOtelAttributes } from './attribute-mapping'
 import { anthropic } from './middleware/anthropic'

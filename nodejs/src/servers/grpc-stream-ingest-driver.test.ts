@@ -1,4 +1,5 @@
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+
 import { SubBatchBudget } from '~/ingestion/api/grpc-server'
 import { BatchBudget } from '~/ingestion/framework/batch-budget'
 import { PipelineResult, drop, ok, timeout } from '~/ingestion/framework/results'

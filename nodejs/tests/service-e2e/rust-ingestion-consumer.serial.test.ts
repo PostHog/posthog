@@ -13,15 +13,21 @@ import {
     KAFKA_EVENTS_JSON,
     KAFKA_EVENTS_PLUGIN_INGESTION,
     KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
-} from '~/common/config/kafka-topics'
-import { KafkaProducerWrapper, MessageWithoutTopic } from '~/common/kafka/producer'
-import { parseJSON } from '~/common/utils/json-parse'
-import { UUIDT } from '~/common/utils/utils'
-import { waitForExpect } from '~/tests/helpers/expectations'
-import { TEST_KAFKA_TOPICS, createKafkaTestTopicName, ensureKafkaTopics } from '~/tests/helpers/kafka'
-import { ServiceProcess, getFreePort, getFreeWorkerPort, isPortFree } from '~/tests/helpers/service-process'
+} from '@posthog/node-common/config/kafka-topics'
+import { KafkaProducerWrapper, MessageWithoutTopic } from '@posthog/node-common/kafka/producer'
+import { Clickhouse } from '@posthog/node-common/testing/clickhouse'
+import { waitForExpect } from '@posthog/node-common/testing/expectations'
+import { TEST_KAFKA_TOPICS, createKafkaTestTopicName, ensureKafkaTopics } from '@posthog/node-common/testing/kafka'
+import {
+    ServiceProcess,
+    getFreePort,
+    getFreeWorkerPort,
+    isPortFree,
+} from '@posthog/node-common/testing/service-process'
+import { resetTestDatabase } from '@posthog/node-common/testing/sql'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { UUIDT } from '@posthog/node-common/utils/utils'
 
-import { Clickhouse } from '../helpers/clickhouse'
 import {
     DEFAULT_TEAM,
     EventBuilder,
@@ -30,7 +36,6 @@ import {
     waitForClickHouseKafkaConsumer,
     waitForKafkaMessages,
 } from '../helpers/ingestion-e2e'
-import { resetTestDatabase } from '../helpers/sql'
 
 jest.setTimeout(300_000)
 

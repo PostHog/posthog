@@ -1,8 +1,9 @@
 import { randomUUID } from 'crypto'
 import { register } from 'prom-client'
 
-import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
-import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { deleteKeysWithPrefix } from '@posthog/node-common/redis/_tests/redis'
+import { RedisV2, createRedisV2PoolFromConfig } from '@posthog/node-common/redis/redis-v2'
+
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { Hub } from '~/types'
 

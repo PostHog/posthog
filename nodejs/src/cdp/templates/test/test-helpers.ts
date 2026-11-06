@@ -2,6 +2,8 @@ import Chance from 'chance'
 import { merge as mergeDeep } from 'lodash'
 import { Settings } from 'luxon'
 
+import { GeoIPService, GeoIp } from '@posthog/node-common/utils/geoip'
+
 import { getTransformationFunctions } from '~/cdp/hog-transformations/transformation-functions'
 import { CyclotronInputType } from '~/cdp/schema/cyclotron'
 import { HogFlow } from '~/cdp/schema/hogflow'
@@ -11,7 +13,6 @@ import { isNativeHogFunction } from '~/cdp/utils'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { defaultConfig } from '~/common/config/config'
-import { GeoIPService, GeoIp } from '~/common/utils/geoip'
 
 import { PluginsServerConfig } from '../../../types'
 import { HogExecutorAsyncService } from '../../services/hog-executor-async.service'
@@ -265,7 +266,7 @@ export class TemplateTester {
     */
     async beforeEach() {
         Settings.defaultZone = 'UTC'
-        const requestModule = require('~/common/utils/request')
+        const requestModule = require('@posthog/node-common/utils/request')
         jest.spyOn(requestModule, 'internalFetch').mockImplementation(this.mockInternalFetch)
         if (!this.geoipService) {
             this.geoipService = new GeoIPService(defaultConfig.MMDB_FILE_LOCATION)

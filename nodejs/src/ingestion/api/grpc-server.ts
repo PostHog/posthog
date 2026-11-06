@@ -15,8 +15,9 @@ import {
     SubBatchAckSchema,
     SubBatchStatus,
     WorkerIngest,
-} from '~/common/generated/ingestion-worker/ingestion/worker/v1/worker_pb'
-import { logger } from '~/common/utils/logger'
+} from '@posthog/node-common/generated/ingestion-worker/ingestion/worker/v1/worker_pb'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { budgetDeadline } from '~/ingestion/framework/batch-budget'
 import { FeedResult } from '~/ingestion/framework/batching-pipeline'
 

@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto'
 
-import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
+import { Properties } from '@posthog/node-common/plugin-scaffold'
+import { UsageRecordBatch } from '@posthog/node-common/usage-ingestion/usage-record-batch'
+
 import { resolvePersonMode } from '~/ingestion/common/steps/event-processing/create-event'
 import { IngestedEventInfo } from '~/ingestion/common/steps/event-processing/emit-event-step'
 import {
@@ -11,7 +13,6 @@ import {
 import { BeforeBatchStep } from '~/ingestion/framework/batching-pipeline'
 import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { Properties } from '~/plugin-scaffold'
 import { EventHeaders, Person } from '~/types'
 
 export interface EventUsageBatchContext {

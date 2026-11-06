@@ -7,15 +7,16 @@ import {
     IngestionWarningsOutput,
     OVERFLOW_OUTPUT,
     OverflowOutput,
-} from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+} from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
+
 import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
 import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { createBatch, createUnwrapper } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import { PipelineResult, dlq, drop, ok, redirect } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { FlagEvaluationsMode, ProjectId, Team } from '~/types'
 
 const createTestTeam = (overrides: Partial<Team> = {}): Team => ({

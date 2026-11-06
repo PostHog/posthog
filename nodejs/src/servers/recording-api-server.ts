@@ -1,8 +1,10 @@
+import { CommonConfig } from '@posthog/node-common/config'
+import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
+import { PostgresRouter, PostgresRouterConfig } from '@posthog/node-common/utils/db/postgres'
+import { isProdEnv } from '@posthog/node-common/utils/env-utils'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
-import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
-import { PostgresRouter, PostgresRouterConfig } from '~/common/utils/db/postgres'
-import { isProdEnv } from '~/common/utils/env-utils'
-import { logger } from '~/common/utils/logger'
 import {
     getDefaultSessionRecordingApiConfig,
     getDefaultSessionRecordingConfig,
@@ -29,7 +31,6 @@ import {
     parseRecordingApiRole,
 } from '~/session-replay/recording-api/types'
 
-import { CommonConfig } from '../common/config'
 import { KafkaBrokerConfig } from '../ingestion/config'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 

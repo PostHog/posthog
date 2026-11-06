@@ -1,7 +1,8 @@
 import { Message } from 'node-rdkafka'
 
-import { QuotaLimiting } from '~/common/services/quota-limiting.service'
-import { TeamManager } from '~/common/utils/team-manager'
+import { QuotaLimiting } from '@posthog/node-common/services/quota-limiting.service'
+import { TeamManager } from '@posthog/node-common/utils/team-manager'
+
 import { isOkResult } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 

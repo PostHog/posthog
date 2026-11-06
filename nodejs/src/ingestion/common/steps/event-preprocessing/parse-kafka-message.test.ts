@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
-import { logger } from '~/common/utils/logger'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { TopHogRegistry, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { PipelineResultType, dlq, ok } from '~/ingestion/framework/results'
 import { createRecordingTopHog } from '~/tests/helpers/tophog'
@@ -9,7 +10,7 @@ import { EventHeaders } from '~/types'
 import { createParseKafkaMessageStep, parseMessageTopHogMetrics } from './parse-kafka-message'
 
 // Mock dependencies
-jest.mock('~/common/utils/logger')
+jest.mock('@posthog/node-common/utils/logger')
 
 const VALID_UUID = '123e4567-e89b-12d3-a456-426614174000'
 

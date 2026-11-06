@@ -1,5 +1,6 @@
-import { groupUpdateVersionMismatchCounter } from '~/common/utils/db/metrics'
-import { logger } from '~/common/utils/logger'
+import { groupUpdateVersionMismatchCounter } from '@posthog/node-common/utils/db/metrics'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { GroupTypeIndex, TeamId } from '~/types'
 
 export function logVersionMismatch(

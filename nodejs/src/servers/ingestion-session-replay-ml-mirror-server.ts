@@ -2,11 +2,12 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { NodeHttpHandler } from '@smithy/node-http-handler'
 
-import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
-import { PostgresRouter } from '~/common/utils/db/postgres'
-import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
-import { threadpoolConcurrency } from '~/common/utils/threadpool-concurrency'
+import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
+import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger } from '@posthog/node-common/utils/logger'
+import { threadpoolConcurrency } from '@posthog/node-common/utils/threadpool-concurrency'
+
 import { AllowListFetcher, loadAllowLists } from '~/ingestion/pipelines/sessionreplay/anonymize/allow-list-loader'
 import { type SessionReplayProducerName } from '~/ingestion/pipelines/sessionreplay/config'
 import {

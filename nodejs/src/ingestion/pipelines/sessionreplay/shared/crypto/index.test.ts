@@ -1,4 +1,5 @@
-import * as envUtils from '~/common/utils/env-utils'
+import * as envUtils from '@posthog/node-common/utils/env-utils'
+
 import { KeyStore, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 
 import { CleartextRecordingDecryptor } from './cleartext-decryptor'
@@ -7,8 +8,8 @@ import { getBlockDecryptor, getBlockEncryptor } from './index'
 import { SodiumRecordingDecryptor } from './sodium-decryptor'
 import { SodiumRecordingEncryptor } from './sodium-encryptor'
 
-jest.mock('~/common/utils/env-utils', () => ({
-    ...jest.requireActual('~/common/utils/env-utils'),
+jest.mock('@posthog/node-common/utils/env-utils', () => ({
+    ...jest.requireActual('@posthog/node-common/utils/env-utils'),
     isCloud: jest.fn(),
 }))
 

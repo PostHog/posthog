@@ -1,6 +1,6 @@
-import { TOPHOG_OUTPUT, TophogOutput } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { parseJSON } from '~/common/utils/json-parse'
+import { TOPHOG_OUTPUT, TophogOutput } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import { TopHog, TopHogOptionalConfig, TopHogRequiredConfig } from './tophog'
 

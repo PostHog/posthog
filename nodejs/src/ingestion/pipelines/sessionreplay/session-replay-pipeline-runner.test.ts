@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
 
 import { BatchStages } from './batch-stages'
 import { SessionRecordingIngesterMetrics } from './metrics'

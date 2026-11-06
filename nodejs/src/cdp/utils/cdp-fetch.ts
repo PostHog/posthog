@@ -2,10 +2,16 @@ import { DateTime } from 'luxon'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { Counter, Histogram } from 'prom-client'
 
-import { fetchAttribution } from '~/common/utils/fetch-attribution'
-import { logger } from '~/common/utils/logger'
-import { FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError, fetch } from '~/common/utils/request'
-import { tryCatch } from '~/common/utils/try-catch'
+import { fetchAttribution } from '@posthog/node-common/utils/fetch-attribution'
+import { logger } from '@posthog/node-common/utils/logger'
+import {
+    FetchOptions,
+    FetchResponse,
+    InvalidRequestError,
+    SecureRequestError,
+    fetch,
+} from '@posthog/node-common/utils/request'
+import { tryCatch } from '@posthog/node-common/utils/try-catch'
 
 import { PluginsServerConfig } from '../../types'
 

@@ -1,6 +1,6 @@
 import sodium from 'libsodium-wrappers'
 
-import { parseJSON } from '~/common/utils/json-parse'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 // A ref names a block without revealing its storage key: the location, encrypted with keys derived from the
 // session key, under a nonce hashed from the location, so the same block always gets the same cacheable URL.

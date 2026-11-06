@@ -3,7 +3,7 @@ import { RasterizationError } from '~/session-replay/recording-rasterizer/errors
 import { RasterizeRecordingInput } from '~/session-replay/recording-rasterizer/types'
 
 const mockInternalFetch = jest.fn()
-jest.mock('~/common/utils/request', () => ({
+jest.mock('@posthog/node-common/utils/request', () => ({
     internalFetch: (...args: any[]) => mockInternalFetch(...args),
 }))
 

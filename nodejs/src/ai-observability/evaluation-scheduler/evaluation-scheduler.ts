@@ -13,6 +13,13 @@ import * as crypto from 'crypto'
 import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 
+import { KAFKA_CLICKHOUSE_AI_EVENTS_JSON, prefix as KAFKA_PREFIX } from '@posthog/node-common/config/kafka-topics'
+import { createKafkaConsumer } from '@posthog/node-common/kafka/consumer/index'
+import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger } from '@posthog/node-common/utils/logger'
+import { PubSub } from '@posthog/node-common/utils/pubsub'
+
 import { AIObservabilityConfig } from '~/ai-observability/config'
 import { EvaluationManagerService } from '~/ai-observability/services/evaluation-manager.service'
 import { ProviderKeyManagerService } from '~/ai-observability/services/provider-key-manager.service'
@@ -25,12 +32,6 @@ import {
 } from '~/ai-observability/services/temporal.service'
 import { Evaluation, EvaluationConditionSet, Matchable, Tagger } from '~/ai-observability/types'
 import { execHog } from '~/cdp/utils/hog-exec'
-import { KAFKA_CLICKHOUSE_AI_EVENTS_JSON, prefix as KAFKA_PREFIX } from '~/common/config/kafka-topics'
-import { createKafkaConsumer } from '~/common/kafka/consumer'
-import { PostgresRouter } from '~/common/utils/db/postgres'
-import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
-import { PubSub } from '~/common/utils/pubsub'
 import { PluginServerService, RawKafkaEvent } from '~/types'
 
 export type EvaluationSchedulerConfig = TemporalServiceConfig &

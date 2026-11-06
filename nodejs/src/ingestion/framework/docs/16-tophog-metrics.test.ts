@@ -33,8 +33,10 @@
  * builder.pipe(topHog(myStep, [count('events', (in) => ({ team_id: ... }))]))
  * ```
  */
-import { TOPHOG_OUTPUT, TophogOutput } from '~/common/outputs'
-import { parseJSON } from '~/common/utils/json-parse'
+import { TOPHOG_OUTPUT, TophogOutput } from '@posthog/node-common/outputs/index'
+import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+
 import { newPipelineBuilder } from '~/ingestion/framework/builders'
 import {
     TopHogRegistry,
@@ -47,7 +49,6 @@ import {
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { dlq, ok } from '~/ingestion/framework/results'
 import { TopHog } from '~/ingestion/framework/tophog'
-import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 
 interface Event {
     teamId: number

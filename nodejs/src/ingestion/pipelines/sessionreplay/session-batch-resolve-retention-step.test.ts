@@ -12,7 +12,7 @@ import { createResolveRetentionStep } from './session-batch-resolve-retention-st
 import { SessionBatchMetrics } from './sessions/metrics'
 import { SessionBatchRecorder } from './sessions/session-batch-recorder'
 
-jest.mock('~/common/utils/logger', () => ({ logger: { warn: jest.fn() } }))
+jest.mock('@posthog/node-common/utils/logger', () => ({ logger: { warn: jest.fn() } }))
 jest.mock('./sessions/metrics', () => ({
     SessionBatchMetrics: { incrementSessionsDroppedMissingRetention: jest.fn() },
 }))

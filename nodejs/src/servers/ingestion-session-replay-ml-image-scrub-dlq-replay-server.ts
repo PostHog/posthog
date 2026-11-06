@@ -1,6 +1,7 @@
-import { KafkaConsumer } from '~/common/kafka/consumer/consumer-v1'
-import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
-import { logger } from '~/common/utils/logger'
+import { KafkaConsumer } from '@posthog/node-common/kafka/consumer/consumer-v1'
+import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { SessionReplayProducerName } from '~/ingestion/pipelines/sessionreplay/config'
 import { replayBatch } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/dlq-replay'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'

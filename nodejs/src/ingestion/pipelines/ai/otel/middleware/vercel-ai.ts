@@ -1,8 +1,9 @@
-import { parseJSON } from '~/common/utils/json-parse'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+
 import { COSTED_AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
 import { finiteNumberOrUndefined } from '~/ingestion/pipelines/ai/costs/cost-utils'
 import { mustAddReasoningCost } from '~/ingestion/pipelines/ai/costs/output-costs'
-import { PluginEvent } from '~/plugin-scaffold'
 
 import { promotePosthogCustomMetadata } from './custom-metadata'
 import { usableStopReason } from './stop-reason'

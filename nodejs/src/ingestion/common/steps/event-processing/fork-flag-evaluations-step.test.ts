@@ -1,11 +1,16 @@
 import { DateTime } from 'luxon'
 
-import { FlagEvaluationsOutput, IngestionWarningsOutput, RealtimeOnlyEventsOutput } from '~/common/outputs'
-import { MessageSizeTooLarge } from '~/common/utils/db/error'
-import { parseJSON } from '~/common/utils/json-parse'
+import {
+    FlagEvaluationsOutput,
+    IngestionWarningsOutput,
+    RealtimeOnlyEventsOutput,
+} from '@posthog/node-common/outputs/index'
+import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
+import { MessageSizeTooLarge } from '@posthog/node-common/utils/db/error'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+
 import { FlagEvaluationsService } from '~/ingestion/common/flag-evaluations/flag-evaluations-service'
 import { isOkResult } from '~/ingestion/framework/results'
-import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { FlagEvaluationsMode, ISOTimestamp, ProcessedEvent, ProjectId } from '~/types'
 
 import { EventToEmit } from './emit-event-step'

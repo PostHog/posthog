@@ -1,9 +1,10 @@
 import { Message } from 'node-rdkafka'
 
-import { KAFKA_COHORT_MEMBERSHIP_CHANGED } from '~/common/config/kafka-topics'
+import { KAFKA_COHORT_MEMBERSHIP_CHANGED } from '@posthog/node-common/config/kafka-topics'
+import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
-import { UUIDT } from '~/common/utils/utils'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import { Hub } from '../../types'

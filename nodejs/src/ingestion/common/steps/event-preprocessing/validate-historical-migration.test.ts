@@ -1,5 +1,6 @@
+import { createTestEventHeaders } from '@posthog/node-common/testing/event-headers'
+
 import { ok } from '~/ingestion/framework/results'
-import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { EventHeaders } from '~/types'
 
 import { createValidateHistoricalMigrationStep } from './validate-historical-migration'

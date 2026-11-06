@@ -1,12 +1,13 @@
 import { Counter, Gauge, Histogram } from 'prom-client'
 
-import { AppMetricsOutput, LOG_ENTRIES_OUTPUT, LogEntriesOutput } from '~/common/outputs'
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
-import { safeClickhouseString } from '~/common/utils/db/utils'
-import { logger } from '~/common/utils/logger'
-import { captureException } from '~/common/utils/posthog'
-import type { TeamManager } from '~/common/utils/team-manager'
+import { AppMetricsOutput, LOG_ENTRIES_OUTPUT, LogEntriesOutput } from '@posthog/node-common/outputs/index'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { AppMetricsAggregator } from '@posthog/node-common/services/app-metrics-aggregator'
+import { safeClickhouseString } from '@posthog/node-common/utils/db/utils'
+import { logger } from '@posthog/node-common/utils/logger'
+import { captureException } from '@posthog/node-common/utils/posthog'
+import type { TeamManager } from '@posthog/node-common/utils/team-manager'
+
 import { InternalLogsProducer, InternalLogsProducerConfig } from '~/logs/internal-logs-producer'
 
 import type { CdpConfig } from '../../config'

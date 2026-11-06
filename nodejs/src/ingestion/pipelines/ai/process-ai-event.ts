@@ -7,9 +7,10 @@
  * - Cost calculation (for generation/embedding/evaluation events)
  * - Model parameter extraction (for generation/embedding/evaluation events)
  */
-import { logger } from '~/common/utils/logger'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { COSTED_AI_EVENT_TYPES, isAiEventName } from '~/ingestion/common/ai-event-types'
-import { PluginEvent } from '~/plugin-scaffold'
 
 import { convertRawEvent } from './convert-raw-event'
 import { EventWithProperties, extractCoreModelParams, processCost } from './costs'

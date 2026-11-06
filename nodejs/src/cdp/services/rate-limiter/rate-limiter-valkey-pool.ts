@@ -1,6 +1,6 @@
-import type { CommonConfig } from '~/common/config'
-import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
-import { logger } from '~/common/utils/logger'
+import type { CommonConfig } from '@posthog/node-common/config'
+import { RedisV2, createRedisV2PoolFromConfig } from '@posthog/node-common/redis/redis-v2'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import type { CdpConfig } from '../../config'
 

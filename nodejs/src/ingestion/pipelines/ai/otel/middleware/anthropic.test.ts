@@ -1,4 +1,4 @@
-import { convertOtelEvent } from '~/ingestion/pipelines/ai/otel/index'
+import { convertOtelEvent } from '~/ingestion/pipelines/ai/otel'
 import { createEvent } from '~/ingestion/pipelines/ai/otel/test-helpers'
 
 import { anthropic } from './anthropic'

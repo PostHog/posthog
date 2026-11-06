@@ -1,8 +1,8 @@
 import { Histogram } from 'prom-client'
 
-import { instrumented } from '~/common/tracing/tracing-utils'
-import { logger } from '~/common/utils/logger'
-import { captureException } from '~/common/utils/posthog'
+import { instrumented } from '@posthog/node-common/tracing/tracing-utils'
+import { logger } from '@posthog/node-common/utils/logger'
+import { captureException } from '@posthog/node-common/utils/posthog'
 
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
 import { JobQueue } from '../services/job-queue/job-queue.interface'

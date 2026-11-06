@@ -4,8 +4,9 @@ import sodium from 'libsodium-wrappers'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
-import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { parseJSON } from '~/common/utils/json-parse'
+import { IngestionOutputs } from '@posthog/node-common/outputs/ingestion-outputs'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+
 import {
     SessionBlockMetadata,
     createNoopBlockMetadata,

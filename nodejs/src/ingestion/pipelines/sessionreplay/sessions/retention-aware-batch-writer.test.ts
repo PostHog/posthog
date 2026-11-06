@@ -4,7 +4,7 @@ import { Upload } from '@aws-sdk/lib-storage'
 import { RetentionAwareStorage } from './retention-aware-batch-writer'
 
 jest.mock('@aws-sdk/lib-storage')
-jest.mock('~/common/utils/logger')
+jest.mock('@posthog/node-common/utils/logger')
 
 jest.setTimeout(1000)
 

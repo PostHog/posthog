@@ -3,7 +3,7 @@ import { ParquetReader } from '@dsnp/parquetjs'
 import sodium from 'libsodium-wrappers'
 import { Message } from 'node-rdkafka'
 
-import { parseJSON } from '~/common/utils/json-parse'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import { BlockMetadataBatcher, KeyedRecordReader, OffsetStore } from './block-metadata-batcher'
 import { BlockMetadataParquetStore } from './block-metadata-parquet-store'

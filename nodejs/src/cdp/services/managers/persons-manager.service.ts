@@ -1,7 +1,7 @@
-import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
-import { LazyLoader } from '~/common/utils/lazy-loader'
-import { logger } from '~/common/utils/logger'
-import { TeamManager, isValidTeamId } from '~/common/utils/team-manager'
+import { PersonReadRepository } from '@posthog/node-common/persons/repositories/person-repository'
+import { LazyLoader } from '@posthog/node-common/utils/lazy-loader'
+import { logger } from '@posthog/node-common/utils/logger'
+import { TeamManager, isValidTeamId } from '@posthog/node-common/utils/team-manager'
 
 import { CyclotronPerson } from '../../types'
 import { getPersonDisplayName } from '../../utils'

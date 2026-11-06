@@ -1,8 +1,9 @@
 import jwt from 'jsonwebtoken'
 
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import * as requestModule from '@posthog/node-common/utils/request'
+
 import { defaultConfig } from '~/common/config/config'
-import { parseJSON } from '~/common/utils/json-parse'
-import * as requestModule from '~/common/utils/request'
 
 import { TemplateTester } from '../../test/test-helpers'
 import { template } from './posthog-create-customer-task.template'

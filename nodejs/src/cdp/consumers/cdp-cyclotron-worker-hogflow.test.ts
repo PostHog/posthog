@@ -3,13 +3,17 @@ import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 
+import {
+    InternalPersonWithDistinctId,
+    PersonReadRepository,
+} from '@posthog/node-common/persons/repositories/person-repository'
+import { createTeam, createTestTeamFixture, getTeam } from '@posthog/node-common/testing/sql'
+import { PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
 import { HogFlow } from '~/cdp/schema/hogflow'
-import { InternalPersonWithDistinctId, PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { PostgresUse } from '~/common/utils/db/postgres'
-import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
-import { createTeam, createTestTeamFixture, getTeam } from '~/tests/helpers/sql'
 
 import { Hub, InternalPerson, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'

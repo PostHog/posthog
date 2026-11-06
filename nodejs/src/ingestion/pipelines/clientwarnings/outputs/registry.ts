@@ -1,5 +1,10 @@
-import { APP_METRICS_OUTPUT, DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, TOPHOG_OUTPUT } from '~/common/outputs'
-import { IngestionOutputsBuilder } from '~/common/outputs/ingestion-outputs-builder'
+import {
+    APP_METRICS_OUTPUT,
+    DLQ_OUTPUT,
+    INGESTION_WARNINGS_OUTPUT,
+    TOPHOG_OUTPUT,
+} from '@posthog/node-common/outputs/index'
+import { IngestionOutputsBuilder } from '@posthog/node-common/outputs/ingestion-outputs-builder'
 
 /**
  * Register the outputs the clientwarnings pipeline produces to. Call

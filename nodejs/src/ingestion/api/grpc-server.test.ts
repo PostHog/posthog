@@ -10,7 +10,8 @@ import {
     StreamHelloSchema,
     SubBatchAck,
     SubBatchStatus,
-} from '~/common/generated/ingestion-worker/ingestion/worker/v1/worker_pb'
+} from '@posthog/node-common/generated/ingestion-worker/ingestion/worker/v1/worker_pb'
+
 import { FeedResult } from '~/ingestion/framework/batching-pipeline'
 
 import { FeedOrderSentinel } from './feed-order-sentinel'

@@ -118,6 +118,8 @@ jobs:
                         # Node DB setup builds sqlx-cli via this composite; changes to it must exercise these jobs.
                         - '.github/actions/setup-sqlx-cli/**'
                         - 'nodejs/**'
+                        - 'ingestion/node/packages/common/**'
+                        - 'ingestion/node/pnpm-lock.yaml'
                         # The Jest shared-fixtures suite pins the native replay anonymizer against
                         # its Rust tests; a rust-side change (incl. the shared fixtures) must run it.
                         - 'rust/replay-anonymizer/**'
@@ -182,6 +184,8 @@ jobs:
                       node_full:
                         # readFileSync, so jest cannot reach the parity test through --findRelatedTests.
                         - 'products/cdp/backend/filter_globals.json'
+                        - 'ingestion/node/packages/common/**'
+                        - 'ingestion/node/pnpm-lock.yaml'
                         - 'common/hogvm/typescript/src/**'
                         - '**/crosslang/**'
                         - '.github/scripts/jest-retries.cjs'
@@ -383,6 +387,12 @@ jobs:
                   install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
+            # @posthog/node-common is linked from ingestion's workspace until it is published, so it is built here.
+            - name: Build @posthog/node-common
+              run: |
+                  pnpm --dir ingestion/node install --frozen-lockfile
+                  pnpm --dir ingestion/node/packages/common build
+
             - name: Install rust
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
@@ -448,6 +458,12 @@ jobs:
               with:
                   install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+
+            # @posthog/node-common is linked from ingestion's workspace until it is published, so it is built here.
+            - name: Build @posthog/node-common
+              run: |
+                  pnpm --dir ingestion/node install --frozen-lockfile
+                  pnpm --dir ingestion/node/packages/common build
 
             - name: Install rust
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
@@ -618,6 +634,12 @@ jobs:
               with:
                   install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+
+            # @posthog/node-common is linked from ingestion's workspace until it is published, so it is built here.
+            - name: Build @posthog/node-common
+              run: |
+                  pnpm --dir ingestion/node install --frozen-lockfile
+                  pnpm --dir ingestion/node/packages/common build
 
             - name: Wait for Clickhouse, Redis, Kafka, DynamoDB, SeaweedFS
               # seaweedfs backs the blob-store integration tests; the profile-scoped
@@ -889,6 +911,12 @@ jobs:
               with:
                   install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+
+            # @posthog/node-common is linked from ingestion's workspace until it is published, so it is built here.
+            - name: Build @posthog/node-common
+              run: |
+                  pnpm --dir ingestion/node install --frozen-lockfile
+                  pnpm --dir ingestion/node/packages/common build
 
             - name: Wait for Clickhouse, Redis, Kafka, etcd
               run: docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev etcd -d --wait

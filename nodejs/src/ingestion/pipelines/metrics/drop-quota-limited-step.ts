@@ -1,4 +1,5 @@
-import { QuotaLimiting } from '~/common/services/quota-limiting.service'
+import { QuotaLimiting } from '@posthog/node-common/services/quota-limiting.service'
+
 import { drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 

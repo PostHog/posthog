@@ -1,9 +1,10 @@
-import { decideProcessPerson } from '~/common/persons/person-utils'
-import { normalizeProcessPerson } from '~/common/utils/event'
+import { decideProcessPerson } from '@posthog/node-common/persons/person-utils'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { normalizeProcessPerson } from '@posthog/node-common/utils/event'
+
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { PipelineResult, drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, Team } from '~/types'
 
 const PERSON_ONLY_EVENTS = ['$identify', '$create_alias', '$merge_dangerously', '$groupidentify']

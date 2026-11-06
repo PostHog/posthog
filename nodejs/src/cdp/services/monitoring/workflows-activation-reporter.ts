@@ -1,7 +1,8 @@
 import { LRUCache } from 'lru-cache'
 
-import { logger } from '~/common/utils/logger'
-import { captureTeamEvent } from '~/common/utils/posthog'
+import { logger } from '@posthog/node-common/utils/logger'
+import { captureTeamEvent } from '@posthog/node-common/utils/posthog'
+
 import { Team } from '~/types'
 
 type WorkflowsActivationEvents = {

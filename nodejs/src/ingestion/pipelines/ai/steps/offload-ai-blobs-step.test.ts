@@ -1,5 +1,10 @@
 import { Message } from 'node-rdkafka'
 
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { createTestMessage } from '@posthog/node-common/testing/kafka-message'
+import { createTestPluginEvent } from '@posthog/node-common/testing/plugin-event'
+import { createTestTeam } from '@posthog/node-common/testing/team'
+
 import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { PipelineResultWithContext } from '~/ingestion/framework/pipeline.interface'
@@ -9,10 +14,6 @@ import { BlobStore, BlobStoreError, EnsureStoredOutcome } from '~/ingestion/pipe
 import { DetectedBlob } from '~/ingestion/pipelines/ai/blob-offload/detect'
 import { parseBlobPointer } from '~/ingestion/pipelines/ai/blob-offload/pointer'
 import * as aiMetrics from '~/ingestion/pipelines/ai/metrics'
-import { PluginEvent } from '~/plugin-scaffold'
-import { createTestMessage } from '~/tests/helpers/kafka-message'
-import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
-import { createTestTeam } from '~/tests/helpers/team'
 import { Team } from '~/types'
 
 import {
@@ -48,11 +49,11 @@ jest.mock('~/ingestion/pipelines/ai/metrics', () => {
     }
 })
 
-jest.mock('~/common/utils/logger', () => ({
+jest.mock('@posthog/node-common/utils/logger', () => ({
     logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }))
 
-jest.mock('~/common/utils/posthog', () => ({
+jest.mock('@posthog/node-common/utils/posthog', () => ({
     captureException: jest.fn(),
 }))
 

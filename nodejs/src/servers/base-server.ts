@@ -4,35 +4,23 @@ import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 import express from 'ultimate-express'
 
-import { SetupExpressAppOptions, setupCommonRoutes, setupExpressApp } from '~/common/api/router'
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
-import { PostgresRouter } from '~/common/utils/db/postgres'
-import { isTestEnv } from '~/common/utils/env-utils'
-import { configureEventLoopYield } from '~/common/utils/event-loop-yield'
-import { logger } from '~/common/utils/logger'
-import { NodeInstrumentation } from '~/common/utils/node-instrumentation'
-import { captureException, shutdown as posthogShutdown } from '~/common/utils/posthog'
-import { PubSub } from '~/common/utils/pubsub'
-import { closeSharedAgents } from '~/common/utils/request'
-import { delay } from '~/common/utils/utils'
+import { SetupExpressAppOptions, setupCommonRoutes, setupExpressApp } from '@posthog/node-common/api/router'
+import type { BaseServerConfig } from '@posthog/node-common/config'
+import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
+import { onShutdown } from '@posthog/node-common/lifecycle'
+import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
+import { isTestEnv } from '@posthog/node-common/utils/env-utils'
+import { configureEventLoopYield } from '@posthog/node-common/utils/event-loop-yield'
+import { logger } from '@posthog/node-common/utils/logger'
+import { NodeInstrumentation } from '@posthog/node-common/utils/node-instrumentation'
+import { captureException, shutdown as posthogShutdown } from '@posthog/node-common/utils/posthog'
+import { PubSub } from '@posthog/node-common/utils/pubsub'
+import { closeSharedAgents } from '@posthog/node-common/utils/request'
+import { delay } from '@posthog/node-common/utils/utils'
 
-import { onShutdown } from '../lifecycle'
 import { PluginServerService, RedisPool } from '../types'
 
-export type BaseServerConfig = {
-    INTERNAL_API_SECRET: string
-    INTERNAL_API_SECRET_FALLBACKS: string
-    INSTRUMENT_THREAD_PERFORMANCE: boolean
-    HTTP_SERVER_PORT: number
-    HTTP_SERVER_DRAIN_TIMEOUT_MS: number
-    POD_TERMINATION_ENABLED: boolean
-    POD_TERMINATION_BASE_TIMEOUT_MINUTES: number
-    POD_TERMINATION_JITTER_MINUTES: number
-    CONTINUOUS_PROFILING_ENABLED: boolean
-    PYROSCOPE_SERVER_ADDRESS: string
-    PYROSCOPE_APPLICATION_NAME: string
-    EVENT_LOOP_YIELD_THRESHOLD_MS: number
-}
+export type { BaseServerConfig } from '@posthog/node-common/config'
 
 export interface CleanupResources {
     kafkaProducers: KafkaProducerWrapper[]
@@ -82,7 +70,7 @@ export class ServerLifecycle {
             ...expressAppOptions,
         })
         if (this.config.HTTP_SERVER_DRAIN_TIMEOUT_MS > 0) {
-            ;(this.expressApp as ReturnType<typeof express>).uwsApp.filter((_res, change) => {
+            ;(this.expressApp as ReturnType<typeof express>).uwsApp.filter((_res: unknown, change: number) => {
                 this.openConnections += Number(change)
             })
         }

@@ -1,11 +1,12 @@
+import { createIngestionRedisConnectionConfig } from '@posthog/node-common/config/redis-pools'
+import { createTestTeamFixture } from '@posthog/node-common/testing/sql'
+import { PostgresRouter, PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { createRedisPoolFromConfig } from '@posthog/node-common/utils/db/redis'
+
 import { defaultConfig } from '~/common/config/config'
-import { createIngestionRedisConnectionConfig } from '~/common/config/redis-pools'
-import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
-import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { ValidRetentionPeriods } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
-import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { RedisPool } from '~/types'
 
 import { RetentionService } from './retention-service'

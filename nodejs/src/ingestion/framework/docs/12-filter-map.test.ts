@@ -18,15 +18,21 @@
  */
 import { Message } from 'node-rdkafka'
 
-import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput, OVERFLOW_OUTPUT } from '~/common/outputs'
-import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import {
+    DLQ_OUTPUT,
+    INGESTION_WARNINGS_OUTPUT,
+    IngestionWarningsOutput,
+    OVERFLOW_OUTPUT,
+} from '@posthog/node-common/outputs/index'
+import { createTestMessage } from '@posthog/node-common/testing/kafka-message'
+import { createMockIngestionOutputs } from '@posthog/node-common/testing/mock-ingestion-outputs'
+import { createTestTeam } from '@posthog/node-common/testing/team'
+import { PromiseScheduler } from '@posthog/node-common/utils/promise-scheduler'
+
 import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { PipelineResult, dlq, isOkResult, ok, redirect } from '~/ingestion/framework/results'
-import { createTestMessage } from '~/tests/helpers/kafka-message'
-import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
-import { createTestTeam } from '~/tests/helpers/team'
 import { Team } from '~/types'
 
 type ChunkProcessingStep<T, U, R extends string = never> = (values: T[]) => Promise<PipelineResult<U, R>[]>

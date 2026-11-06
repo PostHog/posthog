@@ -33,19 +33,25 @@ import {
     KAFKA_PERSON_DISTINCT_ID,
     KAFKA_PERSON_MERGE_EVENTS,
     KAFKA_REALTIME_ONLY_EVENTS_JSON,
-} from '~/common/config/kafka-topics'
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
+} from '@posthog/node-common/config/kafka-topics'
+import { KafkaProducerWrapper } from '@posthog/node-common/kafka/producer'
+import { waitForExpect } from '@posthog/node-common/testing/expectations'
+import {
+    TEST_KAFKA_TOPICS,
+    createKafkaTestTopicName,
+    deleteKafkaTopics,
+    ensureKafkaTopics,
+} from '@posthog/node-common/testing/kafka'
+import { ServiceProcess, getFreePort, getFreeWorkerPort } from '@posthog/node-common/testing/service-process'
+import { createOrganization, createTeam } from '@posthog/node-common/testing/sql'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
 import { closeHub, createHub } from '~/common/utils/db/hub'
-import { parseJSON } from '~/common/utils/json-parse'
-import { UUIDT } from '~/common/utils/utils'
 import { uuidFromDistinctId } from '~/ingestion/common/persons/person-uuid'
 import { Hub } from '~/types'
 
-import { waitForExpect } from '../helpers/expectations'
 import { DEFAULT_TEAM, EventBuilder, createKafkaMessage } from '../helpers/ingestion-e2e'
-import { TEST_KAFKA_TOPICS, createKafkaTestTopicName, deleteKafkaTopics, ensureKafkaTopics } from '../helpers/kafka'
-import { ServiceProcess, getFreePort, getFreeWorkerPort } from '../helpers/service-process'
-import { createOrganization, createTeam } from '../helpers/sql'
 
 jest.setTimeout(300_000)
 

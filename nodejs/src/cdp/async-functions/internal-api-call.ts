@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
-import { parseJSON } from '~/common/utils/json-parse'
-import { internalFetch } from '~/common/utils/request'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { internalFetch } from '@posthog/node-common/utils/request'
 
 import { AsyncFunctionContext } from '../async-function-registry'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'

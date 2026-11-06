@@ -1,4 +1,4 @@
-import { RetryError } from '~/plugin-scaffold'
+import { RetryError } from '@posthog/node-common/plugin-scaffold'
 
 import { BrazePluginMeta, onEvent } from '../index'
 

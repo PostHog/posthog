@@ -1,6 +1,7 @@
 import { brotliCompressSync, constants } from 'node:zlib'
 
-import { logger } from '~/common/utils/logger'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { compressBlock } from '~/ingestion/pipelines/sessionreplay/sessions/block-compression'
 
 import { ML_BLOCK_COMPRESSION } from './block-compression'

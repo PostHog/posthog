@@ -3,10 +3,11 @@ import addressparser from 'nodemailer/lib/addressparser'
 import { Counter } from 'prom-client'
 import { z } from 'zod'
 
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger } from '@posthog/node-common/utils/logger'
+import { fetch } from '@posthog/node-common/utils/request'
+
 import { MinimalAppMetric } from '~/cdp/types'
-import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
-import { fetch } from '~/common/utils/request'
 
 import type { EmailStatus, EmailStatusReason } from '../email-status.service'
 import { unquoteMailbox } from './suppressed-recipients'

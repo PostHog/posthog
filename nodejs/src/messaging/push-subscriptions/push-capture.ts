@@ -1,10 +1,10 @@
 import { randomUUID } from 'crypto'
 import { Counter } from 'prom-client'
 
-import { disableGeoipWithoutClientIp } from '~/common/services/internal-capture'
-import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
-import { FetchResponse, internalFetch } from '~/common/utils/request'
+import { disableGeoipWithoutClientIp } from '@posthog/node-common/services/internal-capture'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger } from '@posthog/node-common/utils/logger'
+import { FetchResponse, internalFetch } from '@posthog/node-common/utils/request'
 
 /** Submits the person update through the same capture path Django uses.
  *

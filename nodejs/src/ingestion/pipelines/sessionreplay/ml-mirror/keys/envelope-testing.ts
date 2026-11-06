@@ -2,7 +2,7 @@ import { createDecipheriv } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 import { brotliDecompressSync } from 'node:zlib'
 
-import { parseJSON } from '~/common/utils/json-parse'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import { MlDataKey, MlEncryptedEnvelope, MlEnvelopeCodec, NONCE_BYTES, TAG_BYTES, canonicalJson } from './crypto'
 import vector from './encryption-vector.json'

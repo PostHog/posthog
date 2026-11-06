@@ -48,6 +48,9 @@ COPY ./common/hogvm/typescript/ ./common/hogvm/typescript/
 COPY ./nodejs/package.json ./nodejs/tsconfig.json ./nodejs/
 COPY ./common/replay-shared/package.json ./common/replay-shared/
 COPY ./common/replay-headless/package.json ./common/replay-headless/
+# @posthog/node-common comes from ingestion's workspace until it is published; its manifest has to exist for the link.
+COPY ./ingestion/node/package.json ./ingestion/node/pnpm-lock.yaml ./ingestion/node/pnpm-workspace.yaml ./ingestion/node/
+COPY ./ingestion/node/packages/common/package.json ./ingestion/node/packages/common/
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
 # Use system librdkafka from Confluent (2.12.0) instead of bundled version
@@ -62,6 +65,7 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
     NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/nodejs... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
     NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/replay-headless... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
     NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
+    NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --dir ingestion/node install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
     NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-transpiler build
 
 # Build the nodejs services
@@ -73,6 +77,11 @@ COPY ./common/replay-shared/src/ ./common/replay-shared/src/
 COPY ./common/replay-shared/tsconfig.json ./common/replay-shared/
 COPY ./common/replay-headless/src/ ./common/replay-headless/src/
 COPY ./common/replay-headless/build.mjs ./common/replay-headless/
+
+# Build the shared library the services import
+COPY ./ingestion/node/packages/common/src/ ./ingestion/node/packages/common/src/
+COPY ./ingestion/node/packages/common/tsconfig.json ./ingestion/node/packages/common/tsconfig.build.json ./ingestion/node/packages/common/
+RUN NODE_OPTIONS="--max-old-space-size=16384" pnpm --dir ingestion/node/packages/common build
 
 # Build the rust hogvm napi addon (shadow execution of transformations)
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/hogvm-node build
@@ -168,6 +177,10 @@ COPY --from=nodejs-build --chown=posthog:posthog /code/common/plugin_transpiler/
 COPY --from=nodejs-build --chown=posthog:posthog /code/common/hogvm/typescript/dist /code/common/hogvm/typescript/dist
 COPY --from=nodejs-build --chown=posthog:posthog /code/common/hogvm/typescript/node_modules /code/common/hogvm/typescript/node_modules
 COPY --from=nodejs-build --chown=posthog:posthog /code/common/hogvm/typescript/package.json /code/common/hogvm/typescript/package.json
+COPY --from=nodejs-build --chown=posthog:posthog /code/ingestion/node/packages/common/dist /code/ingestion/node/packages/common/dist
+COPY --from=nodejs-build --chown=posthog:posthog /code/ingestion/node/packages/common/package.json /code/ingestion/node/packages/common/package.json
+COPY --from=nodejs-build --chown=posthog:posthog /code/ingestion/node/packages/common/node_modules /code/ingestion/node/packages/common/node_modules
+COPY --from=nodejs-build --chown=posthog:posthog /code/ingestion/node/node_modules /code/ingestion/node/node_modules
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/dist /code/nodejs/dist
 COPY --from=nodejs-build --chown=posthog:posthog /code/node_modules /code/node_modules
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/node_modules /code/nodejs/node_modules

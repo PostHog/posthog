@@ -1,7 +1,8 @@
 import { CopyObjectCommand, PutObjectCommand, S3Client, S3ServiceException } from '@aws-sdk/client-s3'
 import { Counter } from 'prom-client'
 
-import { ConcurrencyController } from '~/common/utils/concurrencyController'
+import { ConcurrencyController } from '@posthog/node-common/utils/concurrencyController'
+
 import type { TeamMonthKeys } from '~/ingestion/pipelines/sessionreplay/ai-research/v4-keys/team-month-keys'
 
 import type { FetchCandidate } from './collected-urls-record'

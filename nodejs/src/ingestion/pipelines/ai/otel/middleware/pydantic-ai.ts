@@ -1,5 +1,5 @@
-import { parseJSON } from '~/common/utils/json-parse'
-import { PluginEvent } from '~/plugin-scaffold'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
 
 import { liftStopReasonFromOutputChoices } from './stop-reason'
 import { OtelLibraryMiddleware } from './types'

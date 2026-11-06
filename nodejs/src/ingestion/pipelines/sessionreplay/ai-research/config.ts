@@ -1,6 +1,7 @@
 /** Settings of the v4 AI research lanes. */
+import { KAFKA_CLICKHOUSE_TOPHOG } from '@posthog/node-common/config/kafka-topics'
+
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
-import { KAFKA_CLICKHOUSE_TOPHOG } from '~/common/config/kafka-topics'
 import {
     INGESTION_DOWNSTREAM_PRODUCER,
     getDefaultKafkaDownstreamProducerEnvConfig,

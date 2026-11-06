@@ -1,4 +1,5 @@
-import { RetrySchedule, defaultRetryConfig, retryIfRetriable } from '~/common/utils/retries'
+import { RetrySchedule, defaultRetryConfig, retryIfRetriable } from '@posthog/node-common/utils/retries'
+
 import { pipelineRetryAttemptsHistogram } from '~/ingestion/framework/metrics'
 
 export interface MetricsRetryOptions extends RetrySchedule {

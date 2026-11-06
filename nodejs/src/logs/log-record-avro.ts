@@ -2,8 +2,9 @@ import { compress, decompress } from '@mongodb-js/zstd'
 import avro from 'avsc'
 import { Counter, Histogram } from 'prom-client'
 
-import { instrumented } from '~/common/tracing/tracing-utils'
-import { parseJSON } from '~/common/utils/json-parse'
+import { instrumented } from '@posthog/node-common/tracing/tracing-utils'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+
 import type { LogsSettings } from '~/types'
 
 import { recordJsonEnrichmentSkipped, recordLogProcessingDuration } from './ingestion-otel-metrics'

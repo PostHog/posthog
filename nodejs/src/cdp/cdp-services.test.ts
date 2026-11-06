@@ -1,4 +1,4 @@
-import { RedisV2 } from '~/common/redis/redis-v2'
+import { RedisV2 } from '@posthog/node-common/redis/redis-v2'
 
 import { createCdpReaderRedisPool, createCdpValkeyShadowPools } from './cdp-services'
 
@@ -7,11 +7,11 @@ const mockReaderPool: RedisV2 = {
     usePipeline: jest.fn(),
 }
 
-jest.mock('~/common/redis/redis-v2', () => ({
+jest.mock('@posthog/node-common/redis/redis-v2', () => ({
     createRedisV2PoolFromConfig: jest.fn(() => mockReaderPool),
 }))
 
-const { createRedisV2PoolFromConfig } = require('~/common/redis/redis-v2') as {
+const { createRedisV2PoolFromConfig } = require('@posthog/node-common/redis/redis-v2') as {
     createRedisV2PoolFromConfig: jest.Mock
 }
 
@@ -67,7 +67,7 @@ describe('createCdpReaderRedisPool', () => {
     it('logs an error if the reader health check fails', async () => {
         const pingError = new Error('connection refused')
         ;(mockReaderPool.useClient as jest.Mock).mockRejectedValueOnce(pingError)
-        const logSpy = jest.spyOn(require('~/common/utils/logger').logger, 'error')
+        const logSpy = jest.spyOn(require('@posthog/node-common/utils/logger').logger, 'error')
         const config = { ...baseConfig, CDP_REDIS_READER_HOST: 'bad-host.internal', CDP_REDIS_READER_PORT: 6380 }
 
         createCdpReaderRedisPool(config, mockWriterPool, 'test-redis')
@@ -92,7 +92,7 @@ describe('createCdpReaderRedisPool', () => {
     })
 
     it('does not leak credentials from REDIS_URL in fallback log', () => {
-        const logSpy = jest.spyOn(require('~/common/utils/logger').logger, 'info')
+        const logSpy = jest.spyOn(require('@posthog/node-common/utils/logger').logger, 'info')
         const config = {
             ...baseConfig,
             CDP_REDIS_HOST: '',

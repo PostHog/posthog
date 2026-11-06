@@ -9,9 +9,10 @@ import {
     personhogStoreShadowErrorsCounter,
     personhogStoreShadowMergeRedriveCounter,
     personhogStoreShadowSkipsCounter,
-} from '~/common/persons/metrics'
-import { logger } from '~/common/utils/logger'
-import { defaultRetryConfig } from '~/common/utils/retries'
+} from '@posthog/node-common/persons/metrics'
+import { logger } from '@posthog/node-common/utils/logger'
+import { defaultRetryConfig } from '@posthog/node-common/utils/retries'
+
 import { InternalPerson } from '~/types'
 
 import { PersonMergeCallFailedError, PersonMergeNotAppliedError } from './person-merge-types'
@@ -22,7 +23,7 @@ import { RoutingPersonsStore, assertPersonsStoreModeConfig, parsePersonsStoreMod
 
 const mockShadowTimerStop = jest.fn()
 
-jest.mock('~/common/persons/metrics', () => ({
+jest.mock('@posthog/node-common/persons/metrics', () => ({
     personhogStoreShadowErrorsCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
     personhogStoreShadowCreateRetriesCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
     personhogStoreShadowSkipsCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },

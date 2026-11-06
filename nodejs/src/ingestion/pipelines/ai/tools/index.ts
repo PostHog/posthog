@@ -1,6 +1,7 @@
-import { parseJSON } from '~/common/utils/json-parse'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+
 import { aiToolCallExtractionCounter } from '~/ingestion/pipelines/ai/metrics'
-import { PluginEvent } from '~/plugin-scaffold'
 
 import { extractToolCallNames, sanitizeToolName } from './extract-tool-calls'
 

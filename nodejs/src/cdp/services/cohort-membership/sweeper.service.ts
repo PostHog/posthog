@@ -2,11 +2,11 @@ import { Message } from 'node-rdkafka'
 import { Counter, Gauge } from 'prom-client'
 import { z } from 'zod'
 
-import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
-import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
-import { retryIfRetriable } from '~/common/utils/retries'
-import { UUIDT } from '~/common/utils/utils'
+import { PostgresRouter, PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger } from '@posthog/node-common/utils/logger'
+import { retryIfRetriable } from '@posthog/node-common/utils/retries'
+import { UUIDT } from '@posthog/node-common/utils/utils'
 
 /**
  * One completion marker per processor partition certifies a reconcile run. Must match the

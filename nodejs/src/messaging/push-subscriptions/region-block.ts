@@ -3,7 +3,7 @@ import { IncomingMessage } from 'http'
 import { isIP } from 'net'
 import { Counter } from 'prom-client'
 
-import { GeoIp } from '~/common/utils/geoip'
+import { GeoIp } from '@posthog/node-common/utils/geoip'
 
 export const REGION_BLOCKED_MESSAGE =
     'PostHog is not available in your region. If you think this is in error, please contact tim@posthog.com.'

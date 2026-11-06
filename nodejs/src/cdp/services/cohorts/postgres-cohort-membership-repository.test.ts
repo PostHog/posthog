@@ -1,9 +1,10 @@
 import { register } from 'prom-client'
 
+import { resetBehavioralCohortsDatabase } from '@posthog/node-common/testing/sql'
+import { PostgresRouter } from '@posthog/node-common/utils/db/postgres'
+import { UUIDT } from '@posthog/node-common/utils/utils'
+
 import { defaultConfig } from '~/common/config/config'
-import { PostgresRouter } from '~/common/utils/db/postgres'
-import { UUIDT } from '~/common/utils/utils'
-import { resetBehavioralCohortsDatabase } from '~/tests/helpers/sql'
 
 import { insertCohortMemberships } from '../../_tests/fixtures'
 import {

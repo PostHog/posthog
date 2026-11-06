@@ -1,33 +1,40 @@
-import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
-import { initializePrometheusLabels } from '~/common/api/router'
-import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
+import { initializePrometheusLabels } from '@posthog/node-common/api/router'
+import { CommonConfig, PluginServerMode } from '@posthog/node-common/config'
 import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
     KAFKA_EVENTS_PLUGIN_INGESTION_AI,
     KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL,
     KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
-} from '~/common/config/kafka-topics'
+} from '@posthog/node-common/config/kafka-topics'
 import {
     createCookielessRedisConnectionConfig,
     createFeatureFlagCalledDedupRedisConnectionConfig,
     createIngestionRedisConnectionConfig,
-} from '~/common/config/redis-pools'
-import { GroupTypeManager } from '~/common/groups/group-type-manager'
-import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
-import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
-import { HogTransformerComponent } from '~/common/hog-transformations/hog-transformer-component'
-import { IngestionOutputsComponent } from '~/common/outputs/ingestion-outputs'
-import { PersonHogConfig, buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
-import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
-import { UsageIngestionConfig } from '~/common/usage-ingestion'
-import { ServerCommands } from '~/common/utils/commands'
-import { PostgresRouter, PostgresRouterComponent } from '~/common/utils/db/postgres'
-import { RedisPoolComponent } from '~/common/utils/db/redis'
-import { GeoIPService } from '~/common/utils/geoip'
-import { DEFAULT_LOADER_RETRY } from '~/common/utils/lazy-loader'
-import { logger } from '~/common/utils/logger'
-import { PubSub } from '~/common/utils/pubsub'
-import { TeamManagerComponent } from '~/common/utils/team-manager'
+} from '@posthog/node-common/config/redis-pools'
+import { GroupTypeManager } from '@posthog/node-common/groups/group-type-manager'
+import { ClickhouseGroupRepository } from '@posthog/node-common/groups/repositories/clickhouse-group-repository'
+import { PostgresGroupRepository } from '@posthog/node-common/groups/repositories/postgres-group-repository'
+import { HogTransformerComponent } from '@posthog/node-common/hog-transformations/hog-transformer-component'
+import { IngestionOutputsComponent } from '@posthog/node-common/outputs/ingestion-outputs'
+import {
+    PersonHogConfig,
+    buildGroupRepository,
+    buildPersonRepository,
+    createPersonHogClient,
+} from '@posthog/node-common/personhog/index'
+import { PostgresPersonRepository } from '@posthog/node-common/persons/repositories/postgres-person-repository'
+import { UsageIngestionConfig } from '@posthog/node-common/usage-ingestion/index'
+import { ServerCommands } from '@posthog/node-common/utils/commands'
+import { PostgresRouter, PostgresRouterComponent } from '@posthog/node-common/utils/db/postgres'
+import { RedisPoolComponent } from '@posthog/node-common/utils/db/redis'
+import { GeoIPService } from '@posthog/node-common/utils/geoip'
+import { DEFAULT_LOADER_RETRY } from '@posthog/node-common/utils/lazy-loader'
+import { logger } from '@posthog/node-common/utils/logger'
+import { PubSub } from '@posthog/node-common/utils/pubsub'
+import { TeamManagerComponent } from '@posthog/node-common/utils/team-manager'
+
+import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { CookielessManagerComponent } from '~/ingestion/common/cookieless/cookieless-manager'
 import { KafkaProducerRegistryComponent } from '~/ingestion/common/outputs/producer-registry'
 import {
@@ -48,7 +55,6 @@ import {
     createHogTransformerService,
 } from '../cdp/hog-transformations/hog-transformer.service'
 import { EncryptedFields } from '../cdp/utils/encryption-utils'
-import { CommonConfig, PluginServerMode } from '../common/config'
 import { ingestionConsumerService } from '../ingestion/common/ingestion-consumer'
 import { extend, newScope } from '../ingestion/common/scopes'
 import {

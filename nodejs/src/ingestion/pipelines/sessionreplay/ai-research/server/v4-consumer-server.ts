@@ -1,4 +1,5 @@
-import { initializePrometheusLabels } from '~/common/api/router'
+import { initializePrometheusLabels } from '@posthog/node-common/api/router'
+
 import {
     AiResearchV4ServerConfig,
     buildAiResearchV4ServerConfig,

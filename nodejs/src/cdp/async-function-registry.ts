@@ -1,4 +1,4 @@
-import { TeamManager } from '~/common/utils/team-manager'
+import { TeamManager } from '@posthog/node-common/utils/team-manager'
 
 import {
     CyclotronJobInvocationHogFunction,

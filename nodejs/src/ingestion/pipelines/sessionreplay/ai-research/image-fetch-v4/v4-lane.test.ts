@@ -3,10 +3,11 @@ import { CopyObjectCommand, PutObjectCommand, S3ServiceException } from '@aws-sd
 import { Message } from 'node-rdkafka'
 import { createDecipheriv, generateKeyPairSync } from 'node:crypto'
 
-import { KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_RETRY_1M } from '~/common/config/kafka-topics'
-import { KafkaProducer } from '~/common/kafka/producer'
-import { parseJSON } from '~/common/utils/json-parse'
-import { StreamedResponse, fetchStreamed } from '~/common/utils/request'
+import { KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_RETRY_1M } from '@posthog/node-common/config/kafka-topics'
+import { KafkaProducer } from '@posthog/node-common/kafka/producer'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { StreamedResponse, fetchStreamed } from '@posthog/node-common/utils/request'
+
 import { buildAiResearchV4ServerConfig } from '~/ingestion/pipelines/sessionreplay/ai-research/config'
 import vector from '~/ingestion/pipelines/sessionreplay/ai-research/v4-keys/encryption-vector-v4.json'
 import { TeamMonthKeys } from '~/ingestion/pipelines/sessionreplay/ai-research/v4-keys/team-month-keys'
@@ -21,8 +22,8 @@ import { RawImageStore } from './raw-image-store'
 import { ImageFetchTopHogMetrics } from './tophog-metrics'
 import { UrlFetchConsumer } from './url-fetch-consumer'
 
-jest.mock('~/common/utils/request', () => ({
-    ...jest.requireActual('~/common/utils/request'),
+jest.mock('@posthog/node-common/utils/request', () => ({
+    ...jest.requireActual('@posthog/node-common/utils/request'),
     fetchStreamed: jest.fn(),
 }))
 

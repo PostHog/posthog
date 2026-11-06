@@ -1,6 +1,6 @@
 /** Parses block-metadata Kafka messages (JSON rows produced by MlBlockMetadataSink) back into rows. */
-import { parseJSON } from '~/common/utils/json-parse'
-import { logger } from '~/common/utils/logger'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import { isWellFormedRow, selectBlockMetadataFields } from './block-metadata-columns'
 import { MlBlockMetadataRow } from './block-metadata-row'

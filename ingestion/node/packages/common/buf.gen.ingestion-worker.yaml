@@ -1,0 +1,6 @@
+version: v2
+plugins:
+    - local: ../node/packages/common/node_modules/.bin/protoc-gen-es
+      out: ../node/packages/common/src/generated/ingestion-worker
+      opt:
+          - target=ts

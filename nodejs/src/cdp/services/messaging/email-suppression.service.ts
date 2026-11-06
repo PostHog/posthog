@@ -1,9 +1,9 @@
 import { Counter } from 'prom-client'
 
-import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
-import { LazyLoader } from '~/common/utils/lazy-loader'
-import { logger } from '~/common/utils/logger'
-import { isValidTeamId } from '~/common/utils/team-manager'
+import { PostgresRouter, PostgresUse } from '@posthog/node-common/utils/db/postgres'
+import { LazyLoader } from '@posthog/node-common/utils/lazy-loader'
+import { logger } from '@posthog/node-common/utils/logger'
+import { isValidTeamId } from '@posthog/node-common/utils/team-manager'
 
 const cdpEmailSuppressionTotal = new Counter({
     name: 'cdp_email_suppression_total',

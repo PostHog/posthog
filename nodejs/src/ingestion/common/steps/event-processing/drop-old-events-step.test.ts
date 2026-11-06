@@ -1,9 +1,10 @@
 import { DateTime } from 'luxon'
 
+import { createTestEventHeaders } from '@posthog/node-common/testing/event-headers'
+import { createTestPipelineEvent } from '@posthog/node-common/testing/pipeline-event'
+import { createTestTeam } from '@posthog/node-common/testing/team'
+
 import { PipelineResultType, isDropResult } from '~/ingestion/framework/results'
-import { createTestEventHeaders } from '~/tests/helpers/event-headers'
-import { createTestPipelineEvent } from '~/tests/helpers/pipeline-event'
-import { createTestTeam } from '~/tests/helpers/team'
 import { EventHeaders, PipelineEvent, Team } from '~/types'
 
 import { DropOldEventsInput, createDropOldEventsStep } from './drop-old-events-step'

@@ -1,7 +1,8 @@
 import { Message } from 'node-rdkafka'
 
-import { KAFKA_AI_RESEARCH_V4_IMAGE_FETCH } from '~/common/config/kafka-topics'
-import { KafkaProducer } from '~/common/kafka/producer'
+import { KAFKA_AI_RESEARCH_V4_IMAGE_FETCH } from '@posthog/node-common/config/kafka-topics'
+import { KafkaProducer } from '@posthog/node-common/kafka/producer'
+
 import { buildAiResearchV4ServerConfig } from '~/ingestion/pipelines/sessionreplay/ai-research/config'
 import {
     FetchCandidatePool,

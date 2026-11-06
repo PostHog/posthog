@@ -20,7 +20,7 @@
  * exceed the consumer's Kafka poll interval and stall the partition. Do not collapse this back into
  * `.replace()`.
  */
-import { createTrackedRE2 } from '~/common/utils/tracked-re2'
+import { createTrackedRE2 } from '@posthog/node-common/utils/tracked-re2'
 
 import type { LogRecord } from './log-record-avro'
 

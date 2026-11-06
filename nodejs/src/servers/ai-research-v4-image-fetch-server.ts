@@ -3,16 +3,21 @@ import { KMSClient } from '@aws-sdk/client-kms'
 import { NodeHttpHandler } from '@smithy/node-http-handler'
 import { LibrdKafkaError } from 'node-rdkafka'
 
-import { KafkaConsumer, KafkaConsumerConfig, findOffsetsToCommit } from '~/common/kafka/consumer/consumer-v1'
+import {
+    KafkaConsumer,
+    KafkaConsumerConfig,
+    findOffsetsToCommit,
+} from '@posthog/node-common/kafka/consumer/consumer-v1'
 import {
     EachBatch,
     KafkaConsumerV2,
     KafkaConsumerV2Config,
     RdKafkaConsumerOverrides,
-} from '~/common/kafka/consumer/consumer-v2'
-import { KafkaProducer } from '~/common/kafka/producer'
-import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
-import { logger } from '~/common/utils/logger'
+} from '@posthog/node-common/kafka/consumer/consumer-v2'
+import { KafkaProducer } from '@posthog/node-common/kafka/producer'
+import { KafkaProducerRegistry } from '@posthog/node-common/outputs/kafka-producer-registry'
+import { logger } from '@posthog/node-common/utils/logger'
+
 import { TopHog } from '~/ingestion/framework/tophog/tophog'
 import { AiResearchV4ServerConfig } from '~/ingestion/pipelines/sessionreplay/ai-research/config'
 import {

@@ -75,6 +75,10 @@ services/agent-*/.next
 !requirements-dev.txt
 !requirements.txt
 !rust
+!ingestion/node/package.json
+!ingestion/node/pnpm-lock.yaml
+!ingestion/node/pnpm-workspace.yaml
+!ingestion/node/packages/common
 !share/GeoLite2-City.mmdb
 !staticfiles
 !tailwind.config.js
@@ -96,6 +100,9 @@ products/**/node_modules
 # can change the image, so keep the two in step.
 products/desktop/*
 nodejs/node_modules
+ingestion/node/**/node_modules
+ingestion/node/**/dist
+ingestion/node/**/*.test.ts
 # The image-scrub sidecar is a standalone package nested in nodejs/src; keep its deps and (Stage-2) model
 # artifacts out of the plugin-server build context.
 nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/node_modules

@@ -7,7 +7,7 @@ import { NewSessionFlag, Resolved, SessionReplayHeaders } from './pipeline-types
 import { createMarkSeenStep } from './session-batch-mark-seen-step'
 import { SessionTracker } from './sessions/session-tracker'
 
-jest.mock('~/common/utils/logger', () => ({ logger: { debug: jest.fn() } }))
+jest.mock('@posthog/node-common/utils/logger', () => ({ logger: { debug: jest.fn() } }))
 
 type Base = { team: TeamForReplay; headers: SessionReplayHeaders } & NewSessionFlag
 

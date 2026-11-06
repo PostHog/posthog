@@ -1,6 +1,7 @@
-import { parseJSON } from '~/common/utils/json-parse'
+import { PluginEvent } from '@posthog/node-common/plugin-scaffold'
+import { parseJSON } from '@posthog/node-common/utils/json-parse'
+
 import { finiteNumberOrUndefined } from '~/ingestion/pipelines/ai/costs/cost-utils'
-import { PluginEvent } from '~/plugin-scaffold'
 
 import { usableStopReason } from './stop-reason'
 import { OtelLibraryMiddleware } from './types'

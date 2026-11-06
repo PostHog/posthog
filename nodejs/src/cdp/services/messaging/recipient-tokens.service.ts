@@ -1,4 +1,4 @@
-import { logger } from '~/common/utils/logger'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import type { CyclotronJobInvocationHogFunction } from '../../types'
 import { JWT, PosthogJwtAudience } from '../../utils/jwt-utils'

@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
-import { logger } from '~/common/utils/logger'
-import { createTestMessage } from '~/tests/helpers/kafka-message'
+import { createTestMessage } from '@posthog/node-common/testing/kafka-message'
+import { logger } from '@posthog/node-common/utils/logger'
 
 import { BatchBudget } from './batch-budget'
 import { ChunkPipelineBuilder } from './builders'
@@ -11,7 +11,7 @@ import { createKafkaDebugContext, createNewChunkPipeline, createOkContext } from
 import { PipelineContext, PipelineResultWithContext, PipelineWarning } from './pipeline.interface'
 import { PipelineResult, dlq, drop, isDlqResult, isOkResult, isTimeoutResult, ok, redirect, timeout } from './results'
 
-jest.mock('~/common/utils/logger', () => ({
+jest.mock('@posthog/node-common/utils/logger', () => ({
     logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }))
 
