@@ -12,6 +12,8 @@ import random
 from itertools import batched
 from typing import Literal
 
+from django.conf import settings
+
 import redis
 import structlog
 
@@ -454,25 +456,39 @@ def _refresh_one_team(config: HyperCacheManagementConfig, team: Team) -> Refresh
         return "failed"
 
 
-def _entry_was_rewritten(
+def _retrack_if_still_stored(
     hypercache: HyperCache, identifier: str | int, score: float, redis_client: redis.Redis
 ) -> bool:
-    """Re-track the member when either tier holds the entry after the delete.
+    """Re-add the member to the sorted set when any tier holds the entry after the delete.
 
-    Every writer stores the entry before it adds the member. A rewrite whose member the delete
-    removed therefore shows up here, even when both writes produced the same score. A failed
-    check re-adds the member and raises, so the next cleanup retries the entry.
+    The tiers are the primary cache, the secondary cache, and object storage. Every writer stores
+    the entry before it adds the member. A rewrite whose member the delete removed therefore shows
+    up here, even when both writes produced the same score. A failed check re-adds the member and
+    raises, so the next cleanup retries the entry.
     """
     cache_key = hypercache.get_cache_key(identifier)
-    rewritten = True
+    secondary = hypercache.secondary_cache_client
+
+    def retrack() -> None:
+        redis_client.zadd(hypercache.expiry_sorted_set_key, {str(identifier): score}, nx=True)
+
     try:
-        rewritten = hypercache.cache_client.get(cache_key) is not None or (
-            hypercache.s3_enabled and object_storage.head_object_strict(cache_key) is not None
+        still_stored = (
+            hypercache.cache_client.get(cache_key) is not None
+            or (secondary is not None and secondary.get(cache_key) is not None)
+            # Without object storage the client is a stub whose existence check always raises.
+            or (
+                hypercache.s3_enabled
+                and settings.OBJECT_STORAGE_ENABLED
+                and object_storage.head_object_strict(cache_key) is not None
+            )
         )
-        return rewritten
-    finally:
-        if rewritten:
-            redis_client.zadd(hypercache.expiry_sorted_set_key, {str(identifier): score}, nx=True)
+    except Exception:
+        retrack()
+        raise
+    if still_stored:
+        retrack()
+    return still_stored
 
 
 def cleanup_stale_expiry_tracking(config: HyperCacheManagementConfig) -> int:
@@ -483,7 +499,7 @@ def cleanup_stale_expiry_tracking(config: HyperCacheManagementConfig) -> int:
     that loaded a team before the team was deleted can write the entry again after the delete
     path cleared it. The object-storage copy has no TTL. This cleanup deletes it.
 
-    The member leaves the sorted set only after every delete succeeds and neither tier holds the
+    The member leaves the sorted set only after every delete succeeds and no tier holds the
     entry again. A failed delete, a rewrite, or a failed existence check keeps the member, and the
     next cleanup retries it.
 
@@ -525,10 +541,12 @@ def cleanup_stale_expiry_tracking(config: HyperCacheManagementConfig) -> int:
             return 0
 
         removed = 0
+        retracked = 0
         for identifier, score in stale:
             try:
                 hypercache.delete_cache_entry(identifier, strict_mirror=True, tracked_expiry_score=score)
-                if _entry_was_rewritten(hypercache, identifier, score, redis_client):
+                if _retrack_if_still_stored(hypercache, identifier, score, redis_client):
+                    retracked += 1
                     continue
                 removed += 1
             except Exception as e:
@@ -541,7 +559,8 @@ def cleanup_stale_expiry_tracking(config: HyperCacheManagementConfig) -> int:
         logger.info(
             f"Cleaned up stale {config.log_prefix} expiry entries",
             removed=removed,
-            failed=len(stale) - removed,
+            retracked=retracked,
+            failed=len(stale) - removed - retracked,
             total_checked=len(scores_by_identifier),
         )
 

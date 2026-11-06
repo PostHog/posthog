@@ -314,22 +314,31 @@ class TestCleanupStaleExpiryTracking(BaseTest):
             self.redis.zscore(self.sorted_set_key, str(identifier)) is not None,
         )
 
-    @parameterized.expand([("token_based", True), ("id_based", False)])
-    def test_deletes_the_entry_of_a_deleted_team_and_keeps_a_live_one(self, _name: str, token_based: bool) -> None:
-        self.given_cache(token_based)
-        deleted_team = self.deleted_team()
-        self.write_entry(self.team)
-        self.write_entry(deleted_team)
+    @parameterized.expand(
+        [
+            ("token_based", True, True),
+            ("id_based", False, True),
+            ("without_object_storage", True, False),
+        ]
+    )
+    def test_deletes_the_entry_of_a_deleted_team_and_keeps_a_live_one(
+        self, _name: str, token_based: bool, object_storage_enabled: bool
+    ) -> None:
+        with override_settings(OBJECT_STORAGE_ENABLED=object_storage_enabled):
+            self.given_cache(token_based)
+            deleted_team = self.deleted_team()
+            self.write_entry(self.team)
+            self.write_entry(deleted_team)
 
-        # The "replica" alias does not exist. A Team read that follows the router raises.
-        # The existence check must read the primary, because a lagging replica can report a
-        # new team as missing.
-        with override_settings(DATABASE_ROUTERS=[ReplicaRouter(["Team"])]):
-            removed = cleanup_stale_expiry_tracking(self.config)
+            # The "replica" alias does not exist. A Team read that follows the router raises.
+            # The existence check must read the primary, because a lagging replica can report a
+            # new team as missing.
+            with override_settings(DATABASE_ROUTERS=[ReplicaRouter(["Team"])]):
+                removed = cleanup_stale_expiry_tracking(self.config)
 
-        assert removed == 1
-        assert self.entry_state(deleted_team) == (False, False, False)
-        assert self.entry_state(self.team) == (True, True, True)
+            assert removed == 1
+            assert self.entry_state(deleted_team) == (False, False, False)
+            assert self.entry_state(self.team) == (True, object_storage_enabled, True)
 
     @parameterized.expand(
         [
@@ -368,10 +377,25 @@ class TestCleanupStaleExpiryTracking(BaseTest):
         assert self.entry_state(failing_team) == (False, False, False)
         assert failing_client.get(failing_key) is None
 
-    @parameterized.expand([("new_score", 60), ("same_score", 0)])
-    def test_an_entry_rewritten_during_the_cleanup_stays_tracked(self, _name: str, extra_ttl: int) -> None:
+    @parameterized.expand(
+        [
+            ("new_score", 60, (), (True, True, True)),
+            ("same_score", 0, (), (True, True, True)),
+            ("only_object_storage_holds_it", 0, ("primary", "mirror"), (False, True, True)),
+            ("only_the_mirror_holds_it", 0, ("primary", "object_storage"), (False, False, True)),
+        ]
+    )
+    def test_an_entry_rewritten_during_the_cleanup_stays_tracked(
+        self,
+        _name: str,
+        extra_ttl: int,
+        tiers_deleted_after_rewrite: tuple[str, ...],
+        state_after_cleanup: tuple[bool, bool, bool],
+    ) -> None:
         self.given_cache(token_based=True)
         deleted_team = self.deleted_team()
+        mirror = self.hypercache.secondary_cache_client
+        assert mirror is not None
         delete_object = object_storage.delete
 
         def delete_then_rewrite(key: str) -> None:
@@ -381,16 +405,26 @@ class TestCleanupStaleExpiryTracking(BaseTest):
             self.hypercache.set_cache_value(
                 deleted_team, {"id": deleted_team.id}, ttl=self.hypercache.cache_ttl + extra_ttl
             )
+            # A rewrite that interleaves with the cleanup's deletes can survive in only some tiers.
+            if "primary" in tiers_deleted_after_rewrite:
+                self.hypercache.cache_client.delete(key)
+            if "mirror" in tiers_deleted_after_rewrite:
+                mirror.delete(key)
+            if "object_storage" in tiers_deleted_after_rewrite:
+                delete_object(key)
 
+        key = self.hypercache.get_cache_key(self.hypercache.get_cache_identifier(deleted_team))
         with time_machine.travel(time.time(), tick=False):
             self.write_entry(deleted_team)
             with patch("posthog.storage.hypercache.object_storage.delete", side_effect=delete_then_rewrite):
                 assert cleanup_stale_expiry_tracking(self.config) == 0
 
-        assert self.entry_state(deleted_team) == (True, True, True)
+        assert self.entry_state(deleted_team) == state_after_cleanup
+        assert (mirror.get(key) is not None) == ("mirror" not in tiers_deleted_after_rewrite)
 
         assert cleanup_stale_expiry_tracking(self.config) == 1
         assert self.entry_state(deleted_team) == (False, False, False)
+        assert mirror.get(key) is None
 
     def test_a_failed_existence_check_keeps_the_entry_tracked_for_the_next_cleanup(self) -> None:
         self.given_cache(token_based=True)
