@@ -1,4 +1,5 @@
 import os
+from collections.abc import Mapping
 from functools import cache
 from typing import Any, Optional
 
@@ -6,9 +7,11 @@ from django.conf import settings
 
 import openai
 import posthoganalytics
+from openai.types.chat import ChatCompletion
 from posthoganalytics.ai.openai import OpenAI
 
 from posthog.dataclasses import frozen
+from posthog.llm.gateway_client import build_openai_client, resolve_ai_gateway_config
 
 
 @cache
@@ -32,11 +35,9 @@ def hit_openai(
     posthog_groups: Optional[dict[str, Any]] = None,
     timeout: float | None = None,
     response_format: dict[str, Any] | None = None,
+    distinct_id: str | None = None,
+    use_ai_gateway: bool = False,
 ) -> OpenAICompletion:
-    openai_client = _get_openai_client()
-    if not openai_client:
-        raise ValueError("OPENAI_API_KEY environment variable not set")
-
     # Only forward optional params when set, so callers that don't need them keep the client defaults.
     optional_params: dict[str, Any] = {}
     if timeout is not None:
@@ -44,16 +45,50 @@ def hit_openai(
     if response_format is not None:
         optional_params["response_format"] = response_format
 
+    if use_ai_gateway and resolve_ai_gateway_config() is not None:
+        properties = posthog_properties or {}
+        gateway_client = build_openai_client(
+            "django",
+            ai_product=properties.get("ai_product"),
+            properties=_gateway_labels(properties),
+            distinct_id=distinct_id,
+        )
+        with gateway_client:
+            result = gateway_client.chat.completions.create(
+                model=settings.OPENAI_MODEL,
+                temperature=0,
+                messages=messages,
+                user=user,
+                **optional_params,
+            )
+        return _to_completion(result)
+
+    openai_client = _get_openai_client()
+    if not openai_client:
+        raise ValueError("OPENAI_API_KEY environment variable not set")
+
     result = openai_client.chat.completions.create(
         model=settings.OPENAI_MODEL,
         temperature=0,
         messages=messages,
         user=user,  # The user ID is for tracking within OpenAI in case of overuse/abuse
+        posthog_distinct_id=distinct_id,
         posthog_properties=posthog_properties,
         posthog_groups=posthog_groups,
         **optional_params,
     )
+    return _to_completion(result)
 
+
+def _gateway_labels(properties: Mapping[str, Any]) -> dict[str, str]:
+    return {
+        key: str(value)
+        for key, value in properties.items()
+        if value is not None and key != "ai_product" and not key.startswith("$")
+    }
+
+
+def _to_completion(result: ChatCompletion) -> OpenAICompletion:
     content: str = ""
     if result.choices[0] and result.choices[0].message.content:
         content = result.choices[0].message.content.removesuffix(";")
