@@ -763,12 +763,12 @@ def _group_type_indexes_for_condition_property(
         return {None}
     condition = groups[condition_index] or {}
     aggregation = flag_filters.condition_aggregation(condition, filters.get("aggregation_group_type_index"))
-    indexes = {
+    indexes: set[int | None] = {
         aggregation if prop.get("group_type_index") is None else prop["group_type_index"]
         for prop in condition.get("properties") or []
         if isinstance(prop, dict) and prop.get("type") == "group" and prop.get("key") == key
     }
-    return indexes or {None}
+    return indexes if indexes else {None}
 
 
 def _redact_restricted_actual_values(
