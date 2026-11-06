@@ -1535,7 +1535,7 @@ class TestTransactionalEmail(APIBaseTest):
         assert (after.message_category_id, after.content) == (None, before.content)
         assert self._workflow(self.hog_flow_id)["version"] == 1
 
-    @patch("products.messaging.backend.services.transactional_email.reload_hog_flows_on_workers")
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
     def test_a_send_after_a_save_carries_the_workflow_version_that_holds_the_saved_content(
         self, _reload, mock_post, _flag, _capture
     ):
