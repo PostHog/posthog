@@ -37,17 +37,23 @@ def gitlab_request(
     token: str,
     source: str,
     endpoint: str,
+    scoped: bool = True,
     timeout: float | tuple[float, float] | None = None,
     **kwargs: Any,
 ) -> requests.Response:
     """``endpoint`` is a template such as ``/projects/{id}/issues``. Project paths in a URL are
-    customer data, so the raw URL never becomes the label."""
+    customer data, so the raw URL never becomes the label.
+
+    Pass ``scoped=False`` when the token is a candidate PostHog has not stored yet. Each scope
+    retains a counter child and three gauge children for the lifetime of the process, so a caller
+    that probes with rejected tokens would otherwise grow the metric registry without a bound.
+    """
     return _gitlab_client.request(
         method,
         url,
         source=source,
         headers={"PRIVATE-TOKEN": token},
-        scope=token_scope(url, token),
+        scope=token_scope(url, token) if scoped else None,
         endpoint=endpoint,
         timeout=timeout,
         **kwargs,

@@ -9,6 +9,11 @@ GitLab meters authenticated API traffic per user, and each token belongs to one 
 The token is a secret and the scope is a metric label, so both parts go through `scope_fingerprint`.
 A user with several tokens shows as several scopes. GitLab does not tell us the user id without an extra call.
 
+Integration setup is the exception and passes `scoped=False`.
+It probes GitLab with a token the caller just typed in, which PostHog does not store unless the probe succeeds.
+A scope retains its counter and gauge children for the life of the process, so scoping that probe would let repeated setup attempts with rejected tokens grow the registry without a bound.
+The call still records the counter under an empty scope; the gauges are skipped.
+
 ## Budget
 
 None: calls are recorded, never gated (`RecordedEgressClient`).

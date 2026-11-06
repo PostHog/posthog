@@ -113,6 +113,9 @@ class TestGitLabIntegrationModel:
     def test_create_integration_rejects_a_host_that_does_not_answer_like_gitlab(
         self, _mock_is_url_allowed, mock_request, response, expected_error
     ):
+        from prometheus_client import REGISTRY
+
+        from posthog.egress.gitlab.transport import token_scope
         from posthog.models.integration import GitLabIntegration, GitLabIntegrationError
 
         if isinstance(response, Exception):
@@ -122,6 +125,14 @@ class TestGitLabIntegrationModel:
 
         with pytest.raises(GitLabIntegrationError, match=expected_error):
             GitLabIntegration.create_integration("https://gitlab.example.com", "1", "token123", 1, None)
+
+        # A rejected token is never stored, so scoping the setup probe would let repeated attempts
+        # retain one counter child and three gauge children per token for the life of the process.
+        rejected_scope = token_scope("https://gitlab.example.com", "token123")
+        samples = (
+            sample for metric in REGISTRY.collect() if metric.name.startswith("gitlab_api") for sample in metric.samples
+        )
+        assert not any(sample.labels.get("scope") == rejected_scope for sample in samples)
 
     @patch("requests.request")
     @patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None))

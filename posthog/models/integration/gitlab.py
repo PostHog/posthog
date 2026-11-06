@@ -54,7 +54,7 @@ class GitLabIntegration:
 
     @staticmethod
     def _request(
-        method: str, hostname: str, path: str, access_token: str, *, endpoint: str, **kwargs: Any
+        method: str, hostname: str, path: str, access_token: str, *, endpoint: str, scoped: bool = True, **kwargs: Any
     ) -> requests.Response:
         """``endpoint`` is the template for the metric label. A project id can be an encoded path
         such as ``group%2Frepo``, so the path itself is customer data and never becomes a label."""
@@ -66,6 +66,7 @@ class GitLabIntegration:
             token=access_token,
             source="integration",
             endpoint=endpoint,
+            scoped=scoped,
             # disallow redirects to prevent SSRF on redirected host
             allow_redirects=False,
             timeout=10,
@@ -98,7 +99,14 @@ class GitLabIntegration:
     def create_integration(cls, hostname, project_id, project_access_token, team_id, user) -> model.Integration:
         try:
             response = cls._request(
-                "GET", hostname, f"projects/{project_id}", project_access_token, endpoint="/api/v4/projects/{id}"
+                "GET",
+                hostname,
+                f"projects/{project_id}",
+                project_access_token,
+                endpoint="/api/v4/projects/{id}",
+                # Setup runs on a token the caller supplied and PostHog may never store, so this
+                # probe must not mint a metric scope per rejected token.
+                scoped=False,
             )
         except requests.RequestException as error:
             raise GitLabIntegrationError("Couldn't connect to GitLab. Check the hostname and try again.") from error
