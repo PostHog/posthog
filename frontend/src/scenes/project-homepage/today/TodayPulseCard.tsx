@@ -44,12 +44,6 @@ export function TodayPulseCard({
         <div className="TodayPulseCard flex flex-col" data-attr="today-pulse-card">
             <div className="flex flex-col gap-4 p-3 pb-3">
                 <div className="flex flex-col gap-1">
-                    {!pinned && (
-                        <Text size="xs" variant="muted" render={<span />} className="inline-flex items-center gap-1">
-                            <IconSparkles className="size-3 shrink-0" />
-                            Suggested based on your usage
-                        </Text>
-                    )}
                     <div className="flex items-baseline justify-between gap-3">
                         <Text size="sm" weight="semibold" render={<span />} className="line-clamp-2">
                             {metric.name}
@@ -80,6 +74,12 @@ export function TodayPulseCard({
                             formatValue={metric.value_format ? formatValue : todayNumber}
                         />
                     </div>
+                )}
+                {!pinned && (
+                    <Text size="xs" variant="muted" render={<span />} className="inline-flex items-center gap-1">
+                        <IconSparkles className="size-3 shrink-0" />
+                        Suggested based on your usage
+                    </Text>
                 )}
             </div>
             <div
