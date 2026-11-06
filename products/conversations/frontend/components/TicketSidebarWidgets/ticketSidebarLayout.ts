@@ -8,6 +8,7 @@ export type TicketSidebarWidgetKey =
     | 'session_recording'
     | 'recent_events'
     | 'exceptions'
+    | 'ai_traces'
     | 'previous_tickets'
     | 'activity'
 
@@ -48,6 +49,11 @@ export const TICKET_SIDEBAR_WIDGETS: TicketSidebarWidgetDefinition[] = [
         key: 'exceptions',
         title: 'Exceptions',
         description: 'Exceptions from the session the ticket came from.',
+    },
+    {
+        key: 'ai_traces',
+        title: 'AI traces',
+        description: "The customer's AI traces from the last 30 days.",
     },
     {
         key: 'previous_tickets',

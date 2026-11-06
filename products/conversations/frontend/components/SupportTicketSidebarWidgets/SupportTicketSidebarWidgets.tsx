@@ -12,6 +12,7 @@ import { SessionRecordingPanel } from '../../scenes/ticket/SessionRecordingPanel
 import { StaffActionsPanel } from '../../scenes/ticket/StaffActionsPanel'
 import { supportTicketSceneLogic } from '../../scenes/ticket/supportTicketSceneLogic'
 import { TicketActivityPanel } from '../../scenes/ticket/TicketActivityPanel'
+import { TicketAiTracesPanel } from '../TicketAiTracesPanel/TicketAiTracesPanel'
 import { TicketSidebarWidgetSlots } from '../TicketSidebarWidgets/ticketSidebarLayout'
 import { TicketSidebarWidgets } from '../TicketSidebarWidgets/TicketSidebarWidgets'
 
@@ -68,6 +69,10 @@ export function SupportTicketSidebarWidgets({ ticketId }: { ticketId: string }):
                 />
             ) : null,
             unavailableReason: WIDGET_TICKET_ONLY,
+        },
+        ai_traces: {
+            content: person?.uuid ? <TicketAiTracesPanel personId={person.uuid} /> : null,
+            unavailableReason: 'This ticket has no linked person.',
         },
         previous_tickets: {
             content: isWidgetTicket ? (
