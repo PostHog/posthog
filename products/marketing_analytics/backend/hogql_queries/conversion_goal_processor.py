@@ -29,7 +29,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.dataclasses import frozen
-from posthog.models import PropertyDefinition, Team, User
+from posthog.models import Team, User
 
 from products.access_control.backend.property_access_control import (
     get_restricted_properties_for_team,
@@ -39,6 +39,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationResult,
     LazyComputationTable,
 )
+from products.event_definitions.backend.models import PropertyDefinition
 
 from .adapters.factory import MarketingSourceFactory
 from .attribution_weights import (

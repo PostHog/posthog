@@ -9,8 +9,11 @@ export type PinKind = Extract<ViewKind, 'dashboard' | 'insight'>
 
 export type PinDisplayMode = 'row' | 'number' | 'chart'
 
-/** Where a view was opened from, for `mobile_view_opened`. `dashboard`: a tile on a dashboard screen. */
-export type ViewEntry = 'pinned' | 'recent' | 'browse' | 'search' | 'deep_link' | 'dashboard'
+/**
+ * Where a view was opened from, for `mobile_view_opened`. `dashboard`: a tile on a dashboard screen. `widget`: the
+ * Chart home screen widget.
+ */
+export type ViewEntry = 'pinned' | 'recent' | 'browse' | 'search' | 'deep_link' | 'dashboard' | 'widget'
 
 export interface ViewRef {
     kind: ViewKind

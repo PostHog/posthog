@@ -6,7 +6,7 @@ set -euo pipefail
 PROXY="${PROXY:-http://localhost:8010}"
 API_KEY="${API_KEY:?set API_KEY to a project api_token}"
 
-# Must stay over AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH (20480) or ingestion leaves the image inline.
+# Must stay over AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH (20000) or ingestion leaves the image inline.
 BLOB="$(head -c 18750 /dev/urandom | base64 | tr -d '\n' | head -c 25000)"
 CID="$(docker ps -q -f name=clickhouse | head -1)"
 
