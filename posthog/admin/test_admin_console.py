@@ -1,5 +1,6 @@
 import re
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 
 import time_machine
@@ -27,6 +28,8 @@ from posthog.models.events_retention_config import OrganizationEventsRetentionCo
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.personhog_client.fake_client import get_active_fake
+from posthog.test.persons import create_group_type_mapping
 
 from products.ai_gateway.backend.facade.contracts import TeamCreditAdded, TeamCreditRefused
 from products.workflows.backend.facade.api import get_email_sending_state
@@ -278,7 +281,14 @@ class TestAdminConsoleViews(BaseTest):
 
         assert response.status_code == 200
         content = response.content.decode()
-        for title in ("Overview", "Remote config cache", "Email sending", "AI gateway", "Project API token"):
+        for title in (
+            "Overview",
+            "Remote config cache",
+            "Group types",
+            "Email sending",
+            "AI gateway",
+            "Project API token",
+        ):
             assert title in content
         assert "Needs attention" in content and "Ingested events:" in content
         for panel in console.panels_for("team"):
@@ -319,6 +329,12 @@ class TestAdminConsoleViews(BaseTest):
         [
             ("form_page_keeps_its_parameters", "team", "set-api-token/?from=ticket", "api-token/set/?from=ticket"),
             ("button_action_lands_on_its_panel", "team", "rebuild-cache/", "#panel-remote-config"),
+            (
+                "group_type_edit_keeps_its_index_and_parameters",
+                "team",
+                "group-type-mapping/3/edit/?from=ticket",
+                "group-types/edit-3/?from=ticket",
+            ),
             ("organization_action", "organization", "limit-product/?resource=events", "?resource=events#panel-billing"),
             (
                 "deletion_request_form_page",
@@ -350,7 +366,7 @@ class TestAdminConsoleViews(BaseTest):
         assert response.status_code == 200
         content = response.content.decode()
         assert "This is the Django admin" in content
-        for panel_key in ("remote-config", "email-sending", "ai-gateway", "api-token"):
+        for panel_key in ("remote-config", "group-types", "email-sending", "ai-gateway", "api-token"):
             assert f"/admin/console/teams/{self.team.pk}/#panel-{panel_key}" in content
 
     @parameterized.expand(
@@ -515,3 +531,72 @@ class TestAdminConsoleViews(BaseTest):
         assert f"/admin/console/teams/{self.team.pk}/" in content
         assert "Organization default" in content
         assert "September 2025" in content
+
+    @parameterized.expand(
+        [
+            ("cached_config", ({"token": "phc_cached_config"}, "redis"), "phc_cached_config"),
+            ("team_cached_as_missing", (None, "s3"), "says that this team does not exist"),
+            ("nothing_cached", (None, None), "Nothing is cached for this team"),
+        ]
+    )
+    @patch("posthog.admin.console.remote_config_tool.RemoteConfig.get_hypercache")
+    def test_the_old_view_cache_url_shows_the_cached_config_in_the_console(
+        self, _name: str, cached: tuple[object, str | None], expected: str, get_hypercache: MagicMock
+    ) -> None:
+        get_hypercache.return_value.get_cache_key.return_value = "cache/team_tokens/config.json"
+        get_hypercache.return_value.get_from_cache_with_source.return_value = cached
+
+        response = self.client.get(f"/admin/posthog/team/{self.team.pk}/view-cache/", follow=True)
+
+        assert response.redirect_chain == [(f"/admin/console/tools/remote-config-cache/?team={self.team.pk}", 302)]
+        content = response.content.decode()
+        assert "The cached config view moved to PostHog Admin" in content
+        assert "cache/team_tokens/config.json" in content
+        assert expected in content
+
+    @parameterized.expand(
+        [
+            ("rename_keeps_the_created_time", {"name_singular": "Company"}, ["name_singular"], None),
+            (
+                "created_time_to_the_millisecond",
+                {"created_at": "2026-02-20 08:15:00.456"},
+                ["created_at"],
+                int(datetime(2026, 2, 20, 8, 15, tzinfo=UTC).timestamp() * 1000) + 456,
+            ),
+            ("cleared_created_time", {"created_at": ""}, ["created_at"], None),
+            ("cleared_default_columns", {"default_columns": ""}, ["default_columns"], None),
+            ("unchanged_form", {}, None, None),
+            ("invalid_created_time", {"created_at": "not-a-datetime"}, None, None),
+        ]
+    )
+    def test_editing_a_group_type_previews_then_writes_only_the_changed_fields(
+        self, _name: str, changes: dict[str, str], expected_mask: list[str] | None, expected_created_at: int | None
+    ) -> None:
+        create_group_type_mapping(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+            default_columns=["name"],
+            created_at=datetime(2026, 1, 15, 10, 30, 0, 123000, tzinfo=UTC),
+        )
+        url = f"/admin/console/teams/{self.team.pk}/group-types/edit-0/"
+        prefilled = self.client.get(url).context["form"].initial
+
+        preview = self.client.post(url, {**prefilled, **changes, "reason": "Customer asked"})
+        updates = [call.request for call in get_active_fake().calls if call.method == "update_group_type_mapping"]
+        assert updates == []
+        if expected_mask is None:
+            assert preview.status_code == 400
+            return
+        assert preview.status_code == 200
+        assert "After saving" in preview.content.decode()
+
+        saved = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert saved.status_code == 302
+        updates = [call.request for call in get_active_fake().calls if call.method == "update_group_type_mapping"]
+        assert len(updates) == 1
+        assert list(updates[0].update_mask) == expected_mask
+        if "created_at" in expected_mask:
+            assert (updates[0].created_at if updates[0].HasField("created_at") else None) == expected_created_at
