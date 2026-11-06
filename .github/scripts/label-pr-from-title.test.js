@@ -134,6 +134,16 @@ const LABELS_FOR_FILES_CASES = [
         description: 'a sized rule ignores lines outside its paths',
     },
     {
+        files: [changed('services/sized/pyproject.toml', 2), changed('services/sized/uv.lock', 40)],
+        expected: [],
+        description: 'a sized rule ignores lockfile lines',
+    },
+    {
+        files: [changed('services/sized/a.py', 2), changed('services/sized/frontend/generated/api.ts', 80)],
+        expected: [],
+        description: 'a sized rule ignores generated file lines',
+    },
+    {
         files: [
             { filename: 'posthog/api/survey.py', status: 'modified' },
             { filename: 'packages/agent/src/run.ts', status: 'modified' },

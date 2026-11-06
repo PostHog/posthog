@@ -87,6 +87,8 @@ function pathPatternToRegExp(pattern) {
     return new RegExp(`^${source}${pattern.endsWith('/') ? '' : '$'}`)
 }
 
+const UNREVIEWED_FILE_PATTERN = /(^|\/)(pnpm-lock\.yaml|[^/]+\.lock)$|\/generated\//
+
 function changedFilenames(file) {
     return file.status === 'renamed' && file.previous_filename ? [file.filename, file.previous_filename] : [file.filename]
 }
@@ -96,14 +98,12 @@ function pathRuleMatches(rule, files) {
     const matched = files.filter((file) =>
         changedFilenames(file).some((filename) => patterns.some((pattern) => pattern.test(filename)))
     )
-    if (matched.length === 0) {
-        return false
-    }
     if (rule.minLines === undefined && rule.minFiles === undefined) {
-        return true
+        return matched.length > 0
     }
-    const lines = matched.reduce((sum, file) => sum + (file.additions ?? 0) + (file.deletions ?? 0), 0)
-    return lines >= (rule.minLines ?? Infinity) || matched.length >= (rule.minFiles ?? Infinity)
+    const counted = matched.filter((file) => !UNREVIEWED_FILE_PATTERN.test(file.filename))
+    const lines = counted.reduce((sum, file) => sum + (file.additions ?? 0) + (file.deletions ?? 0), 0)
+    return lines >= (rule.minLines ?? Infinity) || counted.length >= (rule.minFiles ?? Infinity)
 }
 
 function labelsForFiles(files, rules) {
