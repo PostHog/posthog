@@ -325,7 +325,20 @@ const workflowsEmailDraftsCreate = (): ToolBase<
 
 const WorkflowsGetSchema = () => {
     const HogFlowsRetrieveParams = orvalSchemas.HogFlowsRetrieveParams()
-    return HogFlowsRetrieveParams.omit({ project_id: true })
+    return HogFlowsRetrieveParams.omit({ project_id: true }).extend({
+        expand: z
+            .array(
+                z.enum([
+                    'actions.*.config.inputs.email.value.design',
+                    'draft.actions.*.config.inputs.email.value.design',
+                ])
+            )
+            .min(1)
+            .optional()
+            .describe(
+                'Optional list of response fields to include that the response omits by default, each a dot-path. Omit to keep the response small.'
+            ),
+    })
 }
 
 const workflowsGet = (): ToolBase<ReturnType<typeof WorkflowsGetSchema>, WithPostHogUrl<Schemas.HogFlow>> =>
@@ -340,7 +353,19 @@ const workflowsGet = (): ToolBase<ReturnType<typeof WorkflowsGetSchema>, WithPos
                     method: 'GET',
                     path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/${encodeURIComponent(String(params.id))}/`,
                 })
-                return await withPostHogUrl(context, result, `/workflows/${result.id}/workflow`)
+                const filtered = omitResponseFields(result, [
+                    'actions.*.config.inputs.*.bytecode',
+                    'actions.*.config.inputs.*.transpiled',
+                    'draft.actions.*.config.inputs.*.bytecode',
+                    'draft.actions.*.config.inputs.*.transpiled',
+                    ...(
+                        [
+                            'actions.*.config.inputs.email.value.design',
+                            'draft.actions.*.config.inputs.email.value.design',
+                        ] as const
+                    ).filter((path) => !params.expand?.includes(path)),
+                ]) as typeof result
+                return await withPostHogUrl(context, filtered, `/workflows/${filtered.id}/workflow`)
             }
         ),
     })

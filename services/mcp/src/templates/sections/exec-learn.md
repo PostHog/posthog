@@ -1,5 +1,5 @@
-**LEARN FIRST: HARD REQUIREMENT**
+{learn_heading}
 
-Load all matching topics in one `learn` command first. Topics are cumulative.
+{learn_lead}
 
 {help_topics}

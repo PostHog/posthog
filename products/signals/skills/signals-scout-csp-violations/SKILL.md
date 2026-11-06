@@ -1,5 +1,6 @@
 ---
 name: signals-scout-csp-violations
+disable-model-invocation: true
 scout-display-name: CSP violations
 description: >
   Signals scout for Content Security Policy violations. Watches `$csp_violation` events for

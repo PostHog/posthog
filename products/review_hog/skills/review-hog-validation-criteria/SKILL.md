@@ -1,5 +1,6 @@
 ---
 name: review-hog-validation-criteria
+disable-model-invocation: true
 description: >
   Keeps findings that affect correctness, security, data, API compatibility, or performance.
   Drops speculative issues and style suggestions before publishing.

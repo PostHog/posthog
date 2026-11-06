@@ -82,6 +82,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     loop_mcp_installation_allowlist,
     mark_sandbox_mcp_session,
     mcp_exclude_tools_for_task,
+    posthog_code_keeps_bundled_skills,
     unmounted_mcp_installations_log_fields,
     unmounted_mcp_installations_notice,
 )
@@ -524,6 +525,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         task_id=str(ctx.task_id),
         origin_product=task.origin_product,
         exclude_tools=mcp_exclude_tools_for_task(task, ctx.state),
+        bundled_skills=posthog_code_keeps_bundled_skills(task_run),
     )
     include_personal = include_personal_mcp_for_task(task)
     user_mcp = get_user_mcp_server_configs(

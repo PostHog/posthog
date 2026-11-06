@@ -40,6 +40,8 @@ export type RequestProperties = {
     // Origin product of the sandboxed task (`X-PostHog-Task-Origin`, e.g. `signals_scout`).
     // The consumer header can't carry this: scouts and Desktop tasks both send `posthog-code`.
     taskOriginProduct?: string | undefined
+    // A Tasks run launched with skills disabled still sends `posthog-code`, so the consumer header can't carry this.
+    bundledSkills?: boolean | undefined
     // Dev/test-only per-request feature-flag overrides — a JSON object string from
     // `?flag_overrides=` or the `x-posthog-flag-overrides` header. Parsed and gated
     // to NODE_ENV development/test (fail-closed) in `resolveFeatureFlagOverrides`.
@@ -136,6 +138,7 @@ export function parseRequestProperties(
         viaMcpStore,
         taskId: sanitizeHeaderValue(header(request, 'x-posthog-task-id')),
         taskOriginProduct: sanitizeHeaderValue(header(request, 'x-posthog-task-origin')),
+        bundledSkills: header(request, 'x-posthog-mcp-bundled-skills') === 'true' || undefined,
         excludeTools: parseExcludeTools(
             sanitizeHeaderValue(header(request, 'x-posthog-exclude-tools') || params.get('exclude_tools') || undefined)
         ),

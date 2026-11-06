@@ -285,27 +285,47 @@ To view which tools are available per feature, see our [documentation](https://p
 
 ### Learning and skills in cli mode
 
-Claude web and desktop silently drop `exec` when its serialized `inputSchema` reaches 16,384 characters.
-In cli mode, the `exec` tool keeps the guidance needed for routine calls in its schema.
-The compact tool-domain index stays inline in the `command` schema so Claude can discover relevant tools before making a call.
+In cli mode, the `exec` tool keeps the guidance needed for a correct first call in its `command` schema, and serves task-specific guidance on demand through `learn`.
+Every cli client gets this compact schema except `consumer=posthog-code`, which has no `learn` and gets the full schema with every section inline.
+Claude web and desktop also get the compact tool-domain index inline, because they never show `instructions` to the model, and a shorter skills section, because they silently drop `exec` when its serialized `inputSchema` reaches 16,384 characters.
 Optional, task-specific guidance is served through the same tool:
 
 - `learn` lists the available built-in guides and, when enabled, the PostHog/project skill discovery syntax.
-- `learn analytics` loads detailed analytics guidance and examples.
+- `learn analytics` loads the core analytics guidance: governed metrics first, typed query runners over SQL, and schema-first discovery. Agents load it for almost every data task, so it stays small. Claude web and desktop also get the catalog's certified tables and verified joins here; other cli clients keep the query-tool routing inline in the command reference instead.
+- `learn sql` (cli clients other than Claude web and desktop) loads the guidance for writing `execute-sql`: searching saved entities, certified tables, and verified joins.
+- `learn artifacts` loads the guidance for choosing and building a notebook, dashboard, or saved insight, and for explaining why a chart changed.
+- `learn activity` loads the configuration history procedure when an activity log reader is available.
+- `learn examples` loads worked multi-step analysis plans.
+- `learn hogql` loads the full HogQL guidelines, SQL examples, and the observability and LLM table reference for `execute-sql`.
 - `learn visualizations` loads rendering guidance when visualizations are available.
-- `learn urls` loads the PostHog app link formatting rules (kept inline for other clients; served as a guide on Claude web and desktop to protect the schema budget).
+- `learn urls` loads the PostHog app link formatting rules.
 - `learn feedback` loads feedback guidance when feedback is available.
+- `learn <topic> <topic...>` loads several guides in one result. Every guide fits in one tool result on its own, and guides that together would pass the smallest client tool-result limit are named in a notice for a separate `learn` command instead of being cut.
 - `learn skills` lists qualified names from the published PostHog bundle (`posthog:`) and the current project's Skills store (`project:`).
 - `learn -s "<up to 8 keywords>"` searches both sources in names, descriptions, Markdown bodies, and bundled file paths. Longer keywords take priority when a query contains more than eight. Results from both sources are merged into one relevance order.
 - `learn -d <source>:<skill> [...]` prints the one-line description of each named skill without reading its body (up to 20 per call). Unknown names are reported inline without failing the batch.
 - `learn posthog:<skill> [path]` or `learn project:<skill> [path]` reads a skill or one of its bundled files.
-- `learn <source>:<skill> <path> [path...]` reads several bundled files, and `learn <source>:<skill> [<source>:<skill>...]` reads several skills, in one call (up to 10 targets).
+- `learn <source>:<skill> <path> [path...]` reads several bundled files, and `learn <source>:<skill> [<source>:<skill>...]` reads several skills, in one call (up to 10 targets). Like guides, skills or files that together would pass the smallest client tool-result limit are named for a separate `learn` command instead of being cut.
 - `learn <source>:<skill> <path> -s "<up to 8 keywords>"` searches within one Markdown file.
 - `learn <source>:<skill> <path> --lines <start>:<end>` reads an inclusive line range.
 
-Built-in guides are specific to Claude web and desktop. Skill discovery is independently available to every cli-mode client when the `mcp-exec-skills` feature flag is enabled. Other clients, including Claude Code, receive only the skill commands and do not receive Claude's built-in guides. If the flag is missing, disabled, or cannot be evaluated, skill commands are omitted from the schema and rejected at runtime.
+Built-in guides are available to every cli-mode client except the PostHog Code consumer. Skill discovery is independently available to the same clients when the `mcp-exec-skills` feature flag is enabled. If the flag is missing, disabled, or cannot be evaluated, skill commands are omitted from the schema and rejected at runtime.
 When skill discovery is enabled, the inline prompt tells every non-plugin cli client, including Claude web and desktop, to search with `learn -s "<task keywords>"` before non-trivial PostHog work, load matches by exact qualified name, and follow the loaded `SKILL.md` before choosing tools. Trivial lookups and unrelated conversation skip this workflow.
 Skill use is advisory: a product `call` is never rejected for skipping `learn`, so every client behaves the same whether or not it holds an MCP session id.
+
+`info execute-sql` carries the HogQL rules needed for routine queries inline. The full HogQL guidelines and reference stay inline only for clients that cannot load them on demand. Other clients get a pointer instead:
+
+- Every cli client with built-in guides: `learn hogql`.
+- `consumer=plugin`, and any client that sends `x-posthog-mcp-bundled-skills: true`: the bundled `querying-posthog-data` skill.
+
+A PostHog Code Tasks sandbox sends that header unless the run strips the bundled skills (`disable_skills`, `POSTHOG_CODE_DISABLE_BUNDLED_SKILLS=1` in its sandbox environment, or the Pi runtime).
+Tools mode and `consumer=posthog-code` without the header keep the full description, because they have no on-demand path the server can rely on.
+
+A tool can also give `info` a short description for a long input field through `infoFieldDescriptions`, and `schema <tool> <field>` still returns the full one.
+`info generate-app-url` uses this for its `url` field, so the catalog of app path templates loads only through `schema generate-app-url url`. Tools mode keeps the catalog inline.
+
+Every tool result is bounded before it returns, in both tools mode and `exec`. Codex gets its own 10,000-token limit, counted as 4 UTF-8 bytes per token as Codex counts it. Every other client gets a 100,000-token ceiling, which `truncate: false` lifts. The text and `structuredContent` are bounded separately, and `_meta` is left whole.
+A shortened result stays valid in its format: JSON and TOON are re-serialized with whole array items and the short fields kept, and other text is cut at a line boundary inside any informational tags. It starts with a `[Response shortened …]` notice, stored under `_responseBudget` in JSON, that lists what was cut and how to ask for less. `output_tokens` records the shortened size, and `mcp_tool_responses_shortened_total` counts shortened results by tool.
 
 The skill bundle is shared through Redis: each pod loads it once at startup, parses it into memory, and serves every `learn` command from that parsed catalog.
 A background timer polls a small version key in Redis; only when the version changes does a pod read the archive bytes again.
@@ -322,9 +342,7 @@ Only latest, active, uncategorized skills are exposed through `learn`; category-
 Project full-text search is bounded to 10 skills, two short snippets per skill, and a five-second database timeout.
 Individual `learn` responses stay below 44,000 characters; large references return a heading outline for follow-up search or line reads.
 The fixed command syntax stays in the tool schema, while skill names and bodies are loaded only when requested.
-`consumer=plugin` and `consumer=posthog-code` omit `learn` because both surfaces already supply their own bundled skill context, regardless of the feature flag.
-
-Other clients keep the full inline command reference.
+`consumer=plugin` and `consumer=posthog-code` get no skill commands from `learn`, because both surfaces already supply their own bundled skill context, regardless of the feature flag. `consumer=plugin` still gets the built-in guides and the compact command reference; `consumer=posthog-code` keeps the full reference without `learn`.
 
 ### Tool filtering
 

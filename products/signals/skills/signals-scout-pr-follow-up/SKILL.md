@@ -1,5 +1,6 @@
 ---
 name: signals-scout-pr-follow-up
+disable-model-invocation: true
 scout-display-name: PR follow-up
 description: >
   Follow-up Signals scout for recently merged pull requests.

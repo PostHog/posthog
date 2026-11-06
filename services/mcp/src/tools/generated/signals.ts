@@ -861,7 +861,7 @@ const inboxReportsList = (): ToolBase<
                 pickResponseFields(item, [
                     'id',
                     'title',
-                    'summary',
+                    'summary_lead',
                     'metrics',
                     'status',
                     'priority',

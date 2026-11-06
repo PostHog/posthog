@@ -1,5 +1,6 @@
 ---
 name: signals-scout-conversations
+disable-model-invocation: true
 scout-display-name: Conversations
 description: >
   Signals scout for PostHog Conversations (support inbox). Watches `$conversation_*` ticket-

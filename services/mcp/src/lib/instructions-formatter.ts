@@ -8,6 +8,7 @@ import {
     type ToolInfo,
 } from '@/lib/instructions'
 import { formatPrompt } from '@/lib/utils'
+import EXECUTE_SQL_REFERENCE from '@/templates/execute-sql-reference.md'
 import ACTIVITY_HISTORY_SQL from '@/templates/sections/activity-history-sql.md'
 import ACTIVITY_HISTORY from '@/templates/sections/activity-history.md'
 import AGENT_FEEDBACK from '@/templates/sections/agent-feedback.md'
@@ -17,7 +18,7 @@ import BUSINESS_KNOWLEDGE_FIRST from '@/templates/sections/business-knowledge-fi
 import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
 import CLI_DATA_DISCOVERY from '@/templates/sections/cli-data-discovery.md'
 import CLI_ERROR_HANDLING from '@/templates/sections/cli-error-handling.md'
-import CLI_EXAMPLES_CLAUDE from '@/templates/sections/cli-examples-claude.md'
+import CLI_EXAMPLES_LEARN from '@/templates/sections/cli-examples-learn.md'
 import CLI_EXAMPLES from '@/templates/sections/cli-examples.md'
 import CLI_LEARN_COMPACT from '@/templates/sections/cli-learn-compact.md'
 import CLI_LEARN from '@/templates/sections/cli-learn.md'
@@ -38,6 +39,7 @@ import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import NOTEBOOK_PYTHON from '@/templates/sections/notebook-python.md'
 import NOTEBOOK_RUN from '@/templates/sections/notebook-run.md'
 import NOTEBOOK_SQL from '@/templates/sections/notebook-sql.md'
+import QUERY_TOOL_ROUTING from '@/templates/sections/query-tool-routing.md'
 import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
 import SKILLS_FIRST from '@/templates/sections/skills-first.md'
@@ -45,6 +47,8 @@ import TOOL_SEARCH from '@/templates/sections/tool-search.md'
 import URL_PATTERNS from '@/templates/sections/url-patterns.md'
 import { type ExecLearnGuide, LEARN_COMMAND_LINE } from '@/tools/exec-learn'
 import type { BusinessKnowledgeContent } from '@/tools/types'
+
+export const HOGQL_GUIDE_ID = 'hogql'
 
 /** Naming a command the catalog withholds sends the agent down a path it cannot take. */
 const WHATS_NEW_WITH_DOCS_SEARCH =
@@ -83,6 +87,8 @@ export interface InstructionsContext {
     /** Whether the Replay Vision scan tools are advertised to this client. Same reason
      *  as `docsSearchEnabled`: the line names three tools, and the reference drops `tools`. */
     replayVisionEnabled?: boolean | undefined
+    /** Moves SQL catalog guidance from `analytics` to a `sql` guide, so the guide loaded on most tasks does not steer typed-runner questions toward SQL. */
+    cliLearnLayout?: boolean | undefined
     businessKnowledgeContent?: BusinessKnowledgeContent | undefined
     /** Set only when the experiment flag is on and the report list and retrieve tools are advertised. */
     inboxFirstEnabled?: boolean | undefined
@@ -151,6 +157,48 @@ function replayVisionAvailable(ctx: InstructionsContext): boolean {
         REPLAY_VISION_TOOLS.every((tool) => ctx.tools?.some(({ name }) => name === tool)) ??
         false
     )
+}
+
+const SKILL_SEARCH_STEP = [
+    "Assistant: Skills come first, so I'll search for this task on its own.",
+    '[Runs `posthog:exec({"command":"learn -s \\"weekly active users\\""})`]',
+    "Assistant: It matched `posthog:querying-posthog-data`, so I'll load that skill.",
+    '[Runs `posthog:exec({"command":"learn posthog:querying-posthog-data"})`]',
+    '',
+].join('\n')
+
+function learnExampleVars(renderUiEnabled: boolean | undefined, skillsEnabled: boolean): Record<string, string> {
+    const skillStep = skillsEnabled ? SKILL_SEARCH_STEP : ''
+    if (!renderUiEnabled) {
+        return {
+            visualization_example: '',
+            skill_step: skillStep,
+            analytics_learn_intro: skillsEnabled
+                ? "Analytics applies too, so I'll load its guide."
+                : "Analytics applies, so I'll load it before any other command.",
+            analytics_learn_topics: 'analytics',
+            render_step: '',
+        }
+    }
+    return {
+        skill_step: skillStep,
+        visualization_example: [
+            '<example>',
+            'User: create pageviews visualization',
+            "Assistant: This needs analytics and visualization guidance, so I'll load both first.",
+            '[Runs `posthog:exec({"command":"learn analytics visualizations"})`]',
+            '</example>',
+        ].join('\n'),
+        analytics_learn_intro: skillsEnabled
+            ? "This also needs analytics and visualization guidance, so I'll load both."
+            : "This needs analytics and visualization guidance, so I'll load both before any other command.",
+        analytics_learn_topics: 'analytics visualizations',
+        render_step: [
+            '',
+            "Assistant: [Briefly summarizes the weekly active user trend.] I'll render it so you can verify the result.",
+            '[Runs `render-ui({ "tool_name": "query-trends", "tool_input": {...} })` with the same query input]',
+        ].join('\n'),
+    }
 }
 
 function envContextSections(ctx: InstructionsContext): string[] {
@@ -338,33 +386,73 @@ export class InstructionsFormatter {
             .join('\n\n')
     }
 
-    /**
-     * Build the optional guidance catalog used by Claude web/desktop. The
-     * existing prompt sections remain the source of truth; only their delivery
-     * moves from the advertised schema to `exec learn`.
-     */
-    buildClaudeExecLearnGuides(ctx: InstructionsContext): ExecLearnGuide[] {
+    buildExecLearnGuides(ctx: InstructionsContext): ExecLearnGuide[] {
+        // Agents load `analytics` for almost every data task, so it holds only the query
+        // routing and discovery rules; artifacts, history, and worked examples load apart.
         const entries: ExecLearnGuide[] = [
             {
                 id: 'analytics',
                 title: 'Analytics',
-                description:
-                    'Query or analyze PostHog data; governed metrics, certified tables, and verified joins live in the catalog.',
+                description: ctx.cliLearnLayout
+                    ? 'Query or analyze data: governed metrics, typed runners over SQL, schema checks.'
+                    : 'Query or analyze data: governed metrics, typed runners over SQL, schema checks, certified tables, verified joins.',
                 content: this.compose(
                     [
                         METRIC_DISCOVERY,
                         RETRIEVING_DATA,
                         SCHEMA_WORKFLOW,
-                        CATALOG_TRUST_DISCOVERY,
-                        ...this.artifactSections(ctx),
-                        ...this.activityHistorySections(ctx),
-                        EXAMPLES,
+                        ...(ctx.cliLearnLayout ? [] : [CATALOG_TRUST_DISCOVERY]),
                     ],
                     ctx,
                     { compact: false }
                 ),
             },
+            ...(ctx.cliLearnLayout
+                ? [
+                      {
+                          id: 'sql',
+                          title: 'SQL',
+                          description:
+                              'Before writing `execute-sql`: searching saved entities, certified tables, verified joins.',
+                          content: this.compose([ENTITY_SCHEMA_DISCOVERY, CATALOG_TRUST_DISCOVERY], ctx, {
+                              compact: false,
+                          }),
+                      },
+                  ]
+                : []),
+            {
+                id: 'artifacts',
+                title: 'Analysis artifacts',
+                description: 'Notebooks, dashboards, saved insights, chart explanations.',
+                content: this.compose(this.artifactSections(ctx), ctx, { compact: false }),
+            },
         ]
+
+        const activityHistory = this.activityHistorySections(ctx)
+        if (activityHistory.length > 0) {
+            entries.push({
+                id: 'activity',
+                title: 'Activity history',
+                description: 'Who changed a configuration, and when.',
+                content: this.compose(activityHistory, ctx, { compact: false }),
+            })
+        }
+
+        entries.push({
+            id: 'examples',
+            title: 'Analytics examples',
+            description: 'Worked multi-step analysis plans.',
+            content: this.compose([EXAMPLES], ctx, { compact: false }),
+        })
+
+        // The compact `execute-sql` description points here, so this guide must keep the
+        // complete guidelines and every section that description leaves out.
+        entries.push({
+            id: HOGQL_GUIDE_ID,
+            title: 'HogQL reference',
+            description: 'Full HogQL guidelines, examples, and the observability and LLM tables for `execute-sql`.',
+            content: `${ctx.guidelines.trim()}\n\n${EXECUTE_SQL_REFERENCE.trim()}`,
+        })
 
         if (ctx.renderUiEnabled) {
             entries.push({
@@ -375,7 +463,7 @@ export class InstructionsFormatter {
             })
         }
 
-        // URL rules are task-specific and load on demand instead of consuming Claude's capped input schema.
+        // URL rules are task-specific, so they load on demand instead of riding in every advertised schema.
         entries.push({
             id: 'urls',
             title: 'URL patterns',
@@ -394,44 +482,58 @@ export class InstructionsFormatter {
     }
 
     /**
-     * claude.ai's registry silently drops a tool whose serialized `inputSchema`
-     * crosses ~16,384 chars. This reference lands in
-     * `inputSchema.properties.command.description`, so keep routine tool-use
-     * guidance inline and move only task-specific sections behind `learn <topic...>`.
-     * Enforced by the budget test in `instructions-formatter-snapshot.test.ts`.
+     * `claudeChat` hosts never show `instructions` to the model, so the domain index goes inline, and they
+     * drop a tool whose serialized `inputSchema` crosses ~16,384 chars, so they get the compact skills section.
      */
-    buildClaudeExecCommandReference(
+    buildCompactExecCommandReference(
         ctx: InstructionsContext,
-        opts: { learnEnabled?: boolean; skillsEnabled?: boolean } = {}
+        opts: { claudeChat?: boolean; learnEnabled?: boolean; skillsEnabled?: boolean } = {}
     ): string {
+        const claudeChat = opts.claudeChat ?? false
         const learnEnabled = opts.learnEnabled ?? true
         const skillsEnabled = opts.skillsEnabled ?? false
-        const learnGuides = this.buildClaudeExecLearnGuides(ctx)
+        const learnGuides = this.buildExecLearnGuides(ctx)
         const learnGuideList = learnGuides.map((entry) => `- ${entry.id}: ${entry.description}`).join('\n')
-        const learnSection = learnEnabled ? formatPrompt(EXEC_LEARN, { help_topics: learnGuideList }) : undefined
-        const renderCtx: InstructionsContext = {
-            guidelines: ctx.guidelines,
-            tools: ctx.tools,
-        }
+        // Claude web/desktop keep the learn-first framing; with skills on, cli clients must search skills before guides.
+        const learnHeading = claudeChat ? '**LEARN FIRST: HARD REQUIREMENT**' : '**Built-in guides**'
+        const learnLead = claudeChat
+            ? 'First, load only the topics this task needs in one `learn` command.'
+            : skillsEnabled
+              ? 'Search skills first, as above, and load the matching ones: these guides add general workflow and never replace a skill. Load only the topics this task needs in one `learn` command.'
+              : 'Load only the topics this task needs in one `learn` command.'
+        const learnSection = learnEnabled
+            ? formatPrompt(EXEC_LEARN, {
+                  learn_heading: learnHeading,
+                  learn_lead: learnLead,
+                  help_topics: learnGuideList,
+              })
+            : undefined
+        const renderCtx: InstructionsContext = claudeChat
+            ? { guidelines: ctx.guidelines, tools: ctx.tools }
+            : {
+                  guidelines: ctx.guidelines,
+                  docsSearchEnabled: docsSearchAvailable(ctx),
+                  cliLearnLayout: ctx.cliLearnLayout,
+              }
 
         return this.compose(
             [
                 CLI_SYNTAX,
-                // Compact skills-first variant: this reference lives inside the
-                // schema-capped `command` description (see the budget test), so the
-                // content-routing paragraph is reserved for the uncapped full reference.
-                ...(skillsEnabled ? [CLI_LEARN_COMPACT] : []),
+                ...(skillsEnabled ? [claudeChat ? CLI_LEARN_COMPACT : CLI_LEARN] : []),
                 ...(learnSection ? [learnSection] : []),
+                // claude.ai drops `exec` when its inputSchema passes the registry cap, and this section pushes the reference over it.
+                ...(claudeChat ? [] : this.inboxFirstSections(ctx, true)),
                 METRIC_DISCOVERY_COMPACT,
+                ...(ctx.cliLearnLayout ? [QUERY_TOOL_ROUTING] : []),
                 CLI_SCHEMA_DRILLDOWN,
                 CLI_DATA_DISCOVERY,
-                CLI_EXAMPLES_CLAUDE,
+                formatPrompt(CLI_EXAMPLES_LEARN, learnExampleVars(ctx.renderUiEnabled, skillsEnabled && !claudeChat)),
                 CLI_ERROR_HANDLING,
                 BASIC_FUNCTIONALITY,
                 TOOL_SEARCH,
                 ...envContextSections(ctx),
-                // URL patterns live behind `learn urls` to protect the schema budget;
-                // with learn unavailable there is no topic to load, so stay inline.
+                // URL patterns and activity history normally load through `learn urls`
+                // and `learn activity`; with learn unavailable there is no topic to load.
                 ...(learnSection ? [] : [URL_PATTERNS]),
                 ...(learnSection ? [] : this.activityHistorySections(ctx)),
             ],
@@ -445,16 +547,10 @@ export class InstructionsFormatter {
         )
     }
 
-    /** Build the `command` parameter description for the exec tool. The
-     *  query-tool catalog lives here: in single-exec mode `instructions` only
-     *  carries the `query` tool domain.
-     *
-     *  Claude web/desktop uses `buildClaudeExecCommandReference` instead because
-     *  its complete JSON schema has a smaller client-enforced size budget. */
-    buildExecCommandReference(ctx: InstructionsContext, opts: { learnEnabled?: boolean } = {}): string {
+    /** The query-tool catalog lives here: in single-exec mode `instructions` only carries the `query` tool domain. */
+    buildExecCommandReference(ctx: InstructionsContext): string {
         const sections = [
             CLI_SYNTAX,
-            ...(opts.learnEnabled ? [CLI_LEARN] : []),
             ...this.inboxFirstSections(ctx, true),
             METRIC_DISCOVERY,
             CLI_SCHEMA_DRILLDOWN,
@@ -510,8 +606,12 @@ export class InstructionsFormatter {
             available_tools: buildAvailableToolsBlock(ctx.renderUiEnabled),
             tool_domains: ctx.tools ? renderToolDomains(ctx.tools) : '',
             query_tools: ctx.queryTools ? buildQueryToolsBlock(ctx.queryTools) : '',
-            entity_schema_discovery: ENTITY_SCHEMA_DISCOVERY.trim(),
+            entity_schema_discovery: ctx.cliLearnLayout ? '' : ENTITY_SCHEMA_DISCOVERY.trim(),
             replay_vision: replayVisionAvailable(ctx) ? REPLAY_VISION : '',
+            query_tool_routing: ctx.cliLearnLayout ? '' : QUERY_TOOL_ROUTING.trim(),
+            sql_trust_pointer: ctx.cliLearnLayout
+                ? '`info execute-sql` and `learn sql` cover certified tables/views and verified joins'
+                : 'Run `learn analytics` before writing SQL or joins — it covers certified tables/views and verified joins',
             extra_commands: opts.extraCommands ?? '',
             whats_new_check: docsSearchAvailable(ctx) ? WHATS_NEW_WITH_DOCS_SEARCH : WHATS_NEW_CHANGELOG_ONLY,
         }

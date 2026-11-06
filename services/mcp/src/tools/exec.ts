@@ -20,6 +20,13 @@ import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-
 import { isChatGptAppConnection } from '@/lib/oauth-constants'
 import type { RequestProperties } from '@/lib/request-properties'
 import { formatResponse } from '@/lib/response'
+import {
+    boundText,
+    jsonResponseBody,
+    responseTokenBudget,
+    type ResponseBodySource,
+    toonResponseBody,
+} from '@/lib/response-budget'
 import { API_KEY_CACHE_TTL_MS } from '@/lib/StateManager'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
@@ -259,6 +266,7 @@ export interface ExecToolOptions {
      */
     isInlineExecUiHost?: boolean
     mcpClientName?: string | undefined
+    toolResultTokenLimit?: number | undefined
     /**
      * Resolves the caller's third-party MCP tools (see `lib/gateway-tools.ts`). Awaited
      * lazily by the commands that need a tool roster, so a session that never reaches for
@@ -1687,6 +1695,22 @@ function stripOutputFormatProperty(jsonSchema: Record<string, unknown>): Record<
     return { ...jsonSchema, properties: rest }
 }
 
+function withInfoFieldDescriptions(
+    jsonSchema: Record<string, unknown>,
+    descriptions: Record<string, string> | undefined
+): Record<string, unknown> {
+    const properties = jsonSchema.properties as Record<string, Record<string, unknown>> | undefined
+    if (!properties || !descriptions) {
+        return jsonSchema
+    }
+    const compacted = Object.fromEntries(
+        Object.entries(properties).map(([field, property]) =>
+            field in descriptions ? [field, { ...property, description: descriptions[field] }] : [field, property]
+        )
+    )
+    return { ...jsonSchema, properties: compacted }
+}
+
 /** A lowercase hyphenated token, the shape every name in the tool catalog takes. */
 const HINT_TOOL_NAME_PATTERN = /[a-z][a-z0-9]*(?:-[a-z0-9]+)+/g
 
@@ -2059,7 +2083,11 @@ export function createExecTool(
                         description: tool.description,
                         annotations: tool.annotations,
                     }
-                    const fullOutput = serialize(topShape, fullSchema)
+                    const infoSchema = withInfoFieldDescriptions(
+                        fullSchema as Record<string, unknown>,
+                        tool.infoFieldDescriptions
+                    )
+                    const fullOutput = serialize(topShape, infoSchema)
 
                     if (fullOutput.length <= TOKEN_CHAR_LIMIT) {
                         return fullOutput
@@ -2069,7 +2097,7 @@ export function createExecTool(
                     // Each complex field's `hint` carries the imperative to run
                     // `schema` before populating it, so no separate directive is
                     // needed here.
-                    const summary = summarizeSchema(fullSchema as Record<string, unknown>, tool.name)
+                    const summary = summarizeSchema(infoSchema, tool.name)
                     return serialize(topShape, summary)
                 }
 
@@ -2348,15 +2376,25 @@ export function createExecTool(
                     // Serialize once so the token estimate measures the exact text
                     // returned to the client, not the raw object.
                     let outputText: string
+                    let bodySource: ResponseBodySource | undefined
                     if (useJson) {
                         outputText = JSON.stringify(result)
-                    } else {
+                        bodySource = jsonResponseBody(result)
+                    } else if (typeof formattedOverride === 'string') {
                         // Optimized mode: when the handler attached a backend-formatted table
                         // via `__formatted_results_override`, return ONLY that string. The raw
                         // `results`/`_posthogUrl` payload would otherwise duplicate the table
                         // and crowd it out — buildToolResultPayload makes the same choice for
                         // the non-exec path, this keeps exec consistent.
-                        outputText = typeof formattedOverride === 'string' ? formattedOverride : formatResponse(result)
+                        outputText = formattedOverride
+                    } else {
+                        outputText = formatResponse(result)
+                        bodySource = typeof result === 'string' ? undefined : toonResponseBody(result)
+                    }
+                    // Bound here, where the handler result is still available to re-serialize.
+                    const budget = responseTokenBudget(options.toolResultTokenLimit, input)
+                    if (budget !== undefined) {
+                        outputText = boundText(outputText, budget, bodySource)
                     }
                     trackInnerCall?.(tool.name, {
                         duration_ms: durationMs,

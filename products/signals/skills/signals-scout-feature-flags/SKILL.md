@@ -1,5 +1,6 @@
 ---
 name: signals-scout-feature-flags
+disable-model-invocation: true
 scout-display-name: Feature flags
 description: >
   Signals scout for PostHog feature flags. Watches the flag roster and the

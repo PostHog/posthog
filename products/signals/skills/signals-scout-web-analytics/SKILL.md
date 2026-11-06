@@ -1,5 +1,6 @@
 ---
 name: signals-scout-web-analytics
+disable-model-invocation: true
 scout-display-name: Web analytics
 description: >
   Signals scout for PostHog web traffic. Watches per-channel session volume, attribution

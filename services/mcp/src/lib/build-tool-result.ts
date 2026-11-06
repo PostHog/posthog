@@ -4,6 +4,15 @@ import { isEmptyToolResult } from '@/lib/empty-tool-result'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { getNextPageHint } from '@/lib/next-page-hint'
 import { formatResponse } from '@/lib/response'
+import {
+    boundText,
+    byteLength,
+    fitValue,
+    jsonResponseBody,
+    maxResponseBytes,
+    type ResponseBodySource,
+    toonResponseBody,
+} from '@/lib/response-budget'
 import { isPrepareConfirmedActionResult } from '@/tools/confirmed-action-runtime'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY, POSTHOG_TEXT_PROJECTION_KEY } from '@/tools/types'
 import { APP_DATA_META_KEY, type AnalyticsMetadata, type WithAnalytics } from '@/ui-apps/types'
@@ -81,7 +90,9 @@ export function isToolCallPayload(value: unknown): value is ToolResultPayload {
 interface BuiltResponseText {
     structuredContentOnly: boolean
     footers: string[]
+    nextPageHint?: string | undefined
     resultEmpty: boolean
+    bodySource?: ResponseBodySource | undefined
 }
 
 const builtResponseText = new WeakMap<ToolResultPayload, BuiltResponseText>()
@@ -125,6 +136,62 @@ export function estimateResponseTokens(response: ToolResultPayload): number {
         return estimateTokens(response.structuredContent) + estimateTokens(built.footers.join('\n\n'))
     }
     return estimateTokens(response.content.map((part) => part.text).join(''))
+}
+
+/**
+ * Text and `structuredContent` are bounded separately because Codex sends `structuredContent` to the model
+ * whenever it is present. `_meta` stays whole: hosts pass it to the UI app, not the model.
+ */
+function joinFooters(footers: string[]): string {
+    return footers.length > 0 ? `\n\n${footers.join('\n\n')}` : ''
+}
+
+export function capResponseToBudget(
+    response: ToolResultPayload,
+    maxTokens: number | undefined,
+    reservedBytes = 0
+): ToolResultPayload {
+    if (maxTokens === undefined) {
+        return response
+    }
+    const maxBytes = maxResponseBytes(maxTokens) - reservedBytes
+    const built = builtResponseText.get(response)
+    const text = response.content.map((part) => part.text).join('')
+    const structuredContent = response.structuredContent
+    const textFits = byteLength(text) <= maxBytes
+    const structuredFits = !structuredContent || byteLength(JSON.stringify(structuredContent)) <= maxBytes
+    if (textFits && structuredFits) {
+        return response
+    }
+
+    const capped: ToolResultPayload = { ...response }
+    if (!textFits) {
+        const footers = built?.footers ?? []
+        const footerText = joinFooters(footers)
+        const hasFooters = footerText !== '' && text.endsWith(footerText)
+        const body = hasFooters ? text.slice(0, -footerText.length) : text
+        const bodyBytes = maxBytes - (hasFooters ? byteLength(footerText) : 0)
+        const bounded = boundText(body, maxTokens, built?.bodySource, bodyBytes)
+        // The next-page hint offsets past the full page, so it would skip any rows the bound dropped.
+        const keptFooterText = !hasFooters
+            ? ''
+            : bounded === body
+              ? footerText
+              : joinFooters(footers.filter((footer) => footer !== built?.nextPageHint))
+        capped.content = [{ type: 'text', text: bounded + keptFooterText }]
+    }
+    if (!structuredFits) {
+        const fitted = fitValue(structuredContent, (value) => JSON.stringify(value), maxBytes, maxTokens)
+        if (fitted) {
+            capped.structuredContent = fitted.value as Record<string, unknown>
+        } else {
+            delete capped.structuredContent
+        }
+    }
+    if (built) {
+        builtResponseText.set(capped, built)
+    }
+    return capped
 }
 
 /**
@@ -226,15 +293,22 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         !useJson &&
         formattedResults === undefined
 
-    const body = structuredContentOnly
+    const formattedBody = structuredContentOnly
         ? STRUCTURED_CONTENT_ONLY_TEXT
-        : ((useJson && (includeAppData || isTextProjection) ? undefined : formattedResults) ??
-          (useJson ? JSON.stringify(rawResult) : formatResponse(rawResult)))
+        : useJson && (includeAppData || isTextProjection)
+          ? undefined
+          : formattedResults
+    const bodySource =
+        formattedBody === undefined && !isStringResult
+            ? (useJson ? jsonResponseBody : toonResponseBody)(rawResult)
+            : undefined
+    const body = formattedBody ?? (useJson ? JSON.stringify(rawResult) : formatResponse(rawResult))
 
     const footers: string[] = []
+    let nextPageHint: string | null = null
 
     if (!isStringResult && !useJson && !structuredContentOnly && !isPrepareConfirmedActionResult(handlerResult)) {
-        const nextPageHint = getNextPageHint(toolName, rawResult)
+        nextPageHint = getNextPageHint(toolName, rawResult)
         if (nextPageHint) {
             footers.push(nextPageHint)
         }
@@ -252,7 +326,9 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
     builtResponseText.set(payload, {
         structuredContentOnly,
         footers,
+        nextPageHint: nextPageHint ?? undefined,
         resultEmpty: isEmptyToolResult(handlerResult, toolName),
+        bodySource,
     })
     if (hasUiResource && !suppressStructuredContent) {
         payload.structuredContent = structuredContent as Record<string, unknown>

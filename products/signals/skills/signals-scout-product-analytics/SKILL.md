@@ -1,5 +1,6 @@
 ---
 name: signals-scout-product-analytics
+disable-model-invocation: true
 scout-display-name: Product analytics
 description: >
   Signals scout for core product-analytics flows — funnels, retention, lifecycle, stickiness,

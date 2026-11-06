@@ -220,7 +220,12 @@ export type ClientCapabilities = {
     // clients inject into the model's system prompt. Codex discards it, so
     // we skip sending it (saving the payload cost) for those sessions.
     supportsInstructions: boolean
+    // Set only from a client's documented limit: even `truncate: false` cannot lift it.
+    toolResultTokenLimit?: number
 }
+
+/** Codex's `truncation_policy` (codex-rs/models-manager/models.json); it cuts larger results out of the middle. */
+export const CODEX_TOOL_RESULT_TOKEN_LIMIT = 10_000
 
 export const DEFAULT_CLIENT_CAPABILITIES: ClientCapabilities = {
     supportsInstructions: true,
@@ -240,7 +245,7 @@ const CLIENT_CAPABILITY_OVERRIDES: readonly CapabilityOverride[] = [
     {
         fragments: ['codex'],
         userAgentFragments: ['codex'],
-        capabilities: { supportsInstructions: false },
+        capabilities: { supportsInstructions: false, toolResultTokenLimit: CODEX_TOOL_RESULT_TOKEN_LIMIT },
     },
 ]
 

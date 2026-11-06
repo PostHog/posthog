@@ -1,5 +1,6 @@
 ---
 name: review-hog-perspective-contracts-security
+disable-model-invocation: true
 description: >
   Checks security, input validation, and API compatibility. Reports security and contract issues only.
 metadata:

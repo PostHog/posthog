@@ -1,5 +1,6 @@
 ---
 name: signals-scout-logs
+disable-model-invocation: true
 scout-display-name: Logs
 description: >
   Signals scout for PostHog logs. Watches for emerging and rate-shifted message patterns, volume

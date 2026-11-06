@@ -1,5 +1,6 @@
 ---
 name: signals-scout-mcp-tool-calls
+disable-model-invocation: true
 scout-display-name: MCP tool calls
 description: >
   Signals scout for PostHog MCP tool calls. Watches `$mcp_tool_call` telemetry for tools that

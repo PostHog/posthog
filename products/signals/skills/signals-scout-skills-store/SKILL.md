@@ -1,5 +1,6 @@
 ---
 name: signals-scout-skills-store
+disable-model-invocation: true
 scout-display-name: Skills store
 description: >
   Skill-hygiene scout for the team's PostHog skills store. Watches recently-changed and most-

@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.chat_agent.sql.mixins import HogQLOutputParserMixin
 from ee.hogai.context.insight.context import InsightContext
+from ee.hogai.context.insight.format.sql import SQLResultsFormatter
 from ee.hogai.context.insight.query_executor import hogql_error_code
 from ee.hogai.mcp_tool import MCPTool, MCPToolResult, mcp_tool_registry
 from ee.hogai.tool_errors import MaxToolRetryableError
@@ -27,7 +28,11 @@ class ExecuteSQLMCPToolArgs(BaseModel):
     query: str = Field(description="The final SQL query to be executed.")
     truncate: bool = Field(
         default=True,
-        description="Whether to truncate large blob/JSON values in results. Set to false for full untruncated results.",
+        description=(
+            "Whether to shorten long values and cap the result at a preview of "
+            f"{SQLResultsFormatter.MAX_RESULT_CHARS:,} characters. "
+            "Set to false for full untruncated results."
+        ),
     )
     connectionId: str | None = Field(
         default=None,
@@ -108,6 +113,7 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
             description="",
             user=self._user,
             event_source=self._event_source,
+            max_sql_result_chars=SQLResultsFormatter.MAX_RESULT_CHARS if args.truncate else None,
         )
         try:
             results = await insight_context.execute_and_format(

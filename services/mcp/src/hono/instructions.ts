@@ -4,14 +4,16 @@ import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 import { hasScope } from '@/lib/api'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
 import type { QueryToolInfo } from '@/lib/instructions'
-import { type InstructionsContext, InstructionsFormatter } from '@/lib/instructions-formatter'
+import { HOGQL_GUIDE_ID, type InstructionsContext, InstructionsFormatter } from '@/lib/instructions-formatter'
 import { isChatGptAppConnection } from '@/lib/oauth-constants'
 import { formatPrompt } from '@/lib/utils'
 import { RENDER_UI_RESOURCE_URI } from '@/resources/ui-apps.generated'
 import { ProjectSkillCatalog } from '@/skills/project-skill-catalog'
 import type { SkillCatalog } from '@/skills/skill-catalog'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
+import EXECUTE_SQL_REFERENCE from '@/templates/execute-sql-reference.md'
 import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
+import HOGQL_ESSENTIALS from '@/templates/sections/hogql-essentials.md'
 import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import SCHEMA_DISCOVERY from '@/templates/sections/schema-discovery.md'
 import { EXEC_TOOL_ANNOTATIONS } from '@/tools/exec'
@@ -150,17 +152,24 @@ export class InstructionsBuilder {
         }
     }
 
+    /** Typed-runner routing drives tool choice on most analytics tasks, so cli clients keep it in the
+     *  compact reference, and the `analytics` guide leaves it out. Claude web/desktop keep it in the guide. */
+    private compactExecContext(state: ExecToolState): InstructionsContext {
+        return { ...this.buildContext(state), cliLearnLayout: !state.clientProfile.isClaudeChatHost() }
+    }
+
     buildExecCommandReference(state: ExecToolState): string {
-        // Claude web/desktop never show `instructions` to the model, so their reference carries the domain index.
         const { guidesEnabled, skillsEnabled } = this.getExecLearnCapabilities(state)
-        const ctx = this.buildContext(state)
-        if (state.clientProfile.isClaudeChatHost()) {
-            return this.formatter.buildClaudeExecCommandReference(ctx, {
+        const claudeChat = state.clientProfile.isClaudeChatHost()
+        // Claude web/desktop stay on the compact reference without `learn`, because the full one overflows their schema cap.
+        if (claudeChat || guidesEnabled) {
+            return this.formatter.buildCompactExecCommandReference(this.compactExecContext(state), {
+                claudeChat,
                 learnEnabled: guidesEnabled || skillsEnabled,
                 skillsEnabled,
             })
         }
-        return this.formatter.buildExecCommandReference(ctx, { learnEnabled: skillsEnabled })
+        return this.formatter.buildExecCommandReference(this.buildContext(state))
     }
 
     buildExecLearnCatalog(state: ResolvedState, skills: SkillCatalog | undefined): ExecLearnCatalog | undefined {
@@ -168,7 +177,7 @@ export class InstructionsBuilder {
         if (!guidesEnabled && !skillsEnabled) {
             return undefined
         }
-        const guides = guidesEnabled ? this.formatter.buildClaudeExecLearnGuides(this.buildContext(state)) : []
+        const guides = guidesEnabled ? this.formatter.buildExecLearnGuides(this.compactExecContext(state)) : []
         const canReadProjectSkills = skillsEnabled && hasScope(state.apiKeyScopes, 'llm_skill:read')
         // The catalog (and this closure) is rebuilt per request, so this Set dedupes
         // within one exec command — a 5-file batch of one skill fires a single event,
@@ -222,27 +231,42 @@ export class InstructionsBuilder {
         return this.guidelines
     }
 
-    formatExecuteSqlDescription(): string {
+    formatExecuteSqlDescription(state?: ExecToolState): string {
         // Metric discovery leads the splice so catalog-first routing still precedes
         // raw schema discovery, without displacing the tool's own intro line.
         const schemaDiscovery = `${METRIC_DISCOVERY.trim()}\n\n${SCHEMA_DISCOVERY.trim()}\n\n${CATALOG_TRUST_DISCOVERY.trim()}`
+        const referencePointer = state ? this.hogqlReferencePointer(state) : undefined
         return formatPrompt(EXECUTE_SQL_PROMPT, {
-            guidelines: this.guidelines.trim(),
+            hogql: referencePointer
+                ? formatPrompt(HOGQL_ESSENTIALS, { reference_pointer: referencePointer })
+                : this.guidelines.trim(),
             schema_discovery: schemaDiscovery,
+            reference: referencePointer ? '' : EXECUTE_SQL_REFERENCE.trim(),
         })
+    }
+
+    private hogqlReferencePointer(state: ExecToolState): string | undefined {
+        const { mcpConsumer } = getEffectiveMCPClientContext(state.requestContext, state.sessionContext)
+        if (mcpConsumer === 'plugin' || state.requestContext.bundledSkills) {
+            return 'The full HogQL reference is in your bundled `querying-posthog-data` skill: read its `references/guidelines.md`, and its `models-*.md` references for `posthog.ai_events`, `logs`, `posthog.trace_spans`, and `posthog.metrics`.'
+        }
+        if (this.getExecLearnCapabilities(state).guidesEnabled) {
+            return `Run \`learn ${HOGQL_GUIDE_ID}\` for the full HogQL reference, with examples and the observability and LLM tables.`
+        }
+        return undefined
     }
 
     private getExecLearnCapabilities(state: ExecToolState): { guidesEnabled: boolean; skillsEnabled: boolean } {
         const clientContext = getEffectiveMCPClientContext(state.requestContext, state.sessionContext)
-        // The plugin and PostHog Code sandboxes bundle their own skill context, so
-        // learn stays off for them regardless of the feature flag.
-        if (clientContext.mcpConsumer === 'plugin' || isPostHogCodeConsumer(clientContext.mcpConsumer)) {
+        // The plugin and PostHog Code bundle their own skills, so learn serves them none; the plugin still gets the built-in guides.
+        if (isPostHogCodeConsumer(clientContext.mcpConsumer)) {
             return { guidesEnabled: false, skillsEnabled: false }
         }
-        // The connector's header-less `tools/list` advertises guides to every surface, so the call serves them too.
-        const { clientProfile } = state
+        if (clientContext.mcpConsumer === 'plugin') {
+            return { guidesEnabled: true, skillsEnabled: false }
+        }
         return {
-            guidesEnabled: clientProfile.isClaudeChatHost() || clientProfile.isAnthropicConnector(),
+            guidesEnabled: true,
             skillsEnabled: state.toolFeatureFlags?.[MCP_EXEC_SKILLS_FEATURE_FLAG] === true,
         }
     }

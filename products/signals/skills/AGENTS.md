@@ -91,6 +91,11 @@ No coordinator-side code change is needed. Use `signals-scout-general` as the te
 
 Each scout's body is an instruction set the run reads at run time with `skill-get` — the harness pins the version and never inlines the body into the system prompt. References (siblings of `SKILL.md`) are progressively disclosed the same way, via `skill-file-get`. Keep the body lean — every line is a recurring token cost on every run — and push detail into references that are only read when needed. Do not hard-wrap scout `SKILL.md` prose at a column width — use semantic line breaks (sentence per line); the body is a prompt, not display text, and column wrapping only adds diff noise.
 
+Frontmatter also carries the required **`disable-model-invocation: true`**.
+The published skill bundle ships every scout to the PostHog plugin, where nobody runs a scout as a local skill, so the flag keeps its description out of each user's skill listing.
+The harness never reads the flag, because a run reads its scout through `skill-get`. It sits outside the canonical content hash, so adding it does not re-sync seeded rows.
+`hogli lint:skills` fails a `signals-scout-*` skill without it.
+
 Frontmatter also carries the optional **`scout-tags`** list — the config tags `register_missing_configs` stamps on the `SignalScoutConfig` it creates for the scout, normalized and capped like a tag typed into the config API.
 It is how a canonical scout claims a product surface: AI observability's self-driving tab lists the scouts tagged `ai-observability`, so that tab needs no hardcoded skill name and a scout can change surfaces by editing its frontmatter.
 Tags are seeded at creation only — a person who removes one keeps it removed — so adding the key to a scout teams already run leaves their existing configs untagged until someone tags them through the config API.

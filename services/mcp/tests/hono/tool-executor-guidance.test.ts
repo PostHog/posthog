@@ -57,7 +57,8 @@ describe('ToolExecutor guidance notices', () => {
         mode: string,
         sqlHandler: (args: unknown) => unknown,
         flag: string,
-        callFlags = ''
+        callFlags = '',
+        toolResultTokenLimit?: number
     ): {
         callSql: (query: string) => Promise<SqlResult>
         capture: MockInstance<ReturnType<typeof getPostHogClient>['captureToolCall']>
@@ -88,6 +89,14 @@ describe('ToolExecutor guidance notices', () => {
             suppressAnalytics: false,
             aiConsentGiven: true,
             toolFeatureFlags: { [flag]: true },
+            ...(toolResultTokenLimit
+                ? {
+                      clientProfile: {
+                          ...makeToolExecutorState([]).clientProfile,
+                          capabilities: { supportsInstructions: false, toolResultTokenLimit },
+                      } as any,
+                  }
+                : {}),
         })
         const capture = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
         const callSql = async (
@@ -119,6 +128,20 @@ describe('ToolExecutor guidance notices', () => {
         ])
         expect(capture.mock.calls[1]?.[0].properties?.mcp_guidance_outcome).toBe('shown')
     })
+
+    it.each(['direct', 'exec'])(
+        'fits a capped result and its notice within the client limit in %s mode',
+        async (mode) => {
+            const table = Array.from({ length: 5_000 }, (_, i) => `${i},${'x'.repeat(80)}`).join('\n')
+            const { callSql } = setup(mode, () => table, MCP_GUIDANCE_REPLAY_VISION_FLAG, '', 10_000)
+            await callSql('select 1 from session_replay_events')
+            const second = await callSql('select 2 from session_replay_events')
+
+            const returned = second.content.map((part) => part.text ?? '').join('')
+            expect(returned).toContain('Replay Vision')
+            expect(Buffer.byteLength(returned, 'utf8')).toBeLessThanOrEqual(40_000)
+        }
+    )
 
     it('keeps the JSON result as the first block when guidance fires on a --json call', async () => {
         const { callSql } = setup('exec', () => ({ results: [[1]] }), MCP_GUIDANCE_REPLAY_VISION_FLAG, '--json ')

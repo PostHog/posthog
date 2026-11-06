@@ -177,6 +177,8 @@ export type Tool<TSchema extends z.ZodType = z.ZodType, TResult = unknown> = {
      * nothing. PostHog's own tools leave this unset and stay Zod-derived.
      */
     rawInputSchema?: Record<string, unknown>
+    /** Short top-level field descriptions for exec `info`; each must point to `schema <tool> <field>`, which keeps the full text. */
+    infoFieldDescriptions?: Record<string, string>
     handler: (context: Context, params: z.infer<TSchema>) => Promise<TResult>
     scopes: string[]
     annotations: {
