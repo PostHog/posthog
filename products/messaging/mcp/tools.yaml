@@ -124,7 +124,7 @@ tools:
             idempotent: false
         title: Start an import from another email tool
         description: >
-            Start a background import from another email tool, such as Resend, into the active project. Before the first
+            Start a background import from another email tool, such as Resend or Postmark, into the active project. Before the first
             call, tell the user the project's name and id and ask whether the data belongs there. Ask the user to create
             the API key themselves and treat it as a secret: never repeat it or write it to a file. Pass the step keys
             from provider-imports-providers. Returns at once with the run. Poll provider-imports-get until `status` is
