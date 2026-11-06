@@ -9,7 +9,7 @@ from django.contrib import messages
 from django.contrib.staticfiles import finders
 from django.core.exceptions import PermissionDenied
 from django.db.models import Model, Q
-from django.http import Http404, HttpRequest, HttpResponse, HttpResponseNotAllowed, HttpResponseRedirect
+from django.http import Http404, HttpRequest, HttpResponse, HttpResponseNotAllowed, HttpResponseRedirect, QueryDict
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.decorators.http import require_safe
@@ -17,6 +17,7 @@ from django.views.decorators.http import require_safe
 import structlog
 
 from posthog.admin.console.bridge import QueuedMessages
+from posthog.admin.console.confirm import ConfirmationToken
 from posthog.admin.console.panels import Fact, Operation, Panel, Tone
 from posthog.admin.console.records import RECORD_TYPES, RecordLink, RecordType
 from posthog.admin.console.registry import console
@@ -275,6 +276,8 @@ def _operation_context(
         "target": target,
         "operation": operation,
         "form": form,
+        # Templates call callables, so the preview handler cannot be tested there directly.
+        "has_preview": getattr(operation, "preview", None) is not None,
         # Handlers that move money or send messages build an idempotency key from it, so a double submit runs once.
         "form_nonce": request.POST.get("form_nonce") or str(uuid.uuid4()),
     }
@@ -334,7 +337,7 @@ def run_operation(request: HttpRequest, record: str, pk: object, panel_key: str,
         # A handler can fail after its state change committed, for example when a notification fails.
         # The operation is then no longer offered, and staff belong on the record page, not on a dead form.
         if form is not None and _is_offered(panel, obj, operation.key):
-            return render(request, "admin_console/operation.html", context, status=400)
+            return render(request, "admin_console/operation.html", context, status=response.status_code)
         if QueuedMessages.error_count(request) == 0:
             messages.error(
                 request,
@@ -352,10 +355,14 @@ def _get_tool(tool_key: str) -> ConsoleTool:
     return tool
 
 
-def _with_query(url: str, request: HttpRequest) -> str:
-    # A tool can have sub-pages picked by query parameters, so its operations and the way back keep them.
+def _query_suffix(request: HttpRequest) -> str:
     query = request.META.get("QUERY_STRING", "")
-    return url + (f"?{query}" if query else "")
+    return f"?{query}" if query else ""
+
+
+def _with_query(url: str, request: HttpRequest) -> str:
+    # A tool can have sub-pages picked by query parameters, so its operations, live blocks and the way back keep them.
+    return url + _query_suffix(request)
 
 
 @require_safe
@@ -375,8 +382,31 @@ def tool_page(request: HttpRequest, tool_key: str) -> HttpResponse:
     return render(
         request,
         "admin_console/tool.html",
-        {**ConsoleEnvironment.context(), "tool": tool, "page": tool.page(request), "operations": operations},
+        {
+            **ConsoleEnvironment.context(),
+            "tool": tool,
+            "page": tool.page(request),
+            "operations": operations,
+            "query_suffix": _query_suffix(request),
+        },
     )
+
+
+@require_safe
+def tool_live(request: HttpRequest, tool_key: str, live_key: str) -> HttpResponse:
+    """One live block of a tool page, for console.js to swap in. It reads only, like the page itself."""
+    tool = _get_tool(tool_key)
+    live = tool.live(request, live_key)
+    if live is None:
+        raise Http404("Unknown live block")
+    live_url = _with_query(
+        reverse("admin_console_tool_live", kwargs={"tool_key": tool.key, "live_key": live.key}), request
+    )
+    response = render(request, "admin_console/_live.html", {"tool": tool, "live": live, "live_url": live_url})
+    # console.js swaps in only a response that carries this header, never a login page or an error page.
+    response["X-Console-Live"] = "1"
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) -> HttpResponse:
@@ -393,9 +423,6 @@ def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) 
     if request.method == "GET" and operation.form_class is None:
         return redirect(tool_url)
 
-    form = None
-    if operation.form_class is not None:
-        form = operation.form_class(request.POST if request.method == "POST" else None, initial=operation.form_initial)
     target = OperationTarget(
         kicker="This runs from",
         title=tool.title,
@@ -405,11 +432,35 @@ def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) 
         breadcrumbs=(RecordLink(label=tool.title, href=tool_url),),
         is_record=False,
     )
+    confirmation = ConfirmationToken(request, f"tool:{tool.key}", operation.key)
+    data: QueryDict | None = request.POST if request.method == "POST" else None
+    confirm_token = request.POST.get("confirm_token") if request.method == "POST" else None
+    if confirm_token is not None:
+        data = confirmation.load(confirm_token)
+        if data is None:
+            messages.error(
+                request, "This confirmation expired or was made for something else. Review the change again."
+            )
+            return redirect(request.get_full_path())
+
+    form = None
+    if operation.form_class is not None:
+        form = operation.form_class(data, initial=operation.form_initial)
     context = _operation_context(target, operation, form, request)
     if request.method == "GET":
         return render(request, "admin_console/operation.html", context)
     if form is not None and not form.is_valid():
         return render(request, "admin_console/operation.html", context, status=400)
+
+    if operation.preview is not None and form is not None and confirm_token is None:
+        preview = operation.preview(request, form)
+        if form.errors:
+            return render(request, "admin_console/operation.html", context, status=400)
+        return render(
+            request,
+            "admin_console/confirm.html",
+            {**context, "page": preview, "confirm_token": confirmation.sign(form)},
+        )
 
     audit = audit.bind(reason=form.cleaned_data.get("reason") if form is not None else None)
     result = _audited(audit, lambda: operation.handler(request, form))
@@ -419,7 +470,7 @@ def run_tool_operation(request: HttpRequest, tool_key: str, operation_key: str) 
         return render(request, "admin_console/result.html", {**context, "page": result})
     if result.status_code >= 400:
         if form is not None:
-            return render(request, "admin_console/operation.html", context, status=400)
+            return render(request, "admin_console/operation.html", context, status=result.status_code)
         if QueuedMessages.error_count(request) == 0:
             messages.error(request, f"{operation.label} failed with status {result.status_code}.")
         return redirect(tool_url)

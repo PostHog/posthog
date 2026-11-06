@@ -44,7 +44,11 @@
                  data-slot="card-footer">
                 <button type="submit"
                         class="quill-button {% if operation.danger %}quill-button--variant-destructive{% else %}quill-button--variant-primary{% endif %} quill-button--size-default group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap">
-                    {{ operation.label }}{% if target.is_record %} for {{ target.title|truncatechars:40 }}{% endif %}
+                    {% if has_preview %}
+                        Review what changes
+                    {% else %}
+                        {{ operation.label }}{% if target.is_record %} for {{ target.title|truncatechars:40 }}{% endif %}
+                    {% endif %}
                 </button>
                 <a href="{{ target.back_url }}"
                    class="quill-button quill-button--variant-outline quill-button--size-default group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap">Cancel</a>

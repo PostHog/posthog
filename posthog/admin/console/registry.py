@@ -7,7 +7,7 @@ from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.tools import ConsoleTool
 
 # Navigation headings. Add one here, in the shell, only when no existing group fits a new tool.
-TOOL_GROUPS = frozenset({"Data", "Billing"})
+TOOL_GROUPS = frozenset({"Data", "Billing", "Organizations"})
 KEY_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
@@ -72,6 +72,8 @@ class ConsoleRegistry:
             return
         # Core panels register first, so they lead each page.
         import posthog.admin.console.team_panels  # noqa: F401, PLC0415 — registers the core Team panels
+        import posthog.admin.console.health_checks_tool  # noqa: F401, PLC0415 — registers a core tool
+        import posthog.admin.console.organization_tools  # noqa: F401, PLC0415 — registers a core tool
         import posthog.admin.console.usage_reports_tool  # noqa: F401, PLC0415 — registers a core tool
         import posthog.admin.console.organization_panels  # noqa: F401, PLC0415 — registers the core Organization panels
         import posthog.admin.console.events_retention_tool  # noqa: F401, PLC0415 — registers a core tool

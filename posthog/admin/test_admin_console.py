@@ -19,7 +19,7 @@ from posthog.admin.console.organization_panels import BillingPanel, QuotaLimits
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Operation, Owner, Panel, ReasonForm
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import ConsoleRegistry, console
-from posthog.admin.console.tools import Cell, ConsoleTool, Page, Row, Table
+from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Paging, Row, Table
 from posthog.csp_middleware import CSPMiddleware
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig
 from posthog.models.organization import Organization
@@ -159,6 +159,25 @@ class TestAdminConsoleAssets(SimpleTestCase):
                 "starts with /",
             ),
             ("unknown_tool_block", lambda: Page(blocks=(Fact(label="a", value="b"),)), "not a console block"),  # type: ignore[arg-type]
+            (
+                "live_block_with_a_key_that_is_not_a_slug",
+                lambda: Live(key="Runs list", block=Notice(text="a")),
+                "lowercase and dash-separated",
+            ),
+            (
+                "live_block_holding_paging",
+                lambda: Page(
+                    blocks=(
+                        Live(
+                            key="runs",
+                            block=Paging(  # type: ignore[arg-type]
+                                number=1, num_pages=1, summary="", previous_url=None, next_url=None
+                            ),
+                        ),
+                    )
+                ),
+                "not a table, notice or output",
+            ),
             (
                 "table_row_missing_a_cell",
                 lambda: Page(blocks=(Table(columns=("Team", "Months"), rows=(Row(cells=(Cell(text="a"),)),)),)),

@@ -67,11 +67,6 @@ if settings.ADMIN_PORTAL_ENABLED:
             pass
 
     from posthog.admin.admins.distinct_id_usage_admin import distinct_id_usage_view
-    from posthog.admin.admins.health_check_admin import (
-        health_check_list_view,
-        health_check_runs_fragment_view,
-        health_check_trigger_view,
-    )
     from posthog.admin.admins.notebook_markdown_migration_admin import (
         notebook_markdown_migration_run_view,
         notebook_markdown_migration_stats_view,
@@ -116,17 +111,17 @@ if settings.ADMIN_PORTAL_ENABLED:
         ),
         path(
             "admin/health-checks/",
-            admin.site.admin_view(health_check_list_view),
+            MovedToConsole.page_redirect("Health checks", "/admin/console/tools/health-checks/"),
             name="health-checks",
         ),
         path(
             "admin/health-checks/<str:kind>/",
-            admin.site.admin_view(health_check_trigger_view),
+            MovedToConsole.page_redirect("Health checks", "/admin/console/tools/health-checks/?check={kind}"),
             name="health-check-trigger",
         ),
         path(
             "admin/health-checks/<str:kind>/runs/",
-            admin.site.admin_view(health_check_runs_fragment_view),
+            MovedToConsole.page_redirect("Health checks", "/admin/console/tools/health-checks/?check={kind}"),
             name="health-check-runs",
         ),
         path(

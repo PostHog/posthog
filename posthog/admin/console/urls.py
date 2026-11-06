@@ -51,6 +51,11 @@ urlpatterns = [
         name="admin_console_tool",
     ),
     path(
+        "admin/console/tools/<slug:tool_key>/live/<slug:live_key>/",
+        admin.site.admin_view(views.tool_live),
+        name="admin_console_tool_live",
+    ),
+    path(
         "admin/console/tools/<slug:tool_key>/<slug:operation_key>/",
         admin.site.admin_view(views.run_tool_operation),
         name="admin_console_tool_operation",
@@ -69,6 +74,10 @@ urlpatterns = [
         )
         for old, target in MOVED_ORGANIZATION_ACTIONS.items()
     ],
+    path(
+        "admin/posthog/organization/bulk-deactivate/",
+        MovedToConsole.page_redirect("Bulk deactivation", "/admin/console/tools/bulk-deactivate-organizations/"),
+    ),
     path(
         "admin/posthog/organization/send-usage-report/",
         MovedToConsole.page_redirect("Sending usage reports", "/admin/console/tools/usage-reports/"),
