@@ -127,10 +127,16 @@ type CacheEntry<T> = {
     loadNumber: number
 }
 
+interface LoadBuffer {
+    keys: Set<string>
+    promise: Promise<void>
+    /** Fires the buffered load now; a no-op once the buffer timer has fired. */
+    flush: () => void
+}
+
 interface PendingReload {
     load: Promise<void>
-    /** The buffer the reload joined. While it is still `this.buffer`, the reload's query has not started. */
-    buffer: object | undefined
+    buffer: LoadBuffer | undefined
     /** One reload shared by the callers that arrive after the running reload's query started. */
     next?: Promise<void>
 }
@@ -148,14 +154,7 @@ export class LazyLoader<T> {
     private cacheSize: number = 0
     private loadsStarted: number = 0
 
-    private buffer:
-        | {
-              keys: Set<string>
-              promise: Promise<void>
-              /** Fires the buffered load now; a no-op once the buffer timer has fired. */
-              flush: () => void
-          }
-        | undefined
+    private buffer: LoadBuffer | undefined
 
     constructor(private readonly options: LazyLoaderOptions<T>) {
         // Keys come from callers and can be ingest tokens or distinct ids, so these maps have no
@@ -206,14 +205,24 @@ export class LazyLoader<T> {
         if (!pending) {
             return await this.startReload(key)
         }
-        if (pending.buffer && pending.buffer === this.buffer) {
+        if (!this.queryStarted(pending)) {
             return await pending.load
         }
+        // A failed reload fails its queued callers too, rather than adding a query to a stalled pool.
         pending.next ??= pending.load.then(
             () => this.startReload(key),
-            () => this.startReload(key)
+            (error: unknown) => {
+                if (this.pendingReloads[key] === pending) {
+                    delete this.pendingReloads[key]
+                }
+                throw error
+            }
         )
         return await pending.next
+    }
+
+    private queryStarted(pending: PendingReload): boolean {
+        return !pending.buffer || pending.buffer !== this.buffer
     }
 
     private startReload(key: string): Promise<void> {
@@ -413,7 +422,7 @@ export class LazyLoader<T> {
      * A buffer collects keys until its timer fires, or until `flush` fires it early, then calls
      * the loader once for all of them. Whichever fires first wins; the other is a no-op.
      */
-    private createBuffer(bufferMs: number): NonNullable<typeof this.buffer> {
+    private createBuffer(bufferMs: number): LoadBuffer {
         const keys = new Set<string>()
         const loadNumber = ++this.loadsStarted
         let fired = false
