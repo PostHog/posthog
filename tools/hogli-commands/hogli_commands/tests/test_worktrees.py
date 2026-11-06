@@ -1073,6 +1073,8 @@ class TestWorktreeBoxes:
         monkeypatch.setattr(worktrees, "delete_workspace", lambda name: calls.append(("delete", name)))
         monkeypatch.setattr(worktrees, "stop_workspace", lambda name: calls.append(("stop", name)))
         monkeypatch.setattr(worktrees.mutagen, "sync_terminate", terminated.append)
+        forgotten_in_herdr: list[str] = []
+        monkeypatch.setattr(worktrees.herdr, "forget_machine", forgotten_in_herdr.append)
         box_a, box_b = _box("devbox-test-user-a", workspace_id="id-a"), _box("devbox-test-user-b")
         devbox_config.record_worktree_box(tmp_path / "a", box_a)
         devbox_config.record_worktree_box(tmp_path / "b", box_b)
@@ -1088,6 +1090,7 @@ class TestWorktreeBoxes:
         )
 
         assert calls == expected_calls
+        assert forgotten_in_herdr == [name for call, name in expected_calls if call == "delete"]
         acted = live_id == box_a.workspace_id and (last_used_at is None or bool(expected_calls))
         assert terminated == ([worktrees.mutagen.workspace_label_selector("devbox-test-user-a")] if acted else [])
         kept = live_id == box_a.workspace_id and (not acted or (keep_stopped and action == "stop"))
