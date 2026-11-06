@@ -111,6 +111,7 @@ whose path is given here handles its own failures, so the same action elsewhere 
 const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadFeatureFlag: 'scenes.feature-flags.featureFlagLogic', // A retry banner, or a retry toast once the flag is on screen
     loadTopReports: 'scenes.project-homepage.today.todayLogic',
+    loadMatrix: 'products.customer_analytics.accountDotMatrixTileLogic',
     loadHighlights: 'scenes.project-homepage.today.todayHighlightsLogic',
     loadFullReport: 'scenes.project-homepage.today.todayReportLogic',
     loadPage: 'scenes.project-homepage.today.todayReportLogic',
@@ -212,6 +213,7 @@ Every other failure on these actions still toasts and reports.
 const VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     updateTable: 'products.dataWarehouse.selfManagedSourceLogic',
     setEnabled: 'scenes.subscriptions.subscriptionSceneLogic', // Toasts the refusal, or offers to take ownership
+    loadMatrix: 'products.customer_analytics.accountDotMatrixTileLogic', // Shows SQL mistakes in the tile, so only 5xx are reported
 }
 
 /*
