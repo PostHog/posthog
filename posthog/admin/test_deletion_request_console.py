@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -24,6 +25,7 @@ PANELS = "posthog.admin.console.deletion_request_panels"
 
 
 @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
+@time_machine.travel("2026-11-06T12:00:00Z", tick=False)
 class TestDeletionRequestConsole(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -162,6 +164,44 @@ class TestDeletionRequestConsole(BaseTest):
         obj.refresh_from_db()
         assert (obj.status, obj.execution_mode, obj.approved_by) == (RequestStatus.APPROVED, mode, self.user)
         assert LogEntry.objects.filter(object_id=str(obj.pk), change_message__startswith="Approved").exists()
+
+    @parameterized.expand(
+        [
+            (
+                "person_targets",
+                {
+                    "request_type": RequestType.PERSON_REMOVAL,
+                    "person_distinct_ids": [f"user-{index}" for index in range(25)],
+                    "person_drop_events": True,
+                },
+                ExecutionMode.IMMEDIATE,
+                ["user-0", "user-19", "and 5 more"],
+                ["user-24"],
+            ),
+            (
+                "query_variables",
+                {
+                    "request_type": RequestType.HOGQL_EVENT_REMOVAL,
+                    "hogql_query": "SELECT uuid FROM events WHERE timestamp < {cutoff}",
+                    "hogql_variables": {"cutoff": "2026-01-01"},
+                },
+                ExecutionMode.DEFERRED,
+                ["cutoff", "2026-01-01"],
+                [],
+            ),
+        ]
+    )
+    def test_approve_preview_names_what_gets_deleted(
+        self, _name: str, fields: dict, mode: ExecutionMode, shown: list[str], hidden: list[str]
+    ) -> None:
+        obj = self._request(status=RequestStatus.PENDING, **fields)
+
+        content = self._preview_approval(obj, mode).content.decode()
+
+        for text in shown:
+            assert text in content
+        for text in hidden:
+            assert text not in content
 
     def test_approve_preview_still_shows_when_the_backlog_count_fails(self) -> None:
         obj = self._request(status=RequestStatus.PENDING)

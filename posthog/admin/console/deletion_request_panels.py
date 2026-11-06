@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from typing import Any, ClassVar, cast
 
@@ -276,6 +277,19 @@ class ApproveForm(ReasonForm):
         return type("ApproveForm", (cls,), {"modes": modes})
 
 
+# The preview names the actual targets, so two requests with the same counts never look alike. Past this many it
+# counts the rest, and the Django admin page has the full list.
+MAX_LISTED_TARGETS = 20
+
+
+def _listed(values: list[str]) -> str:
+    if not values:
+        return ""
+    shown = ", ".join(values[:MAX_LISTED_TARGETS])
+    hidden = len(values) - MAX_LISTED_TARGETS
+    return f"{shown} and {hidden:,} more" if hidden > 0 else shown
+
+
 def _criteria_rows(obj: DataDeletionRequest) -> list[Row]:
     criteria = [
         ("Type", request_type_label(obj)),
@@ -286,8 +300,9 @@ def _criteria_rows(obj: DataDeletionRequest) -> list[Row]:
         ("Person properties", ", ".join(obj.person_properties or [])),
         ("HogQL filter", obj.hogql_predicate),
         ("HogQL query", obj.hogql_query),
-        ("Person UUIDs", _number(len(obj.person_uuids)) if obj.person_uuids else ""),
-        ("Person distinct IDs", _number(len(obj.person_distinct_ids)) if obj.person_distinct_ids else ""),
+        ("HogQL variables", json.dumps(obj.hogql_variables, sort_keys=True) if obj.hogql_variables else ""),
+        ("Person UUIDs", _listed([str(uuid) for uuid in obj.person_uuids])),
+        ("Person distinct IDs", _listed(obj.person_distinct_ids)),
     ]
     if obj.request_type == RequestType.PERSON_REMOVAL:
         dropped = [
