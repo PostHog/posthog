@@ -5,7 +5,9 @@ from typing import Any
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest, flush_persons_and_events
 from unittest.mock import patch
 
+from django.db import connection
 from django.test import SimpleTestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
@@ -30,6 +32,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.persons import create_person, update_person
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.customer_analytics.backend.logic.account_persons import AccountPersonsReader
@@ -82,7 +85,7 @@ class TestMembershipSchema(QueryMatchingTest, SimpleTestCase):
 class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def setUp(self) -> None:
         super().setUp()
-        self.enterContext(patch(FLAG_CHECK, return_value=True))
+        self.flag_check = self.enterContext(patch(FLAG_CHECK, return_value=True))
         TeamCustomerAnalyticsConfig.objects.update_or_create(team=self.team, defaults={"account_group_type_index": 0})
         self.account = create_account(team_id=self.team.pk, external_id="workspace-demo")
         self.endpoint = f"/api/projects/{self.team.pk}/accounts/{self.account.id}/persons/"
@@ -136,10 +139,16 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
                 HOGQL_MATERIALIZED_CTE_SUPPORTED=materialized_cte, CLICKHOUSE_ACCOUNT_USERS_MAX_THREADS=max_threads
             )
         )
-        with patch("posthog.hogql_queries.paginators.execute_hogql_query", wraps=execute_hogql_query) as execute_query:
+        self.flag_check.reset_mock()
+        with (
+            patch("posthog.hogql_queries.paginators.execute_hogql_query", wraps=execute_hogql_query) as execute_query,
+            CaptureQueriesContext(connection) as queries,
+        ):
             response = self._run_widget_query(limit=1)
         assert execute_query.call_args.kwargs["settings"].max_threads == max_threads
         assert response.status_code == 200, response.content
+        assert self.flag_check.call_count == 1
+        assert sum('FROM "customer_analytics_account"' in query["sql"] for query in queries) == 2
         page = response.json()
         assert page["results"][0][0] == {"display_name": "first@example.com", "id": str(self.first.uuid)}
         assert page["hasMore"] and page["limit"] == 1
@@ -172,19 +181,23 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         response = self._run_widget_query(limit=1, offset=1)
         assert response.status_code == 200, response.content
         assert response.json()["results"][0][0]["id"] == str(self.second.uuid)
-        response = self._run_widget_query(
-            search="member-one-alias",
-            properties=[{"type": "person", "key": "plan", "operator": "exact", "value": "paid"}],
-            orderBy=["properties.plan ASC"],
-        )
+        self.flag_check.reset_mock()
+        with CaptureQueriesContext(connection) as queries:
+            response = self._run_widget_query(
+                search="member-one-alias",
+                properties=[{"type": "person", "key": "plan", "operator": "exact", "value": "paid"}],
+                orderBy=["properties.plan ASC"],
+            )
         assert response.status_code == 200, response.content
+        assert self.flag_check.call_count == 1
+        assert sum('FROM "customer_analytics_account"' in query["sql"] for query in queries) == 2
         assert len(response.json()["results"]) == 1
         assert response.json()["results"][0][0]["id"] == str(self.first.uuid)
 
     @parameterized.expand([("flag_disabled",), ("account_hidden",)])
     def test_widget_cached_results_repeat_access_checks(self, condition: str) -> None:
-        response = self._run_widget_query()
-        assert response.status_code == 200, response.content
+        runner = get_query_runner(self._get_widget_query(), self.team, user=self.user)
+        runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user)
         if condition == "account_hidden":
             self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
             self.organization.save()
@@ -196,8 +209,8 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
                 organization_member=self.organization_membership,
             )
         with patch(FLAG_CHECK, return_value=condition != "flag_disabled"):
-            response = self.client.post(self.endpoint, {"query": self._get_widget_query()}, format="json")
-        assert response.status_code == 400, response.content
+            with self.assertRaises(UserAccessControlError):
+                runner.run(ExecutionMode.CACHE_ONLY_NEVER_CALCULATE, user=self.user)
 
     @parameterized.expand(
         [
@@ -218,9 +231,8 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         elif condition == "resource_access":
             self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
             self.organization.save()
-        get_query_runner(self._get_widget_query(), self.team, user=self.user).run(
-            ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user
-        )
+        runner = get_query_runner(self._get_widget_query(), self.team, user=self.user)
+        runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user)
         user: User | None = self.user
         if condition == "no_user":
             user = None
@@ -240,9 +252,7 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
                 "group_properties": PropertyDefinition.Type.GROUP,
             }[condition]
             self._restrict_properties(property_type)
-        response = get_query_runner(self._get_widget_query(), self.team, user=user).run(
-            ExecutionMode.CACHE_ONLY_NEVER_CALCULATE, user=user
-        )
+        response = runner.run(ExecutionMode.CACHE_ONLY_NEVER_CALCULATE, user=user)
         assert isinstance(response, CacheMissResponse)
 
     def test_widget_display_name_and_search_hide_restricted_properties(self) -> None:

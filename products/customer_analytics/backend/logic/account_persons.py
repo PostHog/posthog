@@ -70,20 +70,29 @@ class AccountPersonsReader:
             group_type_index=group_type_index,
             group_key=account.external_id,
             account_id=account_id,
+            user_access_control=access,
         )
 
     def __init__(
-        self, *, team: Team, user: User, group_type_index: int, group_key: str | None, account_id: str = ""
+        self,
+        *,
+        team: Team,
+        user: User,
+        group_type_index: int,
+        group_key: str | None,
+        account_id: str = "",
+        user_access_control: UserAccessControl | None = None,
     ) -> None:
         self.account_id = account_id
         self.team = team
         self.user = user
         self.group_type_index = group_type_index
         self.group_key = group_key
+        self.user_access_control = user_access_control or UserAccessControl(user=user, team=team)
 
     def get_access_key(self) -> str:
         restrictions = get_restricted_properties_with_group_type_index_for_team(user=self.user, team_id=self.team.pk)
-        access = UserAccessControl(user=self.user, team=self.team)
+        access = self.user_access_control
         payload = {
             "user_id": self.user.pk,
             "group_type_index": self.group_type_index,

@@ -1,5 +1,6 @@
 import itertools
 from collections.abc import Iterable, Iterator, Sequence
+from contextlib import nullcontext
 from typing import TYPE_CHECKING, Any, Optional, cast
 
 if TYPE_CHECKING:
@@ -104,15 +105,16 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         account_users_source = self._get_account_users_source()
         if account_users_source is not None:
             account_users_source.validate_execution_mode(execution_mode)
-        return super().run(
-            execution_mode,
-            user,
-            query_id,
-            insight_id,
-            dashboard_id,
-            cache_age_seconds,
-            analytics_props=analytics_props,
-        )
+        with account_users_source.reader_context() if account_users_source is not None else nullcontext():
+            return super().run(
+                execution_mode,
+                user,
+                query_id,
+                insight_id,
+                dashboard_id,
+                cache_age_seconds,
+                analytics_props=analytics_props,
+            )
 
     def validate_query_runner_access(self, user: User) -> bool:
         if self.source_query_runner is not None:

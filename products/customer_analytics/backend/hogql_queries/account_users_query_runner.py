@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import cast
 
 from django.conf import settings
@@ -28,6 +30,12 @@ from products.customer_analytics.backend.logic.account_persons import AccountPer
 
 
 class AccountUsersStrategy(PersonStrategy):
+    def __init__(
+        self, *, source: "AccountUsersQueryRunner", query: ActorsQuery, paginator: HogQLHasMorePaginator
+    ) -> None:
+        super().__init__(team=source.team, query=query, paginator=paginator, user=source.user)
+        self.source = source
+
     def filter_conditions(self) -> list[ast.Expr]:
         conditions = PersonStrategy(
             team=self.team,
@@ -44,11 +52,7 @@ class AccountUsersStrategy(PersonStrategy):
             )
         )
         if self.query.search and self.query.search.strip():
-            source = self.query.source
-            assert isinstance(source, AccountUsersQuery)
-            reader = AccountPersonsReader.create(team=self.team, user=self.user, account_id=source.accountId)
-            if reader is None:
-                raise UserAccessControlError("account", "viewer")
+            reader = self.source.get_reader()
             restrictions = get_restricted_properties_with_group_type_index_for_team(
                 user=self.user, team_id=self.team.pk
             )
@@ -86,6 +90,24 @@ class AccountUsersMembershipReferences(TraversingVisitor):
 
 class AccountUsersQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     query: AccountUsersQuery
+    _reader: AccountPersonsReader | None = None
+    _reuse_reader = False
+
+    @contextmanager
+    def reader_context(self) -> Iterator[None]:
+        self._reader = None
+        self._user_access_control = None
+        self._reuse_reader = True
+        try:
+            yield
+        finally:
+            self._reader = None
+            self._user_access_control = None
+            self._reuse_reader = False
+
+    def _on_user_changed(self) -> None:
+        super()._on_user_changed()
+        self._reader = None
 
     def validate_execution_mode(self, execution_mode: ExecutionMode) -> None:
         if execution_mode not in {
@@ -98,14 +120,23 @@ class AccountUsersQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             )
 
     def get_reader(self) -> AccountPersonsReader:
-        reader = AccountPersonsReader.create(team=self.team, user=self.user, account_id=self.query.accountId)
+        if self._reader is not None:
+            return self._reader
+        reader = AccountPersonsReader.create(
+            team=self.team,
+            user=self.user,
+            account_id=self.query.accountId,
+            user_access_control=self.user_access_control,
+        )
         if reader is None:
             raise UserAccessControlError("account", "viewer")
+        if self._reuse_reader:
+            self._reader = reader
         return reader
 
     def validate_query_runner_access(self, user: User) -> bool:
-        if AccountPersonsReader.create(team=self.team, user=user, account_id=self.query.accountId) is None:
-            raise UserAccessControlError("account", "viewer")
+        self.set_user(user)
+        self.get_reader()
         return True
 
     def get_cache_key_variant(self) -> str:
@@ -168,7 +199,7 @@ class AccountUsersQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         return context
 
     def get_actors_strategy(self, query: ActorsQuery, paginator: HogQLHasMorePaginator) -> ActorStrategy:
-        return AccountUsersStrategy(team=self.team, query=query, paginator=paginator, user=self.user)
+        return AccountUsersStrategy(source=self, query=query, paginator=paginator)
 
     def validate_actors_query(self, query: ActorsQuery) -> None:
         if not query.select or any(
