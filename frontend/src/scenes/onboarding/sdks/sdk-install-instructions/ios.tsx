@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { Link } from 'lib/lemon-ui/Link'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -66,6 +67,14 @@ export function SDKInstallIOSInstructions(props: iOSSetupProps): JSX.Element {
         <>
             <h3>Install via Swift Package Manager</h3>
             <IOSInstallSPMSnippet />
+            <p>
+                Using CocoaPods? Version 4 is only published to Swift Package Manager. Version 3 stays on CocoaPods (
+                <code>pod "PostHog", "~&gt; 3.0"</code>) but gets no new releases. To switch, see{' '}
+                <Link to="https://posthog.com/docs/libraries/ios#upgrading-from-version-3-to-version-4" target="_blank">
+                    upgrading from version 3 to version 4
+                </Link>
+                .
+            </p>
             <h3>Configure</h3>
             <IOSSetupSnippet {...props} />
         </>

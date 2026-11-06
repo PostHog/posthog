@@ -36,6 +36,13 @@ export const getIOSInstallSteps = (
                             },
                         ]}
                     />
+                    <CalloutBox type="fyi" title="Using CocoaPods?">
+                        <Markdown>
+                            {
+                                'Version 4 is only published to Swift Package Manager. Version 3 stays on CocoaPods (`pod "PostHog", "~> 3.0"`) but gets no new releases. To switch, see [upgrading from version 3 to version 4](https://posthog.com/docs/libraries/ios#upgrading-from-version-3-to-version-4).'
+                            }
+                        </Markdown>
+                    </CalloutBox>
                 </>
             ),
         },
