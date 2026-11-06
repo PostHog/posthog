@@ -309,14 +309,14 @@ class TestSurvey(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("default_sentinel", "default"),
-            ("language_name_alias", "english"),
-            ("empty_subtag", ""),
-            ("includes_invalid_chars", "en US"),
-            ("non_bcp47_word", "custom-customer-locale"),
+            ("default_sentinel", "default", "translation_language_reserved"),
+            ("language_name_alias", "english", "translation_language_invalid"),
+            ("empty_subtag", "", "translation_language_empty"),
+            ("includes_invalid_chars", "en US", "translation_language_invalid"),
+            ("non_bcp47_word", "custom-customer-locale", "translation_language_invalid"),
         ]
     )
-    def test_translation_rejects_invalid_language_codes(self, _name: str, lang_code: str) -> None:
+    def test_translation_rejects_invalid_language_codes(self, _name: str, lang_code: str, expected_code: str) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/surveys/",
             data={
@@ -330,6 +330,7 @@ class TestSurvey(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "translation" in response.json()["detail"].lower()
+        assert response.json()["code"] == expected_code
 
     @parameterized.expand(
         [
@@ -362,6 +363,7 @@ class TestSurvey(APIBaseTest):
             f"{context} matches the survey's base language ('en'), so the untranslated text already covers it. "
             "Remove this translation, or set base_language to the language the untranslated text is written in."
         )
+        assert response.json()["code"] == "translation_language_matches_base"
 
     def test_survey_defaults_to_english_base_language(self) -> None:
         response = self.client.post(
@@ -553,6 +555,7 @@ class TestSurvey(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "base_language" in response.json() or "translation" in response.content.decode().lower()
+        assert response.json()["code"] == "translation_language_matches_base"
 
     @parameterized.expand(
         [

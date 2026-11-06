@@ -1436,23 +1436,28 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     def _validate_translation_language_key(self, raw_key: Any, base_language: str, context: str) -> str:
         """Validate and normalize a single translation language key. Raises ValidationError on bad input."""
         if not isinstance(raw_key, str) or not raw_key.strip():
-            raise serializers.ValidationError(f"{context}: translation language code cannot be empty.")
+            raise serializers.ValidationError(
+                f"{context}: translation language code cannot be empty.", code="translation_language_empty"
+            )
         normalized = _normalize_language_code(raw_key)
         if normalized in REJECTED_TRANSLATION_KEYS:
             raise serializers.ValidationError(
                 f"{context}: '{raw_key}' is not a valid translation language. "
-                "The untranslated text is the original — set the survey's base language instead of adding it as a translation."
+                "The untranslated text is the original — set the survey's base language instead of adding it as a translation.",
+                code="translation_language_reserved",
             )
         if not BCP47_LANGUAGE_CODE_RE.match(normalized):
             raise serializers.ValidationError(
                 f"{context}: '{raw_key}' is not a valid language code. "
-                "Use BCP-47 codes like 'en', 'es', or 'es-MX' (not language names like 'english')."
+                "Use BCP-47 codes like 'en', 'es', or 'es-MX' (not language names like 'english').",
+                code="translation_language_invalid",
             )
         if normalized == base_language:
             raise serializers.ValidationError(
                 f"{context}: '{raw_key}' matches the survey's base language ('{base_language}'), so the untranslated "
                 "text already covers it. Remove this translation, or set base_language to the language the untranslated "
-                "text is written in."
+                "text is written in.",
+                code="translation_language_matches_base",
             )
         return normalized
 
@@ -1974,7 +1979,8 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                                 f"'{incoming_base_language}' already exists as a translation key on this survey. "
                                 "Remove the translation first, or pick a different base language."
                             )
-                        }
+                        },
+                        code="translation_language_matches_base",
                     )
 
         self._reconcile_schedule_with_iterations(data)
