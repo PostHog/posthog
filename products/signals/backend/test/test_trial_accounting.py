@@ -173,8 +173,16 @@ class TestTrialAccounting(BaseTest):
         assert spend.trial_grant_id is None
         assert spend.spend == Decimal("0.0101")
 
-    def test_tasks_charge_shared_inference_compute_and_task_fee_once(self) -> None:
+    @parameterized.expand([("trial", True, 0), ("paid", False, 10_000_000), ("trial_spillover", True, 10_000_000)])
+    def test_tasks_charge_shared_inference_compute_and_task_fee_once(
+        self, _name: str, trial: bool, prior_spend: int
+    ) -> None:
         grant = self.claim()
+        if prior_spend:
+            grant.settled_microusd = prior_spend
+            grant.exhausted_at = timezone.now()
+            grant.exhaustion_reason = "cost_limit"
+            grant.save(update_fields=["settled_microusd", "exhausted_at", "exhaustion_reason"])
         task = Task.objects.create(team=self.team, title="Trial research", origin_product="signal_report")
         run = TaskRun.objects.create(
             task=task,
@@ -182,15 +190,19 @@ class TestTrialAccounting(BaseTest):
             status=TaskRun.Status.FAILED,
             environment=TaskRun.Environment.CLOUD,
             state={
-                "self_driving_funding": {"funding": "trial", "grant_id": str(grant.id)},
+                "self_driving_funding": {
+                    "funding": "trial" if trial else "paid",
+                    "grant_id": str(grant.id) if trial else None,
+                },
                 "token_cost": {"model": {"provider": {"cost_microusd": 200_001}}},
                 "unprocessed_request_ids": [],
             },
         )
         create_completed_task_sandbox_session(team_id=self.team.id, task_run_id=run.id, duration=timedelta(seconds=100))
         signal_id = str(uuid4())
-        for _ in range(2):
-            record_task_spend(team_id=self.team.id, run_id=str(run.id), stage="research", signal_id=signal_id)
+        with patch("products.signals.backend.spend.trial_spend_exempt", return_value=False):
+            for _ in range(2):
+                record_task_spend(team_id=self.team.id, run_id=str(run.id), stage="research", signal_id=signal_id)
         with patch("products.signals.backend.spend.submit_signal_metadata_updates", new_callable=AsyncMock):
             complete_task_spend(team_id=self.team.id, run_id=str(run.id))
         with locked_task_run_spend(team_id=self.team.id, run_id=run.id) as cost:
@@ -198,10 +210,13 @@ class TestTrialAccounting(BaseTest):
             expected = 200_001 + 40_000 + cost.compute_cost_microusd
         grant.refresh_from_db()
         spend = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
-        assert grant.settled_microusd == expected
+        assert grant.settled_microusd == prior_spend + (expected if trial else 0)
         assert spend.spend == Decimal(expected) / 10_000
-        assert spend.billing_exempt
+        assert spend.billing_exempt is trial
         assert spend.finalized_at is not None
+        assert get_signals_spend_billing_credits_by_team(
+            timezone.now() - timedelta(days=1), timezone.now() + timedelta(days=1)
+        ) == ([] if trial else [(self.team.id, round(spend.spend))])
 
     def test_accepted_pipeline_keeps_trial_funding_and_exempts_spillover(self) -> None:
         grant = self.claim()

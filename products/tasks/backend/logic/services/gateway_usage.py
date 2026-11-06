@@ -68,6 +68,10 @@ def gateway_usage_enabled(run: TaskRun) -> bool:
     )
 
 
+def _accounting_failed(run: TaskRun) -> bool:
+    return bool((run.state or {}).get("token_cost_incomplete")) or (run.is_terminal and not gateway_usage_enabled(run))
+
+
 def _save_accounting_state(run: TaskRun) -> None:
     # Accounting can finish after completion; it must not emit completion signals again.
     # It also leaves `updated_at` alone, because recency gauges and stale-run sweeps read it.
@@ -79,7 +83,7 @@ def _save_accounting_state(run: TaskRun) -> None:
         run_id=run.id,
         team_id=run.team_id,
         cost_delta_microusd=delta,
-        accounting_failed=_run_spend(run).accounting_failed,
+        accounting_failed=_accounting_failed(run),
         origin_product=previous.task.origin_product,
     )
 
@@ -309,8 +313,7 @@ def _run_spend(
         complete=usage.complete and compute_complete,
         is_terminal=run.is_terminal,
         stage=(run.state or {}).get("ai_stage") or "task",
-        accounting_failed=bool((run.state or {}).get("token_cost_incomplete"))
-        or (run.is_terminal and not gateway_usage_enabled(run)),
+        accounting_failed=_accounting_failed(run),
         compute_cost_microusd=int(((compute or Decimal(0)) * 1_000_000).to_integral_value(rounding=ROUND_CEILING)),
         trial_grant_id=(run.state or {}).get("self_driving_funding", {}).get("grant_id") or None,
     )
