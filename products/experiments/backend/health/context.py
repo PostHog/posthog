@@ -193,7 +193,6 @@ class FlagState:
     variants: tuple[FlagVariant, ...]
     # The release conditions that can serve a request, in evaluation order.
     reachable_conditions: tuple[ReachableCondition, ...]
-    # The flag's last save, or None when unknown.
     saved_at: datetime | None = None
 
 

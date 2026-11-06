@@ -172,21 +172,25 @@ export function healthCheckReadings(values: HealthCheckValues | undefined, units
     ].filter((line): line is HealthReading => line !== null)
 }
 
+function comparative(rule: HealthCheckRule, more: string, less: string): string {
+    return rule.warns === 'above' ? more : less
+}
+
 function warnsWhen(rule: HealthCheckRule, units: string): string {
     const threshold = rule.threshold
     switch (rule.value) {
         case 'p_value':
             return `p is ${rule.warns} ${threshold}`
         case 'multiple_variant_percentage':
-            return `${rule.warns === 'above' ? 'More' : 'Less'} than ${formatHealthPercentage(threshold)} of exposed ${units} are in more than one variant`
+            return `${comparative(rule, 'More', 'Less')} than ${formatHealthPercentage(threshold)} of exposed ${units} are in more than one variant`
         case 'kept_by_test_account_filter_percentage':
-            return `The test account filters keep ${rule.warns === 'above' ? 'more' : 'less'} than ${formatHealthPercentage(threshold)} of the exposed ${units}`
+            return `The test account filters keep ${comparative(rule, 'more', 'less')} than ${formatHealthPercentage(threshold)} of the exposed ${units}`
         case 'unserved_exposed_percentage':
-            return `${rule.warns === 'above' ? 'More' : 'Less'} than ${formatHealthPercentage(threshold)} of the ${units} first exposed after the flag's last save are in variants that it doesn't serve`
+            return `${comparative(rule, 'More', 'Less')} than ${formatHealthPercentage(threshold)} of the ${units} first exposed after the flag's last save are in variants that it doesn't serve`
         case 'exposed_count':
             return rule.warns === 'below' && threshold === 1
                 ? `No ${units} are exposed`
-                : `${rule.warns === 'above' ? 'More' : 'Fewer'} than ${formatCount(threshold)} ${units} are exposed`
+                : `${comparative(rule, 'More', 'Fewer')} than ${formatCount(threshold)} ${units} are exposed`
         default:
             return `${rule.value} is ${rule.warns} ${threshold}`
     }

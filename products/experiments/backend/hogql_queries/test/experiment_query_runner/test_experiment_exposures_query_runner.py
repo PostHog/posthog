@@ -2204,8 +2204,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.feature_flag.active = flag_setup["active"]
         with time_machine.travel("2024-01-03T10:00:00Z", tick=False):
             self.feature_flag.save()
-        # Before the day of the save, the old setup served both variants. After it, only "control" arrives, as a value
-        # that the flag can't have returned.
+        # After the day of the save, only "control" arrives, a value that the flag can't have returned.
         for day, variant, users in [
             ("2024-01-02", "test", 10),
             ("2024-01-02", "control", 10),

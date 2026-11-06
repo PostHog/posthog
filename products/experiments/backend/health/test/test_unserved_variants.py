@@ -163,25 +163,54 @@ class TestUnservedVariantExposures(TestCase):
 
     @parameterized.expand(
         [
-            ("one_variant_holds_them", {"control": {DAY_AFTER: 40}, "test": {DAY_AFTER: 2}}, True),
-            ("they_spread_over_the_variants", {"control": {DAY_AFTER: 21}, "test": {DAY_AFTER: 21}}, False),
+            (
+                "the_flag_is_off_and_one_variant_holds_them",
+                {"control": {DAY_AFTER: 40}, "test": {DAY_AFTER: 2}},
+                {"active": False, "variants": SPLIT},
+                ExperimentHealthFindingSeverity.WARNING,
+                "default value",
+            ),
+            (
+                "the_flag_is_off_and_they_spread_over_the_variants",
+                {"control": {DAY_AFTER: 21}, "test": {DAY_AFTER: 21}},
+                {"active": False, "variants": SPLIT},
+                ExperimentHealthFindingSeverity.INFO,
+                "your own assignment",
+            ),
+            (
+                "a_variant_without_a_share",
+                {"control": {DAY_AFTER: 30}, "test": {DAY_AFTER: 70}},
+                {},
+                ExperimentHealthFindingSeverity.WARNING,
+                "the variant has no share of the split",
+            ),
+            (
+                "every_condition_pins_another_variant",
+                {"control": {DAY_AFTER: 30}, "test": {DAY_AFTER: 70}},
+                {
+                    "variants": SPLIT,
+                    "reachable_conditions": (
+                        ReachableCondition(number=1, pinned_variant="test", variant_property=None),
+                    ),
+                },
+                ExperimentHealthFindingSeverity.WARNING,
+                'every release condition that can serve a user sets a variant override ("test")',
+            ),
         ]
     )
-    def test_a_default_value_in_one_variant_is_a_warning_and_a_spread_assignment_is_info(
-        self, _name: str, daily: dict[str, dict[date, int]], names_the_default: bool
+    def test_the_detail_names_the_cause_and_the_variant_once(
+        self,
+        _name: str,
+        daily: dict[str, dict[date, int]],
+        flag: dict[str, Any],
+        severity: ExperimentHealthFindingSeverity,
+        cause: str,
     ) -> None:
-        outcome = unserved_variant_exposures(_context(daily, flag={"active": False, "variants": SPLIT}))
+        outcome = unserved_variant_exposures(_context(daily, flag=flag))
 
         assert isinstance(outcome, ExperimentHealthFinding)
         self.assertEqual(
-            (
-                outcome.title,
-                outcome.severity,
-                'in "control", which usually means that your code sends it' in outcome.detail,
-            ),
-            (
-                "Users are exposed while the feature flag is off",
-                ExperimentHealthFindingSeverity.WARNING if names_the_default else ExperimentHealthFindingSeverity.INFO,
-                names_the_default,
-            ),
+            (outcome.severity, cause in outcome.detail, outcome.detail.count('"control"') <= 1),
+            (severity, True, True),
+            outcome.detail,
         )

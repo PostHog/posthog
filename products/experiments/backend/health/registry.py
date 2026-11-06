@@ -268,9 +268,8 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
 # is cached for a day, and a flag edit would not clear their findings. `srm` reads the verdict of
 # `split_changed_mid_run`, which only a split edit can change, and the variant overrides of the release conditions. The
 # split and the release conditions are part of the exposure query's cache key. `unserved_variant_exposures` also reads
-# whether the flag is on and when it was last saved. The page's query carries the whole flag, so a change to either
-# recalculates the page's answer. A backend answer keeps the old finding until its next calculation, and that finding
-# still holds for the users it counts.
+# whether the flag is on and when it was last saved. The page's query carries the flag's `active` and `version`, so an
+# edit recalculates the page's answer, and a backend answer's older finding still holds for the users it counts.
 EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
     HealthCheck(
         key=ExperimentHealthCheckKey.ZERO_EXPOSURES,

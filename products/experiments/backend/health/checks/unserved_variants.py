@@ -10,7 +10,9 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthValueKey,
 )
 from products.experiments.backend.health.checks.bias_risk import MULTIPLE_VARIANT_KEY
+from products.experiments.backend.health.checks.forced_variant import assigns_nobody_by_split
 from products.experiments.backend.health.context import ExposureTotals, FlagState, HealthContext
+from products.experiments.backend.health.pinned_share import pinned_variant_keys
 from products.experiments.backend.health.skips import (
     RUNS_AFTER_LAUNCH,
     CheckOutcome,
@@ -26,14 +28,11 @@ from products.experiments.backend.health.split_changes import format_change_time
 FLAG_OFF = "flag_off"
 VARIANT_NOT_SERVED = "variant_not_served"
 
-# Each of these users is a fact, as in `multiple_variants_share`. The floor stops one or two testers who force a
-# variant from firing the finding.
+# Each of these users is a fact, as in `multiple_variants_share`, so the floor only stops a few testers.
 UNSERVED_MINIMUM_COUNT = 5
 # On the 0-100 scale. Below it, the users that the flag doesn't serve are too few of the new users to move the results.
 UNSERVED_SHARE_THRESHOLD = 1.0
-# The share of the unserved users in one variant from which the finding is a warning that names that variant as the
-# value that your code sends. A default value lands in one variant, while a bootstrap, cached flags or the customer's own
-# assignment spread over all of them.
+# A default value lands in one variant. A bootstrap, cached flags or an outside assignment spread over all of them.
 ONE_VARIANT_SHARE = 0.9
 
 
@@ -60,23 +59,23 @@ def served_variants(flag: FlagState) -> frozenset[str]:
     flag is off."""
     if not flag.active:
         return frozenset()
-    overrides = {condition.pinned_variant for condition in flag.reachable_conditions if condition.pinned_variant}
-    if all(condition.pinned_variant is not None for condition in flag.reachable_conditions):
-        return frozenset(overrides)
+    overrides = frozenset(pinned_variant_keys(flag.reachable_conditions))
+    if assigns_nobody_by_split(flag):
+        return overrides
     # A variant without a rollout percentage counts as active, as on the flag itself.
     split = {
         variant.key
         for variant in flag.variants
         if variant.key and (variant.rollout_percentage is None or variant.rollout_percentage > 0)
     }
-    return frozenset(overrides | split)
+    return overrides | split
 
 
 def unserved_variant_values(ctx: HealthContext) -> CheckValues:
-    flag = ctx.flag
-    if ctx.exposures is None or flag is None or flag.saved_at is None:
+    judged = _judged(ctx)
+    if isinstance(judged, CheckSkip):
         return {}
-    unserved = _unserved(ctx, flag, ctx.exposures)
+    unserved = _unserved(ctx, *judged)
     return {
         ExperimentHealthValueKey.UNSERVED_EXPOSED_COUNT: unserved.count,
         ExperimentHealthValueKey.UNSERVED_EXPOSED_PERCENTAGE: round(unserved.percentage, 2),
@@ -84,6 +83,18 @@ def unserved_variant_values(ctx: HealthContext) -> CheckValues:
 
 
 def unserved_variant_exposures(ctx: HealthContext) -> CheckOutcome:
+    judged = _judged(ctx)
+    if isinstance(judged, CheckSkip):
+        return judged
+    flag, exposures = judged
+    unserved = _unserved(ctx, flag, exposures)
+    if unserved.count < UNSERVED_MINIMUM_COUNT or unserved.percentage <= UNSERVED_SHARE_THRESHOLD:
+        return None
+    return _finding(ctx, flag, exposures, unserved)
+
+
+def _judged(ctx: HealthContext) -> tuple[FlagState, ExposureTotals] | CheckSkip:
+    """The flag and the exposures that the check judges, or why it doesn't."""
     exposures = ctx.exposures
     if exposures is None:
         return not_applicable(RUNS_AFTER_LAUNCH)
@@ -91,20 +102,15 @@ def unserved_variant_exposures(ctx: HealthContext) -> CheckOutcome:
     if isinstance(flag, CheckSkip):
         return flag
     events = ctx.exposure_events
-    # With an activation, the exposure query dates a user by the activation, which can come long after the flag call
-    # that set the variant.
     if events is not None and events.activation is not None:
         return not_applicable("The exposure criteria count users at an activation, not at the flag call")
-    # With every release condition at 0%, the variants come from the customer's own assignment, which the flag-state
-    # check reports from the flag's calls.
+    # Then every variant comes from an assignment outside the flag. On a 0% rollout the flag-state check reports it
+    # from the flag's calls.
     if flag.active and not flag.reachable_conditions:
-        return not_applicable("The flag-state check reports a flag with a 0% rollout")
+        return not_applicable("Doesn't run on a flag that serves nobody, such as one with a 0% rollout")
     if flag.saved_at is None:
         return not_checked("Couldn't check because the time of the flag's last save is unknown")
-    unserved = _unserved(ctx, flag, exposures)
-    if unserved.count < UNSERVED_MINIMUM_COUNT or unserved.percentage <= UNSERVED_SHARE_THRESHOLD:
-        return None
-    return _finding(ctx, flag, exposures, unserved)
+    return flag, exposures
 
 
 def _unserved(ctx: HealthContext, flag: FlagState, exposures: ExposureTotals) -> _Unserved:
@@ -139,22 +145,15 @@ def _finding(
     top_variant, top_count = ranked[0]
     one_variant = top_count >= ONE_VARIANT_SHARE * count
     if flag.active:
-        keys = [variant for variant, _ in ranked]
-        quoted = ", ".join(f'"{key}"' for key in keys)
         subcode = VARIANT_NOT_SERVED
-        title = (
-            f"{unit.capitalize()}s are exposed in a variant that the feature flag doesn't serve"
-            if len(keys) == 1
-            else f"{unit.capitalize()}s are exposed in variants that the feature flag doesn't serve"
+        setup = _why_not_served(flag, [variant for variant, _ in ranked], saved, unit)
+        exposed = f"But {users} were first exposed in {'it' if len(ranked) == 1 else 'them'} after that day."
+        variants = "a variant" if len(ranked) == 1 else "variants"
+        title = f"{unit.capitalize()}s are exposed in {variants} that the feature flag doesn't serve"
+        default_value = (
+            "Your code can send a default value as the variant when the flag returns none, and clients can still hold "
+            "flags from before the save."
         )
-        setup = (
-            f"Since the feature flag was last saved on {saved}, it gives no {unit} the variant {quoted}: the variant "
-            "has no share of the split, and no release condition sets it."
-            if len(keys) == 1
-            else f"Since the feature flag was last saved on {saved}, it gives no {unit} the variants {quoted}: they "
-            "have no share of the split, and no release condition sets them."
-        )
-        exposed = f"But {users} were first exposed in {'it' if len(keys) == 1 else 'them'} after that day."
     else:
         subcode = FLAG_OFF
         title = f"{unit.capitalize()}s are exposed while the feature flag is off"
@@ -164,18 +163,19 @@ def _finding(
             if one_variant
             else f"But {users} were first exposed after that day."
         )
+        default_value = (
+            "Exposures that land in one variant usually come from your code, which sends a default value as the "
+            "variant when the flag returns none."
+        )
     if one_variant:
         severity = ExperimentHealthFindingSeverity.WARNING
         cause = [
             f"They count in the results, so the variants compare {unit}s that the flag didn't assign.",
-            f'Most of them are in "{top_variant}", which usually means that your code sends it as a default value when '
-            "the flag returns no variant.",
+            default_value,
             f"Send the exposure only with the variant that the flag returns, and record no exposure for a {unit} that "
             "gets none.",
         ]
     else:
-        # Spread over the variants, the values come from an assignment that splits the users, as on a flag with a 0%
-        # rollout, so they bias the results only as much as that assignment does.
         severity = ExperimentHealthFindingSeverity.INFO
         cause = [
             "They count in the results. Their variants come from outside the flag, for example from a bootstrap, from "
@@ -200,3 +200,23 @@ def _finding(
         actions=(),
         diagnostic_ref="A9",
     )
+
+
+def _why_not_served(flag: FlagState, keys: list[str], saved: str, unit: str) -> str:
+    """The sentence that says why the flag's setup gives nobody these variants."""
+    one = len(keys) == 1
+    quoted = ", ".join(f'"{key}"' for key in keys)
+    variants = f"the variant {quoted}" if one else f"the variants {quoted}"
+    if assigns_nobody_by_split(flag):
+        overrides = ", ".join(f'"{key}"' for key in pinned_variant_keys(flag.reachable_conditions))
+        why = (
+            f"every release condition that can serve a {unit} sets a variant override ({overrides}), so it gives no "
+            f"{unit} {variants}."
+        )
+    else:
+        why = f"it gives no {unit} {variants}: " + (
+            "the variant has no share of the split, and no release condition sets it."
+            if one
+            else "they have no share of the split, and no release condition sets them."
+        )
+    return f"Since the feature flag was last saved on {saved}, {why}"
