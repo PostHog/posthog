@@ -34,7 +34,7 @@ def calculate_effect_size_and_variance(
         Tuple of (effect_size, effect_variance)
 
     Raises:
-        StatisticError: If control mean is zero for relative calculations
+        StatisticError: If the baseline mean is zero for relative calculations
     """
     treatment_mean = get_mean(treatment_stat)
     control_mean = get_mean(control_stat)
@@ -50,13 +50,12 @@ def calculate_effect_size_and_variance(
 
     elif difference_type == DifferenceType.RELATIVE:
         denominator = unadjusted_mean if unadjusted_mean is not None else control_mean
-        if denominator <= 0:
-            raise StatisticError("Control mean must be positive for relative difference calculation")
+        if abs(denominator) < 1e-10:
+            raise StatisticError("Baseline mean is zero, so the relative difference is undefined")
 
-        # Direct relative difference: (μ_T - μ_C) / μ_C
-        effect = (treatment_mean - control_mean) / denominator
+        effect = (treatment_mean - control_mean) / abs(denominator)
 
-        # Using delta method for ratios
+        # The effect is ±(μ_T / μ_C - 1), so it has the variance of μ_T / μ_C. Keep the signed μ_C for the covariance term.
         effect_variance = variance_of_ratios(
             mean_numerator=treatment_mean,
             var_numerator=treatment_var / treatment_n,

@@ -3,7 +3,7 @@ import type { Href } from 'expo-router'
 
 import type { PinDisplayMode, ViewEntry, ViewRef } from '@/model/views'
 
-const ENTRIES: readonly ViewEntry[] = ['pinned', 'recent', 'browse', 'search', 'deep_link', 'dashboard']
+const ENTRIES: readonly ViewEntry[] = ['pinned', 'recent', 'browse', 'search', 'deep_link', 'dashboard', 'widget']
 const MODES: readonly PinDisplayMode[] = ['row', 'number', 'chart']
 
 /** How a view was opened. Sent with `mobile_view_opened`, so it travels in the route. */
