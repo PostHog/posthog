@@ -47,14 +47,17 @@ from posthog.permissions import (
     SharingTokenPermission,
     extract_organization,
     get_authenticator_client,
+    resource_for_ref,
 )
-from posthog.scopes import scopes_not_covered
+from posthog.scopes import APIScopeObject, scopes_not_covered
 from posthog.test.authentication_checks import covers_authentication
 
-from products.access_control.backend.facade.contracts import ObjectAccessRef
+from products.access_control.backend.facade.contracts import FallbackParent, ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
+from products.authorization.backend.facade.contracts import Parent
+from products.authorization.backend.facade.enums import ResourceType
 
 ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
 
@@ -1658,6 +1661,29 @@ class TestSharingTokenPermission(SimpleTestCase):
         ref = ObjectAccessRef(resource="notebook", id="1", team_id=1, created_by_id=None)
 
         assert SharingTokenPermission().has_object_permission(request, Mock(), ref) is False
+
+
+class TestResourceForRef(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("table_without_parent", "warehouse_table", None),
+            ("table_with_another_parent_type", "warehouse_table", FallbackParent(resource="notebook", id="1")),
+            ("notebook_with_parent", "notebook", FallbackParent(resource="external_data_source", id="1")),
+        ]
+    )
+    def test_rejects_a_parent_that_does_not_match_the_resource(
+        self, _name: str, resource: APIScopeObject, fallback_parent: FallbackParent | None
+    ) -> None:
+        ref = ObjectAccessRef(resource=resource, id="1", team_id=1, created_by_id=None, fallback_parent=fallback_parent)
+
+        with pytest.raises(ValueError, match="fallback_parent"):
+            resource_for_ref(ref)
+
+    def test_keeps_the_parent_of_a_table(self) -> None:
+        parent = FallbackParent(resource="external_data_source", id="7")
+        ref = ObjectAccessRef(resource="warehouse_table", id="1", team_id=1, created_by_id=None, fallback_parent=parent)
+
+        assert resource_for_ref(ref).parent == Parent(type=ResourceType.EXTERNAL_DATA_SOURCE, id="7")
 
 
 class TestActiveOrganizationPermission(SimpleTestCase):

@@ -1215,13 +1215,18 @@ def is_outside_any_project(scope: str, obj: Model, team: Optional[Team]) -> bool
 
 def resource_for_ref(ref: ObjectAccessRef) -> Resource:
     parent_type = RESOURCE_FALLBACK_MAP.get(ref.resource)
-    parent_id = ref.fallback_parent.id if ref.fallback_parent is not None else None
+    supplied_parent_type = ref.fallback_parent.resource if ref.fallback_parent is not None else None
+    # A ref without its parent would read as an object with no parent, which skips the parent's rules.
+    if supplied_parent_type != parent_type:
+        raise ValueError(f"`{ref.resource}` needs `fallback_parent` of type {parent_type}, not {supplied_parent_type}.")
     return Resource(
         type=ResourceType(ref.resource),
         id=ref.id,
         project_id=ref.team_id,
         created_by_id=ref.created_by_id,
-        parent=Parent(type=ResourceType(parent_type), id=parent_id) if parent_type else None,
+        parent=Parent(type=ResourceType(parent_type), id=ref.fallback_parent.id)
+        if parent_type and ref.fallback_parent is not None
+        else None,
     )
 
 
