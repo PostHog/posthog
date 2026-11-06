@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconHourglass, IconLineGraph } from '@posthog/icons'
+import { IconFunnels, IconGraph, IconLineGraph } from '@posthog/icons'
 import {
     Button,
     DropdownMenu,
@@ -14,7 +14,6 @@ import {
 } from '@posthog/quill'
 
 import { FunnelLayout } from 'lib/constants'
-import { IconFunnelHorizontal, IconFunnelVertical } from 'lib/lemon-ui/icons'
 
 import { FunnelsFilter } from '~/queries/schema/schema-general'
 import { EditorFilterProps, FunnelVizType as VizType } from '~/types'
@@ -41,7 +40,7 @@ const CHOICE_GROUPS: { title: string; choices: FunnelDisplayChoice[] }[] = [
                 layout: FunnelLayout.vertical,
                 label: 'Left to right',
                 buttonLabel: 'Steps, left to right',
-                icon: <IconFunnelVertical />,
+                icon: <IconFunnels className="-rotate-90" />,
             },
             {
                 key: 'steps-horizontal',
@@ -49,7 +48,7 @@ const CHOICE_GROUPS: { title: string; choices: FunnelDisplayChoice[] }[] = [
                 layout: FunnelLayout.horizontal,
                 label: 'Top to bottom',
                 buttonLabel: 'Steps, top to bottom',
-                icon: <IconFunnelHorizontal />,
+                icon: <IconFunnels />,
             },
         ],
     },
@@ -61,7 +60,7 @@ const CHOICE_GROUPS: { title: string; choices: FunnelDisplayChoice[] }[] = [
                 vizType: VizType.TimeToConvert,
                 label: 'Time to convert',
                 buttonLabel: 'Time to convert',
-                icon: <IconHourglass />,
+                icon: <IconGraph />,
             },
             {
                 key: 'trends',
