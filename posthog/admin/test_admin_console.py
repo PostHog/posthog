@@ -561,9 +561,18 @@ class TestAdminConsoleViews(BaseTest):
         restriction = EventIngestionRestrictionConfig.objects.create(
             token="phc_tophog", restriction_type=RestrictionType.DROP_EVENT_FROM_INGESTION, distinct_ids=["existing"]
         )
-        page = self.client.get("/admin/tophog/restrictions/?token=phc_tophog&distinct_id=new-id", follow=True)
-        assert page.redirect_chain == [("/admin/console/tools/tophog/?token=phc_tophog&distinct_id=new-id", 302)]
-        assert "Extend the drop event from ingestion restriction" in page.content.decode()
+        page = self.client.get(
+            "/admin/tophog/restrictions/?token=phc_tophog&distinct_id=new-id&pipelines=sessionreplay", follow=True
+        )
+        assert page.redirect_chain == [
+            ("/admin/console/tools/tophog/?token=phc_tophog&distinct_id=new-id&pipelines=sessionreplay", 302)
+        ]
+        content = page.content.decode()
+        assert "Extend the drop event from ingestion restriction" in content
+        assert (
+            "/admin/posthog/eventingestionrestrictionconfig/add/"
+            "?token=phc_tophog&amp;distinct_ids=new-id&amp;pipelines=session_recordings"
+        ) in content
 
         response = self.client.post(
             f"/admin/console/tools/tophog/extend-{restriction.pk}/?token=phc_tophog&distinct_id=new-id", data
