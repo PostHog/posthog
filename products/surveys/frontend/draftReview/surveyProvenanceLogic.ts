@@ -185,7 +185,7 @@ export interface surveyProvenanceLogicActions {
 export interface surveyProvenanceLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        provenance: (survey: Survey, activity: SurveyActivity) => SurveyProvenance | null
+        provenance: (survey: NewSurvey | Survey, activity: SurveyActivity) => SurveyProvenance | null
     }
 }
 
