@@ -3472,6 +3472,10 @@ snapshots:
         hash: v1.k794b7964.47d21cdf33f368b06633d317125603fc69b5675d9389c038b40c824e73f1a405.0ufZrtGmQpexxX1aaLjAVmf3-YVGmHd7p8-HB9cbQjk
     experiments-varianttimeseriestooltip--significant-day--light:
         hash: v1.k794b7964.6e850075cec396cda57b4d44acd24b1fb4deb1e00c640db0049d172e8d99f2bb.Im0tdmWO-QcJ_sukw7HEC5eSF0ZBsTJgYvKKf-KxnLA
+    experiments-warehousenativeexposurefields--exposure-query--dark:
+        hash: v1.k794b7964.a96f5ac94c6cb920f58f915915997326da9909ee1f63d3594ed5f1523ed67703.JYINlKygF3apUHNXcy4wTSDiUH-Lk4i37NIDmGKW_40
+    experiments-warehousenativeexposurefields--exposure-query--light:
+        hash: v1.k794b7964.08e0e84bdd7b58f447d8c926fab99eae1490daa25f8d99415786ad0b3d500300.f558Oxg-xOtb4B33R24kFozgNca_Q9O5KXMN-7xZImQ
     experiments-warehousenativemetricfields--shared-ratio-metric--dark:
         hash: v1.k794b7964.725376bdb2387961defbc6e14cb786936236c46383110b60684b0d34bb8810a5.ecVYEPkV-p8nvLY497gnhBIaCyiN8b8QiYtDswjYsr4
     experiments-warehousenativemetricfields--shared-ratio-metric--light:
