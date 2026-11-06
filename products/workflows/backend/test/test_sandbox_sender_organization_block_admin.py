@@ -21,8 +21,12 @@ class TestSandboxSenderOrganizationBlockAdmin(BaseTest):
         self.client.force_login(self.user)
 
     def test_staff_add_a_block_with_its_author_edit_its_reason_and_delete_it(self) -> None:
+        add_form = self.client.get(f"{ADMIN_URL}add/")
+        assert add_form.context["adminform"].form.initial["created_by"] == self.user.pk
+
         added = self.client.post(
-            f"{ADMIN_URL}add/", data={"organization": str(self.organization.id), "reason": "Abuse report"}
+            f"{ADMIN_URL}add/",
+            data={"organization": str(self.organization.id), "reason": "Abuse report", "created_by": str(self.user.pk)},
         )
 
         assert added.status_code == 302, added.content
