@@ -9,9 +9,8 @@ import { TeamManager } from '~/common/utils/team-manager'
 import { Hub } from '~/types'
 
 import { getDefaultCdpConfig } from '../../config'
-import { createSandboxEmailCapValkey } from '../../email-action-valkeys'
 import { SandboxEmailSender } from '../messaging/sandbox-email-sender'
-import { createSesRateLimiterValkeyPool } from './rate-limiter-valkey-pool'
+import { createSandboxEmailCapValkey, createSesRateLimiterValkeyPool } from './rate-limiter-valkey-pool'
 import { ClaimRequest, IssuedClaim, RateLimiterService } from './rate-limiter.service'
 
 const KEY = `@posthog-test/ses-rate-limiter/{${randomUUID()}}/bucket`
@@ -606,7 +605,7 @@ describe('RateLimiterService', () => {
                 })
             )
             await new Promise<void>((resolve) => stalledValkey.listen(0, '127.0.0.1', resolve))
-            const { sandboxEmailCapValkey } = createSandboxEmailCapValkey({
+            const sandboxEmailCapValkey = createSandboxEmailCapValkey({
                 ...getDefaultCdpConfig(),
                 SES_RATE_LIMITER_VALKEY_HOST: '127.0.0.1',
                 SES_RATE_LIMITER_VALKEY_PORT: (stalledValkey.address() as AddressInfo).port,
