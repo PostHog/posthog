@@ -9,13 +9,7 @@ import type { Runtime } from '@/core/runtime'
 import { parseOrThrow } from '@/core/schema'
 import type { OAuthSecret, StoreChoice } from '@/posthog/credential-store/types'
 
-import {
-    projectAccess,
-    type AccessKey,
-    type AccessKeyStatus,
-    type AccessKeyStorage,
-    type LogoutOutcome,
-} from './access-key'
+import type { AccessKey, AccessKeyStatus, AccessKeyStorage, LogoutOutcome } from './access-key'
 import { sendRequest, type HttpResponse } from './api'
 import { hostKey, hostUrl, type Host } from './host'
 import { ProjectIdSchema, type ProjectId } from './ids'
@@ -252,7 +246,7 @@ export class OAuthLogin implements AccessKey {
 
     // A login works in the one project it was approved for.
     access(): ApiKeyAccess {
-        return projectAccess(this.scopes, this.projectId)
+        return { scopes: this.scopes, scopedTeams: [Number(this.projectId)], scopedOrganizations: [] }
     }
 
     // Revoking the refresh token ends this login: PostHog revokes its access tokens with it.

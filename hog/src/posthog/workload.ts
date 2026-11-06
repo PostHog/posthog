@@ -8,13 +8,7 @@ import type { Runtime } from '@/core/runtime'
 import { parseOrThrow } from '@/core/schema'
 import type { StoredSecret } from '@/posthog/credential-store/types'
 
-import {
-    projectAccess,
-    type AccessKey,
-    type AccessKeyStatus,
-    type AccessKeyStorage,
-    type LogoutOutcome,
-} from './access-key'
+import type { AccessKey, AccessKeyStatus, AccessKeyStorage, LogoutOutcome } from './access-key'
 import { hostUrl, type Host } from './host'
 import type { ProjectId } from './ids'
 import { grantLifetime, OAuthErrorBody, oauthPost, TokenResponse } from './oauth'
@@ -94,7 +88,6 @@ export async function exchangeWorkloadToken(
     fields: Pick<WorkloadKeyFields, 'host' | 'projectId' | 'provider'>
 ): Promise<WorkloadKey | undefined> {
     const { host, projectId, provider } = fields
-    // The audience is the host the token goes to, so no other host can use it.
     const subjectToken = await provider.fetchToken(runtime, host)
     if (subjectToken === undefined) {
         return undefined
@@ -187,7 +180,7 @@ export class WorkloadKey implements AccessKey {
     }
 
     access(): ApiKeyAccess {
-        return projectAccess(this.scopes, this.projectId)
+        return { scopes: this.scopes, scopedTeams: [Number(this.projectId)], scopedOrganizations: [] }
     }
 
     async logout(): Promise<LogoutOutcome> {

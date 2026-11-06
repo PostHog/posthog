@@ -28,7 +28,6 @@ export class KeySession {
         while (this.renewal) {
             await this.renewal.catch(() => undefined)
         }
-        // A renewal that just finished already replaced the token PostHog rejected.
         if (rejectedToken !== undefined && this.key.token !== rejectedToken) {
             return this.key
         }
