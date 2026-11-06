@@ -133,7 +133,8 @@ tools:
             changes; ids and Unlayer numbering for added blocks are assigned for you. Operations apply atomically — the
             design is read, the ops applied in order, the result validated and re-rendered to HTML, and saved only if
             valid, otherwise nothing changes. After patching, call workflows-show-email-template so the user sees the
-            result.
+            result. A template whose managed_by is code refuses this with 403 immutable: change its file in the
+            repository and upload it with workflows-upload-email-template instead.
         response:
             exclude:
                 - content
@@ -166,12 +167,16 @@ tools:
             project does not exist: stop and tell the user.
         exclude_params:
             - template_id
+            - template_hash
             - message_data
             - cc
             - bcc
             - attachments
         param_overrides:
             template_key:
+                description: >
+                    Key that names the email, such as welcome, so its metrics, logs and status group under it. Letters,
+                    numbers, hyphens (-) and underscores (_) only.
                 required: true
             subject:
                 required: true
@@ -233,12 +238,43 @@ tools:
             back the complete content with your edited design, plus only the other writable fields you change. The tool
             refuses the read-only fields of a fetched template: created_at, updated_at, transactional_hog_flow_id and
             _posthogUrl. The server re-renders the sent email from the design on save. After updating, call
-            workflows-show-email-template so the user sees the result, and share the returned _posthogUrl edit link.
+            workflows-show-email-template so the user sees the result, and share the returned _posthogUrl edit link. A
+            template whose managed_by is code refuses every update with 403 immutable: change its file in the repository
+            and upload it with workflows-upload-email-template instead. To move a template made in PostHog into code,
+            send key (such as welcome) as the only field. A key is set once and never changes. The next
+            workflows-upload-email-template with that key updates this template and keeps its id, workflow and sender.
+            Emails your code already sends under that key with workflows-send-email keep their own workflow until that
+            upload, then run through this template's workflow.
         exclude_params:
             - content.email.html
             - draft_content
+            - managed_by
         response:
             exclude:
                 - content
                 - draft_content
                 - created_by
+    workflows-upload-email-template:
+        operation: messaging_templates_by_key_update
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Upload email template by key
+        description: >
+            Upload an email template kept as an HTML file in a repository, by a key you choose (such as welcome or
+            password-reset). Use this for templates that live in code; use workflows-create-email-template for templates
+            designed in PostHog. Send name, subject, html, and optionally text, preheader and source (repository, path,
+            ref of the file). Use {{ variables.* }} for every value the email needs; templates can't read person
+            properties. The first upload creates the template and makes it sendable over the transactional email API
+            with the project's default verified sender, so verify a sender first. Later uploads publish changed content
+            at once and answer unchanged when nothing changed. Uploading replaces edits made in PostHog. Set
+            if_not_superseded when an older copy of the file must not replace newer content, such as when you upload
+            only because a send answered template_outdated: an answer of superseded means newer content is already
+            published and nothing changed. The check covers the last 100 different contents the template replaced;
+            content outside those 100 publishes. Leave it out to publish this content even when newer content replaced
+            it, such as to roll back. A 404 with code not_found means sending email from code is not enabled for this
+            project, or the project does not exist: stop and tell the user.
+        feature_flag: workflows-email-from-code

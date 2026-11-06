@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -139,6 +140,10 @@ class InvalidRequest(TransactionalEmailError):
     code = "invalid_request"
 
 
+class TemplateOutdated(TransactionalEmailError):
+    code = "template_outdated"
+
+
 @frozen
 class CodeEmail:
     key: str
@@ -153,8 +158,19 @@ class CodeEmail:
     attachments: tuple[EmailAttachment, ...] = ()
 
 
+@frozen
+class TemplateSendOptions:
+    sender: str | None
+    reply_to: tuple[str, ...]
+    capture_engagement: bool
+
+
 class DeliveryUnavailable(Exception):
     """The email pipeline did not accept the send. Safe to retry."""
+
+
+class WorkflowVersionBehind(DeliveryUnavailable):
+    pass
 
 
 @frozen
@@ -341,3 +357,79 @@ class TransactionalEmailResults:
     revenue: float
     # Hours from the send to the first conversion, for the median converted recipient. None when nobody converted.
     median_hours_to_convert: float | None
+
+
+TEMPLATE_KEY_PATTERN = r"^[a-zA-Z0-9_-]+$"
+TEMPLATE_KEY_MAX_LENGTH = 400
+
+
+class TemplateManagedBy(LabeledStrEnum):
+    GUI = "gui", "GUI"
+    CODE = "code", "Code"
+
+
+class TemplateReleasedTo(LabeledStrEnum):
+    GUI = "gui", "GUI"
+
+
+class TemplateUploadResult(LabeledStrEnum):
+    CREATED = "created", "Created"
+    UPDATED = "updated", "Updated"
+    UNCHANGED = "unchanged", "Unchanged"
+    SUPERSEDED = "superseded", "Superseded"
+
+
+class ContentHashState(LabeledStrEnum):
+    NONE = "none", "None"
+    CURRENT = "current", "Current"
+    SUPERSEDED = "superseded", "Superseded"
+    OUTDATED = "outdated", "Outdated"
+
+
+@frozen
+class TemplateWriteIntent:
+    action: str
+    payload: Mapping[str, Any]
+
+
+class TemplateWriteRefused(Exception):
+    def __init__(self, *, code: str, detail: str, why: str, fix: str) -> None:
+        super().__init__(detail)
+        self.code = code
+        self.detail = detail
+        self.why = why
+        self.fix = fix
+
+
+class TemplateManagedByCode(TemplateWriteRefused):
+    def __init__(self, *, detail: str, why: str, fix: str) -> None:
+        super().__init__(code="immutable", detail=detail, why=why, fix=fix)
+
+
+class TemplateKeyRefused(TemplateWriteRefused):
+    pass
+
+
+class TemplateEditedInPostHog(Exception):
+    code = "template_edited_in_posthog"
+
+
+@frozen
+class TemplateSource:
+    repository: str | None
+    path: str | None
+    ref: str | None
+
+
+@frozen
+class TemplateUpload:
+    key: str
+    name: str
+    subject: str
+    html: str
+    text: str
+    preheader: str
+    design: dict[str, Any]
+    source: TemplateSource | None
+    if_not_superseded: bool
+    if_code_managed: bool

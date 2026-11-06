@@ -237,7 +237,11 @@ const workflowsPatchEmailTemplate = (): ToolBase<
 const WorkflowsSendEmailSchema = () => {
     const MessagingSendEmailCreateBody = orvalSchemas.MessagingSendEmailCreateBody()
     return MessagingSendEmailCreateBody.extend({
-        template_key: MessagingSendEmailCreateBody.shape['template_key'].nonoptional(),
+        template_key: MessagingSendEmailCreateBody.shape['template_key']
+            .nonoptional()
+            .describe(
+                'Key that names the email, such as welcome, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only.'
+            ),
         subject: MessagingSendEmailCreateBody.shape['subject'].nonoptional(),
         html: MessagingSendEmailCreateBody.shape['html'].describe(
             "HTML body of the email, exactly as the recipient should see it. Through this tool the whole request as JSON, html and text included, must stay under 1 MiB, and quotes and line breaks count twice. A larger email can't be sent here."
@@ -403,6 +407,9 @@ const workflowsUpdateEmailTemplate = (): ToolBase<
         if (params.sensitive !== undefined) {
             body['sensitive'] = params.sensitive
         }
+        if (params.key !== undefined) {
+            body['key'] = params.key
+        }
         const result = await context.api.request<Schemas.MessageTemplate>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/${encodeURIComponent(String(params.id))}/`,
@@ -410,6 +417,56 @@ const workflowsUpdateEmailTemplate = (): ToolBase<
         })
         const filtered = omitResponseFields(result, ['content', 'draft_content', 'created_by']) as typeof result
         return await withPostHogUrl(context, filtered, `/workflows/library/templates/${filtered.id}`)
+    },
+})
+
+const WorkflowsUploadEmailTemplateSchema = () => {
+    const MessagingTemplatesByKeyUpdateBody = orvalSchemas.MessagingTemplatesByKeyUpdateBody()
+    const MessagingTemplatesByKeyUpdateParams = orvalSchemas.MessagingTemplatesByKeyUpdateParams()
+    return MessagingTemplatesByKeyUpdateParams.omit({ project_id: true })
+        .extend(MessagingTemplatesByKeyUpdateBody.shape)
+        .strict()
+}
+
+const workflowsUploadEmailTemplate = (): ToolBase<
+    ReturnType<typeof WorkflowsUploadEmailTemplateSchema>,
+    WithPostHogUrl<Schemas.UploadTemplateResponse>
+> => ({
+    name: 'workflows-upload-email-template',
+    schema: WorkflowsUploadEmailTemplateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsUploadEmailTemplateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.subject !== undefined) {
+            body['subject'] = params.subject
+        }
+        if (params.html !== undefined) {
+            body['html'] = params.html
+        }
+        if (params.text !== undefined) {
+            body['text'] = params.text
+        }
+        if (params.preheader !== undefined) {
+            body['preheader'] = params.preheader
+        }
+        if (params.if_not_superseded !== undefined) {
+            body['if_not_superseded'] = params.if_not_superseded
+        }
+        if (params.if_code_managed !== undefined) {
+            body['if_code_managed'] = params.if_code_managed
+        }
+        if (params.source !== undefined) {
+            body['source'] = params.source
+        }
+        const result = await context.api.request<Schemas.UploadTemplateResponse>({
+            method: 'PUT',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/by_key/${encodeURIComponent(String(params.key))}/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/workflows/library/templates/${result.id}`)
     },
 })
 
@@ -424,4 +481,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-send-email-execute': workflowsSendEmailExecute,
     'workflows-show-email-template': workflowsShowEmailTemplate,
     'workflows-update-email-template': workflowsUpdateEmailTemplate,
+    'workflows-upload-email-template': workflowsUploadEmailTemplate,
 }

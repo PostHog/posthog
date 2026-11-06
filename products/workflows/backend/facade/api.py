@@ -2,6 +2,7 @@ from collections.abc import Collection, Iterable, Iterator
 from typing import Any
 from uuid import UUID
 
+from django.db import router
 from django.db.models import F
 
 from posthog.helpers.full_text_search import build_rank
@@ -247,6 +248,18 @@ def get_workflow_view_access(*, team_id: int, user_access_control: UserAccessCon
         ),
         can_view_deleted=user_access_control.has_resource_access("hog_flow"),
     )
+
+
+def get_workflow_version(*, team_id: int, workflow_id: str) -> int:
+    version = (
+        HogFlow.objects.using(router.db_for_write(HogFlow))
+        .filter(team_id=team_id, id=workflow_id)
+        .values_list("version", flat=True)
+        .first()
+    )
+    if version is None:
+        raise WorkflowNotFound()
+    return version
 
 
 def get_workflow_summary(*, team_id: int, workflow_id: str) -> WorkflowSummary:

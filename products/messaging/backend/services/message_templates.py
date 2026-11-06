@@ -6,7 +6,6 @@ from uuid import UUID
 from django.db import models, transaction
 from django.db.models.fields.json import KT
 from django.db.models.functions import Cast
-from django.utils import timezone
 
 from posthog.api.tagged_item import current_tag_names, replace_tags_on_object, set_tags_on_object
 from posthog.models import TaggedItem
@@ -14,6 +13,7 @@ from posthog.models.tag import tagify
 
 from products.messaging.backend.facade.contracts import EmailTemplateSummary
 from products.messaging.backend.models import MessageCategory, MessageTemplate
+from products.messaging.backend.services.content_hash import email_content_hash, superseded_after_publish
 
 
 def get_email_content(team_id: int, template_id: UUID) -> dict | None:
@@ -90,12 +90,16 @@ def team_template(team_id: int, template_id: UUID | str) -> MessageTemplate:
     return MessageTemplate.objects.get(team_id=team_id, deleted=False, pk=template_id)
 
 
+def team_template_with_key(team_id: int, key: str) -> MessageTemplate:
+    return MessageTemplate.objects.get(team_id=team_id, deleted=False, key=key)
+
+
 def category_id_for_team(team_id: int, category_id: Any) -> UUID:
     # Not filtered on deleted, as the related field this serves never was.
     return MessageCategory.objects.get(team_id=team_id, pk=category_id).pk
 
 
-def _apply_fields(template: MessageTemplate, fields: dict[str, Any]) -> None:
+def apply_fields(template: MessageTemplate, fields: dict[str, Any]) -> None:
     for attr, value in fields.items():
         setattr(template, "message_category_id" if attr == "message_category" else attr, value)
 
@@ -105,44 +109,39 @@ def create_template(team_id: int, created_by_id: int | None, fields: dict[str, A
     tags = fields.pop("tags", None)
     with transaction.atomic():
         template = MessageTemplate(team_id=team_id, created_by_id=created_by_id)
-        _apply_fields(template, fields)
+        apply_fields(template, fields)
+        record_content_hash(template)
         template.save(force_insert=True)
         if tags:
             set_tags_on_object(tags, template)
     return template
 
 
-def update_template(team_id: int, template_id: UUID | str, fields: dict[str, Any]) -> MessageTemplate:
-    fields = dict(fields)
-    tags = fields.pop("tags", None)
+def save_template_tags(team_id: int, template_id: UUID | str, tags: list[str]) -> MessageTemplate:
     with transaction.atomic():
         template = team_template(team_id, template_id)
-        # The editor sends the tags with every save, so only write them when they change.
-        tags_changed = tags is not None and {tagify(tag) for tag in tags} != current_tag_names(template)
         # Tags live on their own rows. Saving the template too would write back every column this
         # read saw, so a tag edit would overwrite content a concurrent publish had just committed.
-        if fields:
-            _apply_fields(template, fields)
-            template.save()
-        if tags_changed:
-            replace_tags_on_object(tags, template)
+        save_tags(template, tags)
     return template
 
 
-def save_draft(team_id: int, template_id: UUID | str, draft: dict[str, Any] | None) -> MessageTemplate:
-    # Writes only the draft, so a draft save that races a publish, a delete or a conversion can't undo it.
-    MessageTemplate.objects.filter(team_id=team_id, deleted=False, pk=template_id).update(
-        draft_content=draft, updated_at=timezone.now()
+def save_tags(template: MessageTemplate, tags: list[str] | None) -> None:
+    if tags is None:
+        return
+    tags_changed = {tagify(tag) for tag in tags} != current_tag_names(template)
+    if tags_changed:
+        replace_tags_on_object(tags, template)
+
+
+def edit_content(template: MessageTemplate, edit: Callable[[dict[str, Any]], dict[str, Any]]) -> None:
+    template.content = edit(deepcopy(template.content or {}))
+
+
+def record_content_hash(template: MessageTemplate) -> None:
+    email = (template.content or {}).get("email")
+    published_hash = email_content_hash(email if isinstance(email, dict) else {})
+    template.superseded_content_hashes = superseded_after_publish(
+        template.content_hash, published_hash, template.superseded_content_hashes or []
     )
-    return team_template(team_id, template_id)
-
-
-def edit_content_locked(
-    team_id: int, template_id: UUID | str, edit: Callable[[dict[str, Any]], dict[str, Any]]
-) -> MessageTemplate:
-    with transaction.atomic():
-        # nosemgrep: idor-lookup-without-team (re-fetch of an already team-scoped template, locked for update)
-        locked = MessageTemplate.objects.select_for_update().get(pk=team_template(team_id, template_id).pk)
-        locked.content = edit(deepcopy(locked.content or {}))
-        locked.save()
-    return locked
+    template.content_hash = published_hash

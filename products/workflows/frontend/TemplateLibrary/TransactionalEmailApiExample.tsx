@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { LemonSegmentedButton, Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -24,14 +25,20 @@ const INSTALL_COMMANDS: Partial<Record<SnippetLanguage, string>> = {
 
 export function TransactionalEmailApiExample({
     templateId,
+    templateKey,
     variables,
 }: {
     templateId: string
+    templateKey?: string | null
     /** The email's `{{ variables.* }}` names. The snippet shows a sample when the email uses none. */
     variables?: string[]
 }): JSX.Element {
     const { currentTeam, currentTeamIdStrict } = useValues(teamLogic)
     const [language, setLanguage] = useState<SnippetLanguage>('api')
+    const sendsByTemplateKey = useFeatureFlag('WORKFLOWS_EMAIL_FROM_CODE')
+    // The SDKs send a template by its ID only, so only the API snippet names the template by its key.
+    const sentKey = sendsByTemplateKey ? templateKey : null
+    const apiTemplate = sentKey ? `"template_key": "${sentKey}"` : `"template_id": "${templateId}"`
 
     const projectToken = currentTeam?.api_token ?? '<ph_project_api_key>'
     const host = apiHostOrigin()
@@ -98,7 +105,7 @@ print(result.id)`,
   -H "Content-Type: application/json" \\
   -H "Idempotency-Key: password-reset-123" \\
   -d '{
-    "template_id": "${templateId}",
+    ${apiTemplate},
     "to": "jane@example.com",
     "distinct_id": "jane-distinct-id",
     "message_data": { ${dataEntries(': ')} }
@@ -121,6 +128,12 @@ print(result.id)`,
                     <code>transactional_email:write</code> scope. Keep it on your server in{' '}
                     <code>POSTHOG_PROJECT_SECRET_API_KEY</code>.
                 </li>
+                {sentKey && language === 'api' ? (
+                    <li>
+                        <code>template_key</code> names this template. The key is the same in every project that has the
+                        template.
+                    </li>
+                ) : null}
                 <li>
                     The template data fills the template's <code>{'{{ variables.* }}'}</code> placeholders. The template
                     can't read person properties, so pass everything it needs here.

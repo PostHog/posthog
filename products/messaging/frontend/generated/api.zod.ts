@@ -37,12 +37,13 @@ export const MessagingPreferencesCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Send one transactional email to one recipient. Name a template made transactional in `template_id`, and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run history group under the key. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice. Needs the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
+ * Send one transactional email to one recipient. Name a template made transactional in `template_id`, or one uploaded from code in `template_key`, and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run history group under the key. Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry safely without sending the email twice. Needs the `transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too.
  * @summary Send a transactional email
  */
 export const messagingSendEmailCreateBodyTemplateKeyMax = 400
 
 export const messagingSendEmailCreateBodyTemplateKeyRegExp = new RegExp('^[a-zA-Z0-9_-]+$')
+export const messagingSendEmailCreateBodyTemplateHashRegExp = new RegExp('^v1:[0-9a-f]{64}$')
 export const messagingSendEmailCreateBodyDistinctIdMax = 400
 
 export const messagingSendEmailCreateBodyReplyToMax = 10
@@ -81,7 +82,14 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .regex(messagingSendEmailCreateBodyTemplateKeyRegExp)
         .optional()
         .describe(
-            'Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.'
+            "Key of the email, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` and `html` or `text` to send content your code rendered: PostHog sends the content as is and never stores it as a template. Send it without them to send the template uploaded under this key with `PUT \/api\/projects\/@current\/messaging_templates\/by_key\/{key}\/`, with `message_data` filling its placeholders. Once you upload a template under a key, sends of rendered content with that key also run through the template's workflow, so their metrics and logs group with the template."
+        ),
+    template_hash: zod
+        .string()
+        .regex(messagingSendEmailCreateBodyTemplateHashRegExp)
+        .optional()
+        .describe(
+            "Content hash of the uploaded template you hold, as an upload's `content_hash`. When PostHog doesn't hold that content as the current content or one of the last 100 contents it replaced, the send answers `409 template_outdated` and sends nothing. Only with `template_key` and no `subject`, `html` or `text`."
         ),
     distinct_id: zod
         .string()
@@ -102,18 +110,18 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.email())
         .max(messagingSendEmailCreateBodyReplyToMax)
         .optional()
-        .describe('Addresses replies to the email your code rendered go to.'),
+        .describe("Addresses replies to the email go to. A send with `template_id` doesn't take it."),
     cc: zod
         .union([zod.email(), zod.array(zod.email()).max(messagingSendEmailCreateBodyCcTwoMax), zod.null()])
         .optional()
         .describe(
-            "Addresses that get a visible copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here."
+            "Addresses that get a visible copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send of a template, which refuses any address here."
         ),
     bcc: zod
         .union([zod.email(), zod.array(zod.email()).max(messagingSendEmailCreateBodyBccTwoMax), zod.null()])
         .optional()
         .describe(
-            "Addresses that get a hidden copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send with `template_id`, which refuses any address here."
+            "Addresses that get a hidden copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name. Doesn't apply to a send of a template, which refuses any address here."
         ),
     attachments: zod
         .array(
@@ -144,20 +152,20 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .max(messagingSendEmailCreateBodyAttachmentsMax)
         .nullish()
         .describe(
-            "Files attached to the email your code rendered: up to 10, and at most 512 KB in total after decoding. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here."
+            "Files attached to the email your code rendered: up to 10, and at most 512 KB in total after decoding. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send of a template, which refuses any file here."
         ),
     capture_engagement: zod
         .boolean()
         .optional()
         .describe(
-            'Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says.'
+            'Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says. A send with `template_id` takes it only in the beta for sending email from code.'
         ),
     from: zod
         .string()
         .max(messagingSendEmailCreateBodyFromMax)
         .optional()
         .describe(
-            "Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default."
+            "Sender of the email, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, an email your code rendered goes out from the project's default sender, or from its only verified sender when it has no default, and an uploaded template from its own sender. A send with `template_id` doesn't take it."
         ),
 })
 
@@ -1159,6 +1167,8 @@ export const messagingTemplatesPartialUpdateBodyTypeMax = 24
 export const messagingTemplatesPartialUpdateBodyDraftContentOneTemplatingDefault = `liquid`
 export const messagingTemplatesPartialUpdateBodyDraftContentOneEmailOneFromOneEmailMax = 254
 
+export const messagingTemplatesPartialUpdateBodyKeyMax = 400
+
 export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
@@ -1400,6 +1410,20 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft."
         ),
+    key: zod
+        .string()
+        .max(messagingTemplatesPartialUpdateBodyKeyMax)
+        .optional()
+        .describe(
+            "Give a template that has no key one, so code can take it over: the next upload under this key updates this template and keeps its id, workflow and sender. Code sends that already use this key keep their own workflow until that upload, then run through this template's workflow. Send it as the only field of the PATCH. Letters, digits, hyphens (-) and underscores (_). Set once: a template that has a key keeps it."
+        ),
+    managed_by: zod
+        .enum(['gui'])
+        .describe('\* `gui` - GUI')
+        .optional()
+        .describe(
+            'Send `gui` as the only field to stop managing a template in code, so it can be edited in PostHog. It keeps its key, so the next upload under that key manages it in code again.\n\n\* `gui` - GUI'
+        ),
 })
 
 export const MessagingTemplatesDesignPartialUpdateBody = /* @__PURE__ */ zod.object({
@@ -1503,4 +1527,71 @@ export const MessagingTemplatesSendCreateBody = /* @__PURE__ */ zod.object({
         })
         .optional()
         .describe('Who the email is for, used to attribute engagement events.'),
+})
+
+/**
+ * Create or update the email template with this key from HTML, for templates kept as files in a repository. The first upload creates the template and makes it transactional with the project's default verified sender. A later upload publishes changed content at once, and answers `unchanged` when the content is the same. With `if_not_superseded`, an upload of content that is one of the last 100 different contents the template replaced changes nothing and answers `superseded`. With `if_code_managed`, an upload to a template edited in PostHog changes nothing and answers `409`. An upload keeps the template's sender and never turns a paused template back on.
+ * @summary Upload a template by key
+ */
+export const messagingTemplatesByKeyUpdateBodyNameMax = 400
+
+export const messagingTemplatesByKeyUpdateBodyIfNotSupersededDefault = false
+export const messagingTemplatesByKeyUpdateBodyIfCodeManagedDefault = false
+export const messagingTemplatesByKeyUpdateBodySourceOneRepositoryMax = 400
+
+export const messagingTemplatesByKeyUpdateBodySourceOnePathMax = 400
+
+export const messagingTemplatesByKeyUpdateBodySourceOneRefMax = 400
+
+export const MessagingTemplatesByKeyUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(messagingTemplatesByKeyUpdateBodyNameMax)
+        .describe('Template name shown in the template library.'),
+    subject: zod.string().describe('Email subject line. Supports Liquid, such as `{{ variables.first_name }}`.'),
+    html: zod
+        .string()
+        .describe('Email body as HTML, stored as sent. Supports Liquid, such as `{{ variables.first_name }}`.'),
+    text: zod
+        .string()
+        .optional()
+        .describe("Plain-text body for email clients that can't show HTML. Leaving it out removes the stored one."),
+    preheader: zod
+        .string()
+        .optional()
+        .describe('Inbox preview text shown after the subject. Leaving it out removes the stored one.'),
+    if_not_superseded: zod
+        .boolean()
+        .default(messagingTemplatesByKeyUpdateBodyIfNotSupersededDefault)
+        .describe(
+            'Set it on uploads a program makes on its own, such as a sync that may hold an older copy of the file, or an upload after a send answered `template_outdated`. When newer content already replaced this content, the upload changes nothing and answers `superseded`. The check covers the last 100 different contents the template replaced. Content outside those 100 publishes. Leave it out to publish the content in any case, such as to roll back to earlier content.'
+        ),
+    if_code_managed: zod
+        .boolean()
+        .default(messagingTemplatesByKeyUpdateBodyIfCodeManagedDefault)
+        .describe(
+            'Set it so the upload only updates a template that code manages. When the key names a template edited in PostHog, the upload changes nothing and answers `409` with `template_edited_in_posthog`. A new key, or a template managed by code, uploads as usual. Leave it out to take over a template edited in PostHog, so code manages it from then on.'
+        ),
+    source: zod
+        .object({
+            repository: zod
+                .string()
+                .max(messagingTemplatesByKeyUpdateBodySourceOneRepositoryMax)
+                .nullish()
+                .describe('Host and path of the repository the file is in, such as `github.com\/example\/app`.'),
+            path: zod
+                .string()
+                .max(messagingTemplatesByKeyUpdateBodySourceOnePathMax)
+                .nullish()
+                .describe('Path of the template file in the repository, such as `emails\/welcome.html`.'),
+            ref: zod
+                .string()
+                .max(messagingTemplatesByKeyUpdateBodySourceOneRefMax)
+                .nullish()
+                .describe('Commit or branch the file was uploaded from.'),
+        })
+        .optional()
+        .describe(
+            'Where the template file lives, so people in PostHog can find it. Leaving it out, or a part of it, keeps what is stored.'
+        ),
 })

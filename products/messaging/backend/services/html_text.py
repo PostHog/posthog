@@ -35,7 +35,7 @@ VOID_TAGS = frozenset(
         "wbr",
     }
 )
-LINK_SCHEMES = ("http://", "https://", "mailto:")
+LINK_SCHEMES = ("http://", "https://", "mailto:", "{{")
 BLANK_LINES = re.compile(r"\n{3,}")
 WHITESPACE = re.compile(r"\s+")
 LINE_END = "\x00"
