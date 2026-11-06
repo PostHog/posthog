@@ -832,10 +832,10 @@ describe('EmailTrackingService', () => {
                         .map(({ topic }) => topic)
                         .filter((topic) => topic.includes('dlq'))
 
-                const skipped = async (): Promise<number> =>
+                const queuedAtStage = async (stage: string): Promise<number> =>
                     (
                         await register.getSingleMetric('email_tracking_ses_queued_notifications_total')!.get()
-                    ).values.find((v) => v.labels.stage === 'skipped')?.value ?? 0
+                    ).values.find((v) => v.labels.stage === stage)?.value ?? 0
 
                 it('answers 200 and queues the envelope by its MessageId without recording it', async () => {
                     const snsMessageId = new UUIDT().toString()
@@ -922,7 +922,7 @@ describe('EmailTrackingService', () => {
                     ['is not JSON', () => Promise.resolve(rawMessage('not json'))],
                     ['is not an SNS envelope', () => Promise.resolve(rawMessage('{}'))],
                     [
-                        'throws while recording',
+                        'fails the SES event schema',
                         async () => {
                             await postBounce({
                                 functionId: hogFunction.id,
@@ -944,13 +944,26 @@ describe('EmailTrackingService', () => {
                     const failing = await failingMessage()
                     await postBounce({ functionId: hogFunction.id })
                     const recordable = queuedNotifications().at(-1)!
-                    const skippedBefore = await skipped()
+                    const skippedBefore = await queuedAtStage('skipped')
 
                     await consumer.processBatch([failing, recordable])
 
                     expect(recordedMetrics()).toEqual(bounceMetrics)
-                    expect(await skipped()).toBe(skippedBefore + 1)
+                    expect(await queuedAtStage('skipped')).toBe(skippedBefore + 1)
                     expect(deadLettered()).toEqual([])
+                })
+
+                it('fails the batch so Kafka redelivers it when reading the team config fails', async () => {
+                    await postBounce({ functionId: hogFunction.id, distinctId: 'distinct-id' })
+                    jest.spyOn(
+                        consumer['emailTrackingService']['teamWorkflowsConfigService'],
+                        'shouldCaptureEngagementEvents'
+                    ).mockRejectedValueOnce(new Error('column does not exist'))
+                    const failedBefore = await queuedAtStage('failed')
+
+                    await expect(consumer.processBatch(queuedNotifications())).rejects.toThrow('column does not exist')
+
+                    expect(await queuedAtStage('failed')).toBe(failedBefore + 1)
                 })
             })
 

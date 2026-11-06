@@ -94,7 +94,7 @@ const emailTrackingLogSkipsCounter = new Counter({
 
 export const sesQueuedNotificationsCounter = new Counter({
     name: 'email_tracking_ses_queued_notifications_total',
-    help: 'SES notifications through the queue, by stage: queued by the webhook, then recorded or skipped',
+    help: 'SES notifications through the queue, by stage: queued, then recorded, skipped, or failed for a retry',
     labelNames: ['stage'],
 })
 
