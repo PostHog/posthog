@@ -35,7 +35,9 @@ Node writes lone surrogates as `\udXXX`, and serde_json rejects them.
 | `internal-logs.ts`                                                                            | `internal_logs`   | Done                                        |
 | `pipeline/log-processing-pipeline.ts`                                                         | `content_weights` | Done                                        |
 | `services/logs-rate-limiter.service.ts`, `common/services/keyed-rate-limiter.service.ts`     | `rate_limiter`    | Done (Redis behind `TokenBucketRedis`)      |
-| `pipeline/*.ts`, `logs-ingestion-consumer.ts`, `traces-ingestion-consumer.ts`, `processLogMessageBuffer`, `app-metrics-aggregator.ts` | `pipeline` | Done (hog transformations: trait slot only) |
+| `pipeline/*.ts`, `logs-ingestion-consumer.ts`, `traces-ingestion-consumer.ts`, `processLogMessageBuffer`, `app-metrics-aggregator.ts` | `pipeline` | Done |
+| `transformations/hog-log-exec.ts`, `transformations/logs-transformer.service.ts`, `cdp/.../hog-function-monitoring.service.ts` (app metrics and `log_entries`), `sanitizeLogMessage` | `transformations` | Done |
+| `cdp/.../hog-function-manager.service.ts` (the `transformation_log` reads), `EncryptedFields.decrypt`, `PubSub` (`reload-hog-functions`) | `service::hog_functions` | Done |
 | `servers/ingestion-logs-server.ts`, `servers/ingestion-traces-server.ts`, `logs/config.ts`, `logs/outputs/*`, `common/kafka/consumer/consumer-v2.ts` (batch loop) | `service`, `bin/logs-ingestion.rs` | Done, with shadow mode |
 | `common/utils/team-manager.ts`, `common/utils/lazy-loader.ts`, `quota-limiting.service.ts`, `sampling-rules-cache.ts`, `retention-rules-cache.ts`, `tracing-config-cache.ts`, `metric-rules-cache.ts`, `pattern-message-keys-cache.ts`, `metrics-emitter.ts` (POST), `usage-ingestion/*` | `service` | Done |
 
@@ -226,6 +228,19 @@ Each rule has evidence in Node, and a test that pins it.
 A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `filter_group::match_filter_group`.
 `compile_metric_rules_with` takes another `FilterGroupParser`.
 
+### `transformations`
+
+- `functions::HogFunction::from_row` precomputes what `LogsTransformerService` derives per message: the merged and ordered inputs with their compiled templates, whether a template mentions `record`, and the secret string leaves.
+- `functions::HogFunctionSource` is the manager contract. `service::hog_functions::PgHogFunctions` reads Postgres, and `StaticHogFunctions` serves the parity scenarios.
+- `exec` is `hog-log-exec.ts`. `run_program` steps `hogvm::HogVM` itself:
+  - Globals are `OrderedJson`, so objects keep JavaScript key order inside the VM, and the result is read with `with_raw_result`.
+  - It checks the wall-clock deadline every 32 ops and on every native call, as the Node VM does, with Node's timeout text.
+  - After each native call it checks `memory_bytes` against the 8 MiB limit. The heap limit is the same 8 MiB.
+  - It answers `print` itself, so a transformation captures at most 5 lines and an input template prints nothing.
+- Only `body`, `severity_text`, `attributes` and `resource_attributes` of a result are converted, as only they are read. A cycle in another key is harmless, as in Node; a cycle inside an attribute value fails the result, as `JSON.stringify` throws.
+- `transformer::transform_message` is the synchronous part of `transformRecords`. `LogsTransformerService` runs it on a blocking thread and queues the aggregates to `monitoring::HogFunctionMonitoring`.
+- Thrown Hog errors print as `Type('message')` and other VM errors as `HogVMException: …`, as `String(error)` prints them in Node, because function logs carry the text.
+
 ### `pipeline`
 
 - `LogsIngestionConsumer::new(identity, config, deps)` with `LogsConsumerIdentity::logs()` or `::traces()`, and `LogsIngestionConsumerConfig::from_logs_config` or `::from_traces_config` (the overrides `TracesIngestionConsumer` applies).
@@ -259,14 +274,22 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
 - **Counts that run far past the data.** For an array or map count in the millions whose items run past the end, avsc keeps reading empty items and Node can throw "Invalid array length" or run out of memory; this port stops at the end with "truncated block". Values that read no bytes, at any depth, share a cap of 2^20 per container ("too many empty records"); Node holds them all or runs out of memory.
 - **An `int` that decodes past i64.** avsc keeps the float; this port stores an `i64`.
 - **Decode error precedence across blocks.** When an early block has a bad record and a later block fails to decompress, avsc's async order decides which error comes first. This port reports the first block in order.
-- **Encode error text.** It follows avsc's `invalid <schema>: <value>` shape, but the value is printed with Rust `Debug`. Only a hog transformation that writes a wrongly typed value can reach it. Port it with the transformations.
+- **Encode error text.** It follows avsc's `invalid <schema>: <value>` shape, but the value is printed with Rust `Debug`. No stage can reach it: a hog transformation writes only strings, nulls and string maps to fields of those types.
 - **Flattened JSON keys that differ only by a lone surrogate.** A body such as `{"\ud800":1,"\ud801":2}` gives two attribute keys in Node, and avsc writes both as U+FFFD, so the map holds a duplicate key. `AvroMap` keys are Rust strings, so this port keeps one entry. The same holds for such a key next to a sender key `\ufffd`.
 - **The OpenTelemetry skip counter** (`recordJsonEnrichmentSkipped`). `normalize` emits only the Prometheus `logs_ingestion_json_enrichment_skipped_total`.
 - **`logs_ingestion_pattern_stage_error_total`.** The Rust stamping cannot fail, so it has no catch path.
 
 - **`hash01FromTraceId` with no trace id.** Node uses `Math.random()`; the port uses `rand`. No vector can pin it.
 - **RE2 program size limits.** RE2 rejects a program over `max_mem` (8 MiB) and the `regex` crate has its own size and nesting limits (nesting set to 1000; RE2 has none), so a very large pattern can compile in one engine only. The parser stops at the same nesting of 1000 groups or nested counted repetitions, so a deep pattern fails before it can overflow the stack. The Unicode table versions of the vendored RE2 and the `regex` crate can also differ.
-- **Hog log transformations.** `LogsTransformer` is the stage slot; no implementation runs hog yet, and no scenario covers transformations.
+- **Hog VM differences that transformations can reach.** Both VMs run the same bytecode, but:
+  - The Rust VM holds integral numbers as `i64`. A global or input number that is integral becomes an integer, as a compiled literal does, and arithmetic on it matches JavaScript doubles except that integer division or modulo by zero is an error in Rust and `Infinity` or `NaN` in Node. Overflow past `i64` continues as a float in both.
+  - `toString` and string interpolation of a float use Rust's formatting, so `1e21` prints `1000000000000000000000` (Node: `1e+21`). JSON output of a result uses `js::json_stringify` and matches.
+  - Memory is counted differently: Node charges each stack push by `calculateCost`, Rust counts the heap (which never frees) plus the stack after each native call. Both stop at 8 MiB, but at different points, and a program that re-reads a large global in a loop can fail in Rust only.
+  - VM error texts other than a thrown Hog error differ.
+  - A closure or callable in a result converts to `null`; Node keeps the closure object and `JSON.stringify` writes it.
+- **`encrypted_inputs` that do not decrypt.** Node keeps the token string, and spreading it adds one `undefined` input per character. The port treats the function as having no encrypted inputs.
+- **The transformer's internal-logs producer.** The logs server builds `HogFunctionMonitoringService` without one, and so does the port.
+- **The `logs.transformations.*` span attributes** are not ported.
 - **A Kafka header with a null value.** `parseKafkaHeaders` would throw on it in Node; this port reads it as an empty string.
 - **The OpenTelemetry usage counters** (`recordLogsReceived` and the others in `ingestion-otel-metrics.ts`). The Prometheus counters are ported.
 - **`re2_objects_created_total`.** The tracked-RE2 allocation counter and its LRU cache are not ported; they do not change a result.
@@ -274,7 +297,7 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
 ### Service gaps
 
 - **`first team event ingested`.** `setTeamIngestedEvent` captures a PostHog analytics event to every organization member after the first `ingested_event` write. `PgTeamManager` writes the flag and refreshes the cache, but captures nothing.
-- **Hog transformations in primary mode.** No `LogsTransformer` exists, so primary mode refuses to start when `LOGS_TRANSFORMATIONS_ENABLED_TEAMS` is not empty.
+- **Function logs in shadow mode.** The shadow runs transformations but drops `log_entries`, which has no shadow topic.
 - **Offsets after a failed background task.** Node's default consumer (`consumer-v1.ts`, `CONSUMER_USE_V2=false`) stores a batch's offsets in a `finally`, so a failed task's offsets can still commit before the process exits. The port follows `consumer-v2.ts`: a failed task stores nothing from it or any later batch.
 - **Drain on revoke.** `consumer-v2.ts` waits for in-flight tasks inside the revoke callback. The port fences their offset stores by the same per-partition epoch, but does not wait, so the new owner can process a revoked partition while an old task still runs. That costs duplicates, not data.
 - **Consumer telemetry.** The node-rdkafka statistics, loop-stall health check and batch histograms are not ported. Liveness is the lifecycle heartbeat on every loop turn.
@@ -286,6 +309,8 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
 - **The logs Redis password.** Node never passes `LOGS_REDIS_PASSWORD` to the logs Redis client, and neither does the port.
 
 ## Regenerating references
+
+The scenario corpus re-records with `LOGS_PARITY_RECORD=1` on `logs-parity.serial.test.ts`. `LOGS_PARITY_SCENARIOS=transformations,transformations-budget` re-records only the named scenarios, so the other fixtures keep their input bytes. A new Hog snippet in a scenario or vector needs its compiled bytecode in `nodejs/tests/fixtures/hog-bytecode`, which `compileHog` writes on the first run.
 
 `tests/fixtures/input-decodes.json` comes from `scripts/node-decode-reference.js`. Run it from the repository root after a corpus re-record:
 
