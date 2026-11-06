@@ -89,14 +89,14 @@ describe('SandboxSenderStateService', () => {
         }
     })
 
-    it('reads again after a reload message and after a fresh read, and never caches a read that started before the message', async () => {
+    it('reads again after a reload message and after a fresh read, also for checks that wait while the message arrives', async () => {
         let reload: (message: { tenantName: string }) => void = () => undefined
         const reloadingPubSub = {
             on: (_channel: string, handler: typeof reload) => {
                 reload = handler
             },
         } as unknown as PubSub
-        const storedPaused = [false, true, false, true, false]
+        const storedPaused = [false, true, false, false, true, true]
         let holdNextLookup = false
         const heldLookups: (() => void)[] = []
         const query = jest.fn(async (_tx: unknown, sql: string) => {
@@ -130,16 +130,18 @@ describe('SandboxSenderStateService', () => {
         expect(lookups()).toBe(3)
 
         holdNextLookup = true
-        const startedBeforeMessage = service.isPaused({ fresh: true })
+        const freshCheck = service.isPaused({ fresh: true })
         while (heldLookups.length === 0) {
             await new Promise((resolve) => setImmediate(resolve))
         }
+        const cachedCheck = service.isPaused()
         reload({ tenantName: 'sandbox-tenant' })
-        await expect(service.isPaused()).resolves.toBe(false)
         heldLookups.shift()!()
-        await expect(startedBeforeMessage).resolves.toBe(true)
-        await expect(service.isPaused()).resolves.toBe(false)
-        expect(lookups()).toBe(5)
+        await expect(freshCheck).resolves.toBe(true)
+        await expect(cachedCheck).resolves.toBe(true)
+        expect(lookups()).toBe(6)
+        await expect(service.isPaused()).resolves.toBe(true)
+        expect(lookups()).toBe(6)
     })
 
     it('fails fresh checks at their deadline while the pool has no connection, keeps at most five lookups open, and runs no query for them later', async () => {
