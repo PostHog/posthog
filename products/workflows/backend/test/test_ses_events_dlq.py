@@ -433,7 +433,7 @@ class TestSesEventsDlqConsoleTool(BaseTest):
         assert response.status_code == 200
         content = response.content.decode()
         assert QUEUE.name in content
-        assert "Could not read the queue: An error occurred (AccessDenied)" in content
+        assert "Could not read the queue: AccessDenied<" in content
         assert 'href="/admin/console/teams/42/"' in content
         assert "Delivery" in content and "/admin/console/teams/-1/" not in content
         assert "r***@example.com" in content

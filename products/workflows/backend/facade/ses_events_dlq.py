@@ -26,7 +26,12 @@ def _inspect(queue: DlqQueue) -> SesEventsDlqState:
     except (BotoCoreError, ClientError) as error:
         logger.warning("ses_events_dlq.inspect_failed", queue=queue.name, error=str(error))
         return SesEventsDlqState(
-            queue_name=queue.name, waiting=None, in_flight=None, oldest_sampled_at=None, sample=(), error=str(error)
+            queue_name=queue.name,
+            waiting=None,
+            in_flight=None,
+            oldest_sampled_at=None,
+            sample=(),
+            error=_short_reason(error),
         )
     return SesEventsDlqState(
         queue_name=queue.name,
@@ -36,6 +41,14 @@ def _inspect(queue: DlqQueue) -> SesEventsDlqState:
         sample=tuple(_message(summary) for summary in snapshot.sample),
         error=None,
     )
+
+
+def _short_reason(error: BotoCoreError | ClientError) -> str:
+    # The full boto message repeats the operation and the queue URL, which fills the page's table cell.
+    # The log line above keeps the full text.
+    if isinstance(error, ClientError):
+        return error.response.get("Error", {}).get("Code") or type(error).__name__
+    return type(error).__name__
 
 
 def _message(summary: DlqMessageSummary) -> SesEventsDlqMessage:
