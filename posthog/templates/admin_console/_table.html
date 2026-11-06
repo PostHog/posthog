@@ -31,7 +31,8 @@
                                         {% if cell.tone %}
                                             {% include "admin_console/_badge.html" with label=cell.text tone=cell.tone %}
                                         {% elif cell.href %}
-                                            <a class="block max-w-[320px] break-words" href="{{ cell.href }}">{{ cell.text }}</a>
+                                            <a class="block max-w-[320px] break-words text-foreground underline decoration-border underline-offset-2 hover:decoration-current"
+                                               href="{{ cell.href }}">{{ cell.text }}</a>
                                         {% else %}
                                             {% if forloop.counter0 in table.numeric_columns %}
                                                 {{ cell.text }}

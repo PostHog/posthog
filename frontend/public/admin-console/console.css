@@ -845,6 +845,9 @@
         text-overflow: ellipsis;
         white-space: nowrap;
     }
+    .overflow-auto {
+        overflow: auto;
+    }
     .overflow-hidden {
         overflow: hidden;
     }
@@ -856,6 +859,9 @@
     }
     .\!rounded-full {
         border-radius: calc(infinity * 1px) !important;
+    }
+    .rounded {
+        border-radius: 0.25rem;
     }
     .rounded-full {
         border-radius: calc(infinity * 1px);
@@ -1020,9 +1026,6 @@
     .pb-2 {
         padding-bottom: calc(0.25rem * 2);
     }
-    .pb-4 {
-        padding-bottom: calc(0.25rem * 4);
-    }
     .pb-20 {
         padding-bottom: calc(0.25rem * 20);
     }
@@ -1133,6 +1136,9 @@
     }
     .whitespace-pre-line {
         white-space: pre-line;
+    }
+    .whitespace-pre-wrap {
+        white-space: pre-wrap;
     }
     .text-current {
         color: currentcolor;

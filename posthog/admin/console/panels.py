@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from enum import StrEnum
 from typing import TYPE_CHECKING, ClassVar, Protocol
 
@@ -9,6 +10,8 @@ from posthog.dataclasses import frozen
 if TYPE_CHECKING:
     from django.db.models import Model
     from django.http import HttpRequest, HttpResponse
+
+    from posthog.admin.console.tools import Page
 
 
 class Tone(StrEnum):
@@ -36,11 +39,47 @@ class Fact:
     value: str
     tone: Tone | None = None
     mono: bool = False
+    # A console page the value links to, for example the team page of a team the fact names.
+    href: str | None = None
 
     def __post_init__(self) -> None:
         # The shell escapes facts. Markup from format_html or mark_safe would bypass the shared design.
         if isinstance(self.label, SafeData) or isinstance(self.value, SafeData):
             raise ValueError(f"Fact {self.label!r} must be plain text, not markup")
+        # Facts link within PostHog only, so a value that came from customer data cannot become an outside link.
+        # Browsers read a leading "/\\" like "//", so both would leave the site.
+        if self.href is not None and (not self.href.startswith("/") or self.href.startswith(("//", "/\\"))):
+            raise ValueError(f"Fact {self.label!r} links to {self.href!r}. Link to a PostHog path that starts with /.")
+
+
+@frozen
+class Gate:
+    """Who may run an operation, on top of the staff check that every console page has.
+
+    Use a Django group or a reviewed rule. Not a Django model permission: `User.is_superuser` mirrors
+    `is_staff` in PostHog, so every staff member has every permission and such a gate would let everyone in.
+    """
+
+    # Who passes, shown next to the disabled button so staff know whom to ask, for example "the Billing Team group".
+    label: str
+    check: Callable[["HttpRequest"], bool]
+
+    @staticmethod
+    def group(name: str) -> "Gate":
+        return Gate(label=f"the {name} group", check=lambda request: request.user.groups.filter(name=name).exists())
+
+    def allows(self, request: "HttpRequest") -> bool:
+        return self.check(request)
+
+
+def check_danger(key: str, danger: bool, form_class: type[forms.Form] | None, undo_hint: str) -> None:
+    # The console writes the reason to the audit log, so nobody runs a destructive action without saying why.
+    if danger and (form_class is None or "reason" not in form_class.base_fields):
+        raise ValueError(f"Danger operation {key!r} needs a form with a reason field")
+    if danger and not undo_hint.strip():
+        raise ValueError(
+            f"Danger operation {key!r} needs an undo_hint that says how to undo it, or that it cannot be undone"
+        )
 
 
 class OperationHandler(Protocol):
@@ -49,14 +88,13 @@ class OperationHandler(Protocol):
     def __call__(self, request: "HttpRequest", obj: "Model", form: forms.Form | None) -> "HttpResponse | None": ...
 
 
-def check_danger_contract(*, key: str, danger: bool, form_class: type[forms.Form] | None, undo_hint: str) -> None:
-    # The console writes the reason to the audit log, so nobody runs a destructive action without saying why.
-    if danger and (form_class is None or "reason" not in form_class.base_fields):
-        raise ValueError(f"Danger operation {key!r} needs a form with a reason field")
-    if danger and not undo_hint.strip():
-        raise ValueError(
-            f"Danger operation {key!r} needs an undo_hint that says how to undo it, or that it cannot be undone"
-        )
+class RecordPreviewHandler(Protocol):
+    """Shows what an operation would change on the record before it runs, as a `Page`. It must not change anything.
+
+    To refuse the input, add an error to the form; the console then shows the form again.
+    """
+
+    def __call__(self, request: "HttpRequest", obj: "Model", form: forms.Form) -> "Page": ...
 
 
 @frozen
@@ -75,9 +113,14 @@ class Operation:
     form_initial: dict[str, object] | None = None
     description: str = ""
     undo_hint: str = ""
+    gate: Gate | None = None
+    # Staff confirm on a page that shows what will change, for an action that is hard to take back.
+    preview: RecordPreviewHandler | None = None
 
     def __post_init__(self) -> None:
-        check_danger_contract(key=self.key, danger=self.danger, form_class=self.form_class, undo_hint=self.undo_hint)
+        check_danger(self.key, self.danger, self.form_class, self.undo_hint)
+        if self.preview is not None and self.form_class is None:
+            raise ValueError(f"Operation {self.key!r} has a preview, so it needs a form for the preview to read")
 
 
 class ReasonForm(forms.Form):
