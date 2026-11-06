@@ -496,6 +496,7 @@ export const loginLogic = kea<loginLogicType>([
                     try {
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         const response = await api.create<any>('api/login/code-based-verification/resend')
+                        actions.clearGeneralError()
                         lemonToast.success('Verification email resent')
                         return response
                     } catch (e) {
