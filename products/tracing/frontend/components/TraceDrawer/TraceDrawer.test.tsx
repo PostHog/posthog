@@ -162,14 +162,8 @@ describe('TraceDrawer', () => {
     })
 
     // Fails when the view stops passing the trace's spans to the inspector: the Operations tab then
-    // disappears and the inspector falls back to Attributes. Also fails when the tab shows with its flag off,
-    // or when the flag empties the operation spans, which other views of the trace build on.
-    it.each([
-        { flagOn: true, shows: true },
-        { flagOn: false, shows: false },
-    ])('with the Operations tab flag on: $flagOn, shows the operations of the trace: $shows', ({ flagOn, shows }) => {
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_TRACE_OPERATIONS_TAB]: flagOn })
+    // disappears and the inspector falls back to Attributes.
+    it('shows the operations of the trace', () => {
         renderDrawer(
             {
                 spans: [
@@ -186,8 +180,8 @@ describe('TraceDrawer', () => {
             'operations'
         )
 
-        expect(screen.queryByText('Operations') !== null).toBe(shows)
-        expect(screen.queryByText('2 operations · 2 spans') !== null).toBe(shows)
+        expect(screen.queryByText('Operations')).not.toBeNull()
+        expect(screen.queryByText('2 operations · 2 spans')).not.toBeNull()
         expect(traceViewLogic({ id: 'trace-drawer-test' }).values.operationSpans).toHaveLength(2)
     })
 
@@ -248,16 +242,11 @@ describe('TraceDrawer', () => {
                 name,
                 is_root_span: parent_span_id === '',
             })
-        const setCallTreeFlag = (on: boolean): void => {
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_TRACE_CALL_TREE]: on })
-        }
 
         beforeEach(() => {
             // jsdom lays nothing out, so the virtualized span tree needs a size to render rows into.
             jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(600)
             jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(1000)
-            setCallTreeFlag(true)
         })
         afterEach(() => {
             jest.restoreAllMocks()
@@ -293,19 +282,6 @@ describe('TraceDrawer', () => {
             expect(captureSpy.mock.calls.filter(([event]) => event === 'tracing trace view changed')).toEqual([
                 ['tracing trace view changed', { view: 'calltree', surface: 'drawer' }],
             ])
-        })
-
-        // With the flag off nothing may offer the call tree, and a call tree that the person picked while the flag was
-        // on must not hide the span tree with no toggle to get it back.
-        it('with the flag off, shows no toggle and keeps the span tree for a stored call tree', () => {
-            setCallTreeFlag(false)
-            tracingConfigLogic.mount()
-            tracingConfigLogic.actions.setTraceViewMode('calltree', 'drawer')
-            renderDrawer({ spans: [traceSpan('span-1', '', 'checkout-api', 'POST /orders')] })
-
-            expect(document.querySelector('[data-attr="tracing-trace-view-calltree"]')).toBeNull()
-            expect(document.querySelector('[data-attr="trace-dialog-span-row"]')).not.toBeNull()
-            expect(captureSpy.mock.calls.filter(([event]) => event === 'tracing trace view changed')).toEqual([])
         })
 
         // Two services each run GET /x. A focus that matches on the name alone opens the first one, under which only

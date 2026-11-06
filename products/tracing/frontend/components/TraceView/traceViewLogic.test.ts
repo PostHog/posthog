@@ -1,8 +1,5 @@
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { initKeaTests } from '~/test/init'
 
 import { makeSpan } from '../../__mocks__/span'
@@ -30,8 +27,6 @@ describe('traceViewLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_TRACE_FOLDED_RUNS]: true })
         captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
         logic = traceViewLogic({ id: 'trace-view-test' })
         logic.mount()
@@ -79,7 +74,6 @@ describe('traceViewLogic', () => {
         {
             action: 'switching to the call tree',
             act: () => {
-                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_TRACE_CALL_TREE]: true })
                 logic.actions.setTraceViewMode('calltree', 'drawer')
             },
             keeps: true,
@@ -101,33 +95,27 @@ describe('traceViewLogic', () => {
     )
 
     // The call tree hides the span tree, so J there would move a selection that nobody can see. Back in the span
-    // tree the keys must work again, and with the flag off a stored call tree must not turn them off. In every
-    // view the key must stop at the view, or the page under it acts on the key too.
+    // tree the keys must work again. In every view the key must stop at the view, or the page under it acts on the
+    // key too.
     it.each([
-        { view: 'calltree' as const, flagOn: true, selected: 'a' },
-        { view: 'waterfall' as const, flagOn: true, selected: 'b' },
-        { view: 'calltree' as const, flagOn: false, selected: 'b' },
-    ])(
-        'in the $view view with the flag on: $flagOn, J leaves the selection on $selected',
-        ({ view, flagOn, selected }) => {
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_TRACE_CALL_TREE]: flagOn })
-            logic.actions.setSpans([root, child('a', 'root', 'SELECT orders', 1), child('b', 'root', 'cache GET', 2)])
-            logic.actions.selectSpan('a')
-            logic.actions.enableSpanKeys('[data-attr="trace-view-test"]', 'drawer')
-            logic.actions.setTraceViewMode('calltree', 'drawer')
-            logic.actions.setTraceViewMode(view, 'drawer')
-            const pageKeyDown = jest.fn()
-            document.body.addEventListener('keydown', pageKeyDown)
+        { view: 'calltree' as const, selected: 'a' },
+        { view: 'waterfall' as const, selected: 'b' },
+    ])('in the $view view, J leaves the selection on $selected', ({ view, selected }) => {
+        logic.actions.setSpans([root, child('a', 'root', 'SELECT orders', 1), child('b', 'root', 'cache GET', 2)])
+        logic.actions.selectSpan('a')
+        logic.actions.enableSpanKeys('[data-attr="trace-view-test"]', 'drawer')
+        logic.actions.setTraceViewMode('calltree', 'drawer')
+        logic.actions.setTraceViewMode(view, 'drawer')
+        const pageKeyDown = jest.fn()
+        document.body.addEventListener('keydown', pageKeyDown)
 
-            const event = new KeyboardEvent('keydown', { key: 'j', bubbles: true, cancelable: true })
-            document.body.dispatchEvent(event)
-            document.body.removeEventListener('keydown', pageKeyDown)
+        const event = new KeyboardEvent('keydown', { key: 'j', bubbles: true, cancelable: true })
+        document.body.dispatchEvent(event)
+        document.body.removeEventListener('keydown', pageKeyDown)
 
-            expect(logic.values.selectedSpanId).toBe(selected)
-            expect([event.defaultPrevented, pageKeyDown.mock.calls.length]).toEqual([true, 0])
-        }
-    )
+        expect(logic.values.selectedSpanId).toBe(selected)
+        expect([event.defaultPrevented, pageKeyDown.mock.calls.length]).toEqual([true, 0])
+    })
 
     // AI events load after the spans. A call tree rebuilt for them resets the drill-down in the flame.
     it('keeps the call tree when only AI event rows arrive', () => {

@@ -88,8 +88,6 @@ export interface TraceDialogRowOptions {
     collapsedSpanIds: Set<string>
     fullChildListSpanIds: Set<string>
     openChainIds: Set<string>
-    /** False gives every span a row of its own and makes the child cap count spans. */
-    foldRuns: boolean
     /** Runs fold by default, so this holds the opened ones, by the id of their first span. */
     openRunIds: Set<string>
     /** The span a log came from. It stays on screen: past the child cap, and outside folded chains and runs. */
@@ -130,16 +128,12 @@ function unitOnPinnedPath(unit: Unit, pinnedPath: Set<SpanNode>): boolean {
 }
 
 interface SiblingUnitOptions {
-    foldRuns: boolean
     openRunIds: Set<string>
     pinnedPath: Set<SpanNode>
 }
 
 /** Siblings in start order, as items of the child cap. The row builder and the reveal both use it, so they agree. */
-function siblingUnits(siblings: SpanNode[], { foldRuns, openRunIds, pinnedPath }: SiblingUnitOptions): Unit[] {
-    if (!foldRuns) {
-        return byStart(siblings).map((node) => ({ node }))
-    }
+function siblingUnits(siblings: SpanNode[], { openRunIds, pinnedPath }: SiblingUnitOptions): Unit[] {
     return operationGroups(byStart(siblings)).flatMap((group): Unit[] => {
         if (group.length < TRACE_DIALOG_MIN_RUN) {
             return group.map((node) => ({ node }))
@@ -157,13 +151,13 @@ function siblingUnits(siblings: SpanNode[], { foldRuns, openRunIds, pinnedPath }
  */
 export function buildTraceDialogRows(
     roots: SpanNode[],
-    { collapsedSpanIds, fullChildListSpanIds, openChainIds, foldRuns, openRunIds, pinned }: TraceDialogRowOptions
+    { collapsedSpanIds, fullChildListSpanIds, openChainIds, openRunIds, pinned }: TraceDialogRowOptions
 ): TraceDialogRow[] {
     const pinnedPath = new Set<SpanNode>()
     for (let node = pinned; node; node = node.parent) {
         pinnedPath.add(node)
     }
-    const unitOptions: SiblingUnitOptions = { foldRuns, openRunIds, pinnedPath }
+    const unitOptions: SiblingUnitOptions = { openRunIds, pinnedPath }
 
     type Pending = {
         node: SpanNode
@@ -411,7 +405,7 @@ export function revealSpanInRows(
 ): TraceDialogReveal {
     const path = pathFromRoot(target)
     const pinnedPath = new Set(options.pinned ? pathFromRoot(options.pinned) : [])
-    const unitOptions: SiblingUnitOptions = { foldRuns: options.foldRuns, openRunIds: options.openRunIds, pinnedPath }
+    const unitOptions: SiblingUnitOptions = { openRunIds: options.openRunIds, pinnedPath }
     const isUnitOnPinnedPath = (unit: Unit): boolean => unitOnPinnedPath(unit, pinnedPath)
     const collapsedSpanIds = path
         .filter((node) => node !== target && options.collapsedSpanIds.has(node.span.span_id))
