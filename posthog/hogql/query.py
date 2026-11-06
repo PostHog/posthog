@@ -684,6 +684,8 @@ class HogQLQueryExecutor:
             self.clickhouse_settings is not None
             and self.clickhouse_settings.move_primary_key_columns_to_end_of_prewhere is False
         ):
+            # Temporary rollout marker, not a real modifier. Remove it with the `hogql-team-first-prewhere` flag.
+            # It goes here because `query_log_archive` keeps `modifiers` and drops unknown top-level tags.
             tag["teamFirstPrewhere"] = True
         return tag
 
