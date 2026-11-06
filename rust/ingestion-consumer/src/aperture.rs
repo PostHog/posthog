@@ -338,11 +338,38 @@ mod tests {
     }
 
     #[test]
-    fn test_an_unhealthy_worker_leaves_the_slice_and_the_arc_stays() {
+    fn test_with_exactly_half_the_arc_healthy_the_unhealthy_worker_leaves_the_slice() {
         let ring = ring(6);
         let healthy: Vec<WorkerId> = ring.iter().filter(|w| **w != ring[1]).cloned().collect();
         let slice = ring_slice(&ring, &healthy, Some(0), 3, 2).unwrap();
         assert_eq!(weights(&slice), vec![(ring[0].clone(), 3)]);
+    }
+
+    #[test]
+    fn test_with_less_than_half_the_arc_healthy_the_peer_takes_its_arc_of_the_healthy_ring() {
+        let ring = ring(7);
+        let arc = ring_slice(&ring, &ring, Some(1), 3, 1).unwrap();
+        assert_eq!(
+            weights(&arc),
+            vec![
+                (ring[2].clone(), 2),
+                (ring[3].clone(), 3),
+                (ring[4].clone(), 2)
+            ]
+        );
+        let healthy: Vec<WorkerId> = ring
+            .iter()
+            .filter(|w| **w != ring[2] && **w != ring[4])
+            .cloned()
+            .collect();
+
+        let slice = ring_slice(&ring, &healthy, Some(1), 3, 1).unwrap();
+
+        assert_eq!(
+            slice,
+            ring_slice(&healthy, &healthy, Some(1), 3, 1).unwrap()
+        );
+        assert_ne!(weights(&slice), vec![(ring[3].clone(), 3)]);
     }
 
     #[test]
