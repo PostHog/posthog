@@ -490,6 +490,20 @@ async def prepare_evaluation_backfill_tick_activity(inputs: EvaluationBackfillIn
 
 def _find_backfill_candidates(inputs: FindCandidatesInputs) -> FindCandidatesOutput:
     row = EvaluationBackfill.objects.for_team(inputs.team_id).select_related("evaluation").get(pk=inputs.backfill_id)
+    limit = inputs.limit
+    if row.max_units is not None:
+        # Units keep landing in the window after the run starts, so only the dispatch count can hold the cap.
+        # Every earlier page has advanced by now, which makes the count current.
+        limit = min(limit, row.max_units - row.dispatched_count)
+        if limit <= 0:
+            return FindCandidatesOutput(
+                candidates=[],
+                next_cursor_timestamp=None,
+                next_cursor_unit_id="",
+                exhausted=True,
+                started_from_cursor_timestamp=row.cursor_timestamp.isoformat() if row.cursor_timestamp else None,
+                started_from_cursor_unit_id=row.cursor_unit_id,
+            )
     team = Team.objects.get(pk=inputs.team_id)
     page = fetch_backfill_candidates(
         team=team,
@@ -502,7 +516,7 @@ def _find_backfill_candidates(inputs: FindCandidatesInputs) -> FindCandidatesOut
         rerun_existing=row.rerun_existing,
         cursor_timestamp=row.cursor_timestamp,
         cursor_unit_id=row.cursor_unit_id,
-        limit=inputs.limit,
+        limit=limit,
     )
     output = FindCandidatesOutput(
         candidates=[
@@ -530,7 +544,7 @@ def _find_backfill_candidates(inputs: FindCandidatesInputs) -> FindCandidatesOut
         backfill_id=inputs.backfill_id,
         team_id=inputs.team_id,
         candidates=len(page.candidates),
-        limit=inputs.limit,
+        limit=limit,
         exhausted=page.exhausted,
     )
     return output

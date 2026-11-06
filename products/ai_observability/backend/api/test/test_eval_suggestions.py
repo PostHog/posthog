@@ -1,0 +1,331 @@
+from datetime import timedelta
+from typing import Any
+
+from posthog.test.base import APIBaseTest
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from django.utils import timezone
+
+from parameterized import parameterized
+from rest_framework import status
+
+from posthog.constants import AvailableFeature
+from posthog.models.organization import OrganizationMembership
+from posthog.models.team import Team
+from posthog.models.user import User
+
+from products.access_control.backend.models.access_control import AccessControl
+from products.ai_observability.backend.backfill_candidates import BackfillScope
+from products.ai_observability.backend.models.eval_suggestions import (
+    EvalSuggestion,
+    EvalSuggestionKind,
+    EvalSuggestionRun,
+    EvalSuggestionRunStatus,
+    EvalSuggestionStatus,
+)
+from products.ai_observability.backend.models.evaluation_backfill import EvaluationBackfill
+from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
+from products.ai_observability.backend.models.evaluations import Evaluation
+from products.ai_observability.backend.models.provider_keys import LLMProviderKey
+
+ACCEPT_MODULE = "products.ai_observability.backend.eval_suggestions.accept"
+API_MODULE = "products.ai_observability.backend.api.eval_suggestions"
+BACKFILLS_MODULE = "products.ai_observability.backend.api.evaluation_backfills"
+
+CHECK_DRAFT = {
+    "name": "Turns that end on a failed call",
+    "description": "Finds failed calls nobody retried",
+    "evaluation_type": "hog",
+    "evaluation_config": {"source": "return true"},
+    "output_type": "boolean",
+    "output_config": {"allows_na": True},
+    "target": "trace",
+}
+JUDGE_DRAFT = {
+    "name": "Security findings marked P0 or P1",
+    "description": "Checks severe findings",
+    "evaluation_type": "llm_judge",
+    "evaluation_config": {"prompt": "Return true when every P0 finding deserves it."},
+    "output_type": "boolean",
+    "output_config": {},
+    "target": "trace",
+}
+
+
+def _temporal_client() -> MagicMock:
+    client = MagicMock()
+    client.start_workflow = AsyncMock()
+    return client
+
+
+def _conditions(product: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": "scouts",
+            "rollout_percentage": 100,
+            "properties": [{"key": "ai_product", "value": [product], "operator": "exact", "type": "event"}],
+        }
+    ]
+
+
+def _evaluation(team: Team, **overrides: Any) -> Evaluation:
+    fields: dict[str, Any] = {
+        "name": "Scout findings cite their data",
+        "evaluation_type": "hog",
+        "evaluation_config": {"source": "return true"},
+        "output_type": "boolean",
+        "target": "trace",
+        "enabled": True,
+        "conditions": _conditions("signals"),
+        **overrides,
+    }
+    evaluation = Evaluation.objects.create(team=team, **fields)
+    # Last edited well before any suggestion run read it.
+    Evaluation.objects.filter(pk=evaluation.pk).update(updated_at=timezone.now() - timedelta(days=10))
+    evaluation.refresh_from_db()
+    return evaluation
+
+
+class TestEvalSuggestionsApi(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.suggestion_run = EvalSuggestionRun.objects.for_team(self.team.pk).create(
+            team=self.team, trigger="manual", status=EvalSuggestionRunStatus.COMPLETED, completed_at=timezone.now()
+        )
+        self.url = f"/api/projects/{self.team.id}/evaluation_suggestions"
+
+    def _suggestion(self, kind: str = EvalSuggestionKind.NEW_HOG, **fields: Any) -> EvalSuggestion:
+        defaults: dict[str, Any] = {
+            "template_key": "unrecovered_errors",
+            "dedupe_key": f"check:{kind}",
+            "headline": "1 in 125 traces ends on a failed call",
+            "reason": "A call failed and nothing retried it.",
+            "draft": CHECK_DRAFT,
+            "filters": [{"key": "ai_product", "value": ["chat"], "operator": "exact", "type": "event"}],
+            "rollout_percentage": 100,
+            "mean_input_tokens": 1000,
+        }
+        return EvalSuggestion.objects.for_team(self.team.pk).create(
+            team=self.team, run=self.suggestion_run, kind=kind, **{**defaults, **fields}
+        )
+
+    def _judge_key(self) -> None:
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Active key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test"},
+            created_by=self.user,
+        )
+        EvaluationConfig.objects.create(team=self.team, active_provider_key=key)
+
+    @parameterized.expand(
+        [
+            ("code_check", EvalSuggestionKind.NEW_HOG, CHECK_DRAFT, 500),
+            ("judge", EvalSuggestionKind.NEW_LLM_JUDGE, JUDGE_DRAFT, 50),
+        ]
+    )
+    @patch(f"{BACKFILLS_MODULE}.sync_connect")
+    @patch(f"{ACCEPT_MODULE}.count_backfill_candidates")
+    def test_accept_creates_the_evaluation_once_and_shrinks_the_backfill_to_the_cap(
+        self, _name: str, kind: str, draft: dict, cap: int, count: MagicMock, connect: MagicMock
+    ) -> None:
+        self._judge_key()
+        connect.return_value = _temporal_client()
+        # The 7-day window holds 10x the cap, so the backfill shrinks it once and recounts.
+        count.side_effect = [
+            BackfillScope(to_evaluate=cap * 10, already_judged=0),
+            BackfillScope(to_evaluate=cap - 3, already_judged=0),
+        ]
+        suggestion = self._suggestion(kind, draft=draft, rollout_percentage=40)
+
+        first = self.client.post(f"{self.url}/{suggestion.id}/accept/")
+        second = self.client.post(f"{self.url}/{suggestion.id}/accept/")
+
+        assert first.status_code == status.HTTP_200_OK, first.json()
+        assert second.json()["evaluation_id"] == first.json()["evaluation_id"]
+        assert second.json()["backfill_id"] == first.json()["backfill_id"]
+        assert first.json()["backfill_units"] == cap - 3
+        evaluation = Evaluation.objects.get(team=self.team)
+        assert evaluation.enabled and evaluation.name == draft["name"]
+        assert evaluation.conditions[0]["rollout_percentage"] == 40
+        assert evaluation.conditions[0]["properties"] == suggestion.filters
+
+        first_window, shrunk_window = (call.kwargs for call in count.call_args_list)
+        assert shrunk_window["window_end"] == first_window["window_end"]
+        assert shrunk_window["window_start"] > first_window["window_start"] + timedelta(days=5)
+        backfill = EvaluationBackfill.objects.for_team(self.team.pk).get(evaluation=evaluation)
+        assert backfill.window_start == shrunk_window["window_start"]
+        # Units that land in the window after the count must not take the walk past it.
+        assert backfill.max_units == cap - 3
+        assert connect.return_value.start_workflow.await_count == 1
+        suggestion.refresh_from_db()
+        assert suggestion.status == EvalSuggestionStatus.ACCEPTED and suggestion.created_evaluation == evaluation
+
+    @parameterized.expand(
+        [
+            (
+                "judge_without_a_working_key",
+                EvalSuggestionKind.NEW_LLM_JUDGE,
+                EvalSuggestionStatus.PROPOSED,
+                "provider API key",
+            ),
+            ("dismissed", EvalSuggestionKind.NEW_HOG, EvalSuggestionStatus.DISMISSED, "no longer open"),
+            (
+                "accepted_then_deleted",
+                EvalSuggestionKind.NEW_HOG,
+                EvalSuggestionStatus.ACCEPTED,
+                "no longer open",
+            ),
+        ]
+    )
+    def test_refused_accept_creates_nothing(self, _name: str, kind: str, suggestion_status: str, message: str) -> None:
+        accepted = suggestion_status == EvalSuggestionStatus.ACCEPTED
+        suggestion = self._suggestion(
+            kind,
+            draft=JUDGE_DRAFT if kind == EvalSuggestionKind.NEW_LLM_JUDGE else CHECK_DRAFT,
+            status=suggestion_status,
+            created_evaluation=_evaluation(self.team, deleted=True) if accepted else None,
+        )
+
+        response = self.client.post(f"{self.url}/{suggestion.id}/accept/")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert message in response.json()["detail"]
+        assert not Evaluation.objects.filter(team=self.team, deleted=False).exists()
+
+    @parameterized.expand(
+        [
+            ("applies_the_fix", EvalSuggestionStatus.PROPOSED, False, status.HTTP_200_OK, "signals_scout"),
+            (
+                "evaluation_edited_after_the_run",
+                EvalSuggestionStatus.PROPOSED,
+                True,
+                status.HTTP_409_CONFLICT,
+                "edited",
+            ),
+            ("dismissed", EvalSuggestionStatus.DISMISSED, False, status.HTTP_400_BAD_REQUEST, "signals"),
+            ("expired", EvalSuggestionStatus.EXPIRED, False, status.HTTP_400_BAD_REQUEST, "signals"),
+        ]
+    )
+    def test_apply_fix(
+        self, _name: str, suggestion_status: str, edited: bool, expected_status: int, expected_product: str
+    ) -> None:
+        target = _evaluation(self.team)
+        suggestion = self._suggestion(
+            EvalSuggestionKind.FIX_EVAL,
+            status=suggestion_status,
+            draft={"conditions": _conditions("signals_scout")},
+            target_evaluation=target,
+        )
+        if edited:
+            target.conditions = _conditions("edited")
+            target.save()
+
+        response = self.client.post(f"{self.url}/{suggestion.id}/apply_fix/")
+
+        assert response.status_code == expected_status, response.json()
+        target.refresh_from_db()
+        assert target.conditions[0]["properties"][0]["value"] == [expected_product]
+
+    @parameterized.expand(
+        [
+            ("open", EvalSuggestionStatus.PROPOSED, False, True),
+            ("applied", EvalSuggestionStatus.ACCEPTED, False, False),
+            ("evaluation_edited_after_the_run", EvalSuggestionStatus.PROPOSED, True, False),
+        ]
+    )
+    @patch(f"{API_MODULE}.is_enabled_for_organization", return_value=True)
+    def test_list_shows_only_fixes_that_still_apply(
+        self, _name: str, suggestion_status: str, edited: bool, listed: bool, _flag: MagicMock
+    ) -> None:
+        target = _evaluation(self.team)
+        fix = self._suggestion(
+            EvalSuggestionKind.FIX_EVAL,
+            status=suggestion_status,
+            draft={"conditions": _conditions("signals_scout")},
+            target_evaluation=target,
+        )
+        if edited:
+            target.save()
+
+        results = self.client.get(f"{self.url}/").json()["results"]
+
+        assert [row["id"] for row in results] == ([str(fix.id)] if listed else [])
+
+    @parameterized.expand([("with_reason", {"reason": "too_noisy"}, "too_noisy"), ("without_reason", {}, None)])
+    @patch(f"{API_MODULE}.is_enabled_for_organization", return_value=True)
+    def test_dismiss_hides_the_suggestion(self, _name: str, body: dict, reason: str | None, _flag: MagicMock) -> None:
+        suggestion = self._suggestion()
+        kept = self._suggestion(dedupe_key="check:other")
+
+        response = self.client.post(f"{self.url}/{suggestion.id}/dismiss/", body, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        suggestion.refresh_from_db()
+        assert suggestion.status == EvalSuggestionStatus.DISMISSED and suggestion.dismiss_reason == reason
+        listed = self.client.get(f"{self.url}/").json()
+        assert [row["id"] for row in listed["results"]] == [str(kept.id)]
+
+    def test_dismiss_rejects_an_unknown_reason(self) -> None:
+        response = self.client.post(f"{self.url}/{self._suggestion().id}/dismiss/", {"reason": "boring"}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestEvalSuggestionsAccessControl(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        self.member = User.objects.create_and_join(self.organization, "suggestions-member@posthog.com", "testtest")
+        self.suggestion_run = EvalSuggestionRun.objects.for_team(self.team.pk).create(
+            team=self.team, trigger="manual", status=EvalSuggestionRunStatus.COMPLETED, completed_at=timezone.now()
+        )
+
+    def _grant(self, access_level: str, evaluation: Evaluation | None = None) -> None:
+        AccessControl.objects.create(
+            team=self.team,
+            resource="evaluation",
+            resource_id=str(evaluation.id) if evaluation else None,
+            access_level=access_level,
+            organization_member=OrganizationMembership.objects.get(user=self.member, organization=self.organization),
+        )
+
+    @parameterized.expand(
+        [
+            ("accept_with_access_to_one_other_evaluation", "none", False, EvalSuggestionKind.NEW_HOG, "accept"),
+            ("fix_of_an_evaluation_the_member_cannot_edit", "editor", True, EvalSuggestionKind.FIX_EVAL, "apply_fix"),
+        ]
+    )
+    def test_member_without_edit_access_changes_nothing(
+        self, _name: str, resource_level: str, grant_on_target: bool, kind: str, action: str
+    ) -> None:
+        target = _evaluation(self.team)
+        other = _evaluation(self.team, name="Another evaluation")
+        self._grant(resource_level)
+        if grant_on_target:
+            self._grant("viewer", target)
+        else:
+            self._grant("editor", other)
+        suggestion = EvalSuggestion.objects.for_team(self.team.pk).create(
+            team=self.team,
+            run=self.suggestion_run,
+            kind=kind,
+            dedupe_key=f"{kind}:one",
+            headline="Suggestion",
+            reason="Reason",
+            draft={"conditions": _conditions("signals_scout")} if kind == EvalSuggestionKind.FIX_EVAL else CHECK_DRAFT,
+            target_evaluation=target if kind == EvalSuggestionKind.FIX_EVAL else None,
+        )
+        self.client.force_login(self.member)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/evaluation_suggestions/{suggestion.id}/{action}/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert Evaluation.objects.filter(team=self.team).count() == 2
+        target.refresh_from_db()
+        assert target.conditions[0]["properties"][0]["value"] == ["signals"]

@@ -19,7 +19,7 @@ from .coverage import ExistingEval
 from .measure import SampledTrace
 from .ranking import ScreeningResult
 
-AI_PRODUCT = "llma_eval_suggestions"
+AI_PRODUCT = "aio_eval_suggestions"
 # Calibrated on labelled traces: separation was best between 0.8 and 0.9, and 0.5 flagged far too much.
 FAILING_PROBABILITY = 0.9
 # A dedupe answer below this confidence keeps the candidate and labels it "similar to" the evaluation.

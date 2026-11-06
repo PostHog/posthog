@@ -2,6 +2,7 @@ import re
 import json
 import uuid
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -19,7 +20,7 @@ from posthog.hogql_queries.ai.utils import HEAVY_PROPERTY_NAMES
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.team import Team
 
-from products.ai_observability.backend.eval_suggestions import drafting
+from products.ai_observability.backend.eval_suggestions import drafting, pipeline
 from products.ai_observability.backend.eval_suggestions.config import SuggestionSettings
 from products.ai_observability.backend.eval_suggestions.coverage import Coverage, ExistingEval
 from products.ai_observability.backend.eval_suggestions.pipeline import (
@@ -72,7 +73,7 @@ def _chat_traffic(team: Team, end: datetime) -> None:
             call = {
                 "type": "function",
                 "id": f"call-{index}-{step}",
-                "function": {"name": "run_action", "arguments": json.dumps({"step": step})},
+                "function": {"name": "run_action", "arguments": json.dumps({"action": "list_notes"})},
             }
             assistant = {"role": "assistant", "content": "", "tool_calls": [call]}
             _event(
@@ -178,7 +179,7 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
         # The noise: links counted as sensitive data, and dispatcher calls counted as loops.
         measured = EvalSuggestionRun.objects.for_team(self.team.pk).get(id=run.id).stages["measure"]["checks"]
         assert measured["sensitive_data"]["failed"] == 0
-        assert measured.get("repeated_tool_calls", {}).get("failed", 0) == 0
+        assert measured["repeated_tool_calls"]["failed"] == 0
 
 
 class TestRunRetries(ClickhouseTestMixin, APIBaseTest):
@@ -208,6 +209,30 @@ class TestRunRetries(ClickhouseTestMixin, APIBaseTest):
         assert list(
             EvalSuggestion.objects.for_team(self.team.pk).filter(run=run).values_list("dedupe_key", "status")
         ) == [(f"fix:{dead_judge.id}:no_runs", "proposed")]
+
+    @parameterized.expand([("next_run_succeeds", False), ("next_run_fails", True)])
+    def test_only_a_completed_run_replaces_the_previous_cards(self, _name: str, next_run_fails: bool) -> None:
+        _dead_judge(self.team)
+        first = create_run(self.team, "scheduled")
+        execute_run(str(first.id), include_paid=False, settings=SuggestionSettings())
+        second = create_run(self.team, "scheduled")
+
+        if next_run_fails:
+            with patch(
+                "products.ai_observability.backend.eval_suggestions.pipeline.fetch_profile",
+                side_effect=RuntimeError("ClickHouse timed out"),
+            ):
+                with pytest.raises(RuntimeError):
+                    execute_run(str(second.id), include_paid=False, settings=SuggestionSettings())
+        else:
+            execute_run(str(second.id), include_paid=False, settings=SuggestionSettings())
+
+        statuses = dict(EvalSuggestion.objects.for_team(self.team.pk).values_list("run_id", "status"))
+        second.refresh_from_db()
+        assert second.status == (
+            EvalSuggestionRunStatus.FAILED if next_run_fails else EvalSuggestionRunStatus.COMPLETED
+        )
+        assert statuses[first.id] == ("proposed" if next_run_fails else "expired")
 
 
 def _completion(content: str) -> MagicMock:
@@ -345,3 +370,27 @@ def test_dedupe_drops_a_candidate_only_where_an_evaluation_already_runs(
     assert [(p.dedupe_key, p.similar_evaluation_id) for p in result] == (
         [(candidate.dedupe_key, existing.id)] if kept else []
     )
+
+
+@parameterized.expand([("judge_draft", "llm_judge"), ("hog_draft", "hog")])
+def test_a_draft_replaces_the_templated_card_for_its_gap(_name: str, evaluation_type: str) -> None:
+    templated = _candidate("gap:review_lens=security:findings[].priority", [SECURITY_LENS], GAP_PROMPT)
+    draft = drafting.Draft(evaluation_type=evaluation_type, name="Drafted", description="d", body="return true")
+    hog_card = replace(_candidate("check:drafted_review_lens", []), kind="new_hog")
+    with (
+        patch.object(pipeline.drafting, "gap_brief", return_value="brief"),
+        patch.object(pipeline, "paid_draft", return_value=drafting.DraftCall(draft=draft, cost_usd=0.01)),
+        patch.object(pipeline, "measure", return_value=[MagicMock()]),
+        patch.object(pipeline.ranking, "code_check_proposal", return_value=hog_card),
+    ):
+        result = pipeline._drafted_proposals(
+            MagicMock(),
+            MagicMock(),
+            [(MagicMock(), templated)],
+            MagicMock(),
+            MagicMock(),
+            SuggestionSettings(),
+            pipeline._Stages(),
+        )
+
+    assert [p.dedupe_key for p in result] == [templated.dedupe_key]

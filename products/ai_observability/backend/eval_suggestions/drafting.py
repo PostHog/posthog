@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import Product, build_openai_client, team_distinct_id
-from posthog.llm.openai_flex import is_flex_recoverable
+from posthog.llm.openai_flex import FLEX_CAPABLE_MODELS, is_flex_recoverable
 
 from .profile import StructuredGap, TeamProfile
 from .screening import AI_PRODUCT
@@ -142,15 +142,17 @@ def draft_check(team_id: int, brief: str) -> DraftCall:
     client = build_openai_client(
         GATEWAY_ROUTE, ai_product=AI_PRODUCT, properties={"team_id": str(team_id)}, distinct_id=distinct_id
     )
-    try:
-        # The flex attempt gets no SDK retries: its failure modes fall back to the standard tier at once.
-        response = _complete(client.with_options(max_retries=0), brief, "flex", FLEX_TIMEOUT_SECONDS, distinct_id)
-    except APIError as error:
-        if not is_flex_recoverable(error):
-            raise
-        response = _complete(
-            client.with_options(max_retries=STANDARD_MAX_RETRIES), brief, omit, STANDARD_TIMEOUT_SECONDS, distinct_id
-        )
+    standard = client.with_options(max_retries=STANDARD_MAX_RETRIES)
+    if DRAFT_MODEL not in FLEX_CAPABLE_MODELS:
+        response = _complete(standard, brief, omit, STANDARD_TIMEOUT_SECONDS, distinct_id)
+    else:
+        try:
+            # The flex attempt gets no SDK retries: its failure modes fall back to the standard tier at once.
+            response = _complete(client.with_options(max_retries=0), brief, "flex", FLEX_TIMEOUT_SECONDS, distinct_id)
+        except APIError as error:
+            if not is_flex_recoverable(error):
+                raise
+            response = _complete(standard, brief, omit, STANDARD_TIMEOUT_SECONDS, distinct_id)
     logger.info("eval_suggestions_draft_served", team_id=team_id, service_tier=response.service_tier)
     usage = response.usage
     cost = (

@@ -45,12 +45,16 @@ def parse_settings(payload: Any) -> SuggestionSettings:
         value = data.get(name)
         return value if isinstance(value, int | float) and not isinstance(value, bool) and value > 0 else default
 
+    def count(name: str, default: int) -> int:
+        value = data.get(name)
+        return value if isinstance(value, int) and not isinstance(value, bool) and value >= 1 else default
+
     return SuggestionSettings(
         jeeves=flag("jeeves", defaults.jeeves),
         llm_drafting=flag("llm_drafting", defaults.llm_drafting),
         llm_budget_usd_per_run=float(positive("llm_budget_usd_per_run", defaults.llm_budget_usd_per_run)),
-        max_teams_per_run=int(positive("max_teams_per_run", defaults.max_teams_per_run)),
-        max_concurrent_teams=int(positive("max_concurrent_teams", defaults.max_concurrent_teams)),
+        max_teams_per_run=count("max_teams_per_run", defaults.max_teams_per_run),
+        max_concurrent_teams=count("max_concurrent_teams", defaults.max_concurrent_teams),
     )
 
 
