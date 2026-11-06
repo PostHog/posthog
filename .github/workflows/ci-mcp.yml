@@ -731,7 +731,8 @@ jobs:
                   import django, os
                   os.environ['DJANGO_SETTINGS_MODULE'] = 'posthog.settings'
                   django.setup()
-                  from posthog.models import Organization, Team, User, EventDefinition, PropertyDefinition
+                  from posthog.models import Organization, Team, User
+                  from products.event_definitions.backend.models import EventDefinition, PropertyDefinition
                   from posthog.models.personal_api_key import PersonalAPIKey
                   from posthog.models.utils import hash_key_value
                   org = Organization.objects.first()
