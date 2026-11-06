@@ -13,7 +13,6 @@ from posthog.models.user import User
 
 from products.experiments.backend.facade.contracts import HealthExposureInputsStatus
 from products.experiments.backend.health.context import ExposureTotals
-from products.experiments.backend.health.launch_time import hours_since_launch
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import (
     ExperimentExposuresQueryRunner,
     build_experiment_exposure_query,
@@ -99,7 +98,7 @@ def load_exposure_inputs(
             daily_exposures={},
             # The checks read the hours at computation, not now.
             hours_since_launch=(
-                hours_since_launch(experiment, computed_at, can_read_flag_history=can_read_flag_history)
+                experiment.hours_since_launch(computed_at, read_activity_log=can_read_flag_history)
                 if computed_at
                 else None
             ),

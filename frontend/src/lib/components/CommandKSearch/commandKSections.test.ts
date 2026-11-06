@@ -440,7 +440,7 @@ describe('buildSections', () => {
                 },
             ],
             ['best-matches'],
-            'a',
+            'settings-item',
         ],
     ] as [string, string, string, SearchItem[], string[], string][])(
         'ranks an exact-match setting with the results when %s',
