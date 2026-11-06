@@ -37,8 +37,8 @@ deny:
                 - '(?:^|/)owners\.yaml$'
                 - '(?:^|/)product\.yaml$'
                 # The analyzer and workflow that publish the Migration risk check.
-                - '(?:^|/)migration_analysis/'
-                - 'analyze_migration_risk\.py'
+                - &migration_analyzer '(?:^|/)migration_analysis/'
+                - &migration_risk_script 'analyze_migration_risk\.py'
                 - '\.depot/workflows/ci-backend\.yml'
     devex_guardrails:
         description: 'The guards that keep the house patterns for API codegen, egress, ingress, product isolation, migrations, URLs and startup imports.'
@@ -106,9 +106,9 @@ deny_exceptions:
         - path_prefixes:
               - 'products/cdp/backend/api/test/'
               - 'products/messaging/backend/api/test/'
-# The migration analyzer publishes this check for every PR from a branch in this repository. It lists
-# the Django migrations it classified Safe, and their max_migration.txt. A fork PR gets no check,
-# so its migration stays at WAIT until the next push.
+# The migration analyzer publishes this check for PRs from branches in this repository. It lists
+# the Django migrations it classified Safe, and their max_migration.txt. A PR that gets no check,
+# such as a fork PR or one whose CI job was cancelled, stays at WAIT.
 attestations:
     - name: 'Migration risk'
       check: 'Migration risk'
@@ -123,8 +123,8 @@ attestations:
       # Every workflow, local action and CI script here can mint the tests-posthog token, so an
       # edit to any of them could forge the check.
       publisher_paths:
-          - '(?:^|/)migration_analysis/'
-          - 'analyze_migration_risk\.py'
+          - *migration_analyzer
+          - *migration_risk_script
           - '^\.(github|depot)/'
 allow:
     extend_path_patterns:
