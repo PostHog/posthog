@@ -218,6 +218,7 @@ The script runs the main checkout's hogli, so pull the main checkout after a cha
 - Superset, Orca and worktrunk run `bin/devbox-worktree-hook removing` before they delete a worktree. It runs `hogli devbox:worktree:teardown --background`, which stops the mirror while the files still exist and then stops the box in the background (log: `~/.config/posthog/hogli-devbox-teardown.log`). The box's record is then dropped, so the box no longer belongs to any worktree.
 - Emdash and Conductor run `bin/devbox-worktree-hook archiving` instead, because they keep an archived worktree on disk. It adds `--keep-record`, so when the app restores the worktree, its create hook starts the same box again.
 - herdr reports a removal only after the folder is gone, so its plugin runs `devbox:worktree:prune --path <worktree>`. t3code has no removal hook, so run `hogli devbox:worktree:prune` by hand.
+- herdr has two ways to use devboxes. With `--auto herdr`, agents run on the laptop and each herdr worktree gets its own box. With `hogli devbox:open --herdr`, the box is a herdr machine, and agents and worktrees run on it with no mirror. `devbox:open --herdr <label>` on a worktree's box gives terminals for the stack and tests. Edit files in the local worktree, because files edited on a mirrored box conflict with the mirror. Deleting a box also removes its herdr machine.
 - A t3code worktree restored from a cleaned-up thread skips setup scripts, so it gets a box only when `other` is enabled.
 
 ## Other tasks

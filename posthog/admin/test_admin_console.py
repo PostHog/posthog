@@ -18,10 +18,11 @@ from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Operation, O
 from posthog.admin.console.registry import ConsoleRegistry, console
 from posthog.admin.console.tools import Cell, ConsoleTool, Page, Row, Table
 from posthog.csp_middleware import CSPMiddleware
-from posthog.llm.gateway_internal_client import AIGatewayInternalError, CreditResult
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig
+from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.ai_gateway.backend.facade.contracts import TeamCreditAdded, TeamCreditRefused
 from products.workflows.backend.facade.api import get_email_sending_state
 
 TEMPLATE_DIR = Path(settings.BASE_DIR) / "posthog" / "templates" / "admin_console"
@@ -250,6 +251,18 @@ class TestAdminConsoleViews(BaseTest):
         assert response.status_code == 302
         assert response["Location"] == f"/admin/console/teams/{self.team.pk}/"
 
+    @parameterized.expand(
+        [
+            ("form_page_keeps_its_parameters", "set-api-token/?from=ticket", "api-token/set/?from=ticket"),
+            ("button_action_lands_on_its_panel", "rebuild-cache/", "#panel-remote-config"),
+        ]
+    )
+    def test_an_old_django_admin_action_url_lands_on_the_console(self, _name: str, old: str, new: str) -> None:
+        response = self.client.get(f"/admin/posthog/team/{self.team.pk}/{old}")
+
+        assert response.status_code == 302
+        assert response["Location"] == f"/admin/console/teams/{self.team.pk}/{new}"
+
     def test_django_admin_team_page_points_moved_actions_to_the_console(self) -> None:
         response = self.client.get(f"/admin/posthog/team/{self.team.pk}/change/")
 
@@ -298,10 +311,35 @@ class TestAdminConsoleViews(BaseTest):
         state = get_email_sending_state(self.team.pk)
         assert (state is not None and state.suspended_at is not None) == expect_suspended
 
-    @patch("posthog.admin.admins.team_admin.add_credit")
+    @parameterized.expand(
+        [
+            ("new_token", "phc_console_new", 302, "phc_console_new"),
+            ("blank_token", "   ", 400, "phc_console_old"),
+            ("identical_token", "phc_console_old", 400, "phc_console_old"),
+            ("token_of_another_team", "phc_taken", 400, "phc_console_old"),
+        ]
+    )
+    @patch("posthog.tasks.integrations.push_vercel_secrets.delay")
+    @patch("posthog.models.team.team.set_team_in_cache")
+    def test_set_api_token_changes_the_token_or_shows_the_form_again(
+        self, _name: str, new_token: str, expected_status: int, expected_token: str, *_mocks: MagicMock
+    ) -> None:
+        self.team.api_token = "phc_console_old"
+        self.team.save()
+        Team.objects.create(organization=self.organization, api_token="phc_taken")
+
+        response = self.client.post(
+            f"/admin/console/teams/{self.team.pk}/api-token/set/", {"new_token": new_token, "reason": "Leaked key"}
+        )
+
+        assert response.status_code == expected_status
+        self.team.refresh_from_db()
+        assert self.team.api_token == expected_token
+
+    @patch("products.ai_gateway.backend.facade.api.add_team_credit")
     def test_a_double_submitted_credit_form_reuses_its_idempotency_key(self, add_credit: MagicMock) -> None:
-        add_credit.return_value = CreditResult(
-            team_id=self.team.pk, entry_id="entry-1", amount_usd="25", balance_usd="25", duplicate=False
+        add_credit.return_value = TeamCreditAdded(
+            entry_id="entry-1", amount_usd="25", balance_usd="25", duplicate=False
         )
         form = self.client.get(f"/admin/console/teams/{self.team.pk}/ai-gateway/add-credit/").content.decode()
         nonce = re.search(r'name="form_nonce" value="([^"]+)"', form)
@@ -313,11 +351,14 @@ class TestAdminConsoleViews(BaseTest):
                 {"amount_usd": "25", "reason": "Outage goodwill", "form_nonce": nonce.group(1)},
             )
 
-        keys = {call.args[3] for call in add_credit.call_args_list}
+        nonces = {call.kwargs["form_nonce"] for call in add_credit.call_args_list}
         assert add_credit.call_count == 2
-        assert len(keys) == 1
+        assert nonces == {nonce.group(1)}
 
-    @patch("posthog.admin.admins.team_admin.add_credit", side_effect=AIGatewayInternalError("gateway down"))
+    @patch(
+        "products.ai_gateway.backend.facade.api.add_team_credit",
+        side_effect=TeamCreditRefused("Failed to add credit: gateway down"),
+    )
     def test_a_failed_operation_shows_the_form_again_with_what_staff_typed(self, _add_credit: MagicMock) -> None:
         response = self.client.post(
             f"/admin/console/teams/{self.team.pk}/ai-gateway/add-credit/",
