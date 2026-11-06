@@ -86,6 +86,12 @@ export function decodeJobState(row: Pick<CyclotronV2DequeuedJob, 'id' | 'state'>
     }
 }
 
+// Throws on a blob it cannot parse, because writing back a fallback would lose the job's state.
+export function withScheduledAt(state: Buffer | null, scheduledAt: string): Buffer {
+    const blob: SerializedJobState = state ? parseJSON(state.toString('utf-8')) : { state: null }
+    return Buffer.from(JSON.stringify({ ...blob, state: { ...blob.state, scheduledAt } }))
+}
+
 export type JobRow = Pick<
     CyclotronV2DequeuedJob,
     | 'id'

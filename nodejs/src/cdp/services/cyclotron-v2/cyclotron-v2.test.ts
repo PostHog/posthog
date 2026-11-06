@@ -3,6 +3,7 @@ import { register } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
 import { parseJSON } from '~/common/utils/json-parse'
+import { waitForExpect } from '~/tests/helpers/expectations'
 
 import {
     HOGFLOW_BATCH_RESOLVE_QUEUE,
@@ -110,6 +111,7 @@ interface RawJobRow {
     person_id: string | null
     action_id: string | null
     cancel_requested_at: string | Date | null
+    dequeue_seq: string | null
 }
 
 async function queryJob(id: string): Promise<RawJobRow> {
@@ -677,34 +679,78 @@ describe('Cyclotron V2', () => {
                 ).rejects.toBeInstanceOf(CyclotronJobConflictError)
             })
 
-            it('createJob with overwriteExisting=true resets an existing terminal row to available', async () => {
-                const id = uuidv7()
-                // First insert + drive to terminal state via the worker.
-                await manager.createJob({ id, teamId: 1, queueName: QUEUE, state: Buffer.from('v1') })
-                const worker = createWorker()
-                const jobs = await dequeueOneBatch(worker)
-                await jobs[0].ack()
-                expect((await queryJob(id)).status).toBe('completed')
+            it.each([
+                ['ack', 'completed'],
+                ['cancel', 'canceled'],
+            ] as const)(
+                'createJob with overwriteExisting=true resets an existing terminal row to available (%s)',
+                async (release, terminalStatus) => {
+                    const id = uuidv7()
+                    // First insert + drive to terminal state via the worker.
+                    await manager.createJob({ id, teamId: 1, queueName: QUEUE, state: Buffer.from('v1') })
+                    const worker = createWorker()
+                    const jobs = await dequeueOneBatch(worker)
+                    await jobs[0][release]()
+                    expect((await queryJob(id)).status).toBe(terminalStatus)
 
-                // Re-create with the same id and overwriteExisting=true — this
-                // is the rerun path. The row should flip back to 'available'
-                // with the new state.
-                await manager.createJob({
-                    id,
-                    teamId: 1,
-                    queueName: QUEUE,
-                    state: Buffer.from('v2'),
-                    overwriteExisting: true,
-                })
-                const row = await queryJob(id)
-                expect(row.status).toBe('available')
-                expect(row.state).toEqual(Buffer.from('v2'))
-                expect(row.lock_id).toBeNull()
-                expect(row.last_heartbeat).toBeNull()
-                // transition_count bumps so the janitor's poison-pill guard
-                // still has signal across reruns.
-                expect(row.transition_count).toBeGreaterThan(0)
-            })
+                    // Re-create with the same id and overwriteExisting=true — this
+                    // is the rerun path. The row should flip back to 'available'
+                    // with the new state.
+                    await manager.createJob({
+                        id,
+                        teamId: 1,
+                        queueName: QUEUE,
+                        state: Buffer.from('v2'),
+                        overwriteExisting: true,
+                    })
+                    const row = await queryJob(id)
+                    expect(row.status).toBe('available')
+                    expect(row.state).toEqual(Buffer.from('v2'))
+                    expect(row.lock_id).toBeNull()
+                    expect(row.last_heartbeat).toBeNull()
+                    // transition_count bumps so the janitor's poison-pill guard
+                    // still has signal across reruns.
+                    expect(row.transition_count).toBeGreaterThan(0)
+                }
+            )
+
+            it.each([
+                [
+                    'createJob',
+                    (id: string) =>
+                        manager.createJob({
+                            id,
+                            teamId: 1,
+                            queueName: 'email',
+                            state: Buffer.from('rerun'),
+                            overwriteExisting: true,
+                        }),
+                ],
+                [
+                    'bulkCreateJobs',
+                    (id: string) =>
+                        manager.bulkCreateJobs([
+                            { id, teamId: 1, queueName: 'email', state: Buffer.from('rerun'), overwriteExisting: true },
+                        ]),
+                ],
+            ])(
+                '%s with overwriteExisting refuses to bring back a job canceled before any claim',
+                async (_method, rerun) => {
+                    const [id] = await manager.bulkCreateJobs([
+                        {
+                            teamId: 1,
+                            queueName: 'email',
+                            scheduled: new Date(Date.now() + 3600_000),
+                            state: Buffer.from('v1'),
+                        },
+                    ])
+                    await manager.cancelUnclaimed(1, id)
+
+                    await expect(rerun(id)).rejects.toThrow(/canceled before it ran/)
+
+                    expect(await queryJob(id)).toMatchObject({ status: 'canceled', state: Buffer.from('v1') })
+                }
+            )
 
             it('createJob with overwriteExisting=true reruns a row whose transition_count is at the smallint ceiling', async () => {
                 const id = uuidv7()
@@ -1111,7 +1157,11 @@ describe('Cyclotron V2', () => {
                 const functionId = uuidv7()
                 const id = await seedParked(functionId)
                 await manager.cancelJobs({ teamId: 1, functionId, jobIds: [id] })
-                await assertPool.query(`UPDATE cyclotron_jobs SET status = 'canceled' WHERE id = $1`, [id])
+                // A worker cancels only a job it claimed, and the claim counted a transition.
+                await assertPool.query(
+                    `UPDATE cyclotron_jobs SET status = 'canceled', transition_count = transition_count + 1 WHERE id = $1`,
+                    [id]
+                )
 
                 await manager.createJob({ id, teamId: 1, queueName: QUEUE, functionId, overwriteExisting: true })
 
@@ -1133,6 +1183,131 @@ describe('Cyclotron V2', () => {
             it('empty jobIds is a no-op', async () => {
                 const result = await manager.cancelJobs({ teamId: 1, functionId: uuidv7(), jobIds: [] })
                 expect(result).toEqual({ marked: 0, remaining: 0, done: true })
+            })
+        })
+
+        describe('cancelUnclaimed and rescheduleUnclaimed', () => {
+            const IN_A_WEEK = (): Date => new Date(Date.now() + 7 * 24 * 3600 * 1000)
+            const IN_TWO_DAYS = new Date(Date.now() + 2 * 24 * 3600 * 1000)
+            const storedState = { state: { scheduledAt: 'original', html: 'a\u0000b' }, queueParameters: { x: 1 } }
+
+            async function seedScheduledEmail(teamId = 1): Promise<string> {
+                const [id] = await manager.bulkCreateJobs([
+                    {
+                        teamId,
+                        queueName: 'email',
+                        functionId: uuidv7(),
+                        scheduled: IN_A_WEEK(),
+                        state: Buffer.from(JSON.stringify(storedState)),
+                    },
+                ])
+                return id
+            }
+
+            // What a worker's dequeue writes when it claims the row.
+            const claimSql = `UPDATE cyclotron_jobs
+                SET status = 'running', lock_id = gen_random_uuid(), transition_count = transition_count + 1
+                WHERE id = $1`
+
+            const operations = [
+                ['cancelUnclaimed', (teamId: number, id: string) => manager.cancelUnclaimed(teamId, id)],
+                [
+                    'rescheduleUnclaimed',
+                    (teamId: number, id: string) => manager.rescheduleUnclaimed(teamId, id, IN_TWO_DAYS),
+                ],
+            ] as const
+
+            it('cancels an unclaimed email job so no worker claims it, once', async () => {
+                const id = await seedScheduledEmail()
+
+                const first = await manager.cancelUnclaimed(1, id)
+                const repeat = await manager.cancelUnclaimed(1, id)
+
+                expect(first).toMatchObject({
+                    outcome: 'canceled',
+                    job: { id, teamId: 1, queueName: 'email', state: Buffer.from(JSON.stringify(storedState)) },
+                })
+                expect(repeat).toEqual({ outcome: 'already_canceled' })
+                expect(await queryJob(id)).toMatchObject({ status: 'canceled', transition_count: 0, lock_id: null })
+            })
+
+            it('moves an unclaimed email job and its stored scheduledAt, keeping its place in the fair order', async () => {
+                const id = await seedScheduledEmail()
+                const before = await queryJob(id)
+
+                const result = await manager.rescheduleUnclaimed(1, id, IN_TWO_DAYS)
+
+                const row = await queryJob(id)
+                expect(result).toMatchObject({ outcome: 'rescheduled', job: { id, teamId: 1, state: row.state } })
+                expect(new Date(row.scheduled)).toEqual(IN_TWO_DAYS)
+                expect(parseJSON(row.state!.toString())).toEqual({
+                    ...storedState,
+                    state: { ...storedState.state, scheduledAt: IN_TWO_DAYS.toISOString() },
+                })
+                expect(row).toMatchObject({ status: 'available', transition_count: 0 })
+                expect(row.dequeue_seq).toEqual(before.dequeue_seq)
+            })
+
+            it.each(operations)(
+                '%s waits for a claim in progress and then reports the job claimed',
+                async (_op, run) => {
+                    const id = await seedScheduledEmail()
+                    const client = await assertPool.connect()
+                    try {
+                        await client.query('BEGIN')
+                        await client.query(claimSql, [id])
+
+                        const pending = run(1, id)
+                        await waitForExpect(async () => {
+                            const waiting = await assertPool.query(
+                                `SELECT 1 FROM pg_stat_activity
+                             WHERE datname = current_database() AND wait_event_type = 'Lock'`
+                            )
+                            expect(waiting.rows).toHaveLength(1)
+                        })
+                        await client.query('COMMIT')
+
+                        expect(await pending).toEqual({ outcome: 'claimed' })
+                    } finally {
+                        client.release()
+                    }
+                    expect(await queryJob(id)).toMatchObject({ status: 'running', transition_count: 1 })
+                }
+            )
+
+            it.each([
+                ['cancelUnclaimed', 'a claimed job', 'claimed', 'claim'],
+                ['cancelUnclaimed', "another team's job", 'not_found', 'other_team'],
+                ['cancelUnclaimed', 'an unknown id', 'not_found', 'unknown'],
+                ['cancelUnclaimed', 'a job on another queue', 'not_found', 'other_queue'],
+                ['rescheduleUnclaimed', 'a claimed job', 'claimed', 'claim'],
+                ['rescheduleUnclaimed', "another team's job", 'not_found', 'other_team'],
+                ['rescheduleUnclaimed', 'an unknown id', 'not_found', 'unknown'],
+                ['rescheduleUnclaimed', 'a job on another queue', 'not_found', 'other_queue'],
+                ['rescheduleUnclaimed', 'a job canceled before its claim', 'canceled', 'cancel_unclaimed'],
+                ['rescheduleUnclaimed', 'a job flagged by a run cancel', 'canceled', 'cancel_flag'],
+            ] as const)('%s on %s answers %s and changes nothing', async (op, _desc, outcome, setup) => {
+                let id =
+                    setup === 'other_queue'
+                        ? await manager.createJob({ teamId: 1, queueName: QUEUE, scheduled: IN_A_WEEK() })
+                        : await seedScheduledEmail(setup === 'other_team' ? 2 : 1)
+                if (setup === 'claim') {
+                    await assertPool.query(claimSql, [id])
+                } else if (setup === 'cancel_unclaimed') {
+                    await manager.cancelUnclaimed(1, id)
+                } else if (setup === 'cancel_flag') {
+                    const { function_id } = await queryJob(id)
+                    await manager.cancelJobs({ teamId: 1, functionId: function_id!, jobIds: [id] })
+                }
+                const before = await queryJob(id)
+                if (setup === 'unknown') {
+                    id = uuidv7()
+                }
+
+                const result = await Object.fromEntries(operations)[op](1, id)
+
+                expect(result).toEqual({ outcome })
+                expect(await queryJob(before.id)).toEqual(before)
             })
         })
     })

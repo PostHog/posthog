@@ -5,6 +5,7 @@ import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 import { createHash } from 'crypto'
 import { Server } from 'http'
 import jwt from 'jsonwebtoken'
+import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import supertest from 'supertest'
 import express from 'ultimate-express'
@@ -38,6 +39,8 @@ import { insertHogFlow as _insertHogFlow, hideHogFlowsFromReplica } from './_tes
 import { CdpApi } from './cdp-api'
 import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
+import { encodeStateColumns } from './services/cyclotron-v2/job-codec'
+import { CyclotronV2JobProducer } from './services/cyclotron-v2/types'
 import { IdempotencyKeys, createIdempotencyValkeyPool } from './services/hogflows/idempotency-keys'
 import {
     transactionalEmailRequestsTotal,
@@ -46,7 +49,7 @@ import {
 import { decodeInvocationGlobals } from './services/monitoring/hog-invocation-results.service'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { compileHog } from './templates/compiler'
-import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
+import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionType } from './types'
 
 // Email MX validation runs on every email send, so without a mock the test-panel
 // email tests would do live DNS lookups for their fixture recipients (and
@@ -60,6 +63,19 @@ jest.mock('node:dns/promises', () => ({
         resolve6: jest.fn().mockResolvedValue([]),
     })),
 }))
+
+const fakeJobProducer = (overrides: Partial<CyclotronV2JobProducer> = {}): CyclotronV2JobProducer => ({
+    createJob: jest.fn(),
+    countInFlightJobs: jest.fn(),
+    rescheduleParkedJobs: jest.fn(),
+    cancelJobs: jest.fn(),
+    resumeParkedSteps: jest.fn(),
+    resumeParkedBatchResolver: jest.fn(),
+    cancelUnclaimed: jest.fn(),
+    rescheduleUnclaimed: jest.fn(),
+    disconnect: jest.fn().mockResolvedValue(undefined),
+    ...overrides,
+})
 
 describe('CDP API', () => {
     let hub: Hub
@@ -1306,15 +1322,10 @@ describe('CDP API', () => {
 
         it('queues batch job to the cyclotron resolver', async () => {
             const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
-            api['batchResolverProducer'] = {
+            api['batchResolverProducer'] = fakeJobProducer({
                 createJob: createJobMock,
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
-                rescheduleParkedJobs: jest.fn(),
-                cancelJobs: jest.fn(),
-                resumeParkedSteps: jest.fn(),
-                resumeParkedBatchResolver: jest.fn(),
-                disconnect: jest.fn().mockResolvedValue(undefined),
-            }
+            })
 
             try {
                 const res = await supertest(app)
@@ -1370,15 +1381,7 @@ describe('CDP API', () => {
             'parks a realtime cohort resolver only on a valid deadline: %s',
             async (_desc, cohort, status, parkedUntil) => {
                 const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
-                api['batchResolverProducer'] = {
-                    createJob: createJobMock,
-                    countInFlightJobs: jest.fn(),
-                    rescheduleParkedJobs: jest.fn(),
-                    cancelJobs: jest.fn(),
-                    resumeParkedSteps: jest.fn(),
-                    resumeParkedBatchResolver: jest.fn(),
-                    disconnect: jest.fn().mockResolvedValue(undefined),
-                }
+                api['batchResolverProducer'] = fakeJobProducer({ createJob: createJobMock })
 
                 try {
                     const res = await supertest(app)
@@ -1412,15 +1415,10 @@ describe('CDP API', () => {
             const snapshotProperties = [{ key: 'email', type: 'person', value: 'a', operator: 'icontains' }]
 
             const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
-            api['batchResolverProducer'] = {
+            api['batchResolverProducer'] = fakeJobProducer({
                 createJob: createJobMock,
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
-                rescheduleParkedJobs: jest.fn(),
-                cancelJobs: jest.fn(),
-                resumeParkedSteps: jest.fn(),
-                resumeParkedBatchResolver: jest.fn(),
-                disconnect: jest.fn().mockResolvedValue(undefined),
-            }
+            })
 
             try {
                 const res = await supertest(app)
@@ -1465,15 +1463,10 @@ describe('CDP API', () => {
             })
 
             const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
-            api['batchResolverProducer'] = {
+            api['batchResolverProducer'] = fakeJobProducer({
                 createJob: createJobMock,
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
-                rescheduleParkedJobs: jest.fn(),
-                cancelJobs: jest.fn(),
-                resumeParkedSteps: jest.fn(),
-                resumeParkedBatchResolver: jest.fn(),
-                disconnect: jest.fn().mockResolvedValue(undefined),
-            }
+            })
 
             try {
                 const res = await supertest(app)
@@ -1526,15 +1519,10 @@ describe('CDP API', () => {
             })
 
             const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
-            api['batchResolverProducer'] = {
+            api['batchResolverProducer'] = fakeJobProducer({
                 createJob: createJobMock,
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
-                rescheduleParkedJobs: jest.fn(),
-                cancelJobs: jest.fn(),
-                resumeParkedSteps: jest.fn(),
-                resumeParkedBatchResolver: jest.fn(),
-                disconnect: jest.fn().mockResolvedValue(undefined),
-            }
+            })
 
             try {
                 const res = await supertest(app)
@@ -1591,15 +1579,10 @@ describe('CDP API', () => {
             })
 
             const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
-            api['batchResolverProducer'] = {
+            api['batchResolverProducer'] = fakeJobProducer({
                 createJob: createJobMock,
                 countInFlightJobs: jest.fn().mockResolvedValue({ count: 0, byAction: {}, positionUnknown: 0 }),
-                rescheduleParkedJobs: jest.fn(),
-                cancelJobs: jest.fn(),
-                resumeParkedSteps: jest.fn(),
-                resumeParkedBatchResolver: jest.fn(),
-                disconnect: jest.fn().mockResolvedValue(undefined),
-            }
+            })
 
             try {
                 const res = await supertest(app)
@@ -1765,15 +1748,7 @@ describe('CDP API', () => {
             mockCountInFlightJobs = jest
                 .fn()
                 .mockResolvedValue({ count: 3, byAction: { delay_1: 2 }, positionUnknown: 1 })
-            api['batchResolverProducer'] = {
-                createJob: jest.fn(),
-                disconnect: jest.fn(),
-                countInFlightJobs: mockCountInFlightJobs,
-                rescheduleParkedJobs: jest.fn(),
-                cancelJobs: jest.fn(),
-                resumeParkedSteps: jest.fn(),
-                resumeParkedBatchResolver: jest.fn(),
-            }
+            api['batchResolverProducer'] = fakeJobProducer({ countInFlightJobs: mockCountInFlightJobs })
 
             countHogFlow = await insertHogFlow({
                 id: new UUIDT().toString(),
@@ -1860,15 +1835,7 @@ describe('CDP API', () => {
                 sweepFloor,
                 sweepUntil,
             })
-            api['batchResolverProducer'] = {
-                createJob: jest.fn(),
-                disconnect: jest.fn(),
-                countInFlightJobs: jest.fn(),
-                rescheduleParkedJobs: mockRescheduleParkedJobs,
-                cancelJobs: jest.fn(),
-                resumeParkedSteps: jest.fn(),
-                resumeParkedBatchResolver: jest.fn(),
-            }
+            api['batchResolverProducer'] = fakeJobProducer({ rescheduleParkedJobs: mockRescheduleParkedJobs })
 
             rescheduleHogFlow = await insertHogFlow({
                 id: new UUIDT().toString(),
@@ -2037,15 +2004,7 @@ describe('CDP API', () => {
 
         beforeEach(() => {
             mockResumeParkedSteps = jest.fn().mockResolvedValue(new Map([[jobId, 'delivered']]))
-            api['batchResolverProducer'] = {
-                createJob: jest.fn(),
-                disconnect: jest.fn(),
-                countInFlightJobs: jest.fn(),
-                rescheduleParkedJobs: jest.fn(),
-                cancelJobs: jest.fn(),
-                resumeParkedSteps: mockResumeParkedSteps,
-                resumeParkedBatchResolver: jest.fn(),
-            }
+            api['batchResolverProducer'] = fakeJobProducer({ resumeParkedSteps: mockResumeParkedSteps })
         })
 
         afterEach(() => {
@@ -3164,6 +3123,301 @@ describe('CDP API', () => {
             expect(res.status).toEqual(401)
             expect(mockQueueInvocations).not.toHaveBeenCalled()
         })
+
+        describe('cancel and reschedule of a scheduled send', () => {
+            let cancelUnclaimed: jest.Mock
+            let rescheduleUnclaimed: jest.Mock
+
+            const mintManageToken = (
+                teamId: number,
+                {
+                    secret = 'local-dev-workflows-transactional-email-jwt',
+                    audience = 'posthog:workflows:manage_transactional_email',
+                }: { secret?: string; audience?: string } = {}
+            ) => jwt.sign({ team_id: teamId }, secret, { audience, expiresIn: '2m' })
+            const manage = (
+                action: 'cancel' | 'reschedule',
+                messageId: string,
+                payload: Record<string, unknown> = {},
+                headers: Record<string, string> = { Authorization: `Bearer ${mintManageToken(team.id)}` }
+            ) =>
+                supertest(app)
+                    .post(`/api/projects/${team.id}/transactional_emails/${messageId}/${action}`)
+                    .set(headers)
+                    .send(payload)
+
+            const scheduleSend = async (): Promise<CyclotronJobInvocation> => {
+                const res = await send(
+                    hogFlow.id,
+                    { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` },
+                    { ...body, scheduled_at: inDays(2) }
+                )
+                expect(res.status).toEqual(202)
+                return mockQueueInvocations.mock.calls[0][0][0]
+            }
+
+            const unclaimedJob = (id: string, scheduled: DateTime, invocation?: CyclotronJobInvocation) => ({
+                id,
+                teamId: team.id,
+                functionId: hogFlow.id,
+                queueName: 'email',
+                priority: 0,
+                scheduled,
+                created: DateTime.now(),
+                parentRunId: null,
+                state: invocation ? encodeStateColumns(invocation).state : null,
+                cancelRequestedAt: null,
+            })
+
+            beforeEach(() => {
+                cancelUnclaimed = jest.fn()
+                rescheduleUnclaimed = jest.fn()
+                api['batchResolverProducer'] = fakeJobProducer({ cancelUnclaimed, rescheduleUnclaimed })
+            })
+
+            afterEach(() => {
+                api['batchResolverProducer'] = null
+            })
+
+            it.each([
+                ['loads', true],
+                ['fails to load', false],
+            ])(
+                'cancels a scheduled send before a worker claims it, and counts the run once, when its workflow %s',
+                async (_desc, flowLoads) => {
+                    const resultsOutputs = api['invocationResultsService'].invocationResultsRowsService['outputs']
+                    const produceResultRow = jest.spyOn(resultsOutputs, 'produce').mockResolvedValue(undefined)
+                    const resultsEnabled = hub.HOG_INVOCATION_RESULTS_ENABLED
+                    hub.HOG_INVOCATION_RESULTS_ENABLED = true
+                    const invocation = await scheduleSend()
+                    if (!flowLoads) {
+                        jest.spyOn(api['hogFlowManager'], 'getHogFlowCheckingPrimaryOnMiss').mockRejectedValue(
+                            new Error('database unavailable')
+                        )
+                    }
+                    const version = { id: hogFlow.id, version: flowLoads ? hogFlow.version : undefined }
+                    cancelUnclaimed
+                        .mockResolvedValueOnce({
+                            outcome: 'canceled',
+                            job: unclaimedJob(
+                                invocation.id,
+                                invocation.queueScheduledAt!.plus({ days: 1 }),
+                                invocation
+                            ),
+                        })
+                        .mockResolvedValueOnce({ outcome: 'already_canceled' })
+                    const queueAppMetric = jest.spyOn(
+                        api['invocationResultsService'].monitoringService,
+                        'queueAppMetric'
+                    )
+
+                    try {
+                        const first = await manage('cancel', invocation.id)
+                        const repeat = await manage('cancel', invocation.id)
+
+                        expect(first.status).toEqual(200)
+                        expect(first.body).toEqual({ id: invocation.id, status: 'canceled' })
+                        expect(repeat.status).toEqual(200)
+                        expect(repeat.body).toEqual(first.body)
+                        expect(cancelUnclaimed).toHaveBeenCalledWith(team.id, invocation.id)
+                        expect(
+                            queueAppMetric.mock.calls.map(([metric]) => [
+                                metric.metric_name,
+                                metric.app_source_id,
+                                metric.app_source_version,
+                            ])
+                        ).toEqual([
+                            ['canceled', hogFlow.id, version],
+                            ['triggered', hogFlow.id, version],
+                        ])
+                        const lifecycleRows = produceResultRow.mock.calls
+                            .filter(([output]) => output === 'hog_invocation_results')
+                            .map(([, message]) => parseJSON(message.value!.toString()))
+                        const scheduledAt = lifecycleRows[0].scheduled_at
+                        expect(lifecycleRows).toEqual(
+                            ['running', 'canceled'].map((status) =>
+                                expect.objectContaining({
+                                    invocation_id: invocation.id,
+                                    function_kind: 'hog_flow',
+                                    function_id: hogFlow.id,
+                                    status,
+                                    scheduled_at: scheduledAt,
+                                })
+                            )
+                        )
+                        expect(emailStatusRows()).toEqual([
+                            expect.objectContaining({ message_id: invocation.id, status: 'scheduled' }),
+                            expect.objectContaining({
+                                message_id: invocation.id,
+                                status: 'canceled',
+                                recipient: body.to,
+                                function_id: hogFlow.id,
+                            }),
+                        ])
+                    } finally {
+                        hub.HOG_INVOCATION_RESULTS_ENABLED = resultsEnabled
+                    }
+                }
+            )
+
+            it('deletes the stored files of a scheduled code send it cancels', async () => {
+                const filename = `report-${new UUIDT().toString()}.pdf`
+                const res = await sendAccepted(hogFlow.id, {
+                    ...body,
+                    scheduled_at: inDays(2),
+                    send: { ...codeSend, attachments: [attachment({ filename })] },
+                })
+                expect(res.status).toEqual(202)
+                const invocation: CyclotronJobInvocation = mockQueueInvocations.mock.calls[0][0][0]
+                expect(await storedAttachments(filename)).toHaveLength(1)
+                cancelUnclaimed.mockResolvedValue({
+                    outcome: 'canceled',
+                    job: unclaimedJob(invocation.id, invocation.queueScheduledAt!, invocation),
+                })
+
+                const canceled = await manage('cancel', invocation.id)
+
+                expect(canceled.status).toEqual(200)
+                expect(await storedAttachments(filename)).toEqual([])
+            })
+
+            it.each([
+                ['an unknown message', 'not_found', 404, { error: 'not_found' }],
+                ['a message a worker has claimed', 'claimed', 409, { error: 'already_sending' }],
+            ])('answers a cancel of %s without a status row', async (_desc, outcome, status, expected) => {
+                cancelUnclaimed.mockResolvedValue({ outcome })
+                const messageId = new UUIDT().toString()
+
+                const res = await manage('cancel', messageId)
+
+                expect(res.status).toEqual(status)
+                expect(res.body).toEqual(expected)
+                expect(cancelUnclaimed).toHaveBeenCalledWith(team.id, messageId)
+                expect(emailStatusRows()).toEqual([])
+            })
+
+            it('moves a scheduled send and records it scheduled again with its recipient and new time', async () => {
+                const invocation = await scheduleSend()
+                const scheduledAt = inDays(3)
+                rescheduleUnclaimed.mockResolvedValue({
+                    outcome: 'rescheduled',
+                    job: unclaimedJob(invocation.id, DateTime.fromISO(scheduledAt, { zone: 'utc' }), invocation),
+                })
+
+                const res = await manage('reschedule', invocation.id, { scheduled_at: scheduledAt })
+
+                expect(res.status).toEqual(200)
+                expect(res.body).toEqual({ id: invocation.id, status: 'scheduled', scheduled_at: scheduledAt })
+                expect(rescheduleUnclaimed).toHaveBeenCalledWith(team.id, invocation.id, new Date(scheduledAt))
+                expect(emailStatusRows().at(-1)).toEqual(
+                    expect.objectContaining({
+                        message_id: invocation.id,
+                        status: 'scheduled',
+                        recipient: body.to,
+                        function_id: hogFlow.id,
+                        scheduled_at: toClickHouseTime(new Date(scheduledAt)),
+                    })
+                )
+            })
+
+            it.each([
+                ['a time that has passed', 0, -60_000],
+                ['a time that has passed, for a message older than 30 days', 31 * DAY_MS, -60_000],
+            ])('moves a send to now for %s', async (_desc, messageAgeMs, offsetMs) => {
+                const messageId = new UUIDT(Date.now() - messageAgeMs).toString()
+                rescheduleUnclaimed.mockResolvedValue({
+                    outcome: 'rescheduled',
+                    job: unclaimedJob(messageId, DateTime.now()),
+                })
+                const before = Date.now()
+
+                const res = await manage('reschedule', messageId, {
+                    scheduled_at: new Date(before + offsetMs).toISOString(),
+                })
+
+                expect(res.status).toEqual(200)
+                const movedTo: Date = rescheduleUnclaimed.mock.calls[0][2]
+                expect(movedTo.getTime()).toBeGreaterThanOrEqual(before)
+                expect(movedTo.getTime()).toBeLessThanOrEqual(Date.now())
+                expect(res.body.scheduled_at).toEqual(movedTo.toISOString())
+            })
+
+            it.each([
+                [
+                    'a time more than 30 days after the message was created',
+                    () => ({ scheduled_at: inDays(30.01) }),
+                    400,
+                    { error: 'invalid_scheduled_at', reason: 'too_far' },
+                ],
+                ['a time that is not a time', () => ({ scheduled_at: 'tomorrow' }), 400, { error: 'invalid_request' }],
+                ['no time', () => ({}), 400, { error: 'invalid_request' }],
+            ])('refuses a reschedule to %s and changes nothing', async (_desc, payload, status, expected) => {
+                const res = await manage('reschedule', new UUIDT().toString(), payload())
+
+                expect(res.status).toEqual(status)
+                expect(res.body).toMatchObject(expected)
+                expect(rescheduleUnclaimed).not.toHaveBeenCalled()
+                expect(emailStatusRows()).toEqual([])
+            })
+
+            it.each([
+                ['an unknown message', 'not_found', 404, { error: 'not_found' }],
+                ['a message a worker has claimed', 'claimed', 409, { error: 'already_sending' }],
+                ['a canceled message', 'canceled', 409, { error: 'canceled' }],
+            ])('answers a reschedule of %s without a status row', async (_desc, outcome, status, expected) => {
+                rescheduleUnclaimed.mockResolvedValue({ outcome })
+
+                const res = await manage('reschedule', new UUIDT().toString(), { scheduled_at: inDays(2) })
+
+                expect(res.status).toEqual(status)
+                expect(res.body).toEqual(expected)
+                expect(emailStatusRows()).toEqual([])
+            })
+
+            describe.each(['cancel', 'reschedule'] as const)('on %s', (action) => {
+                it.each([
+                    ['no token', () => ({})],
+                    ["another team's token", () => ({ Authorization: `Bearer ${mintManageToken(team.id + 1)}` })],
+                    [
+                        'a token signed with another key',
+                        () => ({
+                            Authorization: `Bearer ${mintManageToken(team.id, { secret: 'not-the-signing-key' })}`,
+                        }),
+                    ],
+                    [
+                        'a send token',
+                        () => ({
+                            Authorization: `Bearer ${mintManageToken(team.id, {
+                                audience: 'posthog:workflows:send_transactional_email',
+                            })}`,
+                        }),
+                    ],
+                ])('rejects a request with %s', async (_desc, headers) => {
+                    const res = await manage(action, new UUIDT().toString(), { scheduled_at: inDays(2) }, headers())
+
+                    expect(res.status).toEqual(401)
+                    expect(cancelUnclaimed).not.toHaveBeenCalled()
+                    expect(rescheduleUnclaimed).not.toHaveBeenCalled()
+                })
+
+                it('fails closed when the transactional email JWT key is not provisioned', async () => {
+                    const savedJwt = api['manageTransactionalEmailJwt']
+                    api['manageTransactionalEmailJwt'] = new ScopedServiceJwt(
+                        PosthogJwtAudience.WORKFLOWS_MANAGE_TRANSACTIONAL_EMAIL,
+                        ''
+                    )
+                    try {
+                        const res = await manage(action, new UUIDT().toString(), { scheduled_at: inDays(2) })
+
+                        expect(res.status).toEqual(503)
+                        expect(cancelUnclaimed).not.toHaveBeenCalled()
+                        expect(rescheduleUnclaimed).not.toHaveBeenCalled()
+                    } finally {
+                        api['manageTransactionalEmailJwt'] = savedJwt
+                    }
+                })
+            })
+        })
     })
 
     describe('hogflow batch job resume', () => {
@@ -3188,15 +3442,7 @@ describe('CDP API', () => {
 
         beforeEach(() => {
             mockResume = jest.fn()
-            api['batchResolverProducer'] = {
-                createJob: jest.fn(),
-                disconnect: jest.fn(),
-                countInFlightJobs: jest.fn(),
-                rescheduleParkedJobs: jest.fn(),
-                cancelJobs: jest.fn(),
-                resumeParkedSteps: jest.fn(),
-                resumeParkedBatchResolver: mockResume,
-            }
+            api['batchResolverProducer'] = fakeJobProducer({ resumeParkedBatchResolver: mockResume })
         })
 
         afterEach(() => {
@@ -3254,15 +3500,7 @@ describe('CDP API', () => {
 
         beforeEach(() => {
             mockCancelJobs = jest.fn().mockResolvedValue({ marked: 3, remaining: 0, done: true })
-            api['batchResolverProducer'] = {
-                createJob: jest.fn(),
-                disconnect: jest.fn(),
-                countInFlightJobs: jest.fn(),
-                rescheduleParkedJobs: jest.fn(),
-                cancelJobs: mockCancelJobs,
-                resumeParkedSteps: jest.fn(),
-                resumeParkedBatchResolver: jest.fn(),
-            }
+            api['batchResolverProducer'] = fakeJobProducer({ cancelJobs: mockCancelJobs })
         })
 
         afterEach(() => {
@@ -3391,15 +3629,7 @@ describe('CDP API', () => {
 
         beforeEach(() => {
             mockCancelJobs = jest.fn().mockResolvedValue({ marked: 2, remaining: 0, done: true })
-            api['batchResolverProducer'] = {
-                createJob: jest.fn(),
-                disconnect: jest.fn(),
-                countInFlightJobs: jest.fn(),
-                rescheduleParkedJobs: jest.fn(),
-                cancelJobs: mockCancelJobs,
-                resumeParkedSteps: jest.fn(),
-                resumeParkedBatchResolver: jest.fn(),
-            }
+            api['batchResolverProducer'] = fakeJobProducer({ cancelJobs: mockCancelJobs })
         })
 
         afterEach(() => {

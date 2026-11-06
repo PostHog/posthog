@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { Counter, Histogram } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
@@ -8,16 +9,19 @@ import { sleep } from '~/common/utils/utils'
 
 import { BatchResolverResumeOutcome, resumeParkedBatchResolver } from '../hogflows/batch-resolver-resume'
 import { StepResume, StepResumeOutcome, processStepResumes } from '../hogflows/step-resume.service'
+import { JobRow, withScheduledAt } from './job-codec'
 import {
     CYCLOTRON_COUNTER_MAX,
     CyclotronV2CancelJobsOptions,
     CyclotronV2CancelJobsResult,
+    CyclotronV2CancelUnclaimedResult,
     CyclotronV2InFlightCounts,
     CyclotronV2JobInit,
     CyclotronV2JobInitSchema,
     CyclotronV2ManagerConfig,
     CyclotronV2RescheduleParkedOptions,
     CyclotronV2RescheduleParkedResult,
+    CyclotronV2RescheduleUnclaimedResult,
 } from './types'
 
 /**
@@ -101,9 +105,48 @@ const cancelMarkedCounter = new Counter({
     labelNames: ['status'] as const,
 })
 
+// A rerun must not bring back a job its owner canceled before any worker claimed it.
+const CANCELED_BEFORE_CLAIM = `(cyclotron_jobs.status = 'canceled' AND cyclotron_jobs.transition_count = 0)`
+
+// The guard of a job no worker has claimed yet. A claim takes the row lock and bumps transition_count, so an
+// update that waits on a claim re-checks this guard after the claim commits and then matches nothing.
+const UNCLAIMED_EMAIL_JOB = `id = $1 AND team_id = $2 AND queue_name = 'email' AND status = 'available' AND transition_count = 0`
+
+type UnclaimedJobRow = {
+    id: string
+    team_id: number
+    function_id: string | null
+    queue_name: string
+    priority: number
+    scheduled: string | Date
+    created: string | Date
+    parent_run_id: string | null
+    state: Buffer | null
+}
+
+// The server's pools install a parser that returns timestamps as ISO strings; a bare pool returns Dates.
+const toDateTime = (value: string | Date): DateTime =>
+    typeof value === 'string' ? DateTime.fromISO(value, { zone: 'utc' }) : DateTime.fromJSDate(value, { zone: 'utc' })
+
+const UNCLAIMED_JOB_COLUMNS = 'id, team_id, function_id, queue_name, priority, scheduled, created, parent_run_id, state'
+
+const unclaimedJob = (row: UnclaimedJobRow): JobRow => ({
+    id: row.id,
+    teamId: row.team_id,
+    functionId: row.function_id,
+    queueName: row.queue_name,
+    priority: row.priority,
+    scheduled: toDateTime(row.scheduled),
+    created: toDateTime(row.created),
+    parentRunId: row.parent_run_id,
+    state: row.state,
+    cancelRequestedAt: null,
+})
+
 /**
  * Thrown when an `overwriteExisting` createJob / bulkCreateJobs hits a row
- * that's still in an active state ('available' or 'running'). Callers should
+ * that's still in an active state ('available' or 'running'), or one that was
+ * canceled before any worker claimed it. Callers should
  * treat this as a "skip and warn" rather than a hard failure — the user is
  * trying to rerun an invocation that's still mid-flight, which the safer
  * default is to refuse.
@@ -113,7 +156,7 @@ export class CyclotronJobConflictError extends Error {
         super(
             `Cyclotron job overwrite refused: existing row(s) ${
                 Array.isArray(conflictingIds) ? conflictingIds.join(', ') : conflictingIds
-            } are in an active state`
+            } are in an active state or canceled before it ran`
         )
         this.name = 'CyclotronJobConflictError'
     }
@@ -189,6 +232,7 @@ export class CyclotronV2Manager {
                  action_id = EXCLUDED.action_id,
                  cancel_requested_at = NULL
                WHERE cyclotron_jobs.status IN ('completed', 'failed', 'canceled')
+                 AND NOT ${CANCELED_BEFORE_CLAIM}
                RETURNING id`
             : 'RETURNING id'
         let result: { rows: { id: string }[] }
@@ -298,6 +342,7 @@ export class CyclotronV2Manager {
                  dequeue_seq = EXCLUDED.dequeue_seq,
                  cancel_requested_at = NULL
                WHERE cyclotron_jobs.status IN ('completed', 'failed', 'canceled')
+                 AND NOT ${CANCELED_BEFORE_CLAIM}
                RETURNING id`
             : 'RETURNING id'
         let result: { rows: { id: string }[] }
@@ -713,6 +758,79 @@ export class CyclotronV2Manager {
         })
 
         return { marked, remaining, done: remaining === 0 }
+    }
+
+    // No worker ever sees this job, so the caller writes the run's terminal rows from the returned job.
+    // transition_count stays 0 to mark the row as canceled before it ran.
+    async cancelUnclaimed(teamId: number, id: string): Promise<CyclotronV2CancelUnclaimedResult> {
+        const result = await this.pool.query<UnclaimedJobRow>(
+            `UPDATE cyclotron_jobs
+             SET status = 'canceled', lock_id = NULL, last_heartbeat = NULL, last_transition = NOW(),
+                 janitor_touch_count = 0
+             WHERE ${UNCLAIMED_EMAIL_JOB}
+             RETURNING ${UNCLAIMED_JOB_COLUMNS}`,
+            [id, teamId]
+        )
+        const row = result.rows[0]
+        if (!row) {
+            const existing = await this.findJob(teamId, id)
+            return {
+                outcome: !existing ? 'not_found' : existing.status === 'canceled' ? 'already_canceled' : 'claimed',
+            }
+        }
+        return { outcome: 'canceled', job: unclaimedJob(row) }
+    }
+
+    // Also moves the state's `scheduledAt`, which the email queue wait metric starts from. The state decodes
+    // in JS because a jsonb rewrite in SQL fails on a \u0000 in the content.
+    async rescheduleUnclaimed(
+        teamId: number,
+        id: string,
+        scheduled: Date
+    ): Promise<CyclotronV2RescheduleUnclaimedResult> {
+        const client = await this.pool.connect()
+        try {
+            await client.query('BEGIN')
+            const locked = await client.query<UnclaimedJobRow>(
+                `SELECT ${UNCLAIMED_JOB_COLUMNS} FROM cyclotron_jobs
+                 WHERE ${UNCLAIMED_EMAIL_JOB} AND cancel_requested_at IS NULL
+                 FOR UPDATE`,
+                [id, teamId]
+            )
+            const row = locked.rows[0]
+            if (!row) {
+                await client.query('ROLLBACK')
+            } else {
+                const state = withScheduledAt(row.state, scheduled.toISOString())
+                await client.query(`UPDATE cyclotron_jobs SET scheduled = $2, state = $3 WHERE id = $1`, [
+                    id,
+                    scheduled,
+                    state,
+                ])
+                await client.query('COMMIT')
+                return { outcome: 'rescheduled', job: unclaimedJob({ ...row, scheduled, state }) }
+            }
+        } catch (err) {
+            await client.query('ROLLBACK').catch(() => undefined)
+            throw err
+        } finally {
+            client.release()
+        }
+        const existing = await this.findJob(teamId, id)
+        if (!existing) {
+            return { outcome: 'not_found' }
+        }
+        return { outcome: existing.status === 'canceled' || existing.cancelRequested ? 'canceled' : 'claimed' }
+    }
+
+    private async findJob(teamId: number, id: string): Promise<{ status: string; cancelRequested: boolean } | null> {
+        const result = await this.pool.query<{ status: string; cancel_requested: boolean }>(
+            `SELECT status, cancel_requested_at IS NOT NULL AS cancel_requested FROM cyclotron_jobs
+             WHERE id = $1 AND team_id = $2 AND queue_name = 'email'`,
+            [id, teamId]
+        )
+        const row = result.rows[0]
+        return row ? { status: row.status, cancelRequested: row.cancel_requested } : null
     }
 
     /**

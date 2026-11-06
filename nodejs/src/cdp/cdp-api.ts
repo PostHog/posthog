@@ -54,6 +54,7 @@ import { WorkflowStepResumeSchema } from './services/hogflows/step-resume.servic
 import {
     AcceptedSendRequestSchema,
     CODE_SEND_TOKEN_CLAIMS,
+    RescheduleRequestSchema,
     TEMPLATE_SEND_TOKEN_CLAIMS,
     TransactionalEmailOutcome,
     TransactionalEmailRequest,
@@ -63,7 +64,7 @@ import {
     isRecipientFormatIssue,
     transactionalEmailRequestsTotal,
 } from './services/hogflows/transactional-email'
-import { TransactionalSends } from './services/hogflows/transactional-sends'
+import { ScheduledTransactionalSends, TransactionalSends } from './services/hogflows/transactional-sends'
 import { InvocationResultsService } from './services/invocation-results.service'
 import { JobQueue } from './services/job-queue/job-queue.interface'
 import { GroupsManagerService } from './services/managers/groups-manager.service'
@@ -216,6 +217,7 @@ export class CdpApi {
     private cancelBatchJwt: ScopedServiceJwt
     private stepResumeJwt: ScopedServiceJwt
     private transactionalEmailJwt: ScopedServiceJwt
+    private manageTransactionalEmailJwt: ScopedServiceJwt
     private transactionalEmailIdempotencyKeys: IdempotencyKeys
     private emailSuppressionService: EmailSuppressionService
     private emailAttachmentsService: EmailAttachmentsService
@@ -304,6 +306,11 @@ export class CdpApi {
         )
         this.transactionalEmailJwt = new ScopedServiceJwt(
             PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL,
+            config.WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET || ''
+        )
+        // Team-only claims: the message id names the send, and every query scopes it to the team.
+        this.manageTransactionalEmailJwt = new ScopedServiceJwt(
+            PosthogJwtAudience.WORKFLOWS_MANAGE_TRANSACTIONAL_EMAIL,
             config.WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET || ''
         )
         this.transactionalEmailIdempotencyKeys = new IdempotencyKeys(
@@ -409,6 +416,15 @@ export class CdpApi {
         router.post(
             '/api/projects/:team_id/hog_flows/:id/transactional_email/send',
             asyncHandler(this.postTransactionalEmail(AcceptedSendRequestSchema, CODE_SEND_TOKEN_CLAIMS))
+        )
+        // `:message_id`, not `:id`: verifyScopedWorkflowJwt matches `:id` against a workflow claim.
+        router.post(
+            '/api/projects/:team_id/transactional_emails/:message_id/cancel',
+            asyncHandler(this.postTransactionalEmailCancel)
+        )
+        router.post(
+            '/api/projects/:team_id/transactional_emails/:message_id/reschedule',
+            asyncHandler(this.postTransactionalEmailReschedule)
         )
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
@@ -1281,6 +1297,88 @@ export class CdpApi {
             quotaLimiting: this.deps.quotaLimiting,
             emailAttachments: this.emailAttachmentsService,
         })
+    }
+
+    private postTransactionalEmailCancel = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        return await this.manageScheduledSend(req, res, 'cancel', async (sends, teamId, messageId) => {
+            const result = await sends.cancel(teamId, messageId)
+            switch (result.outcome) {
+                case 'canceled':
+                    return res.status(200).json({ id: messageId, status: 'canceled' })
+                case 'claimed':
+                    return res.status(409).json({ error: 'already_sending' })
+                case 'not_found':
+                    return res.status(404).json({ error: 'not_found' })
+            }
+        })
+    }
+
+    private postTransactionalEmailReschedule = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        return await this.manageScheduledSend(req, res, 'reschedule', async (sends, teamId, messageId) => {
+            const parsed = RescheduleRequestSchema.safeParse(req.body)
+            if (!parsed.success) {
+                return res.status(400).json({ error: 'invalid_request' })
+            }
+            const result = await sends.reschedule(teamId, messageId, new Date(parsed.data.scheduled_at))
+            switch (result.outcome) {
+                case 'rescheduled':
+                    return res
+                        .status(200)
+                        .json({ id: messageId, status: 'scheduled', scheduled_at: result.scheduledAt })
+                case 'invalid_scheduled_at':
+                    return res.status(400).json({ error: 'invalid_scheduled_at', reason: 'too_far' })
+                case 'claimed':
+                    return res.status(409).json({ error: 'already_sending' })
+                case 'canceled':
+                    return res.status(409).json({ error: 'canceled' })
+                case 'not_found':
+                    return res.status(404).json({ error: 'not_found' })
+            }
+        })
+    }
+
+    // Auth: a per-call JWT minted by Django on its own audience, on the transactional email key, pinned to the team.
+    private async manageScheduledSend(
+        req: ModifiedRequest,
+        res: express.Response,
+        label: string,
+        handle: (sends: ScheduledTransactionalSends, teamId: number, messageId: string) => Promise<unknown>
+    ): Promise<unknown> {
+        try {
+            if (!this.manageTransactionalEmailJwt.enabled) {
+                return res.status(503).json({
+                    error: 'Transactional email auth not configured (WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET unset)',
+                })
+            }
+            if (
+                !this.verifyScopedWorkflowJwt(
+                    this.manageTransactionalEmailJwt,
+                    req,
+                    res,
+                    `transactional email ${label}`
+                )
+            ) {
+                return
+            }
+            if (!this.batchResolverProducer) {
+                return res.status(503).json({
+                    error: 'Cyclotron producer not initialized (CYCLOTRON_NODE_DATABASE_URL unset)',
+                })
+            }
+            const sends = new ScheduledTransactionalSends({
+                jobs: this.batchResolverProducer,
+                hogFlows: this.hogFlowManager,
+                invocationResults: this.invocationResultsService,
+                emailStatus: this.emailStatusService,
+                emailAttachments: this.emailAttachmentsService,
+            })
+            return await handle(sends, parseInt(req.params.team_id), req.params.message_id)
+        } catch (e) {
+            logger.error(`Error handling transactional email ${label}`, {
+                error: e instanceof Error ? e.message : String(e),
+            })
+            return res.status(500).json({ error: e instanceof Error ? e.message : String(e) })
+        }
     }
 
     private verifyScopedWorkflowJwt(
